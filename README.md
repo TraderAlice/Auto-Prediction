@@ -19,10 +19,13 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Depth-, tick-, fee-, and per-venue-capital-aware complete-set candidate compilation.
 - Independent exact certificate verification across every canonical resolution state.
 - Certificate invalidation on rule, fee, book generation, book state, partition, or expiry changes.
+- Per-venue capital reservations with conservation across available, reserved, deployed, unresolved, receivable, and realized-PnL states.
+- Multi-leg shadow execution DAGs with idempotent submission, partial fills, cancel/release, UNKNOWN reconciliation, hedge locking, and terminal settlement.
+- A fixed Risk Governor that blocks live mode, stale/gapped books, expired certificates, excessive residual/capital exposure, heartbeat/cancel failures, and state divergence.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-Realtime adapters, shadow execution, persistent capital/risk state, hedge curves, CLI, and Studio remain active campaign work.
+Realtime adapters, persistent SQLite operational state, hedge curves, CLI, campaign evidence, and Studio remain active campaign work.
 
 ## Safety boundary
 
@@ -52,6 +55,9 @@ The host used for the initial checkpoint exposed Node.js 22.22.1, so the reposit
 - `packages/market-state`: deterministic order-book state and replay.
 - `packages/evidence`: raw fixture identity and tamper detection.
 - `packages/opportunity`: bounded candidate compilation and exact payoff certificates.
+- `packages/capital`: per-venue reservations and settlement-capital conservation.
+- `packages/risk`: fixed opening authority and kill conditions.
+- `packages/execution`: validated multi-leg plans and shadow-only order lifecycle.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.
 - `docs/design`: current architecture truth.
