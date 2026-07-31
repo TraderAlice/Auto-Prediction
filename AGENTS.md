@@ -36,7 +36,6 @@ None.
 
 ### Environment gaps Codex owns
 
-- The host currently exposes Node.js 22.22.1; the production target is Node.js 24+.
 - The host currently exposes Python 3.9.6; the optional solver-sidecar target is Python 3.12+.
 
 ## Authority boundary

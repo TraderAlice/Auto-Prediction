@@ -2,6 +2,13 @@
 
 Git owns small reviewed facts, source, tests, campaign definitions, and content-addressed manifests. SQLite WAL owns operational projections and idempotency state. Segmented NDJSON or Parquet owns dense streams.
 
+The current SQLite schema stores only bounded discovery-run records. Each row
+binds `taskId`, `runId`, completion time, canonical JSON, and its content hash.
+WAL plus full synchronous mode protects local restart recovery; schema version,
+retention deletion, and insertion occur transactionally. A duplicate `taskId`
+never overwrites a previous scope, and database persistence never upgrades a
+proposal's authority.
+
 Every campaign binds source state, runtime, adapter/protocol versions, strategy and rule hashes, fee/capability/qualification state, dataset manifests, risk policy, authority, timestamps, and every simulated or observed lifecycle event.
 
 Subjective discovery output is never rewritten into an approved object. A

@@ -105,7 +105,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 111,
+      proofTests: 118,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -140,6 +140,12 @@ export function buildStudioProjection(input: {
       runCount: 0,
       hypothesisCount: 0,
       unreviewedCount: 0,
+      storage: {
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "taskId" as const,
+      },
       runs: [],
     },
     venues: manifests

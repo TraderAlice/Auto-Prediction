@@ -43,7 +43,15 @@ export type DiscoveryDeskProjection = Readonly<{
   runCount: number;
   hypothesisCount: number;
   unreviewedCount: number;
+  storage: OperationalStorageProjection;
   runs: readonly DiscoveryRunRecord[];
+}>;
+
+export type OperationalStorageProjection = Readonly<{
+  mode: "MEMORY" | "SQLITE_WAL";
+  durable: boolean;
+  schemaVersion: number;
+  idempotencyKey: "taskId";
 }>;
 
 export interface DiscoveryWorker {

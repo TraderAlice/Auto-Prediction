@@ -1,0 +1,240 @@
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { canonicalJson, hashCanonical } from "@pmh/domain";
+import {
+  assertDiscoveryRunRecord,
+  type DiscoveryRunStore,
+} from "./discovery-ledger.js";
+import type {
+  DiscoveryRunRecord,
+  OperationalStorageProjection,
+} from "./types.js";
+
+const SCHEMA_VERSION = 1;
+
+type StoredRunRow = Readonly<{
+  task_id: string;
+  run_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+function assertLimit(limit: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new Error("discovery retention limit must be a positive integer");
+  }
+}
+
+function parseStoredRun(value: unknown): DiscoveryRunRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite discovery row is malformed");
+  }
+  const row = value as Partial<StoredRunRow>;
+  if (
+    typeof row.task_id !== "string" ||
+    typeof row.run_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error("SQLite discovery row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite discovery record contains invalid JSON");
+  }
+  const record = assertDiscoveryRunRecord(decoded);
+  if (
+    record.taskId !== row.task_id ||
+    record.runId !== row.run_id ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite discovery record identity mismatch");
+  }
+  return record;
+}
+
+function readPragmaNumber(database: DatabaseSync, pragma: string): number {
+  const row = database.prepare(`PRAGMA ${pragma}`).get();
+  if (row === undefined || row === null || typeof row !== "object") {
+    throw new Error(`SQLite PRAGMA ${pragma} returned no value`);
+  }
+  const value = Object.values(row)[0];
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new Error(`SQLite PRAGMA ${pragma} returned an invalid value`);
+  }
+  return value;
+}
+
+function readJournalMode(database: DatabaseSync): string {
+  const row = database.prepare("PRAGMA journal_mode").get();
+  if (row === undefined || row === null || typeof row !== "object") {
+    throw new Error("SQLite journal mode is unavailable");
+  }
+  const value = Object.values(row)[0];
+  if (typeof value !== "string") {
+    throw new Error("SQLite journal mode is invalid");
+  }
+  return value.toLowerCase();
+}
+
+export class SqliteOperationalStore implements DiscoveryRunStore {
+  readonly #database: DatabaseSync;
+  #closed = false;
+  public readonly storage: OperationalStorageProjection;
+
+  public constructor(databasePath: string) {
+    if (databasePath.trim() === "") {
+      throw new Error("operational database path must not be empty");
+    }
+    const inMemory = databasePath === ":memory:";
+    if (!inMemory) mkdirSync(dirname(databasePath), { recursive: true });
+    this.#database = new DatabaseSync(databasePath, {
+      enableForeignKeyConstraints: true,
+      allowExtension: false,
+    });
+    try {
+      this.#database.exec("PRAGMA busy_timeout = 5000");
+      this.#database.exec("PRAGMA synchronous = FULL");
+      if (!inMemory) {
+        this.#database.exec("PRAGMA journal_mode = WAL");
+        if (readJournalMode(this.#database) !== "wal") {
+          throw new Error("operational database could not enter WAL mode");
+        }
+      }
+      this.#migrate();
+    } catch (error) {
+      this.#closed = true;
+      try {
+        this.#database.close();
+      } catch {
+        // Preserve the initialization error if SQLite already closed itself.
+      }
+      throw error;
+    }
+    this.storage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "taskId",
+    });
+  }
+
+  #migrate(): void {
+    const current = readPragmaNumber(this.#database, "user_version");
+    if (current > SCHEMA_VERSION) {
+      throw new Error(
+        `operational database schema ${current} is newer than supported ${SCHEMA_VERSION}`,
+      );
+    }
+    if (current === SCHEMA_VERSION) return;
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database.exec(`
+        CREATE TABLE discovery_runs (
+          task_id TEXT PRIMARY KEY NOT NULL CHECK (length(task_id) > 0),
+          run_id TEXT NOT NULL UNIQUE CHECK (length(run_id) > 0),
+          completed_at TEXT NOT NULL CHECK (length(completed_at) > 0),
+          record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+          record_hash TEXT NOT NULL CHECK (
+            length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+          )
+        ) STRICT;
+        CREATE INDEX discovery_runs_completed
+          ON discovery_runs (completed_at DESC, run_id DESC);
+        PRAGMA user_version = 1;
+      `);
+      this.#database.exec("COMMIT");
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  #assertOpen(): void {
+    if (this.#closed) throw new Error("operational database is closed");
+  }
+
+  public load(limit: number): readonly DiscoveryRunRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT task_id, run_id, record_json, record_hash
+         FROM discovery_runs
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseStoredRun));
+  }
+
+  public findByTaskId(taskId: string): DiscoveryRunRecord | undefined {
+    this.#assertOpen();
+    if (taskId.trim() === "") return undefined;
+    const row = this.#database
+      .prepare(
+        `SELECT task_id, run_id, record_json, record_hash
+         FROM discovery_runs
+         WHERE task_id = ?`,
+      )
+      .get(taskId);
+    return row === undefined ? undefined : parseStoredRun(row);
+  }
+
+  public save(
+    record: DiscoveryRunRecord,
+    retentionLimit: number,
+  ): DiscoveryRunRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertDiscoveryRunRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO discovery_runs (
+             task_id, run_id, completed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(task_id) DO NOTHING`,
+        )
+        .run(
+          validated.taskId,
+          validated.runId,
+          validated.completedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM discovery_runs
+           WHERE task_id IN (
+             SELECT task_id
+             FROM discovery_runs
+             ORDER BY rowid DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const stored = this.findByTaskId(validated.taskId);
+      if (stored === undefined) {
+        throw new Error("SQLite failed to retain the saved discovery run");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#database.close();
+  }
+}
