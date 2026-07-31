@@ -1,0 +1,82 @@
+{
+  "artifactHash": "sha256:4850560bf172d709bb65d564516c4a8ac931bf93024430f3ace910f4fde110f7",
+  "schemaVersion": "pmh.reviewed-compilation-evidence.v1",
+  "scope": "SYNTHETIC_ARCHITECTURE_QUALIFICATION",
+  "status": "PASS",
+  "compiledArtifactHash": "sha256:b2a1ec2e457a6506081923d28feac007ff8981462c5bf63d49cb7725449ee153",
+  "hypothesisId": "hypothesis:synthetic-binary-pair",
+  "hypothesisHash": "sha256:cc49e40d0cf533a085cca78691eb10a7959ed61588b54c26b5ac78e81e792e5f",
+  "hypothesisReviewHash": "sha256:33b532c99d5e7a159dfce4a6a8c0a368bfc915b9662517bcac07f348db251fe4",
+  "marketLinkProposalHashes": [
+    "sha256:06851ebaa9187b7d9bb5120b1e0e731a4057dd9a83ac5f5e5884860b4bfcc0c3"
+  ],
+  "marketLinkReviewHashes": [
+    "sha256:63d48b78c5d824e0a7a257957c0e801d7a722fa5359c0d593d98fc8d237684e8"
+  ],
+  "candidateHash": "sha256:355aa5f9022cce72ccfffaabf5556543e6c461db0269977c740c55efd0266a60",
+  "certificate": {
+    "id": "sha256:4741d6937be9565a26d0ff90fcc4eca66c9d619849d51b4468b6eaa748145094",
+    "classification": "CERTIFIED_CONTRACT_ARBITRAGE",
+    "quantityScale": "100000000",
+    "worstCaseAfterFees": "20000000",
+    "capitalRequiredByVenue": {
+      "fixture-alpha": "80000000",
+      "fixture-beta": "100000000"
+    },
+    "payoffByResolution": {
+      "no": "20000000",
+      "yes": "20000000"
+    },
+    "legCount": 2,
+    "resolutionStateCount": 2
+  },
+  "stages": [
+    {
+      "stage": "DISCOVERY",
+      "status": "PASS",
+      "detail": "proposal-only hypothesis bound",
+      "evidenceHashes": [
+        "sha256:cc49e40d0cf533a085cca78691eb10a7959ed61588b54c26b5ac78e81e792e5f"
+      ]
+    },
+    {
+      "stage": "INDEPENDENT_REVIEW",
+      "status": "PASS",
+      "detail": "hypothesis + exact market link accepted",
+      "evidenceHashes": [
+        "sha256:33b532c99d5e7a159dfce4a6a8c0a368bfc915b9662517bcac07f348db251fe4",
+        "sha256:06851ebaa9187b7d9bb5120b1e0e731a4057dd9a83ac5f5e5884860b4bfcc0c3",
+        "sha256:63d48b78c5d824e0a7a257957c0e801d7a722fa5359c0d593d98fc8d237684e8"
+      ]
+    },
+    {
+      "stage": "DETERMINISTIC_COMPILATION",
+      "status": "PASS",
+      "detail": "2 capital-bounded legs",
+      "evidenceHashes": [
+        "sha256:355aa5f9022cce72ccfffaabf5556543e6c461db0269977c740c55efd0266a60"
+      ]
+    },
+    {
+      "stage": "EXACT_VERIFICATION",
+      "status": "PASS",
+      "detail": "2 canonical states",
+      "evidenceHashes": [
+        "sha256:4741d6937be9565a26d0ff90fcc4eca66c9d619849d51b4468b6eaa748145094"
+      ]
+    },
+    {
+      "stage": "EXECUTION_AUTHORITY",
+      "status": "BLOCKED",
+      "detail": "fixture certificate · shadow only",
+      "evidenceHashes": [
+        "sha256:b2a1ec2e457a6506081923d28feac007ff8981462c5bf63d49cb7725449ee153"
+      ]
+    }
+  ],
+  "effects": {
+    "externalWrites": false,
+    "valueMovingActions": false,
+    "liveExecutionEnabled": false
+  }
+}

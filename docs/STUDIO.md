@@ -15,7 +15,12 @@ Harmony Studio is the read-only visual surface for architecture qualification. I
 
 If the process is unavailable, Studio shows an explicit offline state. It does not silently fall back to a build-time snapshot.
 
-The current opportunity, payoff, verifier-trace, and capital panels remain illustrative fixture-replay presentation data. They demonstrate the intended projection shape; they are not connected to a live market and cannot produce an executable action.
+The opportunity, payoff, verifier-trace, and capital panels are now derived
+from the control plane's checked-in reviewed-compilation qualification
+artifact. The artifact is a synthetic two-venue fixture and is labeled as such
+throughout the UI; it is not connected to a live market and cannot produce an
+executable action. Studio no longer invents venue balances, shortened
+certificate identifiers, or exact opportunity rows as presentation-only data.
 
 The Venue Matrix exposes order posture separately from capability names.
 Kalshi is labeled `INERT DEMO`, Gemini is labeled `INERT SANDBOX`, and every
@@ -51,6 +56,11 @@ It deliberately exposes no accept or promote control: equivalence-review
 authority has not been configured, so every hypothesis remains visibly locked
 before deterministic candidate compilation.
 
+Above the runtime queue, Studio renders the five-stage promotion contract using
+the synthetic golden fixture: discovery, independent review, deterministic
+compilation, exact verification, and blocked execution authority. This proves
+the code path without suggesting that a runtime scout result has been reviewed.
+
 ## AI boundary
 
 Discovery workers may be cheap heuristics or external models. They can propose search terms, possible same-claim links, and strategy hypotheses. Every hypothesis is `PROPOSE_ONLY` and `UNREVIEWED`.
@@ -64,12 +74,22 @@ AI output cannot:
 
 Deterministic candidate compilation and the independent exact verifier remain downstream authority boundaries.
 
+The qualification compiler requires a separate hash-bound hypothesis review,
+the exact set of accepted `EXACT` market-link proposal/review hashes, a
+connected listing graph, current rule/fee/book identities, and a positive
+worst-case payoff after conservative rounding. Browser state cannot fabricate
+any of these inputs.
+
 ## Evidence inventory
 
 The Evidence view consumes replay qualification from the control-plane
 projection. Its summary counts, all six chaos cases, observed fail-closed
 postures, suite identity, and immutable campaign artifact identity are runtime
 facts rather than hard-coded presentation data.
+
+The projection also carries the synthetic reviewed-compilation artifact,
+including every stage identity, the full certificate hash, literal-false
+effects, and its explicit fixture scope.
 
 ## Local use
 

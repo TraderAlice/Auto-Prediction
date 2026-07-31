@@ -14,6 +14,7 @@ import type {
   StudioProjection,
 } from "./types.js";
 import { buildCampaignEvidence } from "./qualification.js";
+import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
 
 const presentation = {
   "polymarket-global": ["CLOB · CTF", 98, "#7ef0c1"],
@@ -38,6 +39,23 @@ const manifests = [
   myriadManifest,
 ].map(assertManifest);
 
+function formatFixed(value: string, scale: string, signed = false): string {
+  const amount = BigInt(value);
+  const units = BigInt(scale);
+  const cents = (amount * 100n) / units;
+  const sign = cents < 0n ? "-" : signed && cents > 0n ? "+" : "";
+  const absolute = cents < 0n ? -cents : cents;
+  return `${sign}$${absolute / 100n}.${String(absolute % 100n).padStart(2, "0")}`;
+}
+
+function titleCaseStage(value: string): string {
+  return value
+    .toLowerCase()
+    .split(/[_-]/)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
 export function buildStudioProjection(input: {
   workers: readonly DiscoveryWorker[];
   activeRuns: number;
@@ -50,6 +68,18 @@ export function buildStudioProjection(input: {
     books: [],
   };
   const replayChaos = runReplayChaosSuite();
+  const reviewedCompilation = buildReviewedCompilationEvidence();
+  const compiledCapital = Object.entries(
+    reviewedCompilation.certificate.capitalRequiredByVenue,
+  );
+  const totalCapital = compiledCapital.reduce(
+    (total, [, amount]) => total + BigInt(amount),
+    0n,
+  );
+  const worstCase = BigInt(
+    reviewedCompilation.certificate.worstCaseAfterFees,
+  );
+  const returnBps = totalCapital === 0n ? 0n : (worstCase * 10_000n) / totalCapital;
   const state = {
     system: {
       lifecycle: "PRE_ALPHA" as const,
@@ -75,7 +105,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 96,
+      proofTests: 111,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -103,6 +133,7 @@ export function buildStudioProjection(input: {
     qualification: {
       replayChaos,
       campaignEvidence: buildCampaignEvidence(bookDesk, replayChaos),
+      reviewedCompilation,
     },
     discoveryDesk: input.discoveryDesk ?? {
       retentionLimit: 25,
@@ -145,55 +176,54 @@ export function buildStudioProjection(input: {
       .sort((left, right) => left.id.localeCompare(right.id)),
     opportunities: [
       {
-        id: "opp:rain-complete-set",
-        title: "NYC rainfall above 0.25 in on Aug 2?",
-        strategy: "Complete set · 3 venues",
-        capital: "$2,400.00",
-        floor: "+$74.88",
-        returnRate: "+3.12%",
-        expires: "02:41",
-        certificate: "sha256:3ac40a…891d",
-        evidence: "9 inputs",
+        id: "opp:synthetic-reviewed-binary-pair",
+        title: "Synthetic binary-pair qualification",
+        strategy: `Reviewed complete set · ${reviewedCompilation.certificate.legCount} fixture venues`,
+        capital: formatFixed(
+          totalCapital.toString(),
+          reviewedCompilation.certificate.quantityScale,
+        ),
+        floor: formatFixed(
+          reviewedCompilation.certificate.worstCaseAfterFees,
+          reviewedCompilation.certificate.quantityScale,
+          true,
+        ),
+        returnRate: `+${returnBps / 100n}.${String(returnBps % 100n).padStart(2, "0")}%`,
+        expires: "fixture-bound",
+        certificate: reviewedCompilation.certificate.id,
+        evidence: `${reviewedCompilation.stages.flatMap((stage) => stage.evidenceHashes).length} hash-bound inputs`,
         confidence: "EXACT" as const,
-      },
-      {
-        id: "opp:btc-range",
-        title: "BTC closes inside $63k–$65k today",
-        strategy: "Exhaustive range · 2 venues",
-        capital: "$1,200.00",
-        floor: "+$19.44",
-        returnRate: "+1.62%",
-        expires: "00:58",
-        certificate: "sha256:b1402c…f72a",
-        evidence: "6 inputs",
-        confidence: "EXACT" as const,
+        source: "SYNTHETIC_QUALIFICATION_FIXTURE" as const,
       },
     ],
-    trace: [
-      ["Contract equivalence", "PASS", "3 reviewed links"],
-      ["Payout partition", "PASS", "8 canonical states"],
-      ["Depth & precision", "PASS", "14 bound levels"],
-      ["Fees & capital", "PASS", "all rounded adverse"],
-      ["Book generation", "PASS", "3 state hashes"],
-      ["Execution authority", "BLOCKED", "shadow only"],
-    ] as const,
-    capital: [
-      { venue: "Polymarket", available: 72, reserved: 18, locked: 10 },
-      { venue: "Kalshi", available: 61, reserved: 26, locked: 13 },
-      { venue: "Gemini", available: 84, reserved: 8, locked: 8 },
-    ],
-    payoffStates: [
-      { label: "RAIN > .25", value: 92 },
-      { label: "RAIN ≤ .25", value: 81 },
-      { label: "VOID", value: 68 },
-      { label: "CANCELED", value: 72 },
-    ],
+    trace: reviewedCompilation.stages.map(
+      (stage) =>
+        [titleCaseStage(stage.stage), stage.status, stage.detail] as const,
+    ),
+    capital: compiledCapital.map(([venue]) => ({
+      venue: titleCaseStage(venue),
+      available: 0,
+      reserved: 100,
+      locked: 0,
+    })),
+    capitalScope: "SYNTHETIC_QUALIFICATION_FIXTURE" as const,
+    payoffStates: Object.entries(
+      reviewedCompilation.certificate.payoffByResolution,
+    ).map(([label, amount]) => ({
+      label: label.toUpperCase(),
+      amount: formatFixed(
+        amount,
+        reviewedCompilation.certificate.quantityScale,
+        true,
+      ),
+      height: 80,
+    })),
   };
   return Object.freeze({
     identity: {
-      schemaVersion: "pmh.studio-projection.v1",
+      schemaVersion: "pmh.studio-projection.v1" as const,
       campaign: "architecture-qualification",
-      mode: "CONTROL_PLANE",
+      mode: "CONTROL_PLANE" as const,
       stateHash: hashCanonical(state),
     },
     ...state,

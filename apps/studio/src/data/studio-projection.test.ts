@@ -36,6 +36,40 @@ describe("Studio projection safety", () => {
         (opportunity) => opportunity.confidence === "EXACT",
       ),
     ).toBe(true);
+    expect(
+      studioProjection.opportunities.every(
+        (opportunity) =>
+          opportunity.source === "SYNTHETIC_QUALIFICATION_FIXTURE",
+      ),
+    ).toBe(true);
+    expect(studioProjection.opportunities).toHaveLength(1);
+    expect(studioProjection.opportunities[0]?.certificate).toBe(
+      studioProjection.qualification.reviewedCompilation.certificate.id,
+    );
+    expect(studioProjection.capitalScope).toBe(
+      "SYNTHETIC_QUALIFICATION_FIXTURE",
+    );
+  });
+
+  it("shows a fully bound review-to-verifier qualification path", () => {
+    const qualification = studioProjection.qualification.reviewedCompilation;
+    expect(qualification.status).toBe("PASS");
+    expect(qualification.stages.map((stage) => stage.stage)).toEqual([
+      "DISCOVERY",
+      "INDEPENDENT_REVIEW",
+      "DETERMINISTIC_COMPILATION",
+      "EXACT_VERIFICATION",
+      "EXECUTION_AUTHORITY",
+    ]);
+    expect(qualification.stages.at(-1)).toMatchObject({
+      status: "BLOCKED",
+      detail: "fixture certificate · shadow only",
+    });
+    expect(qualification.effects).toEqual({
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    });
   });
 
   it("binds the projection to a state identity", () => {

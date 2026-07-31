@@ -52,7 +52,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Enforce proposal-only, unreviewed, no-execution AI output.
 - [x] Retain bounded discovery runs and stream the Scout Inbox projection.
 - [ ] Connect a budgeted external model provider.
-- [ ] Feed reviewed hypotheses into deterministic candidate compilation.
+- [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
 
 ## Verification gate
@@ -60,7 +60,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Focused fixture and contract tests.
 - [x] Fixed-point and payout property tests.
 - [x] Replay chaos tests.
-- [ ] Solver/verifier adversarial tests.
+- [x] Solver/verifier adversarial tests.
 - [x] Execution and capital state-model tests.
 - [x] CLI JSON-envelope tests.
 - [x] Studio projection safety and production-build tests.
@@ -82,6 +82,8 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: Kalshi demo and Gemini sandbox order gateways model current official submit/cancel/reconcile request shapes but have no transport, nonce generator, signer, credential input, or value-moving path. Every operation returns a hash-bound `REJECTED_INERT` receipt and qualifies only at `DISCOVER`.
 - 2026-07-31: Replay chaos qualification deterministically injects sequence gaps, stale marks, reconnect-without-snapshot, off-tick deltas, tick-size change, and generation mismatch. Off-tick batches validate atomically before mutation and invalidate the book on rejection.
 - 2026-07-31: The replay-integrity campaign artifact binds three verified stream/state identities, six chaos-case evidence hashes, literal-false effects, and a self identity. A golden test locks the checked-in JSON to the runtime projection.
+- 2026-07-31: A hypothesis never mutates into an approved fact. A separate `pmh.hypothesis-review.v1` artifact must bind it and the complete exact market-link evidence set before compilation; proposer self-review, substituted links, non-exact grades, unreviewed venues, stale books, and non-positive floors all fail closed.
+- 2026-07-31: `reviewed-compilation.v1.json` qualifies this handoff with a synthetic two-venue binary fixture. It does not satisfy the separate three-venue official-fixture goal and grants no runtime review or execution authority.
 
 ## Blockers
 

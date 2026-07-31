@@ -49,17 +49,37 @@ export function proposalHash(proposal: MarketLinkProposal): Hash {
   return hashCanonical(MarketLinkProposalSchema.parse(proposal));
 }
 
+export function marketLinkReviewHash(review: MarketLinkReview): Hash {
+  return hashCanonical(MarketLinkReviewSchema.parse(review));
+}
+
 export function assertReviewBindsProposal(
   proposal: MarketLinkProposal,
   review: MarketLinkReview,
 ): void {
-  if (review.proposalHash !== proposalHash(proposal)) {
+  const parsedProposal = MarketLinkProposalSchema.parse(proposal);
+  const parsedReview = MarketLinkReviewSchema.parse(review);
+  if (parsedReview.proposalHash !== proposalHash(parsedProposal)) {
     throw new Error("review does not bind the supplied proposal");
   }
   if (
-    review.leftRuleHash !== proposal.leftRuleHash ||
-    review.rightRuleHash !== proposal.rightRuleHash
+    parsedReview.leftRuleHash !== parsedProposal.leftRuleHash ||
+    parsedReview.rightRuleHash !== parsedProposal.rightRuleHash
   ) {
     throw new Error("review rule hashes do not match the proposal");
+  }
+  if (
+    parsedReview.outcomeMappingHash !==
+    hashCanonical(parsedProposal.proposedOutcomeMapping)
+  ) {
+    throw new Error("review outcome mapping does not match the proposal");
+  }
+  if (parsedReview.reviewerAuthority === parsedProposal.proposerIdentity) {
+    throw new Error("market-link review must be independent of its proposer");
+  }
+  if (
+    Date.parse(parsedReview.reviewedAt) < Date.parse(parsedProposal.proposedAt)
+  ) {
+    throw new Error("market-link review predates its proposal");
   }
 }
