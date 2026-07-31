@@ -51,6 +51,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Define parallel heuristic/model discovery-worker ports.
 - [x] Enforce proposal-only, unreviewed, no-execution AI output.
 - [x] Retain bounded discovery runs and stream the Scout Inbox projection.
+- [x] Persist discovery runs and task idempotency across control-plane restarts.
 - [ ] Connect a budgeted external model provider.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -64,8 +65,9 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Execution and capital state-model tests.
 - [x] CLI JSON-envelope tests.
 - [x] Studio projection safety and production-build tests.
+- [x] SQLite migration, corruption, retention, restart, and concurrency tests.
 - [x] Explicit live-disabled proof.
-- [ ] Full workspace checkpoint on the target runtime.
+- [x] Full workspace checkpoint on the target runtime.
 
 ## Decisions and deviations
 
@@ -74,6 +76,7 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: Hedge curves rank executable depth by all-in marginal collateral. BUY allocations round costs up; SELL allocations round proceeds down.
 - 2026-07-31: Maker export remains shadow-only and requires an economically valid spread after fee, execution, resolution-mismatch, venue, capital-lock, and inventory premiums.
 - 2026-07-31: CLI schema `pmh.cli.v1` makes external writes, value movement, and live execution explicit literal-false effects.
+- 2026-07-31: The target-runtime gate is qualified under isolated Node.js 24.18.1 with the full typecheck, 118-test workspace suite, and production builds passing.
 - 2026-07-31: Studio consumes a live control-plane projection and SSE stream; browser code presents state and does not recompute verifier verdicts.
 - 2026-07-31: AI is trusted for subjective search hypotheses only. Every model output remains UNREVIEWED, has no execution authority, and must cross deterministic compilation plus independent exact verification.
 - 2026-07-31: Public realtime qualification is venue-specific. Gemini deltas use native update ranges and fail closed on gaps; Polymarket and Limitless replacement images enter explicit rebuild because their public full-book paths do not provide equivalent delta sequencing guarantees.
@@ -84,6 +87,7 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: The replay-integrity campaign artifact binds three verified stream/state identities, six chaos-case evidence hashes, literal-false effects, and a self identity. A golden test locks the checked-in JSON to the runtime projection.
 - 2026-07-31: A hypothesis never mutates into an approved fact. A separate `pmh.hypothesis-review.v1` artifact must bind it and the complete exact market-link evidence set before compilation; proposer self-review, substituted links, non-exact grades, unreviewed venues, stale books, and non-positive floors all fail closed.
 - 2026-07-31: `reviewed-compilation.v1.json` qualifies this handoff with a synthetic two-venue binary fixture. It does not satisfy the separate three-venue official-fixture goal and grants no runtime review or execution authority.
+- 2026-07-31: SQLite WAL owns bounded discovery operational state only; Git remains the authority for immutable fixtures and campaign artifacts. Records are stored as canonical JSON with SHA-256 identities, schema version 1 fails closed on incompatible future databases, and normalized task content produces a stable default `taskId`.
 
 ## Blockers
 

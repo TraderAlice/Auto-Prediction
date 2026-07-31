@@ -28,6 +28,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Shadow-only maker quotes bounded by common hedge depth, inventory capacity, risk budget, and explicit per-unit premiums.
 - A bundled `pmh` CLI with a versioned JSON envelope, content-hashed state snapshots, explicit effects, diagnostics, and allowed next actions.
 - A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
+- SQLite WAL operational state with bounded retention, content-hash verification, cross-restart `taskId` idempotency, and in-process concurrent-request coalescing.
 - An AI-native discovery pool where cheap parallel scouts may propose hypotheses but can never certify or execute them.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
@@ -39,7 +40,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-Persistent SQLite operational state, model-provider wiring, production equivalence-review workflow, dense long-run evidence storage, and real-fixture candidate promotion remain active campaign work.
+Model-provider wiring, production equivalence-review workflow, dense long-run evidence storage, and real-fixture candidate promotion remain active campaign work.
 
 ## Safety boundary
 
@@ -66,7 +67,15 @@ pnpm pmh venue inspect polymarket-global
 pnpm studio
 ```
 
-The host used for the initial checkpoint exposed Node.js 22.22.1, so the repository correctly warns about the engine mismatch even though the current checks pass there. A Node 24 checkpoint is still required before runtime qualification.
+`pnpm studio` stores bounded Scout Inbox state in
+`.data/control-plane.sqlite` using WAL mode. Set `PMH_STATE_DB` to an alternate
+path when a different local operational volume is required. The database is
+ignored by Git and contains discovery records, not credentials or immutable
+campaign evidence.
+
+The default host exposes Node.js 22.22.1, so ordinary local commands correctly
+warn about the engine mismatch. The full workspace checkpoint also passes under
+an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 
 ## Project map
 
@@ -80,7 +89,7 @@ The host used for the initial checkpoint exposed Node.js 22.22.1, so the reposit
 - `packages/execution`: validated multi-leg plans and shadow-only order lifecycle.
 - `packages/liquidity`: executable hedge curves and constrained shadow maker quotes.
 - `packages/cli`: versioned, machine-readable inspection commands.
-- `packages/control-plane`: long-running projection, event-stream, deterministic book replay, AI discovery coordination, and reviewed-hypothesis compilation boundary.
+- `packages/control-plane`: long-running projection, SQLite operational state, event-stream, deterministic book replay, AI discovery coordination, and reviewed-hypothesis compilation boundary.
 - `apps/studio`: responsive read-only cockpit for book state, fixture replay, and qualification evidence.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.

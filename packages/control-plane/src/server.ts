@@ -1,9 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { resolve } from "node:path";
+import { hashCanonical } from "@pmh/domain";
 import { ReplayBookDesk } from "./book-desk.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
-import { DiscoveryLedger } from "./discovery-ledger.js";
+import {
+  DiscoveryLedger,
+  type DiscoveryRunStore,
+} from "./discovery-ledger.js";
 import { buildStudioProjection } from "./projection.js";
-import type { DiscoveryTask } from "./types.js";
+import type { DiscoveryRunRecord, DiscoveryTask } from "./types.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -44,29 +49,97 @@ function parseDiscoveryTask(value: unknown): DiscoveryTask {
   ) {
     throw new Error("discovery request requires question and venueIds");
   }
+  const rawVenueIds = (value as { venueIds: unknown[] }).venueIds;
+  const rawTaskId = (value as { taskId?: unknown }).taskId;
+  if (
+    rawVenueIds.some((item) => typeof item !== "string") ||
+    (rawTaskId !== undefined && typeof rawTaskId !== "string")
+  ) {
+    throw new Error("discovery taskId and venueIds must be strings");
+  }
+  const question = (value as { question: string }).question
+    .trim()
+    .replace(/\s+/g, " ");
+  const venueIds = [
+    ...new Set(
+      rawVenueIds
+        .map((item) => item as string)
+        .map((item) => item.trim())
+        .filter((item) => item !== ""),
+    ),
+  ].sort();
   const now = Date.now();
+  const suppliedTaskId =
+    typeof rawTaskId === "string"
+      ? rawTaskId.trim()
+      : undefined;
+  if (
+    question === "" ||
+    question.length > 500 ||
+    venueIds.length === 0 ||
+    venueIds.length > 25 ||
+    venueIds.some((item) => item.length > 256) ||
+    suppliedTaskId === "" ||
+    (suppliedTaskId?.length ?? 0) > 256
+  ) {
+    throw new Error("discovery request is empty or exceeds bounded input limits");
+  }
   return {
     taskId:
-      typeof (value as { taskId?: unknown }).taskId === "string"
-        ? (value as { taskId: string }).taskId
-        : `task:${now}`,
-    question: (value as { question: string }).question,
-    venueIds: (value as { venueIds: unknown[] }).venueIds.map(String),
+      suppliedTaskId ??
+      `task:${hashCanonical({ question, venueIds }).slice(7)}`,
+    question,
+    venueIds,
     maxHypotheses: 10,
     deadlineEpochMs: now + 10_000,
   };
 }
 
+function taskScopeHash(task: DiscoveryTask): string {
+  return hashCanonical({
+    question: task.question,
+    venueIds: task.venueIds,
+    maxHypotheses: task.maxHypotheses,
+  });
+}
+
+function recordMatchesTask(
+  record: DiscoveryRunRecord,
+  task: DiscoveryTask,
+): boolean {
+  return (
+    record.question === task.question &&
+    record.venueIds.length === task.venueIds.length &&
+    record.venueIds.every((item, index) => item === task.venueIds[index])
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   discoveryLedger?: DiscoveryLedger;
+  discoveryStore?: DiscoveryRunStore;
+  discoveryPool?: DiscoveryPool;
 }) {
+  if (
+    options?.discoveryLedger !== undefined &&
+    options.discoveryStore !== undefined
+  ) {
+    throw new Error("provide either discoveryLedger or discoveryStore, not both");
+  }
   const worker = new HeuristicDiscoveryWorker();
-  const pool = new DiscoveryPool([worker]);
+  const pool = options?.discoveryPool ?? new DiscoveryPool([worker]);
   const bookDesk = options?.bookDesk ?? new ReplayBookDesk();
-  const discoveryLedger = options?.discoveryLedger ?? new DiscoveryLedger();
+  const discoveryLedger =
+    options?.discoveryLedger ?? new DiscoveryLedger(25, options?.discoveryStore);
   const ready = bookDesk.replay();
   const subscribers = new Set<ServerResponse>();
+  const pendingRuns = new Map<
+    string,
+    Readonly<{
+      scopeHash: string;
+      promise: Promise<DiscoveryRunRecord>;
+    }>
+  >();
   let activeRuns = 0;
   const projection = async () =>
     buildStudioProjection({
@@ -101,9 +174,12 @@ export function createControlPlane(options?: {
       return;
     }
     if (request.method === "GET" && url.pathname === "/health") {
+      const discoveryDesk = discoveryLedger.projection();
       writeJson(response, 200, {
         ok: true,
         liveExecutionEnabled: false,
+        retainedDiscoveryRuns: discoveryDesk.runCount,
+        operationalStorage: discoveryDesk.storage,
       });
       return;
     }
@@ -197,12 +273,67 @@ export function createControlPlane(options?: {
         });
         return;
       }
-      activeRuns += 1;
-      await broadcastProjection();
+      const existing = discoveryLedger.findByTaskId(task.taskId);
+      if (existing !== undefined) {
+        if (!recordMatchesTask(existing, task)) {
+          writeJson(response, 409, {
+            ok: false,
+            diagnostic: "taskId is already bound to another discovery scope",
+            executionAuthority: false,
+          });
+          return;
+        }
+        writeJson(response, 200, {
+          ...existing,
+          idempotentReplay: true,
+        });
+        return;
+      }
+      const scopeHash = taskScopeHash(task);
+      const pending = pendingRuns.get(task.taskId);
+      if (pending !== undefined) {
+        if (pending.scopeHash !== scopeHash) {
+          writeJson(response, 409, {
+            ok: false,
+            diagnostic: "taskId is already running with another discovery scope",
+            executionAuthority: false,
+          });
+          return;
+        }
+        try {
+          const record = await pending.promise;
+          writeJson(response, 200, {
+            ...record,
+            idempotentReplay: true,
+          });
+        } catch (error) {
+          writeJson(response, 400, {
+            ok: false,
+            diagnostic:
+              error instanceof Error ? error.message : "discovery run failed",
+            executionAuthority: false,
+          });
+        }
+        return;
+      }
+      const promise = (async (): Promise<DiscoveryRunRecord> => {
+        activeRuns += 1;
+        try {
+          await broadcastProjection();
+          const run = await pool.run(task);
+          return discoveryLedger.record(task, run);
+        } finally {
+          activeRuns -= 1;
+          await broadcastProjection();
+        }
+      })();
+      pendingRuns.set(task.taskId, { scopeHash, promise });
       try {
-        const run = await pool.run(task);
-        discoveryLedger.record(task, run);
-        writeJson(response, 200, run);
+        const record = await promise;
+        writeJson(response, 200, {
+          ...record,
+          idempotentReplay: false,
+        });
       } catch (error) {
         writeJson(response, 400, {
           ok: false,
@@ -211,8 +342,9 @@ export function createControlPlane(options?: {
           executionAuthority: false,
         });
       } finally {
-        activeRuns -= 1;
-        await broadcastProjection();
+        if (pendingRuns.get(task.taskId)?.promise === promise) {
+          pendingRuns.delete(task.taskId);
+        }
       }
       return;
     }
@@ -221,6 +353,7 @@ export function createControlPlane(options?: {
       diagnostic: "route not found",
     });
   });
+  server.once("close", () => discoveryLedger.close());
   return {
     server,
     pool,
@@ -234,12 +367,24 @@ export function createControlPlane(options?: {
 export async function startControlPlane(
   port = 4_100,
   host = "127.0.0.1",
+  databasePath =
+    process.env.PMH_STATE_DB ??
+    resolve(import.meta.dirname, "../../../.data/control-plane.sqlite"),
 ): Promise<void> {
-  const { server, ready } = createControlPlane();
+  const { SqliteOperationalStore } = await import("./operational-store.js");
+  const discoveryStore = new SqliteOperationalStore(databasePath);
+  const { server, ready } = createControlPlane({ discoveryStore });
   await ready;
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, resolve);
-  });
-  process.stdout.write(`control-plane http://${host}:${port}\n`);
+  try {
+    await new Promise<void>((resolveListen, reject) => {
+      server.once("error", reject);
+      server.listen(port, host, resolveListen);
+    });
+    process.stdout.write(
+      `control-plane http://${host}:${port} · ${discoveryStore.storage.mode}\n`,
+    );
+  } catch (error) {
+    discoveryStore.close();
+    throw error;
+  }
 }

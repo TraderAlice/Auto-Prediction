@@ -91,7 +91,7 @@ function Metric({
 async function requestDiscoveryRun(
   question: string,
   venueIds: readonly string[],
-): Promise<void> {
+): Promise<boolean> {
   const response = await fetch("/api/v1/discovery/runs", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -100,6 +100,7 @@ async function requestDiscoveryRun(
   if (!response.ok) throw new Error("scout request failed");
   const result = (await response.json()) as {
     executionAuthority: boolean;
+    idempotentReplay?: boolean;
     hypotheses: readonly Readonly<{
       authority?: string;
       reviewStatus?: string;
@@ -116,6 +117,7 @@ async function requestDiscoveryRun(
   ) {
     throw new Error("scout crossed its authority boundary");
   }
+  return result.idempotentReplay === true;
 }
 
 function VenuePulse() {
@@ -635,7 +637,7 @@ function ScoutInboxView() {
     "polymarket-global",
   ]);
   const [runStatus, setRunStatus] = useState<
-    "IDLE" | "RUNNING" | "DONE" | "FAILED"
+    "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
 
   function toggleVenue(venueId: string): void {
@@ -649,8 +651,11 @@ function ScoutInboxView() {
   async function submitScout(): Promise<void> {
     setRunStatus("RUNNING");
     try {
-      await requestDiscoveryRun(question.trim(), selectedVenueIds);
-      setRunStatus("DONE");
+      const restored = await requestDiscoveryRun(
+        question.trim(),
+        selectedVenueIds,
+      );
+      setRunStatus(restored ? "RESTORED" : "DONE");
     } catch {
       setRunStatus("FAILED");
     }
@@ -688,6 +693,15 @@ function ScoutInboxView() {
           label="Active workers"
           value={`${studioProjection.ai.activeRuns}`}
           detail="SSE live state"
+        />
+        <Metric
+          label="State store"
+          value={studioProjection.discoveryDesk.storage.durable ? "WAL" : "MEM"}
+          detail={
+            studioProjection.discoveryDesk.storage.durable
+              ? `schema v${studioProjection.discoveryDesk.storage.schemaVersion} · taskId idempotency`
+              : "ephemeral test process"
+          }
         />
       </div>
 
@@ -786,6 +800,8 @@ function ScoutInboxView() {
                 ? "Scouts running…"
                 : runStatus === "DONE"
                   ? "Run another scout"
+                  : runStatus === "RESTORED"
+                    ? "Restored existing run"
                   : runStatus === "FAILED"
                     ? "Retry scout"
                     : "Run bounded scout"}

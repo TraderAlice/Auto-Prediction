@@ -254,7 +254,7 @@ export class DiscoveryPool {
         taskId: task.taskId,
         startedAtMs,
         workerIds: this.workers.map((worker) => worker.workerId),
-      }).slice(7, 23)}`,
+      }).slice(7)}`,
       taskId: task.taskId,
       startedAt: new Date(startedAtMs).toISOString(),
       completedAt: new Date(completedAtMs).toISOString(),

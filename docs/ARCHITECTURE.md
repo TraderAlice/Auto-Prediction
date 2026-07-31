@@ -41,6 +41,19 @@ artifacts, applies normalized events to deterministic books, and publishes
 JSON/SSE projections. Studio is a read-only view of those projections and may
 request an in-memory replay, but it never applies book events itself.
 
+The same process owns a bounded discovery operational store. In development it
+opens `.data/control-plane.sqlite`, selects WAL journal mode with full
+synchronous durability, applies an explicit schema migration, and hydrates the
+Scout Inbox before publishing the first projection. Every row carries canonical
+JSON plus a SHA-256 identity; malformed, tampered, or newer-schema state fails
+closed at startup/read time.
+
+Normalized question and venue scope produce a stable default `taskId`.
+Completed IDs survive restart, conflicting scope reuse returns `409`, and
+concurrent requests for the same ID share one worker promise. SQLite state is
+operational and bounded; immutable protocol and qualification evidence remains
+content-addressed in Git.
+
 The fast loop reacts to book generations. The slow loop evaluates strategy revisions against immutable replay or shadow evidence.
 
 ## Authority layers

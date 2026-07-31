@@ -1,6 +1,14 @@
+import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createControlPlane } from "../src/index.js";
+import {
+  createControlPlane,
+  DiscoveryPool,
+  type DiscoveryWorker,
+} from "../src/index.js";
+import { SqliteOperationalStore } from "../src/operational-store.js";
 
 const servers: ReturnType<typeof createControlPlane>["server"][] = [];
 
@@ -16,13 +24,32 @@ afterEach(async () => {
 });
 
 async function listen() {
-  const controlPlane = createControlPlane();
+  return (await listenControlPlane()).baseUrl;
+}
+
+async function listenControlPlane(
+  options?: Parameters<typeof createControlPlane>[0],
+) {
+  const controlPlane = createControlPlane(options);
   servers.push(controlPlane.server);
   await new Promise<void>((resolve) =>
     controlPlane.server.listen(0, "127.0.0.1", resolve),
   );
   const address = controlPlane.server.address() as AddressInfo;
-  return `http://127.0.0.1:${address.port}`;
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    controlPlane,
+  };
+}
+
+async function closeTracked(
+  server: ReturnType<typeof createControlPlane>["server"],
+): Promise<void> {
+  const index = servers.indexOf(server);
+  if (index >= 0) servers.splice(index, 1);
+  await new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
 }
 
 describe("control-plane HTTP surface", () => {
@@ -33,6 +60,9 @@ describe("control-plane HTTP surface", () => {
       identity: { mode: string; stateHash: string };
       system: { liveExecutionEnabled: boolean; controlPlaneConnected: boolean };
       ai: { architecture: string };
+      discoveryDesk: {
+        storage: { mode: string; durable: boolean; idempotencyKey: string };
+      };
     };
     expect(response.status).toBe(200);
     expect(projection.identity.mode).toBe("CONTROL_PLANE");
@@ -42,6 +72,12 @@ describe("control-plane HTTP surface", () => {
       controlPlaneConnected: true,
     });
     expect(projection.ai.architecture).toBe("SCOUT_THEN_VERIFY");
+    expect(projection.discoveryDesk.storage).toEqual({
+      mode: "MEMORY",
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "taskId",
+    });
   });
 
   it("accepts discovery work without returning execution authority", async () => {
@@ -55,11 +91,33 @@ describe("control-plane HTTP surface", () => {
       }),
     });
     const run = (await response.json()) as {
+      runId: string;
+      taskId: string;
       executionAuthority: boolean;
+      idempotentReplay: boolean;
       hypotheses: { authority: string }[];
     };
     expect(run.executionAuthority).toBe(false);
+    expect(run.taskId).toMatch(/^task:[a-f0-9]{64}$/);
     expect(run.hypotheses[0]?.authority).toBe("PROPOSE_ONLY");
+    expect(run.idempotentReplay).toBe(false);
+    const replay = (await fetch(`${baseUrl}/api/v1/discovery/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "  Will NYC rainfall exceed 0.25 inches?  ",
+        venueIds: ["polymarket-global", "kalshi", "kalshi"],
+      }),
+    }).then((replayResponse) => replayResponse.json())) as {
+      runId: string;
+      idempotentReplay: boolean;
+    };
+    expect(replay).toEqual(
+      expect.objectContaining({
+        runId: run.runId,
+        idempotentReplay: true,
+      }),
+    );
     const ledger = (await fetch(`${baseUrl}/api/v1/discovery/runs`).then(
       (ledgerResponse) => ledgerResponse.json(),
     )) as {
@@ -72,6 +130,130 @@ describe("control-plane HTTP surface", () => {
       question: "Will NYC rainfall exceed 0.25 inches?",
       executionAuthority: false,
     });
+    const malformed = await fetch(`${baseUrl}/api/v1/discovery/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        taskId: 123,
+        question: "Malformed task identity?",
+        venueIds: ["kalshi", 42],
+      }),
+    });
+    expect(malformed.status).toBe(400);
+  });
+
+  it("restores taskId idempotency from SQLite after a server restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-server-state-"));
+    const path = join(directory, "control-plane.sqlite");
+    try {
+      const first = await listenControlPlane({
+        discoveryStore: new SqliteOperationalStore(path),
+      });
+      const request = {
+        taskId: "task:restart-safe",
+        question: "Will the restart fixture resolve yes?",
+        venueIds: ["fixture-alpha", "fixture-beta"],
+      };
+      const created = (await fetch(`${first.baseUrl}/api/v1/discovery/runs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      }).then((response) => response.json())) as {
+        runId: string;
+        idempotentReplay: boolean;
+      };
+      expect(created.idempotentReplay).toBe(false);
+      await closeTracked(first.controlPlane.server);
+
+      const second = await listenControlPlane({
+        discoveryStore: new SqliteOperationalStore(path),
+      });
+      const restoredDesk = (await fetch(
+        `${second.baseUrl}/api/v1/discovery/runs`,
+      ).then((response) => response.json())) as {
+        runCount: number;
+        storage: { mode: string; durable: boolean };
+      };
+      expect(restoredDesk).toMatchObject({
+        runCount: 1,
+        storage: { mode: "SQLITE_WAL", durable: true },
+      });
+      const replayed = (await fetch(
+        `${second.baseUrl}/api/v1/discovery/runs`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        },
+      ).then((response) => response.json())) as {
+        runId: string;
+        idempotentReplay: boolean;
+      };
+      expect(replayed).toEqual(
+        expect.objectContaining({
+          runId: created.runId,
+          idempotentReplay: true,
+        }),
+      );
+      const conflict = await fetch(`${second.baseUrl}/api/v1/discovery/runs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...request, question: "Different scope?" }),
+      });
+      expect(conflict.status).toBe(409);
+      await closeTracked(second.controlPlane.server);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("coalesces concurrent requests for the same taskId", async () => {
+    let calls = 0;
+    const worker: DiscoveryWorker = {
+      workerId: "delayed-fixture-worker",
+      kind: "HEURISTIC",
+      costTier: "FREE",
+      async discover(task) {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return [
+          {
+            hypothesisId: "hypothesis:coalesced",
+            workerId: "delayed-fixture-worker",
+            thesis: "Concurrent fixture requests share one bounded run.",
+            strategyKind: "SAME_CLAIM_CROSS_VENUE",
+            venueIds: task.venueIds,
+            claimSearchTerms: ["concurrent", "fixture"],
+            confidenceBps: 1_000,
+            authority: "PROPOSE_ONLY",
+            reviewStatus: "UNREVIEWED",
+          },
+        ];
+      },
+    };
+    const { baseUrl } = await listenControlPlane({
+      discoveryPool: new DiscoveryPool([worker]),
+    });
+    const body = JSON.stringify({
+      taskId: "task:coalesced",
+      question: "Can concurrent discovery requests be coalesced?",
+      venueIds: ["fixture-alpha", "fixture-beta"],
+    });
+    const responses = await Promise.all(
+      [0, 1].map(() =>
+        fetch(`${baseUrl}/api/v1/discovery/runs`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        }).then((response) => response.json()),
+      ),
+    ) as { runId: string; idempotentReplay: boolean }[];
+    expect(calls).toBe(1);
+    expect(new Set(responses.map((response) => response.runId)).size).toBe(1);
+    expect(responses.map((response) => response.idempotentReplay).sort()).toEqual([
+      false,
+      true,
+    ]);
   });
 
   it("replays verified books in memory with literal false effects", async () => {
