@@ -16,6 +16,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Content-hash verification for immutable HTTP and stream fixtures, including subscription identity, frame boundaries, per-frame hashes, and anonymous acquisition metadata.
 - Fixture-backed catalog adapters for Polymarket Global, Kalshi, Gemini Prediction Markets, Opinion, and Myriad.
 - Public realtime-book adapters for Polymarket, Gemini, and Limitless with venue-specific sequence and rebuild semantics.
+- Transport-free Kalshi demo and Gemini sandbox order-shape gateways whose submit, cancel, and reconcile methods always return hash-bound `REJECTED_INERT` receipts.
 - Lexical JSON-number decoding so venue number tokens never pass through IEEE-754 before fixed-point conversion.
 - Depth-, tick-, fee-, and per-venue-capital-aware complete-set candidate compilation.
 - Independent exact certificate verification across every canonical resolution state.
@@ -43,6 +44,7 @@ Persistent SQLite operational state, model-provider wiring, independent equivale
 - Solver output is never authoritative; only the independent exact verifier may publish a certificate.
 - SDK types cannot cross venue-adapter boundaries.
 - Live execution is disabled by construction and policy.
+- An inert gateway has no transport, signer, nonce generator, credential input, or execution qualification; implementing a request shape does not make it trade-capable.
 
 ## Development
 

@@ -1046,8 +1046,28 @@ main {
   font-size: 10px;
 }
 
+.gateway-posture {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  border: 1px solid #232a2d;
+  border-radius: 999px;
+  color: #59635e;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.gateway-posture.is-inert {
+  border-color: rgba(255, 199, 142, 0.22);
+  background: rgba(255, 199, 142, 0.04);
+  color: #c99e75;
+}
+
 .venue-health {
-  margin-top: 32px;
+  margin-top: 22px;
 }
 
 .venue-health > div:first-child {

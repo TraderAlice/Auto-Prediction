@@ -5,8 +5,11 @@ import type {
 } from "@pmh/evidence";
 import type { NormalizedBookUpdate } from "@pmh/market-state";
 import {
+  createInertGatewayAcknowledgement,
   parseJsonWithNumberLexemes,
+  type InertGatewayAcknowledgement,
   type NormalizedCatalogListing,
+  type OrderGatewayPort,
   type VenueManifest,
 } from "@pmh/protocol";
 import { z } from "zod";
@@ -48,6 +51,111 @@ const DepthUpdateSchema = z.object({
   a: z.array(z.tuple([z.string(), z.string()])),
 });
 
+const PositiveDecimalSchema = z
+  .string()
+  .regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/)
+  .refine((value) => /[1-9]/.test(value));
+
+export const GeminiSandboxOrderIntentSchema = z.object({
+  clientOrderId: z.string().min(1).max(100),
+  symbol: z.string().regex(/^[A-Za-z0-9]+$/),
+  amount: PositiveDecimalSchema,
+  price: PositiveDecimalSchema,
+  side: z.enum(["buy", "sell"]),
+  type: z.literal("exchange limit"),
+  option: z
+    .enum(["maker-or-cancel", "immediate-or-cancel", "fill-or-kill"])
+    .optional(),
+});
+
+export type GeminiSandboxOrderIntent = z.infer<
+  typeof GeminiSandboxOrderIntentSchema
+>;
+
+export const GEMINI_SANDBOX_BASE_URL = "https://api.sandbox.gemini.com";
+
+const GeminiOrderIdentitySchema = z
+  .string()
+  .regex(/^\d+$/)
+  .refine((value) => BigInt(value) <= BigInt(Number.MAX_SAFE_INTEGER));
+
+export function buildGeminiSandboxOrderRequest(
+  intent: GeminiSandboxOrderIntent,
+) {
+  const parsed = GeminiSandboxOrderIntentSchema.parse(intent);
+  return Object.freeze({
+    request: "/v1/order/new",
+    client_order_id: parsed.clientOrderId,
+    symbol: parsed.symbol,
+    amount: parsed.amount,
+    price: parsed.price,
+    side: parsed.side,
+    type: parsed.type,
+    options: parsed.option === undefined ? [] : [parsed.option],
+  });
+}
+
+export class GeminiSandboxInertOrderGateway
+  implements
+    OrderGatewayPort<GeminiSandboxOrderIntent, InertGatewayAcknowledgement>
+{
+  public readonly liveExecutionEnabled = false;
+
+  public async submit(
+    intent: GeminiSandboxOrderIntent,
+  ): Promise<InertGatewayAcknowledgement> {
+    const targetPath = "/v1/order/new";
+    return createInertGatewayAcknowledgement({
+      venueId: "gemini-predictions",
+      targetEnvironment: "SANDBOX",
+      targetBaseUrl: GEMINI_SANDBOX_BASE_URL,
+      targetPath,
+      targetMethod: "POST",
+      operation: "SUBMIT",
+      request: buildGeminiSandboxOrderRequest(intent),
+    });
+  }
+
+  public async cancel(
+    orderIdentity: string,
+  ): Promise<InertGatewayAcknowledgement> {
+    const parsedIdentity = GeminiOrderIdentitySchema.parse(orderIdentity);
+    const targetPath = "/v1/order/cancel";
+    return createInertGatewayAcknowledgement({
+      venueId: "gemini-predictions",
+      targetEnvironment: "SANDBOX",
+      targetBaseUrl: GEMINI_SANDBOX_BASE_URL,
+      targetPath,
+      targetMethod: "POST",
+      operation: "CANCEL",
+      request: {
+        request: targetPath,
+        order_id: Number(parsedIdentity),
+      },
+    });
+  }
+
+  public async reconcile(
+    orderIdentity: string,
+  ): Promise<InertGatewayAcknowledgement> {
+    const parsedIdentity = GeminiOrderIdentitySchema.parse(orderIdentity);
+    const targetPath = "/v1/order/status";
+    return createInertGatewayAcknowledgement({
+      venueId: "gemini-predictions",
+      targetEnvironment: "SANDBOX",
+      targetBaseUrl: GEMINI_SANDBOX_BASE_URL,
+      targetPath,
+      targetMethod: "POST",
+      operation: "RECONCILE",
+      request: {
+        request: targetPath,
+        order_id: Number(parsedIdentity),
+        include_trades: true,
+      },
+    });
+  }
+}
+
 export const geminiManifest: VenueManifest = {
   venueId: "gemini-predictions",
   displayName: "Gemini Prediction Markets",
@@ -63,7 +171,7 @@ export const geminiManifest: VenueManifest = {
   ],
   precisionRules: ["prices and quantities are decimal strings"],
   authenticationBoundary:
-    "public REST catalog; authenticated WebSocket trading excluded",
+    "public REST catalog; sandbox order shape is inert with no transport, signing, credentials, or nonce generation",
   capabilities: [
     {
       capability: "MARKET_CATALOG",
@@ -93,10 +201,17 @@ export const geminiManifest: VenueManifest = {
     },
     {
       capability: "ORDER_GATEWAY",
-      implemented: false,
-      qualification: [],
-      evidenceRefs: ["https://api.sandbox.gemini.com"],
-      limitations: ["inert sandbox contract pending"],
+      implemented: true,
+      qualification: ["DISCOVER"],
+      evidenceRefs: [
+        "https://developer.gemini.com/trading/rest-api/orders/create-new-order",
+        "https://developer.gemini.com/trading/rest-api/orders/cancel-order",
+        "https://developer.gemini.com/trading/rest-api/orders/get-order-status",
+      ],
+      limitations: [
+        "inert sandbox request-shape contract only",
+        "all operations return REJECTED_INERT without network or credentials",
+      ],
     },
   ],
   liveExecutionEnabled: false,

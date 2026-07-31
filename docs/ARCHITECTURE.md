@@ -38,3 +38,11 @@ Unknown protocol data, precision loss, incomplete resolution partitions, stale o
 Capital is a venue silo. Reservations move exact values through available, reserved, deployed, unresolved, receivable, and recovered states; every mutation proves conservation against initial capital plus realized terminal PnL.
 
 An execution plan is a validated DAG whose intents bind exact certificate legs. Dependency checkpoints gate submission. UNKNOWN state forbids resubmission and requires reconciliation with exact cumulative quantity and debit. A plan reaches `LOCKED` only after all legs fill, and terminal PnL is recognized only through settlement—not mark-to-market.
+
+## Transport-free order shapes
+
+Kalshi demo and Gemini sandbox adapters model submit, cancel, and reconcile
+request shapes behind the common order-gateway port. These implementations are
+deliberately terminal: they hash the unsigned target request and return
+`REJECTED_INERT`. There is no HTTP client, authentication material, nonce
+generation, or route from configuration to execution.

@@ -16,6 +16,20 @@ describe("Studio projection safety", () => {
     expect(studioProjection.identity.mode).toBe("CONTROL_PLANE");
   });
 
+  it("exposes demo and sandbox order shapes as inert posture only", () => {
+    const inertVenues = studioProjection.venues.filter(
+      (venue) => venue.gatewayPosture !== "ABSENT",
+    );
+    expect(studioProjection.system.inertOrderGateways).toBe(2);
+    expect(inertVenues.map((venue) => venue.gatewayPosture).sort()).toEqual([
+      "INERT_DEMO",
+      "INERT_SANDBOX",
+    ]);
+    expect(inertVenues.every((venue) => !venue.liveExecutionEnabled)).toBe(
+      true,
+    );
+  });
+
   it("labels every displayed opportunity as exact fixture evidence", () => {
     expect(
       studioProjection.opportunities.every(

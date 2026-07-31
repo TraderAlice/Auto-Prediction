@@ -22,6 +22,11 @@ const presentation = {
   limitless: ["CLOB · Socket.IO", 97, "#ff9f84"],
 } as const;
 
+const gatewayPostures = {
+  kalshi: "INERT_DEMO",
+  "gemini-predictions": "INERT_SANDBOX",
+} as const;
+
 const manifests = [
   polymarketManifest,
   kalshiManifest,
@@ -55,7 +60,14 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 83,
+      inertOrderGateways: manifests.filter((manifest) =>
+        manifest.capabilities.some(
+          (capability) =>
+            capability.capability === "ORDER_GATEWAY" &&
+            capability.implemented,
+        ),
+      ).length,
+      proofTests: 90,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -115,6 +127,10 @@ export function buildStudioProjection(input: {
           capabilities: manifest.capabilities
             .filter((capability) => capability.implemented)
             .map((capability) => capability.capability),
+          gatewayPosture:
+            gatewayPostures[
+              manifest.venueId as keyof typeof gatewayPostures
+            ] ?? ("ABSENT" as const),
           liveExecutionEnabled: false as const,
         };
       })

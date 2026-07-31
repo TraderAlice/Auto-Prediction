@@ -521,7 +521,7 @@ function Overview({
         <Metric
           label="Catalog adapters"
           value={`${studioProjection.system.catalogAdapters}`}
-          detail={`${studioProjection.system.realtimeBookAdapters} realtime books`}
+          detail={`${studioProjection.system.realtimeBookAdapters} books · ${studioProjection.system.inertOrderGateways} inert gates`}
         />
         <Metric
           label="Proof tests"
@@ -841,6 +841,19 @@ function VenueMatrix() {
             <CardContent>
               <h2>{venue.name}</h2>
               <p>{venue.mechanism}</p>
+              <div
+                className={cn(
+                  "gateway-posture",
+                  venue.gatewayPosture !== "ABSENT" && "is-inert",
+                )}
+              >
+                <CircleOff size={11} />
+                {venue.gatewayPosture === "INERT_DEMO"
+                  ? "Inert demo gateway"
+                  : venue.gatewayPosture === "INERT_SANDBOX"
+                    ? "Inert sandbox gateway"
+                    : "Order gateway absent"}
+              </div>
               <div className="venue-health">
                 <div>
                   <span>Fixture health</span>

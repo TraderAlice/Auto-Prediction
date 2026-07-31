@@ -35,3 +35,4 @@ Architecture Qualification, pre-alpha. The work starts with venue reality and do
 - 2026-07-31: CLI schema `pmh.cli.v1` publishes content-hashed read-only projections and literal-false external-write, value-moving, and live-execution effects.
 - 2026-07-31: Harmony Studio uses Vite, React, and shadcn/ui components over a long-running HTTP/SSE control-plane process; it fails visibly when that process is absent.
 - 2026-07-31: Subjective opportunity discovery is a first-class multi-worker layer. Cheap heuristic/model scouts run in parallel and emit only `PROPOSE_ONLY` / `UNREVIEWED` hypotheses; exact verification remains the sole certificate authority.
+- 2026-07-31: Kalshi demo V2 and Gemini sandbox order shapes are represented by transport-free gateways. Submit, cancel, and reconcile calls terminate locally with deterministic `REJECTED_INERT` receipts; this is protocol discovery, not execution qualification.

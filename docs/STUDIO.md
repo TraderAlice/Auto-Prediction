@@ -16,6 +16,12 @@ If the process is unavailable, Studio shows an explicit offline state. It does n
 
 The current opportunity, payoff, verifier-trace, and capital panels remain illustrative fixture-replay presentation data. They demonstrate the intended projection shape; they are not connected to a live market and cannot produce an executable action.
 
+The Venue Matrix exposes order posture separately from capability names.
+Kalshi is labeled `INERT DEMO`, Gemini is labeled `INERT SANDBOX`, and every
+other venue is labeled absent. These labels describe request-shape coverage,
+not trading readiness; the projection keeps `liveExecutionEnabled: false` for
+every venue.
+
 ## Book desk
 
 The Books projection is backed by `ReplayBookDesk` in the control plane. On
