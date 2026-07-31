@@ -1,8 +1,11 @@
 import { parseFixed } from "@pmh/domain";
 import type { VerifiedRawFixture } from "@pmh/evidence";
 import {
+  createInertGatewayAcknowledgement,
   parseJsonWithNumberLexemes,
+  type InertGatewayAcknowledgement,
   type NormalizedCatalogListing,
+  type OrderGatewayPort,
   type VenueManifest,
 } from "@pmh/protocol";
 import { z } from "zod";
@@ -31,6 +34,108 @@ const ResponseSchema = z.object({
   ),
 });
 
+const PositiveDecimalSchema = z
+  .string()
+  .regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/)
+  .refine((value) => /[1-9]/.test(value));
+
+const ProbabilityPriceSchema = PositiveDecimalSchema.refine(
+  (value) => value.startsWith("0.") || /^1(?:\.0+)?$/.test(value),
+);
+
+export const KalshiDemoOrderIntentSchema = z.object({
+  ticker: z.string().min(1),
+  clientOrderId: z.string().min(1).max(200),
+  side: z.enum(["bid", "ask"]),
+  count: PositiveDecimalSchema,
+  price: ProbabilityPriceSchema,
+  timeInForce: z.enum([
+    "fill_or_kill",
+    "good_till_canceled",
+    "immediate_or_cancel",
+  ]),
+  selfTradePreventionType: z.enum(["taker_at_cross", "maker"]),
+});
+
+export type KalshiDemoOrderIntent = z.infer<
+  typeof KalshiDemoOrderIntentSchema
+>;
+
+export const KALSHI_DEMO_BASE_URL =
+  "https://external-api.demo.kalshi.co/trade-api/v2";
+
+export function buildKalshiDemoOrderRequest(intent: KalshiDemoOrderIntent) {
+  const parsed = KalshiDemoOrderIntentSchema.parse(intent);
+  return Object.freeze({
+    ticker: parsed.ticker,
+    client_order_id: parsed.clientOrderId,
+    side: parsed.side,
+    count: parsed.count,
+    price: parsed.price,
+    time_in_force: parsed.timeInForce,
+    self_trade_prevention_type: parsed.selfTradePreventionType,
+    post_only: false,
+    cancel_order_on_pause: true,
+    reduce_only: false,
+    subaccount: 0,
+    exchange_index: 0,
+  });
+}
+
+export class KalshiDemoInertOrderGateway
+  implements
+    OrderGatewayPort<KalshiDemoOrderIntent, InertGatewayAcknowledgement>
+{
+  public readonly liveExecutionEnabled = false;
+
+  public async submit(
+    intent: KalshiDemoOrderIntent,
+  ): Promise<InertGatewayAcknowledgement> {
+    const targetPath = "/portfolio/events/orders";
+    return createInertGatewayAcknowledgement({
+      venueId: "kalshi",
+      targetEnvironment: "DEMO",
+      targetBaseUrl: KALSHI_DEMO_BASE_URL,
+      targetPath,
+      targetMethod: "POST",
+      operation: "SUBMIT",
+      request: buildKalshiDemoOrderRequest(intent),
+    });
+  }
+
+  public async cancel(
+    orderIdentity: string,
+  ): Promise<InertGatewayAcknowledgement> {
+    const parsedIdentity = z.string().min(1).max(200).parse(orderIdentity);
+    const targetPath = `/portfolio/events/orders/${encodeURIComponent(parsedIdentity)}`;
+    return createInertGatewayAcknowledgement({
+      venueId: "kalshi",
+      targetEnvironment: "DEMO",
+      targetBaseUrl: KALSHI_DEMO_BASE_URL,
+      targetPath,
+      targetMethod: "DELETE",
+      operation: "CANCEL",
+      request: { order_id: parsedIdentity },
+    });
+  }
+
+  public async reconcile(
+    orderIdentity: string,
+  ): Promise<InertGatewayAcknowledgement> {
+    const parsedIdentity = z.string().min(1).max(200).parse(orderIdentity);
+    const targetPath = `/portfolio/orders/${encodeURIComponent(parsedIdentity)}`;
+    return createInertGatewayAcknowledgement({
+      venueId: "kalshi",
+      targetEnvironment: "DEMO",
+      targetBaseUrl: KALSHI_DEMO_BASE_URL,
+      targetPath,
+      targetMethod: "GET",
+      operation: "RECONCILE",
+      request: { order_id: parsedIdentity },
+    });
+  }
+}
+
 export const kalshiManifest: VenueManifest = {
   venueId: "kalshi",
   displayName: "Kalshi",
@@ -40,7 +145,7 @@ export const kalshiManifest: VenueManifest = {
   mechanisms: ["centralized binary and multivariate event contracts"],
   precisionRules: ["fixed-point dollar fields are decimal strings"],
   authenticationBoundary:
-    "public catalog fixture; private trading and demo authentication excluded",
+    "public catalog fixture; demo order shape is inert with no transport, signing, credentials, or nonce generation",
   capabilities: [
     {
       capability: "MARKET_CATALOG",
@@ -51,10 +156,16 @@ export const kalshiManifest: VenueManifest = {
     },
     {
       capability: "ORDER_GATEWAY",
-      implemented: false,
-      qualification: [],
-      evidenceRefs: ["https://demo-api.kalshi.co/trade-api/v2"],
-      limitations: ["inert demo contract pending"],
+      implemented: true,
+      qualification: ["DISCOVER"],
+      evidenceRefs: [
+        "https://docs.kalshi.com/api-reference/orders/create-order-v2",
+        "https://docs.kalshi.com/getting_started/api_environments",
+      ],
+      limitations: [
+        "inert demo request-shape contract only",
+        "all operations return REJECTED_INERT without network or credentials",
+      ],
     },
   ],
   liveExecutionEnabled: false,

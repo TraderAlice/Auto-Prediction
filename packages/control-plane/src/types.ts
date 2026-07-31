@@ -111,6 +111,7 @@ export type StudioProjection = Readonly<{
     observedVenueFamilies: number;
     catalogAdapters: number;
     realtimeBookAdapters: number;
+    inertOrderGateways: number;
     proofTests: number;
     liveExecutionEnabled: false;
     controlPlaneConnected: true;
@@ -137,6 +138,7 @@ export type StudioProjection = Readonly<{
     color: string;
     protocolIdentity: string;
     capabilities: readonly string[];
+    gatewayPosture: "ABSENT" | "INERT_DEMO" | "INERT_SANDBOX";
     liveExecutionEnabled: false;
   }>[];
   opportunities: readonly Readonly<{

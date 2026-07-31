@@ -13,7 +13,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Capture at least six heterogeneous mechanism fixtures.
 - [x] Implement at least five catalog adapters.
 - [x] Implement at least three realtime-book adapters.
-- [ ] Implement two inert order-gateway contracts, including one demo/sandbox-shaped gateway.
+- [x] Implement two inert order-gateway contracts, including one demo/sandbox-shaped gateway.
 - [x] Publish capability, precision, limitations, and qualification evidence per adapter.
 
 ## Campaign B — Contract truth
@@ -79,6 +79,7 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: Public realtime qualification is venue-specific. Gemini deltas use native update ranges and fail closed on gaps; Polymarket and Limitless replacement images enter explicit rebuild because their public full-book paths do not provide equivalent delta sequencing guarantees.
 - 2026-07-31: The control plane owns deterministic book replay and broadcasts projections over SSE. Studio renders lifecycle and depth but never derives authoritative state in the browser.
 - 2026-07-31: Discovery runs are retained in a 25-entry in-memory ledger and streamed to Scout Inbox. Promotion controls remain absent until independent equivalence-review authority is configured.
+- 2026-07-31: Kalshi demo and Gemini sandbox order gateways model current official submit/cancel/reconcile request shapes but have no transport, nonce generator, signer, credential input, or value-moving path. Every operation returns a hash-bound `REJECTED_INERT` receipt and qualifies only at `DISCOVER`.
 
 ## Blockers
 
