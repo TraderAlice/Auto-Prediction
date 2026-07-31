@@ -118,6 +118,12 @@ describe("control-plane HTTP surface", () => {
         artifactHash: string;
         sourceArtifacts: unknown[];
       };
+      reviewedCompilation: {
+        scope: string;
+        status: string;
+        artifactHash: string;
+        effects: { liveExecutionEnabled: boolean };
+      };
     };
     expect(response.status).toBe(200);
     expect(qualification.replayChaos).toMatchObject({
@@ -129,6 +135,12 @@ describe("control-plane HTTP surface", () => {
     expect(qualification.campaignEvidence.status).toBe("PASS");
     expect(qualification.campaignEvidence.sourceArtifacts).toHaveLength(3);
     expect(qualification.campaignEvidence.artifactHash).toMatch(/^sha256:/);
+    expect(qualification.reviewedCompilation).toMatchObject({
+      scope: "SYNTHETIC_ARCHITECTURE_QUALIFICATION",
+      status: "PASS",
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(qualification.reviewedCompilation.artifactHash).toMatch(/^sha256:/);
   });
 
   it("broadcasts the replayed projection to connected SSE clients", async () => {

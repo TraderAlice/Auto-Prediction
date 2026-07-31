@@ -3,5 +3,6 @@ export * from "./discovery.js";
 export * from "./discovery-ledger.js";
 export * from "./projection.js";
 export * from "./qualification.js";
+export * from "./reviewed-compilation.js";
 export * from "./server.js";
 export * from "./types.js";

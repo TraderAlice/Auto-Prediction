@@ -131,6 +131,7 @@ export type StudioProjection = Readonly<{
   qualification: Readonly<{
     replayChaos: ReplayChaosReport;
     campaignEvidence: CampaignEvidenceBundle;
+    reviewedCompilation: ReviewedCompilationEvidence;
   }>;
   discoveryDesk: DiscoveryDeskProjection;
   venues: readonly Readonly<{
@@ -156,6 +157,7 @@ export type StudioProjection = Readonly<{
     certificate: string;
     evidence: string;
     confidence: "EXACT";
+    source: "SYNTHETIC_QUALIFICATION_FIXTURE";
   }>[];
   trace: readonly (readonly [string, "PASS" | "BLOCKED", string])[];
   capital: readonly Readonly<{
@@ -164,7 +166,13 @@ export type StudioProjection = Readonly<{
     reserved: number;
     locked: number;
   }>[];
-  payoffStates: readonly Readonly<{ label: string; value: number }>[];
+  capitalScope: "SYNTHETIC_QUALIFICATION_FIXTURE";
+  payoffStates: readonly Readonly<{
+    label: string;
+    amount: string;
+    height: number;
+  }>[];
 }>;
 import type { ReplayChaosReport } from "@pmh/market-state";
 import type { CampaignEvidenceBundle } from "./qualification.js";
+import type { ReviewedCompilationEvidence } from "./reviewed-compilation.js";

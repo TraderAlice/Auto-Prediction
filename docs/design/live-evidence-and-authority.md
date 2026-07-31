@@ -4,6 +4,14 @@ Git owns small reviewed facts, source, tests, campaign definitions, and content-
 
 Every campaign binds source state, runtime, adapter/protocol versions, strategy and rule hashes, fee/capability/qualification state, dataset manifests, risk policy, authority, timestamps, and every simulated or observed lifecycle event.
 
+Subjective discovery output is never rewritten into an approved object. A
+separate review artifact binds the hypothesis and the complete set of accepted
+market-link proposal/review hashes. Only that immutable review bundle may
+authorize deterministic candidate compilation, and the resulting candidate
+still has no authority until the independent exact verifier publishes a
+certificate. A certificate in the current qualification campaign remains
+synthetic and shadow-only.
+
 The repository has no live-trading authority. No adapter method may turn configuration alone into permission to place an order or move value.
 
 Order-shape research emits `pmh.inert-order-ack.v1` receipts. Each receipt

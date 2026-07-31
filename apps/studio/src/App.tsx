@@ -296,7 +296,9 @@ function OpportunityRow({
         </div>
         <div>
           <strong>{opportunity.title}</strong>
-          <span>{opportunity.strategy}</span>
+          <span>
+            {opportunity.strategy} · synthetic fixture
+          </span>
         </div>
       </div>
       <div className="opportunity-cell hide-small">
@@ -344,9 +346,9 @@ function PayoffFloor() {
               <div className="payoff-bar-track">
                 <div
                   className="payoff-bar"
-                  style={{ height: `${state.value}%` }}
+                  style={{ height: `${state.height}%` }}
                 >
-                  <span>+${((state.value - 60) * 2.34).toFixed(2)}</span>
+                  <span>{state.amount}</span>
                 </div>
               </div>
               <small>{state.label}</small>
@@ -356,9 +358,12 @@ function PayoffFloor() {
         <div className="plot-note">
           <ShieldCheck size={15} />
           <span>
-            8 canonical resolution states checked with adverse rounding.
+            {studioProjection.qualification.reviewedCompilation.certificate.resolutionStateCount}{" "}
+            synthetic resolution states checked with adverse rounding.
           </span>
-          <code>cert 3ac40a…891d</code>
+          <code>
+            cert {studioProjection.qualification.reviewedCompilation.certificate.id.slice(7, 14)}
+          </code>
         </div>
       </CardContent>
     </Card>
@@ -411,18 +416,18 @@ function CapitalSilhouette() {
     <Card>
       <CardHeader>
         <div>
-          <span className="eyebrow">Capital silos</span>
-          <h2>Bound per venue</h2>
+          <span className="eyebrow">Synthetic qualification fixture</span>
+          <h2>Compiled capital bounds</h2>
         </div>
         <Database size={19} className="muted-icon" />
       </CardHeader>
       <CardContent>
         <div className="capital-legend">
           <span>
-            <i className="available" /> Available
+            <i className="available" /> Unused
           </span>
           <span>
-            <i className="reserved" /> Reserved
+            <i className="reserved" /> Candidate bound
           </span>
           <span>
             <i className="locked" /> Unresolved
@@ -433,7 +438,7 @@ function CapitalSilhouette() {
             <div className="capital-row" key={item.venue}>
               <div>
                 <strong>{item.venue}</strong>
-                <span>{item.available}% free</span>
+                <span>{item.reserved}% fixture-bound</span>
               </div>
               <div className="capital-bar" aria-label={`${item.venue} capital`}>
                 <span
@@ -574,7 +579,7 @@ function Overview({
       <section className="section-block">
         <div className="section-heading">
           <div>
-            <span className="eyebrow">Verifier output</span>
+            <span className="eyebrow">Verifier output · synthetic fixture</span>
             <h2>Bounded opportunities</h2>
           </div>
             <Button
@@ -685,6 +690,49 @@ function ScoutInboxView() {
           detail="SSE live state"
         />
       </div>
+
+      <Card className="review-pipeline-card">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Promotion contract · fixture-qualified</span>
+            <h2>Review → compiler → exact verifier</h2>
+          </div>
+          <Badge variant="verified">
+            {studioProjection.qualification.reviewedCompilation.status}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="review-pipeline-flow">
+            {studioProjection.qualification.reviewedCompilation.stages.map(
+              (stage, index) => (
+                <div className="review-pipeline-stage" key={stage.stage}>
+                  <span>{String(index + 1).padStart(2, "0")}</span>
+                  <div>
+                    <strong>{stage.stage.replaceAll("_", " ")}</strong>
+                    <small>{stage.detail}</small>
+                  </div>
+                  <Badge
+                    variant={stage.status === "PASS" ? "verified" : "shadow"}
+                  >
+                    {stage.status}
+                  </Badge>
+                </div>
+              ),
+            )}
+          </div>
+          <div className="review-pipeline-note">
+            <TestTubeDiagonal size={14} />
+            <span>
+              This path is exercised with a synthetic, hash-bound qualification
+              fixture. Runtime scout hypotheses remain locked until a real
+              equivalence-review authority and official matching fixtures exist.
+            </span>
+            <code>
+              {studioProjection.qualification.reviewedCompilation.artifactHash}
+            </code>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="scout-layout">
         <Card className="scout-compose-card">
@@ -801,7 +849,7 @@ function ScoutInboxView() {
                     </dl>
                     <div className="promotion-lock">
                       <CircleOff size={13} />
-                      Independent equivalence review is not configured; promotion is locked.
+                      Runtime equivalence review is not configured; promotion is locked.
                     </div>
                   </div>
                 ))}
@@ -1083,8 +1131,20 @@ function EvidenceView() {
   const studioProjection = useStudioProjection();
   const replayChaos = studioProjection.qualification.replayChaos;
   const campaignEvidence = studioProjection.qualification.campaignEvidence;
+  const reviewedCompilation =
+    studioProjection.qualification.reviewedCompilation;
   const campaignEvidenceIdentityCount = new Set(
-    campaignEvidence.assertions.flatMap((item) => item.evidenceHashes),
+    [
+      ...campaignEvidence.assertions.flatMap((item) => item.evidenceHashes),
+      reviewedCompilation.artifactHash,
+      reviewedCompilation.compiledArtifactHash,
+      reviewedCompilation.hypothesisHash,
+      reviewedCompilation.hypothesisReviewHash,
+      reviewedCompilation.candidateHash,
+      reviewedCompilation.certificate.id,
+      ...reviewedCompilation.marketLinkProposalHashes,
+      ...reviewedCompilation.marketLinkReviewHashes,
+    ],
   ).size;
   const items = [
     {
@@ -1106,9 +1166,9 @@ function EvidenceView() {
       icon: Boxes,
     },
     {
-      name: "Campaign assertions",
-      count: `${campaignEvidence.assertions.filter((item) => item.status === "PASS").length}`,
-      detail: `${campaignEvidence.status.toLowerCase()} checkpoint`,
+      name: "Qualification artifacts",
+      count: "2",
+      detail: "replay + reviewed compiler",
       icon: BadgeCheck,
     },
   ] as const;
@@ -1199,6 +1259,12 @@ function EvidenceView() {
                 checkpointId: campaignEvidence.checkpointId,
                 status: campaignEvidence.status,
                 artifactHash: campaignEvidence.artifactHash,
+                reviewedCompilation: {
+                  scope: reviewedCompilation.scope,
+                  status: reviewedCompilation.status,
+                  artifactHash: reviewedCompilation.artifactHash,
+                  certificate: reviewedCompilation.certificate.id,
+                },
                 effects: campaignEvidence.effects,
               },
               null,
@@ -1245,7 +1311,7 @@ function CertificateDrawer({
           <>
             <div className="drawer-heading">
               <div>
-                <span className="eyebrow">Exact certificate</span>
+                <span className="eyebrow">Exact synthetic fixture certificate</span>
                 <h2>{opportunity.title}</h2>
               </div>
               <Button
@@ -1260,7 +1326,7 @@ function CertificateDrawer({
             <div className="certificate-seal">
               <ShieldCheck size={32} />
               <div>
-                <Badge variant="verified">Verified exact</Badge>
+                <Badge variant="verified">Fixture verified exact</Badge>
                 <strong>{opportunity.floor} worst-case payoff</strong>
                 <span>after fees, rounding, and capital bounds</span>
               </div>
@@ -1284,11 +1350,15 @@ function CertificateDrawer({
               </div>
             </dl>
             <div className="drawer-trace">
-              {studioProjection.trace.slice(0, 5).map(([name], index) => (
+              {studioProjection.trace.map(([name, verdict], index) => (
                 <div key={name}>
-                  <span>{index + 1}</span>
+                  <span>
+                    {verdict === "BLOCKED" ? <CircleOff size={11} /> : index + 1}
+                  </span>
                   <strong>{name}</strong>
-                  <Badge variant="verified">PASS</Badge>
+                  <Badge variant={verdict === "PASS" ? "verified" : "shadow"}>
+                    {verdict}
+                  </Badge>
                 </div>
               ))}
             </div>
@@ -1376,6 +1446,10 @@ function StudioShell() {
     window.addEventListener("keydown", handleKeyboard);
     return () => window.removeEventListener("keydown", handleKeyboard);
   }, []);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 });
+  }, [view]);
 
   return (
     <div className="app-shell">

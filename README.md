@@ -30,14 +30,16 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
 - An AI-native discovery pool where cheap parallel scouts may propose hypotheses but can never certify or execute them.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
+- A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
 - A Books desk that replays verified public frames into generation-bound order books, broadcasts them over SSE, and exposes venue-native sequence posture.
 - A deterministic replay-chaos suite covering gaps, stale input, reconnect without snapshot, off-tick atomic rejection, tick-size change, and generation invalidation.
 - A checked-in, content-addressed replay-integrity campaign artifact bound to three verified books and six chaos-case evidence identities.
+- A checked-in synthetic qualification artifact proving the full scout → review → compiler → verifier boundary without implying a real venue match or execution authority.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-Persistent SQLite operational state, model-provider wiring, independent equivalence-review workflow, dense long-run evidence storage, and verified-candidate promotion remain active campaign work.
+Persistent SQLite operational state, model-provider wiring, production equivalence-review workflow, dense long-run evidence storage, and real-fixture candidate promotion remain active campaign work.
 
 ## Safety boundary
 
@@ -78,7 +80,7 @@ The host used for the initial checkpoint exposed Node.js 22.22.1, so the reposit
 - `packages/execution`: validated multi-leg plans and shadow-only order lifecycle.
 - `packages/liquidity`: executable hedge curves and constrained shadow maker quotes.
 - `packages/cli`: versioned, machine-readable inspection commands.
-- `packages/control-plane`: long-running projection, event-stream, deterministic book replay, and AI discovery coordination process.
+- `packages/control-plane`: long-running projection, event-stream, deterministic book replay, AI discovery coordination, and reviewed-hypothesis compilation boundary.
 - `apps/studio`: responsive read-only cockpit for book state, fixture replay, and qualification evidence.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.

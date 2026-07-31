@@ -13,6 +13,24 @@ raw venue facts
   -> shadow execution + evidence
 ```
 
+AI-native discovery sits beside, not inside, the authoritative path:
+
+```text
+proposal-only scout hypothesis
+  -> independent hypothesis review artifact
+  -> accepted EXACT market-link review graph
+  -> deterministic capital-bounded compiler
+  -> independent exact verifier
+  -> fixture certificate (shadow only)
+```
+
+The hypothesis remains `PROPOSE_ONLY` and `UNREVIEWED`; approval is a separate
+content-addressed artifact. Compilation derives its claim-graph and resolution
+partition identities from the hypothesis and complete reviewed-link set. A
+candidate with a missing link, extra listing or venue, self-review,
+non-`EXACT` link, stale input identity, or non-positive conservative floor is
+rejected before publication.
+
 Public HTTP and WebSocket/Socket.IO facts first cross a content-addressed
 evidence boundary. Realtime codecs then preserve each venue's native
 sequencing guarantee: Gemini ranges may produce deltas, while Polymarket and
@@ -60,3 +78,9 @@ The control plane folds verified book evidence and replay-chaos results into a
 canonical SHA-256 identity. The same value is checked into
 `projects/campaigns/architecture-qualification` and a golden test prevents the
 runtime projection and immutable artifact from drifting independently.
+
+The same directory also contains `reviewed-compilation.v1.json`. That artifact
+is deliberately scoped `SYNTHETIC_ARCHITECTURE_QUALIFICATION`: it proves the
+software handoff from subjective discovery through independent review and
+exact verification, but it is not evidence that any real venue listings are
+equivalent. The real three-venue mapping remains an explicit campaign gap.

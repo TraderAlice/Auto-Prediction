@@ -494,9 +494,12 @@ main {
 }
 
 .hero-identity code {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--primary);
   font-family: "JetBrains Mono Variable", monospace;
   font-size: 10px;
+  line-height: 1.55;
 }
 
 .hero-identity > div {
@@ -1128,6 +1131,94 @@ main {
 
 .scout-summary-grid .metric {
   min-height: 104px;
+}
+
+.review-pipeline-card {
+  margin-top: 14px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 88% 0%, rgba(126, 240, 193, 0.07), transparent 28%),
+    var(--panel);
+}
+
+.review-pipeline-flow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.review-pipeline-stage {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  border-right: 1px solid var(--border);
+  padding: 12px;
+}
+
+.review-pipeline-stage:last-child {
+  border-right: 0;
+}
+
+.review-pipeline-stage > span {
+  color: #3f4944;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 8px;
+}
+
+.review-pipeline-stage > div {
+  min-width: 0;
+}
+
+.review-pipeline-stage strong,
+.review-pipeline-stage small {
+  display: block;
+}
+
+.review-pipeline-stage strong {
+  overflow: hidden;
+  color: #aeb8b3;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-pipeline-stage small {
+  margin-top: 5px;
+  color: #525d57;
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.review-pipeline-stage > .badge {
+  grid-column: 2;
+  width: max-content;
+  margin-top: 4px;
+}
+
+.review-pipeline-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(180px, 0.65fr);
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  color: #69746e;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.review-pipeline-note svg {
+  color: var(--mint);
+}
+
+.review-pipeline-note code {
+  overflow: hidden;
+  color: #56615b;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scout-layout {
@@ -2346,6 +2437,27 @@ footer span:first-child {
 
   .scout-layout {
     grid-template-columns: 1fr;
+  }
+
+  .review-pipeline-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .review-pipeline-stage {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .review-pipeline-stage:last-child {
+    border-bottom: 0;
+  }
+
+  .review-pipeline-note {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .review-pipeline-note code {
+    grid-column: 2;
   }
 
   .scout-compose-card {

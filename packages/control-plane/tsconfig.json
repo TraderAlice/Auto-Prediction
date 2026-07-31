@@ -10,6 +10,7 @@
     { "path": "../domain" },
     { "path": "../evidence" },
     { "path": "../market-state" },
+    { "path": "../opportunity" },
     { "path": "../protocol" },
     { "path": "../venue-gemini" },
     { "path": "../venue-kalshi" },
