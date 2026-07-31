@@ -60,6 +60,18 @@ describe("control-plane HTTP surface", () => {
     };
     expect(run.executionAuthority).toBe(false);
     expect(run.hypotheses[0]?.authority).toBe("PROPOSE_ONLY");
+    const ledger = (await fetch(`${baseUrl}/api/v1/discovery/runs`).then(
+      (ledgerResponse) => ledgerResponse.json(),
+    )) as {
+      runCount: number;
+      unreviewedCount: number;
+      runs: { question: string; executionAuthority: boolean }[];
+    };
+    expect(ledger).toMatchObject({ runCount: 1, unreviewedCount: 1 });
+    expect(ledger.runs[0]).toMatchObject({
+      question: "Will NYC rainfall exceed 0.25 inches?",
+      executionAuthority: false,
+    });
   });
 
   it("replays verified books in memory with literal false effects", async () => {
@@ -108,6 +120,37 @@ describe("control-plane HTTP surface", () => {
     const event = decoder.decode(second.value);
     expect(event).toContain("event: projection");
     expect(event).toContain('"replayCount":2');
+    await reader.cancel();
+    abort.abort();
+  });
+
+  it("broadcasts active and completed discovery ledger state", async () => {
+    const baseUrl = await listen();
+    const abort = new AbortController();
+    const eventResponse = await fetch(`${baseUrl}/api/v1/events`, {
+      signal: abort.signal,
+    });
+    const reader = eventResponse.body?.getReader();
+    if (reader === undefined) throw new Error("event stream has no body");
+    await reader.read();
+
+    await fetch(`${baseUrl}/api/v1/discovery/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "Will the Fed cut rates before September?",
+        venueIds: ["kalshi", "polymarket-global"],
+      }),
+    });
+    const decoder = new TextDecoder();
+    let events = "";
+    for (let index = 0; index < 4 && !events.includes('"runCount":1'); index += 1) {
+      const chunk = await reader.read();
+      events += decoder.decode(chunk.value);
+    }
+    expect(events).toContain('"activeRuns":1');
+    expect(events).toContain('"runCount":1');
+    expect(events).toContain('"executionAuthority":false');
     await reader.cancel();
     abort.abort();
   });

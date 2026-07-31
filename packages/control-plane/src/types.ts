@@ -32,6 +32,20 @@ export type DiscoveryRun = Readonly<{
   executionAuthority: false;
 }>;
 
+export type DiscoveryRunRecord = DiscoveryRun &
+  Readonly<{
+    question: string;
+    venueIds: readonly string[];
+  }>;
+
+export type DiscoveryDeskProjection = Readonly<{
+  retentionLimit: number;
+  runCount: number;
+  hypothesisCount: number;
+  unreviewedCount: number;
+  runs: readonly DiscoveryRunRecord[];
+}>;
+
 export interface DiscoveryWorker {
   readonly workerId: string;
   readonly kind: "HEURISTIC" | "MODEL";
@@ -113,6 +127,7 @@ export type StudioProjection = Readonly<{
     promotionBoundary: string;
   }>;
   bookDesk: BookDeskProjection;
+  discoveryDesk: DiscoveryDeskProjection;
   venues: readonly Readonly<{
     id: string;
     name: string;

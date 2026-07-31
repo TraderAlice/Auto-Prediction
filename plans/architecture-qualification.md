@@ -50,6 +50,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Run a long-lived control-plane process behind Studio.
 - [x] Define parallel heuristic/model discovery-worker ports.
 - [x] Enforce proposal-only, unreviewed, no-execution AI output.
+- [x] Retain bounded discovery runs and stream the Scout Inbox projection.
 - [ ] Connect a budgeted external model provider.
 - [ ] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -77,6 +78,7 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: AI is trusted for subjective search hypotheses only. Every model output remains UNREVIEWED, has no execution authority, and must cross deterministic compilation plus independent exact verification.
 - 2026-07-31: Public realtime qualification is venue-specific. Gemini deltas use native update ranges and fail closed on gaps; Polymarket and Limitless replacement images enter explicit rebuild because their public full-book paths do not provide equivalent delta sequencing guarantees.
 - 2026-07-31: The control plane owns deterministic book replay and broadcasts projections over SSE. Studio renders lifecycle and depth but never derives authoritative state in the browser.
+- 2026-07-31: Discovery runs are retained in a 25-entry in-memory ledger and streamed to Scout Inbox. Promotion controls remain absent until independent equivalence-review authority is configured.
 
 ## Blockers
 

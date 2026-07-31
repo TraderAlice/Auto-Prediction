@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ReplayBookDesk } from "./book-desk.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
+import { DiscoveryLedger } from "./discovery-ledger.js";
 import { buildStudioProjection } from "./projection.js";
 import type { DiscoveryTask } from "./types.js";
 
@@ -56,10 +57,14 @@ function parseDiscoveryTask(value: unknown): DiscoveryTask {
   };
 }
 
-export function createControlPlane(options?: { bookDesk?: ReplayBookDesk }) {
+export function createControlPlane(options?: {
+  bookDesk?: ReplayBookDesk;
+  discoveryLedger?: DiscoveryLedger;
+}) {
   const worker = new HeuristicDiscoveryWorker();
   const pool = new DiscoveryPool([worker]);
   const bookDesk = options?.bookDesk ?? new ReplayBookDesk();
+  const discoveryLedger = options?.discoveryLedger ?? new DiscoveryLedger();
   const ready = bookDesk.replay();
   const subscribers = new Set<ServerResponse>();
   let activeRuns = 0;
@@ -68,6 +73,7 @@ export function createControlPlane(options?: { bookDesk?: ReplayBookDesk }) {
       workers: pool.workers,
       activeRuns,
       bookDesk: await ready.then(() => bookDesk.projection()),
+      discoveryDesk: discoveryLedger.projection(),
     });
 
   const broadcastProjection = async (): Promise<void> => {
@@ -108,6 +114,13 @@ export function createControlPlane(options?: { bookDesk?: ReplayBookDesk }) {
     if (request.method === "GET" && url.pathname === "/api/v1/books") {
       await ready;
       writeJson(response, 200, bookDesk.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/discovery/runs"
+    ) {
+      writeJson(response, 200, discoveryLedger.projection());
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/events") {
@@ -164,10 +177,24 @@ export function createControlPlane(options?: { bookDesk?: ReplayBookDesk }) {
       request.method === "POST" &&
       url.pathname === "/api/v1/discovery/runs"
     ) {
-      activeRuns += 1;
+      let task: DiscoveryTask;
       try {
-        const task = parseDiscoveryTask(await readJson(request));
-        writeJson(response, 200, await pool.run(task));
+        task = parseDiscoveryTask(await readJson(request));
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic:
+            error instanceof Error ? error.message : "discovery run failed",
+          executionAuthority: false,
+        });
+        return;
+      }
+      activeRuns += 1;
+      await broadcastProjection();
+      try {
+        const run = await pool.run(task);
+        discoveryLedger.record(task, run);
+        writeJson(response, 200, run);
       } catch (error) {
         writeJson(response, 400, {
           ok: false,
@@ -177,6 +204,7 @@ export function createControlPlane(options?: { bookDesk?: ReplayBookDesk }) {
         });
       } finally {
         activeRuns -= 1;
+        await broadcastProjection();
       }
       return;
     }
@@ -185,7 +213,14 @@ export function createControlPlane(options?: { bookDesk?: ReplayBookDesk }) {
       diagnostic: "route not found",
     });
   });
-  return { server, pool, bookDesk, projection, ready };
+  return {
+    server,
+    pool,
+    bookDesk,
+    discoveryLedger,
+    projection,
+    ready,
+  };
 }
 
 export async function startControlPlane(
