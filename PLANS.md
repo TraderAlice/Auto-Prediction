@@ -27,3 +27,6 @@ Architecture Qualification, pre-alpha. The work starts with venue reality and do
 - 2026-07-31: First catalog qualification includes Polymarket Global, Kalshi, Gemini, Opinion, and Myriad; all remain `DISCOVER` and live-disabled.
 - 2026-07-31: The complete-set compiler may optimize quantity under depth, common ticks, and venue capital, but cannot publish a verdict.
 - 2026-07-31: Exact certificates bind rule, fee, book generation, exact book state, resolution partition, and expiry. BUY cost/fees round up, payouts round down, and arbitrage requires strictly positive post-fee payoff in every canonical state.
+- 2026-07-31: Capital remains a per-venue silo and is conserved through reservation, partial deployment, unresolved lock, settlement receivable, recovery, and realized terminal PnL.
+- 2026-07-31: Shadow execution intents bind certificate legs and obey DAG checkpoints. UNKNOWN is a reconcile-only state; complete fill is required before hedge lock.
+- 2026-07-31: The fixed Risk Governor has no live mode and fails closed on invalid books, expiry, venue/residual/unresolved limits, heartbeat/cancel latency, and local/venue divergence.

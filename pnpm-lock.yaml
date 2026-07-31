@@ -21,6 +21,8 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@24.13.3)
 
+  packages/capital: {}
+
   packages/domain:
     dependencies:
       zod:
@@ -35,6 +37,21 @@ importers:
       zod:
         specifier: ^4.1.5
         version: 4.4.3
+
+  packages/execution:
+    dependencies:
+      '@pmh/capital':
+        specifier: workspace:*
+        version: link:../capital
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@pmh/opportunity':
+        specifier: workspace:*
+        version: link:../opportunity
+      '@pmh/risk':
+        specifier: workspace:*
+        version: link:../risk
 
   packages/market-state:
     dependencies:
@@ -56,6 +73,21 @@ importers:
       zod:
         specifier: ^4.1.5
         version: 4.4.3
+
+  packages/risk:
+    dependencies:
+      '@pmh/capital':
+        specifier: workspace:*
+        version: link:../capital
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@pmh/market-state':
+        specifier: workspace:*
+        version: link:../market-state
+      '@pmh/opportunity':
+        specifier: workspace:*
+        version: link:../opportunity
 
   packages/venue-gemini:
     dependencies:

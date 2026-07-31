@@ -36,7 +36,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [ ] Capture raw streams and content-addressed manifests.
 - [ ] Deterministically replay snapshot/delta books.
 - [ ] Fail closed on gap, stale, reconnect, tick change, and generation mismatch.
-- [ ] Simulate multi-leg execution, partial fills, UNKNOWN reconciliation, and capital conservation.
+- [x] Simulate multi-leg execution, partial fills, UNKNOWN reconciliation, and capital conservation.
 - [ ] Emit immutable campaign evidence.
 
 ## Campaign E — Liquidity export
@@ -51,9 +51,9 @@ Qualify a prediction-market interoperability architecture against current offici
 - [ ] Fixed-point and payout property tests.
 - [ ] Replay chaos tests.
 - [ ] Solver/verifier adversarial tests.
-- [ ] Execution and capital state-model tests.
+- [x] Execution and capital state-model tests.
 - [ ] CLI JSON-envelope tests.
-- [ ] Explicit live-disabled proof.
+- [x] Explicit live-disabled proof.
 - [ ] Full workspace checkpoint on the target runtime.
 
 ## Decisions and deviations
