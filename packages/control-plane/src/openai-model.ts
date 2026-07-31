@@ -6,12 +6,12 @@ import type {
 } from "./types.js";
 
 const RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
-const DEFAULT_MODEL = "gpt-5.4-mini";
+const DEFAULT_MODEL = "gpt-5.6-luna";
 const DEFAULT_MAX_OUTPUT_TOKENS = 800;
 const DEFAULT_TIMEOUT_MS = 8_000;
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/;
 
-const discoveryOutputSchema = Object.freeze({
+export const discoveryOutputSchema = Object.freeze({
   type: "object",
   additionalProperties: false,
   properties: {
@@ -291,6 +291,7 @@ export function createOpenAiDiscoveryRuntime(
   const apiKey = environment.OPENAI_API_KEY?.trim() ?? "";
   const projection: ModelProviderProjection = Object.freeze({
     provider: "OPENAI_RESPONSES",
+    transport: "DIRECT_HTTP",
     configured: apiKey !== "",
     credentialEnv: "OPENAI_API_KEY",
     model,

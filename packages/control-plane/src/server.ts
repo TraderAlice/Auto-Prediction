@@ -5,9 +5,9 @@ import { ReplayBookDesk } from "./book-desk.js";
 import { FixtureCatalogDiscoveryDesk } from "./catalog-discovery.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
 import {
-  createOpenAiDiscoveryRuntime,
-  type OpenAiDiscoveryRuntime,
-} from "./openai-model.js";
+  createDiscoveryModelRuntime,
+  type DiscoveryModelRuntime,
+} from "./model-runtime.js";
 import {
   DiscoveryLedger,
   type DiscoveryRunStore,
@@ -137,7 +137,7 @@ export function createControlPlane(options?: {
   discoveryLedger?: DiscoveryLedger;
   discoveryStore?: DiscoveryRunStore;
   discoveryPool?: DiscoveryPool;
-  modelRuntime?: OpenAiDiscoveryRuntime;
+  modelRuntime?: DiscoveryModelRuntime;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -146,7 +146,7 @@ export function createControlPlane(options?: {
     throw new Error("provide either discoveryLedger or discoveryStore, not both");
   }
   const modelRuntime =
-    options?.modelRuntime ?? createOpenAiDiscoveryRuntime();
+    options?.modelRuntime ?? createDiscoveryModelRuntime();
   const worker = new HeuristicDiscoveryWorker();
   const pool =
     options?.discoveryPool ??

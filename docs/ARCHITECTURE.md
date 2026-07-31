@@ -24,10 +24,12 @@ proposal-only scout hypothesis
   -> fixture certificate (shadow only)
 ```
 
-The first external scout adapter uses OpenAI's Responses API with
-`gpt-5.4-mini` by default. It sends no tools, requests strict JSON Schema
-output, disables response storage, uses minimal reasoning, caps output tokens,
-and aborts on a bounded timeout. Before any worker runs, the control plane
+The external scout rack uses `deepseek-v4-flash` through Vercel AI SDK by
+default and retains direct OpenAI Responses as an explicit alternate route. It
+sends no tools, requests validated JSON output, disables thinking for the
+DeepSeek fast lane, caps output tokens, and aborts on a bounded timeout. OpenAI
+requests set `store:false`; DeepSeek retention remains provider policy. Before
+any worker runs, the control plane
 normalizes verified catalog fixtures and selects a bounded task context. The
 context binds concrete listing IDs, rules, indicative prices, source fixture
 hashes, and protocol identities under its own SHA-256 identity. The adapter

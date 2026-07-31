@@ -109,14 +109,15 @@ export interface AiModelPort {
 }
 
 export type ModelProviderProjection = Readonly<{
-  provider: "OPENAI_RESPONSES";
+  provider: "OPENAI_RESPONSES" | "DEEPSEEK_CHAT_COMPLETIONS";
+  transport: "DIRECT_HTTP" | "VERCEL_AI_SDK";
   configured: boolean;
-  credentialEnv: "OPENAI_API_KEY";
+  credentialEnv: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY";
   model: string;
   maxOutputTokens: number;
   timeoutMs: number;
-  reasoningEffort: "minimal";
-  responseStorage: false;
+  reasoningEffort: "minimal" | "disabled";
+  responseStorage: false | "PROVIDER_POLICY";
   authority: "PROPOSE_ONLY";
 }>;
 

@@ -1,8 +1,11 @@
 import { hashCanonical } from "@pmh/domain";
 import { FixtureCatalogDiscoveryDesk } from "./catalog-discovery.js";
 import { DiscoveryPool } from "./discovery.js";
+import type { DeepSeekFetchLike } from "./deepseek-model.js";
 import {
-  createOpenAiDiscoveryRuntime,
+  createDiscoveryModelRuntime,
+} from "./model-runtime.js";
+import {
   type OpenAiFetchLike,
 } from "./openai-model.js";
 import type { ModelProviderProjection, OpportunityHypothesis } from "./types.js";
@@ -10,8 +13,8 @@ import type { ModelProviderProjection, OpportunityHypothesis } from "./types.js"
 const SMOKE_QUESTION = "Highest temperature in Boston on July 31, 2026?";
 const SMOKE_VENUES = Object.freeze(["gemini-predictions"]);
 
-export type OpenAiProviderSmokeReport = Readonly<{
-  schemaVersion: "pmh.openai-provider-smoke.v1";
+export type ModelProviderSmokeReport = Readonly<{
+  schemaVersion: "pmh.model-provider-smoke.v2";
   status: "PASS";
   startedAt: string;
   completedAt: string;
@@ -42,7 +45,7 @@ export type OpenAiProviderSmokeReport = Readonly<{
   }>;
   effects: Readonly<{
     providerRequests: 1;
-    responseStorage: false;
+    responseStorage: ModelProviderProjection["responseStorage"];
     externalWrites: false;
     valueMovingActions: false;
     liveExecutionEnabled: false;
@@ -50,21 +53,29 @@ export type OpenAiProviderSmokeReport = Readonly<{
   artifactHash: string;
 }>;
 
-export async function runOpenAiProviderSmoke(
+export async function runModelProviderSmoke(
   options: Readonly<{
     environment?: Readonly<Record<string, string | undefined>>;
-    fetcher?: OpenAiFetchLike;
+    deepSeekFetcher?: DeepSeekFetchLike;
+    openAiFetcher?: OpenAiFetchLike;
     now?: () => number;
   }> = {},
-): Promise<OpenAiProviderSmokeReport> {
+): Promise<ModelProviderSmokeReport> {
   const now = options.now ?? Date.now;
-  const runtime = createOpenAiDiscoveryRuntime(
+  const runtime = createDiscoveryModelRuntime(
     options.environment ?? process.env,
-    options.fetcher === undefined ? {} : { fetcher: options.fetcher },
+    {
+      ...(options.deepSeekFetcher === undefined
+        ? {}
+        : { deepSeekFetcher: options.deepSeekFetcher }),
+      ...(options.openAiFetcher === undefined
+        ? {}
+        : { openAiFetcher: options.openAiFetcher }),
+    },
   );
   if (runtime.worker === null) {
     throw new Error(
-      "OPENAI_API_KEY is required for provider smoke qualification",
+      `${runtime.projection.credentialEnv} is required for provider smoke qualification`,
     );
   }
 
@@ -91,7 +102,7 @@ export async function runOpenAiProviderSmoke(
   }
 
   const body = Object.freeze({
-    schemaVersion: "pmh.openai-provider-smoke.v1" as const,
+    schemaVersion: "pmh.model-provider-smoke.v2" as const,
     status: "PASS" as const,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
@@ -125,11 +136,32 @@ export async function runOpenAiProviderSmoke(
     }),
     effects: Object.freeze({
       providerRequests: 1 as const,
-      responseStorage: false as const,
+      responseStorage: runtime.projection.responseStorage,
       externalWrites: false as const,
       valueMovingActions: false as const,
       liveExecutionEnabled: false as const,
     }),
   });
   return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
+}
+
+export type OpenAiProviderSmokeReport = ModelProviderSmokeReport;
+
+export function runOpenAiProviderSmoke(
+  options: Readonly<{
+    environment?: Readonly<Record<string, string | undefined>>;
+    fetcher?: OpenAiFetchLike;
+    now?: () => number;
+  }> = {},
+): Promise<OpenAiProviderSmokeReport> {
+  return runModelProviderSmoke({
+    environment: {
+      ...(options.environment ?? process.env),
+      PMH_DISCOVERY_PROVIDER: "openai",
+    },
+    ...(options.fetcher === undefined
+      ? {}
+      : { openAiFetcher: options.fetcher }),
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
 }

@@ -587,8 +587,12 @@ function Overview({
           <span>
             {studioProjection.ai.modelProvider.model} · max{" "}
             {studioProjection.ai.modelProvider.maxOutputTokens} output tokens ·{" "}
-            {studioProjection.ai.modelProvider.timeoutMs / 1_000}s · responses
-            not stored
+            {studioProjection.ai.modelProvider.timeoutMs / 1_000}s · {" "}
+            {studioProjection.ai.modelProvider.transport.replaceAll("_", " ")}
+            {" · "}
+            {studioProjection.ai.modelProvider.responseStorage === false
+              ? "responses not stored"
+              : "provider retention policy"}
           </span>
         </div>
         <div className="ai-boundary">

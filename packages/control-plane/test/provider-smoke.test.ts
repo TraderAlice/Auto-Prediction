@@ -68,11 +68,11 @@ describe("OpenAI provider qualification smoke", () => {
     expect(authorization).toBe(`Bearer ${secret}`);
     expect(requestStore).toBe(false);
     expect(report).toMatchObject({
-      schemaVersion: "pmh.openai-provider-smoke.v1",
+      schemaVersion: "pmh.model-provider-smoke.v2",
       status: "PASS",
       provider: {
         configured: true,
-        model: "gpt-5.4-mini",
+        model: "gpt-5.6-luna",
         responseStorage: false,
         authority: "PROPOSE_ONLY",
       },

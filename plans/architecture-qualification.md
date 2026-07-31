@@ -55,7 +55,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Connect a fail-closed, budgeted external model provider adapter.
 - [x] Ground every non-empty scout hypothesis in a bounded, content-addressed catalog context.
 - [x] Add a one-request, secret-free, content-hashed provider qualification command.
-- [ ] Qualify one real provider response with a user-supplied `OPENAI_API_KEY`.
+- [ ] Qualify one real provider response with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
 
@@ -98,9 +98,11 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: SQLite WAL owns bounded discovery operational state only; Git remains the authority for immutable fixtures and campaign artifacts. Records are stored as canonical JSON with SHA-256 identities, schema version 1 fails closed on incompatible future databases, and normalized task content produces a stable default `taskId`.
 - 2026-07-31: External model discovery is an optional control-plane capability, never a browser capability. The projection exposes non-secret budget posture only, and model output is schema-checked plus task-scope-checked before the process reconstructs `PROPOSE_ONLY` / `UNREVIEWED` authority fields.
 - 2026-07-31: A discovery task is grounded in at most 30 listings selected from 11 normalized listings in six verified fixture artifacts across five venues. Context identity participates in default `taskId` and durable scope; every non-empty hypothesis cites in-scope listing references, while an empty grounded result remains valid.
+- 2026-08-01: DeepSeek V4 Flash through Vercel AI SDK is the default lightweight discovery route; direct OpenAI Responses remains an explicit fallback. DeepSeek fast-lane thinking is disabled, output is SDK-validated and then scope-validated, and retention is labeled as provider policy rather than an unsupported `store:false` claim.
+- 2026-08-01: The Vercel AI SDK / DeepSeek checkpoint passes the full 140-test workspace suite, typecheck, and production build under Node.js 24.14.0.
 
 ## Blockers
 
-The adapter, deterministic tests, and one-shot qualification command are
-complete. One real provider smoke run needs a user-supplied `OPENAI_API_KEY`;
-the heuristic-only runtime is not blocked by its absence.
+The adapters, deterministic tests, and provider-neutral one-shot qualification
+command are complete. One real provider smoke run needs a user-supplied
+`DEEPSEEK_API_KEY`; the heuristic-only runtime is not blocked by its absence.

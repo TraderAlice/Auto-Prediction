@@ -98,7 +98,7 @@ describe("control-plane HTTP surface", () => {
     expect(projection.ai.catalogContext.corpusIdentity).toMatch(/^sha256:/);
     expect(projection.ai.modelProvider).toMatchObject({
       configured: false,
-      model: "gpt-5.4-mini",
+      model: "gpt-5.6-luna",
       responseStorage: false,
     });
     expect(projection.ai.workers).toContainEqual(

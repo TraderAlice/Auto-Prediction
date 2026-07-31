@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json && esbuild src/main.ts src/provider-smoke-main.ts --bundle --platform=node --format=esm --outdir=dist",
+    "build": "tsc -b tsconfig.json && esbuild src/main.ts src/provider-smoke-main.ts --bundle --platform=node --format=esm --external:ai --external:@ai-sdk/deepseek --outdir=dist",
     "check": "tsc -b tsconfig.json",
     "dev": "tsx watch src/main.ts",
     "smoke:provider": "tsx src/provider-smoke-main.ts",
@@ -16,6 +16,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "3.0.17",
     "@pmh/domain": "workspace:*",
     "@pmh/evidence": "workspace:*",
     "@pmh/market-state": "workspace:*",
@@ -26,7 +27,8 @@
     "@pmh/venue-limitless": "workspace:*",
     "@pmh/venue-myriad": "workspace:*",
     "@pmh/venue-opinion": "workspace:*",
-    "@pmh/venue-polymarket": "workspace:*"
+    "@pmh/venue-polymarket": "workspace:*",
+    "ai": "7.0.44"
   },
   "devDependencies": {
     "tsx": "^4.23.1"

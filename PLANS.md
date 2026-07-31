@@ -49,3 +49,5 @@ Architecture Qualification, pre-alpha. The work starts with venue reality and do
 - 2026-07-31: Catalog-grounded discovery passes the expanded 134-test workspace suite, typecheck, and production build under Node.js 24.14.0.
 - 2026-07-31: A one-request provider qualification command now exercises the production OpenAI adapter and emits a secret-free, content-hashed report without persistence or execution authority; the real `gpt-5.4-mini` run still awaits `OPENAI_API_KEY`.
 - 2026-07-31: Provider-smoke qualification expands the Node.js 24.14.0 checkpoint to 136 passing tests plus full typecheck and production build; the bundled CLI also fails before network access when its key is absent.
+- 2026-08-01: DeepSeek V4 Flash through Vercel AI SDK becomes the default lightweight discovery route, with direct OpenAI Responses retained as an explicit fallback. The provider-neutral smoke report records transport and honest retention posture; a real DeepSeek run awaits `DEEPSEEK_API_KEY`.
+- 2026-08-01: The Vercel AI SDK / DeepSeek route expands the Node.js 24.14.0 checkpoint to 140 passing tests plus full typecheck and production build.
