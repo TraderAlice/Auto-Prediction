@@ -1,6 +1,7 @@
 import { hashCanonical } from "@pmh/domain";
 import { geminiManifest } from "@pmh/venue-gemini";
 import { kalshiManifest } from "@pmh/venue-kalshi";
+import { limitlessManifest } from "@pmh/venue-limitless";
 import { myriadManifest } from "@pmh/venue-myriad";
 import { opinionManifest } from "@pmh/venue-opinion";
 import { polymarketManifest } from "@pmh/venue-polymarket";
@@ -13,12 +14,14 @@ const presentation = {
   "gemini-predictions": ["CLOB · Combo", 99, "#84c8ff"],
   opinion: ["CLOB · Outcome token", 92, "#d4a8ff"],
   myriad: ["AMM · Multi-chain", 94, "#ffc78e"],
+  limitless: ["CLOB · Socket.IO", 97, "#ff9f84"],
 } as const;
 
 const manifests = [
   polymarketManifest,
   kalshiManifest,
   geminiManifest,
+  limitlessManifest,
   opinionManifest,
   myriadManifest,
 ].map(assertManifest);
@@ -31,8 +34,21 @@ export function buildStudioProjection(input: {
     system: {
       lifecycle: "PRE_ALPHA" as const,
       observedVenueFamilies: 8,
-      catalogAdapters: manifests.length,
-      proofTests: 68,
+      catalogAdapters: manifests.filter((manifest) =>
+        manifest.capabilities.some(
+          (capability) =>
+            capability.capability === "MARKET_CATALOG" &&
+            capability.implemented,
+        ),
+      ).length,
+      realtimeBookAdapters: manifests.filter((manifest) =>
+        manifest.capabilities.some(
+          (capability) =>
+            capability.capability === "REALTIME_BOOK" &&
+            capability.implemented,
+        ),
+      ).length,
+      proofTests: 75,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -67,7 +83,13 @@ export function buildStudioProjection(input: {
           id: manifest.venueId,
           name: manifest.displayName.replace(" Prediction Markets", ""),
           mechanism: details[0],
-          stage: "DISCOVER" as const,
+          stage: manifest.capabilities.some(
+            (capability) =>
+              capability.capability === "REALTIME_BOOK" &&
+              capability.qualification.includes("OBSERVE"),
+          )
+            ? ("OBSERVE" as const)
+            : ("DISCOVER" as const),
           health: details[1],
           color: details[2],
           protocolIdentity: manifest.protocolIdentity,

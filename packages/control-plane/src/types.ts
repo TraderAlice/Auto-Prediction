@@ -59,6 +59,7 @@ export type StudioProjection = Readonly<{
     lifecycle: "PRE_ALPHA";
     observedVenueFamilies: number;
     catalogAdapters: number;
+    realtimeBookAdapters: number;
     proofTests: number;
     liveExecutionEnabled: false;
     controlPlaneConnected: true;
@@ -78,7 +79,7 @@ export type StudioProjection = Readonly<{
     id: string;
     name: string;
     mechanism: string;
-    stage: "DISCOVER";
+    stage: "DISCOVER" | "OBSERVE";
     health: number;
     color: string;
     protocolIdentity: string;

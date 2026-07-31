@@ -1,5 +1,6 @@
 import { geminiManifest } from "@pmh/venue-gemini";
 import { kalshiManifest } from "@pmh/venue-kalshi";
+import { limitlessManifest } from "@pmh/venue-limitless";
 import { myriadManifest } from "@pmh/venue-myriad";
 import { opinionManifest } from "@pmh/venue-opinion";
 import { polymarketManifest } from "@pmh/venue-polymarket";
@@ -9,6 +10,7 @@ const manifests = [
   polymarketManifest,
   kalshiManifest,
   geminiManifest,
+  limitlessManifest,
   opinionManifest,
   myriadManifest,
 ].map(assertManifest);

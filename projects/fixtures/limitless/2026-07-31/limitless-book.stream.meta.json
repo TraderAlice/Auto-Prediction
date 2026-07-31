@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "pmh.stream-fixture.v1",
+  "name": "limitless-book",
+  "venue": "limitless",
+  "protocolVersion": "markets-socket-io:2026-07-31",
+  "sourceUrl": "wss://ws.limitless.exchange/markets",
+  "connectedAt": "2026-07-31T09:59:42.679Z",
+  "closedAt": "2026-07-31T09:59:42.771Z",
+  "transport": "SOCKET_IO_WEBSOCKET",
+  "subscription": {
+    "event": "subscribe_market_prices",
+    "payload": {
+      "marketSlugs": [
+        "btc-up-or-down-hourly-1785488400"
+      ]
+    }
+  },
+  "subscriptionHash": "sha256:32e8a818e9e12fa130cb6bd9eb2eb22e3289fd6fcc7164c6ec21653b778343ee",
+  "instrumentIds": [
+    "btc-up-or-down-hourly-1785488400"
+  ],
+  "frameCount": "3",
+  "rawHash": "sha256:ade5080db2487e962b5e86627a5ac1e45b1d0fa602de8d8970cd283cb21d561b",
+  "byteLength": "1421",
+  "acquisition": {
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

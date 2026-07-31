@@ -19,6 +19,7 @@
     "@pmh/protocol": "workspace:*",
     "@pmh/venue-gemini": "workspace:*",
     "@pmh/venue-kalshi": "workspace:*",
+    "@pmh/venue-limitless": "workspace:*",
     "@pmh/venue-myriad": "workspace:*",
     "@pmh/venue-opinion": "workspace:*",
     "@pmh/venue-polymarket": "workspace:*"

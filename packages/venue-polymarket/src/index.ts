@@ -1,5 +1,7 @@
 import { parseFixed } from "@pmh/domain";
 import type { VerifiedRawFixture } from "@pmh/evidence";
+import type { VerifiedStreamFixture } from "@pmh/evidence";
+import type { NormalizedBookUpdate } from "@pmh/market-state";
 import {
   parseJsonWithNumberLexemes,
   type NormalizedCatalogListing,
@@ -23,6 +25,21 @@ const MarketSchema = z.object({
 });
 
 const StringArraySchema = z.array(z.string());
+
+const BookLevelSchema = z.object({
+  price: z.string(),
+  size: z.string(),
+});
+
+const BookMessageSchema = z.object({
+  event_type: z.literal("book"),
+  asset_id: z.string(),
+  timestamp: z.string().regex(/^\d+$/),
+  hash: z.string(),
+  bids: z.array(BookLevelSchema),
+  asks: z.array(BookLevelSchema),
+  tick_size: z.string(),
+});
 
 export const polymarketManifest: VenueManifest = {
   venueId: "polymarket-global",
@@ -51,6 +68,16 @@ export const polymarketManifest: VenueManifest = {
       qualification: ["DISCOVER"],
       evidenceRefs: ["polymarket-combo"],
       limitations: ["read-only combo discovery"],
+    },
+    {
+      capability: "REALTIME_BOOK",
+      implemented: true,
+      qualification: ["DISCOVER", "OBSERVE"],
+      evidenceRefs: ["polymarket-book"],
+      limitations: [
+        "public price-change messages have no venue sequence; only full book events are normalized",
+        "each replacement snapshot must enter rebuild before application",
+      ],
     },
     {
       capability: "CONDITIONAL_TOKEN",
@@ -104,4 +131,44 @@ export function normalizePolymarketCatalog(
       protocolIdentity: fixture.metadata.protocolVersion,
     };
   });
+}
+
+export function decodePolymarketBookStream(
+  fixture: VerifiedStreamFixture,
+): readonly NormalizedBookUpdate[] {
+  if (fixture.metadata.venue !== polymarketManifest.venueId) {
+    throw new Error("stream fixture venue does not match Polymarket adapter");
+  }
+  const seen = new Set<string>();
+  const updates: NormalizedBookUpdate[] = [];
+  for (const frame of fixture.frames) {
+    const parsed: unknown = JSON.parse(frame.rawText);
+    const messages = Array.isArray(parsed) ? parsed : [parsed];
+    for (const candidate of messages) {
+      const result = BookMessageSchema.safeParse(candidate);
+      if (!result.success) continue;
+      const message = result.data;
+      const requiresRebuild = seen.has(message.asset_id);
+      seen.add(message.asset_id);
+      updates.push({
+        instrumentId: message.asset_id,
+        requiresRebuild,
+        event: {
+          kind: "SNAPSHOT",
+          sequence: BigInt(message.timestamp),
+          tickSize: parseFixed(message.tick_size, 100_000_000n),
+          bids: message.bids.map((level) => ({
+            price: parseFixed(level.price, 100_000_000n),
+            size: parseFixed(level.size, 100_000_000n),
+          })),
+          asks: message.asks.map((level) => ({
+            price: parseFixed(level.price, 100_000_000n),
+            size: parseFixed(level.size, 100_000_000n),
+          })),
+          sourceHash: frame.frameHash,
+        },
+      });
+    }
+  }
+  return updates;
 }

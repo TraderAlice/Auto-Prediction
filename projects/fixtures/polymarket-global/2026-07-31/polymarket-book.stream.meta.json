@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "pmh.stream-fixture.v1",
+  "name": "polymarket-book",
+  "venue": "polymarket-global",
+  "protocolVersion": "clob-market-wss:2026-07-31",
+  "sourceUrl": "wss://ws-subscriptions-clob.polymarket.com/ws/market",
+  "connectedAt": "2026-07-31T09:59:38.215Z",
+  "closedAt": "2026-07-31T09:59:38.464Z",
+  "transport": "WEBSOCKET",
+  "subscription": {
+    "assets_ids": [
+      "98022490269692409998126496127597032490334070080325855126491859374983463996227"
+    ],
+    "type": "market",
+    "custom_feature_enabled": true
+  },
+  "subscriptionHash": "sha256:8291aee0c13463236ea7c8471a1438a9dd32df5bd7abca81c5cd4dd8cec031e0",
+  "instrumentIds": [
+    "98022490269692409998126496127597032490334070080325855126491859374983463996227"
+  ],
+  "frameCount": "1",
+  "rawHash": "sha256:dec76d6c6442d22aec1a90b05cc95004d9e01299d9c82ee7c34df64caa2fbbb5",
+  "byteLength": "2324",
+  "acquisition": {
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

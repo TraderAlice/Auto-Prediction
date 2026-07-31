@@ -1,5 +1,9 @@
-import { parseFixed } from "@pmh/domain";
-import type { VerifiedRawFixture } from "@pmh/evidence";
+import { parseFixed, type Hash } from "@pmh/domain";
+import type {
+  VerifiedRawFixture,
+  VerifiedStreamFixture,
+} from "@pmh/evidence";
+import type { NormalizedBookUpdate } from "@pmh/market-state";
 import {
   parseJsonWithNumberLexemes,
   type NormalizedCatalogListing,
@@ -35,6 +39,15 @@ const ResponseSchema = z.object({
   ),
 });
 
+const DepthUpdateSchema = z.object({
+  e: z.literal("depthUpdate"),
+  s: z.string(),
+  U: z.string().regex(/^\d+$/),
+  u: z.string().regex(/^\d+$/),
+  b: z.array(z.tuple([z.string(), z.string()])),
+  a: z.array(z.tuple([z.string(), z.string()])),
+});
+
 export const geminiManifest: VenueManifest = {
   venueId: "gemini-predictions",
   displayName: "Gemini Prediction Markets",
@@ -67,6 +80,16 @@ export const geminiManifest: VenueManifest = {
         "https://developer.gemini.com/prediction-markets/prediction-markets",
       ],
       limitations: ["official surface verified; codec pending"],
+    },
+    {
+      capability: "REALTIME_BOOK",
+      implemented: true,
+      qualification: ["DISCOVER", "OBSERVE"],
+      evidenceRefs: ["gemini-book"],
+      limitations: [
+        "public market-data stream only",
+        "decoder fails closed when update ranges skip the last applied sequence",
+      ],
     },
     {
       capability: "ORDER_GATEWAY",
@@ -120,4 +143,107 @@ export function normalizeGeminiCatalog(
       protocolIdentity: fixture.metadata.protocolVersion,
     })),
   );
+}
+
+export class GeminiRealtimeBookDecoder {
+  readonly #sequences = new Map<string, bigint>();
+
+  public decode(
+    rawText: string,
+    sourceHash: Hash,
+  ): NormalizedBookUpdate | undefined {
+    const candidate = DepthUpdateSchema.safeParse(
+      parseJsonWithNumberLexemes(rawText),
+    );
+    if (!candidate.success) return undefined;
+
+    const message = candidate.data;
+    const first = BigInt(message.U);
+    const last = BigInt(message.u);
+    const previous = this.#sequences.get(message.s);
+    if (previous === undefined) {
+      if (first !== last) {
+        return {
+          instrumentId: message.s,
+          requiresRebuild: false,
+          event: {
+            kind: "MARK_STALE",
+            reason:
+              `Gemini stream began with range ${first}-${last}; ` +
+              "a snapshot where U equals u is required",
+          },
+        };
+      }
+      this.#sequences.set(message.s, last);
+      return {
+        instrumentId: message.s,
+        requiresRebuild: false,
+        event: {
+          kind: "SNAPSHOT",
+          sequence: last,
+          tickSize: 10_000n,
+          bids: message.b.map(([price, size]) => ({
+            price: parseFixed(price, 100_000_000n),
+            size: parseFixed(size, 100_000_000n),
+          })),
+          asks: message.a.map(([price, size]) => ({
+            price: parseFixed(price, 100_000_000n),
+            size: parseFixed(size, 100_000_000n),
+          })),
+          sourceHash,
+        },
+      };
+    }
+    if (last <= previous) return undefined;
+    if (first > previous + 1n) {
+      this.#sequences.delete(message.s);
+      return {
+        instrumentId: message.s,
+        requiresRebuild: false,
+        event: {
+          kind: "MARK_STALE",
+          reason:
+            `Gemini sequence gap after ${previous}; ` +
+            `received range ${first}-${last}`,
+        },
+      };
+    }
+
+    this.#sequences.set(message.s, last);
+    return {
+      instrumentId: message.s,
+      requiresRebuild: false,
+      event: {
+        kind: "DELTA",
+        previousSequence: previous,
+        sequence: last,
+        changes: [
+          ...message.b.map(([price, size]) => ({
+            side: "BID" as const,
+            price: parseFixed(price, 100_000_000n),
+            size: parseFixed(size, 100_000_000n),
+          })),
+          ...message.a.map(([price, size]) => ({
+            side: "ASK" as const,
+            price: parseFixed(price, 100_000_000n),
+            size: parseFixed(size, 100_000_000n),
+          })),
+        ],
+        sourceHash,
+      },
+    };
+  }
+}
+
+export function decodeGeminiBookStream(
+  fixture: VerifiedStreamFixture,
+): readonly NormalizedBookUpdate[] {
+  if (fixture.metadata.venue !== geminiManifest.venueId) {
+    throw new Error("stream fixture venue does not match Gemini adapter");
+  }
+  const decoder = new GeminiRealtimeBookDecoder();
+  return fixture.frames.flatMap((frame) => {
+    const update = decoder.decode(frame.rawText, frame.frameHash);
+    return update === undefined ? [] : [update];
+  });
 }

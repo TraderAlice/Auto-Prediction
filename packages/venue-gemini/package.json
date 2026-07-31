@@ -13,6 +13,7 @@
   "dependencies": {
     "@pmh/domain": "workspace:*",
     "@pmh/evidence": "workspace:*",
+    "@pmh/market-state": "workspace:*",
     "@pmh/protocol": "workspace:*",
     "zod": "^4.1.5"
   }

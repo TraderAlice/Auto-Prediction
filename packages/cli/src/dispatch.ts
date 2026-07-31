@@ -35,6 +35,20 @@ export function runCli(argv: readonly string[]): CliEnvelope {
       state: {
         lifecycle: "PRE_ALPHA",
         venueAdapterCount: venues.length,
+        catalogAdapterCount: venues.filter((venue) =>
+          venue.capabilities.some(
+            (capability) =>
+              capability.capability === "MARKET_CATALOG" &&
+              capability.implemented,
+          ),
+        ).length,
+        realtimeBookAdapterCount: venues.filter((venue) =>
+          venue.capabilities.some(
+            (capability) =>
+              capability.capability === "REALTIME_BOOK" &&
+              capability.implemented,
+          ),
+        ).length,
         implementedCapabilities: venues.reduce(
           (total, venue) =>
             total +

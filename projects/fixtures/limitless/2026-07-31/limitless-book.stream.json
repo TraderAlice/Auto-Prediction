@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "pmh.stream-acquisition.v1",
+  "frames": [
+    {
+      "ordinal": "0",
+      "receivedAt": "2026-07-31T09:59:42.679Z",
+      "eventName": "system",
+      "rawText": "{\"message\":\"Successfully registered connection\"}",
+      "frameHash": "sha256:8a90890284df923a8c3eb1aa380ab8274522e70cff249fb51f56b2cf0a1c4142"
+    },
+    {
+      "ordinal": "1",
+      "receivedAt": "2026-07-31T09:59:42.771Z",
+      "eventName": "system",
+      "rawText": "{\"message\":\"Successfully subscribed to market price updates\",\"markets\":[\"btc-up-or-down-hourly-1785488400\"]}",
+      "frameHash": "sha256:4ec29a33aefd2103da21c0993d835118c057a87e62282c3197860be1967c1c75"
+    },
+    {
+      "ordinal": "2",
+      "receivedAt": "2026-07-31T09:59:42.771Z",
+      "eventName": "orderbookUpdate",
+      "rawText": "{\"marketSlug\":\"btc-up-or-down-hourly-1785488400\",\"orderbook\":{\"bids\":[{\"price\":0.002,\"size\":50000000,\"side\":\"BUY\"}],\"asks\":[{\"price\":0.01,\"size\":544760000,\"side\":\"SELL\"},{\"price\":0.998,\"size\":50000000,\"side\":\"SELL\"}],\"tokenId\":\"29687174478567965776395270155296637349846296009349906460967756725561565069436\",\"adjustedMidpoint\":0.005,\"midpoint\":0.006,\"maxSpread\":0.035,\"minSize\":100000000},\"version\":3753097,\"timestamp\":\"2026-07-31T09:59:42.834Z\"}",
+      "frameHash": "sha256:8e516c8c3ed3495b209870c32bea938faa04fb7fc3b65cf6d379016afee27c9b"
+    }
+  ]
+}

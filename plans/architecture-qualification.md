@@ -12,9 +12,9 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Census at least eight venue families from official sources.
 - [x] Capture at least six heterogeneous mechanism fixtures.
 - [x] Implement at least five catalog adapters.
-- [ ] Implement at least three realtime-book adapters.
+- [x] Implement at least three realtime-book adapters.
 - [ ] Implement two inert order-gateway contracts, including one demo/sandbox-shaped gateway.
-- [ ] Publish capability, precision, limitations, and qualification evidence per adapter.
+- [x] Publish capability, precision, limitations, and qualification evidence per adapter.
 
 ## Campaign B — Contract truth
 
@@ -33,8 +33,8 @@ Qualify a prediction-market interoperability architecture against current offici
 
 ## Campaign D — External loop
 
-- [ ] Capture raw streams and content-addressed manifests.
-- [ ] Deterministically replay snapshot/delta books.
+- [x] Capture raw streams and content-addressed manifests.
+- [x] Deterministically replay snapshot/delta books.
 - [ ] Fail closed on gap, stale, reconnect, tick change, and generation mismatch.
 - [x] Simulate multi-leg execution, partial fills, UNKNOWN reconciliation, and capital conservation.
 - [ ] Emit immutable campaign evidence.
@@ -56,8 +56,8 @@ Qualify a prediction-market interoperability architecture against current offici
 
 ## Verification gate
 
-- [ ] Focused fixture and contract tests.
-- [ ] Fixed-point and payout property tests.
+- [x] Focused fixture and contract tests.
+- [x] Fixed-point and payout property tests.
 - [ ] Replay chaos tests.
 - [ ] Solver/verifier adversarial tests.
 - [x] Execution and capital state-model tests.
@@ -75,6 +75,7 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: CLI schema `pmh.cli.v1` makes external writes, value movement, and live execution explicit literal-false effects.
 - 2026-07-31: Studio consumes a live control-plane projection and SSE stream; browser code presents state and does not recompute verifier verdicts.
 - 2026-07-31: AI is trusted for subjective search hypotheses only. Every model output remains UNREVIEWED, has no execution authority, and must cross deterministic compilation plus independent exact verification.
+- 2026-07-31: Public realtime qualification is venue-specific. Gemini deltas use native update ranges and fail closed on gaps; Polymarket and Limitless replacement images enter explicit rebuild because their public full-book paths do not provide equivalent delta sequencing guarantees.
 
 ## Blockers
 

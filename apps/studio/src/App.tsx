@@ -89,7 +89,9 @@ function VenuePulse() {
     <div className="venue-pulse">
       <div className="pulse-heading">
         <span>Adapter pulse</span>
-        <Badge variant="verified">5 online</Badge>
+        <Badge variant="verified">
+          {studioProjection.venues.length} registered
+        </Badge>
       </div>
       <div className="pulse-list">
         {studioProjection.venues.map((venue) => (
@@ -498,7 +500,7 @@ function Overview({
         <Metric
           label="Catalog adapters"
           value={`${studioProjection.system.catalogAdapters}`}
-          detail="fixture qualified"
+          detail={`${studioProjection.system.realtimeBookAdapters} realtime books`}
         />
         <Metric
           label="Proof tests"
