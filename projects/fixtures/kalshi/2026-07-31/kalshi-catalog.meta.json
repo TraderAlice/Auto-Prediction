@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "kalshi-catalog",
+  "venue": "kalshi",
+  "protocolVersion": "trade-api-v2:2026-07-31",
+  "sourceUrl": "https://external-api.kalshi.com/trade-api/v2/markets?limit=1&status=open",
+  "fetchedAt": "2026-07-31T08:54:33.337Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:247990c5b870c37643267d80f3e522ab129723070f11e8447d765b86e8cadf15",
+  "byteLength": "2960",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

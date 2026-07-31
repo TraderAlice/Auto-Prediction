@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "opinion-catalog",
+  "venue": "opinion",
+  "protocolVersion": "openapi:2026-07-31",
+  "sourceUrl": "https://openapi.opinion.trade/openapi/market?status=activated&limit=1",
+  "fetchedAt": "2026-07-31T08:54:35.290Z",
+  "httpStatus": 200,
+  "contentType": "application/json; charset=utf-8",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:5425303d4295214684418df8004d521d89398cbbe32a03516ad2207cd459d0f0",
+  "byteLength": "2957",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

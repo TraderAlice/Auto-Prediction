@@ -22,3 +22,6 @@ Architecture Qualification, pre-alpha. The work starts with venue reality and do
 - 2026-07-31: Seven of eight initial venue families returned anonymous JSON from public endpoints. Polymarket US documents a public gateway but its Cloudflare edge returned 403 from this host.
 - 2026-07-31: Gemini is promoted to a first-wave adapter because its official surface now includes public catalog, realtime depth, Combo/RFQ, maker-only orders, and a full sandbox.
 - 2026-07-31: Myriad's canonical Question / per-chain Market split and hybrid AMM/order-book modes independently support Claim-before-Listing and per-listing mechanism identity.
+- 2026-07-31: Captured nine anonymous, content-addressed raw responses covering six required mechanism classes. Every fixture binds source, protocol, fetch time, headers, byte length, and SHA-256.
+- 2026-07-31: JSON numeric tokens must be preserved lexically at adapter ingress. This prevents venue APIs that emit JSON numbers (including Polymarket and Myriad) from silently passing contract values through IEEE-754.
+- 2026-07-31: First catalog qualification includes Polymarket Global, Kalshi, Gemini, Opinion, and Myriad; all remain `DISCOVER` and live-disabled.

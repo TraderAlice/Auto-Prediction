@@ -10,6 +10,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "check": "pnpm -r check",
+    "fixtures:capture": "node scripts/capture-public-fixtures.mjs",
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage"
   },

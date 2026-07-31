@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "gemini-range-catalog",
+  "venue": "gemini-predictions",
+  "protocolVersion": "prediction-markets-v1:2026-07-30",
+  "sourceUrl": "https://api.gemini.com/v1/prediction-markets/events?status=active&category=weather&limit=1",
+  "fetchedAt": "2026-07-31T08:54:35.017Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:4b1b570c135d53bce12204571fccac0ba3c2c9ae93f512137d4114ede82b6444",
+  "byteLength": "12114",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

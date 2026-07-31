@@ -13,10 +13,13 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Hash-bound market-link proposals and independent review artifacts.
 - Composable venue capability ports and qualification evidence.
 - Deterministic snapshot/delta book replay with gap, duplicate, out-of-order, tick, stale, and rebuild handling.
+- Content-hash verification for immutable raw fixtures and anonymous acquisition metadata.
+- Fixture-backed catalog adapters for Polymarket Global, Kalshi, Gemini Prediction Markets, Opinion, and Myriad.
+- Lexical JSON-number decoding so venue number tokens never pass through IEEE-754 before fixed-point conversion.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-The exact arbitrage verifier, fixture-backed venue adapters, shadow execution, capital/risk state, hedge curves, CLI, and Studio remain active campaign work.
+The exact arbitrage verifier, realtime adapters, shadow execution, capital/risk state, hedge curves, CLI, and Studio remain active campaign work.
 
 ## Safety boundary
 
@@ -44,6 +47,8 @@ The host used for the initial checkpoint exposed Node.js 22.22.1, so the reposit
 - `packages/domain`: canonical contract truth, exact fixed-point values, identities, and links.
 - `packages/protocol`: event envelopes, capability manifests, and narrow venue ports.
 - `packages/market-state`: deterministic order-book state and replay.
+- `packages/evidence`: raw fixture identity and tamper detection.
+- `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.
 - `docs/design`: current architecture truth.
 - `plans/architecture-qualification.md`: live qualification campaign.
