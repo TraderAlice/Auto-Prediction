@@ -73,6 +73,53 @@ describe("AI-native discovery boundary", () => {
       port,
     );
     await expect(worker.discover(task)).rejects.toThrow(/does not match/);
+
+    const authorityPort: AiModelPort = {
+      async completeStructured() {
+        return {
+          hypotheses: [
+            {
+              thesis: "A model must not inject authority fields.",
+              strategyKind: "SAME_CLAIM_CROSS_VENUE",
+              venueIds: ["kalshi", "polymarket-global"],
+              claimSearchTerms: ["rain"],
+              confidenceBps: 9_999,
+              authority: "CERTIFY_AND_EXECUTE",
+            },
+          ],
+        };
+      },
+    };
+    await expect(
+      new StructuredModelDiscoveryWorker(
+        "model-fast-1",
+        "provider/model-small",
+        authorityPort,
+      ).discover(task),
+    ).rejects.toThrow(/invalid shape/);
+  });
+
+  it("keeps heuristic proposals when a model worker fails closed", async () => {
+    const port: AiModelPort = {
+      async completeStructured() {
+        throw new Error("model fixture unavailable");
+      },
+    };
+    const pool = new DiscoveryPool(
+      [
+        new HeuristicDiscoveryWorker(),
+        new StructuredModelDiscoveryWorker(
+          "model-fast-lane",
+          "gpt-5.4-mini",
+          port,
+        ),
+      ],
+      () => 1_000,
+    );
+    const run = await pool.run(task);
+    expect(run.hypotheses).toHaveLength(1);
+    expect(run.diagnostics).toEqual(["model fixture unavailable"]);
+    expect(run.executionAuthority).toBe(false);
   });
 
   it("rejects expired or unbounded discovery work", async () => {

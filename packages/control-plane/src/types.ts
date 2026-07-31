@@ -70,6 +70,18 @@ export interface AiModelPort {
   }): Promise<unknown>;
 }
 
+export type ModelProviderProjection = Readonly<{
+  provider: "OPENAI_RESPONSES";
+  configured: boolean;
+  credentialEnv: "OPENAI_API_KEY";
+  model: string;
+  maxOutputTokens: number;
+  timeoutMs: number;
+  reasoningEffort: "minimal";
+  responseStorage: false;
+  authority: "PROPOSE_ONLY";
+}>;
+
 export type StudioBookProjection = Readonly<{
   bookId: string;
   venueId: string;
@@ -127,11 +139,12 @@ export type StudioProjection = Readonly<{
   ai: Readonly<{
     architecture: "SCOUT_THEN_VERIFY";
     activeRuns: number;
+    modelProvider: ModelProviderProjection;
     workers: readonly Readonly<{
       workerId: string;
       kind: "HEURISTIC" | "MODEL";
       costTier: "FREE" | "LOW";
-      status: "READY" | "NEEDS_PROVIDER";
+      status: "READY" | "NEEDS_KEY" | "NEEDS_PROVIDER";
     }>[];
     promotionBoundary: string;
   }>;

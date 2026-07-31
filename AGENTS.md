@@ -19,7 +19,9 @@ Delete an item as soon as the user supplies it or the project no longer needs it
 
 ### Needed now
 
-None.
+- `OPENAI_API_KEY` for one real `gpt-5.4-mini` discovery smoke run. The
+  model scout stays disabled and the heuristic path remains available until
+  this is supplied; never write the key into the repository.
 
 ### Deferred decisions (not blockers)
 
@@ -31,7 +33,6 @@ None.
 - Dense evidence object-store destination.
 - Whether this remains standalone or later becomes an OpenAlice desk.
 - First external-anchor family after prediction-market qualification.
-- First discovery-model provider, model budget, and credential source. This is not needed for heuristic/replay mode.
 
 ### Environment gaps Codex owns
 

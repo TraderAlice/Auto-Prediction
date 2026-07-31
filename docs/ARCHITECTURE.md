@@ -24,6 +24,15 @@ proposal-only scout hypothesis
   -> fixture certificate (shadow only)
 ```
 
+The first external scout adapter uses OpenAI's Responses API with
+`gpt-5.4-mini` by default. It sends no tools, requests strict JSON Schema
+output, disables response storage, uses minimal reasoning, caps output tokens,
+and aborts on a bounded timeout. The adapter accepts only task-scoped venue
+IDs and reconstructs authority fields locally; model output cannot supply an
+identity, review status, certificate, or execution flag. Missing credentials,
+HTTP errors, refusals, incomplete output, malformed JSON, and out-of-scope
+venues fail closed while independent heuristic workers may still finish.
+
 The hypothesis remains `PROPOSE_ONLY` and `UNREVIEWED`; approval is a separate
 content-addressed artifact. Compilation derives its claim-graph and resolution
 partition identities from the hypothesis and complete reviewed-link set. A

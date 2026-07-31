@@ -4,6 +4,10 @@ import { hashCanonical } from "@pmh/domain";
 import { ReplayBookDesk } from "./book-desk.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
 import {
+  createOpenAiDiscoveryRuntime,
+  type OpenAiDiscoveryRuntime,
+} from "./openai-model.js";
+import {
   DiscoveryLedger,
   type DiscoveryRunStore,
 } from "./discovery-ledger.js";
@@ -119,6 +123,7 @@ export function createControlPlane(options?: {
   discoveryLedger?: DiscoveryLedger;
   discoveryStore?: DiscoveryRunStore;
   discoveryPool?: DiscoveryPool;
+  modelRuntime?: OpenAiDiscoveryRuntime;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -126,8 +131,15 @@ export function createControlPlane(options?: {
   ) {
     throw new Error("provide either discoveryLedger or discoveryStore, not both");
   }
+  const modelRuntime =
+    options?.modelRuntime ?? createOpenAiDiscoveryRuntime();
   const worker = new HeuristicDiscoveryWorker();
-  const pool = options?.discoveryPool ?? new DiscoveryPool([worker]);
+  const pool =
+    options?.discoveryPool ??
+    new DiscoveryPool([
+      worker,
+      ...(modelRuntime.worker === null ? [] : [modelRuntime.worker]),
+    ]);
   const bookDesk = options?.bookDesk ?? new ReplayBookDesk();
   const discoveryLedger =
     options?.discoveryLedger ?? new DiscoveryLedger(25, options?.discoveryStore);
@@ -145,6 +157,7 @@ export function createControlPlane(options?: {
     buildStudioProjection({
       workers: pool.workers,
       activeRuns,
+      modelProvider: modelRuntime.projection,
       bookDesk: await ready.then(() => bookDesk.projection()),
       discoveryDesk: discoveryLedger.projection(),
     });
@@ -180,6 +193,7 @@ export function createControlPlane(options?: {
         liveExecutionEnabled: false,
         retainedDiscoveryRuns: discoveryDesk.runCount,
         operationalStorage: discoveryDesk.storage,
+        modelProvider: modelRuntime.projection,
       });
       return;
     }

@@ -11,6 +11,7 @@ import type {
   BookDeskProjection,
   DiscoveryDeskProjection,
   DiscoveryWorker,
+  ModelProviderProjection,
   StudioProjection,
 } from "./types.js";
 import { buildCampaignEvidence } from "./qualification.js";
@@ -59,6 +60,7 @@ function titleCaseStage(value: string): string {
 export function buildStudioProjection(input: {
   workers: readonly DiscoveryWorker[];
   activeRuns: number;
+  modelProvider?: ModelProviderProjection;
   bookDesk?: BookDeskProjection;
   discoveryDesk?: DiscoveryDeskProjection;
 }): StudioProjection {
@@ -68,6 +70,17 @@ export function buildStudioProjection(input: {
     books: [],
   };
   const replayChaos = runReplayChaosSuite();
+  const modelProvider = input.modelProvider ?? {
+    provider: "OPENAI_RESPONSES" as const,
+    configured: false,
+    credentialEnv: "OPENAI_API_KEY" as const,
+    model: "gpt-5.4-mini",
+    maxOutputTokens: 800,
+    timeoutMs: 8_000,
+    reasoningEffort: "minimal" as const,
+    responseStorage: false as const,
+    authority: "PROPOSE_ONLY" as const,
+  };
   const reviewedCompilation = buildReviewedCompilationEvidence();
   const compiledCapital = Object.entries(
     reviewedCompilation.certificate.capitalRequiredByVenue,
@@ -105,13 +118,14 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 122,
+      proofTests: 129,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
     ai: {
       architecture: "SCOUT_THEN_VERIFY" as const,
       activeRuns: input.activeRuns,
+      modelProvider,
       workers: [
         ...input.workers.map((worker) => ({
           workerId: worker.workerId,
@@ -119,12 +133,18 @@ export function buildStudioProjection(input: {
           costTier: worker.costTier,
           status: "READY" as const,
         })),
-        {
-          workerId: "model-fast-lane",
-          kind: "MODEL" as const,
-          costTier: "LOW" as const,
-          status: "NEEDS_PROVIDER" as const,
-        },
+        ...(input.workers.some((worker) => worker.kind === "MODEL")
+          ? []
+          : [
+              {
+                workerId: "model-fast-lane",
+                kind: "MODEL" as const,
+                costTier: "LOW" as const,
+                status: modelProvider.configured
+                  ? ("NEEDS_PROVIDER" as const)
+                  : ("NEEDS_KEY" as const),
+              },
+            ]),
       ],
       promotionBoundary:
         "AI proposes only; independent exact verification is the sole certificate authority.",

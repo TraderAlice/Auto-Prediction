@@ -74,6 +74,14 @@ the code path without suggesting that a runtime scout result has been reviewed.
 
 Discovery workers may be cheap heuristics or external models. They can propose search terms, possible same-claim links, and strategy hypotheses. Every hypothesis is `PROPOSE_ONLY` and `UNREVIEWED`.
 
+The worker rack reflects actual control-plane configuration. Its model card
+publishes only the provider name, model ID, output-token ceiling, timeout,
+minimal-reasoning posture, and `store:false` setting. `NEEDS KEY` means
+`OPENAI_API_KEY` was absent at process start and no model request can be made;
+the browser never receives that credential. When configured, the external
+worker runs in parallel with the free heuristic and its failure is retained as
+a diagnostic rather than granting or widening authority.
+
 AI output cannot:
 
 - publish a semantic equivalence decision;

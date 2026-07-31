@@ -16,6 +16,26 @@ describe("Studio projection safety", () => {
     expect(studioProjection.identity.mode).toBe("CONTROL_PLANE");
   });
 
+  it("shows the fail-closed model budget without exposing credentials", () => {
+    expect(studioProjection.ai.modelProvider).toMatchObject({
+      provider: "OPENAI_RESPONSES",
+      configured: false,
+      credentialEnv: "OPENAI_API_KEY",
+      model: "gpt-5.4-mini",
+      maxOutputTokens: 800,
+      timeoutMs: 8_000,
+      responseStorage: false,
+      authority: "PROPOSE_ONLY",
+    });
+    expect(studioProjection.ai.workers).toContainEqual(
+      expect.objectContaining({
+        workerId: "model-fast-lane",
+        status: "NEEDS_KEY",
+      }),
+    );
+    expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
+  });
+
   it("exposes demo and sandbox order shapes as inert posture only", () => {
     const inertVenues = studioProjection.venues.filter(
       (venue) => venue.gatewayPosture !== "ABSENT",
