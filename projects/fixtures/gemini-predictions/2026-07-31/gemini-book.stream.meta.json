@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "pmh.stream-fixture.v1",
+  "name": "gemini-book",
+  "venue": "gemini-predictions",
+  "protocolVersion": "market-data-wss:2026-07-31",
+  "sourceUrl": "wss://ws.gemini.com?snapshot=-1",
+  "connectedAt": "2026-07-31T09:59:41.046Z",
+  "closedAt": "2026-07-31T09:59:41.294Z",
+  "transport": "WEBSOCKET",
+  "subscription": {
+    "id": "1",
+    "method": "SUBSCRIBE",
+    "params": [
+      "GEMI-GOLF-ROC-WIN-20260802-CANTLAY@depth"
+    ]
+  },
+  "subscriptionHash": "sha256:c512941a7ae45d2915fef9cd3bb861515b15b4299b497b9dcb2413999a1d118c",
+  "instrumentIds": [
+    "GEMI-GOLF-ROC-WIN-20260802-CANTLAY"
+  ],
+  "frameCount": "1",
+  "rawHash": "sha256:48e81a86633dd4981e0789f5a37c71069e2b5d1de9edd57ca146348bf12241c3",
+  "byteLength": "542",
+  "acquisition": {
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

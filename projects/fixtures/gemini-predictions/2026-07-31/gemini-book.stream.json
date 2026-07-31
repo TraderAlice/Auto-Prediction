@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "pmh.stream-acquisition.v1",
+  "frames": [
+    {
+      "ordinal": "0",
+      "receivedAt": "2026-07-31T09:59:41.293Z",
+      "eventName": null,
+      "rawText": "{\"e\":\"depthUpdate\",\"E\":1785490785533318426,\"s\":\"gemi-golf-roc-win-20260802-cantlay\",\"U\":1764525414856922,\"u\":1764525414856922,\"b\":[[\"0.0900\",\"709.00\"],[\"0.0300\",\"10.00\"]],\"a\":[[\"0.1100\",\"500.00\"],[\"0.1200\",\"212.00\"]]}",
+      "frameHash": "sha256:806dffb09a58c9246d50c7dea5e31da8dfdaea408ffee34d4c82bd385d10e8f5"
+    }
+  ]
+}

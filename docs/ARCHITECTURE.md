@@ -13,6 +13,11 @@ raw venue facts
   -> shadow execution + evidence
 ```
 
+Public HTTP and WebSocket/Socket.IO facts first cross a content-addressed
+evidence boundary. Realtime codecs then preserve each venue's native
+sequencing guarantee: Gemini ranges may produce deltas, while Polymarket and
+Limitless public full-book images produce explicit rebuild snapshots.
+
 The fast loop reacts to book generations. The slow loop evaluates strategy revisions against immutable replay or shadow evidence.
 
 ## Authority layers
