@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { ReplayBookDesk } from "./book-desk.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
 import { buildStudioProjection } from "./projection.js";
 import type { DiscoveryTask } from "./types.js";
@@ -55,12 +56,32 @@ function parseDiscoveryTask(value: unknown): DiscoveryTask {
   };
 }
 
-export function createControlPlane() {
+export function createControlPlane(options?: { bookDesk?: ReplayBookDesk }) {
   const worker = new HeuristicDiscoveryWorker();
   const pool = new DiscoveryPool([worker]);
+  const bookDesk = options?.bookDesk ?? new ReplayBookDesk();
+  const ready = bookDesk.replay();
+  const subscribers = new Set<ServerResponse>();
   let activeRuns = 0;
-  const projection = () =>
-    buildStudioProjection({ workers: pool.workers, activeRuns });
+  const projection = async () =>
+    buildStudioProjection({
+      workers: pool.workers,
+      activeRuns,
+      bookDesk: await ready.then(() => bookDesk.projection()),
+    });
+
+  const broadcastProjection = async (): Promise<void> => {
+    const payload = `event: projection\ndata: ${JSON.stringify(
+      await projection(),
+    )}\n\n`;
+    for (const subscriber of subscribers) {
+      if (subscriber.destroyed) {
+        subscribers.delete(subscriber);
+      } else {
+        subscriber.write(payload);
+      }
+    }
+  };
 
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://control-plane.local");
@@ -81,7 +102,12 @@ export function createControlPlane() {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/projection") {
-      writeJson(response, 200, projection());
+      writeJson(response, 200, await projection());
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/books") {
+      await ready;
+      writeJson(response, 200, bookDesk.projection());
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/events") {
@@ -91,11 +117,47 @@ export function createControlPlane() {
         connection: "keep-alive",
         "access-control-allow-origin": "http://localhost:5173",
       });
-      response.write(`event: projection\ndata: ${JSON.stringify(projection())}\n\n`);
+      response.write(
+        `event: projection\ndata: ${JSON.stringify(await projection())}\n\n`,
+      );
+      subscribers.add(response);
       const heartbeat = setInterval(() => {
         response.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
       }, 15_000);
-      request.on("close", () => clearInterval(heartbeat));
+      request.on("close", () => {
+        clearInterval(heartbeat);
+        subscribers.delete(response);
+      });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/books/replay"
+    ) {
+      try {
+        const books = await bookDesk.replay();
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          effects: {
+            externalWrites: false,
+            valueMovingActions: false,
+            liveExecutionEnabled: false,
+          },
+          bookDesk: books,
+        });
+      } catch (error) {
+        writeJson(response, 500, {
+          ok: false,
+          diagnostic:
+            error instanceof Error ? error.message : "book replay failed",
+          effects: {
+            externalWrites: false,
+            valueMovingActions: false,
+            liveExecutionEnabled: false,
+          },
+        });
+      }
       return;
     }
     if (
@@ -123,14 +185,15 @@ export function createControlPlane() {
       diagnostic: "route not found",
     });
   });
-  return { server, pool, projection };
+  return { server, pool, bookDesk, projection, ready };
 }
 
 export async function startControlPlane(
   port = 4_100,
   host = "127.0.0.1",
 ): Promise<void> {
-  const { server } = createControlPlane();
+  const { server, ready } = createControlPlane();
+  await ready;
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, resolve);

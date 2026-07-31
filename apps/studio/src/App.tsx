@@ -20,6 +20,8 @@ import {
   PanelRightClose,
   Play,
   Radar,
+  Radio,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -39,18 +41,18 @@ import {
 } from "@/data/studio-projection";
 import { cn } from "@/lib/utils";
 
-type View = "overview" | "venues" | "evidence";
+type View = "overview" | "venues" | "books" | "evidence";
 type Opportunity = StudioProjection["opportunities"][number];
 
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "venues", label: "Venue matrix", icon: Network },
+  { id: "books", label: "Book desk", icon: BookOpenCheck },
   { id: "evidence", label: "Evidence", icon: Fingerprint },
 ] as const;
 
 const supplementalNavigation = [
   { label: "Claims", icon: Braces },
-  { label: "Books", icon: BookOpenCheck },
   { label: "Capital", icon: Gauge },
   { label: "Campaigns", icon: TestTubeDiagonal },
 ] as const;
@@ -200,6 +202,7 @@ function Topbar({
   onMenu: () => void;
   onCommand: () => void;
 }) {
+  const studioProjection = useStudioProjection();
   return (
     <header className="topbar">
       <div className="topbar-title">
@@ -235,7 +238,7 @@ function Topbar({
         </Badge>
         <span className="header-hash">
           <GitBranch size={13} />
-          5d9fd68
+          {studioProjection.identity.stateHash.slice(7, 14)}
         </span>
       </div>
     </header>
@@ -603,14 +606,14 @@ function VenueMatrix() {
         </p>
       </div>
       <div className="venue-grid">
-        {studioProjection.venues.map((venue, index) => (
+        {studioProjection.venues.map((venue) => (
           <Card className="venue-card" key={venue.id}>
             <CardHeader>
               <div className="venue-monogram">
                 <span style={{ backgroundColor: venue.color }} />
                 {venue.name.slice(0, 2).toUpperCase()}
               </div>
-              <Badge variant={index < 3 ? "verified" : "muted"}>
+              <Badge variant={venue.stage === "OBSERVE" ? "verified" : "muted"}>
                 {venue.stage}
               </Badge>
             </CardHeader>
@@ -627,9 +630,9 @@ function VenueMatrix() {
                 </div>
               </div>
               <div className="capability-chips">
-                <span>CATALOG</span>
-                <span>PRECISION</span>
-                <span>RULES</span>
+                {venue.capabilities.map((capability) => (
+                  <span key={capability}>{capability}</span>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -639,18 +642,221 @@ function VenueMatrix() {
   );
 }
 
+function BookDeskView() {
+  const studioProjection = useStudioProjection();
+  const [selectedBookId, setSelectedBookId] = useState(
+    studioProjection.bookDesk.books[0]?.bookId ?? "",
+  );
+  const [replayStatus, setReplayStatus] = useState<
+    "IDLE" | "RUNNING" | "DONE" | "FAILED"
+  >("IDLE");
+  const selectedBook =
+    studioProjection.bookDesk.books.find(
+      (book) => book.bookId === selectedBookId,
+    ) ?? studioProjection.bookDesk.books[0];
+
+  async function replayBooks() {
+    setReplayStatus("RUNNING");
+    try {
+      const response = await fetch("/api/v1/books/replay", { method: "POST" });
+      if (!response.ok) {
+        throw new Error(`book replay returned HTTP ${response.status}`);
+      }
+      const result = (await response.json()) as {
+        effects?: {
+          externalWrites?: boolean;
+          valueMovingActions?: boolean;
+          liveExecutionEnabled?: boolean;
+        };
+      };
+      if (
+        result.effects?.externalWrites !== false ||
+        result.effects.valueMovingActions !== false ||
+        result.effects.liveExecutionEnabled !== false
+      ) {
+        throw new Error("book replay crossed its read-only boundary");
+      }
+      setReplayStatus("DONE");
+    } catch {
+      setReplayStatus("FAILED");
+    }
+  }
+
+  return (
+    <section className="page-section">
+      <div className="page-heading book-heading">
+        <div>
+          <span className="eyebrow">Deterministic market state</span>
+          <h1>Book replay desk</h1>
+          <p>
+            Verified stream frames become generation-bound books inside the
+            control plane. Venue sequence guarantees stay visible instead of
+            being flattened into a fake common feed.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          disabled={replayStatus === "RUNNING"}
+          onClick={() => void replayBooks()}
+        >
+          <RefreshCw
+            size={14}
+            className={replayStatus === "RUNNING" ? "is-spinning" : ""}
+          />
+          {replayStatus === "RUNNING"
+            ? "Replaying"
+            : replayStatus === "DONE"
+              ? "Replay complete"
+              : replayStatus === "FAILED"
+                ? "Retry replay"
+                : "Replay evidence"}
+        </Button>
+      </div>
+
+      <div className="book-summary-grid">
+        <Metric
+          label="Qualified books"
+          value={`${studioProjection.bookDesk.books.length}`}
+          detail="three public transports"
+        />
+        <Metric
+          label="Replay generation"
+          value={`${studioProjection.bookDesk.replayCount}`}
+          detail="in-memory · deterministic"
+        />
+        <Metric
+          label="Valid projections"
+          value={`${studioProjection.bookDesk.books.filter((book) => book.lifecycle === "SNAPSHOT_VALID" || book.lifecycle === "APPLYING_DELTAS").length}`}
+          detail="stale and gaps fail closed"
+        />
+      </div>
+
+      <div className="book-desk-layout">
+        <div className="book-session-list">
+          <div className="book-list-heading">
+            <span>Venue sessions</span>
+            <Badge variant="verified">
+              <Radio size={10} /> SSE linked
+            </Badge>
+          </div>
+          {studioProjection.bookDesk.books.map((book) => (
+            <button
+              className={cn(
+                "book-session",
+                selectedBook?.bookId === book.bookId && "is-selected",
+              )}
+              key={book.bookId}
+              onClick={() => setSelectedBookId(book.bookId)}
+            >
+              <span className="book-session-status" />
+              <div>
+                <strong>{book.venueName}</strong>
+                <span>{book.instrumentId}</span>
+              </div>
+              <Badge variant="muted">{book.lifecycle}</Badge>
+              <small>
+                {book.bidLevelCount} × {book.askLevelCount} levels
+              </small>
+            </button>
+          ))}
+        </div>
+
+        {selectedBook && (
+          <Card className="book-detail-card">
+            <CardHeader>
+              <div>
+                <span className="eyebrow">{selectedBook.venueId}</span>
+                <h2>{selectedBook.venueName} order book</h2>
+              </div>
+              <Badge variant="verified">Generation {selectedBook.generation}</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="book-topline">
+                <div>
+                  <span>Best bid</span>
+                  <strong className="positive">
+                    {selectedBook.bestBid ?? "—"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Spread</span>
+                  <strong>{selectedBook.spread ?? "—"}</strong>
+                </div>
+                <div>
+                  <span>Best ask</span>
+                  <strong className="ask-text">
+                    {selectedBook.bestAsk ?? "—"}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="depth-ladder">
+                <div className="depth-side bids">
+                  <div className="depth-header">
+                    <span>Bid price</span>
+                    <span>Size</span>
+                  </div>
+                  {selectedBook.bids.map((level, index) => (
+                    <div className="depth-row" key={`bid:${level.price}`}>
+                      <i style={{ width: `${Math.max(22, 100 - index * 10)}%` }} />
+                      <strong>{level.price}</strong>
+                      <span>{level.size}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="depth-side asks">
+                  <div className="depth-header">
+                    <span>Ask price</span>
+                    <span>Size</span>
+                  </div>
+                  {selectedBook.asks.map((level, index) => (
+                    <div className="depth-row" key={`ask:${level.price}`}>
+                      <i style={{ width: `${Math.max(22, 100 - index * 10)}%` }} />
+                      <strong>{level.price}</strong>
+                      <span>{level.size}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <dl className="book-evidence-strip">
+                <div>
+                  <dt>Sequence policy</dt>
+                  <dd>{selectedBook.sequencePolicy.replaceAll("_", " ")}</dd>
+                </div>
+                <div>
+                  <dt>Venue sequence</dt>
+                  <dd>{selectedBook.sequence ?? "snapshot only"}</dd>
+                </div>
+                <div>
+                  <dt>State identity</dt>
+                  <dd>{selectedBook.stateHash?.slice(0, 22) ?? "unavailable"}…</dd>
+                </div>
+                <div>
+                  <dt>Evidence identity</dt>
+                  <dd>{selectedBook.evidenceHash.slice(0, 22)}…</dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function EvidenceView() {
   const items = [
     {
-      name: "Raw venue fixtures",
-      count: "9",
-      detail: "byte-for-byte immutable",
+      name: "Source artifacts",
+      count: "12",
+      detail: "9 HTTP · 3 stream",
       icon: Database,
     },
     {
-      name: "Rule identities",
-      count: "5",
-      detail: "adapter protocol hashes",
+      name: "Stream acquisitions",
+      count: "3",
+      detail: "subscription + frame hashes",
       icon: FileCheck2,
     },
     {
@@ -904,6 +1110,7 @@ function StudioShell() {
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
           {view === "venues" && <VenueMatrix />}
+          {view === "books" && <BookDeskView />}
           {view === "evidence" && <EvidenceView />}
         </main>
         <footer>

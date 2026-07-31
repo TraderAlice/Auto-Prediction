@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@pmh/domain": "workspace:*",
+    "@pmh/evidence": "workspace:*",
+    "@pmh/market-state": "workspace:*",
     "@pmh/protocol": "workspace:*",
     "@pmh/venue-gemini": "workspace:*",
     "@pmh/venue-kalshi": "workspace:*",

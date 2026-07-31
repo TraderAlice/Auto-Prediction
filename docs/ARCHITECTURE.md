@@ -18,6 +18,11 @@ evidence boundary. Realtime codecs then preserve each venue's native
 sequencing guarantee: Gemini ranges may produce deltas, while Polymarket and
 Limitless public full-book images produce explicit rebuild snapshots.
 
+The long-running control plane owns `ReplayBookDesk`. It verifies stream
+artifacts, applies normalized events to deterministic books, and publishes
+JSON/SSE projections. Studio is a read-only view of those projections and may
+request an in-memory replay, but it never applies book events itself.
+
 The fast loop reacts to book generations. The slow loop evaluates strategy revisions against immutable replay or shadow evidence.
 
 ## Authority layers

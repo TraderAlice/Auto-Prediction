@@ -29,6 +29,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
 - An AI-native discovery pool where cheap parallel scouts may propose hypotheses but can never certify or execute them.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
+- A Books desk that replays verified public frames into generation-bound order books, broadcasts them over SSE, and exposes venue-native sequence posture.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
@@ -72,8 +73,8 @@ The host used for the initial checkpoint exposed Node.js 22.22.1, so the reposit
 - `packages/execution`: validated multi-leg plans and shadow-only order lifecycle.
 - `packages/liquidity`: executable hedge curves and constrained shadow maker quotes.
 - `packages/cli`: versioned, machine-readable inspection commands.
-- `packages/control-plane`: long-running projection, event-stream, and AI discovery coordination process.
-- `apps/studio`: responsive read-only cockpit for fixture replay and qualification evidence.
+- `packages/control-plane`: long-running projection, event-stream, deterministic book replay, and AI discovery coordination process.
+- `apps/studio`: responsive read-only cockpit for book state, fixture replay, and qualification evidence.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.
 - `docs/design`: current architecture truth.

@@ -6,7 +6,11 @@ import { myriadManifest } from "@pmh/venue-myriad";
 import { opinionManifest } from "@pmh/venue-opinion";
 import { polymarketManifest } from "@pmh/venue-polymarket";
 import { assertManifest } from "@pmh/protocol";
-import type { DiscoveryWorker, StudioProjection } from "./types.js";
+import type {
+  BookDeskProjection,
+  DiscoveryWorker,
+  StudioProjection,
+} from "./types.js";
 
 const presentation = {
   "polymarket-global": ["CLOB · CTF", 98, "#7ef0c1"],
@@ -29,6 +33,7 @@ const manifests = [
 export function buildStudioProjection(input: {
   workers: readonly DiscoveryWorker[];
   activeRuns: number;
+  bookDesk?: BookDeskProjection;
 }): StudioProjection {
   const state = {
     system: {
@@ -48,7 +53,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 75,
+      proofTests: 80,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -72,6 +77,11 @@ export function buildStudioProjection(input: {
       promotionBoundary:
         "AI proposes only; independent exact verification is the sole certificate authority.",
     },
+    bookDesk: input.bookDesk ?? {
+      mode: "FIXTURE_REPLAY" as const,
+      replayCount: 0,
+      books: [],
+    },
     venues: manifests
       .map((manifest) => {
         const details =
@@ -93,6 +103,9 @@ export function buildStudioProjection(input: {
           health: details[1],
           color: details[2],
           protocolIdentity: manifest.protocolIdentity,
+          capabilities: manifest.capabilities
+            .filter((capability) => capability.implemented)
+            .map((capability) => capability.capability),
           liveExecutionEnabled: false as const,
         };
       })

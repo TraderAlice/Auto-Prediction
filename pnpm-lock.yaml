@@ -119,6 +119,12 @@ importers:
       '@pmh/domain':
         specifier: workspace:*
         version: link:../domain
+      '@pmh/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@pmh/market-state':
+        specifier: workspace:*
+        version: link:../market-state
       '@pmh/protocol':
         specifier: workspace:*
         version: link:../protocol

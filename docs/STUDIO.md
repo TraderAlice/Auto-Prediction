@@ -8,11 +8,28 @@ Harmony Studio is the read-only visual surface for architecture qualification. I
 
 - `GET /api/v1/projection`
 - `GET /api/v1/events`
+- `GET /api/v1/books`
+- `POST /api/v1/books/replay`
 - `POST /api/v1/discovery/runs`
 
 If the process is unavailable, Studio shows an explicit offline state. It does not silently fall back to a build-time snapshot.
 
 The current opportunity, payoff, verifier-trace, and capital panels remain illustrative fixture-replay presentation data. They demonstrate the intended projection shape; they are not connected to a live market and cannot produce an executable action.
+
+## Book desk
+
+The Books projection is backed by `ReplayBookDesk` in the control plane. On
+startup it verifies the checked-in Polymarket, Gemini, and Limitless stream
+artifacts, decodes them with venue-local codecs, and applies the resulting
+events to deterministic books.
+
+`GET /api/v1/books` returns the current read-only projection.
+`POST /api/v1/books/replay` repeats the in-memory replay, declares external
+writes, value movement, and live execution as literal `false`, and broadcasts
+the updated projection to Studio over SSE.
+
+The UI displays lifecycle, generation, native sequence policy, top depth,
+state identity, and evidence identity. It does not recompute book truth.
 
 ## AI boundary
 

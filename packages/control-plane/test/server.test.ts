@@ -61,4 +61,54 @@ describe("control-plane HTTP surface", () => {
     expect(run.executionAuthority).toBe(false);
     expect(run.hypotheses[0]?.authority).toBe("PROPOSE_ONLY");
   });
+
+  it("replays verified books in memory with literal false effects", async () => {
+    const baseUrl = await listen();
+    const initial = (await fetch(`${baseUrl}/api/v1/books`).then((response) =>
+      response.json(),
+    )) as { replayCount: number; books: unknown[] };
+    expect(initial).toMatchObject({ replayCount: 1 });
+    expect(initial.books).toHaveLength(3);
+
+    const response = await fetch(`${baseUrl}/api/v1/books/replay`, {
+      method: "POST",
+    });
+    const replay = (await response.json()) as {
+      effects: {
+        externalWrites: boolean;
+        valueMovingActions: boolean;
+        liveExecutionEnabled: boolean;
+      };
+      bookDesk: { replayCount: number; books: unknown[] };
+    };
+    expect(response.status).toBe(200);
+    expect(replay.effects).toEqual({
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    });
+    expect(replay.bookDesk.replayCount).toBe(2);
+    expect(replay.bookDesk.books).toHaveLength(3);
+  });
+
+  it("broadcasts the replayed projection to connected SSE clients", async () => {
+    const baseUrl = await listen();
+    const abort = new AbortController();
+    const eventResponse = await fetch(`${baseUrl}/api/v1/events`, {
+      signal: abort.signal,
+    });
+    const reader = eventResponse.body?.getReader();
+    if (reader === undefined) throw new Error("event stream has no body");
+    const decoder = new TextDecoder();
+    const first = await reader.read();
+    expect(decoder.decode(first.value)).toContain("event: projection");
+
+    await fetch(`${baseUrl}/api/v1/books/replay`, { method: "POST" });
+    const second = await reader.read();
+    const event = decoder.decode(second.value);
+    expect(event).toContain("event: projection");
+    expect(event).toContain('"replayCount":2');
+    await reader.cancel();
+    abort.abort();
+  });
 });

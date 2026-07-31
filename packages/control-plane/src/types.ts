@@ -48,6 +48,43 @@ export interface AiModelPort {
   }): Promise<unknown>;
 }
 
+export type StudioBookProjection = Readonly<{
+  bookId: string;
+  venueId: string;
+  venueName: string;
+  instrumentId: string;
+  lifecycle:
+    | "EMPTY"
+    | "SNAPSHOT_VALID"
+    | "APPLYING_DELTAS"
+    | "STALE"
+    | "GAP_DETECTED"
+    | "REBUILDING";
+  generation: string;
+  sequence: string | null;
+  stateHash: string | null;
+  evidenceHash: string;
+  capturedAt: string;
+  sequencePolicy:
+    | "NATIVE_RANGE"
+    | "FULL_SNAPSHOT_REBUILD"
+    | "VERSIONED_SNAPSHOT_REBUILD";
+  bestBid: string | null;
+  bestAsk: string | null;
+  spread: string | null;
+  bidLevelCount: number;
+  askLevelCount: number;
+  bids: readonly Readonly<{ price: string; size: string }>[];
+  asks: readonly Readonly<{ price: string; size: string }>[];
+  diagnostic: string | null;
+}>;
+
+export type BookDeskProjection = Readonly<{
+  mode: "FIXTURE_REPLAY";
+  replayCount: number;
+  books: readonly StudioBookProjection[];
+}>;
+
 export type StudioProjection = Readonly<{
   identity: Readonly<{
     schemaVersion: "pmh.studio-projection.v1";
@@ -75,6 +112,7 @@ export type StudioProjection = Readonly<{
     }>[];
     promotionBoundary: string;
   }>;
+  bookDesk: BookDeskProjection;
   venues: readonly Readonly<{
     id: string;
     name: string;
@@ -83,6 +121,7 @@ export type StudioProjection = Readonly<{
     health: number;
     color: string;
     protocolIdentity: string;
+    capabilities: readonly string[];
     liveExecutionEnabled: false;
   }>[];
   opportunities: readonly Readonly<{
