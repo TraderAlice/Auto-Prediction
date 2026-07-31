@@ -25,11 +25,11 @@ Qualify a prediction-market interoperability architecture against current offici
 
 ## Campaign C — Arbitrage truth
 
-- [ ] Compile complete-set, exhaustive multi-outcome, and same-claim cross-venue candidates.
-- [ ] Reject resolution mismatch.
-- [ ] Account for fee, depth, precision, and capital bounds.
-- [ ] Independently verify candidates with exact `bigint` arithmetic.
-- [ ] Bind certificates to every changing input and book generation.
+- [x] Compile complete-set, exhaustive multi-outcome, and same-claim cross-venue candidates.
+- [x] Reject resolution mismatch.
+- [x] Account for fee, depth, precision, and capital bounds.
+- [x] Independently verify candidates with exact `bigint` arithmetic.
+- [x] Bind certificates to every changing input and book generation.
 
 ## Campaign D — External loop
 
