@@ -83,7 +83,7 @@ be made; the browser never receives that credential. When configured, the extern
 worker runs in parallel with the free heuristic and its failure is retained as
 a diagnostic rather than granting or widening authority.
 
-Studio also shows the separate pi investigator posture: model, one-shot JSONL
+Studio also shows the separate pi investigator posture: model, one-shot text
 mode, read-only tool list, and whether its process credential was present at
 startup. The browser cannot start pi. The initial investigator is invoked only
 through `pnpm --silent investigation:smoke`, and its report remains outside the

@@ -74,12 +74,23 @@ shell or write tool is available. Process time and combined output bytes are
 hard bounded, stderr is not surfaced, and the temporary home is removed after
 the run.
 
-pi emits JSONL for trace validation and one final JSON object. The application
-rejects unknown tools, unknown fields, oversized text, and every listing
+pi emits only its final text because JSON event mode repeats the growing
+assistant snapshot on every streaming delta and can amplify a normal long-
+thinking response into tens of MiB. The allowed tool set is fixed in the
+application-owned CLI arguments; the report explicitly states that per-tool
+execution traces are unavailable. The application discards unknown fields and
+rejects missing or malformed required fields, oversized text, and every listing
 reference outside the supplied catalog context. It then reconstructs
 `PROPOSE_ONLY`, `UNREVIEWED`, and literal-false effects locally and hashes the
 complete `pmh.pi-investigation-report.v1`. The report does not enter candidate
 compilation or the Discovery Ledger automatically.
+
+The first real DeepSeek V4 Flash qualification passed both paths on 2026-08-01.
+The AI SDK path emitted three fixture-grounded proposals under artifact
+`sha256:93e5612e…273735`. The corrected pi final-text path emitted a bounded,
+scope-validated investigation under `sha256:41cd6d74…10b2d1`. These identities
+record protocol qualification only; neither artifact is an equivalence review
+or arbitrage certificate.
 
 Completed runs enter a bounded Discovery Ledger. It retains the
 question, venue scope, worker identities, diagnostics, and hypotheses so an

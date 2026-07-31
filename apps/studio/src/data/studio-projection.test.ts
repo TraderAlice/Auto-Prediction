@@ -39,7 +39,7 @@ describe("Studio projection safety", () => {
       configured: false,
       provider: "deepseek",
       model: "deepseek-v4-flash",
-      mode: "JSONL_ONE_SHOT",
+      mode: "TEXT_ONE_SHOT",
       tools: ["read", "grep", "find", "ls"],
       sessionPersistence: false,
       authority: "PROPOSE_ONLY",

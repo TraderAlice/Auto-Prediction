@@ -17,13 +17,6 @@ This repository is a pre-alpha, research-first interoperability harness. It must
 
 Delete an item as soon as the user supplies it or the project no longer needs it. Do not place secrets themselves in this file.
 
-### Needed now
-
-- `DEEPSEEK_API_KEY` for one real `deepseek-v4-flash` Vercel AI SDK discovery
-  smoke run and one bounded pi investigator smoke run. Both AI paths stay
-  disabled and the heuristic path remains available until this is supplied;
-  never write the key into the repository.
-
 ### Deferred decisions (not blockers)
 
 - Final product/repository name (working name: `prediction-market-harness`).

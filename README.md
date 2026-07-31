@@ -113,13 +113,20 @@ Longer investigations use a separate, explicitly invoked pi lane. The pinned
 `@earendil-works/pi-coding-agent` process receives the same task-scoped fixture
 catalog, starts with an isolated config directory, persists no session, disables
 extensions/skills/templates/themes, and exposes only `read`, `grep`, `find`, and
-`ls`. Its JSONL output is bounded, scope-validated, and rebuilt into a
+`ls`. Its final-text output is bounded, scope-validated, and rebuilt into a
 content-hashed `pmh.pi-investigation-report.v1` with proposal-only authority.
 It is not scheduled from the HTTP server and cannot write files, run a shell,
 trade, or promote its own findings.
 
-For an official DeepSeek key, inject `DEEPSEEK_API_KEY` into the control-plane
-process environment and run the two independent qualification paths:
+For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
+
+```dotenv
+DEEPSEEK_API_KEY=your-key-here
+```
+
+The control plane and both smoke entrypoints load this file automatically;
+an already-exported process variable takes precedence. Restart `pnpm studio`
+after changing the file, then run the two independent qualification paths:
 
 ```bash
 pnpm --silent discovery:smoke

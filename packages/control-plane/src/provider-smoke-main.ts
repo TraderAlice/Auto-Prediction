@@ -1,5 +1,7 @@
+import { loadLocalEnvironment } from "./local-environment.js";
 import { runModelProviderSmoke } from "./provider-smoke.js";
 
+loadLocalEnvironment();
 try {
   const report = await runModelProviderSmoke();
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

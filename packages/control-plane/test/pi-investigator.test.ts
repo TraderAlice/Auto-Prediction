@@ -44,20 +44,6 @@ function task(): DiscoveryTask {
   };
 }
 
-function jsonl(payload: unknown, toolName = "read"): string {
-  return [
-    JSON.stringify({ type: "session", version: 3 }),
-    JSON.stringify({ type: "tool_execution_end", toolName }),
-    JSON.stringify({
-      type: "message_end",
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: JSON.stringify(payload) }],
-      },
-    }),
-  ].join("\n");
-}
-
 const validPayload = {
   summary: "One fixture-backed range market is available for review.",
   candidateListingRefs: [listingRef],
@@ -94,7 +80,7 @@ describe("pi investigator", () => {
       captured = request;
       return {
         exitCode: 0,
-        stdout: jsonl(validPayload),
+        stdout: `Investigation complete.\n\n\`\`\`json\n${JSON.stringify({ result: { ...validPayload, authority: "MODEL_ASSERTED" } })}\n\`\`\``,
         stderr: "",
         timedOut: false,
         outputLimitExceeded: false,
@@ -110,6 +96,7 @@ describe("pi investigator", () => {
     expect(captured?.command).toBe("/test/pi");
     expect(captured?.cwd).toBe("/test/repository");
     expect(captured?.args).toContain("--no-session");
+    expect(captured?.args).toContain("text");
     expect(captured?.args).toContain("--no-extensions");
     expect(captured?.args).toContain("--no-skills");
     expect(captured?.args).toContain("read,grep,find,ls");
@@ -140,13 +127,19 @@ describe("pi investigator", () => {
         valueMovingActions: false,
         liveExecutionEnabled: false,
       },
+      trace: {
+        outputMode: "FINAL_TEXT",
+        permittedTools: ["read", "grep", "find", "ls"],
+        toolExecutionTraceAvailable: false,
+      },
     });
     expect(JSON.stringify(report)).not.toContain(secret);
+    expect(JSON.stringify(report)).not.toContain("MODEL_ASSERTED");
     const { artifactHash, ...body } = report!;
     expect(artifactHash).toBe(hashCanonical(body));
   });
 
-  it("rejects tools and listing references outside the bounded task", async () => {
+  it("rejects listing references outside the bounded task", async () => {
     const withOutput = (stdout: string): PiProcessRunner => async () => ({
       exitCode: 0,
       stdout,
@@ -154,19 +147,11 @@ describe("pi investigator", () => {
       timedOut: false,
       outputLimitExceeded: false,
     });
-    const toolRuntime = createPiInvestigatorRuntime(
-      { DEEPSEEK_API_KEY: secret },
-      { runner: withOutput(jsonl(validPayload, "bash")) },
-    );
-    await expect(toolRuntime.investigator?.investigate(task())).rejects.toThrow(
-      "outside its read-only profile",
-    );
-
     const scopeRuntime = createPiInvestigatorRuntime(
       { DEEPSEEK_API_KEY: secret },
       {
         runner: withOutput(
-          jsonl({
+          JSON.stringify({
             ...validPayload,
             candidateListingRefs: ["polymarket-global:not-in-context"],
           }),
@@ -207,6 +192,7 @@ describe("pi investigator", () => {
       environment: { PATH: process.env.PATH ?? "" },
       timeoutMs: 5_000,
       maxOutputBytes: 1_000,
+      outputMode: "FINAL_TEXT",
     });
     expect(result).toMatchObject({
       exitCode: 0,
@@ -214,5 +200,29 @@ describe("pi investigator", () => {
       timedOut: false,
       outputLimitExceeded: false,
     });
+  });
+
+  it("drops quadratic streaming snapshots while retaining the final message", async () => {
+    const script = [
+      "for (let index = 0; index < 300; index += 1) {",
+      "  const text = 'x'.repeat(index * 100);",
+      "  console.log(JSON.stringify({ type: 'message_update', message: { role: 'assistant', content: [{ type: 'text', text }] }, assistantMessageEvent: { type: 'text_delta', delta: 'x' } }));",
+      "}",
+      "console.log(JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: '{\\\"summary\\\":\\\"done\\\"}' }] } }));",
+    ].join("\n");
+    const result = await runBoundedPiProcess({
+      command: process.execPath,
+      args: ["-e", script],
+      cwd: process.cwd(),
+      environment: { PATH: process.env.PATH ?? "" },
+      timeoutMs: 5_000,
+      maxOutputBytes: 1_000,
+      outputMode: "JSON_EVENTS",
+    });
+
+    expect(result.outputLimitExceeded).toBe(false);
+    expect(result.stdout).not.toContain("message_update");
+    expect(result.stdout).toContain("message_end");
+    expect(result.stdout).toContain("summary");
   });
 });

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { hashCanonical } from "@pmh/domain";
 import type {
   DiscoveryTask,
@@ -11,9 +12,9 @@ import type {
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 2_000_000;
+const MAX_WIRE_OUTPUT_BYTES = 64_000_000;
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/;
 const READ_ONLY_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
-const READ_ONLY_TOOL_SET = new Set<string>(READ_ONLY_TOOLS);
 
 type PiFinding = Readonly<{
   listingRefs: readonly string[];
@@ -37,7 +38,7 @@ export type PiInvestigationReport = Readonly<{
     name: "PI_CLI";
     provider: "deepseek";
     model: string;
-    mode: "JSONL_ONE_SHOT";
+    mode: "TEXT_ONE_SHOT";
   }>;
   task: Readonly<{
     taskId: string;
@@ -53,9 +54,9 @@ export type PiInvestigationReport = Readonly<{
       executionAuthority: false;
     }>;
   trace: Readonly<{
-    eventCount: number;
-    toolExecutionCount: number;
-    toolNames: readonly string[];
+    outputMode: "FINAL_TEXT";
+    permittedTools: readonly ["read", "grep", "find", "ls"];
+    toolExecutionTraceAvailable: false;
   }>;
   effects: Readonly<{
     sessionPersistence: false;
@@ -74,6 +75,7 @@ export type PiProcessRequest = Readonly<{
   environment: Readonly<Record<string, string>>;
   timeoutMs: number;
   maxOutputBytes: number;
+  outputMode: "JSON_EVENTS" | "FINAL_TEXT";
 }>;
 
 export type PiProcessResult = Readonly<{
@@ -99,6 +101,9 @@ export const runBoundedPiProcess: PiProcessRunner = (request) =>
     let stdout = "";
     let stderr = "";
     let outputBytes = 0;
+    let wireOutputBytes = 0;
+    let stdoutBuffer = "";
+    const stdoutDecoder = new StringDecoder("utf8");
     let timedOut = false;
     let outputLimitExceeded = false;
     let settled = false;
@@ -113,18 +118,83 @@ export const runBoundedPiProcess: PiProcessRunner = (request) =>
       timedOut = true;
       terminate();
     }, request.timeoutMs);
-    const capture = (chunk: Buffer, target: "stdout" | "stderr") => {
-      outputBytes += chunk.byteLength;
+    const retain = (value: string, target: "stdout" | "stderr") => {
+      outputBytes += Buffer.byteLength(value);
       if (outputBytes > request.maxOutputBytes) {
         outputLimitExceeded = true;
         terminate();
         return;
       }
-      if (target === "stdout") stdout += chunk.toString("utf8");
-      else stderr += chunk.toString("utf8");
+      if (target === "stdout") stdout += value;
+      else stderr += value;
     };
-    child.stdout.on("data", (chunk: Buffer) => capture(chunk, "stdout"));
-    child.stderr.on("data", (chunk: Buffer) => capture(chunk, "stderr"));
+    const retainJsonlLine = (line: string) => {
+      if (line.trim() === "") return;
+      try {
+        const event = JSON.parse(line) as {
+          type?: unknown;
+          toolName?: unknown;
+          message?: unknown;
+        };
+        if (
+          event.type === "message_update" ||
+          event.type === "tool_execution_update"
+        ) {
+          return;
+        }
+        if (event.type === "tool_execution_end") {
+          retain(
+            `${JSON.stringify({
+              type: event.type,
+              toolName: event.toolName,
+            })}\n`,
+            "stdout",
+          );
+          return;
+        }
+        if (event.type === "message_end") {
+          const text = textContent(event.message);
+          if (text !== null) {
+            retain(
+              `${JSON.stringify({
+                type: event.type,
+                message: {
+                  role: "assistant",
+                  content: [{ type: "text", text }],
+                },
+              })}\n`,
+              "stdout",
+            );
+          }
+          return;
+        }
+        retain(`${JSON.stringify({ type: event.type })}\n`, "stdout");
+      } catch {
+        retain(`${line}\n`, "stdout");
+      }
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      wireOutputBytes += chunk.byteLength;
+      if (wireOutputBytes > MAX_WIRE_OUTPUT_BYTES) {
+        outputLimitExceeded = true;
+        terminate();
+        return;
+      }
+      if (request.outputMode === "FINAL_TEXT") {
+        retain(stdoutDecoder.write(chunk), "stdout");
+        return;
+      }
+      stdoutBuffer += stdoutDecoder.write(chunk);
+      let newline = stdoutBuffer.indexOf("\n");
+      while (newline >= 0) {
+        retainJsonlLine(stdoutBuffer.slice(0, newline));
+        stdoutBuffer = stdoutBuffer.slice(newline + 1);
+        newline = stdoutBuffer.indexOf("\n");
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) =>
+      retain(chunk.toString("utf8"), "stderr"),
+    );
     child.once("error", (error) => {
       clearTimeout(timeout);
       if (forceKill !== undefined) clearTimeout(forceKill);
@@ -136,6 +206,13 @@ export const runBoundedPiProcess: PiProcessRunner = (request) =>
     child.once("close", (code) => {
       clearTimeout(timeout);
       if (forceKill !== undefined) clearTimeout(forceKill);
+      const finalText = stdoutDecoder.end();
+      if (request.outputMode === "FINAL_TEXT") {
+        retain(finalText, "stdout");
+      } else {
+        stdoutBuffer += finalText;
+        if (stdoutBuffer !== "") retainJsonlLine(stdoutBuffer);
+      }
       if (!settled) {
         settled = true;
         resolveRun({
@@ -185,67 +262,57 @@ function textContent(message: unknown): string | null {
   return parts.length === 0 ? null : parts.join("");
 }
 
-function parseEvents(stdout: string): {
-  payload: unknown;
-  eventCount: number;
-  toolNames: readonly string[];
-} {
-  const lines = stdout.split("\n").filter((line) => line.trim() !== "");
-  const events: unknown[] = [];
-  for (const line of lines) {
-    try {
-      events.push(JSON.parse(line));
-    } catch {
-      throw new Error("pi investigator returned invalid JSONL");
-    }
-  }
-  const toolNames = events
-    .filter(
-      (event): event is { type: "tool_execution_end"; toolName: string } =>
-        event !== null &&
-        typeof event === "object" &&
-        (event as { type?: unknown }).type === "tool_execution_end" &&
-        typeof (event as { toolName?: unknown }).toolName === "string",
-    )
-    .map((event) => event.toolName);
-  if (toolNames.some((toolName) => !READ_ONLY_TOOL_SET.has(toolName))) {
-    throw new Error("pi investigator used a tool outside its read-only profile");
-  }
-  let finalText: string | null = null;
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (
-      event !== null &&
-      typeof event === "object" &&
-      (event as { type?: unknown }).type === "message_end"
-    ) {
-      finalText = textContent((event as { message?: unknown }).message);
-      if (finalText !== null) break;
-    }
-  }
-  if (finalText === null) {
-    throw new Error("pi investigator did not return a final assistant message");
-  }
-  const normalized = finalText.trim().replace(
+function parseFinalPayload(stdout: string): unknown {
+  const hasPayloadKeys = (value: unknown): boolean =>
+    value !== null &&
+    typeof value === "object" &&
+    ["summary", "candidateListingRefs", "findings", "missingEvidence"].every(
+      (key) => Object.hasOwn(value, key),
+    );
+  const normalized = stdout.trim().replace(
     /^```(?:json)?\s*([\s\S]*?)\s*```$/u,
     "$1",
   );
   try {
-    return {
-      payload: JSON.parse(normalized),
-      eventCount: events.length,
-      toolNames: Object.freeze(toolNames),
-    };
+    const direct = JSON.parse(normalized);
+    if (hasPayloadKeys(direct)) return direct;
   } catch {
-    throw new Error("pi investigator final message was not one JSON object");
+    // Scan below.
   }
+  for (let start = normalized.indexOf("{"); start >= 0; start = normalized.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < normalized.length; index += 1) {
+      const character = normalized[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === "{") depth += 1;
+      else if (character === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            const candidate = JSON.parse(normalized.slice(start, index + 1));
+            if (hasPayloadKeys(candidate)) return candidate;
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+  }
+  throw new Error("pi investigator final message contained no scoped JSON object");
 }
 
 function parsePayload(value: unknown, task: DiscoveryTask): PiPayload {
   if (
     value === null ||
     typeof value !== "object" ||
-    Object.keys(value).length !== 4 ||
     typeof (value as { summary?: unknown }).summary !== "string" ||
     !Array.isArray((value as { candidateListingRefs?: unknown }).candidateListingRefs) ||
     !Array.isArray((value as { findings?: unknown }).findings) ||
@@ -281,7 +348,6 @@ function parsePayload(value: unknown, task: DiscoveryTask): PiPayload {
     if (
       finding === null ||
       typeof finding !== "object" ||
-      Object.keys(finding).length !== 3 ||
       !Array.isArray((finding as { listingRefs?: unknown }).listingRefs) ||
       typeof (finding as { statement?: unknown }).statement !== "string" ||
       !["INFO", "WARNING"].includes(
@@ -368,7 +434,7 @@ export class PiInvestigator {
         command: this.command,
         args: [
           "--mode",
-          "json",
+          "text",
           "--no-session",
           "--provider",
           this.projection.provider,
@@ -398,6 +464,7 @@ export class PiInvestigator {
           Math.max(1, task.deadlineEpochMs - Date.now()),
         ),
         maxOutputBytes: this.projection.maxOutputBytes,
+        outputMode: "FINAL_TEXT",
       });
       if (result.timedOut) throw new Error("pi investigator timed out");
       if (result.outputLimitExceeded) {
@@ -406,8 +473,7 @@ export class PiInvestigator {
       if (result.exitCode !== 0) {
         throw new Error(`pi investigator failed (exit ${result.exitCode})`);
       }
-      const parsed = parseEvents(result.stdout);
-      const payload = parsePayload(parsed.payload, task);
+      const payload = parsePayload(parseFinalPayload(result.stdout), task);
       const completedAtMs = Date.now();
       const body = Object.freeze({
         schemaVersion: "pmh.pi-investigation-report.v1" as const,
@@ -434,9 +500,9 @@ export class PiInvestigator {
           executionAuthority: false as const,
         }),
         trace: Object.freeze({
-          eventCount: parsed.eventCount,
-          toolExecutionCount: parsed.toolNames.length,
-          toolNames: Object.freeze([...new Set(parsed.toolNames)].sort()),
+          outputMode: "FINAL_TEXT" as const,
+          permittedTools: READ_ONLY_TOOLS,
+          toolExecutionTraceAvailable: false as const,
         }),
         effects: Object.freeze({
           sessionPersistence: false as const,
@@ -489,7 +555,7 @@ export function createPiInvestigatorRuntime(
     credentialEnv: "DEEPSEEK_API_KEY",
     provider: "deepseek",
     model,
-    mode: "JSONL_ONE_SHOT",
+    mode: "TEXT_ONE_SHOT",
     thinking: "high",
     tools: READ_ONLY_TOOLS,
     sessionPersistence: false,

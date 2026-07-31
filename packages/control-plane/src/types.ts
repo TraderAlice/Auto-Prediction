@@ -127,7 +127,7 @@ export type PiInvestigatorProjection = Readonly<{
   credentialEnv: "DEEPSEEK_API_KEY";
   provider: "deepseek";
   model: string;
-  mode: "JSONL_ONE_SHOT";
+  mode: "TEXT_ONE_SHOT";
   thinking: "high";
   tools: readonly ["read", "grep", "find", "ls"];
   sessionPersistence: false;

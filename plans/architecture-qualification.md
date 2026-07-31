@@ -56,7 +56,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Ground every non-empty scout hypothesis in a bounded, content-addressed catalog context.
 - [x] Add a one-request, secret-free, content-hashed provider qualification command.
 - [x] Add a bounded, read-only pi investigator qualification command for repository-aware work.
-- [ ] Qualify one real provider response with a user-supplied `DEEPSEEK_API_KEY`.
+- [x] Qualify real AI SDK and pi responses with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
 
@@ -101,11 +101,15 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: A discovery task is grounded in at most 30 listings selected from 11 normalized listings in six verified fixture artifacts across five venues. Context identity participates in default `taskId` and durable scope; every non-empty hypothesis cites in-scope listing references, while an empty grounded result remains valid.
 - 2026-08-01: DeepSeek V4 Flash through Vercel AI SDK is the default lightweight discovery route; direct OpenAI Responses remains an explicit fallback. DeepSeek fast-lane thinking is disabled, output is SDK-validated and then scope-validated, and retention is labeled as provider policy rather than an unsupported `store:false` claim.
 - 2026-08-01: The Vercel AI SDK / DeepSeek checkpoint passes the full 140-test workspace suite, typecheck, and production build under Node.js 24.14.0.
-- 2026-08-01: Repository-aware investigations use pinned pi 0.83.0 as an explicit second lane. Its isolated one-shot process disables sessions and extensibility, exposes only read/search/list tools, validates JSONL traces and task-scoped output, and reconstructs non-executable proposal authority locally.
+- 2026-08-01: Repository-aware investigations use pinned pi 0.83.0 as an explicit second lane. Its isolated one-shot process disables sessions and extensibility, exposes only read/search/list tools, validates bounded final-text output against task scope, and reconstructs non-executable proposal authority locally.
 - 2026-08-01: The pi investigator checkpoint passes the full 144-test workspace suite, typecheck, production build, pinned CLI/model discovery, and bundled missing-key fail-closed check under Node.js 24.14.0.
+- 2026-08-01: The root `.env.local` is the local secret-injection boundary for the control plane and qualification commands. It is Git-ignored, optional, and lower precedence than inherited process variables.
+- 2026-08-01: Local environment loading and bounded pi stream handling expand the Node.js 24.14.0 checkpoint to 147 passing tests plus full typecheck and production build.
+- 2026-08-01: Real pi qualification rejected JSON event mode after its repeated full streaming snapshots crossed the 64 MiB wire cap. Final-text mode avoids transport amplification; the report records the configured read-only allowlist and honestly marks per-tool trace data unavailable.
+- 2026-08-01: Real DeepSeek V4 Flash qualification passes both production paths: Vercel AI SDK emits a grounded three-proposal report (`sha256:93e5612e…273735`), and pi emits a scope-validated investigator report (`sha256:41cd6d74…10b2d1`). Both retain literal-false external-write, value-moving, and live-execution effects.
 
 ## Blockers
 
-The adapters, deterministic tests, and provider-neutral one-shot qualification
-command are complete. One real provider smoke run needs a user-supplied
-`DEEPSEEK_API_KEY`; the heuristic-only runtime is not blocked by its absence.
+No current campaign blocker. Real AI SDK and pi qualification completed with a
+user-supplied local credential; the credential remains outside Git and all
+outputs remain proposal-only.

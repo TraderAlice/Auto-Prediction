@@ -1,5 +1,7 @@
+import { loadLocalEnvironment } from "./local-environment.js";
 import { runPiInvestigatorSmoke } from "./pi-investigator-smoke.js";
 
+loadLocalEnvironment();
 try {
   const report = await runPiInvestigatorSmoke();
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
