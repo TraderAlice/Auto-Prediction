@@ -52,7 +52,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Enforce proposal-only, unreviewed, no-execution AI output.
 - [ ] Connect a budgeted external model provider.
 - [ ] Feed reviewed hypotheses into deterministic candidate compilation.
-- [ ] Stream real campaign and book state into Studio.
+- [x] Stream real replay book state into Studio.
 
 ## Verification gate
 
@@ -76,6 +76,7 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: Studio consumes a live control-plane projection and SSE stream; browser code presents state and does not recompute verifier verdicts.
 - 2026-07-31: AI is trusted for subjective search hypotheses only. Every model output remains UNREVIEWED, has no execution authority, and must cross deterministic compilation plus independent exact verification.
 - 2026-07-31: Public realtime qualification is venue-specific. Gemini deltas use native update ranges and fail closed on gaps; Polymarket and Limitless replacement images enter explicit rebuild because their public full-book paths do not provide equivalent delta sequencing guarantees.
+- 2026-07-31: The control plane owns deterministic book replay and broadcasts projections over SSE. Studio renders lifecycle and depth but never derives authoritative state in the browser.
 
 ## Blockers
 

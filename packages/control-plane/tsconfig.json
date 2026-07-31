@@ -8,6 +8,8 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../domain" },
+    { "path": "../evidence" },
+    { "path": "../market-state" },
     { "path": "../protocol" },
     { "path": "../venue-gemini" },
     { "path": "../venue-kalshi" },

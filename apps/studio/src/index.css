@@ -1093,6 +1093,293 @@ main {
   padding: 4px 6px;
 }
 
+.book-heading {
+  display: flex;
+  max-width: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+.book-heading > div {
+  max-width: 760px;
+}
+
+.book-heading > button {
+  flex: 0 0 auto;
+  margin-bottom: 6px;
+}
+
+.is-spinning {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.book-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #101416, #0d1012);
+}
+
+.book-summary-grid .metric {
+  min-height: 104px;
+}
+
+.book-desk-layout {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.book-session-list {
+  overflow: hidden;
+  align-self: start;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #0d1012;
+}
+
+.book-list-heading {
+  display: flex;
+  min-height: 53px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  color: #a9b2ad;
+  padding: 0 14px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.book-session {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 92px;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 13px 14px;
+  text-align: left;
+  transition: 150ms ease;
+}
+
+.book-session:last-child {
+  border-bottom: 0;
+}
+
+.book-session:hover,
+.book-session.is-selected {
+  background: rgba(126, 240, 193, 0.035);
+}
+
+.book-session.is-selected::after {
+  position: absolute;
+  inset: 15px 0 15px auto;
+  width: 2px;
+  border-radius: 4px;
+  background: var(--primary);
+  box-shadow: 0 0 12px rgba(126, 240, 193, 0.65);
+  content: "";
+}
+
+.book-session-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 8px rgba(126, 240, 193, 0.65);
+}
+
+.book-session > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.book-session strong {
+  font-size: 11px;
+}
+
+.book-session > div span,
+.book-session small {
+  overflow: hidden;
+  color: #5f6964;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-session small {
+  grid-column: 2 / -1;
+}
+
+.book-detail-card {
+  min-width: 0;
+}
+
+.book-topline {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #0b0e10;
+}
+
+.book-topline > div {
+  display: flex;
+  min-height: 76px;
+  flex-direction: column;
+  justify-content: center;
+  border-right: 1px solid var(--border);
+  padding: 12px 16px;
+}
+
+.book-topline > div:last-child {
+  border-right: 0;
+}
+
+.book-topline span,
+.book-evidence-strip dt {
+  color: #5e6863;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.book-topline strong {
+  margin-top: 7px;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.ask-text {
+  color: #ff9a8f;
+}
+
+.depth-ladder {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.depth-side {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #0b0e10;
+}
+
+.depth-header,
+.depth-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+}
+
+.depth-header {
+  min-height: 34px;
+  border-bottom: 1px solid var(--border);
+  color: #59635e;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  padding: 0 11px;
+  text-transform: uppercase;
+}
+
+.depth-header span:last-child,
+.depth-row span {
+  text-align: right;
+}
+
+.depth-row {
+  position: relative;
+  min-height: 31px;
+  overflow: hidden;
+  padding: 0 11px;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 9px;
+}
+
+.depth-row i {
+  position: absolute;
+  inset: 3px 0 3px auto;
+  opacity: 0.1;
+}
+
+.bids .depth-row i {
+  background: linear-gradient(90deg, transparent, var(--primary));
+}
+
+.asks .depth-row i {
+  background: linear-gradient(90deg, transparent, #ff897d);
+}
+
+.depth-row strong,
+.depth-row span {
+  z-index: 1;
+  font-weight: 500;
+}
+
+.bids .depth-row strong {
+  color: var(--primary);
+}
+
+.asks .depth-row strong {
+  color: #ff9a8f;
+}
+
+.depth-row span {
+  color: #818b86;
+}
+
+.book-evidence-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 14px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--border);
+}
+
+.book-evidence-strip > div {
+  min-width: 0;
+  background: #0b0e10;
+  padding: 11px 13px;
+}
+
+.book-evidence-strip dd {
+  overflow: hidden;
+  margin: 5px 0 0;
+  color: #939d98;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .evidence-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1471,6 +1758,24 @@ footer span:first-child {
   .evidence-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .book-desk-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .book-session-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .book-list-heading {
+    grid-column: 1 / -1;
+  }
+
+  .book-session {
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1536,6 +1841,34 @@ footer span:first-child {
 
   .payoff-card {
     grid-row: auto;
+  }
+
+  .book-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .book-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .book-summary-grid .metric {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .book-summary-grid .metric:last-child {
+    border-bottom: 0;
+  }
+
+  .book-session-list {
+    grid-template-columns: 1fr;
+  }
+
+  .book-session {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
   }
 }
 
@@ -1630,6 +1963,15 @@ footer span:first-child {
 
   .page-heading h1 {
     font-size: 43px;
+  }
+
+  .depth-ladder,
+  .book-evidence-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .book-topline strong {
+    font-size: 15px;
   }
 
   footer {

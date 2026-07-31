@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildStudioProjection,
   HeuristicDiscoveryWorker,
+  ReplayBookDesk,
 } from "@pmh/control-plane";
 
 describe("Studio projection safety", () => {
@@ -27,5 +28,21 @@ describe("Studio projection safety", () => {
     expect(studioProjection.identity.stateHash).toMatch(
       /^sha256:[0-9a-f]{64}$/,
     );
+  });
+
+  it("carries verified replay books without adding execution authority", async () => {
+    const bookDesk = await new ReplayBookDesk().replay();
+    const projection = buildStudioProjection({
+      workers: [new HeuristicDiscoveryWorker()],
+      activeRuns: 0,
+      bookDesk,
+    });
+    expect(projection.bookDesk.books).toHaveLength(3);
+    expect(
+      projection.bookDesk.books.every(
+        (book) => book.lifecycle === "SNAPSHOT_VALID",
+      ),
+    ).toBe(true);
+    expect(projection.system.liveExecutionEnabled).toBe(false);
   });
 });
