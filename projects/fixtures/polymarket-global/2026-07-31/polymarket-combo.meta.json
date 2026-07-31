@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "polymarket-combo",
+  "venue": "polymarket-global",
+  "protocolVersion": "combo-rfq-rest:2026-07-31",
+  "sourceUrl": "https://combos-rfq-api.polymarket.com/v1/rfq/combo-markets?limit=1",
+  "fetchedAt": "2026-07-31T08:54:33.026Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:0b3b1aa13693fee2d7ad8912d17af47338966a2a94c04ece9689735708d91ed0",
+  "byteLength": "648",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

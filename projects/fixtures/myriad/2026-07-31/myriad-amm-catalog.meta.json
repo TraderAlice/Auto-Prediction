@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "myriad-amm-catalog",
+  "venue": "myriad",
+  "protocolVersion": "api-v2.0.4:2026-07-31",
+  "sourceUrl": "https://api-v2.myriadprotocol.com/markets?page=1&limit=1&state=open",
+  "fetchedAt": "2026-07-31T08:54:36.835Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:29556e612ac37d86099d132a1ec44a73d42fb4789fa41d42b9762171c7835c92",
+  "byteLength": "3899",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

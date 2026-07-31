@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "predict-testnet-catalog",
+  "venue": "predict-fun-testnet",
+  "protocolVersion": "rest-v1-beta:2026-06-18",
+  "sourceUrl": "https://api-testnet.predict.fun/v1/markets?first=1",
+  "fetchedAt": "2026-07-31T08:54:35.553Z",
+  "httpStatus": 200,
+  "contentType": "application/json; charset=utf-8",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:15d6e4d5dd59bb0a7647ecbb899681d339247a1d475f8e22ff8010b6c6fd1b76",
+  "byteLength": "2259",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

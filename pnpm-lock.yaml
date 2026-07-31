@@ -27,6 +27,15 @@ importers:
         specifier: ^4.1.5
         version: 4.4.3
 
+  packages/evidence:
+    dependencies:
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
   packages/market-state:
     dependencies:
       '@pmh/domain':
@@ -38,6 +47,78 @@ importers:
       '@pmh/domain':
         specifier: workspace:*
         version: link:../domain
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  packages/venue-gemini:
+    dependencies:
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@pmh/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@pmh/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  packages/venue-kalshi:
+    dependencies:
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@pmh/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@pmh/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  packages/venue-myriad:
+    dependencies:
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@pmh/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@pmh/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  packages/venue-opinion:
+    dependencies:
+      '@pmh/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@pmh/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  packages/venue-polymarket:
+    dependencies:
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@pmh/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@pmh/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       zod:
         specifier: ^4.1.5
         version: 4.4.3

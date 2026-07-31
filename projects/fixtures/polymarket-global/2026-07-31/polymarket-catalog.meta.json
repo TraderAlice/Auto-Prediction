@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "polymarket-catalog",
+  "venue": "polymarket-global",
+  "protocolVersion": "gamma-rest:2026-07-31",
+  "sourceUrl": "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=1",
+  "fetchedAt": "2026-07-31T08:54:32.845Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": "Fri, 31 Jul 2026 08:52:57 GMT",
+  "rawHash": "sha256:e38e2fb6f233b1c06958f441143927e6c590f0527c5d62184ad4d99463fcc608",
+  "byteLength": "6742",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

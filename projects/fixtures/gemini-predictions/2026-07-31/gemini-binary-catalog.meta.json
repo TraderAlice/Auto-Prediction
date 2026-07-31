@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "gemini-binary-catalog",
+  "venue": "gemini-predictions",
+  "protocolVersion": "prediction-markets-v1:2026-07-30",
+  "sourceUrl": "https://api.gemini.com/v1/prediction-markets/events?status=active&category=crypto&limit=1",
+  "fetchedAt": "2026-07-31T08:54:34.064Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:f84cf8f8f3adda3020d5b621646cad108cdaa2ade2e582e58803c2491d8e3189",
+  "byteLength": "2839",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

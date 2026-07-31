@@ -10,8 +10,8 @@ Qualify a prediction-market interoperability architecture against current offici
 ## Campaign A — Venue reality
 
 - [x] Census at least eight venue families from official sources.
-- [ ] Capture at least six heterogeneous mechanism fixtures.
-- [ ] Implement at least five catalog adapters.
+- [x] Capture at least six heterogeneous mechanism fixtures.
+- [x] Implement at least five catalog adapters.
 - [ ] Implement at least three realtime-book adapters.
 - [ ] Implement two inert order-gateway contracts, including one demo/sandbox-shaped gateway.
 - [ ] Publish capability, precision, limitations, and qualification evidence per adapter.
