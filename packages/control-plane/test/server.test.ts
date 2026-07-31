@@ -103,6 +103,34 @@ describe("control-plane HTTP surface", () => {
     expect(replay.bookDesk.books).toHaveLength(3);
   });
 
+  it("serves content-addressed replay qualification evidence", async () => {
+    const baseUrl = await listen();
+    const response = await fetch(`${baseUrl}/api/v1/qualification`);
+    const qualification = (await response.json()) as {
+      replayChaos: {
+        status: string;
+        caseCount: number;
+        suiteHash: string;
+        effects: { liveExecutionEnabled: boolean };
+      };
+      campaignEvidence: {
+        status: string;
+        artifactHash: string;
+        sourceArtifacts: unknown[];
+      };
+    };
+    expect(response.status).toBe(200);
+    expect(qualification.replayChaos).toMatchObject({
+      status: "PASS",
+      caseCount: 6,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(qualification.replayChaos.suiteHash).toMatch(/^sha256:/);
+    expect(qualification.campaignEvidence.status).toBe("PASS");
+    expect(qualification.campaignEvidence.sourceArtifacts).toHaveLength(3);
+    expect(qualification.campaignEvidence.artifactHash).toMatch(/^sha256:/);
+  });
+
   it("broadcasts the replayed projection to connected SSE clients", async () => {
     const baseUrl = await listen();
     const abort = new AbortController();

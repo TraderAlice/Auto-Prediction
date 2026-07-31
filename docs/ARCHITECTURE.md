@@ -33,6 +33,12 @@ Agent-editable code may research venues, normalize fixtures, propose matches and
 
 Unknown protocol data, precision loss, incomplete resolution partitions, stale or gapped books, mismatched hashes, expired certificates, and unreconciled order state all fail closed. Live execution is unavailable by default.
 
+Replay integrity is continuously exercised by deterministic chaos cases for
+sequence gaps, stale input, reconnect without a fresh snapshot, off-tick
+deltas, tick-size change, and generation mismatch. Delta batches validate every level before
+mutating the book; any invalid level rejects the whole batch and moves the
+book to `GAP_DETECTED`.
+
 ## Capital and shadow execution
 
 Capital is a venue silo. Reservations move exact values through available, reserved, deployed, unresolved, receivable, and recovered states; every mutation proves conservation against initial capital plus realized terminal PnL.
@@ -46,3 +52,11 @@ request shapes behind the common order-gateway port. These implementations are
 deliberately terminal: they hash the unsigned target request and return
 `REJECTED_INERT`. There is no HTTP client, authentication material, nonce
 generation, or route from configuration to execution.
+
+## Campaign evidence
+
+The control plane folds verified book evidence and replay-chaos results into a
+`pmh.campaign-evidence.v1` bundle. The bundle has literal-false effects and a
+canonical SHA-256 identity. The same value is checked into
+`projects/campaigns/architecture-qualification` and a golden test prevents the
+runtime projection and immutable artifact from drifting independently.

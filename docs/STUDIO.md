@@ -9,6 +9,7 @@ Harmony Studio is the read-only visual surface for architecture qualification. I
 - `GET /api/v1/projection`
 - `GET /api/v1/events`
 - `GET /api/v1/books`
+- `GET /api/v1/qualification`
 - `POST /api/v1/books/replay`
 - `POST /api/v1/discovery/runs`
 
@@ -62,6 +63,13 @@ AI output cannot:
 - grant execution authority.
 
 Deterministic candidate compilation and the independent exact verifier remain downstream authority boundaries.
+
+## Evidence inventory
+
+The Evidence view consumes replay qualification from the control-plane
+projection. Its summary counts, all six chaos cases, observed fail-closed
+postures, suite identity, and immutable campaign artifact identity are runtime
+facts rather than hard-coded presentation data.
 
 ## Local use
 

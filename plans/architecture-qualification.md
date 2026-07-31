@@ -35,9 +35,9 @@ Qualify a prediction-market interoperability architecture against current offici
 
 - [x] Capture raw streams and content-addressed manifests.
 - [x] Deterministically replay snapshot/delta books.
-- [ ] Fail closed on gap, stale, reconnect, tick change, and generation mismatch.
+- [x] Fail closed on gap, stale, reconnect, tick change, and generation mismatch.
 - [x] Simulate multi-leg execution, partial fills, UNKNOWN reconciliation, and capital conservation.
-- [ ] Emit immutable campaign evidence.
+- [x] Emit immutable campaign evidence.
 
 ## Campaign E — Liquidity export
 
@@ -59,7 +59,7 @@ Qualify a prediction-market interoperability architecture against current offici
 
 - [x] Focused fixture and contract tests.
 - [x] Fixed-point and payout property tests.
-- [ ] Replay chaos tests.
+- [x] Replay chaos tests.
 - [ ] Solver/verifier adversarial tests.
 - [x] Execution and capital state-model tests.
 - [x] CLI JSON-envelope tests.
@@ -80,6 +80,8 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: The control plane owns deterministic book replay and broadcasts projections over SSE. Studio renders lifecycle and depth but never derives authoritative state in the browser.
 - 2026-07-31: Discovery runs are retained in a 25-entry in-memory ledger and streamed to Scout Inbox. Promotion controls remain absent until independent equivalence-review authority is configured.
 - 2026-07-31: Kalshi demo and Gemini sandbox order gateways model current official submit/cancel/reconcile request shapes but have no transport, nonce generator, signer, credential input, or value-moving path. Every operation returns a hash-bound `REJECTED_INERT` receipt and qualifies only at `DISCOVER`.
+- 2026-07-31: Replay chaos qualification deterministically injects sequence gaps, stale marks, reconnect-without-snapshot, off-tick deltas, tick-size change, and generation mismatch. Off-tick batches validate atomically before mutation and invalidate the book on rejection.
+- 2026-07-31: The replay-integrity campaign artifact binds three verified stream/state identities, six chaos-case evidence hashes, literal-false effects, and a self identity. A golden test locks the checked-in JSON to the runtime projection.
 
 ## Blockers
 

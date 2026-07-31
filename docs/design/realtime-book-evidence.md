@@ -32,3 +32,15 @@ recompute every binding before a venue codec sees a frame.
 Transport sessions belong to the long-running control plane, not Studio.
 Adapters may normalize facts into deterministic book events. They do not own
 claim equivalence, opportunity certification, risk authority, or execution.
+
+## Chaos qualification
+
+The replay-chaos suite injects six hazards into a deterministic reference
+book: a native sequence gap, an explicit stale mark, a reconnect delta before
+a replacement snapshot, an off-tick multi-change delta, a tick-size change,
+and reuse of a stale generation binding after rebuild. Each case emits a content hash over the
+fixture identity, expected posture, observed posture, and diagnostic.
+
+All delta levels are validated before any map mutation. A single invalid level
+rejects the complete batch, preserves the previous depth and sequence, and
+moves lifecycle to `GAP_DETECTED`.
