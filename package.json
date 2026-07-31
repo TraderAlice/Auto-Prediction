@@ -11,11 +11,13 @@
     "build": "pnpm -r build",
     "check": "pnpm -r check",
     "fixtures:capture": "node scripts/capture-public-fixtures.mjs",
+    "pmh": "pnpm -r build && node packages/cli/dist/main.js",
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",
+    "esbuild": "^0.28.1",
     "fast-check": "^4.2.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

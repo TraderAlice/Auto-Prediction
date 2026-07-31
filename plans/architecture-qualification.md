@@ -18,9 +18,9 @@ Qualify a prediction-market interoperability architecture against current offici
 
 ## Campaign B — Contract truth
 
-- [ ] Implement Claim, Resolution Specification, Outcome Space, Listing, and payout algebra.
-- [ ] Represent binary, exhaustive/non-exhaustive categorical, scalar/range, conditional, multivariate, void, and canceled states.
-- [ ] Implement hash-bound UNREVIEWED proposals and independent accepted/rejected review artifacts.
+- [x] Implement Claim, Resolution Specification, Outcome Space, Listing, and payout algebra.
+- [x] Represent binary, exhaustive/non-exhaustive categorical, scalar/range, conditional, multivariate, void, and canceled states.
+- [x] Implement hash-bound UNREVIEWED proposals and independent accepted/rejected review artifacts.
 - [ ] Map one claim across at least three venue fixtures.
 
 ## Campaign C — Arbitrage truth
@@ -41,9 +41,9 @@ Qualify a prediction-market interoperability architecture against current offici
 
 ## Campaign E — Liquidity export
 
-- [ ] Generate executable hedge curves from multiple venues.
-- [ ] Generate constrained shadow maker quotes for one low-liquidity venue.
-- [ ] Prove spread, size, inventory, and hedge constraints.
+- [x] Generate executable hedge curves from multiple venues.
+- [x] Generate constrained shadow maker quotes for one low-liquidity venue.
+- [x] Prove spread, size, inventory, and hedge constraints.
 
 ## Verification gate
 
@@ -52,13 +52,17 @@ Qualify a prediction-market interoperability architecture against current offici
 - [ ] Replay chaos tests.
 - [ ] Solver/verifier adversarial tests.
 - [x] Execution and capital state-model tests.
-- [ ] CLI JSON-envelope tests.
+- [x] CLI JSON-envelope tests.
 - [x] Explicit live-disabled proof.
 - [ ] Full workspace checkpoint on the target runtime.
 
 ## Decisions and deviations
 
 Record evidence-driven changes here before promoting them into stable design documents.
+
+- 2026-07-31: Hedge curves rank executable depth by all-in marginal collateral. BUY allocations round costs up; SELL allocations round proceeds down.
+- 2026-07-31: Maker export remains shadow-only and requires an economically valid spread after fee, execution, resolution-mismatch, venue, capital-lock, and inventory premiums.
+- 2026-07-31: CLI schema `pmh.cli.v1` makes external writes, value movement, and live execution explicit literal-false effects.
 
 ## Blockers
 

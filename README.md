@@ -22,10 +22,13 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Per-venue capital reservations with conservation across available, reserved, deployed, unresolved, receivable, and realized-PnL states.
 - Multi-leg shadow execution DAGs with idempotent submission, partial fills, cancel/release, UNKNOWN reconciliation, hedge locking, and terminal settlement.
 - A fixed Risk Governor that blocks live mode, stale/gapped books, expired certificates, excessive residual/capital exposure, heartbeat/cancel failures, and state divergence.
+- Executable cross-venue hedge curves with conservative BUY-cost and SELL-proceeds rounding.
+- Shadow-only maker quotes bounded by common hedge depth, inventory capacity, risk budget, and explicit per-unit premiums.
+- A bundled `pmh` CLI with a versioned JSON envelope, content-hashed state snapshots, explicit effects, diagnostics, and allowed next actions.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-Realtime adapters, persistent SQLite operational state, hedge curves, CLI, campaign evidence, and Studio remain active campaign work.
+Realtime adapters, persistent SQLite operational state, campaign evidence, and Studio remain active campaign work.
 
 ## Safety boundary
 
@@ -44,6 +47,9 @@ corepack enable
 pnpm install
 pnpm check
 pnpm test
+pnpm pmh system status
+pnpm pmh venue list
+pnpm pmh venue inspect polymarket-global
 ```
 
 The host used for the initial checkpoint exposed Node.js 22.22.1, so the repository correctly warns about the engine mismatch even though the current checks pass there. A Node 24 checkpoint is still required before runtime qualification.
@@ -58,6 +64,8 @@ The host used for the initial checkpoint exposed Node.js 22.22.1, so the reposit
 - `packages/capital`: per-venue reservations and settlement-capital conservation.
 - `packages/risk`: fixed opening authority and kill conditions.
 - `packages/execution`: validated multi-leg plans and shadow-only order lifecycle.
+- `packages/liquidity`: executable hedge curves and constrained shadow maker quotes.
+- `packages/cli`: versioned, machine-readable inspection commands.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.
 - `docs/design`: current architecture truth.

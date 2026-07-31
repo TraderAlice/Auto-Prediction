@@ -1,0 +1,27 @@
+{
+  "name": "@pmh/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "pmh": "./dist/main.js"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json && esbuild src/main.ts --bundle --platform=node --format=esm --outfile=dist/main.js",
+    "check": "tsc -b tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@pmh/domain": "workspace:*",
+    "@pmh/protocol": "workspace:*",
+    "@pmh/venue-gemini": "workspace:*",
+    "@pmh/venue-kalshi": "workspace:*",
+    "@pmh/venue-myriad": "workspace:*",
+    "@pmh/venue-opinion": "workspace:*",
+    "@pmh/venue-polymarket": "workspace:*"
+  }
+}

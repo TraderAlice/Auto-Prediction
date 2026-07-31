@@ -30,3 +30,6 @@ Architecture Qualification, pre-alpha. The work starts with venue reality and do
 - 2026-07-31: Capital remains a per-venue silo and is conserved through reservation, partial deployment, unresolved lock, settlement receivable, recovery, and realized terminal PnL.
 - 2026-07-31: Shadow execution intents bind certificate legs and obey DAG checkpoints. UNKNOWN is a reconcile-only state; complete fill is required before hedge lock.
 - 2026-07-31: The fixed Risk Governor has no live mode and fails closed on invalid books, expiry, venue/residual/unresolved limits, heartbeat/cancel latency, and local/venue divergence.
+- 2026-07-31: Executable hedge curves aggregate venue depth with conservative action-specific rounding and expose the exact book hashes behind every allocation.
+- 2026-07-31: Low-liquidity maker quotes remain shadow-only and are bounded simultaneously by hedge depth, inventory, risk budget, payout range, and six explicit premium classes.
+- 2026-07-31: CLI schema `pmh.cli.v1` publishes content-hashed read-only projections and literal-false external-write, value-moving, and live-execution effects.
