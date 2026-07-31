@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "pmh.three-venue-claim-evidence.v1",
+  "campaignId": "architecture-qualification",
+  "checkpointId": "three-venue-exact-claim",
+  "status": "PASS",
+  "mappingGrade": "EXACT",
+  "canonicalTitle": "Trump out as President before 2027?",
+  "canonicalOutcomes": [
+    "NO",
+    "YES"
+  ],
+  "ruleTextHash": "sha256:dc3adabdf4a45a61e9181ea45cce123bcfcd4563883129ca390e14ddf600fb4f",
+  "claimIdentity": "sha256:36f25c9731ffdc71a3bd442abbe0dfe137da349c6fb52fc4485ac6dd78a31481",
+  "listings": [
+    {
+      "venueId": "limitless",
+      "listingId": "36814",
+      "slug": "trump-out-as-president-before-2027-1768933068297",
+      "closesAt": "2027-01-01T04:59:00.000Z",
+      "sourceFixtureHash": "sha256:fa977da3e8f2dc817a4107eca46abd32b67f5d6e2d3653b75f90e894085be7e5",
+      "ruleTextHash": "sha256:dc3adabdf4a45a61e9181ea45cce123bcfcd4563883129ca390e14ddf600fb4f"
+    },
+    {
+      "venueId": "opinion",
+      "listingId": "3062",
+      "slug": "trump-out-as-president-before-2027",
+      "closesAt": "2027-01-01T00:00:00.000Z",
+      "sourceFixtureHash": "sha256:060f718dc186cccf37ca4ba8a748b8d80495b7425944deeaf15d52304595d72f",
+      "ruleTextHash": "sha256:dc3adabdf4a45a61e9181ea45cce123bcfcd4563883129ca390e14ddf600fb4f"
+    },
+    {
+      "venueId": "polymarket-global",
+      "listingId": "666861",
+      "slug": "trump-out-as-president-before-2027",
+      "closesAt": "2026-12-31T00:00:00Z",
+      "sourceFixtureHash": "sha256:e15a8399332c4596ca8e739c35d2734433b3494f7b01a678df1c02c091426b48",
+      "ruleTextHash": "sha256:dc3adabdf4a45a61e9181ea45cce123bcfcd4563883129ca390e14ddf600fb4f"
+    }
+  ],
+  "assertions": [
+    {
+      "assertionId": "THREE_DISTINCT_VENUES",
+      "status": "PASS",
+      "evidenceHashes": [
+        "sha256:fa977da3e8f2dc817a4107eca46abd32b67f5d6e2d3653b75f90e894085be7e5",
+        "sha256:060f718dc186cccf37ca4ba8a748b8d80495b7425944deeaf15d52304595d72f",
+        "sha256:e15a8399332c4596ca8e739c35d2734433b3494f7b01a678df1c02c091426b48"
+      ]
+    },
+    {
+      "assertionId": "IDENTICAL_RESOLUTION_RULES",
+      "status": "PASS",
+      "evidenceHashes": [
+        "sha256:dc3adabdf4a45a61e9181ea45cce123bcfcd4563883129ca390e14ddf600fb4f",
+        "sha256:fa977da3e8f2dc817a4107eca46abd32b67f5d6e2d3653b75f90e894085be7e5",
+        "sha256:060f718dc186cccf37ca4ba8a748b8d80495b7425944deeaf15d52304595d72f",
+        "sha256:e15a8399332c4596ca8e739c35d2734433b3494f7b01a678df1c02c091426b48"
+      ]
+    }
+  ],
+  "effects": {
+    "externalWrites": false,
+    "valueMovingActions": false,
+    "liveExecutionEnabled": false
+  },
+  "artifactHash": "sha256:a52119a402b27f12cad6478545538551347de404f23615808acc4200efe2ee99"
+}

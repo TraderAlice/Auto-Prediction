@@ -21,7 +21,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Implement Claim, Resolution Specification, Outcome Space, Listing, and payout algebra.
 - [x] Represent binary, exhaustive/non-exhaustive categorical, scalar/range, conditional, multivariate, void, and canceled states.
 - [x] Implement hash-bound UNREVIEWED proposals and independent accepted/rejected review artifacts.
-- [ ] Map one claim across at least three venue fixtures.
+- [x] Map one claim across at least three venue fixtures.
 
 ## Campaign C — Arbitrage truth
 
@@ -76,17 +76,17 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: Hedge curves rank executable depth by all-in marginal collateral. BUY allocations round costs up; SELL allocations round proceeds down.
 - 2026-07-31: Maker export remains shadow-only and requires an economically valid spread after fee, execution, resolution-mismatch, venue, capital-lock, and inventory premiums.
 - 2026-07-31: CLI schema `pmh.cli.v1` makes external writes, value movement, and live execution explicit literal-false effects.
-- 2026-07-31: The target-runtime gate is qualified under isolated Node.js 24.18.1 with the full typecheck, 118-test workspace suite, and production builds passing.
+- 2026-07-31: The target-runtime gate is qualified under isolated Node.js 24.18.1 with the full typecheck, 122-test workspace suite, and production builds passing.
 - 2026-07-31: Studio consumes a live control-plane projection and SSE stream; browser code presents state and does not recompute verifier verdicts.
 - 2026-07-31: AI is trusted for subjective search hypotheses only. Every model output remains UNREVIEWED, has no execution authority, and must cross deterministic compilation plus independent exact verification.
 - 2026-07-31: Public realtime qualification is venue-specific. Gemini deltas use native update ranges and fail closed on gaps; Polymarket and Limitless replacement images enter explicit rebuild because their public full-book paths do not provide equivalent delta sequencing guarantees.
 - 2026-07-31: The control plane owns deterministic book replay and broadcasts projections over SSE. Studio renders lifecycle and depth but never derives authoritative state in the browser.
-- 2026-07-31: Discovery runs are retained in a 25-entry in-memory ledger and streamed to Scout Inbox. Promotion controls remain absent until independent equivalence-review authority is configured.
+- 2026-07-31: Discovery runs are retained in a 25-entry SQLite WAL ledger and streamed to Scout Inbox. Promotion controls remain absent until independent equivalence-review authority is configured.
 - 2026-07-31: Kalshi demo and Gemini sandbox order gateways model current official submit/cancel/reconcile request shapes but have no transport, nonce generator, signer, credential input, or value-moving path. Every operation returns a hash-bound `REJECTED_INERT` receipt and qualifies only at `DISCOVER`.
 - 2026-07-31: Replay chaos qualification deterministically injects sequence gaps, stale marks, reconnect-without-snapshot, off-tick deltas, tick-size change, and generation mismatch. Off-tick batches validate atomically before mutation and invalidate the book on rejection.
 - 2026-07-31: The replay-integrity campaign artifact binds three verified stream/state identities, six chaos-case evidence hashes, literal-false effects, and a self identity. A golden test locks the checked-in JSON to the runtime projection.
 - 2026-07-31: A hypothesis never mutates into an approved fact. A separate `pmh.hypothesis-review.v1` artifact must bind it and the complete exact market-link evidence set before compilation; proposer self-review, substituted links, non-exact grades, unreviewed venues, stale books, and non-positive floors all fail closed.
-- 2026-07-31: `reviewed-compilation.v1.json` qualifies this handoff with a synthetic two-venue binary fixture. It does not satisfy the separate three-venue official-fixture goal and grants no runtime review or execution authority.
+- 2026-07-31: `reviewed-compilation.v1.json` qualifies the synthetic compilation handoff but grants no runtime review or execution authority. The separate `three-venue-claim.v1.json` artifact binds identical real resolution rules across Polymarket Global, Opinion, and Limitless without treating different listing windows as claim semantics.
 - 2026-07-31: SQLite WAL owns bounded discovery operational state only; Git remains the authority for immutable fixtures and campaign artifacts. Records are stored as canonical JSON with SHA-256 identities, schema version 1 fails closed on incompatible future databases, and normalized task content produces a stable default `taskId`.
 
 ## Blockers

@@ -37,6 +37,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A deterministic replay-chaos suite covering gaps, stale input, reconnect without snapshot, off-tick atomic rejection, tick-size change, and generation invalidation.
 - A checked-in, content-addressed replay-integrity campaign artifact bound to three verified books and six chaos-case evidence identities.
 - A checked-in synthetic qualification artifact proving the full scout → review → compiler → verifier boundary without implying a real venue match or execution authority.
+- A checked-in exact three-venue claim map whose independent fixtures bind identical Trump-removal rules on Polymarket Global, Opinion, and Limitless while preserving their different listing windows.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
