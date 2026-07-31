@@ -1080,29 +1080,35 @@ function BookDeskView() {
 }
 
 function EvidenceView() {
+  const studioProjection = useStudioProjection();
+  const replayChaos = studioProjection.qualification.replayChaos;
+  const campaignEvidence = studioProjection.qualification.campaignEvidence;
+  const campaignEvidenceIdentityCount = new Set(
+    campaignEvidence.assertions.flatMap((item) => item.evidenceHashes),
+  ).size;
   const items = [
     {
-      name: "Source artifacts",
-      count: "12",
-      detail: "9 HTTP · 3 stream",
+      name: "Verified books",
+      count: `${campaignEvidence.sourceArtifacts.length}`,
+      detail: "stream + state identity",
       icon: Database,
     },
     {
-      name: "Stream acquisitions",
-      count: "3",
-      detail: "subscription + frame hashes",
+      name: "Chaos cases",
+      count: `${replayChaos.passCount}/${replayChaos.caseCount}`,
+      detail: "deterministic fail-closed",
       icon: FileCheck2,
     },
     {
-      name: "Book generations",
-      count: "3",
-      detail: "bound to certificates",
+      name: "Evidence identities",
+      count: `${campaignEvidenceIdentityCount}`,
+      detail: "deduplicated content hashes",
       icon: Boxes,
     },
     {
-      name: "Review artifacts",
-      count: "2",
-      detail: "independent link decisions",
+      name: "Campaign assertions",
+      count: `${campaignEvidence.assertions.filter((item) => item.status === "PASS").length}`,
+      detail: `${campaignEvidence.status.toLowerCase()} checkpoint`,
       icon: BadgeCheck,
     },
   ] as const;
@@ -1132,6 +1138,48 @@ function EvidenceView() {
           );
         })}
       </div>
+      <Card className="chaos-evidence-card">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Replay integrity · deterministic suite</span>
+            <h2>Chaos qualification</h2>
+          </div>
+          <Badge
+            variant={replayChaos.status === "PASS" ? "verified" : "muted"}
+          >
+            {replayChaos.passCount}/{replayChaos.caseCount} PASS
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="chaos-case-list">
+            {replayChaos.cases.map((item, index) => (
+              <div className="chaos-case-row" key={item.caseId}>
+                <span className="chaos-case-index">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <strong>{item.label}</strong>
+                  <span>{item.caseId.replaceAll("_", " ")}</span>
+                </div>
+                <code>{item.observedPosture}</code>
+                <Badge variant={item.passed ? "verified" : "muted"}>
+                  {item.passed ? "PASS" : "FAIL"}
+                </Badge>
+              </div>
+            ))}
+          </div>
+          <div className="evidence-identity-strip">
+            <div>
+              <span>Suite identity</span>
+              <code>{replayChaos.suiteHash}</code>
+            </div>
+            <div>
+              <span>Campaign artifact</span>
+              <code>{campaignEvidence.artifactHash}</code>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <Card className="terminal-card">
         <div className="terminal-topbar">
           <div>
@@ -1144,17 +1192,18 @@ function EvidenceView() {
         </div>
         <pre>
           <code>
-            {`{
-  "schemaVersion": "pmh.cli.v1",
-  "identity": { "command": "venue.inspect" },
-  "effects": {
-    "externalWrites": false,
-    "valueMovingActions": false,
-    "liveExecutionEnabled": false
-  },
-  "artifact": "sha256:38c0493e…57e19e0",
-  "ok": true
-}`}
+            {JSON.stringify(
+              {
+                schemaVersion: campaignEvidence.schemaVersion,
+                campaignId: campaignEvidence.campaignId,
+                checkpointId: campaignEvidence.checkpointId,
+                status: campaignEvidence.status,
+                artifactHash: campaignEvidence.artifactHash,
+                effects: campaignEvidence.effects,
+              },
+              null,
+              2,
+            )}
           </code>
         </pre>
       </Card>

@@ -118,6 +118,14 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/qualification"
+    ) {
+      const current = await projection();
+      writeJson(response, 200, current.qualification);
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/discovery/runs"
     ) {
       writeJson(response, 200, discoveryLedger.projection());

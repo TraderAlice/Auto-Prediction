@@ -58,5 +58,18 @@ describe("Studio projection safety", () => {
       ),
     ).toBe(true);
     expect(projection.system.liveExecutionEnabled).toBe(false);
+    expect(projection.qualification.replayChaos).toMatchObject({
+      status: "PASS",
+      caseCount: 6,
+      passCount: 6,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(projection.qualification.campaignEvidence).toMatchObject({
+      status: "PASS",
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(projection.qualification.campaignEvidence.artifactHash).toMatch(
+      /^sha256:/,
+    );
   });
 });

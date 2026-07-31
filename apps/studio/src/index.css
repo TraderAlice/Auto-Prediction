@@ -1752,6 +1752,106 @@ main {
   font-size: 9px;
 }
 
+.chaos-evidence-card {
+  margin-top: 14px;
+}
+
+.chaos-evidence-card h2 {
+  margin: 5px 0 0;
+  font-size: 18px;
+}
+
+.chaos-case-list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #0b0e10;
+}
+
+.chaos-case-row {
+  display: grid;
+  min-height: 60px;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(120px, auto) auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 13px;
+}
+
+.chaos-case-row:last-child {
+  border-bottom: 0;
+}
+
+.chaos-case-index {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid #26302c;
+  border-radius: 7px;
+  color: var(--primary);
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 8px;
+}
+
+.chaos-case-row > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chaos-case-row strong {
+  font-size: 10px;
+}
+
+.chaos-case-row > div span {
+  color: #59635e;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+}
+
+.chaos-case-row > code {
+  color: #8ea69c;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 8px;
+}
+
+.evidence-identity-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.evidence-identity-strip > div {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0b0e10;
+  padding: 11px 13px;
+}
+
+.evidence-identity-strip span {
+  display: block;
+  color: #59635e;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.evidence-identity-strip code {
+  display: block;
+  overflow: hidden;
+  margin-top: 6px;
+  color: #85928c;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .terminal-card {
   overflow: hidden;
   margin-top: 14px;
@@ -2324,6 +2424,18 @@ footer span:first-child {
 
   .venue-grid,
   .evidence-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chaos-case-row {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+  }
+
+  .chaos-case-row > code {
+    display: none;
+  }
+
+  .evidence-identity-strip {
     grid-template-columns: 1fr;
   }
 

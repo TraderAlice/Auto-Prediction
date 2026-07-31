@@ -1,4 +1,5 @@
 import { hashCanonical } from "@pmh/domain";
+import { runReplayChaosSuite } from "@pmh/market-state";
 import { geminiManifest } from "@pmh/venue-gemini";
 import { kalshiManifest } from "@pmh/venue-kalshi";
 import { limitlessManifest } from "@pmh/venue-limitless";
@@ -12,6 +13,7 @@ import type {
   DiscoveryWorker,
   StudioProjection,
 } from "./types.js";
+import { buildCampaignEvidence } from "./qualification.js";
 
 const presentation = {
   "polymarket-global": ["CLOB · CTF", 98, "#7ef0c1"],
@@ -42,6 +44,12 @@ export function buildStudioProjection(input: {
   bookDesk?: BookDeskProjection;
   discoveryDesk?: DiscoveryDeskProjection;
 }): StudioProjection {
+  const bookDesk = input.bookDesk ?? {
+    mode: "FIXTURE_REPLAY" as const,
+    replayCount: 0,
+    books: [],
+  };
+  const replayChaos = runReplayChaosSuite();
   const state = {
     system: {
       lifecycle: "PRE_ALPHA" as const,
@@ -67,7 +75,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 90,
+      proofTests: 96,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -91,10 +99,10 @@ export function buildStudioProjection(input: {
       promotionBoundary:
         "AI proposes only; independent exact verification is the sole certificate authority.",
     },
-    bookDesk: input.bookDesk ?? {
-      mode: "FIXTURE_REPLAY" as const,
-      replayCount: 0,
-      books: [],
+    bookDesk,
+    qualification: {
+      replayChaos,
+      campaignEvidence: buildCampaignEvidence(bookDesk, replayChaos),
     },
     discoveryDesk: input.discoveryDesk ?? {
       retentionLimit: 25,

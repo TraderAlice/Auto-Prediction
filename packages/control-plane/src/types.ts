@@ -128,6 +128,10 @@ export type StudioProjection = Readonly<{
     promotionBoundary: string;
   }>;
   bookDesk: BookDeskProjection;
+  qualification: Readonly<{
+    replayChaos: ReplayChaosReport;
+    campaignEvidence: CampaignEvidenceBundle;
+  }>;
   discoveryDesk: DiscoveryDeskProjection;
   venues: readonly Readonly<{
     id: string;
@@ -162,3 +166,5 @@ export type StudioProjection = Readonly<{
   }>[];
   payoffStates: readonly Readonly<{ label: string; value: number }>[];
 }>;
+import type { ReplayChaosReport } from "@pmh/market-state";
+import type { CampaignEvidenceBundle } from "./qualification.js";

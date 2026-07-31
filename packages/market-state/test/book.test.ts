@@ -72,4 +72,21 @@ describe("deterministic book replay", () => {
       }),
     ).toThrow(/not aligned/);
   });
+
+  it("rejects an invalid delta atomically and invalidates the book", () => {
+    const book = new DeterministicBook("instrument:test");
+    const before = book.apply(snapshot);
+    const rejected = book.apply({
+      ...delta,
+      changes: [
+        { side: "BID", price: 46_000_000n, size: 50_000_000n },
+        { side: "ASK", price: 47_000_001n, size: 1n },
+      ],
+    });
+    expect(rejected.lifecycle).toBe("GAP_DETECTED");
+    expect(rejected.sequence).toBe(before.sequence);
+    expect(rejected.bids).toEqual(before.bids);
+    expect(rejected.asks).toEqual(before.asks);
+    expect(rejected.diagnostic).toMatch(/rejected atomically.*not aligned/);
+  });
 });

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "pmh.campaign-evidence.v1",
+  "campaignId": "architecture-qualification",
+  "checkpointId": "replay-integrity",
+  "status": "PASS",
+  "sourceArtifacts": [
+    {
+      "venueId": "gemini-predictions",
+      "bookId": "gemini-predictions:gemi-golf-roc-win-20260802-cantlay",
+      "lifecycle": "SNAPSHOT_VALID",
+      "generation": "1",
+      "sequencePolicy": "NATIVE_RANGE",
+      "evidenceHash": "sha256:48e81a86633dd4981e0789f5a37c71069e2b5d1de9edd57ca146348bf12241c3",
+      "stateHash": "sha256:162a74c1279eba077ad0f089bae4be663069cfcac6a1638d8862a2dd171728aa"
+    },
+    {
+      "venueId": "limitless",
+      "bookId": "limitless:29687174478567965776395270155296637349846296009349906460967756725561565069436",
+      "lifecycle": "SNAPSHOT_VALID",
+      "generation": "1",
+      "sequencePolicy": "VERSIONED_SNAPSHOT_REBUILD",
+      "evidenceHash": "sha256:ade5080db2487e962b5e86627a5ac1e45b1d0fa602de8d8970cd283cb21d561b",
+      "stateHash": "sha256:7c73a7074139fa8ce2dcc9fa9952fb2f6b879234b709798498aa255ae3dc971c"
+    },
+    {
+      "venueId": "polymarket-global",
+      "bookId": "polymarket-global:98022490269692409998126496127597032490334070080325855126491859374983463996227",
+      "lifecycle": "SNAPSHOT_VALID",
+      "generation": "1",
+      "sequencePolicy": "FULL_SNAPSHOT_REBUILD",
+      "evidenceHash": "sha256:dec76d6c6442d22aec1a90b05cc95004d9e01299d9c82ee7c34df64caa2fbbb5",
+      "stateHash": "sha256:2f899ed57b77ee9075f03a6efc345167499a96379110946963c7ca8eb3f9ac4f"
+    }
+  ],
+  "replayChaosSuiteHash": "sha256:e3c2c4e7a8cd9a0d87b0c74a10a2dcc8c5fe830631f04de468fc5fb3660f0d89",
+  "assertions": [
+    {
+      "assertionId": "VERIFIED_BOOK_REPLAY",
+      "status": "PASS",
+      "detail": "3/3 venue books have verified evidence and state identities",
+      "evidenceHashes": [
+        "sha256:162a74c1279eba077ad0f089bae4be663069cfcac6a1638d8862a2dd171728aa",
+        "sha256:2f899ed57b77ee9075f03a6efc345167499a96379110946963c7ca8eb3f9ac4f",
+        "sha256:48e81a86633dd4981e0789f5a37c71069e2b5d1de9edd57ca146348bf12241c3",
+        "sha256:7c73a7074139fa8ce2dcc9fa9952fb2f6b879234b709798498aa255ae3dc971c",
+        "sha256:ade5080db2487e962b5e86627a5ac1e45b1d0fa602de8d8970cd283cb21d561b",
+        "sha256:dec76d6c6442d22aec1a90b05cc95004d9e01299d9c82ee7c34df64caa2fbbb5"
+      ]
+    },
+    {
+      "assertionId": "REPLAY_CHAOS_FAILS_CLOSED",
+      "status": "PASS",
+      "detail": "6/6 hazards reached their fail-closed posture",
+      "evidenceHashes": [
+        "sha256:e3c2c4e7a8cd9a0d87b0c74a10a2dcc8c5fe830631f04de468fc5fb3660f0d89",
+        "sha256:a551a4dadd51565dc73393ca8afdc4273dbefb73f3c3d641185db05b30a20a35",
+        "sha256:bc568692d02b80a11dda5205e4de281d130696c3c322fc39f48ed539c0c3fa98",
+        "sha256:632c909fd74e0860180890498dd25ba6ae42a06fbdb039bb24af5c2ceb4aa483",
+        "sha256:544b8b636bffe86f936bb904686f255a3c4f7754c87856a27c4a69d1a3d59686",
+        "sha256:3ff348f763ba9c64d8d3d02040bf9bcbef542358ef57a9c756693f2918aacd7b",
+        "sha256:9f0773f2e1bc8749c66a0c5b8415db0e9f561627591f9bbc6d28ebe5e36f015b"
+      ]
+    },
+    {
+      "assertionId": "LIVE_EXECUTION_DISABLED",
+      "status": "PASS",
+      "detail": "qualification has no external writes, value movement, or live execution",
+      "evidenceHashes": [
+        "sha256:e3c2c4e7a8cd9a0d87b0c74a10a2dcc8c5fe830631f04de468fc5fb3660f0d89"
+      ]
+    }
+  ],
+  "effects": {
+    "externalWrites": false,
+    "valueMovingActions": false,
+    "liveExecutionEnabled": false
+  },
+  "artifactHash": "sha256:350a83350646947f6c822374ec0b26855523074e07acd6c3bbf52fdef6eddfac"
+}

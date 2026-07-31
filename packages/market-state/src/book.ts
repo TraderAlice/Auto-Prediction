@@ -51,6 +51,68 @@ export type BookProjection = Readonly<{
   diagnostic?: string;
 }>;
 
+export type BookIdentityBinding = Readonly<{
+  generationHash: Hash;
+  stateHash: Hash;
+}>;
+
+export type BookIdentityVerdict =
+  | Readonly<{ valid: true; reason: "MATCH" }>
+  | Readonly<{
+      valid: false;
+      reason:
+        | "BOOK_NOT_VALID"
+        | "IDENTITY_UNAVAILABLE"
+        | "GENERATION_CHANGED"
+        | "STATE_CHANGED";
+    }>;
+
+export function captureBookIdentity(
+  projection: BookProjection,
+): BookIdentityBinding {
+  if (
+    projection.lifecycle !== "SNAPSHOT_VALID" &&
+    projection.lifecycle !== "APPLYING_DELTAS"
+  ) {
+    throw new Error(`cannot bind book in lifecycle ${projection.lifecycle}`);
+  }
+  if (
+    projection.generationHash === undefined ||
+    projection.stateHash === undefined
+  ) {
+    throw new Error("valid book is missing generation or state identity");
+  }
+  return Object.freeze({
+    generationHash: projection.generationHash,
+    stateHash: projection.stateHash,
+  });
+}
+
+export function evaluateBookIdentity(
+  binding: BookIdentityBinding,
+  projection: BookProjection,
+): BookIdentityVerdict {
+  if (
+    projection.lifecycle !== "SNAPSHOT_VALID" &&
+    projection.lifecycle !== "APPLYING_DELTAS"
+  ) {
+    return { valid: false, reason: "BOOK_NOT_VALID" };
+  }
+  if (
+    projection.generationHash === undefined ||
+    projection.stateHash === undefined
+  ) {
+    return { valid: false, reason: "IDENTITY_UNAVAILABLE" };
+  }
+  if (projection.generationHash !== binding.generationHash) {
+    return { valid: false, reason: "GENERATION_CHANGED" };
+  }
+  if (projection.stateHash !== binding.stateHash) {
+    return { valid: false, reason: "STATE_CHANGED" };
+  }
+  return { valid: true, reason: "MATCH" };
+}
+
 function validateLevel(level: PriceLevel, tickSize: Fixed): void {
   if (level.price < 0n || level.size < 0n) {
     throw new Error("price and size must be non-negative");
@@ -189,7 +251,18 @@ export class DeterministicBook {
     }
 
     for (const change of delta.changes) {
-      validateLevel(change, this.#tickSize);
+      try {
+        validateLevel(change, this.#tickSize);
+      } catch (error) {
+        this.#lifecycle = "GAP_DETECTED";
+        this.#diagnostic =
+          `delta ${delta.sequence} rejected atomically: ` +
+          (error instanceof Error ? error.message : "invalid price level");
+        return;
+      }
+    }
+
+    for (const change of delta.changes) {
       const side = change.side === "BID" ? this.#bids : this.#asks;
       if (change.size === 0n) {
         side.delete(change.price);
