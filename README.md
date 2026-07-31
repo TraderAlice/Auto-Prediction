@@ -89,6 +89,21 @@ Override the defaults with `PMH_DISCOVERY_MODEL`,
 `PMH_DISCOVERY_TIMEOUT_MS` (1000–30000). Without a key, the process fails
 closed to heuristic-only mode and Studio shows `NEEDS KEY`.
 
+To qualify the production adapter independently of the long-running process,
+place `OPENAI_API_KEY` in the current process environment and run:
+
+```bash
+pnpm --silent discovery:smoke
+```
+
+This bounded command loads the verified Gemini fixture catalog, sends exactly
+one Responses request through the same adapter, and prints a content-hashed
+`pmh.openai-provider-smoke.v1` report. A valid zero-hypothesis response still
+passes. The request uses `store:false`; the report contains no credential and
+the command writes no file, changes no operational state, and has no execution
+authority. Avoid putting the key directly on the command line or in shell
+history, and unset it when the run is complete.
+
 The default host exposes Node.js 22.22.1, so ordinary local commands correctly
 warn about the engine mismatch. The full workspace checkpoint also passes under
 an isolated Node.js 24.18.1 runtime, which is the qualified production target.

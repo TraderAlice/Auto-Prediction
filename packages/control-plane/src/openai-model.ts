@@ -67,7 +67,7 @@ const discoveryOutputSchema = Object.freeze({
   required: ["hypotheses"],
 });
 
-type FetchLike = (
+export type OpenAiFetchLike = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
@@ -76,7 +76,7 @@ export type OpenAiResponsesModelPortOptions = Readonly<{
   apiKey: string;
   maxOutputTokens?: number;
   timeoutMs?: number;
-  fetcher?: FetchLike;
+  fetcher?: OpenAiFetchLike;
 }>;
 
 function boundedInteger(
@@ -139,7 +139,7 @@ function outputText(value: unknown): string {
 
 export class OpenAiResponsesModelPort implements AiModelPort {
   readonly #apiKey: string;
-  private readonly fetcher: FetchLike;
+  private readonly fetcher: OpenAiFetchLike;
   public readonly maxOutputTokens: number;
   public readonly timeoutMs: number;
 
@@ -268,6 +268,7 @@ export type OpenAiDiscoveryRuntime = Readonly<{
 
 export function createOpenAiDiscoveryRuntime(
   environment: Readonly<Record<string, string | undefined>> = process.env,
+  options: Readonly<{ fetcher?: OpenAiFetchLike }> = {},
 ): OpenAiDiscoveryRuntime {
   const model = environment.PMH_DISCOVERY_MODEL?.trim() || DEFAULT_MODEL;
   if (!MODEL_ID_PATTERN.test(model)) {
@@ -311,6 +312,9 @@ export function createOpenAiDiscoveryRuntime(
               apiKey,
               maxOutputTokens,
               timeoutMs,
+              ...(options.fetcher === undefined
+                ? {}
+                : { fetcher: options.fetcher }),
             }),
           ),
   });
