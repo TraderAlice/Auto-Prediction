@@ -31,6 +31,7 @@ None.
 - Dense evidence object-store destination.
 - Whether this remains standalone or later becomes an OpenAlice desk.
 - First external-anchor family after prediction-market qualification.
+- First discovery-model provider, model budget, and credential source. This is not needed for heuristic/replay mode.
 
 ### Environment gaps Codex owns
 

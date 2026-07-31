@@ -12,6 +12,8 @@
     "check": "pnpm -r check",
     "fixtures:capture": "node scripts/capture-public-fixtures.mjs",
     "pmh": "pnpm -r build && node packages/cli/dist/main.js",
+    "studio": "pnpm --parallel --filter @pmh/control-plane --filter @pmh/studio dev",
+    "studio:build": "pnpm --filter @pmh/control-plane build && pnpm --filter @pmh/studio build",
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage"
   },
