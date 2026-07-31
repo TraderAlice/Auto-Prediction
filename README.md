@@ -25,10 +25,13 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Executable cross-venue hedge curves with conservative BUY-cost and SELL-proceeds rounding.
 - Shadow-only maker quotes bounded by common hedge depth, inventory capacity, risk budget, and explicit per-unit premiums.
 - A bundled `pmh` CLI with a versioned JSON envelope, content-hashed state snapshots, explicit effects, diagnostics, and allowed next actions.
+- A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
+- An AI-native discovery pool where cheap parallel scouts may propose hypotheses but can never certify or execute them.
+- Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-Realtime adapters, persistent SQLite operational state, campaign evidence, and Studio remain active campaign work.
+Realtime adapters, persistent SQLite operational state, model-provider wiring, dense campaign evidence, and deeper Studio projections remain active campaign work.
 
 ## Safety boundary
 
@@ -50,6 +53,7 @@ pnpm test
 pnpm pmh system status
 pnpm pmh venue list
 pnpm pmh venue inspect polymarket-global
+pnpm studio
 ```
 
 The host used for the initial checkpoint exposed Node.js 22.22.1, so the repository correctly warns about the engine mismatch even though the current checks pass there. A Node 24 checkpoint is still required before runtime qualification.
@@ -66,6 +70,8 @@ The host used for the initial checkpoint exposed Node.js 22.22.1, so the reposit
 - `packages/execution`: validated multi-leg plans and shadow-only order lifecycle.
 - `packages/liquidity`: executable hedge curves and constrained shadow maker quotes.
 - `packages/cli`: versioned, machine-readable inspection commands.
+- `packages/control-plane`: long-running projection, event-stream, and AI discovery coordination process.
+- `apps/studio`: responsive read-only cockpit for fixture replay and qualification evidence.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.
 - `docs/design`: current architecture truth.
