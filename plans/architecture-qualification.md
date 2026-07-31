@@ -54,6 +54,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Persist discovery runs and task idempotency across control-plane restarts.
 - [x] Connect a fail-closed, budgeted external model provider adapter.
 - [x] Ground every non-empty scout hypothesis in a bounded, content-addressed catalog context.
+- [x] Add a one-request, secret-free, content-hashed provider qualification command.
 - [ ] Qualify one real provider response with a user-supplied `OPENAI_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -82,6 +83,8 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: OpenAI Responses is the first external discovery adapter. It defaults to `gpt-5.4-mini`, strict Structured Outputs, `store:false`, minimal reasoning, an 800 output-token ceiling, and an 8-second timeout; without `OPENAI_API_KEY`, the model worker is absent and heuristic discovery remains available.
 - 2026-07-31: The budgeted model adapter passes the full 129-test workspace suite, typecheck, and production build under Node.js 24.14.0; the live Studio projection also passes desktop and 430px layout inspection without console warnings or horizontal overflow.
 - 2026-07-31: Catalog-grounded discovery expands the Node.js 24.14.0 checkpoint to 134 passing tests plus typecheck and production build.
+- 2026-07-31: Provider qualification reuses the production adapter for exactly one non-stored request and emits a secret-free, self-hashed report without touching operational state; the real-response gate remains open until a user-supplied key is available.
+- 2026-07-31: The provider-smoke checkpoint passes the full 136-test workspace suite, typecheck, production build, and bundled missing-key fail-closed check under Node.js 24.14.0.
 - 2026-07-31: Studio consumes a live control-plane projection and SSE stream; browser code presents state and does not recompute verifier verdicts.
 - 2026-07-31: AI is trusted for subjective search hypotheses only. Every model output remains UNREVIEWED, has no execution authority, and must cross deterministic compilation plus independent exact verification.
 - 2026-07-31: Public realtime qualification is venue-specific. Gemini deltas use native update ranges and fail closed on gaps; Polymarket and Limitless replacement images enter explicit rebuild because their public full-book paths do not provide equivalent delta sequencing guarantees.
@@ -98,6 +101,6 @@ Record evidence-driven changes here before promoting them into stable design doc
 
 ## Blockers
 
-The adapter and deterministic tests are complete. One real provider smoke run
-needs a user-supplied `OPENAI_API_KEY`; the heuristic-only runtime is not
-blocked by its absence.
+The adapter, deterministic tests, and one-shot qualification command are
+complete. One real provider smoke run needs a user-supplied `OPENAI_API_KEY`;
+the heuristic-only runtime is not blocked by its absence.

@@ -41,6 +41,14 @@ no tools, `store:false`, minimal reasoning, at most 800 output tokens, and an
 application-side validation. The API key remains in a native private field in the control-plane
 process and is absent from JSON projections, diagnostics, SQLite, and Git.
 
+Provider qualification is a separate one-shot path over the same production
+adapter. It loads the verified Gemini catalog context, permits exactly one
+non-stored request, and emits a self-hashed `pmh.openai-provider-smoke.v1`
+report to standard output. The report records provider posture, bounded task
+identity, grounded hypotheses or a valid empty result, literal-false side
+effects, and no credential. It does not persist the response or mutate the
+Discovery Ledger.
+
 Completed runs enter a bounded Discovery Ledger. It retains the
 question, venue scope, worker identities, diagnostics, and hypotheses so an
 HTTP response is not the only copy of subjective work. The ledger accepts
