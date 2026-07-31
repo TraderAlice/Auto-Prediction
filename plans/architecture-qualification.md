@@ -55,6 +55,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Connect a fail-closed, budgeted external model provider adapter.
 - [x] Ground every non-empty scout hypothesis in a bounded, content-addressed catalog context.
 - [x] Add a one-request, secret-free, content-hashed provider qualification command.
+- [x] Add a bounded, read-only pi investigator qualification command for repository-aware work.
 - [ ] Qualify one real provider response with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -100,6 +101,8 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: A discovery task is grounded in at most 30 listings selected from 11 normalized listings in six verified fixture artifacts across five venues. Context identity participates in default `taskId` and durable scope; every non-empty hypothesis cites in-scope listing references, while an empty grounded result remains valid.
 - 2026-08-01: DeepSeek V4 Flash through Vercel AI SDK is the default lightweight discovery route; direct OpenAI Responses remains an explicit fallback. DeepSeek fast-lane thinking is disabled, output is SDK-validated and then scope-validated, and retention is labeled as provider policy rather than an unsupported `store:false` claim.
 - 2026-08-01: The Vercel AI SDK / DeepSeek checkpoint passes the full 140-test workspace suite, typecheck, and production build under Node.js 24.14.0.
+- 2026-08-01: Repository-aware investigations use pinned pi 0.83.0 as an explicit second lane. Its isolated one-shot process disables sessions and extensibility, exposes only read/search/list tools, validates JSONL traces and task-scoped output, and reconstructs non-executable proposal authority locally.
+- 2026-08-01: The pi investigator checkpoint passes the full 144-test workspace suite, typecheck, production build, pinned CLI/model discovery, and bundled missing-key fail-closed check under Node.js 24.14.0.
 
 ## Blockers
 

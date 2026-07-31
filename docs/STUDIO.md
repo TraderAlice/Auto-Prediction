@@ -83,6 +83,12 @@ be made; the browser never receives that credential. When configured, the extern
 worker runs in parallel with the free heuristic and its failure is retained as
 a diagnostic rather than granting or widening authority.
 
+Studio also shows the separate pi investigator posture: model, one-shot JSONL
+mode, read-only tool list, and whether its process credential was present at
+startup. The browser cannot start pi. The initial investigator is invoked only
+through `pnpm --silent investigation:smoke`, and its report remains outside the
+review and compilation path.
+
 The Catalog Facts panel reflects the verified discovery corpus: 11 normalized
 listings from six fixture artifacts across five venues. Each task receives at
 most 30 relevance-ranked listings. Studio shows the corpus identity, retained

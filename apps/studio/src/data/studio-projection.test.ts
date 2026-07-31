@@ -34,6 +34,16 @@ describe("Studio projection safety", () => {
         status: "NEEDS_KEY",
       }),
     );
+    expect(studioProjection.ai.investigator).toMatchObject({
+      engine: "PI_CLI",
+      configured: false,
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      mode: "JSONL_ONE_SHOT",
+      tools: ["read", "grep", "find", "ls"],
+      sessionPersistence: false,
+      authority: "PROPOSE_ONLY",
+    });
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 

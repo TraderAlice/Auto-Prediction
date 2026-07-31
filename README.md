@@ -109,6 +109,29 @@ OpenAI requests use `store:false`; DeepSeek retention follows provider policy.
 Avoid putting a key directly on the command line or in shell history, and unset
 it when the run is complete.
 
+Longer investigations use a separate, explicitly invoked pi lane. The pinned
+`@earendil-works/pi-coding-agent` process receives the same task-scoped fixture
+catalog, starts with an isolated config directory, persists no session, disables
+extensions/skills/templates/themes, and exposes only `read`, `grep`, `find`, and
+`ls`. Its JSONL output is bounded, scope-validated, and rebuilt into a
+content-hashed `pmh.pi-investigation-report.v1` with proposal-only authority.
+It is not scheduled from the HTTP server and cannot write files, run a shell,
+trade, or promote its own findings.
+
+For an official DeepSeek key, inject `DEEPSEEK_API_KEY` into the control-plane
+process environment and run the two independent qualification paths:
+
+```bash
+pnpm --silent discovery:smoke
+pnpm --silent investigation:smoke
+```
+
+`PMH_PI_MODEL`, `PMH_PI_TIMEOUT_MS` (10000–300000), and
+`PMH_PI_MAX_OUTPUT_BYTES` (100000–10000000) tune non-secret investigator
+bounds. Do not commit a key or place it inline in a command. A DeepSeek-compatible
+proxy is not silently assumed; custom endpoint routing requires a separate,
+explicit configuration change.
+
 The default host exposes Node.js 22.22.1, so ordinary local commands correctly
 warn about the engine mismatch. The full workspace checkpoint also passes under
 an isolated Node.js 24.18.1 runtime, which is the qualified production target.
@@ -125,7 +148,7 @@ an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 - `packages/execution`: validated multi-leg plans and shadow-only order lifecycle.
 - `packages/liquidity`: executable hedge curves and constrained shadow maker quotes.
 - `packages/cli`: versioned, machine-readable inspection commands.
-- `packages/control-plane`: long-running projection, SQLite operational state, event-stream, deterministic book replay, AI discovery coordination, and reviewed-hypothesis compilation boundary.
+- `packages/control-plane`: long-running projection, SQLite operational state, event-stream, deterministic book replay, AI SDK scout coordination, bounded pi investigations, and reviewed-hypothesis compilation boundary.
 - `apps/studio`: responsive read-only cockpit for book state, fixture replay, and qualification evidence.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.

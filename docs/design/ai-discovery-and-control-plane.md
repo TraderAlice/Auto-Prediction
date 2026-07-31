@@ -53,6 +53,34 @@ bounded task identity, grounded hypotheses or a valid empty result,
 literal-false side effects, and no credential. It does not persist the response
 or mutate the Discovery Ledger.
 
+## Two AI lanes
+
+The quick lane and the investigator lane deliberately have different process
+shapes:
+
+- Vercel AI SDK owns cheap, structured, one-request scouting. It has no tools,
+  low output and time budgets, and can join the parallel discovery pool.
+- pi owns work that benefits from a coding-agent loop and repository context.
+  It is a pinned CLI subprocess, not an SDK abstraction hidden behind the same
+  interface.
+
+The first pi integration is an explicit one-shot qualification command rather
+than a web route or scheduler. Each invocation creates an empty temporary pi
+home, disables user extensions, skills, prompt templates, themes, version
+checks, telemetry, and session persistence, and enables only repository
+`read`, `grep`, `find`, and `ls`. The child receives a minimal environment
+allowlist containing `PATH`, its temporary home, and `DEEPSEEK_API_KEY`; no
+shell or write tool is available. Process time and combined output bytes are
+hard bounded, stderr is not surfaced, and the temporary home is removed after
+the run.
+
+pi emits JSONL for trace validation and one final JSON object. The application
+rejects unknown tools, unknown fields, oversized text, and every listing
+reference outside the supplied catalog context. It then reconstructs
+`PROPOSE_ONLY`, `UNREVIEWED`, and literal-false effects locally and hashes the
+complete `pmh.pi-investigation-report.v1`. The report does not enter candidate
+compilation or the Discovery Ledger automatically.
+
 Completed runs enter a bounded Discovery Ledger. It retains the
 question, venue scope, worker identities, diagnostics, and hypotheses so an
 HTTP response is not the only copy of subjective work. The ledger accepts

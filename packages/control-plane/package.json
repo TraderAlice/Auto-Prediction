@@ -7,16 +7,18 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json && esbuild src/main.ts src/provider-smoke-main.ts --bundle --platform=node --format=esm --external:ai --external:@ai-sdk/deepseek --outdir=dist",
+    "build": "tsc -b tsconfig.json && esbuild src/main.ts src/provider-smoke-main.ts src/pi-investigator-smoke-main.ts --bundle --platform=node --format=esm --external:ai --external:@ai-sdk/deepseek --outdir=dist",
     "check": "tsc -b tsconfig.json",
     "dev": "tsx watch src/main.ts",
     "smoke:provider": "tsx src/provider-smoke-main.ts",
+    "smoke:investigator": "tsx src/pi-investigator-smoke-main.ts",
     "start": "node dist/main.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "3.0.17",
+    "@earendil-works/pi-coding-agent": "0.83.0",
     "@pmh/domain": "workspace:*",
     "@pmh/evidence": "workspace:*",
     "@pmh/market-state": "workspace:*",

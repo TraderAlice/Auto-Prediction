@@ -9,6 +9,10 @@ import {
   type DiscoveryModelRuntime,
 } from "./model-runtime.js";
 import {
+  createPiInvestigatorRuntime,
+  type PiInvestigatorRuntime,
+} from "./pi-investigator.js";
+import {
   DiscoveryLedger,
   type DiscoveryRunStore,
 } from "./discovery-ledger.js";
@@ -138,6 +142,7 @@ export function createControlPlane(options?: {
   discoveryStore?: DiscoveryRunStore;
   discoveryPool?: DiscoveryPool;
   modelRuntime?: DiscoveryModelRuntime;
+  piRuntime?: PiInvestigatorRuntime;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -147,6 +152,7 @@ export function createControlPlane(options?: {
   }
   const modelRuntime =
     options?.modelRuntime ?? createDiscoveryModelRuntime();
+  const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime();
   const worker = new HeuristicDiscoveryWorker();
   const pool =
     options?.discoveryPool ??
@@ -176,6 +182,7 @@ export function createControlPlane(options?: {
       workers: pool.workers,
       activeRuns,
       modelProvider: modelRuntime.projection,
+      investigator: piRuntime.projection,
       catalogContext: catalogDesk.projection(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
@@ -215,6 +222,7 @@ export function createControlPlane(options?: {
         retainedDiscoveryRuns: discoveryDesk.runCount,
         operationalStorage: discoveryDesk.storage,
         modelProvider: modelRuntime.projection,
+        investigator: piRuntime.projection,
         catalogContext: catalogDesk.projection(),
       });
       return;
@@ -397,6 +405,7 @@ export function createControlPlane(options?: {
     bookDesk,
     catalogDesk,
     discoveryLedger,
+    piRuntime,
     projection,
     ready,
   };

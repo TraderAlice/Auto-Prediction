@@ -76,6 +76,12 @@ describe("control-plane HTTP surface", () => {
           model: string;
           responseStorage: boolean;
         };
+        investigator: {
+          configured: boolean;
+          model: string;
+          tools: string[];
+          sessionPersistence: boolean;
+        };
         workers: { workerId: string; status: string }[];
       };
       discoveryDesk: {
@@ -100,6 +106,12 @@ describe("control-plane HTTP surface", () => {
       configured: false,
       model: "gpt-5.6-luna",
       responseStorage: false,
+    });
+    expect(projection.ai.investigator).toMatchObject({
+      configured: false,
+      model: "deepseek-v4-flash",
+      tools: ["read", "grep", "find", "ls"],
+      sessionPersistence: false,
     });
     expect(projection.ai.workers).toContainEqual(
       expect.objectContaining({

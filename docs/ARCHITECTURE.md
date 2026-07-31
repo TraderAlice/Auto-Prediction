@@ -39,6 +39,15 @@ identity, review status, certificate, or execution flag. Missing credentials,
 HTTP errors, refusals, incomplete output, malformed JSON, and out-of-scope
 venues fail closed while independent heuristic workers may still finish.
 
+Tasks that need repository-aware investigation use a second lane: a pinned pi
+CLI launched as an isolated, no-session JSONL subprocess. It uses DeepSeek V4
+Flash but receives only read/search/list tools, a minimal environment, a hard
+deadline, and a combined output cap. Extensions and user-level pi resources
+are disabled. The resulting report is task-scoped, application-validated,
+self-hashed, proposal-only, and never routed into execution or automatic
+promotion. This heavier lane is explicit rather than part of every discovery
+request.
+
 The hypothesis remains `PROPOSE_ONLY` and `UNREVIEWED`; approval is a separate
 content-addressed artifact. Compilation derives its claim-graph and resolution
 partition identities from the hypothesis and complete reviewed-link set. A

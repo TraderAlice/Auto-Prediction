@@ -13,6 +13,7 @@ import type {
   DiscoveryCatalogProjection,
   DiscoveryWorker,
   ModelProviderProjection,
+  PiInvestigatorProjection,
   StudioProjection,
 } from "./types.js";
 import { buildCampaignEvidence } from "./qualification.js";
@@ -63,6 +64,7 @@ export function buildStudioProjection(input: {
   activeRuns: number;
   catalogContext?: DiscoveryCatalogProjection;
   modelProvider?: ModelProviderProjection;
+  investigator?: PiInvestigatorProjection;
   bookDesk?: BookDeskProjection;
   discoveryDesk?: DiscoveryDeskProjection;
 }): StudioProjection {
@@ -91,6 +93,20 @@ export function buildStudioProjection(input: {
     venueCount: 0,
     sourceFixtureCount: 0,
     maxListingsPerTask: 30,
+  };
+  const investigator = input.investigator ?? {
+    engine: "PI_CLI" as const,
+    configured: false,
+    credentialEnv: "DEEPSEEK_API_KEY" as const,
+    provider: "deepseek" as const,
+    model: "deepseek-v4-flash",
+    mode: "JSONL_ONE_SHOT" as const,
+    thinking: "high" as const,
+    tools: ["read", "grep", "find", "ls"] as const,
+    sessionPersistence: false as const,
+    timeoutMs: 120_000,
+    maxOutputBytes: 2_000_000,
+    authority: "PROPOSE_ONLY" as const,
   };
   const reviewedCompilation = buildReviewedCompilationEvidence();
   const compiledCapital = Object.entries(
@@ -129,7 +145,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 140,
+      proofTests: 144,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -138,6 +154,7 @@ export function buildStudioProjection(input: {
       activeRuns: input.activeRuns,
       catalogContext,
       modelProvider,
+      investigator,
       workers: [
         ...input.workers.map((worker) => ({
           workerId: worker.workerId,

@@ -121,6 +121,21 @@ export type ModelProviderProjection = Readonly<{
   authority: "PROPOSE_ONLY";
 }>;
 
+export type PiInvestigatorProjection = Readonly<{
+  engine: "PI_CLI";
+  configured: boolean;
+  credentialEnv: "DEEPSEEK_API_KEY";
+  provider: "deepseek";
+  model: string;
+  mode: "JSONL_ONE_SHOT";
+  thinking: "high";
+  tools: readonly ["read", "grep", "find", "ls"];
+  sessionPersistence: false;
+  timeoutMs: number;
+  maxOutputBytes: number;
+  authority: "PROPOSE_ONLY";
+}>;
+
 export type StudioBookProjection = Readonly<{
   bookId: string;
   venueId: string;
@@ -180,6 +195,7 @@ export type StudioProjection = Readonly<{
     activeRuns: number;
     catalogContext: DiscoveryCatalogProjection;
     modelProvider: ModelProviderProjection;
+    investigator: PiInvestigatorProjection;
     workers: readonly Readonly<{
       workerId: string;
       kind: "HEURISTIC" | "MODEL";

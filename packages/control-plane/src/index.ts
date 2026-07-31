@@ -5,6 +5,8 @@ export * from "./discovery-ledger.js";
 export * from "./deepseek-model.js";
 export * from "./model-runtime.js";
 export * from "./openai-model.js";
+export * from "./pi-investigator.js";
+export * from "./pi-investigator-smoke.js";
 export * from "./projection.js";
 export * from "./provider-smoke.js";
 export * from "./qualification.js";

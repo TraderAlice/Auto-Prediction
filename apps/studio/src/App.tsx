@@ -596,6 +596,17 @@ function Overview({
           </span>
         </div>
         <div className="ai-boundary">
+          <SquareTerminal size={14} />
+          <span>
+            pi investigator · {studioProjection.ai.investigator.model} ·{" "}
+            {studioProjection.ai.investigator.mode.replaceAll("_", " ")} ·{" "}
+            {studioProjection.ai.investigator.tools.join("/")} only ·{" "}
+            {studioProjection.ai.investigator.configured
+              ? "READY"
+              : "NEEDS KEY"}
+          </span>
+        </div>
+        <div className="ai-boundary">
           <Database size={14} />
           <span>
             {catalogContext.listingCount} listings · {catalogContext.venueCount}{" "}
