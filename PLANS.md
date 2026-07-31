@@ -25,3 +25,5 @@ Architecture Qualification, pre-alpha. The work starts with venue reality and do
 - 2026-07-31: Captured nine anonymous, content-addressed raw responses covering six required mechanism classes. Every fixture binds source, protocol, fetch time, headers, byte length, and SHA-256.
 - 2026-07-31: JSON numeric tokens must be preserved lexically at adapter ingress. This prevents venue APIs that emit JSON numbers (including Polymarket and Myriad) from silently passing contract values through IEEE-754.
 - 2026-07-31: First catalog qualification includes Polymarket Global, Kalshi, Gemini, Opinion, and Myriad; all remain `DISCOVER` and live-disabled.
+- 2026-07-31: The complete-set compiler may optimize quantity under depth, common ticks, and venue capital, but cannot publish a verdict.
+- 2026-07-31: Exact certificates bind rule, fee, book generation, exact book state, resolution partition, and expiry. BUY cost/fees round up, payouts round down, and arbitrage requires strictly positive post-fee payoff in every canonical state.

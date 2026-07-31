@@ -16,10 +16,13 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Content-hash verification for immutable raw fixtures and anonymous acquisition metadata.
 - Fixture-backed catalog adapters for Polymarket Global, Kalshi, Gemini Prediction Markets, Opinion, and Myriad.
 - Lexical JSON-number decoding so venue number tokens never pass through IEEE-754 before fixed-point conversion.
+- Depth-, tick-, fee-, and per-venue-capital-aware complete-set candidate compilation.
+- Independent exact certificate verification across every canonical resolution state.
+- Certificate invalidation on rule, fee, book generation, book state, partition, or expiry changes.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-The exact arbitrage verifier, realtime adapters, shadow execution, capital/risk state, hedge curves, CLI, and Studio remain active campaign work.
+Realtime adapters, shadow execution, persistent capital/risk state, hedge curves, CLI, and Studio remain active campaign work.
 
 ## Safety boundary
 
@@ -48,6 +51,7 @@ The host used for the initial checkpoint exposed Node.js 22.22.1, so the reposit
 - `packages/protocol`: event envelopes, capability manifests, and narrow venue ports.
 - `packages/market-state`: deterministic order-book state and replay.
 - `packages/evidence`: raw fixture identity and tamper detection.
+- `packages/opportunity`: bounded candidate compilation and exact payoff certificates.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.
 - `docs/design`: current architecture truth.
