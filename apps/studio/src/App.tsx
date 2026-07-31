@@ -14,6 +14,7 @@ import {
   Gauge,
   GitBranch,
   Hexagon,
+  Inbox,
   LayoutDashboard,
   Menu,
   Network,
@@ -23,6 +24,7 @@ import {
   Radio,
   RefreshCw,
   Search,
+  Send,
   ShieldCheck,
   Sparkles,
   SquareTerminal,
@@ -41,11 +43,12 @@ import {
 } from "@/data/studio-projection";
 import { cn } from "@/lib/utils";
 
-type View = "overview" | "venues" | "books" | "evidence";
+type View = "overview" | "scouts" | "venues" | "books" | "evidence";
 type Opportunity = StudioProjection["opportunities"][number];
 
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "scouts", label: "Scout inbox", icon: Inbox },
   { id: "venues", label: "Venue matrix", icon: Network },
   { id: "books", label: "Book desk", icon: BookOpenCheck },
   { id: "evidence", label: "Evidence", icon: Fingerprint },
@@ -83,6 +86,36 @@ function Metric({
       <span className="metric-detail">{detail}</span>
     </div>
   );
+}
+
+async function requestDiscoveryRun(
+  question: string,
+  venueIds: readonly string[],
+): Promise<void> {
+  const response = await fetch("/api/v1/discovery/runs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question, venueIds }),
+  });
+  if (!response.ok) throw new Error("scout request failed");
+  const result = (await response.json()) as {
+    executionAuthority: boolean;
+    hypotheses: readonly Readonly<{
+      authority?: string;
+      reviewStatus?: string;
+    }>[];
+  };
+  if (
+    result.executionAuthority !== false ||
+    result.hypotheses.length === 0 ||
+    result.hypotheses.some(
+      (hypothesis) =>
+        hypothesis.authority !== "PROPOSE_ONLY" ||
+        hypothesis.reviewStatus !== "UNREVIEWED",
+    )
+  ) {
+    throw new Error("scout crossed its authority boundary");
+  }
 }
 
 function VenuePulse() {
@@ -437,25 +470,10 @@ function Overview({
   async function runScout(): Promise<void> {
     setScoutStatus("RUNNING");
     try {
-      const response = await fetch("/api/v1/discovery/runs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          question: "Will NYC rainfall exceed 0.25 inches?",
-          venueIds: ["kalshi", "polymarket-global"],
-        }),
-      });
-      if (!response.ok) throw new Error("scout request failed");
-      const result = (await response.json()) as {
-        executionAuthority: boolean;
-        hypotheses: readonly unknown[];
-      };
-      if (
-        result.executionAuthority !== false ||
-        result.hypotheses.length === 0
-      ) {
-        throw new Error("scout crossed its authority boundary");
-      }
+      await requestDiscoveryRun("Will NYC rainfall exceed 0.25 inches?", [
+        "kalshi",
+        "polymarket-global",
+      ]);
       setScoutStatus("PROPOSED");
     } catch {
       setScoutStatus("FAILED");
@@ -590,6 +608,209 @@ function Overview({
         <CapitalSilhouette />
       </section>
     </>
+  );
+}
+
+function confidenceLabel(confidenceBps: number): string {
+  const whole = Math.floor(confidenceBps / 100);
+  const fraction = String(confidenceBps % 100).padStart(2, "0");
+  return `${whole}.${fraction}%`;
+}
+
+function ScoutInboxView() {
+  const studioProjection = useStudioProjection();
+  const eligibleVenues = studioProjection.venues.filter((venue) =>
+    venue.capabilities.includes("MARKET_CATALOG"),
+  );
+  const [question, setQuestion] = useState(
+    "Will NYC rainfall exceed 0.25 inches?",
+  );
+  const [selectedVenueIds, setSelectedVenueIds] = useState<readonly string[]>([
+    "kalshi",
+    "polymarket-global",
+  ]);
+  const [runStatus, setRunStatus] = useState<
+    "IDLE" | "RUNNING" | "DONE" | "FAILED"
+  >("IDLE");
+
+  function toggleVenue(venueId: string): void {
+    setSelectedVenueIds((current) =>
+      current.includes(venueId)
+        ? current.filter((item) => item !== venueId)
+        : [...current, venueId],
+    );
+  }
+
+  async function submitScout(): Promise<void> {
+    setRunStatus("RUNNING");
+    try {
+      await requestDiscoveryRun(question.trim(), selectedVenueIds);
+      setRunStatus("DONE");
+    } catch {
+      setRunStatus("FAILED");
+    }
+  }
+
+  return (
+    <section className="page-section">
+      <div className="page-heading scout-heading">
+        <span className="eyebrow">Subjective search · bounded authority</span>
+        <h1>Scout inbox</h1>
+        <p>
+          Cheap workers can broaden the search surface and suggest semantic
+          connections. Every result lands here as an unreviewed proposal; none
+          can become a claim link, certificate, or order by itself.
+        </p>
+      </div>
+
+      <div className="scout-summary-grid">
+        <Metric
+          label="Retained runs"
+          value={`${studioProjection.discoveryDesk.runCount}`}
+          detail={`bounded to ${studioProjection.discoveryDesk.retentionLimit}`}
+        />
+        <Metric
+          label="Hypotheses"
+          value={`${studioProjection.discoveryDesk.hypothesisCount}`}
+          detail="deduplicated per run"
+        />
+        <Metric
+          label="Awaiting review"
+          value={`${studioProjection.discoveryDesk.unreviewedCount}`}
+          detail="independent authority required"
+        />
+        <Metric
+          label="Active workers"
+          value={`${studioProjection.ai.activeRuns}`}
+          detail="SSE live state"
+        />
+      </div>
+
+      <div className="scout-layout">
+        <Card className="scout-compose-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">New bounded task</span>
+              <h2>Ask the scout pool</h2>
+            </div>
+            <Badge variant="shadow">No execution</Badge>
+          </CardHeader>
+          <CardContent>
+            <label className="scout-question">
+              <span>Research question</span>
+              <textarea
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                maxLength={500}
+                rows={5}
+              />
+              <small>{question.length} / 500</small>
+            </label>
+            <fieldset className="venue-selector">
+              <legend>Search venue catalogs</legend>
+              <div>
+                {eligibleVenues.map((venue) => (
+                  <button
+                    type="button"
+                    className={cn(
+                      selectedVenueIds.includes(venue.id) && "is-selected",
+                    )}
+                    key={venue.id}
+                    onClick={() => toggleVenue(venue.id)}
+                  >
+                    <i style={{ backgroundColor: venue.color }} />
+                    {venue.name}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <Button
+              className="scout-submit"
+              disabled={
+                runStatus === "RUNNING" ||
+                question.trim() === "" ||
+                selectedVenueIds.length === 0
+              }
+              onClick={() => void submitScout()}
+            >
+              <Send size={14} />
+              {runStatus === "RUNNING"
+                ? "Scouts running…"
+                : runStatus === "DONE"
+                  ? "Run another scout"
+                  : runStatus === "FAILED"
+                    ? "Retry scout"
+                    : "Run bounded scout"}
+            </Button>
+            <div className="scout-guardrail">
+              <ShieldCheck size={15} />
+              <span>{studioProjection.ai.promotionBoundary}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="scout-run-list">
+          <div className="scout-run-heading">
+            <div>
+              <span className="eyebrow">Proposal queue</span>
+              <h2>Unreviewed hypotheses</h2>
+            </div>
+            <Badge variant="muted">
+              {studioProjection.discoveryDesk.unreviewedCount} waiting
+            </Badge>
+          </div>
+          {studioProjection.discoveryDesk.runs.length === 0 ? (
+            <div className="scout-empty">
+              <Inbox size={24} />
+              <strong>No scout runs yet</strong>
+              <span>Submit a bounded task to populate the audit trail.</span>
+            </div>
+          ) : (
+            studioProjection.discoveryDesk.runs.map((run) => (
+              <article className="scout-run" key={run.runId}>
+                <div className="scout-run-meta">
+                  <div>
+                    <span>{run.runId}</span>
+                    <time>{new Date(run.completedAt).toLocaleString()}</time>
+                  </div>
+                  <Badge variant="muted">{run.workerIds.join(" + ")}</Badge>
+                </div>
+                <h3>{run.question}</h3>
+                <div className="scout-venue-row">
+                  {run.venueIds.map((venueId) => (
+                    <span key={venueId}>{venueId}</span>
+                  ))}
+                </div>
+                {run.hypotheses.map((hypothesis) => (
+                  <div className="hypothesis-card" key={hypothesis.hypothesisId}>
+                    <div className="hypothesis-topline">
+                      <Badge variant="shadow">{hypothesis.authority}</Badge>
+                      <Badge variant="muted">{hypothesis.reviewStatus}</Badge>
+                      <span>{confidenceLabel(hypothesis.confidenceBps)} scout confidence</span>
+                    </div>
+                    <p>{hypothesis.thesis}</p>
+                    <dl>
+                      <div>
+                        <dt>Strategy shape</dt>
+                        <dd>{hypothesis.strategyKind.replaceAll("_", " ")}</dd>
+                      </div>
+                      <div>
+                        <dt>Search terms</dt>
+                        <dd>{hypothesis.claimSearchTerms.join(" · ") || "none"}</dd>
+                      </div>
+                    </dl>
+                    <div className="promotion-lock">
+                      <CircleOff size={13} />
+                      Independent equivalence review is not configured; promotion is locked.
+                    </div>
+                  </div>
+                ))}
+              </article>
+            ))
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1109,6 +1330,7 @@ function StudioShell() {
         />
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
+          {view === "scouts" && <ScoutInboxView />}
           {view === "venues" && <VenueMatrix />}
           {view === "books" && <BookDeskView />}
           {view === "evidence" && <EvidenceView />}

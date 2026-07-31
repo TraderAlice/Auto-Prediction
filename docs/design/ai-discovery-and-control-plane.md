@@ -26,6 +26,16 @@ Workers implement one narrow interface and declare:
 
 The pool may run workers concurrently, tolerate individual failures, deduplicate equivalent theses, and cap hypotheses per task. A model provider is an adapter behind `AiModelPort`; model names and credentials never enter Core domain types.
 
+Completed runs enter a bounded in-memory Discovery Ledger. It retains the
+question, venue scope, worker identities, diagnostics, and hypotheses so an
+HTTP response is not the only copy of subjective work. The ledger accepts
+proposal-only, unreviewed, non-executable records and is projected to Studio
+over SSE.
+
+The Scout Inbox has no review button. Until an independent reviewer authority
+is configured, hypotheses cannot become accepted market links and therefore
+cannot enter deterministic candidate compilation.
+
 ## Control plane
 
 The control plane is the long-running owner of projections, discovery runs, event streams, and future venue sessions. Studio is a client. This keeps runtime state, credentials, venue transports, and exact verification out of the browser.

@@ -31,6 +31,7 @@ describe("AI-native discovery boundary", () => {
       authority: "PROPOSE_ONLY",
       reviewStatus: "UNREVIEWED",
     });
+    expect(run.hypotheses[0]?.claimSearchTerms).not.toContain("will");
     expect(run.executionAuthority).toBe(false);
   });
 

@@ -28,12 +28,13 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A bundled `pmh` CLI with a versioned JSON envelope, content-hashed state snapshots, explicit effects, diagnostics, and allowed next actions.
 - A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
 - An AI-native discovery pool where cheap parallel scouts may propose hypotheses but can never certify or execute them.
+- A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
 - A Books desk that replays verified public frames into generation-bound order books, broadcasts them over SSE, and exposes venue-native sequence posture.
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-Persistent SQLite operational state, model-provider wiring, dense campaign evidence, and deeper Studio book projections remain active campaign work.
+Persistent SQLite operational state, model-provider wiring, independent equivalence-review workflow, dense campaign evidence, and verified-candidate promotion remain active campaign work.
 
 ## Safety boundary
 

@@ -7,6 +7,24 @@ import type {
   OpportunityHypothesis,
 } from "./types.js";
 
+const SEARCH_STOPWORDS = new Set([
+  "and",
+  "are",
+  "before",
+  "could",
+  "for",
+  "from",
+  "have",
+  "into",
+  "may",
+  "same",
+  "that",
+  "the",
+  "this",
+  "will",
+  "with",
+]);
+
 function assertTask(task: DiscoveryTask): void {
   if (
     task.taskId.trim() === "" ||
@@ -76,7 +94,9 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
           normalizedQuestion
             .toLowerCase()
             .split(/[^a-z0-9$%.]+/)
-            .filter((term) => term.length >= 3)
+            .filter(
+              (term) => term.length >= 3 && !SEARCH_STOPWORDS.has(term),
+            )
             .slice(0, 8),
         ),
         confidenceBps: 2_500,

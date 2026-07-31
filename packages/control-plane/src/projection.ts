@@ -8,6 +8,7 @@ import { polymarketManifest } from "@pmh/venue-polymarket";
 import { assertManifest } from "@pmh/protocol";
 import type {
   BookDeskProjection,
+  DiscoveryDeskProjection,
   DiscoveryWorker,
   StudioProjection,
 } from "./types.js";
@@ -34,6 +35,7 @@ export function buildStudioProjection(input: {
   workers: readonly DiscoveryWorker[];
   activeRuns: number;
   bookDesk?: BookDeskProjection;
+  discoveryDesk?: DiscoveryDeskProjection;
 }): StudioProjection {
   const state = {
     system: {
@@ -53,7 +55,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 80,
+      proofTests: 83,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -81,6 +83,13 @@ export function buildStudioProjection(input: {
       mode: "FIXTURE_REPLAY" as const,
       replayCount: 0,
       books: [],
+    },
+    discoveryDesk: input.discoveryDesk ?? {
+      retentionLimit: 25,
+      runCount: 0,
+      hypothesisCount: 0,
+      unreviewedCount: 0,
+      runs: [],
     },
     venues: manifests
       .map((manifest) => {

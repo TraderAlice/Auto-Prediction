@@ -31,6 +31,19 @@ the updated projection to Studio over SSE.
 The UI displays lifecycle, generation, native sequence policy, top depth,
 state identity, and evidence identity. It does not recompute book truth.
 
+## Scout inbox
+
+Completed discovery runs are retained by an in-memory `DiscoveryLedger` with a
+fixed 25-run bound. Each record binds the original question and venue scope to
+worker identities, diagnostics, and proposal-only hypotheses. The control
+plane rejects any record that is not `PROPOSE_ONLY`, `UNREVIEWED`, and
+`executionAuthority: false`.
+
+Studio can submit bounded tasks and renders start/completion state from SSE.
+It deliberately exposes no accept or promote control: equivalence-review
+authority has not been configured, so every hypothesis remains visibly locked
+before deterministic candidate compilation.
+
 ## AI boundary
 
 Discovery workers may be cheap heuristics or external models. They can propose search terms, possible same-claim links, and strategy hypotheses. Every hypothesis is `PROPOSE_ONLY` and `UNREVIEWED`.
