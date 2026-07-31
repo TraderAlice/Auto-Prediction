@@ -553,7 +553,7 @@ function Overview({
             <span key={worker.workerId}>
               <i className={worker.status === "READY" ? "is-ready" : ""} />
               {worker.workerId}
-              <small>{worker.status.replace("_", " ")}</small>
+              <small>{worker.status.replaceAll("_", " ")}</small>
             </span>
           ))}
           <Button
@@ -571,6 +571,15 @@ function Overview({
                   ? "Retry scout"
                   : "Run scout"}
           </Button>
+        </div>
+        <div className="ai-boundary">
+          <Gauge size={14} />
+          <span>
+            {studioProjection.ai.modelProvider.model} · max{" "}
+            {studioProjection.ai.modelProvider.maxOutputTokens} output tokens ·{" "}
+            {studioProjection.ai.modelProvider.timeoutMs / 1_000}s · responses
+            not stored
+          </span>
         </div>
         <div className="ai-boundary">
           <ShieldCheck size={14} />

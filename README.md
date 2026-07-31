@@ -29,7 +29,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A bundled `pmh` CLI with a versioned JSON envelope, content-hashed state snapshots, explicit effects, diagnostics, and allowed next actions.
 - A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
 - SQLite WAL operational state with bounded retention, content-hash verification, cross-restart `taskId` idempotency, and in-process concurrent-request coalescing.
-- An AI-native discovery pool where cheap parallel scouts may propose hypotheses but can never certify or execute them.
+- An AI-native discovery pool where cheap parallel scouts may propose hypotheses but can never certify or execute them; its optional OpenAI Responses worker is non-stored, timeout-bound, output-token-bound, and independently validated.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
@@ -41,7 +41,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-Model-provider wiring, production equivalence-review workflow, dense long-run evidence storage, and real-fixture candidate promotion remain active campaign work.
+One real model-provider smoke run, production equivalence-review workflow, dense long-run evidence storage, and real-fixture candidate promotion remain active campaign work.
 
 ## Safety boundary
 
@@ -73,6 +73,16 @@ pnpm studio
 path when a different local operational volume is required. The database is
 ignored by Git and contains discovery records, not credentials or immutable
 campaign evidence.
+
+The model scout is opt-in. Set `OPENAI_API_KEY` in the control-plane process to
+add a `gpt-5.4-mini` worker beside the free heuristic worker. It uses the
+Responses API with strict Structured Outputs, `store:false`, minimal reasoning,
+an 800 output-token ceiling, and an 8-second timeout. These non-secret bounds
+are visible in Studio and `/health`; the key is never projected or persisted.
+Override the defaults with `PMH_DISCOVERY_MODEL`,
+`PMH_DISCOVERY_MAX_OUTPUT_TOKENS` (128–4096), and
+`PMH_DISCOVERY_TIMEOUT_MS` (1000–30000). Without a key, the process fails
+closed to heuristic-only mode and Studio shows `NEEDS KEY`.
 
 The default host exposes Node.js 22.22.1, so ordinary local commands correctly
 warn about the engine mismatch. The full workspace checkpoint also passes under

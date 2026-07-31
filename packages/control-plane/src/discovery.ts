@@ -42,13 +42,23 @@ function assertTask(task: DiscoveryTask): void {
 function assertHypothesis(
   hypothesis: OpportunityHypothesis,
   workerId: string,
+  task: DiscoveryTask,
 ): void {
+  const allowedVenueIds = new Set(task.venueIds);
   if (
     hypothesis.workerId !== workerId ||
     hypothesis.authority !== "PROPOSE_ONLY" ||
     hypothesis.reviewStatus !== "UNREVIEWED" ||
     hypothesis.thesis.trim() === "" ||
+    hypothesis.thesis.length > 500 ||
     hypothesis.venueIds.length === 0 ||
+    hypothesis.venueIds.some(
+      (venueId) => venueId.trim() === "" || !allowedVenueIds.has(venueId),
+    ) ||
+    hypothesis.claimSearchTerms.length > 12 ||
+    hypothesis.claimSearchTerms.some(
+      (term) => term.trim() === "" || term.length > 80,
+    ) ||
     hypothesis.confidenceBps < 0 ||
     hypothesis.confidenceBps > 10_000 ||
     !Number.isSafeInteger(hypothesis.confidenceBps)
@@ -121,7 +131,9 @@ function parseModelPayload(value: unknown): ModelPayload {
   if (
     value === null ||
     typeof value !== "object" ||
-    !Array.isArray((value as { hypotheses?: unknown }).hypotheses)
+    !Array.isArray((value as { hypotheses?: unknown }).hypotheses) ||
+    Object.keys(value).length !== 1 ||
+    (value as { hypotheses: unknown[] }).hypotheses.length > 50
   ) {
     throw new Error("model output does not match pmh.discovery-output.v1");
   }
@@ -133,7 +145,17 @@ function parseModelPayload(value: unknown): ModelPayload {
         typeof (item as { thesis?: unknown }).thesis !== "string" ||
         !Array.isArray((item as { venueIds?: unknown }).venueIds) ||
         !Array.isArray((item as { claimSearchTerms?: unknown }).claimSearchTerms) ||
-        typeof (item as { confidenceBps?: unknown }).confidenceBps !== "number"
+        typeof (item as { confidenceBps?: unknown }).confidenceBps !== "number" ||
+        (item as { thesis: string }).thesis.trim() === "" ||
+        (item as { thesis: string }).thesis.length > 500 ||
+        Object.keys(item).length !== 5 ||
+        ![
+          "thesis",
+          "strategyKind",
+          "venueIds",
+          "claimSearchTerms",
+          "confidenceBps",
+        ].every((key) => Object.hasOwn(item, key))
       ) {
         throw new Error("model hypothesis has an invalid shape");
       }
@@ -147,14 +169,36 @@ function parseModelPayload(value: unknown): ModelPayload {
       }
       const normalizedStrategyKind: OpportunityHypothesis["strategyKind"] =
         strategyKind;
+      const venueIds = (item as { venueIds: unknown[] }).venueIds;
+      const claimSearchTerms = (item as { claimSearchTerms: unknown[] })
+        .claimSearchTerms;
+      const confidenceBps = (item as { confidenceBps: number }).confidenceBps;
+      if (
+        venueIds.length === 0 ||
+        venueIds.length > 25 ||
+        venueIds.some(
+          (venueId) =>
+            typeof venueId !== "string" ||
+            venueId.trim() === "" ||
+            venueId.length > 256,
+        ) ||
+        claimSearchTerms.length > 12 ||
+        claimSearchTerms.some(
+          (term) =>
+            typeof term !== "string" || term.trim() === "" || term.length > 80,
+        ) ||
+        !Number.isSafeInteger(confidenceBps) ||
+        confidenceBps < 0 ||
+        confidenceBps > 10_000
+      ) {
+        throw new Error("model hypothesis exceeds its bounded contract");
+      }
       return {
-        thesis: (item as { thesis: string }).thesis,
+        thesis: (item as { thesis: string }).thesis.trim(),
         strategyKind: normalizedStrategyKind,
-        venueIds: (item as { venueIds: unknown[] }).venueIds.map(String),
-        claimSearchTerms: (
-          item as { claimSearchTerms: unknown[] }
-        ).claimSearchTerms.map(String),
-        confidenceBps: (item as { confidenceBps: number }).confidenceBps,
+        venueIds: venueIds as string[],
+        claimSearchTerms: claimSearchTerms as string[],
+        confidenceBps,
       };
     },
   );
@@ -184,6 +228,7 @@ export class StructuredModelDiscoveryWorker implements DiscoveryWorker {
         task,
       }),
     );
+    const allowedVenueIds = new Set(task.venueIds);
     return payload.hypotheses.slice(0, task.maxHypotheses).map((item, index) => ({
       hypothesisId: `hypothesis:${hashCanonical({
         workerId: this.workerId,
@@ -194,7 +239,14 @@ export class StructuredModelDiscoveryWorker implements DiscoveryWorker {
       workerId: this.workerId,
       thesis: item.thesis,
       strategyKind: item.strategyKind,
-      venueIds: Object.freeze([...new Set(item.venueIds)].sort()),
+      venueIds: Object.freeze(
+        [...new Set(item.venueIds)].sort().map((venueId) => {
+          if (!allowedVenueIds.has(venueId)) {
+            throw new Error("model hypothesis references an out-of-scope venue");
+          }
+          return venueId;
+        }),
+      ),
       claimSearchTerms: Object.freeze(item.claimSearchTerms),
       confidenceBps: item.confidenceBps,
       authority: "PROPOSE_ONLY",
@@ -237,7 +289,7 @@ export class DiscoveryPool {
         continue;
       }
       for (const hypothesis of result.value.hypotheses) {
-        assertHypothesis(hypothesis, result.value.worker.workerId);
+        assertHypothesis(hypothesis, result.value.worker.workerId, task);
         const identity = hashCanonical({
           thesis: hypothesis.thesis.trim().toLowerCase(),
           strategyKind: hypothesis.strategyKind,

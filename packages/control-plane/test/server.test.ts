@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createControlPlane,
+  createOpenAiDiscoveryRuntime,
   DiscoveryPool,
   type DiscoveryWorker,
 } from "../src/index.js";
@@ -30,7 +31,10 @@ async function listen() {
 async function listenControlPlane(
   options?: Parameters<typeof createControlPlane>[0],
 ) {
-  const controlPlane = createControlPlane(options);
+  const controlPlane = createControlPlane({
+    modelRuntime: createOpenAiDiscoveryRuntime({}),
+    ...options,
+  });
   servers.push(controlPlane.server);
   await new Promise<void>((resolve) =>
     controlPlane.server.listen(0, "127.0.0.1", resolve),
@@ -59,7 +63,15 @@ describe("control-plane HTTP surface", () => {
     const projection = (await response.json()) as {
       identity: { mode: string; stateHash: string };
       system: { liveExecutionEnabled: boolean; controlPlaneConnected: boolean };
-      ai: { architecture: string };
+      ai: {
+        architecture: string;
+        modelProvider: {
+          configured: boolean;
+          model: string;
+          responseStorage: boolean;
+        };
+        workers: { workerId: string; status: string }[];
+      };
       discoveryDesk: {
         storage: { mode: string; durable: boolean; idempotencyKey: string };
       };
@@ -72,6 +84,17 @@ describe("control-plane HTTP surface", () => {
       controlPlaneConnected: true,
     });
     expect(projection.ai.architecture).toBe("SCOUT_THEN_VERIFY");
+    expect(projection.ai.modelProvider).toMatchObject({
+      configured: false,
+      model: "gpt-5.4-mini",
+      responseStorage: false,
+    });
+    expect(projection.ai.workers).toContainEqual(
+      expect.objectContaining({
+        workerId: "model-fast-lane",
+        status: "NEEDS_KEY",
+      }),
+    );
     expect(projection.discoveryDesk.storage).toEqual({
       mode: "MEMORY",
       durable: false,

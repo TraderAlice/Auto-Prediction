@@ -1,6 +1,7 @@
 export * from "./book-desk.js";
 export * from "./discovery.js";
 export * from "./discovery-ledger.js";
+export * from "./openai-model.js";
 export * from "./projection.js";
 export * from "./qualification.js";
 export * from "./reviewed-compilation.js";

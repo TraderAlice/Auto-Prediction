@@ -26,7 +26,14 @@ Workers implement one narrow interface and declare:
 
 The pool may run workers concurrently, tolerate individual failures, deduplicate equivalent theses, and cap hypotheses per task. A model provider is an adapter behind `AiModelPort`; model names and credentials never enter Core domain types.
 
-Completed runs enter a bounded in-memory Discovery Ledger. It retains the
+The initial adapter binds that port to OpenAI Responses. The default
+`gpt-5.4-mini` request has strict `pmh.discovery-output.v1` Structured Output,
+no tools, `store:false`, minimal reasoning, at most 800 output tokens, and an
+8-second timeout. Only task-scoped venue IDs survive application-side
+validation. The API key remains in a native private field in the control-plane
+process and is absent from JSON projections, diagnostics, SQLite, and Git.
+
+Completed runs enter a bounded Discovery Ledger. It retains the
 question, venue scope, worker identities, diagnostics, and hypotheses so an
 HTTP response is not the only copy of subjective work. The ledger accepts
 proposal-only, unreviewed, non-executable records and is projected to Studio
