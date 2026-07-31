@@ -32,7 +32,6 @@ None.
 - Whether this remains standalone or later becomes an OpenAlice desk.
 - First external-anchor family after prediction-market qualification.
 - First discovery-model provider, model budget, and credential source. This is not needed for heuristic/replay mode.
-- A contemporaneous official fixture set for one genuinely equivalent claim on at least three venues. The current Gemini/Limitless BTC fixtures differ in oracle, reference price, and strike and must not be linked as equivalent.
 
 ### Environment gaps Codex owns
 

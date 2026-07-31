@@ -96,4 +96,11 @@ The same directory also contains `reviewed-compilation.v1.json`. That artifact
 is deliberately scoped `SYNTHETIC_ARCHITECTURE_QUALIFICATION`: it proves the
 software handoff from subjective discovery through independent review and
 exact verification, but it is not evidence that any real venue listings are
-equivalent. The real three-venue mapping remains an explicit campaign gap.
+equivalent.
+
+`three-venue-claim.v1.json` closes the separate real mapping checkpoint. Three
+anonymous official API fixtures bind the same Trump-removal claim on
+Polymarket Global, Opinion, and Limitless. The evidence builder requires
+identical titles, binary partitions, and normalized resolution rules, plus the
+Limitless external Polymarket slug. Trading-window metadata remains
+listing-local and is deliberately excluded from the canonical claim identity.

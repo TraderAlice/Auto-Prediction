@@ -18,6 +18,12 @@ const fixtures = Object.freeze({
     sourceUrl:
       "https://combos-rfq-api.polymarket.com/v1/rfq/combo-markets?limit=1",
   },
+  "polymarket-trump-out-2027": {
+    venue: "polymarket-global",
+    protocolVersion: "gamma-rest:2026-07-31",
+    sourceUrl:
+      "https://gamma-api.polymarket.com/markets?slug=trump-out-as-president-before-2027",
+  },
   "kalshi-catalog": {
     venue: "kalshi",
     protocolVersion: "trade-api-v2:2026-07-31",
@@ -42,6 +48,11 @@ const fixtures = Object.freeze({
     sourceUrl:
       "https://openapi.opinion.trade/openapi/market?status=activated&limit=1",
   },
+  "opinion-trump-out-2027": {
+    venue: "opinion",
+    protocolVersion: "openapi:2026-07-31",
+    sourceUrl: "https://openapi.opinion.trade/openapi/market/3062",
+  },
   "predict-testnet-catalog": {
     venue: "predict-fun-testnet",
     protocolVersion: "rest-v1-beta:2026-06-18",
@@ -51,6 +62,12 @@ const fixtures = Object.freeze({
     venue: "limitless",
     protocolVersion: "api-v1:2026-07-31",
     sourceUrl: "https://api.limitless.exchange/markets/active?limit=1",
+  },
+  "limitless-trump-out-2027": {
+    venue: "limitless",
+    protocolVersion: "api-v1:2026-07-31",
+    sourceUrl:
+      "https://api.limitless.exchange/markets/trump-out-as-president-before-2027-1768933068297",
   },
   "myriad-amm-catalog": {
     venue: "myriad",

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "opinion-trump-out-2027",
+  "venue": "opinion",
+  "protocolVersion": "openapi:2026-07-31",
+  "sourceUrl": "https://openapi.opinion.trade/openapi/market/3062",
+  "fetchedAt": "2026-07-31T11:38:42.385Z",
+  "httpStatus": 200,
+  "contentType": "application/json; charset=utf-8",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:060f718dc186cccf37ca4ba8a748b8d80495b7425944deeaf15d52304595d72f",
+  "byteLength": "2128",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

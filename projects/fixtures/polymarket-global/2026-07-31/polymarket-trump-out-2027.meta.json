@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "polymarket-trump-out-2027",
+  "venue": "polymarket-global",
+  "protocolVersion": "gamma-rest:2026-07-31",
+  "sourceUrl": "https://gamma-api.polymarket.com/markets?slug=trump-out-as-president-before-2027",
+  "fetchedAt": "2026-07-31T11:38:42.211Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": "Fri, 31 Jul 2026 11:37:46 GMT",
+  "rawHash": "sha256:e15a8399332c4596ca8e739c35d2734433b3494f7b01a678df1c02c091426b48",
+  "byteLength": "7473",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}
