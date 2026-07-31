@@ -29,7 +29,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A bundled `pmh` CLI with a versioned JSON envelope, content-hashed state snapshots, explicit effects, diagnostics, and allowed next actions.
 - A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
 - SQLite WAL operational state with bounded retention, content-hash verification, cross-restart `taskId` idempotency, and in-process concurrent-request coalescing.
-- An AI-native discovery pool where cheap parallel scouts may propose hypotheses but can never certify or execute them; its optional OpenAI Responses worker is non-stored, timeout-bound, output-token-bound, and independently validated.
+- An AI-native discovery pool where cheap parallel scouts inspect bounded, content-addressed fixture catalogs and may propose hypotheses but can never certify or execute them; its optional OpenAI Responses worker is non-stored, timeout-bound, output-token-bound, and independently validated.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
@@ -79,6 +79,11 @@ add a `gpt-5.4-mini` worker beside the free heuristic worker. It uses the
 Responses API with strict Structured Outputs, `store:false`, minimal reasoning,
 an 800 output-token ceiling, and an 8-second timeout. These non-secret bounds
 are visible in Studio and `/health`; the key is never projected or persisted.
+Both workers receive only a task-scoped catalog context selected from 11
+normalized listings in six verified fixture artifacts across five venues. A
+context contains at most 30 listings, has its own SHA-256 identity, and is
+bound into the default `taskId` and retained run. Every non-empty hypothesis
+must reference concrete listing IDs from that exact context.
 Override the defaults with `PMH_DISCOVERY_MODEL`,
 `PMH_DISCOVERY_MAX_OUTPUT_TOKENS` (128–4096), and
 `PMH_DISCOVERY_TIMEOUT_MS` (1000–30000). Without a key, the process fails

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { hashCanonical } from "@pmh/domain";
 import {
   createOpenAiDiscoveryRuntime,
   OpenAiResponsesModelPort,
@@ -12,6 +13,39 @@ const task: DiscoveryTask = {
   venueIds: ["kalshi", "polymarket-global"],
   maxHypotheses: 3,
   deadlineEpochMs: Date.now() + 60_000,
+};
+
+const catalogContextBody = {
+  schemaVersion: "pmh.discovery-catalog-context.v1" as const,
+  source: "VERIFIED_FIXTURE_CATALOGS" as const,
+  listings: [
+    {
+      listingRef: "gemini-predictions:GEMI-WEATHER",
+      venueId: "gemini-predictions",
+      venueInstrumentId: "GEMI-WEATHER",
+      title: "Highest temperature in Boston? — 80°F to 81°F",
+      description: "A verified fixture listing.",
+      status: "OPEN",
+      mechanism: "CENTRALIZED_ORDER_BOOK",
+      closesAt: "2026-08-01T03:59:00.000Z",
+      rulesText: null,
+      outcomes: [
+        { label: "Yes", indicativePrice: "0.42" },
+        { label: "No", indicativePrice: "0.58" },
+      ],
+      sourceFixtureHash: `sha256:${"a".repeat(64)}`,
+      protocolIdentity: "fixture:test",
+    },
+  ],
+};
+
+const groundedTask: DiscoveryTask = {
+  ...task,
+  venueIds: ["gemini-predictions"],
+  catalogContext: {
+    ...catalogContextBody,
+    contextIdentity: hashCanonical(catalogContextBody),
+  },
 };
 
 function completedResponse(payload: unknown): Response {
@@ -62,10 +96,11 @@ describe("budgeted OpenAI Responses model port", () => {
         return completedResponse({
           hypotheses: [
             {
-              thesis: "The listings may encode one rainfall threshold.",
-              strategyKind: "SAME_CLAIM_CROSS_VENUE",
-              venueIds: ["kalshi", "polymarket-global"],
-              claimSearchTerms: ["rain", "threshold"],
+              thesis: "The listing may encode one temperature interval.",
+              strategyKind: "COMPLETE_SET",
+              venueIds: ["gemini-predictions"],
+              claimSearchTerms: ["temperature", "boston"],
+              listingRefs: ["gemini-predictions:GEMI-WEATHER"],
               confidenceBps: 6_500,
             },
           ],
@@ -77,7 +112,7 @@ describe("budgeted OpenAI Responses model port", () => {
       "gpt-5.4-mini",
       port,
     );
-    const hypotheses = await worker.discover(task);
+    const hypotheses = await worker.discover(groundedTask);
     expect(endpoint).toBe("https://api.openai.com/v1/responses");
     expect(new Headers(request?.headers).get("authorization")).toBe(
       "Bearer test-only-key",
@@ -130,6 +165,7 @@ describe("budgeted OpenAI Responses model port", () => {
               strategyKind: "SAME_CLAIM_CROSS_VENUE",
               venueIds: ["kalshi", "invented-venue"],
               claimSearchTerms: ["rain"],
+              listingRefs: ["gemini-predictions:GEMI-WEATHER"],
               confidenceBps: 9_000,
             },
           ],
@@ -141,7 +177,57 @@ describe("budgeted OpenAI Responses model port", () => {
       "gpt-5.4-mini",
       port,
     );
-    await expect(worker.discover(task)).rejects.toThrow(/out-of-scope/);
+    await expect(worker.discover(groundedTask)).rejects.toThrow(/out-of-scope/);
+
+    const listingPort = new OpenAiResponsesModelPort({
+      apiKey: "test-only-key",
+      async fetcher() {
+        return completedResponse({
+          hypotheses: [
+            {
+              thesis: "A model invented another listing.",
+              strategyKind: "COMPLETE_SET",
+              venueIds: ["gemini-predictions"],
+              claimSearchTerms: ["temperature"],
+              listingRefs: ["gemini-predictions:INVENTED"],
+              confidenceBps: 9_000,
+            },
+          ],
+        });
+      },
+    });
+    await expect(
+      new StructuredModelDiscoveryWorker(
+        "model-fast-lane",
+        "gpt-5.4-mini",
+        listingPort,
+      ).discover(groundedTask),
+    ).rejects.toThrow(/out-of-scope listing/);
+
+    const mismatchedScopePort = new OpenAiResponsesModelPort({
+      apiKey: "test-only-key",
+      async fetcher() {
+        return completedResponse({
+          hypotheses: [
+            {
+              thesis: "A model attached an unrelated venue to one listing.",
+              strategyKind: "SAME_CLAIM_CROSS_VENUE",
+              venueIds: ["gemini-predictions", "kalshi"],
+              claimSearchTerms: ["temperature"],
+              listingRefs: ["gemini-predictions:GEMI-WEATHER"],
+              confidenceBps: 9_000,
+            },
+          ],
+        });
+      },
+    });
+    await expect(
+      new StructuredModelDiscoveryWorker(
+        "model-fast-lane",
+        "gpt-5.4-mini",
+        mismatchedScopePort,
+      ).discover({ ...groundedTask, venueIds: ["gemini-predictions", "kalshi"] }),
+    ).rejects.toThrow(/venue scope/);
   });
 
   it("fails closed on refusal, incomplete output, and HTTP errors", async () => {

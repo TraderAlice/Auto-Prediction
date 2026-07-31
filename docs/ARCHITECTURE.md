@@ -27,8 +27,12 @@ proposal-only scout hypothesis
 The first external scout adapter uses OpenAI's Responses API with
 `gpt-5.4-mini` by default. It sends no tools, requests strict JSON Schema
 output, disables response storage, uses minimal reasoning, caps output tokens,
-and aborts on a bounded timeout. The adapter accepts only task-scoped venue
-IDs and reconstructs authority fields locally; model output cannot supply an
+and aborts on a bounded timeout. Before any worker runs, the control plane
+normalizes verified catalog fixtures and selects a bounded task context. The
+context binds concrete listing IDs, rules, indicative prices, source fixture
+hashes, and protocol identities under its own SHA-256 identity. The adapter
+accepts only task-scoped venue IDs and listing references and reconstructs
+authority fields locally; model output cannot supply an
 identity, review status, certificate, or execution flag. Missing credentials,
 HTTP errors, refusals, incomplete output, malformed JSON, and out-of-scope
 venues fail closed while independent heuristic workers may still finish.
@@ -57,7 +61,8 @@ Scout Inbox before publishing the first projection. Every row carries canonical
 JSON plus a SHA-256 identity; malformed, tampered, or newer-schema state fails
 closed at startup/read time.
 
-Normalized question and venue scope produce a stable default `taskId`.
+Normalized question, venue scope, and catalog-context identity produce a stable
+default `taskId`.
 Completed IDs survive restart, conflicting scope reuse returns `409`, and
 concurrent requests for the same ID share one worker promise. SQLite state is
 operational and bounded; immutable protocol and qualification evidence remains

@@ -1501,6 +1501,12 @@ main {
   white-space: nowrap;
 }
 
+.hypothesis-card .grounded-listings {
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .promotion-lock {
   display: flex;
   align-items: center;

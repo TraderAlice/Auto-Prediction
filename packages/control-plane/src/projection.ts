@@ -10,6 +10,7 @@ import { assertManifest } from "@pmh/protocol";
 import type {
   BookDeskProjection,
   DiscoveryDeskProjection,
+  DiscoveryCatalogProjection,
   DiscoveryWorker,
   ModelProviderProjection,
   StudioProjection,
@@ -60,6 +61,7 @@ function titleCaseStage(value: string): string {
 export function buildStudioProjection(input: {
   workers: readonly DiscoveryWorker[];
   activeRuns: number;
+  catalogContext?: DiscoveryCatalogProjection;
   modelProvider?: ModelProviderProjection;
   bookDesk?: BookDeskProjection;
   discoveryDesk?: DiscoveryDeskProjection;
@@ -80,6 +82,14 @@ export function buildStudioProjection(input: {
     reasoningEffort: "minimal" as const,
     responseStorage: false as const,
     authority: "PROPOSE_ONLY" as const,
+  };
+  const catalogContext = input.catalogContext ?? {
+    mode: "VERIFIED_FIXTURE_CATALOGS" as const,
+    corpusIdentity: hashCanonical({ listings: [], sourceFixtureHashes: [] }),
+    listingCount: 0,
+    venueCount: 0,
+    sourceFixtureCount: 0,
+    maxListingsPerTask: 30,
   };
   const reviewedCompilation = buildReviewedCompilationEvidence();
   const compiledCapital = Object.entries(
@@ -118,13 +128,14 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 129,
+      proofTests: 134,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
     ai: {
       architecture: "SCOUT_THEN_VERIFY" as const,
       activeRuns: input.activeRuns,
+      catalogContext,
       modelProvider,
       workers: [
         ...input.workers.map((worker) => ({

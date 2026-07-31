@@ -65,6 +65,12 @@ describe("control-plane HTTP surface", () => {
       system: { liveExecutionEnabled: boolean; controlPlaneConnected: boolean };
       ai: {
         architecture: string;
+        catalogContext: {
+          listingCount: number;
+          venueCount: number;
+          sourceFixtureCount: number;
+          corpusIdentity: string;
+        };
         modelProvider: {
           configured: boolean;
           model: string;
@@ -84,6 +90,12 @@ describe("control-plane HTTP surface", () => {
       controlPlaneConnected: true,
     });
     expect(projection.ai.architecture).toBe("SCOUT_THEN_VERIFY");
+    expect(projection.ai.catalogContext).toMatchObject({
+      listingCount: 11,
+      venueCount: 5,
+      sourceFixtureCount: 6,
+    });
+    expect(projection.ai.catalogContext.corpusIdentity).toMatch(/^sha256:/);
     expect(projection.ai.modelProvider).toMatchObject({
       configured: false,
       model: "gpt-5.4-mini",
@@ -109,8 +121,8 @@ describe("control-plane HTTP surface", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        question: "Will NYC rainfall exceed 0.25 inches?",
-        venueIds: ["kalshi", "polymarket-global"],
+        question: "Highest temperature in Boston on July 31, 2026?",
+        venueIds: ["gemini-predictions"],
       }),
     });
     const run = (await response.json()) as {
@@ -119,17 +131,21 @@ describe("control-plane HTTP surface", () => {
       executionAuthority: boolean;
       idempotentReplay: boolean;
       hypotheses: { authority: string }[];
+      catalogContextIdentity: string;
+      catalogListingCount: number;
     };
     expect(run.executionAuthority).toBe(false);
     expect(run.taskId).toMatch(/^task:[a-f0-9]{64}$/);
     expect(run.hypotheses[0]?.authority).toBe("PROPOSE_ONLY");
+    expect(run.catalogContextIdentity).toMatch(/^sha256:/);
+    expect(run.catalogListingCount).toBe(6);
     expect(run.idempotentReplay).toBe(false);
     const replay = (await fetch(`${baseUrl}/api/v1/discovery/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        question: "  Will NYC rainfall exceed 0.25 inches?  ",
-        venueIds: ["polymarket-global", "kalshi", "kalshi"],
+        question: "  Highest temperature in Boston on July 31, 2026?  ",
+        venueIds: ["gemini-predictions", "gemini-predictions"],
       }),
     }).then((replayResponse) => replayResponse.json())) as {
       runId: string;
@@ -150,7 +166,7 @@ describe("control-plane HTTP surface", () => {
     };
     expect(ledger).toMatchObject({ runCount: 1, unreviewedCount: 1 });
     expect(ledger.runs[0]).toMatchObject({
-      question: "Will NYC rainfall exceed 0.25 inches?",
+      question: "Highest temperature in Boston on July 31, 2026?",
       executionAuthority: false,
     });
     const malformed = await fetch(`${baseUrl}/api/v1/discovery/runs`, {
@@ -163,6 +179,31 @@ describe("control-plane HTTP surface", () => {
       }),
     });
     expect(malformed.status).toBe(400);
+  });
+
+  it("retains a grounded run with no matching hypothesis", async () => {
+    const baseUrl = await listen();
+    const response = await fetch(`${baseUrl}/api/v1/discovery/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "ZXQJ QVBX NMPZ",
+        venueIds: ["gemini-predictions"],
+      }),
+    });
+    const run = (await response.json()) as {
+      hypotheses: unknown[];
+      catalogContextIdentity: string;
+      catalogListingCount: number;
+      executionAuthority: boolean;
+    };
+    expect(response.status).toBe(200);
+    expect(run).toMatchObject({
+      hypotheses: [],
+      catalogListingCount: 7,
+      executionAuthority: false,
+    });
+    expect(run.catalogContextIdentity).toMatch(/^sha256:/);
   });
 
   it("restores taskId idempotency from SQLite after a server restart", async () => {
@@ -236,22 +277,10 @@ describe("control-plane HTTP surface", () => {
       workerId: "delayed-fixture-worker",
       kind: "HEURISTIC",
       costTier: "FREE",
-      async discover(task) {
+      async discover() {
         calls += 1;
         await new Promise((resolve) => setTimeout(resolve, 30));
-        return [
-          {
-            hypothesisId: "hypothesis:coalesced",
-            workerId: "delayed-fixture-worker",
-            thesis: "Concurrent fixture requests share one bounded run.",
-            strategyKind: "SAME_CLAIM_CROSS_VENUE",
-            venueIds: task.venueIds,
-            claimSearchTerms: ["concurrent", "fixture"],
-            confidenceBps: 1_000,
-            authority: "PROPOSE_ONLY",
-            reviewStatus: "UNREVIEWED",
-          },
-        ];
+        return [];
       },
     };
     const { baseUrl } = await listenControlPlane({

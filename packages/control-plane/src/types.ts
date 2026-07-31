@@ -1,9 +1,44 @@
+export type DiscoveryCatalogListing = Readonly<{
+  listingRef: string;
+  venueId: string;
+  venueInstrumentId: string;
+  title: string;
+  description: string;
+  status: string;
+  mechanism: string;
+  closesAt: string | null;
+  rulesText: string | null;
+  outcomes: readonly Readonly<{
+    label: string;
+    indicativePrice: string | null;
+  }>[];
+  sourceFixtureHash: string;
+  protocolIdentity: string;
+}>;
+
+export type DiscoveryCatalogContext = Readonly<{
+  schemaVersion: "pmh.discovery-catalog-context.v1";
+  source: "VERIFIED_FIXTURE_CATALOGS";
+  contextIdentity: string;
+  listings: readonly DiscoveryCatalogListing[];
+}>;
+
+export type DiscoveryCatalogProjection = Readonly<{
+  mode: "VERIFIED_FIXTURE_CATALOGS";
+  corpusIdentity: string;
+  listingCount: number;
+  venueCount: number;
+  sourceFixtureCount: number;
+  maxListingsPerTask: number;
+}>;
+
 export type DiscoveryTask = Readonly<{
   taskId: string;
   question: string;
   venueIds: readonly string[];
   maxHypotheses: number;
   deadlineEpochMs: number;
+  catalogContext?: DiscoveryCatalogContext;
 }>;
 
 export type OpportunityHypothesis = Readonly<{
@@ -16,6 +51,7 @@ export type OpportunityHypothesis = Readonly<{
     | "SAME_CLAIM_CROSS_VENUE";
   venueIds: readonly string[];
   claimSearchTerms: readonly string[];
+  listingRefs?: readonly string[];
   confidenceBps: number;
   authority: "PROPOSE_ONLY";
   reviewStatus: "UNREVIEWED";
@@ -36,6 +72,8 @@ export type DiscoveryRunRecord = DiscoveryRun &
   Readonly<{
     question: string;
     venueIds: readonly string[];
+    catalogContextIdentity?: string;
+    catalogListingCount?: number;
   }>;
 
 export type DiscoveryDeskProjection = Readonly<{
@@ -139,6 +177,7 @@ export type StudioProjection = Readonly<{
   ai: Readonly<{
     architecture: "SCOUT_THEN_VERIFY";
     activeRuns: number;
+    catalogContext: DiscoveryCatalogProjection;
     modelProvider: ModelProviderProjection;
     workers: readonly Readonly<{
       workerId: string;
