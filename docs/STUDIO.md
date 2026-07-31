@@ -51,8 +51,9 @@ state identity, and evidence identity. It does not recompute book truth.
 ## Scout inbox
 
 Completed discovery runs are retained by a `DiscoveryLedger` with a fixed
-25-run bound backed by the SQLite operational store. Each record binds the original question and venue scope to
-worker identities, diagnostics, and proposal-only hypotheses. The control
+25-run bound backed by the SQLite operational store. Each record binds the
+original question, venue scope, and catalog-context identity to worker
+identities, diagnostics, and proposal-only hypotheses. The control
 plane rejects any record that is not `PROPOSE_ONLY`, `UNREVIEWED`, and
 `executionAuthority: false`.
 
@@ -81,6 +82,12 @@ minimal-reasoning posture, and `store:false` setting. `NEEDS KEY` means
 the browser never receives that credential. When configured, the external
 worker runs in parallel with the free heuristic and its failure is retained as
 a diagnostic rather than granting or widening authority.
+
+The Catalog Facts panel reflects the verified discovery corpus: 11 normalized
+listings from six fixture artifacts across five venues. Each task receives at
+most 30 relevance-ranked listings. Studio shows the corpus identity, retained
+context identity, and concrete listing references used by each hypothesis;
+zero hypotheses is a valid grounded result rather than a transport failure.
 
 AI output cannot:
 

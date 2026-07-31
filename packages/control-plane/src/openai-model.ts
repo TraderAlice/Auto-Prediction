@@ -42,6 +42,11 @@ const discoveryOutputSchema = Object.freeze({
             maxItems: 12,
             items: { type: "string", minLength: 1, maxLength: 80 },
           },
+          listingRefs: {
+            type: "array",
+            maxItems: 20,
+            items: { type: "string", minLength: 1, maxLength: 512 },
+          },
           confidenceBps: {
             type: "integer",
             minimum: 0,
@@ -53,6 +58,7 @@ const discoveryOutputSchema = Object.freeze({
           "strategyKind",
           "venueIds",
           "claimSearchTerms",
+          "listingRefs",
           "confidenceBps",
         ],
       },
@@ -195,7 +201,9 @@ export class OpenAiResponsesModelPort implements AiModelPort {
           reasoning: { effort: "minimal" },
           instructions:
             `${input.system} Treat every result as an unverified search lead. ` +
-            "Use only venue IDs supplied by the task. Do not call tools.",
+            "Use only venue IDs and listingRefs supplied by the task catalog " +
+            "context. Return no hypothesis when the context has no grounded " +
+            "candidate. Do not call tools.",
           input: [
             {
               role: "user",
@@ -207,6 +215,7 @@ export class OpenAiResponsesModelPort implements AiModelPort {
                     question: input.task.question,
                     venueIds: input.task.venueIds,
                     maxHypotheses: input.task.maxHypotheses,
+                    catalogContext: input.task.catalogContext ?? null,
                   }),
                 },
               ],

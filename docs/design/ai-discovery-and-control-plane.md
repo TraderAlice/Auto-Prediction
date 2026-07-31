@@ -26,11 +26,19 @@ Workers implement one narrow interface and declare:
 
 The pool may run workers concurrently, tolerate individual failures, deduplicate equivalent theses, and cap hypotheses per task. A model provider is an adapter behind `AiModelPort`; model names and credentials never enter Core domain types.
 
+Workers do not search from the question alone. The control plane first loads
+verified raw catalog fixtures, applies the venue adapters, and builds a
+relevance-ranked context of at most 30 concrete listings. Titles, compact rules,
+outcomes, indicative prices, source hashes, and protocol identities are
+content-addressed as `pmh.discovery-catalog-context.v1`. The context identity is
+part of task idempotency and durable run scope. A worker may return no lead, but
+every returned lead must name at least one listing from that exact context.
+
 The initial adapter binds that port to OpenAI Responses. The default
 `gpt-5.4-mini` request has strict `pmh.discovery-output.v1` Structured Output,
 no tools, `store:false`, minimal reasoning, at most 800 output tokens, and an
-8-second timeout. Only task-scoped venue IDs survive application-side
-validation. The API key remains in a native private field in the control-plane
+8-second timeout. Only task-scoped venue IDs and listing references survive
+application-side validation. The API key remains in a native private field in the control-plane
 process and is absent from JSON projections, diagnostics, SQLite, and Git.
 
 Completed runs enter a bounded Discovery Ledger. It retains the

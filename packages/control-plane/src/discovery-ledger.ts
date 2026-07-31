@@ -38,6 +38,8 @@ function freezeHypothesis(value: unknown): OpportunityHypothesis {
     !isStringArray(hypothesis.venueIds) ||
     hypothesis.venueIds.length === 0 ||
     !isStringArray(hypothesis.claimSearchTerms) ||
+    (hypothesis.listingRefs !== undefined &&
+      !isStringArray(hypothesis.listingRefs)) ||
     typeof hypothesis.confidenceBps !== "number" ||
     !Number.isSafeInteger(hypothesis.confidenceBps) ||
     hypothesis.confidenceBps < 0 ||
@@ -54,6 +56,9 @@ function freezeHypothesis(value: unknown): OpportunityHypothesis {
     strategyKind: hypothesis.strategyKind,
     venueIds: Object.freeze([...hypothesis.venueIds]),
     claimSearchTerms: Object.freeze([...hypothesis.claimSearchTerms]),
+    ...(hypothesis.listingRefs === undefined
+      ? {}
+      : { listingRefs: Object.freeze([...hypothesis.listingRefs]) }),
     confidenceBps: hypothesis.confidenceBps,
     authority: "PROPOSE_ONLY",
     reviewStatus: "UNREVIEWED",
@@ -84,6 +89,18 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
   ) {
     throw new Error("stored discovery run violates its record contract");
   }
+  if (
+    (record.catalogContextIdentity === undefined) !==
+      (record.catalogListingCount === undefined) ||
+    (record.catalogContextIdentity !== undefined &&
+      (!/^sha256:[0-9a-f]{64}$/.test(String(record.catalogContextIdentity)) ||
+        typeof record.catalogListingCount !== "number" ||
+        !Number.isSafeInteger(record.catalogListingCount) ||
+        record.catalogListingCount < 0 ||
+        record.catalogListingCount > 30))
+  ) {
+    throw new Error("stored discovery run has an invalid catalog context");
+  }
   return Object.freeze({
     runId: record.runId,
     taskId: record.taskId,
@@ -95,6 +112,12 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
     executionAuthority: false,
     question: record.question,
     venueIds: Object.freeze([...record.venueIds]),
+    ...(record.catalogContextIdentity === undefined
+      ? {}
+      : {
+          catalogContextIdentity: String(record.catalogContextIdentity),
+          catalogListingCount: record.catalogListingCount as number,
+        }),
   });
 }
 
@@ -138,12 +161,20 @@ export class DiscoveryLedger {
       ...run,
       question: task.question,
       venueIds: [...task.venueIds],
+      ...(task.catalogContext === undefined
+        ? {}
+        : {
+            catalogContextIdentity: task.catalogContext.contextIdentity,
+            catalogListingCount: task.catalogContext.listings.length,
+          }),
     });
     const stored = this.#store?.save(record, this.#retentionLimit) ?? record;
     if (
       stored.question !== record.question ||
       stored.venueIds.length !== record.venueIds.length ||
-      stored.venueIds.some((item, index) => item !== record.venueIds[index])
+      stored.venueIds.some((item, index) => item !== record.venueIds[index]) ||
+      stored.catalogContextIdentity !== record.catalogContextIdentity ||
+      stored.catalogListingCount !== record.catalogListingCount
     ) {
       throw new Error("taskId is already bound to another discovery scope");
     }

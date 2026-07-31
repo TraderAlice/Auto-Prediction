@@ -24,18 +24,84 @@ const SEARCH_STOPWORDS = new Set([
   "will",
   "with",
 ]);
+const MAX_CATALOG_CONTEXT_CHARACTERS = 50_000;
+
+function hasBoundedCatalogListing(
+  listing: NonNullable<DiscoveryTask["catalogContext"]>["listings"][number],
+  allowedVenueIds: ReadonlySet<string>,
+): boolean {
+  return (
+    listing.listingRef.trim() !== "" &&
+    listing.listingRef.length <= 512 &&
+    allowedVenueIds.has(listing.venueId) &&
+    listing.venueInstrumentId.trim() !== "" &&
+    listing.venueInstrumentId.length <= 256 &&
+    listing.title.trim() !== "" &&
+    listing.title.length <= 500 &&
+    listing.description.length <= 800 &&
+    listing.status.trim() !== "" &&
+    listing.status.length <= 100 &&
+    listing.mechanism.trim() !== "" &&
+    listing.mechanism.length <= 100 &&
+    (listing.closesAt === null || listing.closesAt.length <= 64) &&
+    (listing.rulesText === null || listing.rulesText.length <= 1_200) &&
+    /^sha256:[0-9a-f]{64}$/.test(listing.sourceFixtureHash) &&
+    listing.protocolIdentity.trim() !== "" &&
+    listing.protocolIdentity.length <= 512 &&
+    listing.outcomes.length >= 1 &&
+    listing.outcomes.length <= 100 &&
+    listing.outcomes.every(
+      (outcome) =>
+        outcome.label.trim() !== "" &&
+        outcome.label.length <= 120 &&
+        (outcome.indicativePrice === null ||
+          outcome.indicativePrice.length <= 100),
+    )
+  );
+}
 
 function assertTask(task: DiscoveryTask): void {
+  const allowedVenueIds = new Set(task.venueIds);
   if (
     task.taskId.trim() === "" ||
+    task.taskId.length > 256 ||
     task.question.trim() === "" ||
+    task.question.length > 500 ||
     task.venueIds.length === 0 ||
+    task.venueIds.length > 25 ||
+    allowedVenueIds.size !== task.venueIds.length ||
+    task.venueIds.some(
+      (venueId) => venueId.trim() === "" || venueId.length > 256,
+    ) ||
     task.maxHypotheses < 1 ||
     task.maxHypotheses > 50 ||
     !Number.isSafeInteger(task.maxHypotheses) ||
     !Number.isSafeInteger(task.deadlineEpochMs)
   ) {
     throw new Error("discovery task is invalid or unbounded");
+  }
+  if (task.catalogContext !== undefined) {
+    const context = task.catalogContext;
+    const body = {
+      schemaVersion: context.schemaVersion,
+      source: context.source,
+      listings: context.listings,
+    };
+    if (
+      context.schemaVersion !== "pmh.discovery-catalog-context.v1" ||
+      context.source !== "VERIFIED_FIXTURE_CATALOGS" ||
+      !/^sha256:[0-9a-f]{64}$/.test(context.contextIdentity) ||
+      context.contextIdentity !== hashCanonical(body) ||
+      context.listings.length > 30 ||
+      JSON.stringify(context).length > MAX_CATALOG_CONTEXT_CHARACTERS ||
+      new Set(context.listings.map((listing) => listing.listingRef)).size !==
+        context.listings.length ||
+      context.listings.some(
+        (listing) => !hasBoundedCatalogListing(listing, allowedVenueIds),
+      )
+    ) {
+      throw new Error("discovery catalog context is invalid or unbounded");
+    }
   }
 }
 
@@ -45,6 +111,20 @@ function assertHypothesis(
   task: DiscoveryTask,
 ): void {
   const allowedVenueIds = new Set(task.venueIds);
+  const allowedListingRefs = new Set(
+    task.catalogContext?.listings.map((listing) => listing.listingRef) ?? [],
+  );
+  const listingRefs = hypothesis.listingRefs ?? [];
+  const hypothesisVenueIds = new Set(hypothesis.venueIds);
+  const referencedVenueIds = new Set(
+    listingRefs
+      .map((listingRef) =>
+        task.catalogContext?.listings.find(
+          (listing) => listing.listingRef === listingRef,
+        )?.venueId,
+      )
+      .filter((venueId): venueId is string => venueId !== undefined),
+  );
   if (
     hypothesis.workerId !== workerId ||
     hypothesis.authority !== "PROPOSE_ONLY" ||
@@ -52,6 +132,7 @@ function assertHypothesis(
     hypothesis.thesis.trim() === "" ||
     hypothesis.thesis.length > 500 ||
     hypothesis.venueIds.length === 0 ||
+    hypothesisVenueIds.size !== hypothesis.venueIds.length ||
     hypothesis.venueIds.some(
       (venueId) => venueId.trim() === "" || !allowedVenueIds.has(venueId),
     ) ||
@@ -59,6 +140,21 @@ function assertHypothesis(
     hypothesis.claimSearchTerms.some(
       (term) => term.trim() === "" || term.length > 80,
     ) ||
+    listingRefs.length > 20 ||
+    (task.catalogContext !== undefined && listingRefs.length === 0) ||
+    new Set(listingRefs).size !== listingRefs.length ||
+    listingRefs.some(
+      (listingRef) =>
+        listingRef.trim() === "" ||
+        (task.catalogContext === undefined
+          ? listingRefs.length > 0
+          : !allowedListingRefs.has(listingRef)),
+    ) ||
+    (task.catalogContext !== undefined &&
+      (referencedVenueIds.size !== hypothesisVenueIds.size ||
+        [...referencedVenueIds].some(
+          (venueId) => !hypothesisVenueIds.has(venueId),
+        ))) ||
     hypothesis.confidenceBps < 0 ||
     hypothesis.confidenceBps > 10_000 ||
     !Number.isSafeInteger(hypothesis.confidenceBps)
@@ -80,15 +176,61 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
     task: DiscoveryTask,
   ): Promise<readonly OpportunityHypothesis[]> {
     const normalizedQuestion = task.question.trim().replace(/\s+/g, " ");
-    const venueIds = [...new Set(task.venueIds)].sort();
+    const claimSearchTerms = normalizedQuestion
+      .toLowerCase()
+      .split(/[^a-z0-9$%.°]+/u)
+      .filter((term) => term.length >= 3 && !SEARCH_STOPWORDS.has(term))
+      .slice(0, 8);
+    const queryTerms = new Set(claimSearchTerms);
+    const relevantListings =
+      task.catalogContext?.listings.filter((listing) => {
+        const listingTerms = new Set(
+          `${listing.title} ${listing.description} ${listing.rulesText ?? ""}`
+            .toLowerCase()
+            .split(/[^a-z0-9$%.°]+/u)
+            .filter((term) => term.length >= 3),
+        );
+        return [...queryTerms].some((term) => listingTerms.has(term));
+      }) ?? [];
+    if (task.catalogContext !== undefined && relevantListings.length === 0) {
+      return [];
+    }
+    const titleGroups = new Map<string, typeof relevantListings>();
+    for (const listing of relevantListings) {
+      const baseTitle = listing.title.split(" — ")[0]?.trim().toLowerCase() ?? "";
+      titleGroups.set(baseTitle, [
+        ...(titleGroups.get(baseTitle) ?? []),
+        listing,
+      ]);
+    }
+    const groupedListings = [...titleGroups.values()].sort(
+      (left, right) =>
+        right.length - left.length ||
+        (left[0]?.listingRef ?? "").localeCompare(right[0]?.listingRef ?? ""),
+    )[0];
+    const selectedListings =
+      (groupedListings?.length ?? 0) >= 2
+        ? groupedListings ?? []
+        : relevantListings.slice(0, 6);
+    const venueIds = [
+      ...new Set(
+        selectedListings.length > 0
+          ? selectedListings.map((listing) => listing.venueId)
+          : task.venueIds,
+      ),
+    ].sort();
     const strategyKind =
-      venueIds.length >= 2
+      venueIds.length >= 2 && selectedListings.length >= 2
         ? ("SAME_CLAIM_CROSS_VENUE" as const)
-        : ("COMPLETE_SET" as const);
+        : selectedListings.length >= 3
+          ? ("EXHAUSTIVE_RANGE" as const)
+          : ("COMPLETE_SET" as const);
+    const listingRefs = selectedListings.map((listing) => listing.listingRef);
     const identity = hashCanonical({
       workerId: this.workerId,
       normalizedQuestion,
       venueIds,
+      listingRefs,
       strategyKind,
     });
     return [
@@ -96,20 +238,16 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
         hypothesisId: `hypothesis:${identity.slice(7, 23)}`,
         workerId: this.workerId,
         thesis:
-          `Search ${venueIds.join(", ")} for listings that may resolve ` +
-          `to the same canonical claim: ${normalizedQuestion}`,
+          listingRefs.length === 0
+            ? `Search ${venueIds.join(", ")} for listings that may resolve ` +
+              `to the same canonical claim: ${normalizedQuestion}`
+            : `Review ${listingRefs.length} verified catalog listings from ` +
+              `${venueIds.join(", ")} as a possible ${strategyKind.toLowerCase().replaceAll("_", " ")} candidate for: ${normalizedQuestion}`,
         strategyKind,
         venueIds: Object.freeze(venueIds),
-        claimSearchTerms: Object.freeze(
-          normalizedQuestion
-            .toLowerCase()
-            .split(/[^a-z0-9$%.]+/)
-            .filter(
-              (term) => term.length >= 3 && !SEARCH_STOPWORDS.has(term),
-            )
-            .slice(0, 8),
-        ),
-        confidenceBps: 2_500,
+        claimSearchTerms: Object.freeze(claimSearchTerms),
+        listingRefs: Object.freeze(listingRefs),
+        confidenceBps: listingRefs.length === 0 ? 2_500 : 4_000,
         authority: "PROPOSE_ONLY" as const,
         reviewStatus: "UNREVIEWED" as const,
       }),
@@ -123,6 +261,7 @@ type ModelPayload = Readonly<{
     strategyKind: OpportunityHypothesis["strategyKind"];
     venueIds: readonly string[];
     claimSearchTerms: readonly string[];
+    listingRefs: readonly string[];
     confidenceBps: number;
   }>[];
 }>;
@@ -145,15 +284,17 @@ function parseModelPayload(value: unknown): ModelPayload {
         typeof (item as { thesis?: unknown }).thesis !== "string" ||
         !Array.isArray((item as { venueIds?: unknown }).venueIds) ||
         !Array.isArray((item as { claimSearchTerms?: unknown }).claimSearchTerms) ||
+        !Array.isArray((item as { listingRefs?: unknown }).listingRefs) ||
         typeof (item as { confidenceBps?: unknown }).confidenceBps !== "number" ||
         (item as { thesis: string }).thesis.trim() === "" ||
         (item as { thesis: string }).thesis.length > 500 ||
-        Object.keys(item).length !== 5 ||
+        Object.keys(item).length !== 6 ||
         ![
           "thesis",
           "strategyKind",
           "venueIds",
           "claimSearchTerms",
+          "listingRefs",
           "confidenceBps",
         ].every((key) => Object.hasOwn(item, key))
       ) {
@@ -173,6 +314,7 @@ function parseModelPayload(value: unknown): ModelPayload {
       const claimSearchTerms = (item as { claimSearchTerms: unknown[] })
         .claimSearchTerms;
       const confidenceBps = (item as { confidenceBps: number }).confidenceBps;
+      const listingRefs = (item as { listingRefs: unknown[] }).listingRefs;
       if (
         venueIds.length === 0 ||
         venueIds.length > 25 ||
@@ -187,6 +329,13 @@ function parseModelPayload(value: unknown): ModelPayload {
           (term) =>
             typeof term !== "string" || term.trim() === "" || term.length > 80,
         ) ||
+        listingRefs.length > 20 ||
+        listingRefs.some(
+          (listingRef) =>
+            typeof listingRef !== "string" ||
+            listingRef.trim() === "" ||
+            listingRef.length > 512,
+        ) ||
         !Number.isSafeInteger(confidenceBps) ||
         confidenceBps < 0 ||
         confidenceBps > 10_000
@@ -198,6 +347,7 @@ function parseModelPayload(value: unknown): ModelPayload {
         strategyKind: normalizedStrategyKind,
         venueIds: venueIds as string[],
         claimSearchTerms: claimSearchTerms as string[],
+        listingRefs: listingRefs as string[],
         confidenceBps,
       };
     },
@@ -229,29 +379,63 @@ export class StructuredModelDiscoveryWorker implements DiscoveryWorker {
       }),
     );
     const allowedVenueIds = new Set(task.venueIds);
-    return payload.hypotheses.slice(0, task.maxHypotheses).map((item, index) => ({
-      hypothesisId: `hypothesis:${hashCanonical({
-        workerId: this.workerId,
-        taskId: task.taskId,
-        index,
-        item,
-      }).slice(7, 23)}`,
-      workerId: this.workerId,
-      thesis: item.thesis,
-      strategyKind: item.strategyKind,
-      venueIds: Object.freeze(
-        [...new Set(item.venueIds)].sort().map((venueId) => {
-          if (!allowedVenueIds.has(venueId)) {
-            throw new Error("model hypothesis references an out-of-scope venue");
+    const allowedListingRefs = new Set(
+      task.catalogContext?.listings.map((listing) => listing.listingRef) ?? [],
+    );
+    const catalogVenueByListingRef = new Map(
+      task.catalogContext?.listings.map((listing) => [
+        listing.listingRef,
+        listing.venueId,
+      ]) ?? [],
+    );
+    return payload.hypotheses.slice(0, task.maxHypotheses).map((item, index) => {
+      if (task.catalogContext !== undefined && item.listingRefs.length === 0) {
+        throw new Error("model hypothesis is not grounded in a catalog listing");
+      }
+      const venueIds = [...new Set(item.venueIds)].sort().map((venueId) => {
+        if (!allowedVenueIds.has(venueId)) {
+          throw new Error("model hypothesis references an out-of-scope venue");
+        }
+        return venueId;
+      });
+      const listingRefs = [...new Set(item.listingRefs)]
+        .sort()
+        .map((listingRef) => {
+          if (!allowedListingRefs.has(listingRef)) {
+            throw new Error("model hypothesis references an out-of-scope listing");
           }
-          return venueId;
-        }),
-      ),
-      claimSearchTerms: Object.freeze(item.claimSearchTerms),
-      confidenceBps: item.confidenceBps,
-      authority: "PROPOSE_ONLY",
-      reviewStatus: "UNREVIEWED",
-    }));
+          return listingRef;
+        });
+      const referencedVenueIds = new Set(
+        listingRefs.map((listingRef) =>
+          catalogVenueByListingRef.get(listingRef),
+        ),
+      );
+      if (
+        task.catalogContext !== undefined &&
+        (referencedVenueIds.size !== venueIds.length ||
+          venueIds.some((venueId) => !referencedVenueIds.has(venueId)))
+      ) {
+        throw new Error("model hypothesis venue scope does not match its listings");
+      }
+      return {
+        hypothesisId: `hypothesis:${hashCanonical({
+          workerId: this.workerId,
+          taskId: task.taskId,
+          index,
+          item,
+        }).slice(7, 23)}`,
+        workerId: this.workerId,
+        thesis: item.thesis,
+        strategyKind: item.strategyKind,
+        venueIds: Object.freeze(venueIds),
+        claimSearchTerms: Object.freeze(item.claimSearchTerms),
+        listingRefs: Object.freeze(listingRefs),
+        confidenceBps: item.confidenceBps,
+        authority: "PROPOSE_ONLY",
+        reviewStatus: "UNREVIEWED",
+      };
+    });
   }
 }
 
@@ -294,6 +478,7 @@ export class DiscoveryPool {
           thesis: hypothesis.thesis.trim().toLowerCase(),
           strategyKind: hypothesis.strategyKind,
           venueIds: [...hypothesis.venueIds].sort(),
+          listingRefs: [...(hypothesis.listingRefs ?? [])].sort(),
         });
         if (!hypotheses.has(identity)) {
           hypotheses.set(identity, hypothesis);

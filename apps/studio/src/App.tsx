@@ -46,6 +46,15 @@ import { cn } from "@/lib/utils";
 type View = "overview" | "scouts" | "venues" | "books" | "evidence";
 type Opportunity = StudioProjection["opportunities"][number];
 
+const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
+  mode: "VERIFIED_FIXTURE_CATALOGS",
+  corpusIdentity: `sha256:${"0".repeat(64)}`,
+  listingCount: 0,
+  venueCount: 0,
+  sourceFixtureCount: 0,
+  maxListingsPerTask: 30,
+};
+
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "scouts", label: "Scout inbox", icon: Inbox },
@@ -108,7 +117,6 @@ async function requestDiscoveryRun(
   };
   if (
     result.executionAuthority !== false ||
-    result.hypotheses.length === 0 ||
     result.hypotheses.some(
       (hypothesis) =>
         hypothesis.authority !== "PROPOSE_ONLY" ||
@@ -470,6 +478,8 @@ function Overview({
   onInspect: (opportunity: Opportunity) => void;
 }) {
   const studioProjection = useStudioProjection();
+  const catalogContext =
+    studioProjection.ai.catalogContext ?? EMPTY_CATALOG_CONTEXT;
   const [scoutStatus, setScoutStatus] = useState<
     "IDLE" | "RUNNING" | "PROPOSED" | "FAILED"
   >("IDLE");
@@ -477,10 +487,10 @@ function Overview({
   async function runScout(): Promise<void> {
     setScoutStatus("RUNNING");
     try {
-      await requestDiscoveryRun("Will NYC rainfall exceed 0.25 inches?", [
-        "kalshi",
-        "polymarket-global",
-      ]);
+      await requestDiscoveryRun(
+        "Highest temperature in Boston on July 31, 2026?",
+        ["gemini-predictions"],
+      );
       setScoutStatus("PROPOSED");
     } catch {
       setScoutStatus("FAILED");
@@ -582,6 +592,14 @@ function Overview({
           </span>
         </div>
         <div className="ai-boundary">
+          <Database size={14} />
+          <span>
+            {catalogContext.listingCount} listings · {catalogContext.venueCount}{" "}
+            venues · {catalogContext.sourceFixtureCount} verified fixtures ·
+            context {catalogContext.corpusIdentity.slice(7, 14)}
+          </span>
+        </div>
+        <div className="ai-boundary">
           <ShieldCheck size={14} />
           <span>{studioProjection.ai.promotionBoundary}</span>
         </div>
@@ -635,15 +653,16 @@ function confidenceLabel(confidenceBps: number): string {
 
 function ScoutInboxView() {
   const studioProjection = useStudioProjection();
+  const catalogContext =
+    studioProjection.ai.catalogContext ?? EMPTY_CATALOG_CONTEXT;
   const eligibleVenues = studioProjection.venues.filter((venue) =>
     venue.capabilities.includes("MARKET_CATALOG"),
   );
   const [question, setQuestion] = useState(
-    "Will NYC rainfall exceed 0.25 inches?",
+    "Highest temperature in Boston on July 31, 2026?",
   );
   const [selectedVenueIds, setSelectedVenueIds] = useState<readonly string[]>([
-    "kalshi",
-    "polymarket-global",
+    "gemini-predictions",
   ]);
   const [runStatus, setRunStatus] = useState<
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
@@ -699,9 +718,9 @@ function ScoutInboxView() {
           detail="independent authority required"
         />
         <Metric
-          label="Active workers"
-          value={`${studioProjection.ai.activeRuns}`}
-          detail="SSE live state"
+          label="Catalog facts"
+          value={`${catalogContext.listingCount}`}
+          detail={`${catalogContext.venueCount} venues · verified fixtures`}
         />
         <Metric
           label="State store"
@@ -847,6 +866,12 @@ function ScoutInboxView() {
                     <time>{new Date(run.completedAt).toLocaleString()}</time>
                   </div>
                   <Badge variant="muted">{run.workerIds.join(" + ")}</Badge>
+                  {run.catalogContextIdentity !== undefined && (
+                    <Badge variant="muted">
+                      {run.catalogListingCount} listings ·{" "}
+                      {run.catalogContextIdentity.slice(7, 14)}
+                    </Badge>
+                  )}
                 </div>
                 <h3>{run.question}</h3>
                 <div className="scout-venue-row">
@@ -870,6 +895,12 @@ function ScoutInboxView() {
                       <div>
                         <dt>Search terms</dt>
                         <dd>{hypothesis.claimSearchTerms.join(" · ") || "none"}</dd>
+                      </div>
+                      <div>
+                        <dt>Grounded listings</dt>
+                        <dd className="grounded-listings">
+                          {(hypothesis.listingRefs ?? []).join(" · ") || "none"}
+                        </dd>
                       </div>
                     </dl>
                     <div className="promotion-lock">

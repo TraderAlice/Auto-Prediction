@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { resolve } from "node:path";
 import { hashCanonical } from "@pmh/domain";
 import { ReplayBookDesk } from "./book-desk.js";
+import { FixtureCatalogDiscoveryDesk } from "./catalog-discovery.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
 import {
   createOpenAiDiscoveryRuntime,
@@ -44,7 +45,10 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function parseDiscoveryTask(value: unknown): DiscoveryTask {
+function parseDiscoveryTask(
+  value: unknown,
+  catalogDesk: FixtureCatalogDiscoveryDesk,
+): DiscoveryTask {
   if (
     value === null ||
     typeof value !== "object" ||
@@ -88,14 +92,20 @@ function parseDiscoveryTask(value: unknown): DiscoveryTask {
   ) {
     throw new Error("discovery request is empty or exceeds bounded input limits");
   }
+  const catalogContext = catalogDesk.context(question, venueIds);
   return {
     taskId:
       suppliedTaskId ??
-      `task:${hashCanonical({ question, venueIds }).slice(7)}`,
+      `task:${hashCanonical({
+        question,
+        venueIds,
+        catalogContextIdentity: catalogContext.contextIdentity,
+      }).slice(7)}`,
     question,
     venueIds,
     maxHypotheses: 10,
     deadlineEpochMs: now + 10_000,
+    catalogContext,
   };
 }
 
@@ -104,6 +114,7 @@ function taskScopeHash(task: DiscoveryTask): string {
     question: task.question,
     venueIds: task.venueIds,
     maxHypotheses: task.maxHypotheses,
+    catalogContextIdentity: task.catalogContext?.contextIdentity ?? null,
   });
 }
 
@@ -114,12 +125,15 @@ function recordMatchesTask(
   return (
     record.question === task.question &&
     record.venueIds.length === task.venueIds.length &&
-    record.venueIds.every((item, index) => item === task.venueIds[index])
+    record.venueIds.every((item, index) => item === task.venueIds[index]) &&
+    (record.catalogContextIdentity ?? null) ===
+      (task.catalogContext?.contextIdentity ?? null)
   );
 }
 
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
+  catalogDesk?: FixtureCatalogDiscoveryDesk;
   discoveryLedger?: DiscoveryLedger;
   discoveryStore?: DiscoveryRunStore;
   discoveryPool?: DiscoveryPool;
@@ -141,9 +155,12 @@ export function createControlPlane(options?: {
       ...(modelRuntime.worker === null ? [] : [modelRuntime.worker]),
     ]);
   const bookDesk = options?.bookDesk ?? new ReplayBookDesk();
+  const catalogDesk = options?.catalogDesk ?? new FixtureCatalogDiscoveryDesk();
   const discoveryLedger =
     options?.discoveryLedger ?? new DiscoveryLedger(25, options?.discoveryStore);
-  const ready = bookDesk.replay();
+  const ready = Promise.all([bookDesk.replay(), catalogDesk.load()]).then(
+    () => undefined,
+  );
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
     string,
@@ -153,14 +170,17 @@ export function createControlPlane(options?: {
     }>
   >();
   let activeRuns = 0;
-  const projection = async () =>
-    buildStudioProjection({
+  const projection = async () => {
+    await ready;
+    return buildStudioProjection({
       workers: pool.workers,
       activeRuns,
       modelProvider: modelRuntime.projection,
-      bookDesk: await ready.then(() => bookDesk.projection()),
+      catalogContext: catalogDesk.projection(),
+      bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
     });
+  };
 
   const broadcastProjection = async (): Promise<void> => {
     const payload = `event: projection\ndata: ${JSON.stringify(
@@ -187,6 +207,7 @@ export function createControlPlane(options?: {
       return;
     }
     if (request.method === "GET" && url.pathname === "/health") {
+      await ready;
       const discoveryDesk = discoveryLedger.projection();
       writeJson(response, 200, {
         ok: true,
@@ -194,6 +215,7 @@ export function createControlPlane(options?: {
         retainedDiscoveryRuns: discoveryDesk.runCount,
         operationalStorage: discoveryDesk.storage,
         modelProvider: modelRuntime.projection,
+        catalogContext: catalogDesk.projection(),
       });
       return;
     }
@@ -277,7 +299,8 @@ export function createControlPlane(options?: {
     ) {
       let task: DiscoveryTask;
       try {
-        task = parseDiscoveryTask(await readJson(request));
+        await ready;
+        task = parseDiscoveryTask(await readJson(request), catalogDesk);
       } catch (error) {
         writeJson(response, 400, {
           ok: false,
@@ -372,6 +395,7 @@ export function createControlPlane(options?: {
     server,
     pool,
     bookDesk,
+    catalogDesk,
     discoveryLedger,
     projection,
     ready,
