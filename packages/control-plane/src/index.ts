@@ -2,6 +2,8 @@ export * from "./book-desk.js";
 export * from "./catalog-discovery.js";
 export * from "./discovery.js";
 export * from "./discovery-ledger.js";
+export * from "./deepseek-model.js";
+export * from "./model-runtime.js";
 export * from "./openai-model.js";
 export * from "./projection.js";
 export * from "./provider-smoke.js";

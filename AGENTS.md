@@ -19,9 +19,10 @@ Delete an item as soon as the user supplies it or the project no longer needs it
 
 ### Needed now
 
-- `OPENAI_API_KEY` for one real `gpt-5.4-mini` discovery smoke run. The
-  model scout stays disabled and the heuristic path remains available until
-  this is supplied; never write the key into the repository.
+- `DEEPSEEK_API_KEY` for one real `deepseek-v4-flash` Vercel AI SDK discovery
+  smoke run and one bounded pi investigator smoke run. Both AI paths stay
+  disabled and the heuristic path remains available until this is supplied;
+  never write the key into the repository.
 
 ### Deferred decisions (not blockers)
 

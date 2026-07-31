@@ -73,14 +73,15 @@ export function buildStudioProjection(input: {
   };
   const replayChaos = runReplayChaosSuite();
   const modelProvider = input.modelProvider ?? {
-    provider: "OPENAI_RESPONSES" as const,
+    provider: "DEEPSEEK_CHAT_COMPLETIONS" as const,
+    transport: "VERCEL_AI_SDK" as const,
     configured: false,
-    credentialEnv: "OPENAI_API_KEY" as const,
-    model: "gpt-5.4-mini",
+    credentialEnv: "DEEPSEEK_API_KEY" as const,
+    model: "deepseek-v4-flash",
     maxOutputTokens: 800,
     timeoutMs: 8_000,
-    reasoningEffort: "minimal" as const,
-    responseStorage: false as const,
+    reasoningEffort: "disabled" as const,
+    responseStorage: "PROVIDER_POLICY" as const,
     authority: "PROPOSE_ONLY" as const,
   };
   const catalogContext = input.catalogContext ?? {
@@ -128,7 +129,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 136,
+      proofTests: 140,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },

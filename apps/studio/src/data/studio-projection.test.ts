@@ -18,13 +18,14 @@ describe("Studio projection safety", () => {
 
   it("shows the fail-closed model budget without exposing credentials", () => {
     expect(studioProjection.ai.modelProvider).toMatchObject({
-      provider: "OPENAI_RESPONSES",
+      provider: "DEEPSEEK_CHAT_COMPLETIONS",
+      transport: "VERCEL_AI_SDK",
       configured: false,
-      credentialEnv: "OPENAI_API_KEY",
-      model: "gpt-5.4-mini",
+      credentialEnv: "DEEPSEEK_API_KEY",
+      model: "deepseek-v4-flash",
       maxOutputTokens: 800,
       timeoutMs: 8_000,
-      responseStorage: false,
+      responseStorage: "PROVIDER_POLICY",
       authority: "PROPOSE_ONLY",
     });
     expect(studioProjection.ai.workers).toContainEqual(

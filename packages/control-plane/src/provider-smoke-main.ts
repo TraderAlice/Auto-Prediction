@@ -1,7 +1,7 @@
-import { runOpenAiProviderSmoke } from "./provider-smoke.js";
+import { runModelProviderSmoke } from "./provider-smoke.js";
 
 try {
-  const report = await runOpenAiProviderSmoke();
+  const report = await runModelProviderSmoke();
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 } catch (error) {
   const diagnostic =

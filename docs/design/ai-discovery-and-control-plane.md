@@ -34,20 +34,24 @@ content-addressed as `pmh.discovery-catalog-context.v1`. The context identity is
 part of task idempotency and durable run scope. A worker may return no lead, but
 every returned lead must name at least one listing from that exact context.
 
-The initial adapter binds that port to OpenAI Responses. The default
-`gpt-5.4-mini` request has strict `pmh.discovery-output.v1` Structured Output,
-no tools, `store:false`, minimal reasoning, at most 800 output tokens, and an
-8-second timeout. Only task-scoped venue IDs and listing references survive
-application-side validation. The API key remains in a native private field in the control-plane
-process and is absent from JSON projections, diagnostics, SQLite, and Git.
+The default adapter binds that port to `deepseek-v4-flash` through Vercel AI
+SDK. It requests validated `pmh.discovery-output.v1` object output, disables
+thinking for the fast lane, exposes no tools, and allows at most 800 output
+tokens within an 8-second timeout. Only task-scoped venue IDs and listing
+references survive an additional application-side validation boundary. The
+API key remains in a native private field in the control-plane process and is
+absent from JSON projections, diagnostics, SQLite, and Git. Direct OpenAI
+Responses remains an explicit alternate route and retains its `store:false`
+request control; DeepSeek is labeled `PROVIDER_POLICY` because its API exposes
+no equivalent per-request storage switch.
 
-Provider qualification is a separate one-shot path over the same production
-adapter. It loads the verified Gemini catalog context, permits exactly one
-non-stored request, and emits a self-hashed `pmh.openai-provider-smoke.v1`
-report to standard output. The report records provider posture, bounded task
-identity, grounded hypotheses or a valid empty result, literal-false side
-effects, and no credential. It does not persist the response or mutate the
-Discovery Ledger.
+Provider qualification is a separate one-shot path over the selected
+production adapter. It loads the verified Gemini catalog context, permits
+exactly one request, and emits a self-hashed `pmh.model-provider-smoke.v2`
+report to standard output. The report records provider and transport posture,
+bounded task identity, grounded hypotheses or a valid empty result,
+literal-false side effects, and no credential. It does not persist the response
+or mutate the Discovery Ledger.
 
 Completed runs enter a bounded Discovery Ledger. It retains the
 question, venue scope, worker identities, diagnostics, and hypotheses so an

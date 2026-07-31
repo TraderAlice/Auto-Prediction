@@ -71,9 +71,10 @@ describe("budgeted OpenAI Responses model port", () => {
     expect(runtime.worker).toBeNull();
     expect(runtime.projection).toEqual({
       provider: "OPENAI_RESPONSES",
+      transport: "DIRECT_HTTP",
       configured: false,
       credentialEnv: "OPENAI_API_KEY",
-      model: "gpt-5.4-mini",
+      model: "gpt-5.6-luna",
       maxOutputTokens: 800,
       timeoutMs: 8_000,
       reasoningEffort: "minimal",
