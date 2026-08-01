@@ -11,6 +11,7 @@ import {
   materializeMarketCorpus,
   type MarketCorpusSnapshot,
 } from "./market-corpus.js";
+import type { OperationalStorageProjection } from "./types.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -18,6 +19,7 @@ const DEFAULT_MAX_OUTPUT_BYTES = 2_000_000;
 const DEFAULT_RETENTION_LIMIT = 10;
 const MAX_PROPOSALS = 5;
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/;
+const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const READ_ONLY_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
 
 export type MarketRelationKind =
@@ -105,6 +107,7 @@ export type MarketArchaeologistProjection = Readonly<{
   passCount: number;
   failedCount: number;
   retentionLimit: number;
+  storage: OperationalStorageProjection<"runId">;
   scheduler: Readonly<{
     enabled: boolean;
     intervalMs: number | null;
@@ -119,6 +122,17 @@ export type MarketArchaeologistProjection = Readonly<{
     liveExecutionEnabled: false;
   }>;
 }>;
+
+export interface MarketArchaeologistRecordStore {
+  readonly marketArchaeologistStorage: OperationalStorageProjection<"runId">;
+  loadMarketArchaeologistRecords(
+    limit: number,
+  ): readonly MarketArchaeologistRecord[];
+  saveMarketArchaeologistRecord(
+    record: MarketArchaeologistRecord,
+    retentionLimit: number,
+  ): MarketArchaeologistRecord;
+}
 
 type RawProposal = Readonly<{
   relationKind: MarketRelationKind;
@@ -154,6 +168,178 @@ function compactDiagnostic(value: string, limit = 500): string {
   return compacted.length <= limit
     ? compacted
     : `${compacted.slice(0, limit - 1).trimEnd()}…`;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every(isNonEmptyString);
+}
+
+function isIsoDate(value: unknown): value is string {
+  return (
+    isNonEmptyString(value) &&
+    !Number.isNaN(Date.parse(value)) &&
+    new Date(value).toISOString() === value
+  );
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value as Record<string, unknown>)) {
+      deepFreeze(child);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+export function assertMarketArchaeologistRecord(
+  value: unknown,
+): MarketArchaeologistRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("stored Market Archaeologist record is malformed");
+  }
+  const record = value as Record<string, unknown>;
+  const running = record.status === "RUNNING";
+  const passed = record.status === "PASS";
+  const failed = record.status === "FAILED";
+  if (
+    !HASH_PATTERN.test(String(record.runId)) ||
+    !HASH_PATTERN.test(String(record.corpusSnapshotIdentity)) ||
+    !isNonEmptyString(record.question) ||
+    record.question.length > 1_000 ||
+    (!running && !passed && !failed) ||
+    !isIsoDate(record.startedAt) ||
+    (running ? record.completedAt !== null : !isIsoDate(record.completedAt)) ||
+    (!running &&
+      Date.parse(record.completedAt as string) < Date.parse(record.startedAt)) ||
+    (record.trigger !== "OPERATOR" && record.trigger !== "SCHEDULE") ||
+    (running && (record.report !== null || record.diagnostic !== null)) ||
+    (passed && (record.report === null || record.diagnostic !== null)) ||
+    (failed &&
+      (record.report !== null ||
+        !isNonEmptyString(record.diagnostic) ||
+        record.diagnostic.length > 500))
+  ) {
+    throw new Error("stored Market Archaeologist record violates its contract");
+  }
+  const expectedRunId = hashCanonical({
+    schemaVersion: "pmh.market-archaeologist-run.v1",
+    corpusSnapshotIdentity: record.corpusSnapshotIdentity,
+    question: record.question,
+  });
+  if (record.runId !== expectedRunId) {
+    throw new Error("stored Market Archaeologist run identity mismatch");
+  }
+  if (passed) {
+    const report = record.report as Record<string, unknown>;
+    const engine = report.engine as Record<string, unknown> | null;
+    const task = report.task as Record<string, unknown> | null;
+    const result = report.result as Record<string, unknown> | null;
+    const trace = report.trace as Record<string, unknown> | null;
+    const effects = report.effects as Record<string, unknown> | null;
+    if (
+      report.schemaVersion !== "pmh.market-archaeologist-report.v1" ||
+      report.status !== "PASS" ||
+      !HASH_PATTERN.test(String(report.artifactHash)) ||
+      !isIsoDate(report.startedAt) ||
+      !isIsoDate(report.completedAt) ||
+      Date.parse(report.completedAt) < Date.parse(report.startedAt) ||
+      engine === null ||
+      engine.name !== "PI_CLI" ||
+      engine.provider !== "deepseek" ||
+      !isNonEmptyString(engine.model) ||
+      engine.mode !== "MARKETFS_RECURSIVE_SEARCH" ||
+      task === null ||
+      task.question !== record.question ||
+      task.corpusSnapshotIdentity !== record.corpusSnapshotIdentity ||
+      !HASH_PATTERN.test(String(task.sourceSetIdentity)) ||
+      typeof task.corpusListingCount !== "number" ||
+      !Number.isSafeInteger(task.corpusListingCount) ||
+      task.corpusListingCount < 1 ||
+      result === null ||
+      !isNonEmptyString(result.summary) ||
+      result.summary.length > 2_000 ||
+      !Array.isArray(result.proposals) ||
+      result.proposals.length > MAX_PROPOSALS ||
+      !isStringArray(result.missingEvidence) ||
+      result.missingEvidence.length > 30 ||
+      result.missingEvidence.some((item) => item.length > 2_000) ||
+      result.authority !== "PROPOSE_ONLY" ||
+      result.reviewStatus !== "UNREVIEWED" ||
+      result.executionAuthority !== false ||
+      trace === null ||
+      trace.workspace !== "EPHEMERAL_MARKETFS" ||
+      !Array.isArray(trace.permittedTools) ||
+      trace.permittedTools.join(",") !== "read,grep,find,ls" ||
+      trace.recursiveSearchAvailable !== true ||
+      trace.toolExecutionTraceAvailable !== false ||
+      trace.corpusRemovedAfterRun !== true ||
+      effects === null ||
+      effects.sessionPersistence !== false ||
+      effects.shellAccess !== false ||
+      effects.agentFileWrites !== false ||
+      effects.valueMovingActions !== false ||
+      effects.liveExecutionEnabled !== false ||
+      Date.parse(report.startedAt) < Date.parse(record.startedAt) ||
+      Date.parse(report.completedAt) > Date.parse(record.completedAt as string)
+    ) {
+      throw new Error("stored Market Archaeologist report violates its contract");
+    }
+    for (const rawProposal of result.proposals) {
+      if (rawProposal === null || typeof rawProposal !== "object") {
+        throw new Error("stored Market Archaeologist proposal is malformed");
+      }
+      const proposal = rawProposal as Record<string, unknown>;
+      if (
+        !HASH_PATTERN.test(String(proposal.proposalId)) ||
+        ![
+          "EQUIVALENT",
+          "IMPLIES",
+          "SUBSET",
+          "MUTUALLY_EXCLUSIVE",
+          "EXHAUSTIVE",
+          "CONDITIONAL",
+          "RELATED",
+          "CONFLICTING",
+        ].includes(String(proposal.relationKind)) ||
+        !isStringArray(proposal.listingRefs) ||
+        proposal.listingRefs.length < 2 ||
+        proposal.listingRefs.length > 8 ||
+        new Set(proposal.listingRefs).size !== proposal.listingRefs.length ||
+        !isNonEmptyString(proposal.statement) ||
+        proposal.statement.length > 1_000 ||
+        !isNonEmptyString(proposal.rationale) ||
+        proposal.rationale.length > 2_000 ||
+        !isStringArray(proposal.falsifiers) ||
+        proposal.falsifiers.length > 12 ||
+        proposal.falsifiers.some((item) => item.length > 500) ||
+        proposal.authority !== "PROPOSE_ONLY" ||
+        proposal.reviewStatus !== "UNREVIEWED" ||
+        proposal.executionAuthority !== false
+      ) {
+        throw new Error("stored Market Archaeologist proposal violates its contract");
+      }
+      const { proposalId: _proposalId, ...proposalBody } = proposal;
+      if (
+        proposal.proposalId !==
+        hashCanonical({
+          corpusSnapshotIdentity: record.corpusSnapshotIdentity,
+          ...proposalBody,
+        })
+      ) {
+        throw new Error("stored Market Archaeologist proposal identity mismatch");
+      }
+    }
+    const { artifactHash: _artifactHash, ...reportBody } = report;
+    if (report.artifactHash !== hashCanonical(reportBody)) {
+      throw new Error("stored Market Archaeologist report identity mismatch");
+    }
+  }
+  return deepFreeze(value as MarketArchaeologistRecord);
 }
 
 function parseJsonObject(stdout: string): unknown {
@@ -455,7 +641,7 @@ export class MarketArchaeologistBusyError extends Error {}
 export class MarketArchaeologistNotConfiguredError extends Error {}
 
 export class MarketArchaeologistDesk {
-  readonly #records: MarketArchaeologistRecord[] = [];
+  readonly #records: MarketArchaeologistRecord[];
   #active: Promise<MarketArchaeologistRecord> | null = null;
   #lastAttemptedSnapshotIdentity: Hash | null = null;
 
@@ -464,7 +650,22 @@ export class MarketArchaeologistDesk {
     private readonly model: string,
     private readonly retentionLimit = DEFAULT_RETENTION_LIMIT,
     public readonly schedulerIntervalMs: number | null = null,
-  ) {}
+    private readonly store?: MarketArchaeologistRecordStore,
+  ) {
+    if (!Number.isSafeInteger(retentionLimit) || retentionLimit < 1) {
+      throw new Error("Market Archaeologist retention limit must be positive");
+    }
+    this.#records = [
+      ...(store?.loadMarketArchaeologistRecords(retentionLimit) ?? []).map(
+        assertMarketArchaeologistRecord,
+      ),
+    ];
+    if (this.#records.some((record) => record.status === "RUNNING")) {
+      throw new Error("persisted Market Archaeologist store returned an active record");
+    }
+    this.#lastAttemptedSnapshotIdentity =
+      this.#records[0]?.corpusSnapshotIdentity ?? null;
+  }
 
   public begin(
     snapshot: MarketCorpusSnapshot,
@@ -529,9 +730,25 @@ export class MarketArchaeologistDesk {
           }),
       )
       .then((record) => {
-        this.#replace(record);
+        let retained = record;
+        if (this.store !== undefined) {
+          try {
+            retained = this.store.saveMarketArchaeologistRecord(
+              record,
+              this.retentionLimit,
+            );
+          } catch {
+            retained = Object.freeze({
+              ...running,
+              status: "FAILED" as const,
+              completedAt: new Date().toISOString(),
+              diagnostic: "Market Archaeologist result persistence failed",
+            });
+          }
+        }
+        this.#replace(retained);
         this.#active = null;
-        return record;
+        return retained;
       });
     this.#active = promise;
     return Object.freeze({ promise, idempotentReplay: false });
@@ -572,6 +789,14 @@ export class MarketArchaeologistDesk {
       passCount: records.filter((record) => record.status === "PASS").length,
       failedCount: records.filter((record) => record.status === "FAILED").length,
       retentionLimit: this.retentionLimit,
+      storage:
+        this.store?.marketArchaeologistStorage ??
+        Object.freeze({
+          mode: "MEMORY" as const,
+          durable: false as const,
+          schemaVersion: 0,
+          idempotencyKey: "runId" as const,
+        }),
       scheduler: Object.freeze({
         enabled: this.schedulerIntervalMs !== null,
         intervalMs: this.schedulerIntervalMs,
@@ -595,6 +820,7 @@ export function createMarketArchaeologistDesk(
     command?: string;
     runner?: PiProcessRunner;
     retentionLimit?: number;
+    store?: MarketArchaeologistRecordStore;
   }> = {},
 ): MarketArchaeologistDesk {
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";
@@ -646,5 +872,6 @@ export function createMarketArchaeologistDesk(
     model,
     options.retentionLimit ?? DEFAULT_RETENTION_LIMIT,
     intervalMs,
+    options.store,
   );
 }

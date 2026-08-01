@@ -41,6 +41,7 @@ import {
   MarketArchaeologistBusyError,
   MarketArchaeologistDesk,
   MarketArchaeologistNotConfiguredError,
+  type MarketArchaeologistRecordStore,
 } from "./market-archaeologist.js";
 import {
   projectMarketCorpus,
@@ -52,6 +53,7 @@ import type {
   DiscoveryRunRecord,
   DiscoveryTask,
 } from "./types.js";
+import { OpportunityLifecycleDesk } from "./opportunity-lifecycle-desk.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -256,6 +258,18 @@ function supportsCandidateWatch(
   );
 }
 
+function supportsMarketArchaeologistRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & MarketArchaeologistRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<MarketArchaeologistRecordStore>;
+  return (
+    candidate.marketArchaeologistStorage !== undefined &&
+    typeof candidate.loadMarketArchaeologistRecords === "function" &&
+    typeof candidate.saveMarketArchaeologistRecord === "function"
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -271,6 +285,7 @@ export function createControlPlane(options?: {
   realCandidatePreflightDesk?: RealCandidatePreflightDesk;
   candidateWatchDesk?: CandidateWatchDesk;
   marketArchaeologistDesk?: MarketArchaeologistDesk;
+  opportunityLifecycleDesk?: OpportunityLifecycleDesk;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -328,7 +343,14 @@ export function createControlPlane(options?: {
         : {}),
     });
   const marketArchaeologistDesk =
-    options?.marketArchaeologistDesk ?? createMarketArchaeologistDesk();
+    options?.marketArchaeologistDesk ??
+    createMarketArchaeologistDesk(process.env, {
+      ...(supportsMarketArchaeologistRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const opportunityLifecycleDesk =
+    options?.opportunityLifecycleDesk ?? new OpportunityLifecycleDesk();
   const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
@@ -350,6 +372,11 @@ export function createControlPlane(options?: {
   let activeRuns = 0;
   const projection = async () => {
     await ready;
+    const archaeologistProjection = marketArchaeologistDesk.projection();
+    const realCandidateDisposition =
+      realCandidatePreflightDesk.dispositionProjection();
+    opportunityLifecycleDesk.syncMarketArchaeologist(archaeologistProjection);
+    opportunityLifecycleDesk.syncRealCandidate(realCandidateDisposition);
     return buildStudioProjection({
       workers: pool.workers,
       activeRuns,
@@ -360,13 +387,13 @@ export function createControlPlane(options?: {
       catalogObservation: catalogObservationDesk.projection(),
       opportunityRadar: catalogObservationDesk.radar(),
       marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
-      marketArchaeologist: marketArchaeologistDesk.projection(),
+      marketArchaeologist: archaeologistProjection,
+      opportunityLifecycle: opportunityLifecycleDesk.projection(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
       realCandidatePreflight: realCandidatePreflightDesk.projection(),
       realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
-      realCandidateDisposition:
-        realCandidatePreflightDesk.dispositionProjection(),
+      realCandidateDisposition,
       realCandidateRescreen: realCandidatePreflightDesk.rescreenProjection(),
       candidateWatch: candidateWatchDesk.projection(),
     });
@@ -972,6 +999,7 @@ export function createControlPlane(options?: {
     realCandidatePreflightDesk,
     candidateWatchDesk,
     marketArchaeologistDesk,
+    opportunityLifecycleDesk,
     projection,
     ready,
   };

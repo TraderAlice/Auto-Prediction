@@ -248,6 +248,7 @@ export type StudioProjection = Readonly<{
     promotionBoundary: string;
   }>;
   bookDesk: BookDeskProjection;
+  opportunityLifecycle: import("./opportunity-lifecycle-desk.js").OpportunityLifecycleDeskProjection;
   qualification: Readonly<{
     replayChaos: ReplayChaosReport;
     campaignEvidence: CampaignEvidenceBundle;

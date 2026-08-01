@@ -9,6 +9,7 @@
   "references": [
     { "path": "../domain" },
     { "path": "../evidence" },
+    { "path": "../execution" },
     { "path": "../market-state" },
     { "path": "../opportunity" },
     { "path": "../protocol" },

@@ -26,12 +26,17 @@ import {
   type CandidateWatchRefreshStore,
   type StoredCandidateBookObservation,
 } from "./candidate-watch.js";
+import {
+  assertMarketArchaeologistRecord,
+  type MarketArchaeologistRecord,
+  type MarketArchaeologistRecordStore,
+} from "./market-archaeologist.js";
 import type {
   DiscoveryRunRecord,
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -63,6 +68,13 @@ type StoredCandidateBookObservationRow = Readonly<{
 
 type CandidateWatchRefreshRow = Readonly<{
   refresh_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type MarketArchaeologistRow = Readonly<{
+  run_id: string;
+  corpus_snapshot_identity: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -241,6 +253,41 @@ function parseCandidateWatchRefresh(
   return record;
 }
 
+function parseMarketArchaeologistRecord(
+  value: unknown,
+): MarketArchaeologistRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite Market Archaeologist row is malformed");
+  }
+  const row = value as Partial<MarketArchaeologistRow>;
+  if (
+    typeof row.run_id !== "string" ||
+    typeof row.corpus_snapshot_identity !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error(
+      "SQLite Market Archaeologist row has invalid column types",
+    );
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite Market Archaeologist record contains invalid JSON");
+  }
+  const record = assertMarketArchaeologistRecord(decoded);
+  if (
+    record.status === "RUNNING" ||
+    record.runId !== row.run_id ||
+    record.corpusSnapshotIdentity !== row.corpus_snapshot_identity ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite Market Archaeologist record identity mismatch");
+  }
+  return record;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -271,7 +318,8 @@ export class SqliteOperationalStore
     InvestigationRecordStore,
     CatalogObservationStore,
     CandidateBookObservationStore,
-    CandidateWatchRefreshStore
+    CandidateWatchRefreshStore,
+    MarketArchaeologistRecordStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -295,6 +343,7 @@ export class SqliteOperationalStore
     schemaVersion: number;
     idempotencyKey: "refreshId";
   }>;
+  public readonly marketArchaeologistStorage: OperationalStorageProjection<"runId">;
 
   public constructor(databasePath: string) {
     if (databasePath.trim() === "") {
@@ -354,6 +403,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "refreshId",
+    });
+    this.marketArchaeologistStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "runId",
     });
   }
 
@@ -473,6 +528,29 @@ export class SqliteOperationalStore
           CREATE INDEX candidate_watch_refreshes_attempted
             ON candidate_watch_refreshes (
               attempted_at DESC, refresh_id DESC
+            );
+        `);
+      }
+      if (current < 6) {
+        this.#database.exec(`
+          CREATE TABLE market_archaeologist_records (
+            run_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(run_id) = 71 AND run_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            corpus_snapshot_identity TEXT NOT NULL CHECK (
+              length(corpus_snapshot_identity) = 71 AND
+              corpus_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('PASS', 'FAILED')),
+            completed_at TEXT NOT NULL CHECK (length(completed_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX market_archaeologist_records_completed
+            ON market_archaeologist_records (
+              completed_at DESC, run_id DESC
             );
         `);
       }
@@ -874,6 +952,98 @@ export class SqliteOperationalStore
       const stored = parseCandidateWatchRefresh(row);
       if (hashCanonical(stored) !== recordHash) {
         throw new Error("refreshId is already bound to another record");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadMarketArchaeologistRecords(
+    limit: number,
+  ): readonly MarketArchaeologistRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT run_id, corpus_snapshot_identity, record_json, record_hash
+         FROM market_archaeologist_records
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseMarketArchaeologistRecord));
+  }
+
+  public saveMarketArchaeologistRecord(
+    record: MarketArchaeologistRecord,
+    retentionLimit: number,
+  ): MarketArchaeologistRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertMarketArchaeologistRecord(record);
+    if (validated.status === "RUNNING" || validated.completedAt === null) {
+      throw new Error("SQLite cannot persist an active Market Archaeologist run");
+    }
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO market_archaeologist_records (
+             run_id, corpus_snapshot_identity, status, completed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(run_id) DO UPDATE SET
+             corpus_snapshot_identity = excluded.corpus_snapshot_identity,
+             status = excluded.status,
+             completed_at = excluded.completed_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash
+           WHERE market_archaeologist_records.status = 'FAILED'`,
+        )
+        .run(
+          validated.runId,
+          validated.corpusSnapshotIdentity,
+          validated.status,
+          validated.completedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM market_archaeologist_records
+           WHERE run_id IN (
+             SELECT run_id
+             FROM market_archaeologist_records
+             ORDER BY rowid DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT run_id, corpus_snapshot_identity, record_json, record_hash
+           FROM market_archaeologist_records
+           WHERE run_id = ?`,
+        )
+        .get(validated.runId);
+      if (row === undefined) {
+        throw new Error(
+          "SQLite failed to retain the Market Archaeologist record",
+        );
+      }
+      const stored = parseMarketArchaeologistRecord(row);
+      if (
+        stored.question !== validated.question ||
+        stored.corpusSnapshotIdentity !== validated.corpusSnapshotIdentity ||
+        (stored.status === validated.status &&
+          hashCanonical(stored) !== recordHash)
+      ) {
+        throw new Error("runId is already bound to another archaeologist record");
       }
       this.#database.exec("COMMIT");
       return stored;

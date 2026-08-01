@@ -259,7 +259,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 5,
+        schemaVersion: 6,
         idempotencyKey: "taskId",
       },
     });
@@ -421,11 +421,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(5);
+    expect(migrated.storage.schemaVersion).toBe(6);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 5,
+      schemaVersion: 6,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -446,8 +446,9 @@ describe("SQLite operational store", () => {
       "catalog_observations",
       "discovery_runs",
       "investigation_records",
+      "market_archaeologist_records",
     ]);
-    expect(version.user_version).toBe(5);
+    expect(version.user_version).toBe(6);
     inspected.close();
   });
 
@@ -462,7 +463,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 5,
+      schemaVersion: 6,
     });
     firstStore.close();
 
@@ -572,7 +573,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 5,
+      schemaVersion: 6,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -627,7 +628,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 5,
+      schemaVersion: 6,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -674,7 +675,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateWatchRefreshStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 5,
+      schemaVersion: 6,
       idempotencyKey: "refreshId",
     });
     first.close();
