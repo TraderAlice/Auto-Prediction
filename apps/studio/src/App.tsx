@@ -199,6 +199,41 @@ const EMPTY_REVIEW_ATTENTION: StudioProjection["ai"]["reviewAttention"] = {
   },
 };
 
+const EMPTY_PROPOSAL_ECONOMIC_TRIAGE: StudioProjection["ai"]["proposalEconomicTriage"] = {
+  schemaVersion: "pmh.proposal-economic-triage.v1",
+  contentHash: `sha256:${"0".repeat(64)}`,
+  sourceCandidateCount: 0,
+  itemCount: 0,
+  truncated: false,
+  counts: {
+    POSITIVE_GROSS_HINT: 0,
+    NON_POSITIVE_GROSS_HINT: 0,
+    PRICE_UNAVAILABLE: 0,
+    EVIDENCE_UNAVAILABLE: 0,
+    CURRENT_CONTRACT_MISMATCH: 0,
+    LISTING_SCOPE_UNSUPPORTED: 0,
+    RELATION_UNSUPPORTED: 0,
+  },
+  boostedCount: 0,
+  items: [],
+  priorityPolicy: "POSITIVE_GROSS_HINT_PLUS_ONE_CAPPED_AT_FIVE",
+  retentionPolicy: "NO_SUPPRESSION_NO_NEGATIVE_PENALTY",
+  arithmetic: "BIGINT_FIXED_POINT_RATIONAL_BPS",
+  authority: "REVIEW_SCHEDULING_HINT_ONLY",
+  semanticDecisionAuthority: false,
+  simulationAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    modelCalls: false,
+    schedulerRequestsAdded: false,
+    proposalsSuppressed: false,
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_MARKET_CORPUS: StudioProjection["ai"]["marketCorpus"] = {
   schemaVersion: "pmh.market-corpus.v1",
   contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
@@ -3074,6 +3109,8 @@ function OpportunityLifecycleView() {
     studioProjection.ai.semanticReviewScheduler ?? EMPTY_SEMANTIC_REVIEW_SCHEDULER;
   const reviewAttention =
     studioProjection.ai.reviewAttention ?? EMPTY_REVIEW_ATTENTION;
+  const economicTriage =
+    studioProjection.ai.proposalEconomicTriage ?? EMPTY_PROPOSAL_ECONOMIC_TRIAGE;
   const relationPayoff =
     studioProjection.relationPayoff ?? EMPTY_RELATION_PAYOFF;
   const simulationMaterializer =
@@ -3319,6 +3356,71 @@ function OpportunityLifecycleView() {
           detail={`${simulationMaterializer.storage.durable ? "SQLite WAL" : "memory"} · content addressed`}
         />
       </div>
+
+      <section className="attention-queue economic-frontier" aria-label="Pre-review economic frontier">
+        <div className="attention-queue-heading">
+          <div>
+            <Gauge size={15} />
+            <div>
+              <strong>Pre-review economic frontier</strong>
+              <span>
+                Current gross-price hints reorder bounded review work · no proposal is suppressed
+              </span>
+            </div>
+          </div>
+          <Badge variant={economicTriage.boostedCount > 0 ? "verified" : "muted"}>
+            {economicTriage.boostedCount} ACTUAL +1 BOOSTS
+          </Badge>
+        </div>
+        <div className="attention-queue-stats">
+          <div><strong>{economicTriage.itemCount}</strong><span>retained candidates</span></div>
+          <div><strong>{economicTriage.boostedCount}</strong><span>+1 priority</span></div>
+          <div><strong>{economicTriage.counts.POSITIVE_GROSS_HINT}</strong><span>positive gross</span></div>
+          <div><strong>{economicTriage.counts.NON_POSITIVE_GROSS_HINT}</strong><span>non-positive gross</span></div>
+          <div><strong>{economicTriage.counts.CURRENT_CONTRACT_MISMATCH}</strong><span>contract changed</span></div>
+          <div>
+            <strong>{economicTriage.counts.PRICE_UNAVAILABLE + economicTriage.counts.EVIDENCE_UNAVAILABLE + economicTriage.counts.LISTING_SCOPE_UNSUPPORTED + economicTriage.counts.RELATION_UNSUPPORTED}</strong>
+            <span>not priceable</span>
+          </div>
+        </div>
+        <div className="attention-item-list">
+          {economicTriage.items.length === 0 ? (
+            <div className="review-operation-empty">
+              <strong>No grounded review candidates</strong>
+              <span>AI proposals appear here once their retained evidence enters review scheduling.</span>
+            </div>
+          ) : economicTriage.items.slice(0, 6).map((item) => (
+            <article key={item.itemId}>
+              <div className="attention-item-topline">
+                <Badge variant={item.status === "POSITIVE_GROSS_HINT" ? "verified" : item.status === "NON_POSITIVE_GROSS_HINT" ? "muted" : "warning"}>
+                  {item.status.replaceAll("_", " ")}
+                </Badge>
+                <Badge variant="shadow">{item.relationKind}</Badge>
+                <span className="economic-priority">
+                  P{item.basePriority}{item.priorityBoost === 1 ? ` → P${item.effectivePriority}` : ""}
+                </span>
+              </div>
+              <strong>{item.statement}</strong>
+              <p>{item.diagnostic}</p>
+              <div className="attention-item-facts">
+                <span>{item.currentContractMatchCount}/{item.listingRefs.length} current contracts matched</span>
+                <span>{item.issueIds.length} search issue{item.issueIds.length === 1 ? "" : "s"}</span>
+                <span>
+                  {item.indicativeEconomics.status === "POSITIVE_GROSS_HINT" || item.indicativeEconomics.status === "NON_POSITIVE_GROSS_HINT"
+                    ? `${item.indicativeEconomics.grossEdgeBpsFloor} bps gross hint`
+                    : "gross hint unavailable"}
+                </span>
+              </div>
+              <small>Before independent semantic review · fees and depth excluded · non-executable</small>
+            </article>
+          ))}
+        </div>
+        <div className="attention-authority-lock">
+          <CircleOff size={14} />
+          <span>A positive current hint adds one review-priority point only below P5; every other candidate keeps its original priority.</span>
+          <code>{economicTriage.contentHash.slice(0, 22)}…</code>
+        </div>
+      </section>
 
       <section className="attention-queue" aria-label="Operator review attention queue">
         <div className="attention-queue-heading">

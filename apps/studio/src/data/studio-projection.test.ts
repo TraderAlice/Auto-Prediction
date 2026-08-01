@@ -133,6 +133,26 @@ describe("Studio projection safety", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    expect(studioProjection.ai.proposalEconomicTriage).toMatchObject({
+      sourceCandidateCount: 0,
+      itemCount: 0,
+      boostedCount: 0,
+      priorityPolicy: "POSITIVE_GROSS_HINT_PLUS_ONE_CAPPED_AT_FIVE",
+      retentionPolicy: "NO_SUPPRESSION_NO_NEGATIVE_PENALTY",
+      authority: "REVIEW_SCHEDULING_HINT_ONLY",
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        modelCalls: false,
+        schedulerRequestsAdded: false,
+        proposalsSuppressed: false,
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
     expect(studioProjection.ai.researchDesk).toEqual({
       caseCount: 0,
       activeCount: 0,

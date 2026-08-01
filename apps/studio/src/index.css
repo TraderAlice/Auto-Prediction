@@ -5380,6 +5380,31 @@ footer span:first-child {
   background: linear-gradient(135deg, rgba(10, 25, 31, 0.86), rgba(7, 14, 23, 0.74));
 }
 
+.economic-frontier {
+  border-color: rgba(142, 169, 255, 0.2);
+  background: linear-gradient(135deg, rgba(13, 20, 38, 0.9), rgba(7, 14, 23, 0.74));
+}
+
+.economic-frontier .attention-queue-stats {
+  border-color: rgba(142, 169, 255, 0.12);
+}
+
+.economic-frontier .attention-item-list {
+  background: rgba(142, 169, 255, 0.07);
+}
+
+.economic-frontier .attention-queue-heading svg,
+.economic-frontier .attention-authority-lock svg {
+  color: #8ea9ff;
+}
+
+.economic-priority {
+  margin-left: auto;
+  color: #8ea9ff;
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
 .attention-queue-heading,
 .attention-queue-heading > div,
 .attention-item-topline,

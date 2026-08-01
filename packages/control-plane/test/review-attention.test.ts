@@ -3,6 +3,7 @@ import { hashCanonical } from "@pmh/domain";
 import {
   assertReviewAttentionProjection,
   buildMarketCorpusSnapshot,
+  buildProposalEconomicTriage,
   buildProposalEvidenceBundle,
   buildReviewAttentionProjection,
   createSemanticReviewDesk,
@@ -144,6 +145,19 @@ describe("review attention queue", () => {
       semanticDecisionAuthority: false, simulationAuthority: false, certificateAuthority: false, executionAuthority: false,
     });
     expect(projection.items[1]?.payoffReadiness.blocker).toBe("RELATION_UNSUPPORTED");
+    const preReview = buildProposalEconomicTriage({
+      candidates: [{
+        proposal: ready,
+        proposalCorpusSnapshotIdentity: corpus.snapshotIdentity,
+        evidenceBundle: buildProposalEvidenceBundle(ready, corpus),
+        issueIds: [],
+        priority: 3,
+      }],
+      corpus,
+    });
+    expect(preReview.items[0]?.indicativeEconomics).toEqual(
+      projection.items[0]?.indicativeEconomics,
+    );
     expect(() => assertReviewAttentionProjection(projection)).not.toThrow();
   });
 
