@@ -14,8 +14,8 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Composable venue capability ports and qualification evidence.
 - Deterministic snapshot/delta book replay with gap, duplicate, out-of-order, tick, stale, and rebuild handling.
 - Content-hash verification for immutable HTTP and stream fixtures, including subscription identity, frame boundaries, per-frame hashes, and anonymous acquisition metadata.
-- Fixture-backed catalog adapters for Polymarket Global, Kalshi, Gemini Prediction Markets, Opinion, and Myriad.
-- Public realtime-book adapters for Polymarket, Gemini, and Limitless with venue-specific sequence and rebuild semantics.
+- Fixture-backed catalog adapters for Polymarket Global, Polymarket US, Kalshi, Gemini Prediction Markets, Opinion, Myriad, and Limitless.
+- Public book adapters for Polymarket Global, Polymarket US, Gemini, and Limitless with venue-specific snapshot, sequence, and rebuild semantics.
 - Transport-free Kalshi demo and Gemini sandbox order-shape gateways whose submit, cancel, and reconcile methods always return hash-bound `REJECTED_INERT` receipts.
 - Lexical JSON-number decoding so venue number tokens never pass through IEEE-754 before fixed-point conversion.
 - Depth-, tick-, fee-, and per-venue-capital-aware complete-set candidate compilation.
@@ -51,7 +51,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
   approval authorizes only this replay.
 - An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, cross-restart task-scope idempotency, bounded hash-checked SQLite retention, SSE running/failure/completion state, and no route into review or execution.
 - A deterministic Research Case Desk that joins scout runs and pi retry history by question, venue scope, catalog-context identity, and source grade; after a passed investigation it derives a self-verifying `pmh.review-intake-packet.v1` binding the exact scout, hypothesis, context, pi artifact, candidate scope, and unresolved evidence without accepting a review decision or creating promotion authority.
-- A bounded anonymous catalog-observation desk for six venues. It preserves raw public GET bytes in SQLite WAL, binds normalized listings to their source identities, isolates protocol drift per venue, and stays `OBSERVE_ONLY`; explicit fresh-context qualification grants proposal input only.
+- A bounded anonymous catalog-observation desk for seven venues. It preserves raw public GET bytes in SQLite WAL, binds normalized listings to their source identities, isolates protocol drift per venue, and stays `OBSERVE_ONLY`; explicit fresh-context qualification grants proposal input only.
 - A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
 - A Books desk that replays verified public frames into generation-bound order books, broadcasts them over SSE, and exposes venue-native sequence posture.
@@ -65,6 +65,36 @@ This is not a trading bot and it has no live-trading authority. The repository d
 Production equivalence-review workflow, certificate-grade book-generation and
 fee qualification, dense long-run evidence storage, and real-candidate
 promotion remain active campaign work.
+
+## How the product looks for an opportunity
+
+1. Refresh anonymous catalogs in Studio. The control plane freezes a
+   content-addressed snapshot of current listings and rules; failed or stale
+   venues stay visible but cannot enter the Agent context.
+2. Start **Next search lease** for broad discovery, or give **Market
+   Archaeologist** a trailhead such as a person, team, deadline, threshold, or
+   suspicious pair. The cheap model searches a bounded context first. Only a
+   novel multi-listing lead can escalate to one pi run over the complete
+   MarketFS snapshot.
+3. Read the resulting proposals and falsifiers. `EQUIVALENT`, `IMPLIES`,
+   `MUTUALLY_EXCLUSIVE`, `EXHAUSTIVE`, and related labels are hypotheses, not
+   trades. A valid run may conclude that no cross-venue relation exists.
+4. Send a grounded proposal through independent semantic review. The reviewer
+   must bind exact listing refs, rule identities, outcome mapping, time windows,
+   and counterexamples before deterministic payoff compilation is available.
+5. Materialize a portfolio. The server reacquires current public books and fee
+   evidence, walks depth with `bigint` arithmetic, and either produces a
+   simulated worst-case floor or a precise blocker such as missing depth,
+   unsupported fees, stale evidence, or incompatible outcome scope.
+6. Only the first-party exact verifier can issue a short-lived certificate.
+   The configured policy then notifies, requests human approval for shadow, or
+   runs automatic shadow. A later observation reacquires the market and records
+   whether it still matches the certificate bounds or has diverged.
+
+The intended funnel is therefore **AI search → skeptical semantic review →
+deterministic payoff compilation → fresh exchange simulation → exact
+certificate → policy-controlled shadow observation**. Model confidence is
+never used as profit confidence.
 
 ## Safety boundary
 
@@ -121,7 +151,8 @@ venue titles, descriptions, and rules are treated as untrusted data rather than
 model instructions.
 
 At startup the control plane also performs an anonymous, read-only catalog
-refresh for Polymarket Global, Kalshi, Gemini, Opinion, Myriad, and Limitless.
+refresh for Polymarket Global, Polymarket US, Kalshi, Gemini, Opinion, Myriad,
+and Limitless.
 Each response has a 10-second timeout and 2,000,000-byte cap, is preserved
 byte-for-byte under a SHA-256 identity in bounded SQLite WAL storage, and is
 normalized by its venue adapter. Studio labels the desk `OBSERVE ONLY` and

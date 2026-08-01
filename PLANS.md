@@ -36,6 +36,13 @@ observes an actual order or fill, reuses the prior simulation as new evidence,
 or grants execution authority; every observation still requires exact
 certificate reverification before any later promotion.
 
+Polymarket US is now a seventh, protocol-distinct venue in the discovery and
+observation corpus. Its anonymous gateway catalog, REST book, and BBO are bound
+to raw fixtures and normalized with lexical decimals; its centralized US event
+contracts never pass through the Polymarket Global Gamma/CTF adapter. The
+published long-contract book is observable, but short-side executable depth and
+fee rounding remain unqualified rather than being inferred from complements.
+
 ## Stable decisions
 
 - TypeScript strict monorepo with pnpm.
@@ -46,6 +53,29 @@ certificate reverification before any later promotion.
 - Live execution remains disabled.
 
 ## Findings log
+
+- 2026-08-01: The Clash-routed Polymarket US gateway returned anonymous JSON
+  for catalog, full book, and BBO. Three byte-exact fixtures bind 20 open
+  contracts plus a live MLB book/BBO; an independent `polymarket-us` adapter
+  preserves side IDs, rule prose, market status, ticks, and fixed-point price
+  and quantity values without sharing Polymarket Global protocol types.
+- 2026-08-01: A live seven-source refresh produced a 460-listing eligible
+  MarketFS snapshot. Polymarket US contributed 20 current listings under raw
+  hash `sha256:5b83f227…6502d71`; all seven sources were healthy and the venue is
+  visible at `OBSERVE` in Studio with a verified REST book replay.
+- 2026-08-01: A real pi archaeology run used the 20 US MLB futures as
+  trailheads and recursively searched all 460 listings. It found five grounded,
+  unreviewed relations—same-team World Series ⇒ NL pennant, same-series mutual
+  exclusion, incomplete partitions, and two title-similarity counterexamples—
+  but no cross-venue MLB championship duplicate. This is a valid zero-arbitrage
+  outcome, not a failed search.
+- 2026-08-01: The first seven-source search lease exposed an oversized pi
+  falsifier that previously discarded the whole report. Model prose is now
+  visibly truncated to deterministic field bounds while proposal counts,
+  corpus membership, relation kinds, and authority still fail closed. A
+  regression test preserves this distinction.
+- 2026-08-01: The Polymarket US checkpoint passes 296 workspace tests, full
+  typecheck, and production build under bundled Node.js 24.14.0.
 
 - 2026-08-01: Certificate-bound shadow observation is now a first-party,
   content-addressed lifecycle artifact. It reacquires anonymous public books

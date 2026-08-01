@@ -2,18 +2,19 @@ import { describe, expect, it } from "vitest";
 import { ReplayBookDesk } from "../src/index.js";
 
 describe("replay book desk", () => {
-  it("projects three verified venue books without execution authority", async () => {
+  it("projects four verified venue books without execution authority", async () => {
     const desk = new ReplayBookDesk();
     const projection = await desk.replay();
     expect(projection.mode).toBe("FIXTURE_REPLAY");
     expect(projection.replayCount).toBe(1);
-    expect(projection.books).toHaveLength(3);
+    expect(projection.books).toHaveLength(4);
     expect(
       projection.books.map((book) => [book.venueId, book.lifecycle]),
     ).toEqual([
       ["gemini-predictions", "SNAPSHOT_VALID"],
       ["limitless", "SNAPSHOT_VALID"],
       ["polymarket-global", "SNAPSHOT_VALID"],
+      ["polymarket-us", "SNAPSHOT_VALID"],
     ]);
     expect(
       projection.books.every(

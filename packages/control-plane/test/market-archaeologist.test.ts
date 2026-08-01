@@ -156,6 +156,40 @@ describe("Market Archaeologist", () => {
     expect(enabled.shouldSchedule(snapshot)).toBe(true);
   });
 
+  it("visibly bounds oversized model prose without dropping grounded proposals", async () => {
+    const runner: PiProcessRunner = async () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        summary: "summary",
+        proposals: [
+          {
+            relationKind: "IMPLIES",
+            listingRefs: [
+              "venue-b:august-pizza-youtube",
+              "venue-a:august-pizza",
+            ],
+            statement: "A platform-specific stream implies a public stream.",
+            rationale: "Both rules identify the same event with different scope.",
+            falsifiers: [`The broad rule excludes the platform. ${"x".repeat(600)}`],
+          },
+        ],
+        missingEvidence: [],
+      }),
+      stderr: "",
+      timedOut: false,
+      outputLimitExceeded: false,
+    });
+    const desk = createMarketArchaeologistDesk(
+      { DEEPSEEK_API_KEY: secret },
+      { runner },
+    );
+    const record = await desk.begin(snapshot, "Bound long prose").promise;
+
+    expect(record.status).toBe("PASS");
+    expect(record.report?.result.proposals[0]?.falsifiers[0]).toHaveLength(500);
+    expect(record.report?.result.proposals[0]?.falsifiers[0]).toMatch(/…$/u);
+  });
+
   it("restores content-verified reports and run idempotency from SQLite", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-archaeologist-store-"));
     const path = join(directory, "control-plane.sqlite");

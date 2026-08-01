@@ -298,7 +298,7 @@ describe("Studio projection safety", () => {
       activeRuns: 0,
       bookDesk,
     });
-    expect(projection.bookDesk.books).toHaveLength(3);
+    expect(projection.bookDesk.books).toHaveLength(4);
     expect(
       projection.bookDesk.books.every(
         (book) => book.lifecycle === "SNAPSHOT_VALID",

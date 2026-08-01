@@ -14,6 +14,10 @@ import {
   polymarketManifest,
 } from "@pmh/venue-polymarket";
 import {
+  normalizePolymarketUsCatalog,
+  polymarketUsManifest,
+} from "@pmh/venue-polymarket-us";
+import {
   buildDiscoveryCatalogContext,
   MAX_LISTINGS_PER_TASK,
   toDiscoveryCatalogListing,
@@ -155,6 +159,13 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
       sourceUrl:
         "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=20",
       decode: normalizePolymarketCatalog,
+    },
+    {
+      venueId: polymarketUsManifest.venueId,
+      protocolIdentity: polymarketUsManifest.protocolIdentity,
+      sourceUrl:
+        "https://gateway.polymarket.us/v1/markets?active=true&closed=false&archived=false&limit=20",
+      decode: normalizePolymarketUsCatalog,
     },
     {
       venueId: kalshiManifest.venueId,

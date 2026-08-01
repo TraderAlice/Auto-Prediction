@@ -23,6 +23,7 @@
     "@pmh/venue-limitless": "workspace:*",
     "@pmh/venue-myriad": "workspace:*",
     "@pmh/venue-opinion": "workspace:*",
-    "@pmh/venue-polymarket": "workspace:*"
+    "@pmh/venue-polymarket": "workspace:*",
+    "@pmh/venue-polymarket-us": "workspace:*"
   }
 }

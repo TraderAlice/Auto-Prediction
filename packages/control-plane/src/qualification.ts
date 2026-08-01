@@ -40,12 +40,23 @@ function isHash(value: string | null): value is Hash {
   return value !== null && /^sha256:[0-9a-f]{64}$/.test(value);
 }
 
+const REPLAY_INTEGRITY_CAMPAIGN_VENUES = new Set([
+  "gemini-predictions",
+  "limitless",
+  "polymarket-global",
+]);
+
 export function buildCampaignEvidence(
   bookDesk: BookDeskProjection,
   replayChaos: ReplayChaosReport,
 ): CampaignEvidenceBundle {
   const sourceArtifacts = bookDesk.books
-    .filter((book) => isHash(book.stateHash) && isHash(book.evidenceHash))
+    .filter(
+      (book) =>
+        REPLAY_INTEGRITY_CAMPAIGN_VENUES.has(book.venueId) &&
+        isHash(book.stateHash) &&
+        isHash(book.evidenceHash),
+    )
     .map((book) => ({
       venueId: book.venueId,
       bookId: book.bookId,

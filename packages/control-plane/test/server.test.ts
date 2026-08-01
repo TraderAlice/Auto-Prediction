@@ -126,9 +126,9 @@ describe("control-plane HTTP surface", () => {
     });
     expect(projection.ai.architecture).toBe("AI_NATIVE_DISCOVERY");
     expect(projection.ai.catalogContext).toMatchObject({
-      listingCount: 12,
-      venueCount: 6,
-      sourceFixtureCount: 7,
+      listingCount: 32,
+      venueCount: 7,
+      sourceFixtureCount: 8,
     });
     expect(projection.ai.catalogContext.corpusIdentity).toMatch(/^sha256:/);
     expect(projection.ai.modelProvider).toMatchObject({
@@ -1497,7 +1497,7 @@ describe("control-plane HTTP surface", () => {
       response.json(),
     )) as { replayCount: number; books: unknown[] };
     expect(initial).toMatchObject({ replayCount: 1 });
-    expect(initial.books).toHaveLength(3);
+    expect(initial.books).toHaveLength(4);
 
     const response = await fetch(`${baseUrl}/api/v1/books/replay`, {
       method: "POST",
@@ -1517,7 +1517,7 @@ describe("control-plane HTTP surface", () => {
       liveExecutionEnabled: false,
     });
     expect(replay.bookDesk.replayCount).toBe(2);
-    expect(replay.bookDesk.books).toHaveLength(3);
+    expect(replay.bookDesk.books).toHaveLength(4);
   });
 
   it("serves content-addressed replay qualification evidence", async () => {
