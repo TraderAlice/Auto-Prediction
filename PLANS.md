@@ -1,8 +1,8 @@
 # Plans
 
-No construction plan is currently active.
-`plans/search-operations-feedback.md` is the latest completed checkpoint and
-may be retired after the next focused campaign records its own plan.
+`plans/search-outcome-attribution.md` is the latest completed construction
+plan. The next serial campaign will make independent semantic review persistent
+and budget-aware before expanding search volume.
 
 ## Planning contract
 
@@ -24,10 +24,13 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-The latest slice closes the operations feedback loop: retained lease outcomes
-must show which issue briefs produce new signatures, repeats, pi escalations,
-proposals, and evidence gaps so the operator can tune task design and cadence
-from observed yield rather than model confidence.
+The completed attribution slice connects durable search issues to downstream
+opportunity outcomes. On the real retained corpus it attributes 28 of 41 AI
+lifecycle proposals to four recurring issues, and all 28 are waiting for
+independent semantic review. The next construction plan must therefore persist,
+schedule, lease, budget, retry, and observe review work before more scanner
+capacity is added. AI review remains advisory: it may reject or recommend a
+proposal, but cannot accept it for simulation or publish a certificate.
 
 ## Deferred future campaigns
 
@@ -36,7 +39,8 @@ from observed yield rather than model confidence.
 - Polymarket US short-side mapping, theta fees, and fill rounding.
 - Structured operator scope for conditional and multi-listing relations.
 - External notification channels after a destination and authority decision.
-- Longer-running search/review/simulation yield and attrition measurement.
+- Long-horizon cost and latency measurement after provider usage evidence is
+  qualified.
 
 These are not blockers for the current research harness and must become focused
 plan files before implementation begins.

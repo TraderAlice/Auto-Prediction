@@ -1958,6 +1958,60 @@ main {
   border-top: 0;
 }
 
+.search-outcome-attribution {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+
+.search-outcome-stages {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin-top: 9px;
+}
+
+.search-outcome-stages > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.search-outcome-stages > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.search-outcome-stages strong {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.search-outcome-stages span {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+
+.search-outcome-bottlenecks {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 8px;
+  gap: 7px 16px;
+  padding: 10px;
+}
+
+.search-outcome-bottlenecks b {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+}
+
+.search-outcome-bottlenecks .is-warning,
+.search-outcome-bottlenecks .is-warning b {
+  color: var(--warning);
+}
+
 .issue-scheduler-strip > div {
   display: grid;
   gap: 3px;
@@ -6257,6 +6311,7 @@ footer span:first-child {
   .search-lease-budget,
   .search-lease-history,
   .issue-scheduler-strip,
+  .search-outcome-stages,
   .issue-scheduler-workbench,
   .search-issue-form,
   .semantic-graph-stats {
@@ -6271,6 +6326,11 @@ footer span:first-child {
   }
 
   .issue-scheduler-strip > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .search-outcome-stages > div + div {
     border-left: 0;
     border-top: 1px solid var(--border);
   }

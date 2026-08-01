@@ -85,6 +85,7 @@ import {
   SearchIssueScheduler,
   type SearchIssueRecordStore,
 } from "./search-issue-scheduler.js";
+import { buildSearchOutcomeAttribution } from "./search-outcome-attribution.js";
 import {
   buildSemanticRelationGraph,
   searchSemanticGraphNeighborhood,
@@ -592,6 +593,9 @@ export function createControlPlane(options?: {
     opportunityLifecycleDesk.syncRealCandidate(realCandidateDisposition);
     const semanticReviewProjection = semanticReviewDesk.projection();
     const lifecycleProjection = opportunityLifecycleDesk.projection();
+    const searchLeaseProjection = searchLeaseScheduler.projection();
+    const searchIssueProjection = searchIssueScheduler.projection();
+    const materializerProjection = simulationMaterializerDesk.projection();
     const relationPayoff = deriveRelationPayoffProjection({
       archaeologist: archaeologistProjection,
       semanticReviews: semanticReviewProjection.records,
@@ -600,11 +604,18 @@ export function createControlPlane(options?: {
     const semanticRelationGraph = buildSemanticRelationGraph({
       corpus: catalogObservationDesk.corpus(),
       archaeologist: archaeologistProjection,
-      searchLeases: searchLeaseScheduler.projection(),
+      searchLeases: searchLeaseProjection,
       semanticReviews: semanticReviewProjection,
       lifecycle: lifecycleProjection,
       relationPayoff,
-      materializations: simulationMaterializerDesk.projection(),
+      materializations: materializerProjection,
+    });
+    const searchOutcomeAttribution = buildSearchOutcomeAttribution({
+      issues: searchIssueProjection.issues,
+      searchLeases: searchLeaseProjection.records,
+      semanticReviews: semanticReviewProjection.records,
+      lifecycle: lifecycleProjection,
+      materializations: materializerProjection.records,
     });
     return buildStudioProjection({
       workers: pool.workers,
@@ -617,13 +628,14 @@ export function createControlPlane(options?: {
       opportunityRadar: catalogObservationDesk.radar(),
       marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
       marketArchaeologist: archaeologistProjection,
-      searchLeaseScheduler: searchLeaseScheduler.projection(),
-      searchIssueScheduler: searchIssueScheduler.projection(),
+      searchLeaseScheduler: searchLeaseProjection,
+      searchIssueScheduler: searchIssueProjection,
+      searchOutcomeAttribution,
       semanticReview: semanticReviewProjection,
       semanticRelationGraph,
       opportunityLifecycle: lifecycleProjection,
       relationPayoff,
-      simulationMaterializer: simulationMaterializerDesk.projection(),
+      simulationMaterializer: materializerProjection,
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
       realCandidatePreflight: realCandidatePreflightDesk.projection(),
@@ -759,6 +771,14 @@ export function createControlPlane(options?: {
     }
     if (request.method === "GET" && url.pathname === "/api/v1/projection") {
       writeJson(response, 200, await projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/search-outcome-attribution"
+    ) {
+      const current = await projection();
+      writeJson(response, 200, current.ai.searchOutcomeAttribution);
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/books") {

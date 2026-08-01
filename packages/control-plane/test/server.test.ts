@@ -102,6 +102,14 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        searchOutcomeAttribution: {
+          attributionIdentity: string;
+          attributedProposalCount: number;
+          modelConfidenceUsed: boolean;
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         semanticRelationGraph: {
           graphIdentity: string;
           listingCount: number;
@@ -149,6 +157,25 @@ describe("control-plane HTTP surface", () => {
       semanticDecisionAuthority: false,
       certificateAuthority: false,
       executionAuthority: false,
+    });
+    expect(projection.ai.searchOutcomeAttribution).toMatchObject({
+      attributedProposalCount: 0,
+      modelConfidenceUsed: false,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.searchOutcomeAttribution.attributionIdentity).toMatch(/^sha256:/);
+    const attributionResponse = await fetch(
+      `${baseUrl}/api/v1/search-outcome-attribution`,
+    );
+    expect(attributionResponse.status).toBe(200);
+    expect(await attributionResponse.json()).toMatchObject({
+      attributionIdentity: projection.ai.searchOutcomeAttribution.attributionIdentity,
+      measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+      authority: "DERIVED_RESEARCH_EVIDENCE_ONLY",
+      executionAuthority: false,
+      effects: { liveExecutionEnabled: false },
     });
     expect(projection.ai.semanticRelationGraph).toMatchObject({
       listingCount: 0,
