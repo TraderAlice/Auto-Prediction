@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildStudioProjection,
   HeuristicDiscoveryWorker,
+  RealCandidatePreflightDesk,
   ReplayBookDesk,
 } from "@pmh/control-plane";
 
@@ -87,6 +88,7 @@ describe("Studio projection safety", () => {
         liveExecutionEnabled: false,
       },
     });
+    expect(studioProjection.qualification.realCandidatePreflight).toBeNull();
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 
@@ -165,6 +167,31 @@ describe("Studio projection safety", () => {
       valueMovingActions: false,
       liveExecutionEnabled: false,
     });
+  });
+
+  it("projects the real candidate as a stopped preflight rather than an opportunity", async () => {
+    const preflightDesk = new RealCandidatePreflightDesk();
+    await preflightDesk.load();
+    const projection = buildStudioProjection({
+      workers: [new HeuristicDiscoveryWorker()],
+      activeRuns: 0,
+      realCandidatePreflight: preflightDesk.projection(),
+    });
+    expect(projection.qualification.realCandidatePreflight).toMatchObject({
+      status: "BLOCKED",
+      classification: "SEARCH_LEAD_ONLY",
+      catalogIndicativeGrossEdgeBps: "55",
+      venueReportedBuyGrossEdgeBps: "0",
+      verifierInvoked: false,
+      arbitrageVerified: false,
+    });
+    expect(projection.opportunities).toHaveLength(1);
+    expect(
+      projection.opportunities.every(
+        (opportunity) =>
+          opportunity.source === "SYNTHETIC_QUALIFICATION_FIXTURE",
+      ),
+    ).toBe(true);
   });
 
   it("binds the projection to a state identity", () => {

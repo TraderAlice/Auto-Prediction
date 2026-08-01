@@ -229,6 +229,7 @@ export type StudioProjection = Readonly<{
     replayChaos: ReplayChaosReport;
     campaignEvidence: CampaignEvidenceBundle;
     reviewedCompilation: ReviewedCompilationEvidence;
+    realCandidatePreflight: import("@pmh/evidence").RealCandidatePreflightEvidence | null;
   }>;
   discoveryDesk: DiscoveryDeskProjection;
   venues: readonly Readonly<{
