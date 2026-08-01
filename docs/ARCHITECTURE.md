@@ -48,9 +48,12 @@ self-hashed, proposal-only, and never routed into execution or automatic
 promotion. This heavier lane is explicit rather than part of every discovery
 request. The control plane exposes it only as an operator-triggered
 Investigation Desk: at most one task runs at a time, identical active or passed
-task scopes are idempotent, competing work fails closed, and the last ten
-records live only in process memory. RUNNING, FAILED, and PASS state is part of
-the SSE projection; no state transition grants review or execution authority.
+task scopes are idempotent, and competing work fails closed. The last ten
+completed records use canonical JSON plus content hashes in SQLite WAL, so
+passed-task idempotency survives restart. RUNNING state remains process-local
+because an interrupted child cannot be resumed. RUNNING, FAILED, and PASS state
+is part of the SSE projection; no state transition grants review or execution
+authority.
 
 The hypothesis remains `PROPOSE_ONLY` and `UNREVIEWED`; approval is a separate
 content-addressed artifact. Compilation derives its claim-graph and resolution
@@ -69,7 +72,7 @@ artifacts, applies normalized events to deterministic books, and publishes
 JSON/SSE projections. Studio is a read-only view of those projections and may
 request an in-memory replay, but it never applies book events itself.
 
-The same process owns a bounded discovery operational store. In development it
+The same process owns a bounded discovery and investigation operational store. In development it
 opens `.data/control-plane.sqlite`, selects WAL journal mode with full
 synchronous durability, applies an explicit schema migration, and hydrates the
 Scout Inbox before publishing the first projection. Every row carries canonical

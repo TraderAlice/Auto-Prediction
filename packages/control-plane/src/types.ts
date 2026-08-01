@@ -85,11 +85,13 @@ export type DiscoveryDeskProjection = Readonly<{
   runs: readonly DiscoveryRunRecord[];
 }>;
 
-export type OperationalStorageProjection = Readonly<{
+export type OperationalStorageProjection<
+  TIdempotencyKey extends string = "taskId",
+> = Readonly<{
   mode: "MEMORY" | "SQLITE_WAL";
   durable: boolean;
   schemaVersion: number;
-  idempotencyKey: "taskId";
+  idempotencyKey: TIdempotencyKey;
 }>;
 
 export interface DiscoveryWorker {

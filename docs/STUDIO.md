@@ -18,7 +18,7 @@ Harmony Studio is the read-only visual surface for architecture qualification. I
 If the process is unavailable, Studio shows an explicit offline state. It does not silently fall back to a build-time snapshot.
 
 The normal development process opens `.data/control-plane.sqlite` in WAL mode.
-`PMH_STATE_DB` may override the path. The health and discovery projections
+`PMH_STATE_DB` may override the path. The health, discovery, and investigation projections
 publish only storage posture (`SQLITE_WAL`, schema version, durability, and
 `taskId` idempotency), never the local filesystem path.
 
@@ -95,12 +95,15 @@ report for the same task scope. Studio receives RUNNING, FAILED, and PASS state
 over the same SSE projection and renders summary, candidate listing references,
 findings, missing evidence, and artifact identity.
 
-The Investigation Desk retains at most ten records in process memory. This is
-intentionally distinct from the durable Scout Inbox ledger and is labeled
-`MEMORY` in the projection; restart clears it. Every record and report is
+The Investigation Desk retains at most ten completed records in the same
+SQLite WAL as the Scout Inbox, under a separate table and idempotency contract.
+Canonical JSON plus a SHA-256 identity is verified again during hydration;
+tampered state fails closed. PASS/FAILED records and passed-task replay survive
+restart. RUNNING state is intentionally process-local because the isolated pi
+subprocess cannot be resumed after termination. Every record and report is
 `PROPOSE_ONLY`, `UNREVIEWED`, and `executionAuthority: false`, and it remains
-outside review and compilation. `pnpm --silent investigation:smoke` remains
-the independent one-shot qualification path.
+outside review and compilation. `pnpm --silent investigation:smoke` remains the
+independent one-shot qualification path.
 
 The Catalog Facts panel reflects the verified discovery corpus: 11 normalized
 listings from six fixture artifacts across five venues. Each task receives at

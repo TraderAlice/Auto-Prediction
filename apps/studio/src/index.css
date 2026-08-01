@@ -1399,6 +1399,13 @@ main {
     #0d1012;
 }
 
+.investigation-desk-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
 .investigation-empty {
   color: #59635e;
   font-size: 9px;

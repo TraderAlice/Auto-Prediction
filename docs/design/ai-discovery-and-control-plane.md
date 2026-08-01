@@ -88,10 +88,13 @@ compilation or the Discovery Ledger automatically.
 The long-running `InvestigationDesk` serializes this expensive lane to one
 active task. A duplicate active request shares its promise, a passed task scope
 is replayed idempotently, a competing task is rejected, and a failed task may
-be retried. It keeps at most ten RUNNING/PASS/FAILED records in process memory
-and publishes them through the Studio projection and SSE. This operational
-memory is deliberately not the durable SQLite Discovery Ledger. Diagnostics
-are sanitized, and every record reconstructs proposal-only, unreviewed, and
+be retried. It publishes RUNNING/PASS/FAILED records through the Studio
+projection and SSE. Completed PASS/FAILED records are canonicalized, hashed,
+and retained in a separate bounded SQLite table; storage hydration validates
+both the report's self-hash and the enclosing record hash. Passed-task
+idempotency therefore survives restart. RUNNING state remains process-local
+because an interrupted isolated subprocess cannot be resumed. Diagnostics are
+sanitized, and every record reconstructs proposal-only, unreviewed, and
 literal-false execution authority locally.
 
 The first real DeepSeek V4 Flash qualification passed both paths on 2026-08-01.
