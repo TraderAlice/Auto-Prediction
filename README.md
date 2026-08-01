@@ -256,6 +256,12 @@ known signatures stay quiet, while failures notify separately. Issues,
 terminal leases, acknowledgement state, and notifications survive restart in
 the hash-checked SQLite WAL.
 
+The Scheduled Search Desk also derives a bounded operations window from the
+retained terminal leases. It reports new-signature, duplicate, and pi-escalation
+rates plus proposal and evidence-gap counts, both globally and per issue. These
+numbers describe search workload only: they are not model confidence, semantic
+review, an arbitrage verdict, or all-time totals.
+
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 
 ```dotenv
@@ -305,8 +311,9 @@ an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 - `projects/venue-research`: dated official-source research.
 - `projects/campaigns`: immutable content-addressed qualification checkpoints.
 - `docs/design`: current architecture truth.
-- `plans/opportunity-lifecycle-simulation.md`: active AI-native discovery and
-  deterministic lifecycle campaign.
+- `PLANS.md`: short construction-plan index and current checkpoint.
+- `plans/search-operations-feedback.md`: latest completed issue-scheduler
+  operations checkpoint; older completed plans live in Git history.
 - `AGENTS.md`: collaboration rules and the user-input/access ledger.
 
 The original design brief remains at `prediction-market-harness-design-and-codex-prompt.md`; stable implementation truth belongs in `docs/`.

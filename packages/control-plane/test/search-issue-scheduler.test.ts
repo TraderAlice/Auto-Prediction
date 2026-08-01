@@ -148,6 +148,25 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(completed.issues.reduce((sum, issue) => sum + issue.runCount, 0)).toBe(3);
     expect(completed.unreadNotificationCount).toBe(1);
     expect(runDeep).toHaveBeenCalledTimes(1);
+    expect(completed.performance).toMatchObject({
+      measurementWindow: "RETAINED_TERMINAL_LEASES",
+      retainedLeaseLimit: 40,
+      terminalLeaseCount: 3,
+      novelCandidateCount: 1,
+      duplicateCount: 2,
+      piEscalationCount: 1,
+      hypothesisCount: 3,
+      proposalCount: 1,
+      evidenceGapCount: 0,
+      novelCandidateRateBps: 3_333,
+      duplicateRateBps: 6_666,
+      piEscalationRateBps: 3_333,
+    });
+    expect(completed.performance.byIssue).toHaveLength(4);
+    expect(completed.performance.byIssue.reduce(
+      (sum, item) => sum + item.terminalLeaseCount,
+      0,
+    )).toBe(3);
     expect(completed.notifications[0]).toMatchObject({
       kind: "NOVEL_CANDIDATE",
       status: "UNREAD",
@@ -160,7 +179,11 @@ describe("issue-driven concurrent search scheduler", () => {
       seedDefaults: false,
       now: () => nowMs + 1_000,
     });
-    expect(restored.projection()).toMatchObject({ issueCount: 4, unreadNotificationCount: 1 });
+    expect(restored.projection()).toMatchObject({
+      issueCount: 4,
+      unreadNotificationCount: 1,
+      performance: { terminalLeaseCount: 3, duplicateCount: 2 },
+    });
     const notification = restored.projection().notifications[0]!;
     restored.acknowledge(notification.notificationId);
     expect(restored.projection().unreadNotificationCount).toBe(0);

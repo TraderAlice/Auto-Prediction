@@ -1954,6 +1954,10 @@ main {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.issue-performance-strip {
+  border-top: 0;
+}
+
 .issue-scheduler-strip > div {
   display: grid;
   gap: 3px;

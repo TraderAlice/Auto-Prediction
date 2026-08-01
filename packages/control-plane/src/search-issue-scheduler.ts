@@ -72,6 +72,30 @@ export type SearchIssueSchedulerProjection = Readonly<{
   enabledIssueCount: number;
   dueIssueCount: number;
   unreadNotificationCount: number;
+  performance: Readonly<{
+    measurementWindow: "RETAINED_TERMINAL_LEASES";
+    retainedLeaseLimit: number;
+    terminalLeaseCount: number;
+    novelCandidateCount: number;
+    duplicateCount: number;
+    piEscalationCount: number;
+    hypothesisCount: number;
+    proposalCount: number;
+    evidenceGapCount: number;
+    novelCandidateRateBps: number | null;
+    duplicateRateBps: number | null;
+    piEscalationRateBps: number | null;
+    byIssue: readonly Readonly<{
+      issueId: Hash;
+      terminalLeaseCount: number;
+      novelCandidateCount: number;
+      duplicateCount: number;
+      piEscalationCount: number;
+      hypothesisCount: number;
+      proposalCount: number;
+      evidenceGapCount: number;
+    }>[];
+  }>;
   issues: readonly SearchIssueRecord[];
   notifications: readonly SearchNotificationRecord[];
   storage: Readonly<{
@@ -117,6 +141,30 @@ function isIso(value: unknown): value is string {
 
 function boundedText(value: unknown, max: number): value is string {
   return typeof value === "string" && value.trim() !== "" && value.length <= max;
+}
+
+function ratioBps(numerator: number, denominator: number): number | null {
+  return denominator === 0 ? null : Math.floor((numerator * 10_000) / denominator);
+}
+
+function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Readonly<{
+  terminalLeaseCount: number;
+  novelCandidateCount: number;
+  duplicateCount: number;
+  piEscalationCount: number;
+  hypothesisCount: number;
+  proposalCount: number;
+  evidenceGapCount: number;
+}> {
+  return Object.freeze({
+    terminalLeaseCount: records.length,
+    novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
+    duplicateCount: records.filter((record) => record.lineage.duplicateOfLeaseId !== null).length,
+    piEscalationCount: records.filter((record) => record.deepLane.runId !== null).length,
+    hypothesisCount: records.reduce((sum, record) => sum + record.outcome.hypothesisCount, 0),
+    proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
+    evidenceGapCount: records.reduce((sum, record) => sum + record.outcome.evidenceGapCount, 0),
+  });
 }
 
 function hashRecord<T extends { artifactHash: Hash }>(record: T): Hash {
@@ -564,6 +612,12 @@ export class SearchIssueScheduler {
     const now = this.#now();
     const issues = Object.freeze([...this.#issues]);
     const notifications = Object.freeze([...this.#notifications]);
+    const leaseProjection = this.#leaseScheduler.projection();
+    const terminalIssueLeases = leaseProjection.records.filter(
+      (record) => record.status !== "ISSUED" && record.lease.issueId !== null &&
+        record.lease.issueId !== undefined,
+    );
+    const performance = summarizeLeasePerformance(terminalIssueLeases);
     return Object.freeze({
       schemaVersion: "pmh.search-issue-scheduler.v1",
       enabled: this.tickIntervalMs !== null,
@@ -582,6 +636,29 @@ export class SearchIssueScheduler {
         ),
       ).length,
       unreadNotificationCount: notifications.filter((item) => item.status === "UNREAD").length,
+      performance: Object.freeze({
+        measurementWindow: "RETAINED_TERMINAL_LEASES" as const,
+        retainedLeaseLimit: leaseProjection.retentionLimit,
+        ...performance,
+        novelCandidateRateBps: ratioBps(
+          performance.novelCandidateCount,
+          performance.terminalLeaseCount,
+        ),
+        duplicateRateBps: ratioBps(
+          performance.duplicateCount,
+          performance.terminalLeaseCount,
+        ),
+        piEscalationRateBps: ratioBps(
+          performance.piEscalationCount,
+          performance.terminalLeaseCount,
+        ),
+        byIssue: Object.freeze(issues.map((issue) => Object.freeze({
+          issueId: issue.issueId,
+          ...summarizeLeasePerformance(terminalIssueLeases.filter(
+            (record) => record.lease.issueId === issue.issueId,
+          )),
+        }))),
+      }),
       issues,
       notifications,
       storage: Object.freeze({
