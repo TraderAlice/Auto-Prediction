@@ -1,6 +1,6 @@
 # Plans
 
-`plans/economic-first-search-feedback.md` is the active construction plan.
+`plans/semantic-scope-rotation.md` is the active construction plan.
 
 ## Planning contract
 
@@ -30,20 +30,27 @@ Fresh-corpus orchestration is merged and live. The five-minute catalog timer
 keeps all seven sources and the recurring issue queue attached to current,
 content-addressed evidence.
 
-The active economic-first campaign is qualified and ready to publish. The
-focused parity issue now binds its exact radar pair to a bigint-only price gate
-before pi. A non-positive or unavailable pair records a terminal reason without
-poisoning future price-change deduplication; a positive pair still needs a
-grounded cheap-model hypothesis before pi. General semantic issues remain
-ungated.
+The economic-first campaign is merged. The focused parity issue binds its exact
+radar pair to a bigint-only price gate before pi. A positive pair still needs a
+grounded cheap-model hypothesis; general semantic issues remain ungated.
 
 The live seven-source smoke retained 467 listings and found one 1,100 bps
 positive gross hint among five radar pairs. The cheap semantic lane correctly
 rejected it: an MLS Cup champion contract and a multi-game parlay happened to
 share “Nashville” but were not the same claim. In the retained 40-lease window,
 the new gate has one positive result, two blocked results, and one recorded pi
-call avoided. Studio now exposes those pre-pi results alongside downstream
-economic yield by durable issue.
+call avoided. Studio exposes those pre-pi results alongside downstream economic
+yield by durable issue.
+
+The next bottleneck is semantic search coverage. The positive live radar pair
+shared “Nashville” but joined an MLS Cup champion contract to a multi-game
+parlay. The cheap lane correctly returned no hypothesis, yet the next fresh
+snapshot can rank the same unchanged contract pair first again because radar
+candidate identity also binds receive time and price evidence. One lexical
+false positive can therefore monopolize a recurring issue while lower-ranked
+pairs remain unseen. The active campaign gives exact radar scopes stable,
+price-independent semantic identities plus price-sensitive routing identities,
+then rotates each issue toward unseen scopes using its own durable outcomes.
 
 ## Deferred future campaigns
 
