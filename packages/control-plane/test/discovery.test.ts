@@ -26,6 +26,30 @@ describe("AI-native discovery boundary", () => {
     );
     const run = await pool.run(task);
     expect(run.workerIds).toEqual(["heuristic-a", "heuristic-b"]);
+    expect(run.workerReports).toEqual([
+      {
+        workerId: "heuristic-a",
+        kind: "HEURISTIC",
+        costTier: "FREE",
+        status: "PASS",
+        startedAt: "1970-01-01T00:00:01.000Z",
+        completedAt: "1970-01-01T00:00:01.000Z",
+        durationMs: 0,
+        hypothesisCount: 1,
+        diagnostic: null,
+      },
+      {
+        workerId: "heuristic-b",
+        kind: "HEURISTIC",
+        costTier: "FREE",
+        status: "PASS",
+        startedAt: "1970-01-01T00:00:01.000Z",
+        completedAt: "1970-01-01T00:00:01.000Z",
+        durationMs: 0,
+        hypothesisCount: 1,
+        diagnostic: null,
+      },
+    ]);
     expect(run.hypotheses).toHaveLength(1);
     expect(run.hypotheses[0]).toMatchObject({
       authority: "PROPOSE_ONLY",
@@ -121,6 +145,20 @@ describe("AI-native discovery boundary", () => {
     const run = await pool.run(task);
     expect(run.hypotheses).toHaveLength(1);
     expect(run.diagnostics).toEqual(["model fixture unavailable"]);
+    expect(run.workerReports).toEqual([
+      expect.objectContaining({
+        workerId: "heuristic-fast-1",
+        status: "PASS",
+        hypothesisCount: 1,
+        diagnostic: null,
+      }),
+      expect.objectContaining({
+        workerId: "model-fast-lane",
+        status: "FAILED",
+        hypothesisCount: 0,
+        diagnostic: "model fixture unavailable",
+      }),
+    ]);
     expect(run.executionAuthority).toBe(false);
   });
 

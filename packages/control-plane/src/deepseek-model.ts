@@ -1,6 +1,11 @@
 import { createDeepSeek, type DeepSeekProviderSettings } from "@ai-sdk/deepseek";
 import { generateText, jsonSchema, Output } from "ai";
 import { StructuredModelDiscoveryWorker } from "./discovery.js";
+import {
+  configuredModelScoutRoles,
+  modelScoutLens,
+  modelScoutWorkerId,
+} from "./model-scout.js";
 import { discoveryOutputSchema } from "./openai-model.js";
 import type {
   AiModelPort,
@@ -150,6 +155,7 @@ export class DeepSeekAiSdkModelPort implements AiModelPort {
 export type DeepSeekDiscoveryRuntime = Readonly<{
   projection: ModelProviderProjection;
   worker: StructuredModelDiscoveryWorker | null;
+  workers: readonly StructuredModelDiscoveryWorker[];
 }>;
 
 export function createDeepSeekDiscoveryRuntime(
@@ -175,6 +181,9 @@ export function createDeepSeekDiscoveryRuntime(
     "PMH_DISCOVERY_TIMEOUT_MS",
   );
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";
+  const workerRoles = configuredModelScoutRoles(
+    environment.PMH_DISCOVERY_FANOUT,
+  );
   const projection: ModelProviderProjection = Object.freeze({
     provider: "DEEPSEEK_CHAT_COMPLETIONS",
     transport: "VERCEL_AI_SDK",
@@ -183,26 +192,39 @@ export function createDeepSeekDiscoveryRuntime(
     model,
     maxOutputTokens,
     timeoutMs,
+    fanout: workerRoles.length,
+    workerRoles,
     reasoningEffort: "disabled",
     responseStorage: "PROVIDER_POLICY",
     authority: "PROPOSE_ONLY",
   });
+  const modelPort =
+    apiKey === ""
+      ? null
+      : new DeepSeekAiSdkModelPort({
+          apiKey,
+          maxOutputTokens,
+          timeoutMs,
+          ...(options.fetcher === undefined
+            ? {}
+            : { fetcher: options.fetcher }),
+        });
+  const workers = Object.freeze(
+    modelPort === null
+      ? []
+      : workerRoles.map(
+          (role) =>
+            new StructuredModelDiscoveryWorker(
+              modelScoutWorkerId(role, workerRoles.length),
+              model,
+              modelPort,
+              modelScoutLens(role),
+            ),
+        ),
+  );
   return Object.freeze({
     projection,
-    worker:
-      apiKey === ""
-        ? null
-        : new StructuredModelDiscoveryWorker(
-            "model-fast-lane",
-            model,
-            new DeepSeekAiSdkModelPort({
-              apiKey,
-              maxOutputTokens,
-              timeoutMs,
-              ...(options.fetcher === undefined
-                ? {}
-                : { fetcher: options.fetcher }),
-            }),
-          ),
+    worker: workers[0] ?? null,
+    workers,
   });
 }

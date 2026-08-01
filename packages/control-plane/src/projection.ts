@@ -23,6 +23,7 @@ import type {
   StudioProjection,
 } from "./types.js";
 import type { InvestigationDeskProjection } from "./investigation-desk.js";
+import { modelScoutWorkerId } from "./model-scout.js";
 import type { CatalogObservationProjection } from "./catalog-observation.js";
 import type { CandidateWatchProjection } from "./candidate-watch.js";
 import type { OpportunityRadarProjection } from "./opportunity-radar.js";
@@ -101,6 +102,8 @@ export function buildStudioProjection(input: {
     model: "deepseek-v4-flash",
     maxOutputTokens: 800,
     timeoutMs: 8_000,
+    fanout: 1,
+    workerRoles: ["EQUIVALENCE" as const],
     reasoningEffort: "disabled" as const,
     responseStorage: "PROVIDER_POLICY" as const,
     authority: "PROPOSE_ONLY" as const,
@@ -275,7 +278,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 214,
+      proofTests: 216,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -298,16 +301,14 @@ export function buildStudioProjection(input: {
         })),
         ...(input.workers.some((worker) => worker.kind === "MODEL")
           ? []
-          : [
-              {
-                workerId: "model-fast-lane",
-                kind: "MODEL" as const,
-                costTier: "LOW" as const,
-                status: modelProvider.configured
-                  ? ("NEEDS_PROVIDER" as const)
-                  : ("NEEDS_KEY" as const),
-              },
-            ]),
+          : modelProvider.workerRoles.map((role) => ({
+              workerId: modelScoutWorkerId(role, modelProvider.fanout),
+              kind: "MODEL" as const,
+              costTier: "LOW" as const,
+              status: modelProvider.configured
+                ? ("NEEDS_PROVIDER" as const)
+                : ("NEEDS_KEY" as const),
+            }))),
       ],
       promotionBoundary:
         "AI proposes only; independent exact verification is the sole certificate authority.",

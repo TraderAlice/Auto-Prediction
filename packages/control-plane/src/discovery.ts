@@ -26,6 +26,16 @@ const SEARCH_STOPWORDS = new Set([
 ]);
 const MAX_CATALOG_CONTEXT_CHARACTERS = 50_000;
 
+function compactWorkerDiagnostic(error: unknown): string {
+  const value =
+    error instanceof Error ? error.message : "discovery worker failed";
+  const compacted = value.trim().replace(/\s+/gu, " ") ||
+    "discovery worker failed";
+  return compacted.length <= 500
+    ? compacted
+    : `${compacted.slice(0, 499).trimEnd()}…`;
+}
+
 function hasBoundedCatalogListing(
   listing: NonNullable<DiscoveryTask["catalogContext"]>["listings"][number],
   allowedVenueIds: ReadonlySet<string>,
@@ -376,6 +386,7 @@ export class StructuredModelDiscoveryWorker implements DiscoveryWorker {
     public readonly workerId: string,
     private readonly model: string,
     private readonly modelPort: AiModelPort,
+    private readonly searchLens?: string,
   ) {}
 
   public async discover(
@@ -387,7 +398,10 @@ export class StructuredModelDiscoveryWorker implements DiscoveryWorker {
         schemaVersion: "pmh.discovery-output.v1",
         system:
           "Propose market-search hypotheses only. Never claim a verified " +
-          "arbitrage, certificate, semantic equivalence, or execution authority.",
+          "arbitrage, certificate, semantic equivalence, or execution authority." +
+          (this.searchLens === undefined
+            ? ""
+            : ` Search lens: ${this.searchLens}`),
         task,
       }),
     );
@@ -468,25 +482,57 @@ export class DiscoveryPool {
     if (startedAtMs > task.deadlineEpochMs) {
       throw new Error("discovery task deadline has expired");
     }
-    const results = await Promise.allSettled(
-      this.workers.map(async (worker) => ({
-        worker,
-        hypotheses: await worker.discover(task),
-      })),
+    const results = await Promise.all(
+      this.workers.map(async (worker) => {
+        const workerStartedAtMs = this.now();
+        try {
+          const hypotheses = await worker.discover(task);
+          const workerCompletedAtMs = Math.max(this.now(), workerStartedAtMs);
+          return {
+            worker,
+            hypotheses,
+            report: Object.freeze({
+              workerId: worker.workerId,
+              kind: worker.kind,
+              costTier: worker.costTier,
+              status: "PASS" as const,
+              startedAt: new Date(workerStartedAtMs).toISOString(),
+              completedAt: new Date(workerCompletedAtMs).toISOString(),
+              durationMs: workerCompletedAtMs - workerStartedAtMs,
+              hypothesisCount: hypotheses.length,
+              diagnostic: null,
+            }),
+          };
+        } catch (error) {
+          const workerCompletedAtMs = Math.max(this.now(), workerStartedAtMs);
+          const diagnostic = compactWorkerDiagnostic(error);
+          return {
+            worker,
+            hypotheses: Object.freeze([]),
+            report: Object.freeze({
+              workerId: worker.workerId,
+              kind: worker.kind,
+              costTier: worker.costTier,
+              status: "FAILED" as const,
+              startedAt: new Date(workerStartedAtMs).toISOString(),
+              completedAt: new Date(workerCompletedAtMs).toISOString(),
+              durationMs: workerCompletedAtMs - workerStartedAtMs,
+              hypothesisCount: 0,
+              diagnostic,
+            }),
+          };
+        }
+      }),
     );
     const diagnostics: string[] = [];
     const hypotheses = new Map<string, OpportunityHypothesis>();
     for (const result of results) {
-      if (result.status === "rejected") {
-        diagnostics.push(
-          result.reason instanceof Error
-            ? result.reason.message
-            : "discovery worker failed",
-        );
+      if (result.report.status === "FAILED") {
+        diagnostics.push(result.report.diagnostic ?? "discovery worker failed");
         continue;
       }
-      for (const hypothesis of result.value.hypotheses) {
-        assertHypothesis(hypothesis, result.value.worker.workerId, task);
+      for (const hypothesis of result.hypotheses) {
+        assertHypothesis(hypothesis, result.worker.workerId, task);
         const identity = hashCanonical({
           thesis: hypothesis.thesis.trim().toLowerCase(),
           strategyKind: hypothesis.strategyKind,
@@ -511,6 +557,7 @@ export class DiscoveryPool {
       workerIds: Object.freeze(
         this.workers.map((worker) => worker.workerId),
       ),
+      workerReports: Object.freeze(results.map((result) => result.report)),
       hypotheses: Object.freeze(
         [...hypotheses.values()].slice(0, task.maxHypotheses),
       ),

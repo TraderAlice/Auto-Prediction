@@ -24,7 +24,7 @@ Workers implement one narrow interface and declare:
 - free or low cost tier;
 - structured output schema.
 
-The pool may run workers concurrently, tolerate individual failures, deduplicate equivalent theses, and cap hypotheses per task. A model provider is an adapter behind `AiModelPort`; model names and credentials never enter Core domain types.
+The pool may run workers concurrently, tolerate individual failures, deduplicate equivalent theses, and cap hypotheses per task. The model fan-out is explicit and bounded from one to four; its ordered lenses are equivalence, partition, mechanism, and skeptic. The default remains one, and no request is scheduled without an operator action. A model provider is an adapter behind `AiModelPort`; model names and credentials never enter Core domain types.
 
 Workers do not search from the question alone. The control plane first loads
 verified raw catalog fixtures, applies the venue adapters, and builds a
@@ -78,6 +78,13 @@ report to standard output. The report records provider and transport posture,
 bounded task identity, grounded hypotheses or a valid empty result,
 literal-false side effects, and no credential. It does not persist the response
 or mutate the Discovery Ledger.
+
+Every pool run records one bounded worker report per configured worker: worker
+identity, kind, cost tier, PASS/FAILED status, start/completion timestamps,
+duration, lead count, and a compact failure diagnostic. Reports survive in the
+hash-checked Discovery Ledger and Studio projection. They deliberately do not
+invent billed cost, token usage, or quality scores when the provider/CLI does
+not expose a uniform trustworthy fact.
 
 ## Two AI lanes
 
@@ -182,7 +189,7 @@ record protocol qualification only; neither artifact is an equivalence review
 or arbitrage certificate.
 
 Completed runs enter a bounded Discovery Ledger. It retains the
-question, venue scope, worker identities, diagnostics, and hypotheses so an
+question, venue scope, worker identities, per-worker reports, diagnostics, and hypotheses so an
 HTTP response is not the only copy of subjective work. The ledger accepts
 proposal-only, unreviewed, non-executable records and is projected to Studio
 over SSE.

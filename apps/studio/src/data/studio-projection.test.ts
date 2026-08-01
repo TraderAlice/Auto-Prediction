@@ -35,6 +35,24 @@ describe("Studio projection safety", () => {
         status: "NEEDS_KEY",
       }),
     );
+    const fanoutProjection = buildStudioProjection({
+      workers: [new HeuristicDiscoveryWorker()],
+      activeRuns: 0,
+      modelProvider: {
+        ...studioProjection.ai.modelProvider,
+        fanout: 3,
+        workerRoles: ["EQUIVALENCE", "PARTITION", "MECHANISM"],
+      },
+    });
+    expect(
+      fanoutProjection.ai.workers
+        .filter((worker) => worker.kind === "MODEL")
+        .map((worker) => worker.workerId),
+    ).toEqual([
+      "model-fast-lane-equivalence",
+      "model-fast-lane-partition",
+      "model-fast-lane-mechanism",
+    ]);
     expect(studioProjection.ai.investigator).toMatchObject({
       engine: "PI_CLI",
       configured: false,

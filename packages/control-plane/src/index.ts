@@ -8,6 +8,7 @@ export * from "./deepseek-model.js";
 export * from "./investigation-desk.js";
 export * from "./local-environment.js";
 export * from "./model-runtime.js";
+export * from "./model-scout.js";
 export * from "./openai-model.js";
 export * from "./opportunity-radar.js";
 export * from "./pi-investigator.js";

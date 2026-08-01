@@ -82,10 +82,45 @@ describe("Vercel AI SDK DeepSeek discovery adapter", () => {
       model: "deepseek-v4-flash",
       maxOutputTokens: 800,
       timeoutMs: 8_000,
+      fanout: 1,
+      workerRoles: ["EQUIVALENCE"],
       reasoningEffort: "disabled",
       responseStorage: "PROVIDER_POLICY",
       authority: "PROPOSE_ONLY",
     });
+  });
+
+  it("creates an explicit bounded fan-out of specialized cheap scouts", async () => {
+    let requestCount = 0;
+    const instructions: string[] = [];
+    const runtime = createDeepSeekDiscoveryRuntime(
+      {
+        DEEPSEEK_API_KEY: "test-only-deepseek-key",
+        PMH_DISCOVERY_FANOUT: "3",
+      },
+      {
+        async fetcher(_input, init) {
+          requestCount += 1;
+          instructions.push(String(init?.body));
+          return chatCompletion({ hypotheses: [] });
+        },
+      },
+    );
+    expect(runtime.projection).toMatchObject({
+      fanout: 3,
+      workerRoles: ["EQUIVALENCE", "PARTITION", "MECHANISM"],
+    });
+    expect(runtime.workers.map((worker) => worker.workerId)).toEqual([
+      "model-fast-lane-equivalence",
+      "model-fast-lane-partition",
+      "model-fast-lane-mechanism",
+    ]);
+    await Promise.all(runtime.workers.map((worker) => worker.discover(task)));
+    expect(requestCount).toBe(3);
+    expect(instructions.join(" ")).toContain("Search lens");
+    expect(() =>
+      createDeepSeekDiscoveryRuntime({ PMH_DISCOVERY_FANOUT: "5" }),
+    ).toThrow(/PMH_DISCOVERY_FANOUT/);
   });
 
   it("sends one bounded JSON request and returns only a grounded proposal", async () => {
