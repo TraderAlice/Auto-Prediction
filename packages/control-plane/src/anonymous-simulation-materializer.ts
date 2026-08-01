@@ -27,6 +27,20 @@ export type AnonymousMaterializationBlocker =
   | "SNAPSHOT_SKEW_EXCEEDED"
   | "SIMULATION_INTAKE_REJECTED";
 
+const ANONYMOUS_MATERIALIZATION_BLOCKERS =
+  new Set<AnonymousMaterializationBlocker>([
+    "UNSUPPORTED_ANONYMOUS_BOOK",
+    "BOOK_ACQUISITION_FAILED",
+    "BOOK_INSTRUMENT_MISMATCH",
+    "BOOK_SCHEMA_INVALID",
+    "FEE_ACQUISITION_FAILED",
+    "DYNAMIC_FEE_MODEL_UNSUPPORTED",
+    "NON_ZERO_CURVED_FEE_UNSUPPORTED",
+    "INCOMPATIBLE_PORTFOLIO_SCALE",
+    "SNAPSHOT_SKEW_EXCEEDED",
+    "SIMULATION_INTAKE_REJECTED",
+  ]);
+
 export type AnonymousMaterializationSourceRecord = Readonly<{
   sourceId: Hash;
   kind: "BOOK" | "FEE";
@@ -58,6 +72,8 @@ export type AnonymousMaterializationLeg = Readonly<{
   bookSourceId: Hash | null;
   feeSourceId: Hash | null;
   askLevelCount: number;
+  feeModel: "COLLATERAL_RATE_V1" | "BINARY_PRICE_CURVE_V1" | null;
+  feeQualification: "EXACT" | "REQUIRES_MATCH_CALIBRATION" | null;
 }>;
 
 export type AnonymousSimulationMaterializationRecord = Readonly<{
@@ -107,6 +123,12 @@ export type AnonymousSimulationMaterializerProjection = Readonly<{
   maxResponseBytes: number;
   maxSnapshotSkewMs: number;
   retainedRawSourceCount: number;
+  storage: Readonly<{
+    mode: "MEMORY" | "SQLITE_WAL";
+    durable: boolean;
+    schemaVersion: number;
+    idempotencyKey: "materializationId";
+  }>;
   records: readonly AnonymousSimulationMaterializationRecord[];
   authority: "ANONYMOUS_RESEARCH_MATERIALIZER";
   certificateAuthority: false;
@@ -117,6 +139,22 @@ export type AnonymousSimulationMaterializerProjection = Readonly<{
     liveExecutionEnabled: false;
   }>;
 }>;
+
+export type StoredAnonymousSimulationMaterialization = Readonly<{
+  record: AnonymousSimulationMaterializationRecord;
+  rawSources: readonly StoredAnonymousMaterializationSource[];
+}>;
+
+export interface AnonymousSimulationMaterializationStore {
+  readonly anonymousSimulationMaterializationStorage: AnonymousSimulationMaterializerProjection["storage"];
+  loadAnonymousSimulationMaterializations(
+    limit: number,
+  ): readonly StoredAnonymousSimulationMaterialization[];
+  saveAnonymousSimulationMaterialization(
+    value: StoredAnonymousSimulationMaterialization,
+    retentionLimit: number,
+  ): StoredAnonymousSimulationMaterialization;
+}
 
 export type AnonymousMaterializerFetchLike = (
   input: string,
@@ -244,6 +282,227 @@ function copyStoredSource(
   });
 }
 
+function isHash(value: unknown): value is Hash {
+  return typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value);
+}
+
+export function verifyStoredAnonymousMaterializationSource(
+  source: StoredAnonymousMaterializationSource,
+): StoredAnonymousMaterializationSource {
+  const record = source.record;
+  const acquisition =
+    record !== null && typeof record === "object"
+      ? (record as { acquisition?: unknown }).acquisition
+      : undefined;
+  if (
+    record === null ||
+    typeof record !== "object" ||
+    !isHash(record.sourceId) ||
+    (record.kind !== "BOOK" && record.kind !== "FEE") ||
+    typeof record.venueId !== "string" ||
+    record.venueId === "" ||
+    typeof record.instrumentId !== "string" ||
+    record.instrumentId === "" ||
+    typeof record.protocolIdentity !== "string" ||
+    record.protocolIdentity === "" ||
+    typeof record.sourceUrl !== "string" ||
+    typeof record.receivedAt !== "string" ||
+    record.httpStatus !== 200 ||
+    typeof record.contentType !== "string" ||
+    !isHash(record.rawHash) ||
+    !UNSIGNED_DECIMAL.test(record.byteLength) ||
+    (record.nativeGeneration !== null &&
+      typeof record.nativeGeneration !== "string") ||
+    acquisition === null ||
+    typeof acquisition !== "object" ||
+    (acquisition as { method?: unknown }).method !== "GET" ||
+    (acquisition as { credentialsUsed?: unknown }).credentialsUsed !== false ||
+    (acquisition as { valueMovingOperation?: unknown }).valueMovingOperation !==
+      false ||
+    !(source.bytes instanceof Uint8Array) ||
+    source.bytes.byteLength.toString() !== record.byteLength ||
+    hashBytes(source.bytes) !== record.rawHash
+  ) {
+    throw new Error("anonymous materialization source is malformed");
+  }
+  try {
+    const parsed = new URL(record.sourceUrl);
+    if (
+      parsed.protocol !== "https:" ||
+      new Date(record.receivedAt).toISOString() !== record.receivedAt
+    ) {
+      throw new Error("invalid source binding");
+    }
+  } catch {
+    throw new Error("anonymous materialization source binding is malformed");
+  }
+  const { sourceId: _sourceId, ...body } = record;
+  if (hashCanonical(body) !== record.sourceId) {
+    throw new Error("anonymous materialization source identity mismatch");
+  }
+  return copyStoredSource(source);
+}
+
+export function assertAnonymousSimulationMaterializationRecord(
+  value: unknown,
+): AnonymousSimulationMaterializationRecord {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("anonymous simulation materialization record is malformed");
+  }
+  const record = value as Partial<AnonymousSimulationMaterializationRecord>;
+  if (
+    record.schemaVersion !== "pmh.anonymous-simulation-materialization.v1" ||
+    !isHash(record.materializationId) ||
+    typeof record.opportunityId !== "string" ||
+    record.opportunityId === "" ||
+    !isHash(record.relationConstraintHash) ||
+    !isHash(record.semanticDecisionId) ||
+    !isHash(record.portfolioId) ||
+    typeof record.requestedQuantity !== "string" ||
+    !UNSIGNED_DECIMAL.test(record.requestedQuantity) ||
+    BigInt(record.requestedQuantity) <= 0n ||
+    typeof record.attemptedAt !== "string" ||
+    typeof record.completedAt !== "string" ||
+    (record.status !== "READY" && record.status !== "BLOCKED") ||
+    (record.diagnostic !== null && typeof record.diagnostic !== "string") ||
+    !Array.isArray(record.legs) ||
+    record.legs.length < 2 ||
+    record.legs.length > 20 ||
+    !Array.isArray(record.sources) ||
+    record.sources.length > 80 ||
+    record.authority !== "ANONYMOUS_RESEARCH_MATERIALIZER" ||
+    record.certificateAuthority !== false ||
+    record.executionAuthority !== false ||
+    record.effects?.externalWrites !== false ||
+    record.effects.valueMovingActions !== false ||
+    record.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("anonymous simulation materialization record is malformed");
+  }
+  try {
+    if (
+      new Date(record.attemptedAt).toISOString() !== record.attemptedAt ||
+      new Date(record.completedAt).toISOString() !== record.completedAt ||
+      Date.parse(record.completedAt) < Date.parse(record.attemptedAt)
+    ) {
+      throw new Error("invalid time");
+    }
+  } catch {
+    throw new Error("anonymous simulation materialization time is malformed");
+  }
+  const projectedSources = record.sources;
+  if (
+    new Set(record.legs.map((leg) => leg.legId)).size !== record.legs.length ||
+    new Set(record.sources.map((source) => source.sourceId)).size !==
+      record.sources.length ||
+    record.legs.some(
+      (leg) =>
+        typeof leg.legId !== "string" ||
+        leg.legId === "" ||
+        typeof leg.venueId !== "string" ||
+        leg.venueId === "" ||
+        typeof leg.instrumentId !== "string" ||
+        leg.instrumentId === "" ||
+        (leg.outcome !== "TRUE" && leg.outcome !== "FALSE") ||
+        (leg.status !== "READY" && leg.status !== "BLOCKED") ||
+        (leg.blocker !== null &&
+          !ANONYMOUS_MATERIALIZATION_BLOCKERS.has(leg.blocker)) ||
+        !Number.isSafeInteger(leg.askLevelCount) ||
+        leg.askLevelCount < 0 ||
+        (leg.bookSourceId !== null && !isHash(leg.bookSourceId)) ||
+        (leg.feeSourceId !== null && !isHash(leg.feeSourceId)) ||
+        (leg.feeModel !== null &&
+          leg.feeModel !== "COLLATERAL_RATE_V1" &&
+          leg.feeModel !== "BINARY_PRICE_CURVE_V1") ||
+        (leg.feeQualification !== null &&
+          leg.feeQualification !== "EXACT" &&
+          leg.feeQualification !== "REQUIRES_MATCH_CALIBRATION") ||
+        (leg.status === "READY" &&
+          (leg.blocker !== null ||
+            leg.diagnostic !== null ||
+            leg.bookSourceId === null ||
+            leg.feeSourceId === null ||
+            leg.askLevelCount < 1 ||
+            leg.feeModel === null ||
+            leg.feeQualification === null)) ||
+        (leg.status === "BLOCKED" &&
+          (leg.blocker === null ||
+            typeof leg.diagnostic !== "string" ||
+            leg.diagnostic === "")) ||
+        (leg.feeModel === "COLLATERAL_RATE_V1" &&
+          leg.feeQualification !== "EXACT") ||
+        (leg.feeModel === "BINARY_PRICE_CURVE_V1" &&
+          leg.feeQualification !== "REQUIRES_MATCH_CALIBRATION") ||
+        ((leg.feeModel === null) !== (leg.feeQualification === null)),
+    ) ||
+    record.sources.some(
+      (source) =>
+        !isHash(source.sourceId) ||
+        !isHash(source.rawHash) ||
+        source.acquisition?.credentialsUsed !== false ||
+        source.acquisition.valueMovingOperation !== false,
+    ) ||
+    record.legs.some((leg) => {
+      const book = projectedSources.find(
+        (source) => source.sourceId === leg.bookSourceId,
+      );
+      const fee = projectedSources.find(
+        (source) => source.sourceId === leg.feeSourceId,
+      );
+      return (
+        (leg.bookSourceId !== null &&
+          (book?.kind !== "BOOK" ||
+            book.venueId !== leg.venueId ||
+            book.instrumentId !== leg.instrumentId)) ||
+        (leg.feeSourceId !== null &&
+          (fee?.kind !== "FEE" ||
+            fee.venueId !== leg.venueId ||
+            fee.instrumentId !== leg.instrumentId))
+      );
+    }) ||
+    (record.status === "READY" && record.diagnostic !== null) ||
+    (record.status === "BLOCKED" &&
+      (typeof record.diagnostic !== "string" || record.diagnostic === "")) ||
+    (record.status === "READY") !==
+      record.legs.every((leg) => leg.status === "READY")
+  ) {
+    throw new Error("anonymous simulation materialization contract is malformed");
+  }
+  const { materializationId: _materializationId, ...body } =
+    record as AnonymousSimulationMaterializationRecord;
+  if (hashCanonical(body) !== record.materializationId) {
+    throw new Error("anonymous simulation materialization identity mismatch");
+  }
+  return Object.freeze(record as AnonymousSimulationMaterializationRecord);
+}
+
+export function verifyStoredAnonymousSimulationMaterialization(
+  value: StoredAnonymousSimulationMaterialization,
+): StoredAnonymousSimulationMaterialization {
+  const record = assertAnonymousSimulationMaterializationRecord(value.record);
+  const sources = Object.freeze(
+    value.rawSources.map(verifyStoredAnonymousMaterializationSource),
+  );
+  const expected = [...record.sources.map((source) => source.sourceId)].sort();
+  const actual = [...sources.map((source) => source.record.sourceId)].sort();
+  if (
+    expected.length !== actual.length ||
+    expected.some((sourceId, index) => sourceId !== actual[index]) ||
+    sources.some((source) => {
+      const projected = record.sources.find(
+        (candidate) => candidate.sourceId === source.record.sourceId,
+      );
+      return (
+        projected === undefined ||
+        hashCanonical(projected) !== hashCanonical(source.record)
+      );
+    })
+  ) {
+    throw new Error("anonymous materialization record/raw-source binding mismatch");
+  }
+  return Object.freeze({ record, rawSources: sources });
+}
+
 function blockedLeg(input: {
   leg: PortfolioLeg;
   binding: ListingBinding;
@@ -270,6 +529,8 @@ function blockedLeg(input: {
         sources.find((source) => source.record.kind === "FEE")?.record
           .sourceId ?? null,
       askLevelCount: input.askLevelCount ?? 0,
+      feeModel: null,
+      feeQualification: null,
     }),
     sources,
     request: null,
@@ -301,9 +562,11 @@ function bookUrl(binding: ListingBinding, instrumentId: string): string | null {
   return null;
 }
 
-function feeUrl(binding: ListingBinding, instrumentId: string): string | null {
+function feeUrl(binding: ListingBinding, marketId: string | null): string | null {
   return binding.venueId === "polymarket-global"
-    ? `https://clob.polymarket.com/fee-rate?token_id=${encodeURIComponent(instrumentId)}`
+    ? marketId === null
+      ? null
+      : `https://clob.polymarket.com/clob-markets/${encodeURIComponent(marketId)}`
     : null;
 }
 
@@ -314,6 +577,7 @@ function parseBook(input: {
   rawHash: Hash;
 }): Readonly<{
   nativeGeneration: string | null;
+  marketId: string | null;
   levels: readonly Readonly<{
     price: string;
     quantity: string;
@@ -385,16 +649,85 @@ function parseBook(input: {
     input.binding.venueId === "polymarket-global"
       ? string(raw.hash, "book.hash")
       : null;
-  return Object.freeze({ nativeGeneration, levels });
+  const marketId =
+    input.binding.venueId === "polymarket-global"
+      ? string(raw.market, "book.market")
+      : null;
+  return Object.freeze({ nativeGeneration, marketId, levels });
 }
 
-function parsePolymarketZeroFee(bytes: Uint8Array): "ZERO" | "NON_ZERO" {
-  const raw = object(decode(bytes), "Polymarket fee response");
-  const baseFee = string(raw.base_fee, "fee.base_fee");
-  if (!UNSIGNED_DECIMAL.test(baseFee)) {
-    throw new Error("fee.base_fee must be an unsigned basis-point integer");
+function parsePolymarketFee(input: {
+  bytes: Uint8Array;
+  binding: ListingBinding;
+  instrumentId: string;
+  rawHash: Hash;
+  protocolIdentity: string;
+}): Readonly<{
+  wire: Readonly<Record<string, unknown>>;
+  model: "COLLATERAL_RATE_V1" | "BINARY_PRICE_CURVE_V1";
+  qualification: "EXACT" | "REQUIRES_MATCH_CALIBRATION";
+}> {
+  const raw = object(decode(input.bytes), "Polymarket CLOB market info");
+  if (!Array.isArray(raw.t) || raw.t.length < 2 || raw.t.length > 64) {
+    throw new Error("Polymarket CLOB market info has no bounded token set");
   }
-  return BigInt(baseFee) === 0n ? "ZERO" : "NON_ZERO";
+  const tokenIds = raw.t.map((candidate, index) =>
+    string(object(candidate, `fee.t[${index}]`).t, `fee.t[${index}].t`),
+  );
+  if (!tokenIds.includes(input.instrumentId)) {
+    throw new Error("Polymarket fee evidence does not bind the outcome token");
+  }
+  const priceScale = BigInt(input.binding.priceScale);
+  const reportedTick = parseFixed(string(raw.mts, "fee.mts"), priceScale);
+  if (
+    input.binding.minPriceTick !== null &&
+    reportedTick !== BigInt(input.binding.minPriceTick)
+  ) {
+    throw new Error("Polymarket fee evidence reports another price tick");
+  }
+  const scheduleHash = hashCanonical({
+    protocolIdentity: input.protocolIdentity,
+    rawHash: input.rawHash,
+    instrumentId: input.instrumentId,
+    builderCodeApplied: false,
+  });
+  if (raw.fd === null) {
+    return Object.freeze({
+      model: "COLLATERAL_RATE_V1" as const,
+      qualification: "EXACT" as const,
+      wire: Object.freeze({
+        model: "COLLATERAL_RATE_V1",
+        rate: "0",
+        rateScale: "1",
+        flat: "0",
+        scheduleHash,
+      }),
+    });
+  }
+  const details = object(raw.fd, "fee.fd");
+  const rate = parseFixed(string(details.r, "fee.fd.r"), priceScale);
+  const exponent = string(details.e, "fee.fd.e");
+  if (rate < 0n || rate >= priceScale || exponent !== "1" || details.to !== true) {
+    throw new Error(
+      "Polymarket fee curve rate, exponent, or taker-only posture is unsupported",
+    );
+  }
+  const feePrecisionScale = 100_000n;
+  if (priceScale % feePrecisionScale !== 0n) {
+    throw new Error("Polymarket fee precision cannot bind the collateral scale");
+  }
+  return Object.freeze({
+    model: "BINARY_PRICE_CURVE_V1" as const,
+    qualification: "REQUIRES_MATCH_CALIBRATION" as const,
+    wire: Object.freeze({
+      model: "BINARY_PRICE_CURVE_V1",
+      rate: rate.toString(),
+      rateScale: priceScale.toString(),
+      exponent: "1",
+      roundingQuantum: (priceScale / feePrecisionScale).toString(),
+      scheduleHash,
+    }),
+  });
 }
 
 function finalizeRecord(
@@ -410,6 +743,7 @@ export class AnonymousSimulationMaterializerDesk {
   readonly #maxResponseBytes: number;
   readonly #maxSnapshotSkewMs: number;
   readonly #retentionLimit: number;
+  readonly #store: AnonymousSimulationMaterializationStore | undefined;
   #refreshing = false;
   #records: AnonymousSimulationMaterializationRecord[] = [];
   #rawSources = new Map<Hash, StoredAnonymousMaterializationSource>();
@@ -421,6 +755,7 @@ export class AnonymousSimulationMaterializerDesk {
     maxResponseBytes?: number;
     maxSnapshotSkewMs?: number;
     retentionLimit?: number;
+    store?: AnonymousSimulationMaterializationStore;
   }) {
     this.#fetcher = options?.fetcher ?? fetch;
     this.#now = options?.now ?? (() => new Date());
@@ -430,10 +765,23 @@ export class AnonymousSimulationMaterializerDesk {
     this.#maxSnapshotSkewMs =
       options?.maxSnapshotSkewMs ?? DEFAULT_MAX_SNAPSHOT_SKEW_MS;
     this.#retentionLimit = options?.retentionLimit ?? DEFAULT_RETENTION_LIMIT;
+    this.#store = options?.store;
     assertPositiveInteger(this.#timeoutMs, "materializer timeout");
     assertPositiveInteger(this.#maxResponseBytes, "materializer response cap");
     assertPositiveInteger(this.#maxSnapshotSkewMs, "materializer snapshot skew");
     assertPositiveInteger(this.#retentionLimit, "materializer retention");
+    const restored =
+      this.#store?.loadAnonymousSimulationMaterializations(
+        this.#retentionLimit,
+      ) ?? [];
+    for (const stored of restored.map(
+      verifyStoredAnonymousSimulationMaterialization,
+    )) {
+      this.#records.push(stored.record);
+      for (const source of stored.rawSources) {
+        this.#rawSources.set(source.record.sourceId, source);
+      }
+    }
   }
 
   async #get(
@@ -540,19 +888,30 @@ export class AnonymousSimulationMaterializerDesk {
         instrumentId,
         blocker: "DYNAMIC_FEE_MODEL_UNSUPPORTED",
         diagnostic:
-          "Limitless taker fees vary with execution price; the current linear fee simulator cannot represent the documented curve",
+          "Limitless taker fees vary with execution price, but the published table does not define an exact function that can be qualified",
         sources: Object.freeze([bookSource]),
         askLevelCount: book.levels.length,
       });
     }
-    const polymarketFeeUrl = feeUrl(binding, instrumentId)!;
+    const polymarketFeeUrl = feeUrl(binding, book.marketId);
+    if (polymarketFeeUrl === null) {
+      return blockedLeg({
+        leg,
+        binding,
+        instrumentId,
+        blocker: "FEE_ACQUISITION_FAILED",
+        diagnostic: "Polymarket book did not expose a condition identity",
+        sources: Object.freeze([bookSource]),
+        askLevelCount: book.levels.length,
+      });
+    }
     let feeSource: StoredAnonymousMaterializationSource;
     try {
       feeSource = await this.#get({
         kind: "FEE",
         venueId: binding.venueId,
         instrumentId,
-        protocolIdentity: "clob-fee-rate-rest:2026-08-01",
+        protocolIdentity: "clob-market-info-rest:2026-08-01",
         sourceUrl: polymarketFeeUrl,
       });
     } catch (error) {
@@ -566,9 +925,15 @@ export class AnonymousSimulationMaterializerDesk {
         askLevelCount: book.levels.length,
       });
     }
-    let zeroFee: "ZERO" | "NON_ZERO";
+    let feeSchedule: ReturnType<typeof parsePolymarketFee>;
     try {
-      zeroFee = parsePolymarketZeroFee(feeSource.bytes);
+      feeSchedule = parsePolymarketFee({
+        bytes: feeSource.bytes,
+        binding,
+        instrumentId,
+        rawHash: feeSource.record.rawHash,
+        protocolIdentity: feeSource.record.protocolIdentity,
+      });
     } catch (error) {
       return blockedLeg({
         leg,
@@ -576,18 +941,6 @@ export class AnonymousSimulationMaterializerDesk {
         instrumentId,
         blocker: "FEE_ACQUISITION_FAILED",
         diagnostic: error instanceof Error ? error.message : "fee schema is invalid",
-        sources: Object.freeze([bookSource, feeSource]),
-        askLevelCount: book.levels.length,
-      });
-    }
-    if (zeroFee === "NON_ZERO") {
-      return blockedLeg({
-        leg,
-        binding,
-        instrumentId,
-        blocker: "NON_ZERO_CURVED_FEE_UNSUPPORTED",
-        diagnostic:
-          "Polymarket reports a non-zero base fee and the protocol applies a price-dependent curve that the linear simulator cannot represent",
         sources: Object.freeze([bookSource, feeSource]),
         askLevelCount: book.levels.length,
       });
@@ -608,6 +961,8 @@ export class AnonymousSimulationMaterializerDesk {
         bookSourceId: bookSource.record.sourceId,
         feeSourceId: feeSource.record.sourceId,
         askLevelCount: book.levels.length,
+        feeModel: feeSchedule.model,
+        feeQualification: feeSchedule.qualification,
       }),
       sources,
       request: Object.freeze({
@@ -620,16 +975,7 @@ export class AnonymousSimulationMaterializerDesk {
         quantityScale: binding.quantityScale,
         collateralScale: binding.priceScale,
         levels: book.levels,
-        fee: Object.freeze({
-          rate: "0",
-          rateScale: "1",
-          flat: "0",
-          scheduleHash: hashCanonical({
-            protocolIdentity: feeSource.record.protocolIdentity,
-            rawHash: feeSource.record.rawHash,
-            baseFeeBps: "0",
-          }),
-        }),
+        fee: feeSchedule.wire,
         bookStateHash: hashCanonical({
           protocolIdentity: bookSource.record.protocolIdentity,
           rawHash: bookSource.record.rawHash,
@@ -785,25 +1131,43 @@ export class AnonymousSimulationMaterializerDesk {
         }),
       });
       const record = finalizeRecord(body);
-      this.#records = [record, ...this.#records].slice(0, this.#retentionLimit);
+      const persisted =
+        this.#store?.saveAnonymousSimulationMaterialization(
+          { record, rawSources: sources },
+          this.#retentionLimit,
+        ) ?? { record, rawSources: sources };
+      const verified = verifyStoredAnonymousSimulationMaterialization(persisted);
+      this.#records = [
+        verified.record,
+        ...this.#records.filter(
+          (candidate) =>
+            candidate.materializationId !== verified.record.materializationId,
+        ),
+      ].slice(0, this.#retentionLimit);
       for (const source of sources) {
         this.#rawSources.set(source.record.sourceId, copyStoredSource(source));
       }
-      const retainedIds = new Set(this.#records.flatMap((item) => item.sources.map((source) => source.sourceId)));
+      const retainedIds = new Set(
+        this.#records.flatMap((item) =>
+          item.sources.map((source) => source.sourceId),
+        ),
+      );
       for (const sourceId of this.#rawSources.keys()) {
         if (!retainedIds.has(sourceId)) this.#rawSources.delete(sourceId);
       }
       return Object.freeze({
-        record,
+        record: verified.record,
         plan,
-        rawSources: Object.freeze(sources.map(copyStoredSource)),
+        rawSources: verified.rawSources,
       });
     } finally {
       this.#refreshing = false;
     }
   }
 
-  public rawSource(sourceId: Hash): StoredAnonymousMaterializationSource | undefined {
+  public rawSource(
+    sourceId: Hash,
+  ): StoredAnonymousMaterializationSource | undefined {
     const source = this.#rawSources.get(sourceId);
     return source === undefined ? undefined : copyStoredSource(source);
   }
@@ -817,13 +1181,23 @@ export class AnonymousSimulationMaterializerDesk {
         ? "REFRESHING"
         : latest?.status ?? "IDLE",
       runCount: this.#records.length,
-      readyCount: this.#records.filter((record) => record.status === "READY").length,
-      blockedCount: this.#records.filter((record) => record.status === "BLOCKED").length,
+      readyCount: this.#records.filter((record) => record.status === "READY")
+        .length,
+      blockedCount: this.#records.filter((record) => record.status === "BLOCKED")
+        .length,
       retentionLimit: this.#retentionLimit,
       timeoutMs: this.#timeoutMs,
       maxResponseBytes: this.#maxResponseBytes,
       maxSnapshotSkewMs: this.#maxSnapshotSkewMs,
       retainedRawSourceCount: this.#rawSources.size,
+      storage:
+        this.#store?.anonymousSimulationMaterializationStorage ??
+        Object.freeze({
+          mode: "MEMORY" as const,
+          durable: false,
+          schemaVersion: 0,
+          idempotencyKey: "materializationId" as const,
+        }),
       records: Object.freeze(this.#records),
       authority: "ANONYMOUS_RESEARCH_MATERIALIZER",
       certificateAuthority: false,

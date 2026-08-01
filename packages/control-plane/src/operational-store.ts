@@ -41,12 +41,20 @@ import {
   type SemanticReviewRecord,
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
+import {
+  assertAnonymousSimulationMaterializationRecord,
+  verifyStoredAnonymousMaterializationSource,
+  verifyStoredAnonymousSimulationMaterialization,
+  type AnonymousSimulationMaterializationStore,
+  type StoredAnonymousMaterializationSource,
+  type StoredAnonymousSimulationMaterialization,
+} from "./anonymous-simulation-materializer.js";
 import type {
   DiscoveryRunRecord,
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -100,6 +108,19 @@ type OpportunityLifecycleRow = Readonly<{
   opportunity_id: string;
   journal_json: string;
   journal_hash: string;
+}>;
+
+type AnonymousMaterializationSourceRow = Readonly<{
+  source_id: string;
+  record_json: string;
+  record_hash: string;
+  raw_bytes: Uint8Array;
+}>;
+
+type AnonymousSimulationMaterializationRow = Readonly<{
+  materialization_id: string;
+  record_json: string;
+  record_hash: string;
 }>;
 
 function reviveCanonicalBigInt(_key: string, value: unknown): unknown {
@@ -387,6 +408,77 @@ function parseOpportunityLifecycleJournal(
   return journal;
 }
 
+function parseAnonymousMaterializationSource(
+  value: unknown,
+): StoredAnonymousMaterializationSource {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite anonymous materialization source row is malformed");
+  }
+  const row = value as Partial<AnonymousMaterializationSourceRow>;
+  if (
+    typeof row.source_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string" ||
+    !(row.raw_bytes instanceof Uint8Array)
+  ) {
+    throw new Error(
+      "SQLite anonymous materialization source row has invalid column types",
+    );
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite anonymous materialization source contains invalid JSON");
+  }
+  if (decoded === null || typeof decoded !== "object") {
+    throw new Error("SQLite anonymous materialization source record is malformed");
+  }
+  const source = verifyStoredAnonymousMaterializationSource({
+    record: decoded as StoredAnonymousMaterializationSource["record"],
+    bytes: row.raw_bytes,
+  });
+  if (
+    source.record.sourceId !== row.source_id ||
+    hashCanonical(source.record) !== row.record_hash
+  ) {
+    throw new Error("SQLite anonymous materialization source identity mismatch");
+  }
+  return source;
+}
+
+function parseAnonymousSimulationMaterializationRecord(
+  value: unknown,
+) {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite anonymous simulation materialization row is malformed");
+  }
+  const row = value as Partial<AnonymousSimulationMaterializationRow>;
+  if (
+    typeof row.materialization_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error(
+      "SQLite anonymous simulation materialization row has invalid column types",
+    );
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite anonymous simulation materialization contains invalid JSON");
+  }
+  const record = assertAnonymousSimulationMaterializationRecord(decoded);
+  if (
+    record.materializationId !== row.materialization_id ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite anonymous simulation materialization identity mismatch");
+  }
+  return record;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -420,7 +512,8 @@ export class SqliteOperationalStore
     CandidateWatchRefreshStore,
     MarketArchaeologistRecordStore,
     SemanticReviewRecordStore,
-    OpportunityLifecycleJournalStore
+    OpportunityLifecycleJournalStore,
+    AnonymousSimulationMaterializationStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -447,6 +540,12 @@ export class SqliteOperationalStore
   public readonly marketArchaeologistStorage: OperationalStorageProjection<"runId">;
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
   public readonly opportunityLifecycleStorage: OperationalStorageProjection<"opportunityId">;
+  public readonly anonymousSimulationMaterializationStorage: Readonly<{
+    mode: "MEMORY" | "SQLITE_WAL";
+    durable: boolean;
+    schemaVersion: number;
+    idempotencyKey: "materializationId";
+  }>;
 
   public constructor(databasePath: string) {
     if (databasePath.trim() === "") {
@@ -524,6 +623,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "opportunityId",
+    });
+    this.anonymousSimulationMaterializationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "materializationId",
     });
   }
 
@@ -703,6 +808,40 @@ export class SqliteOperationalStore
           CREATE INDEX opportunity_lifecycle_journals_updated
             ON opportunity_lifecycle_journals (
               updated_at DESC, opportunity_id DESC
+            );
+        `);
+      }
+      if (current < 8) {
+        this.#database.exec(`
+          CREATE TABLE anonymous_materialization_sources (
+            source_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(source_id) = 71 AND source_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            raw_bytes BLOB NOT NULL
+          ) STRICT;
+          CREATE INDEX anonymous_materialization_sources_received
+            ON anonymous_materialization_sources (received_at DESC, source_id DESC);
+
+          CREATE TABLE anonymous_simulation_materializations (
+            materialization_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(materialization_id) = 71 AND
+              materialization_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            completed_at TEXT NOT NULL CHECK (length(completed_at) > 0),
+            status TEXT NOT NULL CHECK (status IN ('READY', 'BLOCKED')),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX anonymous_simulation_materializations_completed
+            ON anonymous_simulation_materializations (
+              completed_at DESC, materialization_id DESC
             );
         `);
       }
@@ -1390,6 +1529,158 @@ export class SqliteOperationalStore
       if (hashCanonical(stored) !== journalHash) {
         throw new Error("opportunityId is already bound to another journal");
       }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadAnonymousSimulationMaterializations(
+    limit: number,
+  ): readonly StoredAnonymousSimulationMaterialization[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT materialization_id, record_json, record_hash
+         FROM anonymous_simulation_materializations
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(
+      rows.map((row) => {
+        const record = parseAnonymousSimulationMaterializationRecord(row);
+        const rawSources = record.sources.map((source) => {
+          const sourceRow = this.#database
+            .prepare(
+              `SELECT source_id, record_json, record_hash, raw_bytes
+               FROM anonymous_materialization_sources
+               WHERE source_id = ?`,
+            )
+            .get(source.sourceId);
+          if (sourceRow === undefined) {
+            throw new Error(
+              "SQLite anonymous simulation materialization is missing raw evidence",
+            );
+          }
+          return parseAnonymousMaterializationSource(sourceRow);
+        });
+        return verifyStoredAnonymousSimulationMaterialization({
+          record,
+          rawSources,
+        });
+      }),
+    );
+  }
+
+  public saveAnonymousSimulationMaterialization(
+    value: StoredAnonymousSimulationMaterialization,
+    retentionLimit: number,
+  ): StoredAnonymousSimulationMaterialization {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = verifyStoredAnonymousSimulationMaterialization(value);
+    const recordJson = canonicalJson(validated.record);
+    const recordHash = hashCanonical(validated.record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const source of validated.rawSources) {
+        this.#database
+          .prepare(
+            `INSERT INTO anonymous_materialization_sources (
+               source_id, received_at, record_json, record_hash, raw_bytes
+             ) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(source_id) DO NOTHING`,
+          )
+          .run(
+            source.record.sourceId,
+            source.record.receivedAt,
+            canonicalJson(source.record),
+            hashCanonical(source.record),
+            source.bytes,
+          );
+        const sourceRow = this.#database
+          .prepare(
+            `SELECT source_id, record_json, record_hash, raw_bytes
+             FROM anonymous_materialization_sources
+             WHERE source_id = ?`,
+          )
+          .get(source.record.sourceId);
+        if (sourceRow === undefined) {
+          throw new Error("SQLite failed to retain anonymous raw evidence");
+        }
+        const storedSource = parseAnonymousMaterializationSource(sourceRow);
+        if (hashCanonical(storedSource.record) !== hashCanonical(source.record)) {
+          throw new Error("sourceId is already bound to other anonymous evidence");
+        }
+      }
+      this.#database
+        .prepare(
+          `INSERT INTO anonymous_simulation_materializations (
+             materialization_id, completed_at, status, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(materialization_id) DO NOTHING`,
+        )
+        .run(
+          validated.record.materializationId,
+          validated.record.completedAt,
+          validated.record.status,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM anonymous_simulation_materializations
+           WHERE materialization_id IN (
+             SELECT materialization_id
+             FROM anonymous_simulation_materializations
+             ORDER BY rowid DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      this.#database.exec(`
+        DELETE FROM anonymous_materialization_sources
+        WHERE source_id NOT IN (
+          SELECT json_extract(source.value, '$.sourceId')
+          FROM anonymous_simulation_materializations AS materialization,
+               json_each(materialization.record_json, '$.sources') AS source
+        )
+      `);
+      const row = this.#database
+        .prepare(
+          `SELECT materialization_id, record_json, record_hash
+           FROM anonymous_simulation_materializations
+           WHERE materialization_id = ?`,
+        )
+        .get(validated.record.materializationId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain anonymous materialization");
+      }
+      const storedRecord = parseAnonymousSimulationMaterializationRecord(row);
+      if (hashCanonical(storedRecord) !== recordHash) {
+        throw new Error(
+          "materializationId is already bound to another anonymous materialization",
+        );
+      }
+      const stored = verifyStoredAnonymousSimulationMaterialization({
+        record: storedRecord,
+        rawSources: storedRecord.sources.map((source) => {
+          const sourceRow = this.#database
+            .prepare(
+              `SELECT source_id, record_json, record_hash, raw_bytes
+               FROM anonymous_materialization_sources
+               WHERE source_id = ?`,
+            )
+            .get(source.sourceId);
+          if (sourceRow === undefined) {
+            throw new Error("SQLite lost anonymous raw evidence during commit");
+          }
+          return parseAnonymousMaterializationSource(sourceRow);
+        }),
+      });
       this.#database.exec("COMMIT");
       return stored;
     } catch (error) {

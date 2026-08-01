@@ -110,24 +110,41 @@ decision and cannot be inferred from this state machine.
   bytes, and venue generation when one exists in a bounded process desk.
 - [x] Require one fresh receive-time window across every leg and expose partial
   acquisition, schema drift, and instrument mismatch as explicit blockers.
-- [x] Query the public Polymarket token fee endpoint and automatically build a
-  bigint CLOB plan only for a proven zero-fee response.
-- [x] Fail closed for Polymarket's non-zero price curve, Limitless's dynamic
-  taker curve, and venues without a qualified anonymous book surface; the
-  current linear simulation fee type must not approximate those protocols.
+- [x] Query current Polymarket CLOB market info, bind its token set and minimum
+  tick to the compiled leg, and materialize both explicit zero-fee and
+  price-dependent binary-curve schedules without flattening the curve.
+- [x] Fail closed for Limitless's table-only dynamic taker curve and venues
+  without a qualified anonymous book surface.
 - [x] Let Studio acquire or refresh one payout unit of public depth for each
   qualified portfolio and show retained source count plus exact blocker text.
+
+## Phase 7 — price-dependent fees and durable materialization
+
+- [x] Generalize simulation fees to content-hashed collateral-rate and binary
+  price-curve contracts using exact bigint fixed-point arithmetic.
+- [x] Reproduce Polymarket's published crypto-market fee vectors, including its
+  five-decimal fee quantum and conservative upward rounding.
+- [x] Mark public aggregated CLOB levels as requiring match-level calibration
+  when per-match fee rounding can change the result; such reports cannot reach
+  the exact verifier.
+- [x] Persist materialization records and raw book/fee bytes atomically in
+  SQLite WAL schema v8, restoring and revalidating every content binding after
+  restart.
+- [x] Bound durable retention, remove orphaned raw evidence, and fail closed on
+  byte or record tampering.
+- [x] Show durable public-evidence counts and each leg's fee model/qualification
+  in Studio, with compatibility fallbacks for rolling control-plane upgrades.
 
 ## Next slices
 
 - Calibrate AMM implementations against each venue's official contract and fee
   semantics instead of treating `x*y=k` as a venue fact.
-- Persist generic outcome-token raw sources and materialization records in
-  SQLite with restart validation before treating the completed in-process
-  acquisition slice as an unattended scheduled job.
-- Generalize `SimulationFee` to content-hashed price-dependent fee functions,
-  then qualify current Polymarket and Limitless taker curves against official
-  protocol vectors. Until then only an exact zero-fee schedule may advance.
+- Determine whether Polymarket exposes enough match-level public evidence to
+  reproduce per-match fee rounding. Until then the public aggregated-book
+  curve remains simulation evidence, not verifier-eligible evidence.
+- Qualify Limitless's buy/sell dynamic fee curves only if an official exact
+  function or executable contract becomes available; do not interpolate its
+  published table.
 - Add an operator-authored structured scope for conditional, multi-listing, or
   reviewer-reclassified relations; free-text rationale must not become a payoff
   partition implicitly.
@@ -208,3 +225,17 @@ decision and cannot be inferred from this state machine.
   inspection show no runtime errors or horizontal overflow. The real runtime
   still has no operator decision or simulation; no artificial decision was
   created to make the new controls appear.
+- 2026-08-01: Current Polymarket CLOB market info binds fee rate, exponent,
+  token set, tick, and fee-enabled state. The simulator reproduces the official
+  `C × rate × p × (1-p)` vectors in bigint, but aggregated public book levels do
+  not expose the underlying match partition needed to prove per-match rounding;
+  non-zero curve reports therefore stop at `MODEL_CALIBRATION_REQUIRED`.
+- 2026-08-01: SQLite schema v8 atomically retains anonymous materialization
+  records plus byte-exact public book/fee evidence. Restart recovery rechecks
+  source, raw-content, record, and materialization identities; retention removes
+  orphaned evidence, and tampering fails closed.
+- 2026-08-01: The dynamic-fee and durable-materialization slice passes 273
+  workspace tests, full typecheck, and production build under Node.js 24.14.0.
+  Browser inspection also caught and fixed a rolling-upgrade white screen when
+  an older control-plane projection omitted `ai.semanticReview`; desktop and
+  430px lifecycle layouts finish without horizontal overflow.

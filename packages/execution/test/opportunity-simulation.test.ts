@@ -172,6 +172,40 @@ describe("complete-payout opportunity simulation", () => {
     });
   });
 
+  it("stops aggregated CLOB price-curve fees at match-level calibration", () => {
+    const base = plan();
+    const bundle = runOpportunitySimulation({
+      ...base,
+      legs: base.legs.map((leg) => ({
+        ...leg,
+        request: {
+          ...leg.request,
+          fee: {
+            model: "BINARY_PRICE_CURVE_V1" as const,
+            rate: 4n,
+            rateScale: 100n,
+            exponent: 1 as const,
+            roundingQuantum: 1n,
+            scheduleHash: hashCanonical({ fee: "price-curve" }),
+          },
+        },
+      })),
+    });
+    expect(bundle.status).toBe("MODEL_CALIBRATION_REQUIRED");
+    expect(bundle.reports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          modelQualification:
+            "BOOK_PRICE_CURVE_AGGREGATE_LEVELS_REQUIRES_MATCH_CALIBRATION",
+        }),
+      ]),
+    );
+    expect(machine().recordOpportunitySimulation(bundle)).toMatchObject({
+      state: "AWAITING_MODEL_CALIBRATION",
+      nextAction: "CALIBRATE_VENUE_MODEL",
+    });
+  });
+
   it("rejects a rehashed bundle whose derived report authority was changed", () => {
     const bundle = runOpportunitySimulation(plan());
     const tampered = {

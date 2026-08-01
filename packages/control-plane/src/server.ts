@@ -65,7 +65,10 @@ import {
 import { deriveRelationPayoffProjection } from "./relation-payoff.js";
 import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
 import type { OpportunityLifecycleJournalStore } from "./opportunity-lifecycle-desk.js";
-import { AnonymousSimulationMaterializerDesk } from "./anonymous-simulation-materializer.js";
+import {
+  AnonymousSimulationMaterializerDesk,
+  type AnonymousSimulationMaterializationStore,
+} from "./anonymous-simulation-materializer.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -306,6 +309,18 @@ function supportsOpportunityLifecycleJournals(
   );
 }
 
+function supportsAnonymousSimulationMaterializations(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & AnonymousSimulationMaterializationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<AnonymousSimulationMaterializationStore>;
+  return (
+    candidate.anonymousSimulationMaterializationStorage !== undefined &&
+    typeof candidate.loadAnonymousSimulationMaterializations === "function" &&
+    typeof candidate.saveAnonymousSimulationMaterialization === "function"
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -404,7 +419,11 @@ export function createControlPlane(options?: {
     );
   const simulationMaterializerDesk =
     options?.simulationMaterializerDesk ??
-    new AnonymousSimulationMaterializerDesk();
+    new AnonymousSimulationMaterializerDesk({
+      ...(supportsAnonymousSimulationMaterializations(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
