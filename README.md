@@ -39,7 +39,12 @@ This is not a trading bot and it has no live-trading authority. The repository d
   than substituting the latest catalog. A concurrent durable issue scheduler
   gives each lens its own priority and cadence, keeps up to three bounded Agent
   leases in flight, and emits deduplicated in-app findings for new signatures
-  and failures.
+  and failures. Exact radar scopes carry a price-independent semantic identity
+  plus a price-sensitive routing identity. Each issue feeds its retained
+  terminal scopes back into the next assignment, so an unchanged lexical false
+  positive cannot monopolize the queue while a changed economic posture can
+  still reactivate an economically blocked pair. Raw price motion inside the
+  same posture does not restart semantic work.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection. It prices both canonical equivalent-claim portfolios with `bigint`, ranks positive gross search hints first, and still treats every pair as an unreviewed semantic lead rather than an opportunity. The focused two-leg issue requires a positive current hint before pi; fees, depth, fillability, and executability remain absent.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
@@ -96,7 +101,11 @@ promotion remain active campaign work.
    produces a new immutable corpus. You can also run any issue immediately or
    add a narrower brief. The cheap model searches a bounded context first; only
    a novel grounded lead can escalate to one pi run over the complete MarketFS
-   snapshot.
+   snapshot. Negative and completed exact-pair results rotate that issue toward
+   unseen semantic scopes on later corpora; price-only changes do not erase a
+   semantic rejection, while a changed economic posture can reactivate a pair
+   that stopped only at the economic gate. Raw quote motion inside the same
+   posture does not repeatedly consume Agent budget.
 3. For the focused parity issue, the server prices the exact radar-bound pair
    before pi. Missing prices and non-positive gross hints stop there and record
    why; a positive hint merely permits semantic investigation. The cheap model

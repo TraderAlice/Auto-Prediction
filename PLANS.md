@@ -1,6 +1,6 @@
 # Plans
 
-`plans/economic-first-search-feedback.md` is the active construction plan.
+`plans/semantic-scope-rotation.md` is the active construction plan.
 
 ## Planning contract
 
@@ -30,20 +30,27 @@ Fresh-corpus orchestration is merged and live. The five-minute catalog timer
 keeps all seven sources and the recurring issue queue attached to current,
 content-addressed evidence.
 
-The active economic-first campaign is qualified and ready to publish. The
-focused parity issue now binds its exact radar pair to a bigint-only price gate
-before pi. A non-positive or unavailable pair records a terminal reason without
-poisoning future price-change deduplication; a positive pair still needs a
-grounded cheap-model hypothesis before pi. General semantic issues remain
-ungated.
+The economic-first campaign is merged. The focused parity issue binds its exact
+radar pair to a bigint-only price gate before pi. A positive pair still needs a
+grounded cheap-model hypothesis; general semantic issues remain ungated.
 
 The live seven-source smoke retained 467 listings and found one 1,100 bps
 positive gross hint among five radar pairs. The cheap semantic lane correctly
 rejected it: an MLS Cup champion contract and a multi-game parlay happened to
 share “Nashville” but were not the same claim. In the retained 40-lease window,
 the new gate has one positive result, two blocked results, and one recorded pi
-call avoided. Studio now exposes those pre-pi results alongside downstream
-economic yield by durable issue.
+call avoided. Studio exposes those pre-pi results alongside downstream economic
+yield by durable issue.
+
+The semantic-coverage campaign is qualified and ready to publish. Exact radar
+scopes now carry a price-independent semantic identity and an
+economic-posture-sensitive routing identity. Each issue uses its own retained
+terminal evidence to prefer unseen scopes, so a lexical false positive cannot
+monopolize recurring search. A seven-source, 467-listing smoke run preserved
+both identities for an unchanged top pair across catalog refresh and then
+assigned the next pair. Studio reports seven unique exact semantic scopes, two
+revisits, one semantic no-lead scope, and nine exact-pair assignments in the
+current retained window. Desktop and 390 px QA have no horizontal overflow.
 
 ## Deferred future campaigns
 

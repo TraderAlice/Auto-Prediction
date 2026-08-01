@@ -85,6 +85,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
     economicGatePositiveCount: number;
     economicGateBlockedCount: number;
     piAvoidedCount: number;
+    exactSemanticScopeCount: number;
+    semanticScopeRevisitCount: number;
+    noLeadSemanticScopeCount: number;
     hypothesisCount: number;
     proposalCount: number;
     evidenceGapCount: number;
@@ -102,6 +105,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
       economicGatePositiveCount: number;
       economicGateBlockedCount: number;
       piAvoidedCount: number;
+      exactSemanticScopeCount: number;
+      semanticScopeRevisitCount: number;
+      noLeadSemanticScopeCount: number;
       hypothesisCount: number;
       proposalCount: number;
       evidenceGapCount: number;
@@ -167,10 +173,23 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   economicGatePositiveCount: number;
   economicGateBlockedCount: number;
   piAvoidedCount: number;
+  exactSemanticScopeCount: number;
+  semanticScopeRevisitCount: number;
+  noLeadSemanticScopeCount: number;
   hypothesisCount: number;
   proposalCount: number;
   evidenceGapCount: number;
 }> {
+  const exactScopes = records.filter(
+    (record) => record.fastLane.semanticScope?.kind === "EXACT_PAIR",
+  );
+  const uniqueSemanticScopes = new Set(
+    exactScopes.map(
+      (record) =>
+        `${record.lease.issueId ?? "unassigned"}:` +
+        record.fastLane.semanticScope!.semanticScopeIdentity,
+    ),
+  );
   return Object.freeze({
     terminalLeaseCount: records.length,
     novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
@@ -191,6 +210,13 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
       (record) => record.deepLane.reason === "ECONOMIC_GATE_BLOCKED" &&
         record.deepLane.runId === null,
     ).length,
+    exactSemanticScopeCount: uniqueSemanticScopes.size,
+    semanticScopeRevisitCount: exactScopes.length - uniqueSemanticScopes.size,
+    noLeadSemanticScopeCount: exactScopes.filter((record) => [
+      "NO_CANDIDATES",
+      "NOT_MULTI_LISTING",
+      "NO_POLICY_MATCH",
+    ].includes(record.deepLane.reason)).length,
     hypothesisCount: records.reduce((sum, record) => sum + record.outcome.hypothesisCount, 0),
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     evidenceGapCount: records.reduce((sum, record) => sum + record.outcome.evidenceGapCount, 0),

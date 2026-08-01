@@ -191,7 +191,11 @@ describe("AI-native search lease scheduler", () => {
     expect(runDeep.mock.calls[0]?.[1]).toContain(record.trace.querySummary);
     expect(runDeep.mock.calls[0]?.[1]).toContain("Obey any exact candidate arity");
 
-    const { economicGate: _economicGate, ...legacyFastLane } = record.fastLane;
+    const {
+      economicGate: _economicGate,
+      semanticScope: _semanticScope,
+      ...legacyFastLane
+    } = record.fastLane;
     const { artifactHash: _recordHash, ...recordBody } = record;
     const legacyBody = Object.freeze({ ...recordBody, fastLane: legacyFastLane });
     expect(() => assertSearchLeaseRecord(Object.freeze({
@@ -387,6 +391,68 @@ describe("AI-native search lease scheduler", () => {
     });
     expect(passed.deepLane.runId).not.toBeNull();
     expect(runDeep).toHaveBeenCalledTimes(1);
+  });
+
+  it("feeds completed exact semantic scopes back to the same issue on later corpora", async () => {
+    const feedbackSeen: unknown[] = [];
+    const scheduler = new SearchLeaseScheduler({
+      context: (question, venueIds, _lens, _snapshot, feedback) => {
+        feedbackSeen.push(feedback);
+        return context(question, venueIds);
+      },
+      runFast: async (task) => {
+        const run = runRecord(task);
+        return Object.freeze({ ...run, hypotheses: Object.freeze([]) });
+      },
+      maxPiInvocations: 0,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+    const issueId = hashCanonical({ issue: "semantic-rotation" });
+    const issue = Object.freeze({
+      issueId,
+      question: "Rotate unchanged semantic scopes.",
+      venueIds: Object.freeze([]),
+    });
+
+    const first = await scheduler.begin(
+      snapshot("semantic-rotation-1"),
+      "EQUIVALENCE",
+      "SCHEDULE",
+      issue,
+    ).promise;
+    const second = await scheduler.begin(
+      snapshot("semantic-rotation-2"),
+      "EQUIVALENCE",
+      "SCHEDULE",
+      issue,
+    ).promise;
+
+    expect(first.deepLane.reason).toBe("NO_CANDIDATES");
+    expect(first.fastLane.semanticScope).toMatchObject({
+      kind: "EXACT_PAIR",
+      listingRefs: ["venue-a:pizza-a", "venue-b:pizza-b"],
+      priceIndependentSemanticIdentity: true,
+      authority: "SEARCH_ROUTING_ONLY",
+    });
+    expect(feedbackSeen).toHaveLength(2);
+    expect(feedbackSeen[0]).toMatchObject({
+      issueId,
+      completedSemanticScopeIdentities: [],
+      attemptedRoutingScopeIdentities: [],
+    });
+    expect(feedbackSeen[1]).toMatchObject({
+      issueId,
+      completedSemanticScopeIdentities: [
+        first.fastLane.semanticScope?.semanticScopeIdentity,
+      ],
+      attemptedRoutingScopeIdentities: [
+        first.fastLane.semanticScope?.routingScopeIdentity,
+      ],
+      authority: "SEARCH_ROUTING_ONLY",
+    });
+    expect(second.fastLane.semanticScope?.semanticScopeIdentity).toBe(
+      first.fastLane.semanticScope?.semanticScopeIdentity,
+    );
   });
 
   it("persists issued-to-terminal records and restores idempotent results", async () => {

@@ -38,7 +38,10 @@ import {
   projectDiscoveryRunRecord,
   type DiscoveryRunStore,
 } from "./discovery-ledger.js";
-import { radarTriageTaskId } from "./opportunity-radar.js";
+import {
+  orderRadarCandidatesForSearch,
+  radarTriageTaskId,
+} from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
 import {
   applyProposalEconomicPriority,
@@ -506,9 +509,13 @@ export function createControlPlane(options?: {
     new SearchLeaseScheduler({
       intervalMs: parseSearchLeaseInterval(process.env),
       concurrencyLimit: 3,
-      context: (question, venueIds, lens) => {
+      context: (question, venueIds, lens, _snapshot, feedback) => {
         if (lens === "EQUIVALENCE") {
-          for (const candidate of catalogObservationDesk.radar().candidates) {
+          const candidates = orderRadarCandidatesForSearch(
+            catalogObservationDesk.radar().candidates,
+            feedback,
+          );
+          for (const candidate of candidates) {
             try {
               return catalogObservationDesk.radarTriageScope(
                 candidate.candidateId,
