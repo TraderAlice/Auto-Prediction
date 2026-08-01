@@ -1,7 +1,8 @@
 # Durable proposal evidence
 
-Status: active
+Status: completed
 Started: 2026-08-02
+Completed: 2026-08-02
 
 ## Outcome
 
@@ -47,7 +48,7 @@ blocked and spend no model request.
   review capacity.
 - [x] Prove tamper rejection, bounded size, legacy compatibility, catalog-rotation
   review, restart survival, and zero authority/effects.
-- [ ] Qualify the real SQLite-backed runtime and Studio, then publish the serial
+- [x] Qualify the real SQLite-backed runtime and Studio, then publish the serial
   draft PR.
 
 ## Safety invariants
@@ -88,5 +89,7 @@ blocked and spend no model request.
   five matching v2 bundles. Every bundle embedded its proposal, retained two to
   four exact listings, used `PROPOSAL_CORPUS`, and exposed no execution or
   value-moving authority.
-- Remaining gate: full workspace test/build and visual review of the expanded
-  Studio evidence-coverage row before the draft is marked ready.
+- Full Node.js 24 workspace typecheck, all 317 tests, and the production build
+  pass. Studio visual review at 1440×900 and 415×900 confirms the expanded
+  evidence-coverage grid, long proposal text, capture provenance, and legacy
+  markers have no horizontal overflow; the browser console is clean.
