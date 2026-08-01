@@ -281,6 +281,15 @@ corpus snapshot coalesce to one lease. The older
 `PMH_SEARCH_LEASE_INTERVAL_MS` sequential lens timer remains compatible but is
 suppressed when the issue timer is enabled.
 
+Recurring issues require recurring market evidence. Set
+`PMH_CATALOG_REFRESH_INTERVAL_MS=300000` to refresh the anonymous public
+catalogs every five minutes (the accepted range is one to ten minutes, below
+the 15-minute context freshness window). Startup, operator, and scheduled
+refreshes share one coalesced request-bounded path. Issue ticks pause while a
+refresh is in flight, then consume the resulting immutable corpus immediately;
+an empty corpus creates no AI lease. Studio reports the timer, next refresh,
+READY/degraded counts, and current corpus identity.
+
 Each lease still permits one cheap model request, one optional pi escalation,
 eight hypotheses, and a 300-second deadline. A new grounded multi-listing
 signature creates one deduplicated Finding Inbox notification; empty scans and

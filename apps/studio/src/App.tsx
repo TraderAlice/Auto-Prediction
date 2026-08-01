@@ -251,6 +251,30 @@ const EMPTY_MARKET_CORPUS: StudioProjection["ai"]["marketCorpus"] = {
   },
 };
 
+const EMPTY_CATALOG_REFRESH_SCHEDULER: StudioProjection["ai"]["catalogRefreshScheduler"] = {
+  schemaVersion: "pmh.catalog-refresh-scheduler.v1",
+  enabled: false,
+  status: "DISABLED",
+  intervalMs: null,
+  nextRefreshAt: null,
+  lastStartedAt: null,
+  lastCompletedAt: null,
+  lastTrigger: null,
+  lastResult: null,
+  latestSnapshotIdentity: null,
+  runCount: 0,
+  readyCount: 0,
+  degradedCount: 0,
+  failedCount: 0,
+  effects: {
+    anonymousPublicGets: true,
+    modelCalls: false,
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] = {
   schemaVersion: "pmh.market-archaeologist-desk.v1",
   configured: false,
@@ -2476,6 +2500,8 @@ function MarketArchaeologistView() {
   const studioProjection = useStudioProjection();
   const corpus =
     studioProjection.ai.marketCorpus ?? EMPTY_MARKET_CORPUS;
+  const catalogRefreshScheduler =
+    studioProjection.ai.catalogRefreshScheduler ?? EMPTY_CATALOG_REFRESH_SCHEDULER;
   const desk =
     studioProjection.ai.marketArchaeologist ?? EMPTY_MARKET_ARCHAEOLOGIST;
   const scheduler =
@@ -2625,7 +2651,11 @@ function MarketArchaeologistView() {
         <Metric
           label="Eligible sources"
           value={`${corpus.eligibleSourceCount}`}
-          detail={`${corpus.excludedSourceCount} excluded by freshness`}
+          detail={
+            catalogRefreshScheduler.enabled
+              ? `${corpus.excludedSourceCount} excluded · auto every ${(catalogRefreshScheduler.intervalMs ?? 0) / 60_000}m`
+              : `${corpus.excludedSourceCount} excluded · manual refresh`
+          }
         />
         <Metric
           label="Search issues"
@@ -2649,6 +2679,26 @@ function MarketArchaeologistView() {
             <Badge variant={issueScheduler.enabled ? "shadow" : "muted"}>
               <Clock3 size={11} /> TIMER {issueScheduler.enabled ? "ON" : "OFF"}
             </Badge>
+            <Badge
+              variant={
+                catalogRefreshScheduler.lastResult === "DEGRADED" ||
+                catalogRefreshScheduler.lastResult === "FAILED"
+                  ? "warning"
+                  : catalogRefreshScheduler.enabled
+                    ? "verified"
+                    : "muted"
+              }
+            >
+              <RefreshCw
+                className={catalogRefreshScheduler.status === "REFRESHING" ? "is-spinning" : undefined}
+                size={11}
+              />{" "}
+              CORPUS {catalogRefreshScheduler.status === "REFRESHING"
+                ? "REFRESHING"
+                : catalogRefreshScheduler.enabled
+                  ? `AUTO ${(catalogRefreshScheduler.intervalMs ?? 0) / 60_000}m`
+                  : "MANUAL"}
+            </Badge>
             <Badge variant={issueScheduler.unreadNotificationCount > 0 ? "warning" : "muted"}>
               <Bell size={11} /> {issueScheduler.unreadNotificationCount} UNREAD
             </Badge>
@@ -2665,6 +2715,29 @@ function MarketArchaeologistView() {
             <div>
               <strong>{issueScheduler.storage.issues.durable ? "WAL" : "RAM"}</strong>
               <span>{scheduler.missingCorpusIssuedCount} issued corpus gaps</span>
+            </div>
+          </div>
+
+          <div className="issue-scheduler-strip issue-performance-strip" aria-label="Catalog refresh automation">
+            <div>
+              <strong>{catalogRefreshScheduler.runCount}</strong>
+              <span>catalog refreshes</span>
+            </div>
+            <div>
+              <strong>{catalogRefreshScheduler.readyCount}</strong>
+              <span>all-source ready</span>
+            </div>
+            <div>
+              <strong>{catalogRefreshScheduler.degradedCount + catalogRefreshScheduler.failedCount}</strong>
+              <span>degraded or failed</span>
+            </div>
+            <div>
+              <strong>
+                {catalogRefreshScheduler.nextRefreshAt === null
+                  ? "MANUAL"
+                  : new Date(catalogRefreshScheduler.nextRefreshAt).toLocaleTimeString()}
+              </strong>
+              <span>next refresh · corpus {corpus.snapshotIdentity.slice(7, 14)}</span>
             </div>
           </div>
 

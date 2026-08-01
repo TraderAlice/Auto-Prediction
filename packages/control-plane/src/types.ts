@@ -236,6 +236,7 @@ export type StudioProjection = Readonly<{
     activeRuns: number;
     catalogContext: DiscoveryCatalogProjection;
     catalogObservation: import("./catalog-observation.js").CatalogObservationProjection;
+    catalogRefreshScheduler: import("./catalog-refresh-scheduler.js").CatalogRefreshSchedulerProjection;
     opportunityRadar: import("./opportunity-radar.js").OpportunityRadarProjection;
     marketCorpus: import("./market-corpus.js").MarketCorpusProjection;
     marketArchaeologist: import("./market-archaeologist.js").MarketArchaeologistProjection;

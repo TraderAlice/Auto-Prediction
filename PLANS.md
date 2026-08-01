@@ -1,6 +1,6 @@
 # Plans
 
-`plans/settlement-qualified-search-issue.md` is the active construction plan.
+`plans/fresh-corpus-search-orchestration.md` is the active construction plan.
 
 ## Planning contract
 
@@ -22,22 +22,17 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-The settlement gate is now qualified: the retained trading-only Myriad pair is
-still reviewable but economically inert, leaving the live frontier with zero
-positive gross hints and zero priority boosts. The next bottleneck is upstream:
-the four broad recurring briefs produce useful semantic research, but mostly
-`RELATED` or evidence-incomplete proposals rather than two-leg candidates that
-can enter economic qualification.
+The settlement-qualified two-leg issue is merged and live. Its deterministic
+candidate policy counts only two-ref `EQUIVALENT` proposals as hits; conflicts
+remain research evidence without becoming finding notifications.
 
-The active campaign adds a fifth durable issue, `Settlement-qualified two-leg
-parity`. It instructs cheap scouts and pi to search narrowly for two current
-binary listings with explicit settlement paths and equivalent payout claims.
-Stable-ID reconciliation adds this issue to existing durable installations
-without resetting operator-modified defaults. Its deterministic candidate
-policy counts only two-ref `EQUIVALENT` proposals as hits; conflicts remain
-research evidence without becoming finding notifications. AI still proposes;
-current contract matching, independent semantic review, fixed-point economics,
-exact simulation, and first-party verification own promotion.
+The active temporal-correctness campaign now refreshes the anonymous catalog
+on an explicit bounded cadence and coordinates refresh with issue dispatch.
+Its first live five-minute timer run captured all seven sources, 467 listings,
+and a new immutable corpus before the issue queue returned to idle. Studio
+shows refresh health, next run, source coverage, and corpus identity. Full
+Node 24 qualification and responsive browser checks passed; only serial
+publication remains.
 
 ## Deferred future campaigns
 

@@ -26,6 +26,7 @@ import type {
 import type { InvestigationDeskProjection } from "./investigation-desk.js";
 import { modelScoutWorkerId } from "./model-scout.js";
 import type { CatalogObservationProjection } from "./catalog-observation.js";
+import type { CatalogRefreshSchedulerProjection } from "./catalog-refresh-scheduler.js";
 import type { CandidateWatchProjection } from "./candidate-watch.js";
 import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import type { MarketCorpusProjection } from "./market-corpus.js";
@@ -101,6 +102,7 @@ export function buildStudioProjection(input: {
   activeRuns: number;
   catalogContext?: DiscoveryCatalogProjection;
   catalogObservation?: CatalogObservationProjection;
+  catalogRefreshScheduler?: CatalogRefreshSchedulerProjection;
   opportunityRadar?: OpportunityRadarProjection;
   marketCorpus?: MarketCorpusProjection;
   marketArchaeologist?: MarketArchaeologistProjection;
@@ -181,6 +183,29 @@ export function buildStudioProjection(input: {
     },
     sources: [],
     effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
+  const catalogRefreshScheduler = input.catalogRefreshScheduler ?? {
+    schemaVersion: "pmh.catalog-refresh-scheduler.v1" as const,
+    enabled: false,
+    status: "DISABLED" as const,
+    intervalMs: null,
+    nextRefreshAt: null,
+    lastStartedAt: null,
+    lastCompletedAt: null,
+    lastTrigger: null,
+    lastResult: null,
+    latestSnapshotIdentity: null,
+    runCount: 0,
+    readyCount: 0,
+    degradedCount: 0,
+    failedCount: 0,
+    effects: {
+      anonymousPublicGets: true as const,
+      modelCalls: false as const,
       externalWrites: false as const,
       valueMovingActions: false as const,
       liveExecutionEnabled: false as const,
@@ -594,6 +619,7 @@ export function buildStudioProjection(input: {
       activeRuns: input.activeRuns,
       catalogContext,
       catalogObservation,
+      catalogRefreshScheduler,
       opportunityRadar,
       marketCorpus,
       marketArchaeologist,
