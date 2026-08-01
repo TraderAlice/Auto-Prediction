@@ -1,6 +1,10 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { ArbitrageCertificate } from "@pmh/opportunity";
 import type { ExchangeSimulationEvidence } from "./exchange-simulator.js";
+import {
+  assertOpportunitySimulationBundle,
+  type OpportunitySimulationBundle,
+} from "./opportunity-simulation.js";
 
 export type OpportunityLifecycleState =
   | "AWAITING_SEMANTIC_REVIEW"
@@ -488,6 +492,42 @@ export class OpportunityLifecycleMachine {
         "SIMULATION_ACCEPTED",
         this.#simulationBundleHash,
         "Every exchange-model leg fully executed under bound assumptions.",
+      );
+    }
+    return this.projection();
+  }
+
+  public recordOpportunitySimulation(
+    bundleValue: OpportunitySimulationBundle,
+  ): OpportunityLifecycleProjection {
+    this.#expect("AWAITING_EXCHANGE_SIMULATION");
+    const bundle = assertOpportunitySimulationBundle(bundleValue);
+    if (bundle.opportunityId !== this.opportunityId) {
+      throw new Error("opportunity simulation bundle targets another lifecycle");
+    }
+    this.#simulationBundleHash = bundle.artifactHash;
+    if (bundle.status === "MODEL_CALIBRATION_REQUIRED") {
+      this.#state = "AWAITING_MODEL_CALIBRATION";
+      this.#append(
+        "MODEL_CALIBRATION_REQUIRED",
+        bundle.artifactHash,
+        "The complete-payout simulation includes an uncalibrated venue model.",
+      );
+    } else if (bundle.status !== "POSITIVE_SIMULATED_FLOOR") {
+      this.#state = "REJECTED_SIMULATION";
+      this.#append(
+        "SIMULATION_REJECTED",
+        bundle.artifactHash,
+        bundle.status === "INCOMPLETE_LEG_SIMULATION"
+          ? "The complete-payout portfolio could not fully execute every required leg."
+          : "The complete-payout portfolio has no positive floor after simulated fees.",
+      );
+    } else {
+      this.#state = "AWAITING_EXACT_CERTIFICATE";
+      this.#append(
+        "SIMULATION_ACCEPTED",
+        bundle.artifactHash,
+        "The complete-payout portfolio has a positive simulated floor; exact verification remains required.",
       );
     }
     return this.projection();

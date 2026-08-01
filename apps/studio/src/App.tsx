@@ -131,6 +131,33 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
   },
 };
 
+const EMPTY_RELATION_PAYOFF: StudioProjection["relationPayoff"] = {
+  schemaVersion: "pmh.relation-payoff-desk.v1",
+  qualificationCount: 0,
+  sourceDecisionCount: 0,
+  unresolvedInputCount: 0,
+  readyCount: 0,
+  blockedCount: 0,
+  qualifications: [],
+  supportedRelations: [
+    "EQUIVALENT",
+    "IMPLIES",
+    "SUBSET",
+    "MUTUALLY_EXCLUSIVE",
+    "EXHAUSTIVE",
+  ],
+  arithmetic: "SYMBOLIC_INTEGER_PAYOUT_UNITS",
+  authority: "DETERMINISTIC_RESEARCH_COMPILER",
+  verifierEligible: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"] = {
   schemaVersion: "pmh.candidate-watch.v1",
   mode: "ANONYMOUS_PUBLIC_GET",
@@ -2037,7 +2064,10 @@ function OpportunityLifecycleView() {
   const studioProjection = useStudioProjection();
   const desk = studioProjection.opportunityLifecycle;
   const semanticReview = studioProjection.ai.semanticReview;
+  const relationPayoff =
+    studioProjection.relationPayoff ?? EMPTY_RELATION_PAYOFF;
   const semanticDecisions = desk.semanticDecisions ?? [];
+  const simulationBundles = desk.simulationBundles ?? [];
   const [reviewStates, setReviewStates] = useState<
     Readonly<Record<string, "RUNNING" | "DONE" | "RESTORED" | "FAILED">>
   >({});
@@ -2181,6 +2211,21 @@ function OpportunityLifecycleView() {
             <code>{model.qualification}</code>
           </article>
         ))}
+        <article>
+          <div>
+            <Waypoints size={15} />
+            <Badge variant="verified">DETERMINISTIC</Badge>
+          </div>
+          <h2>RELATION PAYOFF COMPILER</h2>
+          <p>
+            Turns accepted binary implications and partitions into canonical
+            truth states and buy-only complete-payout templates. Related or
+            conditional semantics stay blocked.
+          </p>
+          <code>
+            {relationPayoff.supportedRelations.join(" · ")}
+          </code>
+        </article>
       </div>
 
       <div className="case-section-heading lifecycle-case-heading">
@@ -2211,6 +2256,14 @@ function OpportunityLifecycleView() {
             const reviewReport = review?.report;
             const semanticDecision = semanticDecisions.find(
               (decision) => decision.opportunityId === item.opportunityId,
+            );
+            const payoffQualification =
+              relationPayoff.qualifications.find(
+                (qualification) =>
+                  qualification.opportunityId === item.opportunityId,
+              );
+            const simulationBundle = simulationBundles.find(
+              (bundle) => bundle.opportunityId === item.opportunityId,
             );
             const reviewRunning =
               reviewStates[item.opportunityId] === "RUNNING" ||
@@ -2392,6 +2445,107 @@ function OpportunityLifecycleView() {
                         <p>{semanticDecision.rationale}</p>
                         <small>
                           LOCAL OPERATOR · RESEARCH ONLY · PRODUCTION INELIGIBLE
+                        </small>
+                      </div>
+                    )}
+                    {payoffQualification !== undefined && (
+                      <div
+                        className={`lifecycle-payoff-qualification ${
+                          payoffQualification.status ===
+                          "SIMULATION_TEMPLATE_READY"
+                            ? "is-ready"
+                            : "is-blocked"
+                        }`}
+                      >
+                        <div>
+                          <Badge
+                            variant={
+                              payoffQualification.status ===
+                              "SIMULATION_TEMPLATE_READY"
+                                ? "verified"
+                                : "warning"
+                            }
+                          >
+                            {payoffQualification.status.replaceAll("_", " ")}
+                          </Badge>
+                          <span>
+                            {payoffQualification.relationKind.replaceAll(
+                              "_",
+                              " ",
+                            )}
+                          </span>
+                          <code>
+                            {payoffQualification.artifactHash.slice(0, 23)}…
+                          </code>
+                        </div>
+                        {payoffQualification.diagnostic !== null && (
+                          <p>{payoffQualification.diagnostic}</p>
+                        )}
+                        {payoffQualification.canonicalStates.length > 0 && (
+                          <div className="lifecycle-truth-states">
+                            {payoffQualification.canonicalStates.map((state) => (
+                              <span key={state.stateId}>
+                                {state.stateId} · {Object.values(
+                                  state.truthByListingRef,
+                                )
+                                  .map((truth) => (truth ? "TRUE" : "FALSE"))
+                                  .join(" / ")}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {payoffQualification.portfolios.map((portfolio) => (
+                          <div
+                            className="lifecycle-payoff-portfolio"
+                            key={portfolio.portfolioId}
+                          >
+                            <strong>{portfolio.label}</strong>
+                            <span>
+                              floor {portfolio.minimumPayoutUnits} payout unit ·
+                              exact book simulation still required
+                            </span>
+                          </div>
+                        ))}
+                        <small>
+                          RESEARCH COMPILER · VERIFIER ELIGIBLE FALSE · NO
+                          CERTIFICATE AUTHORITY
+                        </small>
+                      </div>
+                    )}
+                    {simulationBundle !== undefined && (
+                      <div className="lifecycle-simulation-evidence">
+                        <div>
+                          <Badge
+                            variant={
+                              simulationBundle.status ===
+                              "POSITIVE_SIMULATED_FLOOR"
+                                ? "verified"
+                                : "warning"
+                            }
+                          >
+                            {simulationBundle.status.replaceAll("_", " ")}
+                          </Badge>
+                          <code>
+                            {simulationBundle.artifactHash.slice(0, 23)}…
+                          </code>
+                        </div>
+                        <div>
+                          <span>Minimum payout</span>
+                          <strong>
+                            {simulationBundle.minimumPayoutCollateral}
+                          </strong>
+                          <span>Simulated cost</span>
+                          <strong>
+                            {simulationBundle.simulatedCostCollateral}
+                          </strong>
+                          <span>Post-fee floor</span>
+                          <strong>
+                            {simulationBundle.floorAfterSimulatedFees}
+                          </strong>
+                        </div>
+                        <small>
+                          {simulationBundle.reportCount} EXACT BIGINT MODEL
+                          REPORTS · SIMULATION ONLY · CERTIFICATE AUTHORITY FALSE
                         </small>
                       </div>
                     )}

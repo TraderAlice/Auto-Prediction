@@ -34,6 +34,10 @@ import {
   type OpportunityLifecycleDeskProjection,
 } from "./opportunity-lifecycle-desk.js";
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
+import {
+  buildRelationPayoffProjection,
+  type RelationPayoffProjection,
+} from "./relation-payoff.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
 import { buildResearchCaseDesk } from "./research-case-desk.js";
@@ -88,6 +92,7 @@ export function buildStudioProjection(input: {
   marketArchaeologist?: MarketArchaeologistProjection;
   semanticReview?: SemanticReviewDeskProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
+  relationPayoff?: RelationPayoffProjection;
   modelProvider?: ModelProviderProjection;
   investigator?: PiInvestigatorProjection;
   investigationDesk?: InvestigationDeskProjection;
@@ -357,7 +362,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 244,
+      proofTests: 256,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -398,6 +403,8 @@ export function buildStudioProjection(input: {
     bookDesk,
     opportunityLifecycle:
       input.opportunityLifecycle ?? new OpportunityLifecycleDesk().projection(),
+    relationPayoff:
+      input.relationPayoff ?? buildRelationPayoffProjection([]),
     qualification: {
       replayChaos,
       campaignEvidence: buildCampaignEvidence(bookDesk, replayChaos),

@@ -1,7 +1,9 @@
 import type { RealCandidateDispositionEvidence } from "@pmh/evidence";
 import {
   assertOpportunityLifecycleProjection,
+  assertOpportunitySimulationBundle,
   OpportunityLifecycleMachine,
+  type OpportunitySimulationBundle,
   type OpportunityLifecyclePolicy,
   type OpportunityLifecycleProjection,
   type OpportunityLifecycleState,
@@ -22,6 +24,24 @@ const DEFAULT_POLICY: OpportunityLifecyclePolicy = Object.freeze({
   notificationChannel: "IN_APP_ONLY",
   liveExecutionEnabled: false,
 });
+
+export type OpportunitySimulationSummary = Readonly<{
+  artifactHash: Hash;
+  opportunityId: string;
+  relationConstraintHash: Hash;
+  semanticDecisionId: Hash;
+  portfolioId: Hash;
+  status: OpportunitySimulationBundle["status"];
+  reportCount: number;
+  models: readonly OpportunitySimulationBundle["reports"][number]["model"][];
+  minimumPayoutCollateral: string;
+  simulatedCostCollateral: string;
+  floorAfterSimulatedFees: string;
+  authority: "SIMULATION_ONLY";
+  verifierEligible: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+}>;
 
 export type OpportunityLifecycleDeskProjection = Readonly<{
   schemaVersion: "pmh.opportunity-lifecycle-desk.v1";
@@ -48,6 +68,7 @@ export type OpportunityLifecycleDeskProjection = Readonly<{
   }>[];
   cases: readonly OpportunityLifecycleProjection[];
   semanticDecisions: readonly ResearchSemanticDecision[];
+  simulationBundles: readonly OpportunitySimulationSummary[];
   effects: Readonly<{
     externalMessagesSent: false;
     liveOrdersPlaced: false;
@@ -83,6 +104,7 @@ export type OpportunityLifecycleJournal = Readonly<{
   updatedAt: string;
   lifecycle: OpportunityLifecycleProjection;
   semanticDecisions: readonly ResearchSemanticDecision[];
+  simulationBundles?: readonly OpportunitySimulationBundle[];
 }>;
 
 export interface OpportunityLifecycleJournalStore {
@@ -173,6 +195,32 @@ export function assertOpportunityLifecycleJournal(
       throw new Error("lifecycle journal does not bind its semantic decision");
     }
   }
+  const simulationBundles = journal.simulationBundles ?? [];
+  if (
+    !Array.isArray(simulationBundles) ||
+    simulationBundles.length > 20 ||
+    new Set(simulationBundles.map((item) => item.artifactHash)).size !==
+      simulationBundles.length
+  ) {
+    throw new Error("lifecycle journal simulation history is malformed");
+  }
+  for (const bundle of simulationBundles) {
+    assertOpportunitySimulationBundle(bundle);
+    if (
+      bundle.opportunityId !== journal.opportunityId ||
+      !lifecycle.events.some(
+        (event) =>
+          event.artifactHash === bundle.artifactHash &&
+          [
+            "SIMULATION_ACCEPTED",
+            "SIMULATION_REJECTED",
+            "MODEL_CALIBRATION_REQUIRED",
+          ].includes(event.kind),
+      )
+    ) {
+      throw new Error("lifecycle journal does not bind its simulation bundle");
+    }
+  }
   const { artifactHash, ...body } = journal;
   if (artifactHash !== hashCanonical(body)) {
     throw new Error("opportunity lifecycle journal identity mismatch");
@@ -183,6 +231,7 @@ export function assertOpportunityLifecycleJournal(
 type LifecycleEntry = {
   machine: OpportunityLifecycleMachine;
   decisions: ResearchSemanticDecision[];
+  simulationBundles: OpportunitySimulationBundle[];
 };
 
 export class OpportunityLifecycleDesk {
@@ -211,6 +260,7 @@ export class OpportunityLifecycleDesk {
           this.now,
         ),
         decisions: [...validated.semanticDecisions],
+        simulationBundles: [...(validated.simulationBundles ?? [])],
       });
     }
   }
@@ -240,6 +290,7 @@ export class OpportunityLifecycleDesk {
             },
           ),
           decisions: [],
+          simulationBundles: [],
         };
         this.#entries.set(opportunityId, entry);
         this.#persist(entry);
@@ -264,7 +315,7 @@ export class OpportunityLifecycleDesk {
       disposition.artifactHash,
       disposition.rejectionReasons.map((reason) => reason.detail).join(" "),
     );
-    const entry = { machine, decisions: [] };
+    const entry = { machine, decisions: [], simulationBundles: [] };
     this.#entries.set(opportunityId, entry);
     this.#persist(entry);
   }
@@ -333,6 +384,25 @@ export class OpportunityLifecycleDesk {
     return projection;
   }
 
+  public recordOpportunitySimulation(
+    opportunityId: string,
+    bundleValue: OpportunitySimulationBundle,
+  ): OpportunityLifecycleProjection {
+    const entry = this.#entries.get(opportunityId);
+    const bundle = assertOpportunitySimulationBundle(bundleValue);
+    if (
+      entry === undefined ||
+      bundle.opportunityId !== opportunityId ||
+      entry.simulationBundles.length > 0
+    ) {
+      throw new Error("opportunity simulation input is invalid or stale");
+    }
+    const projection = entry.machine.recordOpportunitySimulation(bundle);
+    entry.simulationBundles.push(bundle);
+    this.#persist(entry);
+    return projection;
+  }
+
   #journal(entry: LifecycleEntry): OpportunityLifecycleJournal {
     const lifecycle = entry.machine.projection();
     const body = Object.freeze({
@@ -341,6 +411,7 @@ export class OpportunityLifecycleDesk {
       updatedAt: lifecycle.events.at(-1)!.occurredAt,
       lifecycle,
       semanticDecisions: Object.freeze([...entry.decisions]),
+      simulationBundles: Object.freeze([...entry.simulationBundles]),
     });
     return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
   }
@@ -420,6 +491,35 @@ export class OpportunityLifecycleDesk {
         [...this.#entries.values()]
           .flatMap((entry) => entry.decisions)
           .sort((left, right) => right.decidedAt.localeCompare(left.decidedAt)),
+      ),
+      simulationBundles: Object.freeze(
+        [...this.#entries.values()]
+          .flatMap((entry) => entry.simulationBundles)
+          .sort((left, right) =>
+            left.opportunityId.localeCompare(right.opportunityId),
+          )
+          .map((bundle) =>
+            Object.freeze({
+              artifactHash: bundle.artifactHash,
+              opportunityId: bundle.opportunityId,
+              relationConstraintHash: bundle.relationConstraintHash,
+              semanticDecisionId: bundle.semanticDecisionId,
+              portfolioId: bundle.portfolioId,
+              status: bundle.status,
+              reportCount: bundle.reports.length,
+              models: Object.freeze(bundle.reports.map((report) => report.model)),
+              minimumPayoutCollateral:
+                bundle.minimumPayoutCollateral.toString(),
+              simulatedCostCollateral:
+                bundle.simulatedCostCollateral.toString(),
+              floorAfterSimulatedFees:
+                bundle.floorAfterSimulatedFees.toString(),
+              authority: "SIMULATION_ONLY" as const,
+              verifierEligible: false as const,
+              certificateAuthority: false as const,
+              executionAuthority: false as const,
+            }),
+          ),
       ),
       effects: Object.freeze({
         externalMessagesSent: false as const,

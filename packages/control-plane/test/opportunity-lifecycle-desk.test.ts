@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
+import { runOpportunitySimulation } from "@pmh/execution";
 import {
   OpportunityLifecycleDesk,
   RealCandidatePreflightDesk,
@@ -194,14 +195,59 @@ describe("opportunity lifecycle desk", () => {
       productionPromotionEligible: false,
       executionAuthority: false,
     });
+    const simulation = runOpportunitySimulation({
+      schemaVersion: "pmh.opportunity-simulation-plan.v1",
+      opportunityId,
+      relationConstraintHash: hashCanonical({ relation: "EQUIVALENT" }),
+      semanticDecisionId: decision.decisionId,
+      portfolioId: hashCanonical({ portfolio: "opposites" }),
+      canonicalStates: [
+        { stateId: "FF", winningLegIds: ["right-false"] },
+        { stateId: "TT", winningLegIds: ["left-true"] },
+      ],
+      legs: [
+        ["left-true", "venue-a", 400n],
+        ["right-false", "venue-b", 450n],
+      ].map(([legId, venueId, price]) => ({
+        legId: String(legId),
+        payoutPerWinningUnit: 1_000n,
+        request: {
+          model: "CLOB_TAKER_V1" as const,
+          venueId: String(venueId),
+          instrumentId: `${venueId}:outcome`,
+          side: "BUY" as const,
+          fillPolicy: "FILL_OR_KILL" as const,
+          requestedQuantity: 1_000n,
+          quantityScale: 1_000n,
+          collateralScale: 1_000n,
+          levels: [
+            {
+              price: BigInt(price),
+              quantity: 1_000n,
+              levelIdentity: hashCanonical({ venueId, price }),
+            },
+          ],
+          fee: {
+            rate: 0n,
+            rateScale: 10_000n,
+            flat: 0n,
+            scheduleHash: hashCanonical({ venueId, fee: 0 }),
+          },
+          bookStateHash: hashCanonical({ venueId, book: 1 }),
+          observedAtEpochMs: 1_785_523_200_000n,
+        },
+      })),
+    });
+    first.recordOpportunitySimulation(opportunityId, simulation);
     expect(first.projection()).toMatchObject({
       storage: { mode: "MEMORY", schemaVersion: 7 },
       semanticDecisions: [{ decisionId: decision.decisionId }],
+      simulationBundles: [{ artifactHash: simulation.artifactHash }],
       cases: [
         {
           opportunityId,
-          state: "AWAITING_EXCHANGE_SIMULATION",
-          nextAction: "RUN_EXCHANGE_SIMULATION",
+          state: "AWAITING_EXACT_CERTIFICATE",
+          nextAction: "RUN_EXACT_VERIFIER",
         },
       ],
     });
