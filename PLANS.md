@@ -1,6 +1,7 @@
 # Plans
 
-`plans/ai-native-market-archaeologist.md` is the active execution plan.
+`plans/opportunity-lifecycle-simulation.md` is the active execution plan.
+`plans/ai-native-market-archaeologist.md` is the completed discovery baseline.
 `plans/architecture-qualification.md` remains the completed qualification
 ledger and supplies the safety/evidence baseline for the new campaign.
 
@@ -8,9 +9,9 @@ ledger and supplies the safety/evidence baseline for the new campaign.
 
 Architecture Qualification, pre-alpha. The work starts with venue reality and domain truth, then advances through exact verification, deterministic market state, shadow execution, and liquidity export.
 
-The current checkpoint turns discovery inside out: AI owns semantic search over
-a content-addressed market corpus; deterministic code owns acquisition,
-evidence, validation, exact economics, risk, and certification.
+The current checkpoint connects AI-native discovery to a deterministic product
+lifecycle. AI owns semantic search; exact exchange models, independent review,
+the verifier, routing policy, and shadow execution own every promotion step.
 
 ## Stable decisions
 
@@ -105,4 +106,8 @@ evidence, validation, exact economics, risk, and certification.
 - 2026-08-01: Discovery becomes AI-native rather than pair-generator-led. Fresh eligible observations form content-addressed `pmh.market-corpus.v1`; bounded literal/regex search and an ephemeral MarketFS give pi the complete public corpus through read/find/grep/list only. Radar remains an optional low-cost blocking aid, not the primary entry path.
 - 2026-08-01: A real 314-listing, six-source BTC-trailhead run recursively searches MarketFS and publishes five UNREVIEWED relationships under `sha256:3faec2c7…26f1`. It rejects equivalence and identifies strict Pyth `>` versus inclusive Chainlink `>=`, window, source, and outage/void differences; no review, certificate, value movement, or execution occurs.
 - 2026-08-01: The Market Archaeologist checkpoint expands to 224 passing tests plus full typecheck and production build. Desktop/430px Browser inspection catches and fixes long-listingRef grid overflow and low-contrast auxiliary text; both layouts finish with no console errors or horizontal overflow.
+- 2026-08-01: Operational schema v6 durably retains completed Market Archaeologist runs by `runId`. Startup revalidates record, report, proposal, and content identities; the real five-proposal report `sha256:3faec2c7…26f1` now survives control-plane restart.
+- 2026-08-01: Exact bigint exchange simulation adds CLOB taker book walks with FOK/IOC and a generic constant-product AMM model. The lifecycle accepts only content-valid full simulations, stops generic AMMs for venue calibration, and requires a positive unexpired first-party exact certificate before product routing.
+- 2026-08-01: A shared opportunity lifecycle projects five real AI proposals at independent semantic review and the real deterministic three-venue lead at `REJECTED_PREFLIGHT`. Post-certificate policy is explicit—notify, human-approved shadow, or automatic shadow—and no live route exists.
+- 2026-08-01: Lifecycle simulation expands the Node.js 24 checkpoint to 238 passing tests plus full typecheck and production build. The real SQLite-backed Studio page passes desktop and 430px inspection with `scrollWidth === clientWidth` at both widths.
 - 2026-08-01: Studio renders previous → changed book → current lineage with clean desktop/430px layouts and no runtime errors or horizontal overflow. The Node.js 24.14.0 checkpoint expands to 201 passing tests plus full typecheck and production build.

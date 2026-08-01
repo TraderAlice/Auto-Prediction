@@ -29,6 +29,10 @@ import type { CandidateWatchProjection } from "./candidate-watch.js";
 import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import type { MarketCorpusProjection } from "./market-corpus.js";
 import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
+import {
+  OpportunityLifecycleDesk,
+  type OpportunityLifecycleDeskProjection,
+} from "./opportunity-lifecycle-desk.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
 import { buildResearchCaseDesk } from "./research-case-desk.js";
@@ -81,6 +85,7 @@ export function buildStudioProjection(input: {
   opportunityRadar?: OpportunityRadarProjection;
   marketCorpus?: MarketCorpusProjection;
   marketArchaeologist?: MarketArchaeologistProjection;
+  opportunityLifecycle?: OpportunityLifecycleDeskProjection;
   modelProvider?: ModelProviderProjection;
   investigator?: PiInvestigatorProjection;
   investigationDesk?: InvestigationDeskProjection;
@@ -205,6 +210,12 @@ export function buildStudioProjection(input: {
     passCount: 0,
     failedCount: 0,
     retentionLimit: 10,
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "runId" as const,
+    },
     scheduler: {
       enabled: false,
       intervalMs: null,
@@ -320,7 +331,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 224,
+      proofTests: 238,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -358,6 +369,8 @@ export function buildStudioProjection(input: {
         "AI proposes only; independent exact verification is the sole certificate authority.",
     },
     bookDesk,
+    opportunityLifecycle:
+      input.opportunityLifecycle ?? new OpportunityLifecycleDesk().projection(),
     qualification: {
       replayChaos,
       campaignEvidence: buildCampaignEvidence(bookDesk, replayChaos),

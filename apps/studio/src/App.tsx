@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils";
 type View =
   | "overview"
   | "archaeologist"
+  | "lifecycle"
   | "radar"
   | "preflight"
   | "scouts"
@@ -109,6 +110,12 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
   passCount: 0,
   failedCount: 0,
   retentionLimit: 10,
+  storage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "runId",
+  },
   scheduler: {
     enabled: false,
     intervalMs: null,
@@ -164,6 +171,7 @@ const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"]
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "archaeologist", label: "Market archaeologist", icon: Search },
+  { id: "lifecycle", label: "Opportunity lifecycle", icon: GitBranch },
   { id: "radar", label: "Opportunity radar", icon: Radar },
   { id: "preflight", label: "Candidate preflight", icon: FileCheck2 },
   { id: "scouts", label: "Scout inbox", icon: Inbox },
@@ -1932,6 +1940,156 @@ function MarketArchaeologistView() {
           Agent relationships are search proposals only. Independent semantic
           review, exact payoff compilation, fee/depth checks, and the verifier
           remain separate mandatory gates; execution is unavailable.
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function OpportunityLifecycleView() {
+  const studioProjection = useStudioProjection();
+  const desk = studioProjection.opportunityLifecycle;
+  const proposals = new Map(
+    studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
+      (record.report?.result.proposals ?? []).map((proposal) => [
+        proposal.proposalId,
+        proposal,
+      ] as const),
+    ),
+  );
+  const awaiting = desk.cases.filter((item) => item.nextAction !== "NONE").length;
+  const rejected = desk.cases.filter((item) =>
+    item.state.startsWith("REJECTED"),
+  ).length;
+
+  return (
+    <section className="page-section lifecycle-page">
+      <div className="page-heading lifecycle-heading">
+        <div>
+          <span className="eyebrow">AI discovery · deterministic promotion</span>
+          <h1>Opportunity lifecycle</h1>
+          <p>
+            Subjective agents discover relationships. Every promotion after that
+            is artifact-bound: semantic review, venue simulation, exact
+            verification, then a product route that can stop at notification or
+            shadow execution.
+          </p>
+        </div>
+        <div className="archaeology-heading-badges">
+          <Badge variant="shadow">DEFAULT · HUMAN APPROVAL</Badge>
+          <Badge variant="warning">LIVE ROUTE ABSENT</Badge>
+        </div>
+      </div>
+
+      <div className="radar-summary-grid lifecycle-summary-grid">
+        <Metric label="Tracked cases" value={`${desk.caseCount}`} detail="AI + deterministic leads" />
+        <Metric label="Awaiting work" value={`${awaiting}`} detail="explicit next action" />
+        <Metric label="Rejected early" value={`${rejected}`} detail="no review budget wasted" />
+        <Metric label="Exchange models" value={`${desk.exchangeModels.length}`} detail="bigint fixed-point" />
+      </div>
+
+      <div className="lifecycle-flow" aria-label="Opportunity promotion flow">
+        {[
+          ["Discover", "AI proposes relations"],
+          ["Review", "independent semantics"],
+          ["Simulate", "venue microstructure"],
+          ["Certify", "first-party verifier"],
+          ["Route", "notify or shadow"],
+        ].map(([title, detail], index) => (
+          <div className="lifecycle-flow-node" key={title}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <strong>{title}</strong>
+            <small>{detail}</small>
+          </div>
+        ))}
+      </div>
+
+      <div className="lifecycle-model-grid">
+        {desk.exchangeModels.map((model) => (
+          <article key={model.model}>
+            <div>
+              <Database size={15} />
+              <Badge variant={model.model === "CLOB_TAKER_V1" ? "verified" : "warning"}>
+                {model.model === "CLOB_TAKER_V1" ? "QUALIFIED" : "CALIBRATE"}
+              </Badge>
+            </div>
+            <h2>{model.model.replaceAll("_", " ")}</h2>
+            <p>
+              {model.model === "CLOB_TAKER_V1"
+                ? "Walks bound book levels best-first with exact FOK/IOC, fees, rounding, and adverse-impact evidence."
+                : "Explores x·y=k behavior exactly, but cannot promote until a venue-specific contract and fee model are calibrated."}
+            </p>
+            <code>{model.qualification}</code>
+          </article>
+        ))}
+      </div>
+
+      <div className="case-section-heading lifecycle-case-heading">
+        <div>
+          <Waypoints size={16} />
+          <div>
+            <span className="eyebrow">One queue · explicit authority</span>
+            <h2>Lifecycle cases</h2>
+          </div>
+        </div>
+        <code>{desk.defaultPolicy.routeAfterCertificate}</code>
+      </div>
+
+      {desk.cases.length === 0 ? (
+        <div className="radar-empty">
+          <GitBranch size={28} />
+          <strong>No opportunity has entered the lifecycle</strong>
+          <span>Run market archaeology or load a deterministic screen.</span>
+        </div>
+      ) : (
+        <div className="lifecycle-case-list">
+          {desk.cases.map((item) => {
+            const proposal = proposals.get(item.discoveryArtifactHash);
+            const latest = item.events.at(-1);
+            return (
+              <article key={item.opportunityId}>
+                <div className="lifecycle-case-topline">
+                  <Badge variant={item.state.startsWith("REJECTED") ? "warning" : "shadow"}>
+                    {item.state.replaceAll("_", " ")}
+                  </Badge>
+                  <span>{item.discoveryKind.replaceAll("_", " ")}</span>
+                  <code>{item.discoveryArtifactHash.slice(0, 23)}…</code>
+                </div>
+                <h3>{proposal?.statement ?? "Bound real-candidate economic screen"}</h3>
+                <p>{latest?.detail ?? "Waiting for lifecycle evidence."}</p>
+                <div className="lifecycle-case-next">
+                  <div>
+                    <Activity size={14} />
+                    <span>Next action</span>
+                    <strong>{item.nextAction.replaceAll("_", " ")}</strong>
+                  </div>
+                  <small>{item.events.length} hash-bound event{item.events.length === 1 ? "" : "s"}</small>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="lifecycle-route-grid">
+        {desk.routes.map((route) => (
+          <div key={route.policy}>
+            <Badge variant={route.humanDecisionRequired ? "shadow" : "muted"}>
+              {route.policy.replaceAll("_", " ")}
+            </Badge>
+            <strong>{route.terminalAuthority.replaceAll("_", " ")}</strong>
+            <span>{route.humanDecisionRequired ? "operator gate required" : "policy may route automatically"}</span>
+            <small>LIVE EXECUTION · UNAVAILABLE</small>
+          </div>
+        ))}
+      </div>
+
+      <div className="case-authority-lock lifecycle-authority-lock">
+        <CircleOff size={15} />
+        <span>
+          AI can create search leads but never certificates. Human approval in
+          this lifecycle authorizes shadow execution only; no production order
+          gateway exists in this product surface.
         </span>
       </div>
     </section>
@@ -3883,6 +4041,7 @@ function StudioShell() {
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
           {view === "archaeologist" && <MarketArchaeologistView />}
+          {view === "lifecycle" && <OpportunityLifecycleView />}
           {view === "radar" && <OpportunityRadarView />}
           {view === "preflight" && <RealCandidatePreflightView />}
           {view === "scouts" && <ScoutInboxView />}

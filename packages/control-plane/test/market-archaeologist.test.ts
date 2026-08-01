@@ -1,4 +1,7 @@
-import { access, readFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
@@ -8,6 +11,7 @@ import {
   type PiProcessRequest,
   type PiProcessRunner,
 } from "../src/index.js";
+import { SqliteOperationalStore } from "../src/operational-store.js";
 
 const secret = "test-only-deepseek-key";
 
@@ -150,6 +154,93 @@ describe("Market Archaeologist", () => {
       changedCorpusOnly: true,
     });
     expect(enabled.shouldSchedule(snapshot)).toBe(true);
+  });
+
+  it("restores content-verified reports and run idempotency from SQLite", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-archaeologist-store-"));
+    const path = join(directory, "control-plane.sqlite");
+    const runner: PiProcessRunner = async () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        summary: "The platform-specific event may imply the broad event.",
+        proposals: [
+          {
+            relationKind: "IMPLIES",
+            listingRefs: [
+              "venue-b:august-pizza-youtube",
+              "venue-a:august-pizza",
+            ],
+            statement: "The YouTube event implies the broad live event.",
+            rationale: "The named platform is a narrower delivery channel.",
+            falsifiers: ["The broad rule excludes YouTube."],
+          },
+        ],
+        missingEvidence: ["Independent exact rule review."],
+      }),
+      stderr: "",
+      timedOut: false,
+      outputLimitExceeded: false,
+    });
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstDesk = createMarketArchaeologistDesk(
+        { DEEPSEEK_API_KEY: secret },
+        { runner, store: firstStore },
+      );
+      const first = await firstDesk.begin(snapshot, "Durable search").promise;
+      expect(first.status).toBe("PASS");
+      expect(firstDesk.projection().storage).toMatchObject({
+        mode: "SQLITE_WAL",
+        durable: true,
+        schemaVersion: 6,
+        idempotencyKey: "runId",
+      });
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const restored = createMarketArchaeologistDesk(
+        { DEEPSEEK_API_KEY: secret },
+        {
+          runner: async () => {
+            throw new Error("durable replay must not invoke pi");
+          },
+          store: secondStore,
+        },
+      );
+      expect(restored.projection()).toMatchObject({
+        runCount: 1,
+        passCount: 1,
+        records: [{ runId: first.runId, status: "PASS" }],
+      });
+      const replay = restored.begin(snapshot, "Durable search");
+      expect(replay.idempotentReplay).toBe(true);
+      expect((await replay.promise).runId).toBe(first.runId);
+      secondStore.close();
+
+      const tamper = new DatabaseSync(path);
+      tamper
+        .prepare(
+          `UPDATE market_archaeologist_records
+           SET record_json = json_set(
+             record_json,
+             '$.report.result.summary',
+             'substituted summary'
+           )
+           WHERE run_id = ?`,
+        )
+        .run(first.runId);
+      tamper.close();
+      const tamperedStore = new SqliteOperationalStore(path);
+      expect(() =>
+        createMarketArchaeologistDesk(
+          { DEEPSEEK_API_KEY: secret },
+          { runner, store: tamperedStore },
+        ),
+      ).toThrow(/report identity mismatch|record identity mismatch/);
+      tamperedStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("fails closed without a key and rejects out-of-corpus proposals", async () => {

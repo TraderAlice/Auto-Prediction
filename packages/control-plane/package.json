@@ -21,6 +21,7 @@
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@pmh/domain": "workspace:*",
     "@pmh/evidence": "workspace:*",
+    "@pmh/execution": "workspace:*",
     "@pmh/market-state": "workspace:*",
     "@pmh/opportunity": "workspace:*",
     "@pmh/protocol": "workspace:*",

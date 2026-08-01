@@ -1,6 +1,6 @@
 # AI-native Market Archaeologist Campaign
 
-Status: active
+Status: completed
 Started: 2026-08-01
 
 ## Outcome
