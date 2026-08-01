@@ -174,6 +174,39 @@ refs, novelty signature, duplicate/predecessor links, proposal IDs, evidence
 gaps, and outcome counts. It explicitly records that chain-of-thought and
 per-tool execution traces are not stored.
 
+## Issue-driven scheduling and notifications
+
+SQLite schema v10 adds durable `pmh.search-issue.v1` intent records and
+`pmh.search-notification.v1` inbox records. An issue is a long-lived search
+brief—not a model run. It binds a human-readable title and question, one search
+lens, optional venue scope, cadence, priority, enable state, next-run time, and
+run counters. Four first-party defaults cover equivalence, implication,
+partitions, and mechanism conflicts. Operators can create, pause, resume, and
+run issues through Studio or the `/api/v1/search-issues` HTTP surface.
+
+`SearchIssueScheduler` polls the queue only when
+`PMH_SEARCH_ISSUE_TICK_MS=1000..60000`. Due work is ordered by priority, then
+scheduled time and issue identity, and fills at most three concurrent slots.
+Concurrency is across issues; the same issue coalesces while active. Its lease
+ID binds issue ID, immutable corpus identity, and lens, so a repeated issue on
+the same snapshot restores the terminal result without incrementing counters
+or spending either AI lane again. The underlying lease and pi desks enforce the
+same three-slot bound rather than trusting the outer scheduler alone.
+
+An `ISSUED` lease is recovery work and becomes immediately due after restart,
+even when the issue's normal cadence is still in the future. It resumes only
+against the exact same corpus snapshot. If that snapshot is no longer the
+current recoverable corpus, the old immutable lease closes as a visible failure
+and the issue immediately starts a new lease against current evidence; the
+scheduler never substitutes a newer corpus inside an older lease.
+
+Only a new grounded candidate signature or a failed lease enters the Finding
+Inbox. Candidate notification identity is global to the signature, so two
+concurrent lenses discovering the same structure create one alert. Empty and
+duplicate scans remain visible in issue counters and lease history but do not
+notify. Acknowledgement changes only inbox read state; it grants no semantic,
+certificate, promotion, or execution authority.
+
 All lease surfaces reconstruct `PROPOSE_ONLY`, false semantic-decision,
 certificate, and execution authority, and literal-false external-write,
 value-moving, and live-execution effects. Novel deep proposals enter the

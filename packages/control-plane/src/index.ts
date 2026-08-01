@@ -28,6 +28,7 @@ export * from "./research-case-desk.js";
 export * from "./semantic-review.js";
 export * from "./semantic-relation-graph.js";
 export * from "./search-lease-scheduler.js";
+export * from "./search-issue-scheduler.js";
 export * from "./relation-payoff.js";
 export * from "./simulation-intake.js";
 export * from "./server.js";

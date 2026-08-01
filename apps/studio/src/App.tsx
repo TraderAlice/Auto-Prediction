@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import {
   Activity,
   BadgeCheck,
+  Bell,
   BookOpenCheck,
   Boxes,
   Braces,
   ChevronRight,
   CircleOff,
+  Clock3,
   Command,
   Database,
   FileCheck2,
@@ -19,7 +21,9 @@ import {
   Menu,
   Network,
   PanelRightClose,
+  Pause,
   Play,
+  Plus,
   Radar,
   Radio,
   RefreshCw,
@@ -58,6 +62,7 @@ type View =
 type Opportunity = StudioProjection["opportunities"][number];
 type ResearchCase = StudioProjection["ai"]["researchDesk"]["cases"][number];
 type RadarCandidate = StudioProjection["ai"]["opportunityRadar"]["candidates"][number];
+type SearchIssue = StudioProjection["ai"]["searchIssueScheduler"]["issues"][number];
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 
 const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
@@ -131,6 +136,8 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
   configured: false,
   model: "deepseek-v4-flash",
   status: "NEEDS_KEY",
+  activeCount: 0,
+  concurrencyLimit: 1,
   runCount: 0,
   passCount: 0,
   failedCount: 0,
@@ -162,6 +169,8 @@ const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler
   enabled: false,
   configured: { fastLane: true, deepLane: false },
   status: "IDLE",
+  activeCount: 0,
+  concurrencyLimit: 1,
   intervalMs: null,
   retentionLimit: 40,
   lensOrder: ["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"],
@@ -193,6 +202,30 @@ const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler
     valueMovingActions: false,
     liveExecutionEnabled: false,
   },
+};
+
+const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler"] = {
+  schemaVersion: "pmh.search-issue-scheduler.v1",
+  enabled: false,
+  status: "IDLE",
+  tickIntervalMs: null,
+  concurrencyLimit: 3,
+  activeCount: 0,
+  issueCount: 0,
+  enabledIssueCount: 0,
+  dueIssueCount: 0,
+  unreadNotificationCount: 0,
+  issues: [],
+  notifications: [],
+  storage: {
+    issues: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "issueId" },
+    notifications: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "notificationId" },
+  },
+  authority: "PROPOSE_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
 };
 
 const EMPTY_SEMANTIC_RELATION_GRAPH: StudioProjection["ai"]["semanticRelationGraph"] = {
@@ -544,6 +577,71 @@ async function requestSearchLease(): Promise<boolean> {
     throw new Error("search lease crossed its authority boundary");
   }
   return result.idempotentReplay === true;
+}
+
+async function requestCreateSearchIssue(input: Readonly<{
+  title: string;
+  question: string;
+  lens: SearchIssue["lens"];
+  cadenceMs: number;
+}>): Promise<void> {
+  const response = await fetch("/api/v1/search-issues", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const result = (await response.json()) as { diagnostic?: string; issueId?: string };
+  if (!response.ok || result.issueId === undefined) {
+    throw new Error(result.diagnostic ?? "search issue creation failed");
+  }
+}
+
+async function requestSearchIssueRun(issueId: string): Promise<boolean> {
+  const response = await fetch(`/api/v1/search-issues/${issueId}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    status?: string;
+    idempotentReplay?: boolean;
+    semanticDecisionAuthority?: boolean;
+    certificateAuthority?: boolean;
+    executionAuthority?: boolean;
+    effects?: { valueMovingActions?: boolean; liveExecutionEnabled?: boolean };
+  };
+  if (!response.ok) throw new Error(result.diagnostic ?? "search issue run failed");
+  if (
+    result.status !== "PASS" ||
+    result.semanticDecisionAuthority !== false ||
+    result.certificateAuthority !== false ||
+    result.executionAuthority !== false ||
+    result.effects?.valueMovingActions !== false ||
+    result.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("search issue run crossed its authority boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
+async function requestSearchIssueEnabled(issueId: string, enabled: boolean): Promise<void> {
+  const response = await fetch(`/api/v1/search-issues/${issueId}/enabled`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  const result = (await response.json()) as { diagnostic?: string };
+  if (!response.ok) throw new Error(result.diagnostic ?? "search issue update failed");
+}
+
+async function requestNotificationAcknowledgement(notificationId: string): Promise<void> {
+  const response = await fetch(
+    `/api/v1/search-notifications/${notificationId}/acknowledgements`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+  );
+  const result = (await response.json()) as { diagnostic?: string };
+  if (!response.ok) throw new Error(result.diagnostic ?? "notification acknowledgement failed");
 }
 
 async function requestSemanticReview(opportunityId: string): Promise<boolean> {
@@ -2179,6 +2277,8 @@ function MarketArchaeologistView() {
     studioProjection.ai.marketArchaeologist ?? EMPTY_MARKET_ARCHAEOLOGIST;
   const scheduler =
     studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
+  const issueScheduler =
+    studioProjection.ai.searchIssueScheduler ?? EMPTY_SEARCH_ISSUE_SCHEDULER;
   const graph =
     studioProjection.ai.semanticRelationGraph ?? EMPTY_SEMANTIC_RELATION_GRAPH;
   const [question, setQuestion] = useState(
@@ -2192,6 +2292,12 @@ function MarketArchaeologistView() {
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
   const [leaseDiagnostic, setLeaseDiagnostic] = useState<string | null>(null);
+  const [issueAction, setIssueAction] = useState<string | null>(null);
+  const [issueDiagnostic, setIssueDiagnostic] = useState<string | null>(null);
+  const [newIssueTitle, setNewIssueTitle] = useState("");
+  const [newIssueQuestion, setNewIssueQuestion] = useState("");
+  const [newIssueLens, setNewIssueLens] = useState<SearchIssue["lens"]>("EQUIVALENCE");
+  const [newIssueCadenceMinutes, setNewIssueCadenceMinutes] = useState(15);
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
@@ -2227,6 +2333,62 @@ function MarketArchaeologistView() {
     }
   }
 
+  async function createIssue(): Promise<void> {
+    setIssueAction("CREATE");
+    setIssueDiagnostic(null);
+    try {
+      await requestCreateSearchIssue({
+        title: newIssueTitle,
+        question: newIssueQuestion,
+        lens: newIssueLens,
+        cadenceMs: newIssueCadenceMinutes * 60_000,
+      });
+      setNewIssueTitle("");
+      setNewIssueQuestion("");
+    } catch (error) {
+      setIssueDiagnostic(error instanceof Error ? error.message : "search issue creation failed");
+    } finally {
+      setIssueAction(null);
+    }
+  }
+
+  async function runIssue(issueId: string): Promise<void> {
+    setIssueAction(`RUN:${issueId}`);
+    setIssueDiagnostic(null);
+    try {
+      const restored = await requestSearchIssueRun(issueId);
+      if (restored) setIssueDiagnostic("The same issue and corpus snapshot already ran; its retained lease was restored.");
+    } catch (error) {
+      setIssueDiagnostic(error instanceof Error ? error.message : "search issue run failed");
+    } finally {
+      setIssueAction(null);
+    }
+  }
+
+  async function toggleIssue(issue: SearchIssue): Promise<void> {
+    setIssueAction(`TOGGLE:${issue.issueId}`);
+    setIssueDiagnostic(null);
+    try {
+      await requestSearchIssueEnabled(issue.issueId, !issue.enabled);
+    } catch (error) {
+      setIssueDiagnostic(error instanceof Error ? error.message : "search issue update failed");
+    } finally {
+      setIssueAction(null);
+    }
+  }
+
+  async function acknowledgeNotification(notificationId: string): Promise<void> {
+    setIssueAction(`ACK:${notificationId}`);
+    setIssueDiagnostic(null);
+    try {
+      await requestNotificationAcknowledgement(notificationId);
+    } catch (error) {
+      setIssueDiagnostic(error instanceof Error ? error.message : "notification acknowledgement failed");
+    } finally {
+      setIssueAction(null);
+    }
+  }
+
   return (
     <section className="page-section archaeology-page">
       <div className="page-heading archaeology-heading">
@@ -2259,9 +2421,9 @@ function MarketArchaeologistView() {
           detail={`${corpus.excludedSourceCount} excluded by freshness`}
         />
         <Metric
-          label="Search leases"
-          value={`${scheduler.runCount}`}
-          detail={`${scheduler.duplicateCount} duplicates linked`}
+          label="Search issues"
+          value={`${issueScheduler.enabledIssueCount}`}
+          detail={`${issueScheduler.activeCount}/${issueScheduler.concurrencyLimit} agents running`}
         />
         <Metric
           label="Semantic graph"
@@ -2269,6 +2431,149 @@ function MarketArchaeologistView() {
           detail={`${graph.feedbackCount} empirical outcomes`}
         />
       </div>
+
+      <Card className="issue-scheduler-console">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Durable issue queue · concurrent bounded agents</span>
+            <h2>Scheduled search desk</h2>
+          </div>
+          <div className="issue-scheduler-badges">
+            <Badge variant={issueScheduler.enabled ? "shadow" : "muted"}>
+              <Clock3 size={11} /> TIMER {issueScheduler.enabled ? "ON" : "OFF"}
+            </Badge>
+            <Badge variant={issueScheduler.unreadNotificationCount > 0 ? "warning" : "muted"}>
+              <Bell size={11} /> {issueScheduler.unreadNotificationCount} UNREAD
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="issue-scheduler-strip">
+            <div><strong>{issueScheduler.issueCount}</strong><span>durable issues</span></div>
+            <div><strong>{issueScheduler.dueIssueCount}</strong><span>due now</span></div>
+            <div><strong>{issueScheduler.activeCount}/{issueScheduler.concurrencyLimit}</strong><span>active slots</span></div>
+            <div><strong>{issueScheduler.storage.issues.durable ? "WAL" : "RAM"}</strong><span>queue storage</span></div>
+          </div>
+
+          <div className="issue-scheduler-workbench">
+            <section className="search-issue-list" aria-label="Scheduled search issues">
+              <div className="issue-column-heading">
+                <div><GitBranch size={14} /><strong>Search issues</strong></div>
+                <span>priority first · one lease per corpus snapshot</span>
+              </div>
+              {issueScheduler.issues.map((issue) => (
+                <article className={cn("search-issue", !issue.enabled && "is-paused")} key={issue.issueId}>
+                  <div className="search-issue-head">
+                    <div>
+                      <Badge variant={issue.enabled ? "verified" : "muted"}>
+                        {issue.enabled ? "ACTIVE" : "PAUSED"}
+                      </Badge>
+                      <Badge variant="muted">P{issue.priority}</Badge>
+                      <Badge variant="muted">{issue.lens}</Badge>
+                    </div>
+                    <code>{issue.issueId.slice(7, 14)}</code>
+                  </div>
+                  <h3>{issue.title}</h3>
+                  <p>{issue.question}</p>
+                  <div className="search-issue-meta">
+                    <span>every {issue.cadenceMs / 60_000}m</span>
+                    <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
+                    <span>{issue.passCount}/{issue.runCount} passed</span>
+                  </div>
+                  <div className="search-issue-actions">
+                    <Button
+                      variant="outline"
+                      disabled={corpus.listingCount === 0 || issueAction !== null}
+                      onClick={() => void runIssue(issue.issueId)}
+                    >
+                      {issueAction === `RUN:${issue.issueId}` ? <RefreshCw className="is-spinning" size={13} /> : <Play size={13} />}
+                      Run now
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={issueAction !== null}
+                      onClick={() => void toggleIssue(issue)}
+                    >
+                      {issue.enabled ? <Pause size={13} /> : <Play size={13} />}
+                      {issue.enabled ? "Pause" : "Resume"}
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </section>
+
+            <section className="search-notification-inbox" aria-label="Search notifications">
+              <div className="issue-column-heading">
+                <div><Inbox size={14} /><strong>Finding inbox</strong></div>
+                <span>novel signatures and failures only</span>
+              </div>
+              {issueScheduler.notifications.length === 0 ? (
+                <div className="search-notification-empty">
+                  <Bell size={20} />
+                  <strong>Inbox is quiet</strong>
+                  <span>Empty or duplicate scans do not notify.</span>
+                </div>
+              ) : issueScheduler.notifications.slice(0, 12).map((notification) => (
+                <article className={cn("search-notification", notification.status === "READ" && "is-read")} key={notification.notificationId}>
+                  <div>
+                    <Badge variant={notification.kind === "NOVEL_CANDIDATE" ? "shadow" : "warning"}>
+                      {notification.kind.replaceAll("_", " ")}
+                    </Badge>
+                    <time>{new Date(notification.createdAt).toLocaleString()}</time>
+                  </div>
+                  <strong>{notification.title}</strong>
+                  <p>{notification.summary}</p>
+                  {notification.status === "UNREAD" && (
+                    <Button
+                      variant="ghost"
+                      disabled={issueAction !== null}
+                      onClick={() => void acknowledgeNotification(notification.notificationId)}
+                    >
+                      <BadgeCheck size={13} /> Acknowledge
+                    </Button>
+                  )}
+                </article>
+              ))}
+            </section>
+          </div>
+
+          <form className="search-issue-form" onSubmit={(event) => { event.preventDefault(); void createIssue(); }}>
+            <div>
+              <span className="eyebrow"><Plus size={12} /> New bounded search issue</span>
+              <input aria-label="Search issue title" placeholder="Issue title" maxLength={120} required value={newIssueTitle} onChange={(event) => setNewIssueTitle(event.target.value)} />
+              <textarea aria-label="Search issue question" placeholder="What recurring semantic pattern should the agent search and try to falsify?" maxLength={1000} required value={newIssueQuestion} onChange={(event) => setNewIssueQuestion(event.target.value)} />
+            </div>
+            <label>
+              <span>Lens</span>
+              <select value={newIssueLens} onChange={(event) => setNewIssueLens(event.target.value as SearchIssue["lens"])}>
+                {scheduler.lensOrder.map((lens) => <option key={lens} value={lens}>{lens}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Cadence</span>
+              <select value={newIssueCadenceMinutes} onChange={(event) => setNewIssueCadenceMinutes(Number(event.target.value))}>
+                <option value={5}>5 minutes</option>
+                <option value={15}>15 minutes</option>
+                <option value={30}>30 minutes</option>
+                <option value={60}>1 hour</option>
+                <option value={360}>6 hours</option>
+              </select>
+            </label>
+            <Button disabled={issueAction !== null || newIssueTitle.trim() === "" || newIssueQuestion.trim() === ""} type="submit">
+              {issueAction === "CREATE" ? <RefreshCw className="is-spinning" size={13} /> : <Plus size={13} />}
+              Create issue
+            </Button>
+          </form>
+          {!issueScheduler.enabled && (
+            <p className="issue-scheduler-hint">
+              Automatic dispatch is installed but intentionally explicit. Set <code>PMH_SEARCH_ISSUE_TICK_MS</code> to 1000–60000 and restart the control plane; manual runs work now.
+            </p>
+          )}
+          {issueDiagnostic !== null && (
+            <div className="radar-diagnostic" role="status"><CircleOff size={14} /><span>{issueDiagnostic}</span></div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="semantic-graph-console">
         <CardHeader>

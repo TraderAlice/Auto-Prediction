@@ -30,6 +30,7 @@ export type SearchLease = Readonly<{
   algorithmVersion: typeof ALGORITHM_VERSION;
   snapshotIdentity: Hash;
   sourceSetIdentity: Hash;
+  issueId?: Hash | null;
   lens: SearchLens;
   thesis: string;
   noveltyTargets: readonly string[];
@@ -145,6 +146,8 @@ export type SearchLeaseSchedulerProjection = Readonly<{
   enabled: boolean;
   configured: Readonly<{ fastLane: boolean; deepLane: boolean }>;
   status: "IDLE" | "RUNNING";
+  activeCount: number;
+  concurrencyLimit: number;
   intervalMs: number | null;
   retentionLimit: number;
   lensOrder: readonly SearchLens[];
@@ -171,6 +174,7 @@ type SearchLeaseOptions = Readonly<{
   maxHypotheses?: number;
   deadlineMs?: number;
   retentionLimit?: number;
+  concurrencyLimit?: number;
   store?: SearchLeaseRecordStore;
   context: (
     question: string,
@@ -191,6 +195,12 @@ type SearchLeaseOptions = Readonly<{
     question: string,
   ) => Promise<SearchLeaseDeepResult>;
   now?: () => number;
+}>;
+
+export type SearchLeaseIssueInput = Readonly<{
+  issueId: Hash;
+  question: string;
+  venueIds: readonly string[];
 }>;
 
 const LENS_SPEC: Readonly<Record<SearchLens, Readonly<{
@@ -261,12 +271,22 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
   const record = value as SearchLeaseRecord;
   const { artifactHash, ...body } = record;
   const lease = record.lease;
-  const expectedLeaseId = lease === undefined ? "" : hashCanonical({
-    schemaVersion: "pmh.search-lease-id.v1",
-    algorithmVersion: ALGORITHM_VERSION,
-    snapshotIdentity: lease.snapshotIdentity,
-    lens: lease.lens,
-  });
+  const expectedLeaseId = lease === undefined ? "" : hashCanonical(
+    lease.issueId === undefined || lease.issueId === null
+      ? {
+          schemaVersion: "pmh.search-lease-id.v1",
+          algorithmVersion: ALGORITHM_VERSION,
+          snapshotIdentity: lease.snapshotIdentity,
+          lens: lease.lens,
+        }
+      : {
+          schemaVersion: "pmh.search-lease-id.v2",
+          algorithmVersion: ALGORITHM_VERSION,
+          snapshotIdentity: lease.snapshotIdentity,
+          lens: lease.lens,
+          issueId: lease.issueId,
+        },
+  );
   const validHashOrNull = (item: unknown) =>
     item === null || HASH_PATTERN.test(String(item));
   const nonEmptyStrings = (items: unknown, limit: number) =>
@@ -319,6 +339,8 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     lease.leaseId !== expectedLeaseId ||
     !HASH_PATTERN.test(String(lease.snapshotIdentity)) ||
     !HASH_PATTERN.test(String(lease.sourceSetIdentity)) ||
+    (lease.issueId !== undefined && lease.issueId !== null &&
+      !HASH_PATTERN.test(String(lease.issueId))) ||
     !SEARCH_LENSES.includes(lease.lens) ||
     !isIso(lease.issuedAt) ||
     !isIso(lease.deadlineAt) ||
@@ -425,13 +447,24 @@ function hasMultiListingCandidate(
   );
 }
 
-function scopeFor(snapshot: MarketCorpusSnapshot): SearchLease["scope"] {
+function scopeFor(
+  snapshot: MarketCorpusSnapshot,
+  requestedVenueIds?: readonly string[],
+): SearchLease["scope"] {
+  const availableVenueIds = new Set(snapshot.listings.map((item) => item.venueId));
+  const venueIds = requestedVenueIds === undefined || requestedVenueIds.length === 0
+    ? [...availableVenueIds].sort()
+    : [...new Set(requestedVenueIds)].sort();
+  if (venueIds.some((venueId) => !availableVenueIds.has(venueId))) {
+    throw new SearchLeaseUnavailableError("search issue references an unavailable venue");
+  }
   const closes = snapshot.listings
+    .filter((listing) => venueIds.includes(listing.venueId))
     .map((listing) => listing.closesAt)
     .filter((value): value is string => value !== null)
     .sort();
   return Object.freeze({
-    venueIds: Object.freeze([...new Set(snapshot.listings.map((item) => item.venueId))].sort()),
+    venueIds: Object.freeze(venueIds),
     closesAtMin: closes[0] ?? null,
     closesAtMax: closes.at(-1) ?? null,
   });
@@ -450,7 +483,9 @@ export class SearchLeaseScheduler {
   readonly #runDeep: SearchLeaseOptions["runDeep"] | undefined;
   readonly #graphContext: SearchLeaseOptions["graphContext"] | undefined;
   readonly #now: () => number;
-  #active: Promise<SearchLeaseRecord> | null = null;
+  readonly #active = new Map<Hash, Promise<SearchLeaseRecord>>();
+  readonly #activeNovelty = new Map<Hash, Hash>();
+  readonly #concurrencyLimit: number;
 
   public readonly intervalMs: number | null;
 
@@ -463,6 +498,7 @@ export class SearchLeaseScheduler {
     this.#runDeep = options.runDeep;
     this.#graphContext = options.graphContext;
     this.#now = options.now ?? Date.now;
+    this.#concurrencyLimit = options.concurrencyLimit ?? 1;
     this.#budget = Object.freeze({
       maxFastModelRequests: options.maxFastModelRequests ?? 1,
       maxPiInvocations: options.maxPiInvocations ?? 1,
@@ -473,6 +509,8 @@ export class SearchLeaseScheduler {
       (this.intervalMs !== null &&
         (!Number.isSafeInteger(this.intervalMs) || this.intervalMs < 60_000 || this.intervalMs > 86_400_000)) ||
       !Number.isSafeInteger(this.#retentionLimit) || this.#retentionLimit < 4 ||
+      !Number.isSafeInteger(this.#concurrencyLimit) ||
+      this.#concurrencyLimit < 1 || this.#concurrencyLimit > 8 ||
       !Number.isSafeInteger(this.#budget.maxFastModelRequests) ||
       this.#budget.maxFastModelRequests < 0 || this.#budget.maxFastModelRequests > 4 ||
       (this.#budget.maxPiInvocations !== 0 && this.#budget.maxPiInvocations !== 1) ||
@@ -489,14 +527,41 @@ export class SearchLeaseScheduler {
   }
 
   public shouldSchedule(snapshot: MarketCorpusSnapshot): boolean {
-    return this.intervalMs !== null && this.#active === null &&
+    return this.intervalMs !== null && this.#active.size < this.#concurrencyLimit &&
       snapshot.listingCount > 0 && this.#nextLens(snapshot) !== null;
+  }
+
+  public failIssuedForUnavailableSnapshots(
+    snapshot: MarketCorpusSnapshot,
+  ): readonly SearchLeaseRecord[] {
+    const failed: SearchLeaseRecord[] = [];
+    for (const record of this.#records.filter((item) =>
+      item.status === "ISSUED" &&
+      item.lease.issueId !== undefined &&
+      item.lease.issueId !== null &&
+      item.lease.snapshotIdentity !== snapshot.snapshotIdentity &&
+      !this.#active.has(item.lease.leaseId),
+    )) {
+      const diagnostic = "issued search lease snapshot is no longer available after restart";
+      failed.push(this.#persist(withArtifactHash({
+        ...withoutArtifactHash(record),
+        status: "FAILED",
+        completedAt: new Date(
+          Math.max(this.#now(), Date.parse(record.lease.issuedAt)),
+        ).toISOString(),
+        diagnostic,
+        fastLane: Object.freeze({ ...record.fastLane, status: "FAILED", diagnostic }),
+        deepLane: this.#skippedDeep("PENDING_FAST_LANE"),
+      })));
+    }
+    return Object.freeze(failed);
   }
 
   public begin(
     snapshot: MarketCorpusSnapshot,
     lens?: SearchLens,
     trigger: "OPERATOR" | "SCHEDULE" = "OPERATOR",
+    issue?: SearchLeaseIssueInput,
   ): Readonly<{ promise: Promise<SearchLeaseRecord>; idempotentReplay: boolean }> {
     if (snapshot.listingCount === 0) {
       throw new SearchLeaseUnavailableError("search lease requires a non-empty qualified corpus");
@@ -508,18 +573,32 @@ export class SearchLeaseScheduler {
     if (!SEARCH_LENSES.includes(selectedLens)) {
       throw new SearchLeaseUnavailableError("search lease lens is invalid");
     }
-    const leaseId = hashCanonical({
-      schemaVersion: "pmh.search-lease-id.v1",
-      algorithmVersion: ALGORITHM_VERSION,
-      snapshotIdentity: snapshot.snapshotIdentity,
-      lens: selectedLens,
-    });
+    const leaseId = hashCanonical(
+      issue === undefined
+        ? {
+            schemaVersion: "pmh.search-lease-id.v1",
+            algorithmVersion: ALGORITHM_VERSION,
+            snapshotIdentity: snapshot.snapshotIdentity,
+            lens: selectedLens,
+          }
+        : {
+            schemaVersion: "pmh.search-lease-id.v2",
+            algorithmVersion: ALGORITHM_VERSION,
+            snapshotIdentity: snapshot.snapshotIdentity,
+            lens: selectedLens,
+            issueId: issue.issueId,
+          },
+    );
     const existing = this.#records.find((record) => record.lease.leaseId === leaseId);
     if (existing !== undefined && existing.status !== "ISSUED") {
       return Object.freeze({ promise: Promise.resolve(existing), idempotentReplay: true });
     }
-    if (this.#active !== null) {
-      throw new SearchLeaseBusyError("another search lease is already active");
+    const active = this.#active.get(leaseId);
+    if (active !== undefined) {
+      return Object.freeze({ promise: active, idempotentReplay: true });
+    }
+    if (this.#active.size >= this.#concurrencyLimit) {
+      throw new SearchLeaseBusyError("search lease concurrency limit is active");
     }
     const spec = LENS_SPEC[selectedLens];
     let issued = existing;
@@ -528,17 +607,19 @@ export class SearchLeaseScheduler {
       const predecessorLeaseId = this.#records.find(
         (record) => record.lease.snapshotIdentity === snapshot.snapshotIdentity,
       )?.lease.leaseId ?? null;
-      const scope = scopeFor(snapshot);
+      const scope = scopeFor(snapshot, issue?.venueIds);
       const graphContext = this.#graphContext?.(snapshot, selectedLens) ?? null;
+      const baseQuestion = issue?.question ?? spec.question;
       const querySummary = graphContext === null
-        ? spec.question
-        : `${spec.question} Graph neighborhood: ${graphContext.searchBrief}`.slice(0, 500);
+        ? baseQuestion
+        : `${baseQuestion} Graph neighborhood: ${graphContext.searchBrief}`.slice(0, 500);
       const lease: SearchLease = deepFreeze({
         schemaVersion: "pmh.search-lease.v1" as const,
         leaseId,
         algorithmVersion: ALGORITHM_VERSION,
         snapshotIdentity: snapshot.snapshotIdentity,
         sourceSetIdentity: snapshot.sourceSetIdentity,
+        issueId: issue?.issueId ?? null,
         lens: selectedLens,
         thesis: spec.thesis,
         noveltyTargets: spec.noveltyTargets,
@@ -595,10 +676,10 @@ export class SearchLeaseScheduler {
       issued = this.#persist(issued);
     }
     const promise = this.#execute(snapshot, issued).then((record) => {
-      this.#active = null;
+      this.#active.delete(leaseId);
       return record;
     });
-    this.#active = promise;
+    this.#active.set(leaseId, promise);
     return Object.freeze({ promise, idempotentReplay: false });
   }
 
@@ -633,6 +714,10 @@ export class SearchLeaseScheduler {
           record.lease.leaseId !== issued.lease.leaseId &&
           record.lineage.noveltySignature === signature,
       );
+      const activeDuplicateLeaseId = signature === null
+        ? undefined
+        : this.#activeNovelty.get(signature);
+      const duplicateLeaseId = duplicate?.lease.leaseId ?? activeDuplicateLeaseId ?? null;
       const listingRefs = Object.freeze([...new Set(
         run.hypotheses.flatMap((item) => item.listingRefs ?? []),
       )].sort());
@@ -651,7 +736,7 @@ export class SearchLeaseScheduler {
         deepLane = this.#skippedDeep("NO_CANDIDATES");
       } else if (!hasMultiListingCandidate(run.hypotheses)) {
         deepLane = this.#skippedDeep("NOT_MULTI_LISTING");
-      } else if (duplicate !== undefined) {
+      } else if (duplicateLeaseId !== null) {
         deepLane = this.#skippedDeep("DUPLICATE");
       } else if (issued.lease.budget.maxPiInvocations === 0 || this.#runDeep === undefined) {
         deepLane = this.#skippedDeep("PI_DISABLED");
@@ -664,17 +749,24 @@ export class SearchLeaseScheduler {
             : [`Prior content-addressed graph evidence: ${issued.lease.graphContext.searchBrief}`]),
           "Use the whole immutable MarketFS snapshot to find corroborating or falsifying rule evidence. Return proposals only; do not make a semantic approval or trading decision.",
         ].join(" ").slice(0, 1_000);
-        const result = await this.#runDeep(snapshot, deepQuestion);
-        deepLane = Object.freeze({
-          status: result.status,
-          reason: "NOVEL_MULTI_LISTING",
-          runId: result.runId,
-          proposalIds: Object.freeze([...result.proposalIds].slice(0, 5)),
-          evidenceGaps: Object.freeze([...result.evidenceGaps].slice(0, 20)),
-          diagnostic: result.diagnostic,
-          permittedTools: READ_ONLY_TOOLS,
-          toolExecutionTraceStored: false,
-        });
+        this.#activeNovelty.set(signature, issued.lease.leaseId);
+        try {
+          const result = await this.#runDeep(snapshot, deepQuestion);
+          deepLane = Object.freeze({
+            status: result.status,
+            reason: "NOVEL_MULTI_LISTING",
+            runId: result.runId,
+            proposalIds: Object.freeze([...result.proposalIds].slice(0, 5)),
+            evidenceGaps: Object.freeze([...result.evidenceGaps].slice(0, 20)),
+            diagnostic: result.diagnostic,
+            permittedTools: READ_ONLY_TOOLS,
+            toolExecutionTraceStored: false,
+          });
+        } finally {
+          if (this.#activeNovelty.get(signature) === issued.lease.leaseId) {
+            this.#activeNovelty.delete(signature);
+          }
+        }
       }
       const completedAt = new Date(Math.max(this.#now(), Date.parse(issued.lease.issuedAt))).toISOString();
       return this.#persist(withArtifactHash({
@@ -686,11 +778,11 @@ export class SearchLeaseScheduler {
         deepLane,
         lineage: Object.freeze({
           ...issued.lineage,
-          duplicateOfLeaseId: duplicate?.lease.leaseId ?? null,
+          duplicateOfLeaseId: duplicateLeaseId,
           noveltySignature: signature,
         }),
         outcome: Object.freeze({
-          novelCandidate: signature !== null && duplicate === undefined,
+          novelCandidate: signature !== null && duplicateLeaseId === null,
           hypothesisCount: run.hypotheses.length,
           proposalCount: deepLane.proposalIds.length,
           evidenceGapCount: deepLane.evidenceGaps.length,
@@ -726,12 +818,16 @@ export class SearchLeaseScheduler {
     const resumable = this.#records.find(
       (record) =>
         record.status === "ISSUED" &&
+        (record.lease.issueId === undefined || record.lease.issueId === null) &&
         record.lease.snapshotIdentity === snapshot.snapshotIdentity,
     );
     if (resumable !== undefined) return resumable.lease.lens;
     return SEARCH_LENSES.find(
       (lens) => !this.#records.some(
-        (record) => record.lease.snapshotIdentity === snapshot.snapshotIdentity && record.lease.lens === lens,
+        (record) =>
+          (record.lease.issueId === undefined || record.lease.issueId === null) &&
+          record.lease.snapshotIdentity === snapshot.snapshotIdentity &&
+          record.lease.lens === lens,
       ),
     ) ?? null;
   }
@@ -753,7 +849,9 @@ export class SearchLeaseScheduler {
       algorithmVersion: ALGORITHM_VERSION,
       enabled: this.intervalMs !== null,
       configured: Object.freeze({ fastLane: true, deepLane: this.#runDeep !== undefined }),
-      status: this.#active === null ? "IDLE" : "RUNNING",
+      status: this.#active.size === 0 ? "IDLE" : "RUNNING",
+      activeCount: this.#active.size,
+      concurrencyLimit: this.#concurrencyLimit,
       intervalMs: this.intervalMs,
       retentionLimit: this.#retentionLimit,
       lensOrder: SEARCH_LENSES,

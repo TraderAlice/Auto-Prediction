@@ -238,14 +238,23 @@ completed PASS/FAILED records and passed-task idempotency survive restart. It
 cannot write files, run a shell, trade, review equivalence, or promote its own
 findings.
 
-The separate Market Archaeologist pi lane can be reached by the AI search-lease
-scheduler. Scheduling remains off by default. Set
-`PMH_SEARCH_LEASE_INTERVAL_MS` to 60000–86400000 to enable one concurrent lease
-per interval. Each immutable snapshot advances through four deterministic
-lenses, and a restart resumes a previously issued lease before creating another.
-The default budget is one cheap model request, one optional pi escalation, eight
-hypotheses, and a 300-second deadline. Manual “next lease” runs remain available
-from Studio while the timer is off.
+The Market Archaeologist pi lane is orchestrated by durable search issues.
+Studio starts with four durable work themes—equivalence, implication,
+partition, and mechanism conflicts—and lets an operator add, pause, resume, or
+run a bounded issue immediately. Set `PMH_SEARCH_ISSUE_TICK_MS` to 1000–60000
+to poll the priority queue automatically; scheduling is explicit and off by
+default so starting the server never silently spends model budget. Up to three
+different issues may run concurrently, while the same issue and immutable
+corpus snapshot coalesce to one lease. The older
+`PMH_SEARCH_LEASE_INTERVAL_MS` sequential lens timer remains compatible but is
+suppressed when the issue timer is enabled.
+
+Each lease still permits one cheap model request, one optional pi escalation,
+eight hypotheses, and a 300-second deadline. A new grounded multi-listing
+signature creates one deduplicated Finding Inbox notification; empty scans and
+known signatures stay quiet, while failures notify separately. Issues,
+terminal leases, acknowledgement state, and notifications survive restart in
+the hash-checked SQLite WAL.
 
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 

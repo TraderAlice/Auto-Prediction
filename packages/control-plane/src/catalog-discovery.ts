@@ -17,6 +17,7 @@ import type {
 } from "./types.js";
 
 export const MAX_LISTINGS_PER_TASK = 30;
+export const MAX_CATALOG_CONTEXT_CHARACTERS = 50_000;
 const MAX_DESCRIPTION_CHARACTERS = 800;
 const MAX_RULE_CHARACTERS = 1_200;
 
@@ -172,11 +173,23 @@ export function buildDiscoveryCatalogContext(
   const relevant = positive.filter(
     (item) => item.score >= Math.max(1, strongestScore - 1),
   );
-  const listings = Object.freeze(
-    (relevant.length > 0 ? relevant : ranked)
-      .slice(0, MAX_LISTINGS_PER_TASK)
-      .map((item) => item.listing),
-  );
+  const selected: DiscoveryCatalogListing[] = [];
+  for (const item of (relevant.length > 0 ? relevant : ranked)) {
+    if (selected.length >= MAX_LISTINGS_PER_TASK) break;
+    const candidate = [...selected, item.listing];
+    const boundedCandidate = {
+      schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+      source,
+      contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+      listings: candidate,
+      contextIdentity: `sha256:${"0".repeat(64)}`,
+    };
+    if (JSON.stringify(boundedCandidate).length > MAX_CATALOG_CONTEXT_CHARACTERS) {
+      continue;
+    }
+    selected.push(item.listing);
+  }
+  const listings = Object.freeze(selected);
   if (new Set(listings.map((listing) => listing.listingRef)).size !== listings.length) {
     throw new Error("catalog context has duplicate listing references");
   }

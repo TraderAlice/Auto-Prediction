@@ -4,6 +4,7 @@ import {
   DiscoveryPool,
   FixtureCatalogDiscoveryDesk,
   HeuristicDiscoveryWorker,
+  buildDiscoveryCatalogContext,
   type DiscoveryTask,
 } from "../src/index.js";
 
@@ -139,5 +140,37 @@ describe("verified catalog discovery context", () => {
     await expect(
       new DiscoveryPool([new HeuristicDiscoveryWorker()], () => 1_000).run(task),
     ).rejects.toThrow(/catalog context/);
+  });
+
+  it("shrinks a rule-dense ranked context before crossing the 50KB task boundary", async () => {
+    const desk = new FixtureCatalogDiscoveryDesk();
+    await desk.load();
+    const seed = desk.context("Rihanna album", ["polymarket-global"]).listings[0]!;
+    const dense = Array.from({ length: 30 }, (_, index) => ({
+      ...seed,
+      listingRef: `polymarket-global:dense-${index}`,
+      venueInstrumentId: `dense-${index}`,
+      description: "d".repeat(800),
+      rulesText: "r".repeat(1_200),
+    }));
+    const context = buildDiscoveryCatalogContext(
+      "VERIFIED_FIXTURE_CATALOGS",
+      dense,
+      "Rihanna album",
+      ["polymarket-global"],
+    );
+    expect(context.listings.length).toBeLessThan(30);
+    expect(JSON.stringify(context).length).toBeLessThanOrEqual(50_000);
+    await expect(new DiscoveryPool(
+      [new HeuristicDiscoveryWorker()],
+      () => 1_000,
+    ).run({
+      taskId: "task:dense-context",
+      question: "Rihanna album",
+      venueIds: ["polymarket-global"],
+      maxHypotheses: 5,
+      deadlineEpochMs: 2_000,
+      catalogContext: context,
+    })).resolves.toMatchObject({ executionAuthority: false });
   });
 });

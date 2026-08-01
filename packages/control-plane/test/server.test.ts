@@ -197,6 +197,68 @@ describe("control-plane HTTP surface", () => {
     });
   });
 
+  it("creates and pauses search issues and rejects dispatch without a qualified corpus", async () => {
+    const baseUrl = await listen();
+    const initial = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
+      response.json())) as StudioProjection;
+    expect(initial.ai.searchIssueScheduler).toMatchObject({
+      issueCount: 4,
+      enabledIssueCount: 4,
+      activeCount: 0,
+      concurrencyLimit: 3,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const createdResponse = await fetch(`${baseUrl}/api/v1/search-issues`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Named-person action aliases",
+        question: "Find markets about the same named person performing the same public action.",
+        lens: "EQUIVALENCE",
+        cadenceMs: 300_000,
+        priority: 5,
+      }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const created = (await createdResponse.json()) as { issueId: string };
+    expect(created.issueId).toMatch(/^sha256:/u);
+
+    const pausedResponse = await fetch(
+      `${baseUrl}/api/v1/search-issues/${created.issueId}/enabled`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      },
+    );
+    expect(pausedResponse.status).toBe(200);
+    await expect(pausedResponse.json()).resolves.toMatchObject({ enabled: false });
+
+    const runResponse = await fetch(
+      `${baseUrl}/api/v1/search-issues/${created.issueId}/runs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    expect(runResponse.status).toBe(400);
+    await expect(runResponse.json()).resolves.toMatchObject({
+      diagnostic: "search lease requires a non-empty qualified corpus",
+    });
+    const finalProjection = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
+      response.json())) as StudioProjection;
+    expect(finalProjection.ai.searchIssueScheduler).toMatchObject({
+      issueCount: 5,
+      enabledIssueCount: 4,
+    });
+    expect(finalProjection.ai.searchIssueScheduler.issues.find(
+      (issue) => issue.issueId === created.issueId,
+    )).toMatchObject({ enabled: false, runCount: 0, passCount: 0 });
+  });
+
   it("runs advisory counterexample review before a research-only lifecycle decision", async () => {
     const source = (venueId: string): CatalogObservationSource => ({
       venueId,
@@ -1323,7 +1385,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 9,
+          schemaVersion: 10,
         },
         records: [{ investigationId: created.investigationId }],
       });
@@ -1685,12 +1747,22 @@ describe("control-plane HTTP surface", () => {
     const reader = eventResponse.body?.getReader();
     if (reader === undefined) throw new Error("event stream has no body");
     const decoder = new TextDecoder();
-    const first = await reader.read();
-    expect(decoder.decode(first.value)).toContain("event: projection");
+    let buffered = "";
+    const readEvent = async (): Promise<string> => {
+      while (!buffered.includes("\n\n")) {
+        const next = await reader.read();
+        if (next.done) throw new Error("event stream ended before a complete event");
+        buffered += decoder.decode(next.value, { stream: true });
+      }
+      const boundary = buffered.indexOf("\n\n");
+      const event = buffered.slice(0, boundary);
+      buffered = buffered.slice(boundary + 2);
+      return event;
+    };
+    expect(await readEvent()).toContain("event: projection");
 
     await fetch(`${baseUrl}/api/v1/books/replay`, { method: "POST" });
-    const second = await reader.read();
-    const event = decoder.decode(second.value);
+    const event = await readEvent();
     expect(event).toContain("event: projection");
     expect(event).toContain('"replayCount":2');
     await reader.cancel();
