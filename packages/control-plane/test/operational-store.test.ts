@@ -259,7 +259,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 6,
+        schemaVersion: 7,
         idempotencyKey: "taskId",
       },
     });
@@ -421,11 +421,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(6);
+    expect(migrated.storage.schemaVersion).toBe(7);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 6,
+      schemaVersion: 7,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -447,8 +447,10 @@ describe("SQLite operational store", () => {
       "discovery_runs",
       "investigation_records",
       "market_archaeologist_records",
+      "opportunity_lifecycle_journals",
+      "semantic_review_records",
     ]);
-    expect(version.user_version).toBe(6);
+    expect(version.user_version).toBe(7);
     inspected.close();
   });
 
@@ -463,7 +465,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 6,
+      schemaVersion: 7,
     });
     firstStore.close();
 
@@ -573,7 +575,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 6,
+      schemaVersion: 7,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -628,7 +630,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 6,
+      schemaVersion: 7,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -675,7 +677,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateWatchRefreshStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 6,
+      schemaVersion: 7,
       idempotencyKey: "refreshId",
     });
     first.close();

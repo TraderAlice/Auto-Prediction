@@ -350,6 +350,93 @@ async function requestMarketArchaeologist(question: string): Promise<boolean> {
   return result.idempotentReplay === true;
 }
 
+async function requestSemanticReview(opportunityId: string): Promise<boolean> {
+  const response = await fetch("/api/v1/semantic-reviews/runs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ opportunityId }),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    status?: string;
+    idempotentReplay?: boolean;
+    report?: {
+      result?: {
+        authority?: string;
+        productionReviewAuthority?: boolean;
+        simulationAuthority?: boolean;
+        executionAuthority?: boolean;
+      };
+      effects?: {
+        externalWrites?: boolean;
+        valueMovingActions?: boolean;
+        liveExecutionEnabled?: boolean;
+      };
+    };
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "semantic review failed");
+  }
+  if (
+    result.status !== "PASS" ||
+    result.report?.result?.authority !== "ADVISORY_ONLY" ||
+    result.report.result.productionReviewAuthority !== false ||
+    result.report.result.simulationAuthority !== false ||
+    result.report.result.executionAuthority !== false ||
+    result.report.effects?.externalWrites !== false ||
+    result.report.effects.valueMovingActions !== false ||
+    result.report.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("semantic review crossed its advisory boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
+async function requestResearchSemanticDecision(
+  opportunityId: string,
+  decision: "ACCEPT_FOR_SIMULATION" | "REJECT",
+  rationale: string,
+): Promise<void> {
+  const response = await fetch(
+    "/api/v1/opportunity-lifecycle/semantic-decisions",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ opportunityId, decision, rationale }),
+    },
+  );
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    decision?: {
+      authority?: string;
+      productionReviewAuthority?: boolean;
+      productionPromotionEligible?: boolean;
+      executionAuthority?: boolean;
+    };
+    lifecycle?: {
+      effects?: {
+        liveOrdersPlaced?: boolean;
+        valueMovingActions?: boolean;
+        liveExecutionEnabled?: boolean;
+      };
+    };
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "semantic decision failed");
+  }
+  if (
+    result.decision?.authority !== "LOCAL_OPERATOR_RESEARCH_ONLY" ||
+    result.decision.productionReviewAuthority !== false ||
+    result.decision.productionPromotionEligible !== false ||
+    result.decision.executionAuthority !== false ||
+    result.lifecycle?.effects?.liveOrdersPlaced !== false ||
+    result.lifecycle.effects.valueMovingActions !== false ||
+    result.lifecycle.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("semantic decision crossed its research-only boundary");
+  }
+}
+
 async function requestRadarInvestigation(
   candidateId: string,
 ): Promise<boolean> {
@@ -1949,6 +2036,20 @@ function MarketArchaeologistView() {
 function OpportunityLifecycleView() {
   const studioProjection = useStudioProjection();
   const desk = studioProjection.opportunityLifecycle;
+  const semanticReview = studioProjection.ai.semanticReview;
+  const semanticDecisions = desk.semanticDecisions ?? [];
+  const [reviewStates, setReviewStates] = useState<
+    Readonly<Record<string, "RUNNING" | "DONE" | "RESTORED" | "FAILED">>
+  >({});
+  const [decisionStates, setDecisionStates] = useState<
+    Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
+  >({});
+  const [rationales, setRationales] = useState<Readonly<Record<string, string>>>(
+    {},
+  );
+  const [diagnostics, setDiagnostics] = useState<
+    Readonly<Record<string, string>>
+  >({});
   const proposals = new Map(
     studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
       (record.report?.result.proposals ?? []).map((proposal) => [
@@ -1961,6 +2062,57 @@ function OpportunityLifecycleView() {
   const rejected = desk.cases.filter((item) =>
     item.state.startsWith("REJECTED"),
   ).length;
+
+  async function runReview(opportunityId: string): Promise<void> {
+    setReviewStates((current) => ({ ...current, [opportunityId]: "RUNNING" }));
+    setDiagnostics((current) => ({ ...current, [opportunityId]: "" }));
+    try {
+      const restored = await requestSemanticReview(opportunityId);
+      setReviewStates((current) => ({
+        ...current,
+        [opportunityId]: restored ? "RESTORED" : "DONE",
+      }));
+    } catch (error) {
+      setReviewStates((current) => ({ ...current, [opportunityId]: "FAILED" }));
+      setDiagnostics((current) => ({
+        ...current,
+        [opportunityId]:
+          error instanceof Error ? error.message : "semantic review failed",
+      }));
+    }
+  }
+
+  async function decide(
+    opportunityId: string,
+    decision: "ACCEPT_FOR_SIMULATION" | "REJECT",
+  ): Promise<void> {
+    setDecisionStates((current) => ({
+      ...current,
+      [opportunityId]: "RUNNING",
+    }));
+    setDiagnostics((current) => ({ ...current, [opportunityId]: "" }));
+    try {
+      await requestResearchSemanticDecision(
+        opportunityId,
+        decision,
+        rationales[opportunityId]?.trim() ?? "",
+      );
+      setDecisionStates((current) => ({
+        ...current,
+        [opportunityId]: "DONE",
+      }));
+    } catch (error) {
+      setDecisionStates((current) => ({
+        ...current,
+        [opportunityId]: "FAILED",
+      }));
+      setDiagnostics((current) => ({
+        ...current,
+        [opportunityId]:
+          error instanceof Error ? error.message : "semantic decision failed",
+      }));
+    }
+  }
 
   return (
     <section className="page-section lifecycle-page">
@@ -1976,6 +2128,9 @@ function OpportunityLifecycleView() {
           </p>
         </div>
         <div className="archaeology-heading-badges">
+          <Badge variant={semanticReview.configured ? "verified" : "warning"}>
+            REVIEWER {semanticReview.configured ? "READY" : "NEEDS KEY"}
+          </Badge>
           <Badge variant="shadow">DEFAULT · HUMAN APPROVAL</Badge>
           <Badge variant="warning">LIVE ROUTE ABSENT</Badge>
         </div>
@@ -1985,7 +2140,11 @@ function OpportunityLifecycleView() {
         <Metric label="Tracked cases" value={`${desk.caseCount}`} detail="AI + deterministic leads" />
         <Metric label="Awaiting work" value={`${awaiting}`} detail="explicit next action" />
         <Metric label="Rejected early" value={`${rejected}`} detail="no review budget wasted" />
-        <Metric label="Exchange models" value={`${desk.exchangeModels.length}`} detail="bigint fixed-point" />
+        <Metric
+          label="Review journal"
+          value={`${semanticReview.passCount}/${semanticDecisions.length}`}
+          detail={`${semanticReview.storage.durable ? "SQLite" : "memory"} · advisory / decided`}
+        />
       </div>
 
       <div className="lifecycle-flow" aria-label="Opportunity promotion flow">
@@ -2046,6 +2205,19 @@ function OpportunityLifecycleView() {
           {desk.cases.map((item) => {
             const proposal = proposals.get(item.discoveryArtifactHash);
             const latest = item.events.at(-1);
+            const review = semanticReview.records.find(
+              (record) => record.opportunityId === item.opportunityId,
+            );
+            const reviewReport = review?.report;
+            const semanticDecision = semanticDecisions.find(
+              (decision) => decision.opportunityId === item.opportunityId,
+            );
+            const reviewRunning =
+              reviewStates[item.opportunityId] === "RUNNING" ||
+              (review?.status === "RUNNING" && semanticReview.status === "RUNNING");
+            const decisionRunning =
+              decisionStates[item.opportunityId] === "RUNNING";
+            const rationale = rationales[item.opportunityId] ?? "";
             return (
               <article key={item.opportunityId}>
                 <div className="lifecycle-case-topline">
@@ -2065,6 +2237,172 @@ function OpportunityLifecycleView() {
                   </div>
                   <small>{item.events.length} hash-bound event{item.events.length === 1 ? "" : "s"}</small>
                 </div>
+                {proposal !== undefined && (
+                  <div className="lifecycle-review-panel">
+                    <div className="lifecycle-review-head">
+                      <div>
+                        <ShieldCheck size={14} />
+                        <strong>Adversarial semantic review</strong>
+                        <span>
+                          separate invocation · same provider · advisory only
+                        </span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        disabled={
+                          !semanticReview.configured ||
+                          semanticReview.status === "RUNNING" ||
+                          reviewRunning ||
+                          review?.status === "PASS" ||
+                          item.state !== "AWAITING_SEMANTIC_REVIEW"
+                        }
+                        onClick={() => void runReview(item.opportunityId)}
+                      >
+                        {reviewRunning ? (
+                          <RefreshCw className="is-spinning" size={13} />
+                        ) : (
+                          <Search size={13} />
+                        )}
+                        {reviewRunning
+                          ? "Falsifying…"
+                          : review?.status === "PASS"
+                            ? "Review retained"
+                            : review?.status === "FAILED"
+                              ? "Retry counterexample review"
+                              : "Run counterexample review"}
+                      </Button>
+                    </div>
+
+                    {reviewReport !== null && reviewReport !== undefined && (
+                      <div className="lifecycle-review-result">
+                        <div className="lifecycle-review-verdict">
+                          <Badge
+                            variant={
+                              reviewReport.result.recommendation ===
+                              "ACCEPT_FOR_RESEARCH_SIMULATION"
+                                ? "verified"
+                                : "warning"
+                            }
+                          >
+                            {reviewReport.result.recommendation.replaceAll(
+                              "_",
+                              " ",
+                            )}
+                          </Badge>
+                          <span>
+                            {reviewReport.input.evidencePosture.replaceAll(
+                              "_",
+                              " ",
+                            )}
+                          </span>
+                          <code>{reviewReport.artifactHash.slice(0, 23)}…</code>
+                        </div>
+                        <p>{reviewReport.result.rationale}</p>
+                        <div className="lifecycle-assessment-grid">
+                          {Object.entries(reviewReport.result.assessments).map(
+                            ([label, assessment]) => (
+                              <div key={label}>
+                                <span>{label.replaceAll(/([A-Z])/g, " $1")}</span>
+                                <strong>{assessment}</strong>
+                              </div>
+                            ),
+                          )}
+                        </div>
+                        <div className="lifecycle-counterexamples">
+                          <span>Counterexamples</span>
+                          {reviewReport.result.counterexamples.length === 0 ? (
+                            <p>No concrete counterexample survived this pass.</p>
+                          ) : (
+                            reviewReport.result.counterexamples.map(
+                              (counterexample) => (
+                                <p key={counterexample}>{counterexample}</p>
+                              ),
+                            )
+                          )}
+                          {reviewReport.result.missingEvidence.map((gap) => (
+                            <p className="is-gap" key={gap}>
+                              Missing · {gap}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {reviewReport !== null &&
+                      reviewReport !== undefined &&
+                      semanticDecision === undefined &&
+                      item.state === "AWAITING_SEMANTIC_REVIEW" && (
+                        <div className="lifecycle-decision-box">
+                          <label htmlFor={`rationale-${item.opportunityId}`}>
+                            Research-only operator rationale
+                          </label>
+                          <textarea
+                            id={`rationale-${item.opportunityId}`}
+                            value={rationale}
+                            maxLength={2000}
+                            placeholder="State the exact conditional scope or rejection reason. This cannot grant production authority."
+                            onChange={(event) =>
+                              setRationales((current) => ({
+                                ...current,
+                                [item.opportunityId]: event.target.value,
+                              }))
+                            }
+                          />
+                          <div>
+                            <Button
+                              variant="outline"
+                              disabled={decisionRunning || rationale.trim() === ""}
+                              onClick={() =>
+                                void decide(item.opportunityId, "REJECT")
+                              }
+                            >
+                              <CircleOff size={13} /> Reject relation
+                            </Button>
+                            <Button
+                              disabled={decisionRunning || rationale.trim() === ""}
+                              onClick={() =>
+                                void decide(
+                                  item.opportunityId,
+                                  "ACCEPT_FOR_SIMULATION",
+                                )
+                              }
+                            >
+                              {decisionRunning ? (
+                                <RefreshCw className="is-spinning" size={13} />
+                              ) : (
+                                <ChevronRight size={13} />
+                              )}
+                              Accept for simulation
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                    {semanticDecision !== undefined && (
+                      <div className="lifecycle-retained-decision">
+                        <Badge
+                          variant={
+                            semanticDecision.decision === "ACCEPT_FOR_SIMULATION"
+                              ? "verified"
+                              : "warning"
+                          }
+                        >
+                          {semanticDecision.decision.replaceAll("_", " ")}
+                        </Badge>
+                        <p>{semanticDecision.rationale}</p>
+                        <small>
+                          LOCAL OPERATOR · RESEARCH ONLY · PRODUCTION INELIGIBLE
+                        </small>
+                      </div>
+                    )}
+                    {diagnostics[item.opportunityId] && (
+                      <div className="radar-diagnostic" role="status">
+                        <CircleOff size={13} />
+                        <span>{diagnostics[item.opportunityId]}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </article>
             );
           })}

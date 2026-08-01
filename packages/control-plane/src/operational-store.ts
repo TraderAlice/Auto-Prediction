@@ -31,12 +31,22 @@ import {
   type MarketArchaeologistRecord,
   type MarketArchaeologistRecordStore,
 } from "./market-archaeologist.js";
+import {
+  assertOpportunityLifecycleJournal,
+  type OpportunityLifecycleJournal,
+  type OpportunityLifecycleJournalStore,
+} from "./opportunity-lifecycle-desk.js";
+import {
+  assertSemanticReviewRecord,
+  type SemanticReviewRecord,
+  type SemanticReviewRecordStore,
+} from "./semantic-review.js";
 import type {
   DiscoveryRunRecord,
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -77,6 +87,19 @@ type MarketArchaeologistRow = Readonly<{
   corpus_snapshot_identity: string;
   record_json: string;
   record_hash: string;
+}>;
+
+type SemanticReviewRow = Readonly<{
+  review_id: string;
+  opportunity_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type OpportunityLifecycleRow = Readonly<{
+  opportunity_id: string;
+  journal_json: string;
+  journal_hash: string;
 }>;
 
 function assertLimit(limit: number): void {
@@ -288,6 +311,69 @@ function parseMarketArchaeologistRecord(
   return record;
 }
 
+function parseSemanticReviewRecord(value: unknown): SemanticReviewRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite semantic review row is malformed");
+  }
+  const row = value as Partial<SemanticReviewRow>;
+  if (
+    typeof row.review_id !== "string" ||
+    typeof row.opportunity_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error("SQLite semantic review row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite semantic review record contains invalid JSON");
+  }
+  const record = assertSemanticReviewRecord(decoded);
+  if (
+    record.status === "RUNNING" ||
+    record.reviewId !== row.review_id ||
+    record.opportunityId !== row.opportunity_id ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite semantic review record identity mismatch");
+  }
+  return record;
+}
+
+function parseOpportunityLifecycleJournal(
+  value: unknown,
+): OpportunityLifecycleJournal {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite opportunity lifecycle row is malformed");
+  }
+  const row = value as Partial<OpportunityLifecycleRow>;
+  if (
+    typeof row.opportunity_id !== "string" ||
+    typeof row.journal_json !== "string" ||
+    typeof row.journal_hash !== "string"
+  ) {
+    throw new Error(
+      "SQLite opportunity lifecycle row has invalid column types",
+    );
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.journal_json);
+  } catch {
+    throw new Error("SQLite opportunity lifecycle journal contains invalid JSON");
+  }
+  const journal = assertOpportunityLifecycleJournal(decoded);
+  if (
+    journal.opportunityId !== row.opportunity_id ||
+    hashCanonical(journal) !== row.journal_hash
+  ) {
+    throw new Error("SQLite opportunity lifecycle journal identity mismatch");
+  }
+  return journal;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -319,7 +405,9 @@ export class SqliteOperationalStore
     CatalogObservationStore,
     CandidateBookObservationStore,
     CandidateWatchRefreshStore,
-    MarketArchaeologistRecordStore
+    MarketArchaeologistRecordStore,
+    SemanticReviewRecordStore,
+    OpportunityLifecycleJournalStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -344,6 +432,8 @@ export class SqliteOperationalStore
     idempotencyKey: "refreshId";
   }>;
   public readonly marketArchaeologistStorage: OperationalStorageProjection<"runId">;
+  public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
+  public readonly opportunityLifecycleStorage: OperationalStorageProjection<"opportunityId">;
 
   public constructor(databasePath: string) {
     if (databasePath.trim() === "") {
@@ -409,6 +499,18 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "runId",
+    });
+    this.semanticReviewStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "reviewId",
+    });
+    this.opportunityLifecycleStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "opportunityId",
     });
   }
 
@@ -551,6 +653,43 @@ export class SqliteOperationalStore
           CREATE INDEX market_archaeologist_records_completed
             ON market_archaeologist_records (
               completed_at DESC, run_id DESC
+            );
+        `);
+      }
+      if (current < 7) {
+        this.#database.exec(`
+          CREATE TABLE semantic_review_records (
+            review_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(review_id) = 71 AND review_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            opportunity_id TEXT NOT NULL CHECK (length(opportunity_id) > 0),
+            status TEXT NOT NULL CHECK (status IN ('PASS', 'FAILED')),
+            completed_at TEXT NOT NULL CHECK (length(completed_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX semantic_review_records_completed
+            ON semantic_review_records (completed_at DESC, review_id DESC);
+          CREATE INDEX semantic_review_records_opportunity
+            ON semantic_review_records (opportunity_id, completed_at DESC);
+
+          CREATE TABLE opportunity_lifecycle_journals (
+            opportunity_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(opportunity_id) > 0
+            ),
+            state TEXT NOT NULL CHECK (length(state) > 0),
+            event_count INTEGER NOT NULL CHECK (event_count > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            journal_json TEXT NOT NULL CHECK (json_valid(journal_json)),
+            journal_hash TEXT NOT NULL CHECK (
+              length(journal_hash) = 71 AND journal_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX opportunity_lifecycle_journals_updated
+            ON opportunity_lifecycle_journals (
+              updated_at DESC, opportunity_id DESC
             );
         `);
       }
@@ -1044,6 +1183,194 @@ export class SqliteOperationalStore
           hashCanonical(stored) !== recordHash)
       ) {
         throw new Error("runId is already bound to another archaeologist record");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSemanticReviewRecords(
+    limit: number,
+  ): readonly SemanticReviewRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT review_id, opportunity_id, record_json, record_hash
+         FROM semantic_review_records
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseSemanticReviewRecord));
+  }
+
+  public saveSemanticReviewRecord(
+    record: SemanticReviewRecord,
+    retentionLimit: number,
+  ): SemanticReviewRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertSemanticReviewRecord(record);
+    if (validated.status === "RUNNING" || validated.completedAt === null) {
+      throw new Error("SQLite cannot persist an active semantic review");
+    }
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO semantic_review_records (
+             review_id, opportunity_id, status, completed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(review_id) DO UPDATE SET
+             opportunity_id = excluded.opportunity_id,
+             status = excluded.status,
+             completed_at = excluded.completed_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash
+           WHERE semantic_review_records.status = 'FAILED'`,
+        )
+        .run(
+          validated.reviewId,
+          validated.opportunityId,
+          validated.status,
+          validated.completedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM semantic_review_records
+           WHERE review_id IN (
+             SELECT review_id FROM semantic_review_records
+             ORDER BY rowid DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT review_id, opportunity_id, record_json, record_hash
+           FROM semantic_review_records WHERE review_id = ?`,
+        )
+        .get(validated.reviewId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the semantic review record");
+      }
+      const stored = parseSemanticReviewRecord(row);
+      if (
+        stored.opportunityId !== validated.opportunityId ||
+        stored.proposalId !== validated.proposalId ||
+        (stored.status === validated.status &&
+          hashCanonical(stored) !== recordHash)
+      ) {
+        throw new Error("reviewId is already bound to another semantic review");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadOpportunityLifecycleJournals(
+    limit: number,
+  ): readonly OpportunityLifecycleJournal[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT opportunity_id, journal_json, journal_hash
+         FROM opportunity_lifecycle_journals
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseOpportunityLifecycleJournal));
+  }
+
+  public saveOpportunityLifecycleJournal(
+    journal: OpportunityLifecycleJournal,
+    retentionLimit: number,
+  ): OpportunityLifecycleJournal {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertOpportunityLifecycleJournal(journal);
+    const journalJson = canonicalJson(validated);
+    const journalHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const priorRow = this.#database
+        .prepare(
+          `SELECT opportunity_id, journal_json, journal_hash
+           FROM opportunity_lifecycle_journals WHERE opportunity_id = ?`,
+        )
+        .get(validated.opportunityId);
+      if (priorRow !== undefined) {
+        const prior = parseOpportunityLifecycleJournal(priorRow);
+        if (
+          validated.lifecycle.events.length < prior.lifecycle.events.length ||
+          prior.lifecycle.events.some(
+            (event, index) =>
+              event.eventId !== validated.lifecycle.events[index]?.eventId,
+          ) ||
+          prior.semanticDecisions.some(
+            (decision, index) =>
+              decision.decisionId !==
+              validated.semanticDecisions[index]?.decisionId,
+          )
+        ) {
+          throw new Error("opportunity lifecycle journal cannot be rewritten");
+        }
+      }
+      this.#database
+        .prepare(
+          `INSERT INTO opportunity_lifecycle_journals (
+             opportunity_id, state, event_count, updated_at,
+             journal_json, journal_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(opportunity_id) DO UPDATE SET
+             state = excluded.state,
+             event_count = excluded.event_count,
+             updated_at = excluded.updated_at,
+             journal_json = excluded.journal_json,
+             journal_hash = excluded.journal_hash`,
+        )
+        .run(
+          validated.opportunityId,
+          validated.lifecycle.state,
+          validated.lifecycle.events.length,
+          validated.updatedAt,
+          journalJson,
+          journalHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM opportunity_lifecycle_journals
+           WHERE opportunity_id IN (
+             SELECT opportunity_id FROM opportunity_lifecycle_journals
+             ORDER BY rowid DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT opportunity_id, journal_json, journal_hash
+           FROM opportunity_lifecycle_journals WHERE opportunity_id = ?`,
+        )
+        .get(validated.opportunityId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the lifecycle journal");
+      }
+      const stored = parseOpportunityLifecycleJournal(row);
+      if (hashCanonical(stored) !== journalHash) {
+        throw new Error("opportunityId is already bound to another journal");
       }
       this.#database.exec("COMMIT");
       return stored;

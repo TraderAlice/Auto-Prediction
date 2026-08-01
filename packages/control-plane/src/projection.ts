@@ -33,6 +33,7 @@ import {
   OpportunityLifecycleDesk,
   type OpportunityLifecycleDeskProjection,
 } from "./opportunity-lifecycle-desk.js";
+import type { SemanticReviewDeskProjection } from "./semantic-review.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
 import { buildResearchCaseDesk } from "./research-case-desk.js";
@@ -85,6 +86,7 @@ export function buildStudioProjection(input: {
   opportunityRadar?: OpportunityRadarProjection;
   marketCorpus?: MarketCorpusProjection;
   marketArchaeologist?: MarketArchaeologistProjection;
+  semanticReview?: SemanticReviewDeskProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
   modelProvider?: ModelProviderProjection;
   investigator?: PiInvestigatorProjection;
@@ -230,6 +232,30 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const semanticReview = input.semanticReview ?? {
+    schemaVersion: "pmh.semantic-review-desk.v1" as const,
+    configured: false,
+    model: "deepseek-v4-flash",
+    status: "NEEDS_KEY" as const,
+    runCount: 0,
+    passCount: 0,
+    failedCount: 0,
+    retentionLimit: 50,
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "reviewId" as const,
+    },
+    records: [],
+    authority: "ADVISORY_ONLY" as const,
+    independenceGrade: "SEPARATE_INVOCATION_SAME_PROVIDER" as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const investigationDesk = input.investigationDesk ?? {
     retentionLimit: 10,
     activeCount: 0 as const,
@@ -331,7 +357,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 238,
+      proofTests: 244,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -343,6 +369,7 @@ export function buildStudioProjection(input: {
       opportunityRadar,
       marketCorpus,
       marketArchaeologist,
+      semanticReview,
       modelProvider,
       investigator,
       investigationDesk,

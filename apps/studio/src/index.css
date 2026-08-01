@@ -4912,7 +4912,7 @@ footer span:first-child {
 .lifecycle-case-list {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   margin-top: 12px;
 }
 
@@ -4968,6 +4968,174 @@ footer span:first-child {
 
 .lifecycle-case-next strong {
   font-size: 10px;
+}
+
+.lifecycle-review-panel {
+  background: rgba(3, 8, 14, 0.5);
+  border: 1px solid rgba(142, 169, 255, 0.16);
+  border-radius: 9px;
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.lifecycle-review-head,
+.lifecycle-review-head > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.lifecycle-review-head {
+  justify-content: space-between;
+}
+
+.lifecycle-review-head svg {
+  color: var(--violet);
+  flex: 0 0 auto;
+}
+
+.lifecycle-review-head strong {
+  font-size: 11px;
+}
+
+.lifecycle-review-head span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.lifecycle-review-result {
+  border-top: 1px solid var(--border);
+  margin-top: 13px;
+  padding-top: 13px;
+}
+
+.lifecycle-review-verdict {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lifecycle-review-verdict > span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.lifecycle-review-verdict code {
+  margin: 0 0 0 auto;
+}
+
+.lifecycle-review-result > p {
+  color: var(--foreground);
+  margin-top: 11px;
+}
+
+.lifecycle-assessment-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 13px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--border);
+}
+
+.lifecycle-assessment-grid > div {
+  background: rgba(7, 14, 23, 0.96);
+  display: grid;
+  gap: 6px;
+  padding: 11px;
+}
+
+.lifecycle-assessment-grid span,
+.lifecycle-counterexamples > span {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.lifecycle-assessment-grid strong {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.lifecycle-counterexamples {
+  display: grid;
+  gap: 6px;
+  margin-top: 13px;
+}
+
+.lifecycle-counterexamples p {
+  border-left: 2px solid rgba(255, 159, 132, 0.45);
+  padding-left: 9px;
+}
+
+.lifecycle-counterexamples p.is-gap {
+  border-left-color: rgba(255, 199, 142, 0.6);
+  color: var(--warning);
+}
+
+.lifecycle-decision-box {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+  padding-top: 13px;
+}
+
+.lifecycle-decision-box label {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lifecycle-decision-box textarea {
+  background: rgba(3, 8, 14, 0.72);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  min-height: 78px;
+  outline: none;
+  padding: 10px 11px;
+  resize: vertical;
+  width: 100%;
+}
+
+.lifecycle-decision-box textarea:focus {
+  border-color: rgba(142, 169, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(142, 169, 255, 0.06);
+}
+
+.lifecycle-decision-box > div {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.lifecycle-retained-decision {
+  border-left: 2px solid rgba(126, 240, 193, 0.5);
+  display: grid;
+  gap: 7px;
+  margin-top: 13px;
+  padding: 3px 0 3px 11px;
+}
+
+.lifecycle-retained-decision p {
+  color: var(--foreground);
+}
+
+.lifecycle-retained-decision small {
+  color: var(--primary);
+  font-size: 8px;
+  letter-spacing: 0.09em;
 }
 
 .lifecycle-route-grid {
@@ -5273,6 +5441,27 @@ footer span:first-child {
   .lifecycle-case-next {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .lifecycle-review-head,
+  .lifecycle-review-head > div,
+  .lifecycle-decision-box > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lifecycle-review-head > button,
+  .lifecycle-decision-box button {
+    width: 100%;
+  }
+
+  .lifecycle-review-verdict code {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .lifecycle-assessment-grid {
+    grid-template-columns: 1fr;
   }
 
   .archaeology-heading,

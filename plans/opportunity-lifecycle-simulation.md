@@ -62,10 +62,23 @@ decision and cannot be inferred from this state machine.
 - [x] Expose lifecycle cases, exchange-model qualification, and routing policies
   in Harmony Studio.
 
+## Phase 4 — adversarial semantic review and durable decisions
+
+- [x] Run a separate bounded AI invocation as an advisory counterexample
+  reviewer over exact, content-addressed listing evidence.
+- [x] Bind the proposal's original corpus and the current review corpus, and
+  label retained-listing review as `REBASED_CURRENT_CORPUS`.
+- [x] Persist semantic-review records and opportunity lifecycle journals in
+  SQLite WAL with canonical hashes, append-only history, and restart recovery.
+- [x] Keep AI review advisory-only and require a separate local operator
+  decision before a case can enter exchange simulation.
+- [x] Limit that decision to `ACCEPT_FOR_SIMULATION` or `REJECT`; neither grants
+  production review, certificate, promotion, or execution authority.
+- [x] Expose counterexamples, missing evidence, exact assessments, rationale,
+  and the research-only decision boundary in Harmony Studio.
+
 ## Next slices
 
-- Persist lifecycle events and operator shadow decisions as a canonical journal.
-- Add independent semantic review artifacts and adversarial counterexample runs.
 - Calibrate AMM implementations against each venue's official contract and fee
   semantics instead of treating `x*y=k` as a venue fact.
 - Compile accepted relation kinds into exact payoff constraints and exercise the
@@ -107,3 +120,14 @@ decision and cannot be inferred from this state machine.
 - 2026-08-01: The checkpoint passes 238 workspace tests, full typecheck, and
   production build under Node.js 24. Desktop and 430px lifecycle inspection have
   no horizontal overflow (`scrollWidth === clientWidth` at both widths).
+- 2026-08-01: SQLite schema v7 adds canonical semantic-review records and
+  append-only opportunity lifecycle journals. Restored machines replay and
+  revalidate every event identity before accepting their projected state.
+- 2026-08-01: A separate DeepSeek V4 Flash reviewer rebased one retained BTC
+  proposal onto the current exact listing evidence and recommended research
+  simulation only. Artifact `sha256:0ddf6abb…707c0` identifies differing
+  oracles, resolution times, outcome mappings, and cancellation semantics;
+  every production, simulation, and execution authority remains false.
+- 2026-08-01: The semantic-review workflow passes 244 workspace tests, full
+  typecheck, and production build under Node.js 24.14.0. Operator acceptance
+  remains intentionally pending rather than being inferred from AI advice.
