@@ -1,9 +1,11 @@
 import { resolve } from "node:path";
 import {
   buildRealCandidateDepthEvidence,
+  buildRealCandidateDispositionEvidence,
   buildRealCandidatePreflightEvidence,
   loadRawFixture,
   type RealCandidateDepthEvidence,
+  type RealCandidateDispositionEvidence,
   type RealCandidatePreflightEvidence,
 } from "@pmh/evidence";
 
@@ -11,6 +13,7 @@ export class RealCandidatePreflightDesk {
   readonly #fixtureRoot: string;
   #evidence: RealCandidatePreflightEvidence | undefined;
   #depthEvidence: RealCandidateDepthEvidence | undefined;
+  #dispositionEvidence: RealCandidateDispositionEvidence | undefined;
   #inFlight: Promise<RealCandidatePreflightEvidence> | undefined;
 
   public constructor(
@@ -39,8 +42,14 @@ export class RealCandidatePreflightDesk {
       );
       return loadRawFixture(`${base}.json`, `${base}.meta.json`);
     };
-    const [polymarket, opinion, limitless, polymarketBook, limitlessBook] =
-      await Promise.all([
+    const [
+      polymarket,
+      opinion,
+      limitless,
+      polymarketBook,
+      limitlessBook,
+      limitlessFees,
+    ] = await Promise.all([
         load(
           "polymarket-global",
           "2026-07-31",
@@ -58,6 +67,7 @@ export class RealCandidatePreflightDesk {
           "2026-08-01",
           "limitless-trump-out-2027-book",
         ),
+        load("limitless", "2026-08-01", "limitless-fees"),
       ]);
     this.#depthEvidence = buildRealCandidateDepthEvidence({
       polymarket,
@@ -65,6 +75,14 @@ export class RealCandidatePreflightDesk {
       limitless,
       polymarketBook,
       limitlessBook,
+    });
+    this.#dispositionEvidence = buildRealCandidateDispositionEvidence({
+      polymarket,
+      opinion,
+      limitless,
+      polymarketBook,
+      limitlessBook,
+      limitlessFees,
     });
     this.#evidence = buildRealCandidatePreflightEvidence({
       polymarket,
@@ -86,5 +104,12 @@ export class RealCandidatePreflightDesk {
       throw new Error("real candidate depth evidence is not loaded");
     }
     return this.#depthEvidence;
+  }
+
+  public dispositionProjection(): RealCandidateDispositionEvidence {
+    if (this.#dispositionEvidence === undefined) {
+      throw new Error("real candidate disposition evidence is not loaded");
+    }
+    return this.#dispositionEvidence;
   }
 }

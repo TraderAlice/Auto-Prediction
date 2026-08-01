@@ -951,6 +951,20 @@ describe("control-plane HTTP surface", () => {
         artifactHash: string;
         effects: { liveExecutionEnabled: boolean };
       };
+      realCandidateDisposition: {
+        status: string;
+        classification: string;
+        scope: string;
+        postFeeFloorUpperBound: string;
+        strictlyPositivePostFeeFloorPossible: boolean;
+        terminalForSnapshot: boolean;
+        rescreenRequiredOnBookChange: boolean;
+        independentReviewInvoked: boolean;
+        verifierInvoked: boolean;
+        arbitrageVerified: boolean;
+        artifactHash: string;
+        effects: { liveExecutionEnabled: boolean };
+      };
     };
     expect(response.status).toBe(200);
     expect(qualification.replayChaos).toMatchObject({
@@ -992,6 +1006,22 @@ describe("control-plane HTTP surface", () => {
       effects: { liveExecutionEnabled: false },
     });
     expect(qualification.realCandidateDepth.artifactHash).toMatch(/^sha256:/);
+    expect(qualification.realCandidateDisposition).toMatchObject({
+      status: "REJECTED",
+      classification: "REJECTED_ECONOMICS",
+      scope: "BOUND_BOOK_SNAPSHOT_ONLY",
+      postFeeFloorUpperBound: "0",
+      strictlyPositivePostFeeFloorPossible: false,
+      terminalForSnapshot: true,
+      rescreenRequiredOnBookChange: true,
+      independentReviewInvoked: false,
+      verifierInvoked: false,
+      arbitrageVerified: false,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(qualification.realCandidateDisposition.artifactHash).toMatch(
+      /^sha256:/,
+    );
   });
 
   it("broadcasts the replayed projection to connected SSE clients", async () => {

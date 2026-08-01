@@ -918,6 +918,8 @@ function RealCandidatePreflightView() {
   const studioProjection = useStudioProjection();
   const preflight = studioProjection.qualification.realCandidatePreflight;
   const depth = studioProjection.qualification.realCandidateDepth;
+  const disposition =
+    studioProjection.qualification.realCandidateDisposition;
   if (preflight === null || preflight === undefined) {
     return (
       <section className="page-section preflight-page">
@@ -938,8 +940,9 @@ function RealCandidatePreflightView() {
     );
   }
   const indicatedPositive = BigInt(preflight.catalogIndicativeGrossFloor) > 0n;
-  const currentStages = depth?.stages ?? preflight.stages;
-  const currentBlockers = depth?.blockers ?? preflight.blockers;
+  const currentStages = disposition?.stages ?? depth?.stages ?? preflight.stages;
+  const currentBlockers =
+    disposition?.rejectionReasons ?? depth?.blockers ?? preflight.blockers;
 
   return (
     <section className="page-section preflight-page">
@@ -951,12 +954,13 @@ function RealCandidatePreflightView() {
             One exact three-venue claim map produces a tempting catalog hint.
             Repricing the same two legs at venue-reported quotes removes the
             gross floor; replaying anonymous books at a common five-share size
-            confirms zero edge before fees, so the exact verifier is never invoked.
+            confirms zero edge before fees. The current snapshot is rejected
+            deterministically before review or exact verification.
           </p>
         </div>
         <Badge variant="shadow">
           <CircleOff size={11} />
-          {preflight.status}
+          {(disposition?.classification ?? preflight.status).replaceAll("_", " ")}
         </Badge>
       </div>
 
@@ -982,6 +986,50 @@ function RealCandidatePreflightView() {
           detail="prerequisites fail closed"
         />
       </div>
+
+      {disposition !== null && disposition !== undefined && (
+        <div className="preflight-disposition">
+          <div className="preflight-disposition-mark">
+            <CircleOff size={19} />
+          </div>
+          <div className="preflight-disposition-copy">
+            <span>Deterministic snapshot disposition</span>
+            <strong>Rejected before scarce review work</strong>
+            <p>
+              The quantity-bound gross floor is already non-positive. An
+              official non-negative sell-taker fee cannot restore strict
+              positivity, so this exact book snapshot leaves the pipeline.
+            </p>
+          </div>
+          <div className="preflight-disposition-facts">
+            <div>
+              <span>Post-fee upper bound</span>
+              <strong>
+                {unitCostLabel(
+                  disposition.postFeeFloorUpperBound,
+                  disposition.quantityScale,
+                )}
+              </strong>
+            </div>
+            <div>
+              <span>Sell taker range</span>
+              <strong>
+                {disposition.feeEvidence.minimumSellTakerFeeBps}–
+                {disposition.feeEvidence.maximumSellTakerFeeBps} bp
+              </strong>
+            </div>
+            <div>
+              <span>New books</span>
+              <strong>
+                {disposition.rescreenRequiredOnBookChange
+                  ? "RESCREEN"
+                  : "TERMINAL"}
+              </strong>
+            </div>
+          </div>
+          <code>{disposition.artifactHash}</code>
+        </div>
+      )}
 
       <div className="preflight-claim-strip">
         <GitBranch size={15} />
@@ -1223,7 +1271,7 @@ function RealCandidatePreflightView() {
           <CardContent className="preflight-stage-list">
             {currentStages.map((stage, index) => (
               <div className="preflight-stage" key={stage.stage}>
-                <span className={stage.status === "BLOCKED" ? "is-blocked" : ""}>
+                <span className={stage.status === "PASS" ? "" : "is-blocked"}>
                   {stage.status === "PASS" ? index + 1 : <CircleOff size={11} />}
                 </span>
                 <div>
@@ -1242,7 +1290,11 @@ function RealCandidatePreflightView() {
           <CardHeader>
             <div>
               <span className="eyebrow">Fail-closed intake</span>
-              <h2>Required before verification</h2>
+              <h2>
+                {disposition === null || disposition === undefined
+                  ? "Required before verification"
+                  : "Why this snapshot is rejected"}
+              </h2>
             </div>
             <CircleOff size={18} className="muted-icon" />
           </CardHeader>
@@ -1263,10 +1315,13 @@ function RealCandidatePreflightView() {
       <div className="case-authority-lock preflight-authority-lock">
         <ShieldCheck size={15} />
         <span>
-          This immutable artifact is a search preflight, not an accepted market
-          link, executable quote, arbitrage certificate, or trading authority.
+          This disposition rejects only the bound book snapshot. It is not a
+          permanent market judgment, arbitrage certificate, or trading authority;
+          changed books require a fresh screen.
         </span>
-        <code>{depth?.artifactHash ?? preflight.artifactHash}</code>
+        <code>
+          {disposition?.artifactHash ?? depth?.artifactHash ?? preflight.artifactHash}
+        </code>
       </div>
     </section>
   );

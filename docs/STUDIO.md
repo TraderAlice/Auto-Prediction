@@ -84,7 +84,8 @@ The Candidate Preflight view is the economic screening layer between a real
 exact-claim fixture map and any future reviewed candidate. It is derived from
 the three checked-in `Trump out as President before 2027?` venue fixtures and
 the immutable `pmh.real-candidate-preflight.v1` and
-`pmh.real-candidate-depth.v1` artifacts. JSON numeric tokens are preserved
+`pmh.real-candidate-depth.v1` artifacts, followed by the snapshot-scoped
+`pmh.real-candidate-disposition.v1` artifact. JSON numeric tokens are preserved
 lexically and all prices, quantities, costs, payout floors, and basis-point
 values are recomputed with `bigint` fixed point.
 
@@ -104,11 +105,14 @@ taker fees, and its complete-set split plus YES sale is a simulation-only route.
 Studio shows these facts without invoking a split, approval, signature, order,
 or any other value-moving operation.
 
-Studio therefore renders the artifact as `SEARCH_LEAD_ONLY` / `BLOCKED`, shows
-the two quote layers plus the quantity route separately, and reports
-`verifierInvoked: false` plus `arbitrageVerified: false`. It is not added to the
-opportunity list. The browser only presents the control-plane result and
-performs no price, depth, route, or payoff calculation.
+The disposition strip then explains why the current bound books can be
+rejected without an exact dynamic fee amount: the gross upper bound is zero,
+while official Limitless sell-taker fees are non-negative. Studio renders
+`REJECTED_ECONOMICS`, the 42–150 bp documented range, the skipped review and
+verifier stages, and the requirement to rescreen changed books. It reports
+`verifierInvoked: false` plus `arbitrageVerified: false` and never adds the
+candidate to the opportunity list. The browser only presents the control-plane
+result and performs no price, depth, fee, route, or payoff calculation.
 
 ## Scout inbox
 

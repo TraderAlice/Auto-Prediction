@@ -319,6 +319,8 @@ export function createControlPlane(options?: {
       discoveryDesk: discoveryLedger.projection(),
       realCandidatePreflight: realCandidatePreflightDesk.projection(),
       realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
+      realCandidateDisposition:
+        realCandidatePreflightDesk.dispositionProjection(),
     });
   };
 
@@ -433,6 +435,8 @@ export function createControlPlane(options?: {
         opportunityRadar: catalogObservationDesk.radar(),
         realCandidatePreflight: realCandidatePreflightDesk.projection(),
         realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
+        realCandidateDisposition:
+          realCandidatePreflightDesk.dispositionProjection(),
       });
       return;
     }

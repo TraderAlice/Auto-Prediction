@@ -37,6 +37,15 @@ the Limitless REST response exposes no generation identity, the route remains
 non-certificate-grade even before its dynamic taker fee and independent review
 gaps are considered.
 
+The disposition artifact is a separate, narrower authority: it may reject a
+bound book snapshot without promoting the route. It binds official Limitless
+fee prose showing a non-negative 42–150 bp sell-taker range. Combined with a
+zero gross-floor upper bound, fee monotonicity proves that strict post-fee
+positivity is impossible, so exact fee computation, route qualification,
+independent review, and exact verification are unnecessary for rejection.
+The result expires logically when either book identity changes and grants no
+certificate or execution authority.
+
 The repository has no live-trading authority. No adapter method may turn configuration alone into permission to place an order or move value.
 
 Order-shape research emits `pmh.inert-order-ack.v1` receipts. Each receipt

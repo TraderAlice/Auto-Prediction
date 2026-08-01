@@ -12,6 +12,7 @@ describe("real candidate preflight desk", () => {
     const desk = new RealCandidatePreflightDesk(fixtureRoot);
     expect(() => desk.projection()).toThrow(/not loaded/);
     expect(() => desk.depthProjection()).toThrow(/not loaded/);
+    expect(() => desk.dispositionProjection()).toThrow(/not loaded/);
     const [first, second] = await Promise.all([desk.load(), desk.load()]);
     expect(first).toBe(second);
     expect(desk.projection()).toMatchObject({
@@ -30,6 +31,19 @@ describe("real candidate preflight desk", () => {
       quantityBound: true,
       totalCostBeforeFees: "500000000",
       grossEdgeBpsBeforeFees: "0",
+      verifierInvoked: false,
+      arbitrageVerified: false,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(desk.dispositionProjection()).toMatchObject({
+      status: "REJECTED",
+      classification: "REJECTED_ECONOMICS",
+      scope: "BOUND_BOOK_SNAPSHOT_ONLY",
+      postFeeFloorUpperBound: "0",
+      strictlyPositivePostFeeFloorPossible: false,
+      terminalForSnapshot: true,
+      rescreenRequiredOnBookChange: true,
+      independentReviewInvoked: false,
       verifierInvoked: false,
       arbitrageVerified: false,
       effects: { liveExecutionEnabled: false },

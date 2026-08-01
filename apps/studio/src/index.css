@@ -3313,6 +3313,112 @@ footer span:first-child {
   color: #d5a16e;
 }
 
+.preflight-disposition {
+  display: grid;
+  grid-template-columns: auto minmax(260px, 1fr) minmax(360px, 0.9fr);
+  align-items: center;
+  gap: 16px;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(213, 161, 110, 0.18);
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 0 50%, rgba(213, 161, 110, 0.07), transparent 18rem),
+    rgba(213, 161, 110, 0.018);
+  padding: 15px 16px;
+}
+
+.preflight-disposition-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(213, 161, 110, 0.22);
+  border-radius: 10px;
+  color: #d5a16e;
+  background: rgba(213, 161, 110, 0.045);
+}
+
+.preflight-disposition-copy {
+  min-width: 0;
+}
+
+.preflight-disposition-copy span,
+.preflight-disposition-copy strong {
+  display: block;
+}
+
+.preflight-disposition-copy span {
+  color: #8d6b4d;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.preflight-disposition-copy strong {
+  margin-top: 5px;
+  color: #b0a296;
+  font-size: 11px;
+}
+
+.preflight-disposition-copy p {
+  max-width: 680px;
+  margin: 6px 0 0;
+  color: #6c6761;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.preflight-disposition-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid rgba(213, 161, 110, 0.1);
+  border-radius: 8px;
+}
+
+.preflight-disposition-facts > div {
+  min-width: 0;
+  border-right: 1px solid rgba(213, 161, 110, 0.1);
+  padding: 10px;
+}
+
+.preflight-disposition-facts > div:last-child {
+  border-right: 0;
+}
+
+.preflight-disposition-facts span,
+.preflight-disposition-facts strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preflight-disposition-facts span {
+  color: #685c51;
+  font-size: 6px;
+  text-transform: uppercase;
+}
+
+.preflight-disposition-facts strong {
+  margin-top: 5px;
+  color: #c28f62;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 9px;
+}
+
+.preflight-disposition > code {
+  grid-column: 2 / -1;
+  overflow: hidden;
+  color: #4e4c49;
+  font-size: 6px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .preflight-claim-strip {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(260px, auto);
@@ -3918,6 +4024,18 @@ footer span:first-child {
     grid-template-columns: 1fr;
   }
 
+  .preflight-disposition {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .preflight-disposition-facts {
+    grid-column: 1 / -1;
+  }
+
+  .preflight-disposition > code {
+    grid-column: 1 / -1;
+  }
+
   .preflight-depth-route {
     grid-template-columns: 1fr;
   }
@@ -4138,6 +4256,33 @@ footer span:first-child {
 
   .preflight-leg-grid {
     grid-template-columns: 1fr;
+  }
+
+  .preflight-disposition {
+    grid-template-columns: 1fr;
+  }
+
+  .preflight-disposition-mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .preflight-disposition-facts {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .preflight-disposition-facts > div {
+    border-right: 0;
+    border-bottom: 1px solid rgba(213, 161, 110, 0.1);
+  }
+
+  .preflight-disposition-facts > div:last-child {
+    border-bottom: 0;
+  }
+
+  .preflight-disposition > code {
+    display: none;
   }
 
   .preflight-depth-card [data-slot="card-header"] {
