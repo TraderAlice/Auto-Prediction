@@ -158,6 +158,29 @@ const EMPTY_RELATION_PAYOFF: StudioProjection["relationPayoff"] = {
   },
 };
 
+const EMPTY_SIMULATION_MATERIALIZER: StudioProjection["simulationMaterializer"] = {
+  schemaVersion: "pmh.anonymous-simulation-materializer-desk.v1",
+  mode: "ANONYMOUS_PUBLIC_GET",
+  status: "IDLE",
+  runCount: 0,
+  readyCount: 0,
+  blockedCount: 0,
+  retentionLimit: 25,
+  timeoutMs: 10_000,
+  maxResponseBytes: 1_000_000,
+  maxSnapshotSkewMs: 5_000,
+  retainedRawSourceCount: 0,
+  records: [],
+  authority: "ANONYMOUS_RESEARCH_MATERIALIZER",
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"] = {
   schemaVersion: "pmh.candidate-watch.v1",
   mode: "ANONYMOUS_PUBLIC_GET",
@@ -461,6 +484,52 @@ async function requestResearchSemanticDecision(
     result.lifecycle.effects.liveExecutionEnabled !== false
   ) {
     throw new Error("semantic decision crossed its research-only boundary");
+  }
+}
+
+async function requestAnonymousMaterialization(
+  opportunityId: string,
+  portfolioId: string,
+  requestedQuantity: string,
+): Promise<void> {
+  const response = await fetch(
+    "/api/v1/opportunity-lifecycle/materializations",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ opportunityId, portfolioId, requestedQuantity }),
+    },
+  );
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    certificateAuthority?: boolean;
+    executionAuthority?: boolean;
+    materialization?: {
+      authority?: string;
+      certificateAuthority?: boolean;
+      executionAuthority?: boolean;
+      effects?: {
+        externalWrites?: boolean;
+        valueMovingActions?: boolean;
+        liveExecutionEnabled?: boolean;
+      };
+    };
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "public-book materialization failed");
+  }
+  if (
+    result.certificateAuthority !== false ||
+    result.executionAuthority !== false ||
+    result.materialization?.authority !==
+      "ANONYMOUS_RESEARCH_MATERIALIZER" ||
+    result.materialization.certificateAuthority !== false ||
+    result.materialization.executionAuthority !== false ||
+    result.materialization.effects?.externalWrites !== false ||
+    result.materialization.effects.valueMovingActions !== false ||
+    result.materialization.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("public-book materializer crossed its authority boundary");
   }
 }
 
@@ -2066,12 +2135,17 @@ function OpportunityLifecycleView() {
   const semanticReview = studioProjection.ai.semanticReview;
   const relationPayoff =
     studioProjection.relationPayoff ?? EMPTY_RELATION_PAYOFF;
+  const simulationMaterializer =
+    studioProjection.simulationMaterializer ?? EMPTY_SIMULATION_MATERIALIZER;
   const semanticDecisions = desk.semanticDecisions ?? [];
   const simulationBundles = desk.simulationBundles ?? [];
   const [reviewStates, setReviewStates] = useState<
     Readonly<Record<string, "RUNNING" | "DONE" | "RESTORED" | "FAILED">>
   >({});
   const [decisionStates, setDecisionStates] = useState<
+    Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
+  >({});
+  const [materializationStates, setMaterializationStates] = useState<
     Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
   >({});
   const [rationales, setRationales] = useState<Readonly<Record<string, string>>>(
@@ -2140,6 +2214,41 @@ function OpportunityLifecycleView() {
         ...current,
         [opportunityId]:
           error instanceof Error ? error.message : "semantic decision failed",
+      }));
+    }
+  }
+
+  async function materialize(
+    opportunityId: string,
+    portfolioId: string,
+    requestedQuantity: string,
+  ): Promise<void> {
+    setMaterializationStates((current) => ({
+      ...current,
+      [portfolioId]: "RUNNING",
+    }));
+    setDiagnostics((current) => ({ ...current, [opportunityId]: "" }));
+    try {
+      await requestAnonymousMaterialization(
+        opportunityId,
+        portfolioId,
+        requestedQuantity,
+      );
+      setMaterializationStates((current) => ({
+        ...current,
+        [portfolioId]: "DONE",
+      }));
+    } catch (error) {
+      setMaterializationStates((current) => ({
+        ...current,
+        [portfolioId]: "FAILED",
+      }));
+      setDiagnostics((current) => ({
+        ...current,
+        [opportunityId]:
+          error instanceof Error
+            ? error.message
+            : "public-book materialization failed",
       }));
     }
   }
@@ -2494,18 +2603,96 @@ function OpportunityLifecycleView() {
                             ))}
                           </div>
                         )}
-                        {payoffQualification.portfolios.map((portfolio) => (
-                          <div
-                            className="lifecycle-payoff-portfolio"
-                            key={portfolio.portfolioId}
-                          >
-                            <strong>{portfolio.label}</strong>
-                            <span>
-                              floor {portfolio.minimumPayoutUnits} payout unit ·
-                              exact book simulation still required
-                            </span>
-                          </div>
-                        ))}
+                        {payoffQualification.portfolios.map((portfolio) => {
+                          const latestMaterialization =
+                            simulationMaterializer.records.find(
+                              (record) =>
+                                record.opportunityId === item.opportunityId &&
+                                record.portfolioId === portfolio.portfolioId,
+                            );
+                          const firstLeg = portfolio.legs[0];
+                          const firstBinding =
+                            firstLeg === undefined
+                              ? undefined
+                              : payoffQualification.listingBindings.find(
+                                  (binding) =>
+                                    binding.listingRef === firstLeg.listingRef,
+                                );
+                          const requestedQuantity =
+                            firstBinding?.quantityScale ?? "1";
+                          const materializationRunning =
+                            materializationStates[portfolio.portfolioId] ===
+                            "RUNNING";
+                          return (
+                            <div
+                              className="lifecycle-payoff-portfolio"
+                              key={portfolio.portfolioId}
+                            >
+                              <strong>{portfolio.label}</strong>
+                              <span>
+                                floor {portfolio.minimumPayoutUnits} payout unit ·
+                                {" "}one-unit anonymous depth probe
+                              </span>
+                              <div className="lifecycle-materialization-action">
+                                <Button
+                                  variant="outline"
+                                  disabled={
+                                    materializationRunning ||
+                                    payoffQualification.status !==
+                                      "SIMULATION_TEMPLATE_READY"
+                                  }
+                                  onClick={() =>
+                                    void materialize(
+                                      item.opportunityId,
+                                      portfolio.portfolioId,
+                                      requestedQuantity,
+                                    )
+                                  }
+                                >
+                                  {materializationRunning ? (
+                                    <RefreshCw
+                                      className="is-spinning"
+                                      size={13}
+                                    />
+                                  ) : (
+                                    <Database size={13} />
+                                  )}
+                                  {materializationRunning
+                                    ? "Acquiring…"
+                                    : latestMaterialization === undefined
+                                      ? "Acquire public books"
+                                      : "Refresh public books"}
+                                </Button>
+                                {latestMaterialization !== undefined && (
+                                  <div>
+                                    <Badge
+                                      variant={
+                                        latestMaterialization.status === "READY"
+                                          ? "verified"
+                                          : "warning"
+                                      }
+                                    >
+                                      {latestMaterialization.status}
+                                    </Badge>
+                                    <span>
+                                      {latestMaterialization.sources.length} raw
+                                      {" "}source
+                                      {latestMaterialization.sources.length === 1
+                                        ? ""
+                                        : "s"}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              {latestMaterialization?.diagnostic !== null &&
+                                latestMaterialization?.diagnostic !== undefined && (
+                                  <p className="lifecycle-materialization-diagnostic">
+                                    {latestMaterialization.diagnostic}
+                                  </p>
+                                )}
+                            </div>
+                          );
+                        })}
                         <small>
                           RESEARCH COMPILER · VERIFIER ELIGIBLE FALSE · NO
                           CERTIFICATE AUTHORITY

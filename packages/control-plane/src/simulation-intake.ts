@@ -205,12 +205,30 @@ export function parseOpportunitySimulationIntake(
   const legs = Object.freeze(
     portfolio.legs.map((leg) => {
       const simulationRequest = requestsByLeg.get(leg.legId);
-      const expectedVenue = leg.listingRef.split(":", 1)[0];
+      const binding = qualification.listingBindings.find(
+        (item) => item.listingRef === leg.listingRef,
+      );
+      const outcome =
+        leg.outcome === "TRUE"
+          ? binding?.trueOutcome
+          : binding?.falseOutcome;
       if (
         simulationRequest === undefined ||
-        simulationRequest.venueId !== expectedVenue
+        binding === undefined ||
+        outcome === undefined ||
+        simulationRequest.venueId !== binding.venueId ||
+        simulationRequest.instrumentId !== outcome.venueOutcomeId ||
+        simulationRequest.quantityScale !== BigInt(binding.quantityScale) ||
+        simulationRequest.collateralScale !== BigInt(binding.priceScale) ||
+        (simulationRequest.model === "CLOB_TAKER_V1" &&
+          binding.minPriceTick !== null &&
+          simulationRequest.levels.some(
+            (level) => level.price % BigInt(binding.minPriceTick!) !== 0n,
+          ))
       ) {
-        throw new Error("simulation request venue does not bind the payoff leg");
+        throw new Error(
+          "simulation request does not bind the payoff outcome instrument and fixed-point contract",
+        );
       }
       return Object.freeze({
         legId: leg.legId,

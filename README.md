@@ -35,6 +35,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
 - An operator-triggered Candidate Watch that captures current Polymarket and Limitless books under one refresh identity, retains exact raw bytes plus a bounded hash-checked attempt journal in SQLite WAL schema v5, restores failures across restart, refuses mixed-time screens after partial failure, and either reuses an unchanged bound result or recomputes changed-book economics without invoking review or verification.
+- An AI-to-simulation materializer that retains catalog outcome-token and fixed-point bindings through semantic review and payoff compilation, acquires the exact public books for an accepted portfolio, preserves raw response evidence in a bounded process desk, and automatically runs bigint portfolio simulation only when every fee schedule is exactly representable. Dynamic or authenticated fee/book surfaces remain visible blockers.
 - An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, cross-restart task-scope idempotency, bounded hash-checked SQLite retention, SSE running/failure/completion state, and no route into review or execution.
 - A deterministic Research Case Desk that joins scout runs and pi retry history by question, venue scope, catalog-context identity, and source grade; after a passed investigation it derives a self-verifying `pmh.review-intake-packet.v1` binding the exact scout, hypothesis, context, pi artifact, candidate scope, and unresolved evidence without accepting a review decision or creating promotion authority.
 - A bounded anonymous catalog-observation desk for six venues. It preserves raw public GET bytes in SQLite WAL, binds normalized listings to their source identities, isolates protocol drift per venue, and stays `OBSERVE_ONLY`; explicit fresh-context qualification grants proposal input only.
@@ -129,6 +130,18 @@ success cannot silently revive the watch as `READY`. Journal records and their
 referenced raw observations are hash-checked during hydration.
 The endpoint can reject economics or request later qualification, but it cannot
 invoke independent review, publish a certificate, or move value.
+
+After an operator accepts an AI relation for research simulation, Studio can
+call `POST /api/v1/opportunity-lifecycle/materializations` with the compiled
+portfolio identity and a base-unit quantity. The server—not the browser—derives
+the venue outcome tokens from hash-bound review evidence, captures current
+anonymous books, enforces token, scale, tick, byte-cap, and receive-time-skew
+contracts, and feeds a complete plan to the bigint simulator only when fees are
+exact. A public Polymarket zero-fee response is supported. Non-zero Polymarket
+curved fees, Limitless dynamic taker fees, authenticated-only books, and partial
+failures return retained research evidence with a blocking diagnostic. These
+generic materialization records and raw bytes are currently process-retained;
+SQLite restart durability is the next scheduling prerequisite.
 
 `GET /api/v1/radar` projects only fresh-source candidate pairs. A Studio action
 may send one server-bound pair to `POST /api/v1/radar/triage`; the browser

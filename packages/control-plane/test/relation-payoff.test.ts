@@ -57,6 +57,15 @@ function fixture(relationKind: MarketRelationKind): {
         listingHash: hashCanonical({ listingRef }),
         sourceRawHash: hashCanonical({ source: listingRef }),
         protocolIdentity: `protocol:${listingRef}`,
+        venueId: listingRef.split(":", 1)[0]!,
+        venueInstrumentId: listingRef.split(":", 2)[1]!,
+        outcomes: [
+          { venueOutcomeId: `${listingRef}:yes`, label: "Yes" },
+          { venueOutcomeId: `${listingRef}:no`, label: "No" },
+        ],
+        priceScale: "1000",
+        quantityScale: "1000",
+        minPriceTick: "1",
       })),
     },
     result: {

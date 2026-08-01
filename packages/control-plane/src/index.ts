@@ -1,4 +1,5 @@
 export * from "./book-desk.js";
+export * from "./anonymous-simulation-materializer.js";
 export * from "./catalog-discovery.js";
 export * from "./catalog-observation.js";
 export * from "./candidate-watch.js";

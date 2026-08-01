@@ -98,13 +98,36 @@ decision and cannot be inferred from this state machine.
 - [x] Add a strict decimal-string HTTP intake and JSON-safe Studio summaries;
   neither surface grants verifier, certificate, or execution authority.
 
+## Phase 6 — anonymous portfolio materialization
+
+- [x] Retain exact venue outcome-token IDs, price/quantity scales, and minimum
+  ticks through catalog context, semantic review, and payoff compilation.
+- [x] Resolve each portfolio leg to the compiler-bound TRUE/FALSE outcome
+  instrument rather than accepting a browser-supplied token identity.
+- [x] Acquire Polymarket and Limitless public books through anonymous,
+  byte-capped GETs with redirects rejected and credentials omitted.
+- [x] Preserve source URL, protocol identity, receive time, content hash, raw
+  bytes, and venue generation when one exists in a bounded process desk.
+- [x] Require one fresh receive-time window across every leg and expose partial
+  acquisition, schema drift, and instrument mismatch as explicit blockers.
+- [x] Query the public Polymarket token fee endpoint and automatically build a
+  bigint CLOB plan only for a proven zero-fee response.
+- [x] Fail closed for Polymarket's non-zero price curve, Limitless's dynamic
+  taker curve, and venues without a qualified anonymous book surface; the
+  current linear simulation fee type must not approximate those protocols.
+- [x] Let Studio acquire or refresh one payout unit of public depth for each
+  qualified portfolio and show retained source count plus exact blocker text.
+
 ## Next slices
 
 - Calibrate AMM implementations against each venue's official contract and fee
   semantics instead of treating `x*y=k` as a venue fact.
-- Add outcome-token book and fee acquisition for AI-discovered listing refs so
-  accepted portfolios can be materialized from fresh anonymous venue state
-  without hand-authoring the simulation intake.
+- Persist generic outcome-token raw sources and materialization records in
+  SQLite with restart validation before treating the completed in-process
+  acquisition slice as an unattended scheduled job.
+- Generalize `SimulationFee` to content-hashed price-dependent fee functions,
+  then qualify current Polymarket and Limitless taker curves against official
+  protocol vectors. Until then only an exact zero-fee schedule may advance.
 - Add an operator-authored structured scope for conditional, multi-listing, or
   reviewer-reclassified relations; free-text rationale must not become a payoff
   partition implicitly.
@@ -170,3 +193,18 @@ decision and cannot be inferred from this state machine.
   typecheck, production build, SQLite restart recovery, and desktop/430px
   Browser inspection with no horizontal overflow. Real operator decisions and
   simulations remain zero.
+- 2026-08-01: Outcome-instrument evidence is no longer discarded before AI
+  review. The compiler accepts only canonical Yes/No or Up/Down mappings,
+  binds the selected token and fixed-point contract into every leg, and rejects
+  stale legacy evidence or browser-substituted instruments.
+- 2026-08-01: The anonymous materializer captures exact public order-book and
+  fee bytes, rejects mixed-time snapshots and protocol mismatches, and hands a
+  complete plan directly to portfolio simulation only when all legs use an
+  exactly representable fee schedule. Official fee evidence established that
+  current non-zero Polymarket and Limitless taker fees are price-dependent, so
+  they remain visible blockers rather than being flattened into a percentage.
+- 2026-08-01: The materialization slice passes 262 workspace tests, full
+  typecheck, and production build under Node.js 24. Desktop and 430px lifecycle
+  inspection show no runtime errors or horizontal overflow. The real runtime
+  still has no operator decision or simulation; no artificial decision was
+  created to make the new controls appear.

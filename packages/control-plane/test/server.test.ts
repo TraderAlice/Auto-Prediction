@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  AnonymousSimulationMaterializerDesk,
   CandidateWatchDesk,
   candidateWatchSources,
   createControlPlane,
@@ -235,6 +236,26 @@ describe("control-plane HTTP surface", () => {
       catalogObservationDesk: catalogDesk,
       marketArchaeologistDesk: archaeologist,
       semanticReviewDesk: semanticReview,
+      simulationMaterializerDesk: new AnonymousSimulationMaterializerDesk({
+        now: () => new Date("2026-08-01T09:31:00.000Z"),
+        fetcher: async (url, init) => {
+          expect(init).toMatchObject({
+            method: "GET",
+            credentials: "omit",
+            redirect: "error",
+          });
+          expect(url).toContain("/markets/limitless-btc-hourly/orderbook");
+          return new Response(
+            JSON.stringify({
+              bids: [],
+              asks: [{ price: "0.4", size: "1000000", side: "SELL" }],
+              tokenId: "down",
+              minSize: "1000000",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        },
+      }),
     });
 
     const reviewResponse = await fetch(
@@ -322,19 +343,68 @@ describe("control-plane HTTP surface", () => {
     });
     const qualification = projection.relationPayoff.qualifications[0]!;
     const portfolio = qualification.portfolios[0]!;
-    const wireRequest = (venueId: string, price: string) => ({
+    const materializationResponse = await fetch(
+      `${baseUrl}/api/v1/opportunity-lifecycle/materializations`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          opportunityId,
+          portfolioId: portfolio.portfolioId,
+          requestedQuantity: "1000000",
+        }),
+      },
+    );
+    expect(materializationResponse.status).toBe(200);
+    expect(await materializationResponse.json()).toMatchObject({
+      materialization: {
+        status: "BLOCKED",
+        opportunityId,
+        portfolioId: portfolio.portfolioId,
+        legs: expect.arrayContaining([
+          expect.objectContaining({
+            venueId: "limitless",
+            blocker: "DYNAMIC_FEE_MODEL_UNSUPPORTED",
+          }),
+          expect.objectContaining({
+            venueId: "opinion",
+            blocker: "UNSUPPORTED_ANONYMOUS_BOOK",
+          }),
+        ]),
+        certificateAuthority: false,
+        executionAuthority: false,
+      },
+      simulation: null,
+      lifecycle: { state: "AWAITING_EXCHANGE_SIMULATION" },
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const materializerProjection = (await fetch(
+      `${baseUrl}/api/v1/projection`,
+    ).then((response) => response.json())) as StudioProjection;
+    expect(materializerProjection.simulationMaterializer).toMatchObject({
+      status: "BLOCKED",
+      runCount: 1,
+      blockedCount: 1,
+      retainedRawSourceCount: 1,
+    });
+    const wireRequest = (
+      venueId: string,
+      instrumentId: string,
+      price: string,
+    ) => ({
       model: "CLOB_TAKER_V1",
       venueId,
-      instrumentId: `${venueId}:binary-outcome`,
+      instrumentId,
       side: "BUY",
       fillPolicy: "FILL_OR_KILL",
-      requestedQuantity: "1000",
-      quantityScale: "1000",
-      collateralScale: "1000",
+      requestedQuantity: "1000000",
+      quantityScale: "1000000",
+      collateralScale: "1000000",
       levels: [
         {
           price,
-          quantity: "1000",
+          quantity: "1000000",
           levelIdentity: hashCanonical({ venueId, price }),
         },
       ],
@@ -359,7 +429,14 @@ describe("control-plane HTTP surface", () => {
             legId: leg.legId,
             request: wireRequest(
               leg.listingRef.split(":", 1)[0]!,
-              index === 0 ? "400" : "450",
+              leg.outcome === "TRUE"
+                ? qualification.listingBindings.find(
+                    (binding) => binding.listingRef === leg.listingRef,
+                  )!.trueOutcome.venueOutcomeId
+                : qualification.listingBindings.find(
+                    (binding) => binding.listingRef === leg.listingRef,
+                  )!.falseOutcome.venueOutcomeId,
+              index === 0 ? "400000" : "450000",
             ),
           })),
         }),
@@ -369,9 +446,9 @@ describe("control-plane HTTP surface", () => {
     expect(await simulationResponse.json()).toMatchObject({
       simulation: {
         status: "POSITIVE_SIMULATED_FLOOR",
-        minimumPayoutCollateral: "1000",
-        simulatedCostCollateral: "850",
-        floorAfterSimulatedFees: "150",
+        minimumPayoutCollateral: "1000000",
+        simulatedCostCollateral: "850000",
+        floorAfterSimulatedFees: "150000",
         authority: "SIMULATION_ONLY",
         verifierEligible: false,
         certificateAuthority: false,

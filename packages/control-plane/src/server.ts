@@ -65,6 +65,7 @@ import {
 import { deriveRelationPayoffProjection } from "./relation-payoff.js";
 import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
 import type { OpportunityLifecycleJournalStore } from "./opportunity-lifecycle-desk.js";
+import { AnonymousSimulationMaterializerDesk } from "./anonymous-simulation-materializer.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -322,6 +323,7 @@ export function createControlPlane(options?: {
   marketArchaeologistDesk?: MarketArchaeologistDesk;
   semanticReviewDesk?: SemanticReviewDesk;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
+  simulationMaterializerDesk?: AnonymousSimulationMaterializerDesk;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -400,6 +402,9 @@ export function createControlPlane(options?: {
         ? options.discoveryStore
         : undefined,
     );
+  const simulationMaterializerDesk =
+    options?.simulationMaterializerDesk ??
+    new AnonymousSimulationMaterializerDesk();
   const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
@@ -447,6 +452,7 @@ export function createControlPlane(options?: {
       semanticReview: semanticReviewProjection,
       opportunityLifecycle: lifecycleProjection,
       relationPayoff,
+      simulationMaterializer: simulationMaterializerDesk.projection(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
       realCandidatePreflight: realCandidatePreflightDesk.projection(),
@@ -607,6 +613,86 @@ export function createControlPlane(options?: {
         200,
         projectMarketCorpus(catalogObservationDesk.corpus()),
       );
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/opportunity-lifecycle/materializations"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null ||
+          typeof body !== "object" ||
+          Array.isArray(body) ||
+          typeof (body as { opportunityId?: unknown }).opportunityId !== "string" ||
+          typeof (body as { portfolioId?: unknown }).portfolioId !== "string" ||
+          typeof (body as { requestedQuantity?: unknown }).requestedQuantity !== "string" ||
+          Object.keys(body).length !== 3
+        ) {
+          throw new Error(
+            "materialization requires exactly opportunityId, portfolioId, and requestedQuantity",
+          );
+        }
+        const archaeologist = marketArchaeologistDesk.projection();
+        const semanticReviews = semanticReviewDesk.projection();
+        const lifecycle = opportunityLifecycleDesk.projection();
+        const relationPayoff = deriveRelationPayoffProjection({
+          archaeologist,
+          semanticReviews: semanticReviews.records,
+          semanticDecisions: lifecycle.semanticDecisions,
+        });
+        const opportunityId = (body as { opportunityId: string }).opportunityId.trim();
+        const qualification = relationPayoff.qualifications.find(
+          (item) => item.opportunityId === opportunityId,
+        );
+        if (qualification === undefined) {
+          throw new Error(
+            "a compiled, research-accepted relation is required first",
+          );
+        }
+        const result = await simulationMaterializerDesk.materialize({
+          qualification,
+          portfolioId: (body as { portfolioId: string }).portfolioId,
+          requestedQuantity: (body as { requestedQuantity: string }).requestedQuantity,
+        });
+        let summary = null;
+        if (result.plan !== null) {
+          const bundle = runOpportunitySimulation(result.plan);
+          opportunityLifecycleDesk.recordOpportunitySimulation(
+            opportunityId,
+            bundle,
+          );
+          summary =
+            opportunityLifecycleDesk
+              .projection()
+              .simulationBundles.find(
+                (item) => item.artifactHash === bundle.artifactHash,
+              ) ?? null;
+        }
+        await broadcastProjection();
+        writeJson(response, 200, {
+          materialization: result.record,
+          simulation: summary,
+          lifecycle:
+            opportunityLifecycleDesk
+              .projection()
+              .cases.find((item) => item.opportunityId === opportunityId) ?? null,
+          certificateAuthority: false,
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic:
+            error instanceof Error
+              ? error.message
+              : "anonymous simulation materialization failed",
+          certificateAuthority: false,
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (

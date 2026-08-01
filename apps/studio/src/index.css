@@ -5206,6 +5206,31 @@ footer span:first-child {
   font-size: 10px;
 }
 
+.lifecycle-materialization-action,
+.lifecycle-materialization-action > div {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lifecycle-materialization-action {
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.lifecycle-materialization-action span,
+.lifecycle-materialization-diagnostic {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.lifecycle-materialization-diagnostic {
+  color: var(--warning);
+  margin: 2px 0 0;
+}
+
 .lifecycle-simulation-evidence {
   background: rgba(126, 240, 193, 0.035);
   border: 1px solid rgba(126, 240, 193, 0.22);

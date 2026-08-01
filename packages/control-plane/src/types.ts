@@ -17,9 +17,13 @@ export type DiscoveryCatalogListing = Readonly<{
   closesAt: string | null;
   rulesText: string | null;
   outcomes: readonly Readonly<{
+    venueOutcomeId: string;
     label: string;
     indicativePrice: string | null;
   }>[];
+  priceScale: string;
+  quantityScale: string;
+  minPriceTick: string | null;
   sourceKind: "VERIFIED_FIXTURE" | "LIVE_OBSERVATION";
   sourceReceivedAt: string;
   sourceRawHash: string;
@@ -251,6 +255,7 @@ export type StudioProjection = Readonly<{
   bookDesk: BookDeskProjection;
   opportunityLifecycle: import("./opportunity-lifecycle-desk.js").OpportunityLifecycleDeskProjection;
   relationPayoff: import("./relation-payoff.js").RelationPayoffProjection;
+  simulationMaterializer: import("./anonymous-simulation-materializer.js").AnonymousSimulationMaterializerProjection;
   qualification: Readonly<{
     replayChaos: ReplayChaosReport;
     campaignEvidence: CampaignEvidenceBundle;

@@ -118,6 +118,7 @@ export function toDiscoveryCatalogListing(
     outcomes: Object.freeze(
       listing.outcomes.map((outcome) =>
         Object.freeze({
+          venueOutcomeId: compactText(outcome.venueOutcomeId, 500),
           label: compactText(outcome.label, 120),
           indicativePrice:
             outcome.indicativePrice === undefined
@@ -126,6 +127,9 @@ export function toDiscoveryCatalogListing(
         }),
       ),
     ),
+    priceScale: listing.priceScale.toString(),
+    quantityScale: listing.quantityScale.toString(),
+    minPriceTick: listing.minPriceTick?.toString() ?? null,
     sourceKind: source.kind,
     sourceReceivedAt: source.receivedAt,
     sourceRawHash: listing.sourceFixtureHash,

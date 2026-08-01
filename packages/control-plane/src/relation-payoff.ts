@@ -55,6 +55,13 @@ export type ResearchRelationPayoffQualification = Readonly<{
     position: "LEFT" | "RIGHT";
     listingRef: string;
     listingHash: Hash;
+    venueId: string;
+    venueInstrumentId: string;
+    priceScale: string;
+    quantityScale: string;
+    minPriceTick: string | null;
+    trueOutcome: Readonly<{ venueOutcomeId: string; label: string }>;
+    falseOutcome: Readonly<{ venueOutcomeId: string; label: string }>;
   }>[];
   canonicalStates: readonly RelationTruthState[];
   portfolios: readonly RelationPayoffPortfolio[];
@@ -152,6 +159,48 @@ function payoutFor(
   return truth === (outcome === "TRUE") ? 1 : 0;
 }
 
+function canonicalOutcomePair(
+  outcomes: readonly Readonly<{ venueOutcomeId: string; label: string }>[],
+): Readonly<{
+  trueOutcome: Readonly<{ venueOutcomeId: string; label: string }>;
+  falseOutcome: Readonly<{ venueOutcomeId: string; label: string }>;
+}> | null {
+  const trueOutcome = outcomes.find((outcome) =>
+    ["yes", "up"].includes(outcome.label.trim().toLowerCase()),
+  );
+  const falseOutcome = outcomes.find((outcome) =>
+    ["no", "down"].includes(outcome.label.trim().toLowerCase()),
+  );
+  return trueOutcome === undefined || falseOutcome === undefined
+    ? null
+    : Object.freeze({ trueOutcome, falseOutcome });
+}
+
+function tradingBindingDiagnostic(
+  proposal: MarketRelationProposal,
+  review: SemanticReviewRecord,
+): string | null {
+  const evidence = review.report!.input.listingEvidence;
+  for (const listingRef of proposal.listingRefs) {
+    const listing = evidence.find((item) => item.listingRef === listingRef);
+    if (
+      listing === undefined ||
+      listing.venueId === undefined ||
+      listing.venueInstrumentId === undefined ||
+      listing.outcomes === undefined ||
+      listing.priceScale === undefined ||
+      listing.quantityScale === undefined ||
+      listing.minPriceTick === undefined
+    ) {
+      return "The retained review predates outcome-instrument and fixed-point bindings; rerun review on the current corpus.";
+    }
+    if (canonicalOutcomePair(listing.outcomes) === null) {
+      return "The binary outcomes are not a canonical Yes/No or Up/Down pair; an operator-authored truth mapping is required.";
+    }
+  }
+  return null;
+}
+
 function compileReadyBody(input: {
   opportunityId: string;
   proposal: MarketRelationProposal;
@@ -171,6 +220,11 @@ function compileReadyBody(input: {
   const rightEvidence = evidenceByRef.get(rightRef);
   if (leftEvidence === undefined || rightEvidence === undefined) {
     throw new Error("relation compiler evidence does not cover both listings");
+  }
+  const leftOutcomes = canonicalOutcomePair(leftEvidence.outcomes!);
+  const rightOutcomes = canonicalOutcomePair(rightEvidence.outcomes!);
+  if (leftOutcomes === null || rightOutcomes === null) {
+    throw new Error("relation compiler outcome truth mapping is unavailable");
   }
   const states = Object.freeze(
     allowedTruths(input.relation).map((truth) => {
@@ -229,8 +283,30 @@ function compileReadyBody(input: {
     status: "SIMULATION_TEMPLATE_READY" as const,
     diagnostic: null,
     listingBindings: Object.freeze([
-      Object.freeze({ position: "LEFT" as const, listingRef: leftRef, listingHash: leftEvidence.listingHash }),
-      Object.freeze({ position: "RIGHT" as const, listingRef: rightRef, listingHash: rightEvidence.listingHash }),
+      Object.freeze({
+        position: "LEFT" as const,
+        listingRef: leftRef,
+        listingHash: leftEvidence.listingHash,
+        venueId: leftEvidence.venueId!,
+        venueInstrumentId: leftEvidence.venueInstrumentId!,
+        priceScale: leftEvidence.priceScale!,
+        quantityScale: leftEvidence.quantityScale!,
+        minPriceTick: leftEvidence.minPriceTick!,
+        trueOutcome: leftOutcomes.trueOutcome,
+        falseOutcome: leftOutcomes.falseOutcome,
+      }),
+      Object.freeze({
+        position: "RIGHT" as const,
+        listingRef: rightRef,
+        listingHash: rightEvidence.listingHash,
+        venueId: rightEvidence.venueId!,
+        venueInstrumentId: rightEvidence.venueInstrumentId!,
+        priceScale: rightEvidence.priceScale!,
+        quantityScale: rightEvidence.quantityScale!,
+        minPriceTick: rightEvidence.minPriceTick!,
+        trueOutcome: rightOutcomes.trueOutcome,
+        falseOutcome: rightOutcomes.falseOutcome,
+      }),
     ]),
     canonicalStates: states,
     portfolios,
@@ -322,6 +398,13 @@ export function compileResearchRelationPayoff(input: {
       review,
       decision,
       diagnostic: `${conclusion} has research value but does not define a canonical payoff partition.`,
+    });
+  } else if (tradingBindingDiagnostic(input.proposal, review) !== null) {
+    body = blockedBody({
+      ...input,
+      review,
+      decision,
+      diagnostic: tradingBindingDiagnostic(input.proposal, review)!,
     });
   } else {
     body = compileReadyBody({

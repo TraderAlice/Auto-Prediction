@@ -53,6 +53,15 @@ export type SemanticReviewReport = Readonly<{
       listingHash: Hash;
       sourceRawHash: string;
       protocolIdentity: string;
+      venueId?: string;
+      venueInstrumentId?: string;
+      outcomes?: readonly Readonly<{
+        venueOutcomeId: string;
+        label: string;
+      }>[];
+      priceScale?: string;
+      quantityScale?: string;
+      minPriceTick?: string | null;
     }>[];
   }>;
   result: Readonly<{
@@ -359,10 +368,41 @@ export function assertSemanticReviewRecord(
       new Set(report.input.listingEvidence.map((item) => item.listingRef)).size !==
         report.input.listingEvidence.length ||
       report.input.listingEvidence.some(
-        (item) =>
-          item.listingRef.trim() === "" ||
-          !HASH_PATTERN.test(item.listingHash) ||
-          !HASH_PATTERN.test(item.sourceRawHash),
+        (item) => {
+          const hasTradingBinding =
+            item.venueId !== undefined ||
+            item.venueInstrumentId !== undefined ||
+            item.outcomes !== undefined ||
+            item.priceScale !== undefined ||
+            item.quantityScale !== undefined ||
+            item.minPriceTick !== undefined;
+          return (
+            item.listingRef.trim() === "" ||
+            !HASH_PATTERN.test(item.listingHash) ||
+            !HASH_PATTERN.test(item.sourceRawHash) ||
+            (hasTradingBinding &&
+              (typeof item.venueId !== "string" ||
+                item.venueId.trim() === "" ||
+                typeof item.venueInstrumentId !== "string" ||
+                item.venueInstrumentId.trim() === "" ||
+                !Array.isArray(item.outcomes) ||
+                item.outcomes.length !== 2 ||
+                new Set(item.outcomes.map((outcome) => outcome.venueOutcomeId))
+                  .size !== 2 ||
+                item.outcomes.some(
+                  (outcome) =>
+                    outcome.venueOutcomeId.trim() === "" ||
+                    outcome.label.trim() === "",
+                ) ||
+                typeof item.priceScale !== "string" ||
+                !/^[1-9]\d*$/u.test(item.priceScale) ||
+                typeof item.quantityScale !== "string" ||
+                !/^[1-9]\d*$/u.test(item.quantityScale) ||
+                (item.minPriceTick !== null &&
+                  (typeof item.minPriceTick !== "string" ||
+                    !/^[1-9]\d*$/u.test(item.minPriceTick)))))
+          );
+        },
       ) ||
       validateRawReview(report.result).recommendation !==
         report.result.recommendation ||
@@ -585,6 +625,19 @@ export class SemanticReviewDesk {
                     listingHash: hashCanonical(listing),
                     sourceRawHash: listing.sourceRawHash,
                     protocolIdentity: listing.protocolIdentity,
+                    venueId: listing.venueId,
+                    venueInstrumentId: listing.venueInstrumentId,
+                    outcomes: Object.freeze(
+                      listing.outcomes.map((outcome) =>
+                        Object.freeze({
+                          venueOutcomeId: outcome.venueOutcomeId,
+                          label: outcome.label,
+                        }),
+                      ),
+                    ),
+                    priceScale: listing.priceScale,
+                    quantityScale: listing.quantityScale,
+                    minPriceTick: listing.minPriceTick,
                   }),
                 ),
               ),

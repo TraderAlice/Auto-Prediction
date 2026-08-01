@@ -34,6 +34,7 @@ import {
   type OpportunityLifecycleDeskProjection,
 } from "./opportunity-lifecycle-desk.js";
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
+import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
 import {
   buildRelationPayoffProjection,
   type RelationPayoffProjection,
@@ -93,6 +94,7 @@ export function buildStudioProjection(input: {
   semanticReview?: SemanticReviewDeskProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
   relationPayoff?: RelationPayoffProjection;
+  simulationMaterializer?: AnonymousSimulationMaterializerProjection;
   modelProvider?: ModelProviderProjection;
   investigator?: PiInvestigatorProjection;
   investigationDesk?: InvestigationDeskProjection;
@@ -362,7 +364,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 256,
+      proofTests: 262,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -405,6 +407,29 @@ export function buildStudioProjection(input: {
       input.opportunityLifecycle ?? new OpportunityLifecycleDesk().projection(),
     relationPayoff:
       input.relationPayoff ?? buildRelationPayoffProjection([]),
+    simulationMaterializer:
+      input.simulationMaterializer ?? {
+        schemaVersion: "pmh.anonymous-simulation-materializer-desk.v1" as const,
+        mode: "ANONYMOUS_PUBLIC_GET" as const,
+        status: "IDLE" as const,
+        runCount: 0,
+        readyCount: 0,
+        blockedCount: 0,
+        retentionLimit: 25,
+        timeoutMs: 10_000,
+        maxResponseBytes: 1_000_000,
+        maxSnapshotSkewMs: 5_000,
+        retainedRawSourceCount: 0,
+        records: Object.freeze([]),
+        authority: "ANONYMOUS_RESEARCH_MATERIALIZER" as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        effects: Object.freeze({
+          externalWrites: false as const,
+          valueMovingActions: false as const,
+          liveExecutionEnabled: false as const,
+        }),
+      },
     qualification: {
       replayChaos,
       campaignEvidence: buildCampaignEvidence(bookDesk, replayChaos),
