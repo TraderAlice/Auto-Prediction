@@ -6,6 +6,8 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   assertCertificateBoundShadowRun,
+  assertCertificateBoundShadowMarketObservation,
+  observeCertificateBoundShadowMarket,
   runCertificateBoundShadow,
   runOpportunitySimulation,
   type ClobTakerSimulationRequest,
@@ -185,5 +187,136 @@ describe("certificate-bound shadow replay", () => {
         nowEpochMs: certificate.expiresAtEpochMs,
       }),
     ).toThrow(/current positive certificate/);
+  });
+
+  it("compares a fresh public-book simulation without pretending it observed an order", () => {
+    const { opportunityId, bundle, certificate } = fixture();
+    const baselineShadow = runCertificateBoundShadow({
+      opportunityId,
+      certificate,
+      simulationBundle: bundle,
+      nowEpochMs: NOW,
+    });
+    const observedBundle = runOpportunitySimulation({
+      ...bundle.plan,
+      legs: bundle.plan.legs.map((leg, index) => ({
+        ...leg,
+        request: {
+          ...leg.request,
+          bookStateHash: hashCanonical({ observed: 2, index }),
+          observedAtEpochMs: OBSERVED + 1_000n,
+        },
+      })) as OpportunitySimulationPlan["legs"],
+    });
+    const observation = observeCertificateBoundShadowMarket({
+      baselineShadow,
+      baselineSimulationBundle: bundle,
+      observedSimulationBundle: observedBundle,
+      sourceMaterializationId: hashCanonical({ materialization: 2 }),
+    });
+
+    expect(observation).toMatchObject({
+      status: "MATCHED_BOUNDS",
+      reasons: [],
+      gatewayCalls: 0,
+      authority: "FIRST_PARTY_SHADOW_OBSERVER",
+      executionAuthority: false,
+      comparison: {
+        priorSimulationReused: false,
+        publicMarketEvidenceOnly: true,
+        actualOrderObserved: false,
+        certificateReverificationRequired: true,
+      },
+    });
+    expect(observation.legs.every((leg) => leg.inputStateChanged)).toBe(true);
+    expect(() =>
+      assertCertificateBoundShadowMarketObservation(observation),
+    ).not.toThrow();
+  });
+
+  it("records an economic shadow divergence from fresh public depth", () => {
+    const { opportunityId, bundle, certificate } = fixture();
+    const baselineShadow = runCertificateBoundShadow({
+      opportunityId,
+      certificate,
+      simulationBundle: bundle,
+      nowEpochMs: NOW,
+    });
+    const observedBundle = runOpportunitySimulation({
+      ...bundle.plan,
+      legs: bundle.plan.legs.map((leg, index) => ({
+        ...leg,
+        request: {
+          ...leg.request,
+          levels: index === 0
+            ? [{ price: 600n, quantity: SCALE, levelIdentity: hashCanonical({ observed: "expensive" }) }]
+            : leg.request.model === "CLOB_TAKER_V1" ? leg.request.levels : [],
+          bookStateHash: hashCanonical({ observed: "diverged", index }),
+          observedAtEpochMs: OBSERVED + 2_000n,
+        },
+      })) as OpportunitySimulationPlan["legs"],
+    });
+    const observation = observeCertificateBoundShadowMarket({
+      baselineShadow,
+      baselineSimulationBundle: bundle,
+      observedSimulationBundle: observedBundle,
+      sourceMaterializationId: hashCanonical({ materialization: 3 }),
+    });
+
+    expect(observation.status).toBe("DIVERGED");
+    expect(observation.reasons).toEqual([
+      "COST_EXCEEDS_CERTIFICATE_BOUND",
+      "NON_POSITIVE_PORTFOLIO_FLOOR",
+    ]);
+    expect(observation.legs[0]).toMatchObject({
+      status: "DIVERGED",
+      reasons: ["COST_EXCEEDS_CERTIFICATE_BOUND"],
+      plannedMaxDebit: 400n,
+      observedDebit: 600n,
+    });
+    expect(observation.effects.liveExecutionEnabled).toBe(false);
+  });
+
+  it("records changed plan scope instead of dropping the observation", () => {
+    const { opportunityId, bundle, certificate } = fixture();
+    const baselineShadow = runCertificateBoundShadow({
+      opportunityId,
+      certificate,
+      simulationBundle: bundle,
+      nowEpochMs: NOW,
+    });
+    const observedBundle = runOpportunitySimulation({
+      ...bundle.plan,
+      legs: [
+        ...bundle.plan.legs,
+        {
+          legId: "new-market-leg",
+          payoutPerWinningUnit: SCALE,
+          request: {
+            ...request("venue-c", 10n),
+            observedAtEpochMs: OBSERVED + 3_000n,
+          },
+        },
+      ],
+    });
+    const observation = observeCertificateBoundShadowMarket({
+      baselineShadow,
+      baselineSimulationBundle: bundle,
+      observedSimulationBundle: observedBundle,
+      sourceMaterializationId: hashCanonical({ materialization: 4 }),
+    });
+
+    expect(observation).toMatchObject({
+      status: "DIVERGED",
+      reasons: ["PLAN_SCOPE_CHANGED"],
+      comparison: {
+        actualOrderObserved: false,
+        certificateReverificationRequired: true,
+      },
+    });
+    expect(observation.legs).toHaveLength(2);
+    expect(observation.legs.every((leg) =>
+      leg.reasons.includes("PLAN_SCOPE_CHANGED")
+    )).toBe(true);
   });
 });

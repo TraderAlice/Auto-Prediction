@@ -183,11 +183,12 @@ decision and cannot be inferred from this state machine.
   decisions.
 - [x] Search graph neighborhoods as well as raw catalogs so Agents can discover
   indirect implication, partition, and mechanism-mismatch opportunities.
-- [ ] Feed lifecycle outcomes back as search evidence: duplicate, semantic
+- [x] Feed lifecycle outcomes back as search evidence: duplicate, semantic
   rejection, missing rule, no depth, fee/model block, exact rejection,
-  certificate, and shadow divergence. The graph now ingests every available
-  source and records matched shadow replay; a genuinely divergent observed
-  shadow artifact still needs a first-party contract instead of being inferred.
+  certificate, and shadow divergence. Shadow feedback is emitted only after a
+  first-party observer reacquires fresh anonymous public books and fees, reruns
+  simulation, and compares the result with certificate-bound shadow intent; it
+  is never inferred from the baseline replay.
 - [x] Prioritize by empirical yield and evidence freshness, never by an opaque
   model confidence score and never by granting an Agent more authority.
 
@@ -341,6 +342,15 @@ decision and cannot be inferred from this state machine.
   workspace tests, full typecheck, and production build under Node.js 24.14.0.
   Desktop and 430px Studio checks have no console warnings/errors or horizontal
   overflow, including an explicit empty-graph fallback during reconnects.
+- 2026-08-01: Phase 10 closes with a certificate-bound public-market observer.
+  It never reuses the baseline simulation as fresh evidence: it rematerializes
+  anonymous books and fees, reruns the exchange simulator, and records either
+  `MATCHED_BOUNDS` or exact divergence reasons for plan scope, quantity, cost,
+  model exactness, or portfolio floor. The lifecycle journal validates the full
+  observed bundle on restore, the relation graph consumes only these genuine
+  observations, and Studio keeps `actualOrderObserved=false`, gateway calls at
+  zero, and certificate reverification visible. The complete workspace passes
+  291 tests, full typecheck, and production build under Node.js 24.14.0.
 - 2026-08-01: Exact promotion and certificate-bound shadow routing close at 280
   passing workspace tests, full typecheck, and production build under Node.js
   24.14.0. Desktop and 430px lifecycle inspection show no console errors or

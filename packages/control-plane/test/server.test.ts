@@ -168,6 +168,21 @@ describe("control-plane HTTP surface", () => {
       executionAuthority: false,
       effects: { liveExecutionEnabled: false },
     });
+    const blockedShadowObservation = await fetch(
+      `${baseUrl}/api/v1/opportunity-lifecycle/shadow-observations`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    expect(blockedShadowObservation.status).toBe(409);
+    expect(await blockedShadowObservation.json()).toMatchObject({
+      actualOrderObserved: false,
+      gatewayCalls: 0,
+      executionAuthority: false,
+      liveExecutionEnabled: false,
+    });
     expect(projection.ai.workers).toContainEqual(
       expect.objectContaining({
         workerId: "model-fast-lane",

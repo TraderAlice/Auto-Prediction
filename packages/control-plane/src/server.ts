@@ -922,6 +922,85 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "POST" &&
+      url.pathname === "/api/v1/opportunity-lifecycle/shadow-observations"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null ||
+          typeof body !== "object" ||
+          Array.isArray(body) ||
+          typeof (body as { opportunityId?: unknown }).opportunityId !== "string" ||
+          typeof (body as { portfolioId?: unknown }).portfolioId !== "string" ||
+          typeof (body as { requestedQuantity?: unknown }).requestedQuantity !== "string" ||
+          Object.keys(body).length !== 3
+        ) {
+          throw new Error(
+            "shadow observation requires exactly opportunityId, portfolioId, and requestedQuantity",
+          );
+        }
+        const opportunityId = (body as { opportunityId: string }).opportunityId.trim();
+        const archaeologist = marketArchaeologistDesk.projection();
+        const semanticReviews = semanticReviewDesk.projection();
+        const lifecycle = opportunityLifecycleDesk.projection();
+        const relationPayoff = deriveRelationPayoffProjection({
+          archaeologist,
+          semanticReviews: semanticReviews.records,
+          semanticDecisions: lifecycle.semanticDecisions,
+        });
+        const qualification = relationPayoff.qualifications.find(
+          (item) => item.opportunityId === opportunityId,
+        );
+        if (
+          qualification === undefined ||
+          !lifecycle.cases.some(
+            (item) =>
+              item.opportunityId === opportunityId &&
+              item.state === "SHADOW_COMPLETE",
+          )
+        ) {
+          throw new Error(
+            "a compiled opportunity with completed bound shadow is required first",
+          );
+        }
+        const result = await simulationMaterializerDesk.materialize({
+          qualification,
+          portfolioId: (body as { portfolioId: string }).portfolioId,
+          requestedQuantity: (body as { requestedQuantity: string }).requestedQuantity,
+        });
+        const observation = result.plan === null
+          ? null
+          : opportunityLifecycleDesk.recordShadowMarketObservation(
+              opportunityId,
+              runOpportunitySimulation(result.plan),
+              result.record.materializationId,
+            );
+        await broadcastProjection();
+        writeJson(response, 200, {
+          materialization: result.record,
+          observation,
+          source: "ANONYMOUS_PUBLIC_MARKET_EVIDENCE",
+          actualOrderObserved: false,
+          gatewayCalls: 0,
+          executionAuthority: false,
+          liveExecutionEnabled: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic:
+            error instanceof Error ? error.message : "shadow observation failed",
+          actualOrderObserved: false,
+          gatewayCalls: 0,
+          executionAuthority: false,
+          liveExecutionEnabled: false,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
       url.pathname === "/api/v1/opportunity-lifecycle/simulations"
     ) {
       try {
