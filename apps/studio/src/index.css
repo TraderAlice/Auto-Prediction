@@ -1835,6 +1835,88 @@ main {
   color: var(--border);
 }
 
+.semantic-graph-console {
+  margin-top: 18px;
+  overflow: hidden;
+}
+
+.semantic-graph-console [data-slot="card-header"] {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.semantic-graph-console h2 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 500;
+  margin: 4px 0 0;
+}
+
+.semantic-graph-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.semantic-graph-stats > div {
+  align-items: center;
+  display: grid;
+  gap: 2px 8px;
+  grid-template-columns: auto 1fr;
+  min-width: 0;
+  padding: 3px 14px 11px;
+}
+
+.semantic-graph-stats > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.semantic-graph-stats svg {
+  color: var(--primary);
+  grid-row: 1 / 3;
+}
+
+.semantic-graph-stats span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.semantic-graph-stats strong,
+.semantic-graph-stats code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.semantic-feedback-strip {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-height: 45px;
+  padding: 9px 0;
+}
+
+.semantic-feedback-strip > div {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.semantic-feedback-strip span,
+.semantic-graph-console [data-slot="card-content"] > p {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.semantic-graph-console [data-slot="card-content"] > p {
+  line-height: 1.55;
+  margin: 12px 0 0;
+}
+
 .search-lease-console {
   margin-top: 18px;
   overflow: hidden;
@@ -5866,8 +5948,18 @@ footer span:first-child {
 
   .search-lease-lenses,
   .search-lease-budget,
-  .search-lease-history {
+  .search-lease-history,
+  .semantic-graph-stats {
     grid-template-columns: 1fr;
+  }
+
+  .semantic-graph-stats > div {
+    padding: 9px 4px;
+  }
+
+  .semantic-graph-stats > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--border);
   }
 
   .search-lease-budget > div {

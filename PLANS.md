@@ -20,6 +20,13 @@ grounded, multi-listing candidates to pi. Search remains subjective and adaptive
 authority, budgets, durable recovery, deduplication, verification, and all
 shadow/live boundaries remain deterministic.
 
+The current slice adds a content-addressed semantic relation graph over the
+same durable artifacts. Search leases now bind a bounded graph neighborhood as
+well as raw MarketFS evidence, so prior duplicates, rule gaps, rejections,
+simulation blocks, verifier outcomes, and shadow observations become explicit
+falsification evidence. Ranking uses empirical outcome count and evidence
+freshness; model confidence still has no promotion authority.
+
 ## Stable decisions
 
 - TypeScript strict monorepo with pnpm.
@@ -30,6 +37,27 @@ shadow/live boundaries remain deterministic.
 - Live execution remains disabled.
 
 ## Findings log
+
+- 2026-08-01: A deterministic semantic relation graph now binds listing-level
+  claim evidence, close windows, resolution-rule/source identities, pi relation
+  hypotheses, adversarial counterexamples, operator research decisions, and
+  downstream lifecycle outcomes. Its identity is a canonical hash of source
+  artifacts; rebuilding the same sources produces the same graph.
+- 2026-08-01: Every newly issued search lease binds a lens-specific, bounded
+  graph neighborhood alongside the immutable catalog context. Neighborhoods are
+  ordered by observed lifecycle outcomes and latest bound evidence, never by an
+  opaque model score, and remain `SEARCH_EVIDENCE_ONLY` with semantic and
+  execution authority false.
+- 2026-08-01: The real 440-listing corpus currently projects four saved
+  relations and five `MISSING_RULE` feedback records under graph identity
+  `sha256:1e2a0fe6…406a81`. This is useful negative memory: the next Agent run can
+  target the unresolved rule evidence instead of rediscovering the same title
+  relationship from scratch.
+- 2026-08-01: The semantic-graph checkpoint passes 288 workspace tests, full
+  typecheck, and production build under the bundled Node.js 24.14.0 runtime.
+  Desktop and 430px Studio inspection show the new graph card without console
+  warnings/errors or horizontal overflow; stale projections safely fall back to
+  an empty graph while the control plane reconnects.
 
 - 2026-08-01: A positive anonymous, raw-evidence-bound portfolio now promotes
   through the first-party exact verifier into a content-hashed certificate.
