@@ -7,8 +7,8 @@ Started: 2026-08-02
 
 Turn cheap-model negative and completed-search evidence into broader recurring
 coverage. Each durable issue should inspect a new exact radar pair before it
-repeats an unchanged semantic scope, while price changes remain capable of
-reactivating economically blocked pairs.
+repeats an unchanged semantic scope, while a material economic-posture change
+remains capable of reactivating an economically blocked pair.
 
 ## Runtime evidence
 
@@ -32,14 +32,16 @@ Every bounded search context receives two content identities:
 - a semantic-scope identity over exact listing refs, titles, descriptions,
   rules, status, mechanism, close time, outcome IDs/labels, scales, and protocol
   identity, excluding receive time and indicative prices;
-- a routing identity over that semantic identity plus current indicative
-  outcome prices.
+- a routing identity over that semantic identity plus the canonical equivalent
+  portfolio's current economic posture for exact pairs. Generic bounded
+  contexts fall back to bounded price-availability evidence.
 
 The lease scheduler derives issue-local feedback from retained terminal exact
 pair records. Completed semantic work deprioritizes the unchanged semantic
 identity. Economic-gate blocks consume only the unchanged routing identity, so
-a price change can reactivate the pair without pretending its contract meaning
-changed.
+a transition such as unavailable to priceable or non-positive to positive can
+reactivate the pair without pretending its contract meaning changed. Raw price
+motion inside the same posture does not restart work.
 
 For equivalence radar selection, candidates are tiered in this order:
 
@@ -54,14 +56,14 @@ a semantic or economic decision.
 
 ## Construction slices
 
-- [ ] Add stable semantic and price-sensitive routing scope identities.
-- [ ] Bind both identities into exact-pair lease audit records.
-- [ ] Derive issue-local attempted and completed scope feedback.
-- [ ] Rotate radar assignment with deterministic feedback tiers.
-- [ ] Report unique semantic scopes, repeated scopes, and no-lead scopes by issue.
-- [ ] Show semantic coverage feedback in Harmony Studio.
-- [ ] Prove legacy retained leases still hydrate without scope metadata.
-- [ ] Run focused/full Node 24 checks, live multi-refresh rotation, and responsive QA.
+- [x] Add stable semantic and economic-posture-sensitive routing scope identities.
+- [x] Bind both identities into exact-pair lease audit records.
+- [x] Derive issue-local attempted and completed scope feedback.
+- [x] Rotate radar assignment with deterministic feedback tiers.
+- [x] Report unique semantic scopes, repeated scopes, and no-lead scopes by issue.
+- [x] Show semantic coverage feedback in Harmony Studio.
+- [x] Prove legacy retained leases still hydrate without scope metadata.
+- [x] Run focused/full Node 24 checks, live multi-refresh rotation, and responsive QA.
 - [ ] Publish and serially merge the campaign PR.
 
 ## Safety invariants
@@ -78,14 +80,15 @@ a semantic or economic decision.
 
 ## Qualification gate
 
-- A price-only or receive-time-only refresh preserves semantic identity while a
-  price change mutates routing identity.
+- A price-only or receive-time-only refresh preserves semantic identity. Raw
+  price motion within one exact-pair economic posture also preserves routing
+  identity; a material posture transition mutates it.
 - A rule, outcome-label, close-time, mechanism, status, or protocol change
   mutates semantic identity.
 - After a terminal no-candidate exact-pair lease, the same issue selects the
   next unseen radar pair on the next corpus.
-- After a non-positive economic block, an unchanged price posture rotates away
-  while a changed price posture may be selected again.
+- After a non-positive economic block, an unchanged economic posture rotates
+  away while a materially changed posture may be selected again.
 - Once every current pair has been attempted, deterministic fallback keeps the
   issue live instead of dead-ending.
 - Existing v1 lease records without scope metadata load after restart.
@@ -93,3 +96,15 @@ a semantic or economic decision.
   overflow at desktop and 390 px.
 - Full type checking, tests, production build, and a live seven-source
   multi-refresh smoke pass.
+
+## Live rotation evidence
+
+The seven-source smoke corpus contained 467 listings. On snapshot
+`680af225…`, the focused equivalence issue selected `limitless:343816` with
+`opinion:26456`; it retained semantic scope `sha256:3b1d82…`, routing posture
+`sha256:b92d5c…`, and stopped at `ECONOMIC_GATE_BLOCKED` because prices were
+unavailable. After a fresh catalog capture (`a00b4eb…`), the same top radar
+candidate kept both identities exactly. The same durable issue then selected
+the next pair, `limitless:343822` with `opinion:26454`, retaining semantic scope
+`sha256:862434…` and routing posture `sha256:03ab999…`. This proves feedback,
+rather than incidental source-hash reordering, caused the live rotation.

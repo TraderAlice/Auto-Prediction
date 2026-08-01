@@ -20,6 +20,10 @@ import {
   type CompilableRelation,
 } from "./relation-payoff.js";
 import type { SemanticGraphSearchContext } from "./semantic-relation-graph.js";
+import {
+  buildSearchScopeIdentity,
+  type SearchScopeIdentity,
+} from "./search-scope-identity.js";
 
 const ALGORITHM_VERSION = "pmh.ai-search-leases.v1";
 const DEFAULT_RETENTION_LIMIT = 40;
@@ -112,6 +116,7 @@ export type SearchLeaseFastLane = Readonly<{
   modelRequestCount: number;
   hypothesisIds: readonly string[];
   candidateListingRefs: readonly string[];
+  semanticScope?: SearchScopeIdentity;
   economicGate?: SearchLeaseEconomicGate;
   diagnostic: string | null;
 }>;
@@ -229,6 +234,13 @@ export type SearchLeaseSchedulerProjection = Readonly<{
   effects: SearchLease["effects"];
 }>;
 
+export type SearchLeaseContextFeedback = Readonly<{
+  issueId: Hash | null;
+  completedSemanticScopeIdentities: readonly Hash[];
+  attemptedRoutingScopeIdentities: readonly Hash[];
+  authority: "SEARCH_ROUTING_ONLY";
+}>;
+
 type SearchLeaseOptions = Readonly<{
   intervalMs?: number | null;
   maxFastModelRequests?: number;
@@ -243,6 +255,7 @@ type SearchLeaseOptions = Readonly<{
     venueIds: readonly string[],
     lens: SearchLens,
     snapshot: MarketCorpusSnapshot,
+    feedback: SearchLeaseContextFeedback,
   ) => DiscoveryCatalogContext;
   graphContext?: (
     snapshot: MarketCorpusSnapshot,
@@ -409,6 +422,26 @@ function economicGateValid(
   );
 }
 
+function semanticScopeValid(scope: SearchScopeIdentity | undefined): boolean {
+  if (scope === undefined) return true;
+  return (
+    HASH_PATTERN.test(scope.semanticScopeIdentity) &&
+    HASH_PATTERN.test(scope.routingScopeIdentity) &&
+    Array.isArray(scope.listingRefs) &&
+    scope.listingRefs.length > 0 &&
+    scope.listingRefs.length <= 30 &&
+    new Set(scope.listingRefs).size === scope.listingRefs.length &&
+    scope.listingRefs.every((item) =>
+      typeof item === "string" && item.trim() !== ""
+    ) &&
+    scope.kind === (scope.listingRefs.length === 2
+      ? "EXACT_PAIR"
+      : "BOUNDED_CONTEXT") &&
+    scope.priceIndependentSemanticIdentity === true &&
+    scope.authority === "SEARCH_ROUTING_ONLY"
+  );
+}
+
 function isIso(value: unknown): value is string {
   return typeof value === "string" &&
     !Number.isNaN(Date.parse(value)) &&
@@ -550,6 +583,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     lease.executionAuthority !== false ||
     !graphContextValid ||
     !candidatePolicyValid ||
+    !semanticScopeValid(record.fastLane.semanticScope) ||
     !economicGateValid(record.fastLane.economicGate, candidatePolicy) ||
     !Number.isSafeInteger(lease.budget.maxFastModelRequests) ||
     lease.budget.maxFastModelRequests < 0 ||
@@ -939,7 +973,9 @@ export class SearchLeaseScheduler {
         issued.lease.scope.venueIds,
         issued.lease.lens,
         snapshot,
+        this.#contextFeedback(issued),
       );
+      const semanticScope = buildSearchScopeIdentity(context.listings);
       const task: DiscoveryTask = Object.freeze({
         taskId: issued.fastLane.taskId,
         question: issued.trace.querySummary,
@@ -996,6 +1032,7 @@ export class SearchLeaseScheduler {
         modelRequestCount,
         hypothesisIds: Object.freeze(run.hypotheses.map((item) => item.hypothesisId)),
         candidateListingRefs: listingRefs,
+        semanticScope,
         economicGate: completedEconomicGate({
           policy: issued.lease.candidatePolicy,
           listingRefs,
@@ -1117,6 +1154,50 @@ export class SearchLeaseScheduler {
       diagnostic,
       permittedTools: READ_ONLY_TOOLS,
       toolExecutionTraceStored: false,
+    });
+  }
+
+  #contextFeedback(issued: SearchLeaseRecord): SearchLeaseContextFeedback {
+    const issueId = issued.lease.issueId ?? null;
+    if (issueId === null) {
+      return Object.freeze({
+        issueId,
+        completedSemanticScopeIdentities: Object.freeze([]),
+        attemptedRoutingScopeIdentities: Object.freeze([]),
+        authority: "SEARCH_ROUTING_ONLY" as const,
+      });
+    }
+    const exactTerminal = this.#records.filter((record) =>
+      record.lease.issueId === issueId &&
+      record.lease.leaseId !== issued.lease.leaseId &&
+      record.status === "PASS" &&
+      record.fastLane.semanticScope?.kind === "EXACT_PAIR"
+    );
+    const completedReasons = new Set<SearchLeaseDeepLane["reason"]>([
+      "NO_CANDIDATES",
+      "NOT_MULTI_LISTING",
+      "DUPLICATE",
+      "NO_POLICY_MATCH",
+      "NOVEL_MULTI_LISTING",
+      "NOVEL_MULTI_VENUE",
+    ]);
+    return Object.freeze({
+      issueId,
+      completedSemanticScopeIdentities: Object.freeze([
+        ...new Set(
+          exactTerminal
+            .filter((record) => completedReasons.has(record.deepLane.reason))
+            .map((record) => record.fastLane.semanticScope!.semanticScopeIdentity),
+        ),
+      ].sort()),
+      attemptedRoutingScopeIdentities: Object.freeze([
+        ...new Set(
+          exactTerminal.map(
+            (record) => record.fastLane.semanticScope!.routingScopeIdentity,
+          ),
+        ),
+      ].sort()),
+      authority: "SEARCH_ROUTING_ONLY" as const,
     });
   }
 

@@ -81,7 +81,7 @@ const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
 };
 
 const EMPTY_OPPORTUNITY_RADAR: StudioProjection["ai"]["opportunityRadar"] = {
-  algorithmVersion: "pmh.opportunity-radar.economic-v2",
+  algorithmVersion: "pmh.opportunity-radar.semantic-rotation-v3",
   sourceSetIdentity: `sha256:${"0".repeat(64)}`,
   observedListingCount: 0,
   eligibleSourceCount: 0,
@@ -379,6 +379,9 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     economicGatePositiveCount: 0,
     economicGateBlockedCount: 0,
     piAvoidedCount: 0,
+    exactSemanticScopeCount: 0,
+    semanticScopeRevisitCount: 0,
+    noLeadSemanticScopeCount: 0,
     hypothesisCount: 0,
     proposalCount: 0,
     evidenceGapCount: 0,
@@ -2518,10 +2521,14 @@ function MarketArchaeologistView() {
     studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
   const issueScheduler =
     studioProjection.ai.searchIssueScheduler ?? EMPTY_SEARCH_ISSUE_SCHEDULER;
-  const issuePerformance =
-    issueScheduler.performance ?? EMPTY_SEARCH_ISSUE_SCHEDULER.performance;
+  const issuePerformance = {
+    ...EMPTY_SEARCH_ISSUE_SCHEDULER.performance,
+    ...(issueScheduler.performance ?? {}),
+  };
   const outcomeAttribution =
     studioProjection.ai.searchOutcomeAttribution ?? EMPTY_SEARCH_OUTCOME_ATTRIBUTION;
+  const outcomeEconomics =
+    outcomeAttribution.economics ?? EMPTY_SEARCH_OUTCOME_ATTRIBUTION.economics;
   const graph =
     studioProjection.ai.semanticRelationGraph ?? EMPTY_SEMANTIC_RELATION_GRAPH;
   const [question, setQuestion] = useState(
@@ -2758,13 +2765,23 @@ function MarketArchaeologistView() {
             <div><strong>{formatRateBps(issuePerformance.piEscalationRateBps)}</strong><span>pi escalation · {issuePerformance.proposalCount} proposals · {issuePerformance.evidenceGapCount} gaps</span></div>
           </div>
 
+          <div className="issue-scheduler-strip issue-performance-strip" aria-label="Semantic search coverage">
+            <div><strong>{issuePerformance.exactSemanticScopeCount}</strong><span>unique exact semantic scopes</span></div>
+            <div><strong>{issuePerformance.semanticScopeRevisitCount}</strong><span>scope revisits</span></div>
+            <div><strong>{issuePerformance.noLeadSemanticScopeCount}</strong><span>semantic no-lead scopes</span></div>
+            <div>
+              <strong>{issuePerformance.exactSemanticScopeCount + issuePerformance.semanticScopeRevisitCount}</strong>
+              <span>exact pair assignments · issue-local rotation</span>
+            </div>
+          </div>
+
           <div className="issue-scheduler-strip issue-performance-strip" aria-label="Economic-first search yield">
             <div><strong>{formatRateBps(issuePerformance.economicGatePositiveRateBps)}</strong><span>positive pre-pi gates</span></div>
             <div><strong>{issuePerformance.economicGateBlockedCount}</strong><span>economically gated</span></div>
             <div><strong>{issuePerformance.piAvoidedCount}</strong><span>pi calls avoided</span></div>
             <div>
-              <strong>{outcomeAttribution.economics.positiveGrossHintCount}</strong>
-              <span>downstream positive · {outcomeAttribution.economics.nonPositiveGrossHintCount} non-positive · {outcomeAttribution.economics.unavailableOrUnsupportedCount} unavailable</span>
+              <strong>{outcomeEconomics.positiveGrossHintCount}</strong>
+              <span>downstream positive · {outcomeEconomics.nonPositiveGrossHintCount} non-positive · {outcomeEconomics.unavailableOrUnsupportedCount} unavailable</span>
             </div>
           </div>
 
@@ -2832,6 +2849,7 @@ function MarketArchaeologistView() {
                       <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
                       <span>{issue.passCount}/{issue.runCount} passed</span>
                       <span>{performance?.novelCandidateCount ?? 0} new · {performance?.duplicateCount ?? 0} repeat · {performance?.piEscalationCount ?? 0} pi</span>
+                      <span>{performance?.exactSemanticScopeCount ?? 0} semantic scopes · {performance?.semanticScopeRevisitCount ?? 0} revisits · {performance?.noLeadSemanticScopeCount ?? 0} no lead</span>
                       {issue.candidatePolicy?.requirePositiveGrossHint === true && (
                         <span>{performance?.economicGatePositiveCount ?? 0}/{performance?.economicGateRequiredCount ?? 0} gross-positive · {performance?.piAvoidedCount ?? 0} pi saved</span>
                       )}
@@ -4514,7 +4532,7 @@ function OpportunityRadarView() {
         <Radar size={15} />
         <span>
           Rare-term weighted overlap · incompatible cadence and exact close
-          times rejected · positive bigint gross hints ranked first · maximum 25 pairs
+          times rejected · positive bigint gross hints ranked first · durable issue-local semantic rotation · maximum 25 pairs
         </span>
         <code>{radar.algorithmVersion}</code>
       </div>

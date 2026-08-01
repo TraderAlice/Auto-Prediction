@@ -1,11 +1,12 @@
-import { hashCanonical } from "@pmh/domain";
+import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   calculateTwoListingIndicativeEconomics,
   type CanonicalIndicativeEconomics,
 } from "./indicative-relation-economics.js";
+import { buildSearchScopeIdentity } from "./search-scope-identity.js";
 import type { DiscoveryCatalogListing } from "./types.js";
 
-const ALGORITHM_VERSION = "pmh.opportunity-radar.economic-v2";
+const ALGORITHM_VERSION = "pmh.opportunity-radar.semantic-rotation-v3";
 const TRIAGE_TASK_VERSION = "pmh.radar-triage.v2";
 const MAX_CANDIDATES = 25;
 const SCORE_THRESHOLD_BPS = 3_000;
@@ -77,6 +78,8 @@ export type OpportunityRadarCandidate = Readonly<{
   effectiveCloseAt: string | null;
   temporalAlignment: "ALIGNED" | "UNRESOLVED";
   indicativeEconomics: CanonicalIndicativeEconomics;
+  semanticScopeIdentity: Hash;
+  routingScopeIdentity: Hash;
   listings: readonly [
     Readonly<{
       listingRef: string;
@@ -129,6 +132,30 @@ type RadarInput = Readonly<{
   excludedSourceCount: number;
   listings: readonly DiscoveryCatalogListing[];
 }>;
+
+export type RadarSearchFeedback = Readonly<{
+  completedSemanticScopeIdentities: readonly Hash[];
+  attemptedRoutingScopeIdentities: readonly Hash[];
+}>;
+
+export function orderRadarCandidatesForSearch(
+  candidates: readonly OpportunityRadarCandidate[],
+  feedback: RadarSearchFeedback,
+): readonly OpportunityRadarCandidate[] {
+  const completedSemantic = new Set(feedback.completedSemanticScopeIdentities);
+  const attemptedRouting = new Set(feedback.attemptedRoutingScopeIdentities);
+  const tier = (candidate: OpportunityRadarCandidate): number =>
+    (completedSemantic.has(candidate.semanticScopeIdentity) ? 2 : 0) +
+    (attemptedRouting.has(candidate.routingScopeIdentity) ? 1 : 0);
+  return Object.freeze(
+    candidates
+      .map((candidate, index) => ({ candidate, index }))
+      .sort((left, right) =>
+        tier(left.candidate) - tier(right.candidate) || left.index - right.index
+      )
+      .map(({ candidate }) => candidate),
+  );
+}
 
 function titleTokens(title: string): readonly string[] {
   return Object.freeze([
@@ -342,6 +369,7 @@ export function buildOpportunityRadar(
           [right.listing.listingRef, right.listing],
         ]),
       });
+      const scopeIdentity = buildSearchScopeIdentity([left.listing, right.listing]);
       const candidateBody = {
         schemaVersion: "pmh.opportunity-radar-candidate.v1" as const,
         algorithmVersion: ALGORITHM_VERSION,
@@ -365,6 +393,8 @@ export function buildOpportunityRadar(
           effectiveCloseAt: effectiveClose,
           temporalAlignment,
           indicativeEconomics,
+          semanticScopeIdentity: scopeIdentity.semanticScopeIdentity,
+          routingScopeIdentity: scopeIdentity.routingScopeIdentity,
           listings: Object.freeze(listings),
           status: "READY_FOR_SCOUT" as const,
           authority: "PROPOSE_ONLY" as const,
@@ -386,7 +416,7 @@ export function buildOpportunityRadar(
             Number(left.indicativeEconomics.status !== "PRICE_UNAVAILABLE") ||
           compareGrossEdge(left.indicativeEconomics, right.indicativeEconomics) ||
           right.semanticScoreBps - left.semanticScoreBps ||
-          left.candidateId.localeCompare(right.candidateId),
+          left.semanticScopeIdentity.localeCompare(right.semanticScopeIdentity),
       )
       .slice(0, MAX_CANDIDATES),
   );

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildOpportunityRadar,
+  orderRadarCandidatesForSearch,
   type DiscoveryCatalogListing,
 } from "../src/index.js";
 
@@ -70,7 +71,7 @@ describe("opportunity radar", () => {
     ]);
 
     expect(projection).toMatchObject({
-      algorithmVersion: "pmh.opportunity-radar.economic-v2",
+      algorithmVersion: "pmh.opportunity-radar.semantic-rotation-v3",
       candidateCount: 1,
       scoreMeaning: "LEXICAL_BLOCKING_ONLY_NOT_CONFIDENCE",
       effects: {
@@ -81,6 +82,8 @@ describe("opportunity radar", () => {
     });
     expect(projection.candidates[0]).toMatchObject({
       candidateId: expect.stringMatching(/^radar-candidate:[0-9a-f]{64}$/),
+      semanticScopeIdentity: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      routingScopeIdentity: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       semanticScoreBps: 10_000,
       sharedTerms: ["bnb", "down", "up"],
       timeframe: "HOURLY",
@@ -193,5 +196,51 @@ describe("opportunity radar", () => {
     expect(first.candidates[0]?.candidateId).not.toBe(
       second.candidates[0]?.candidateId,
     );
+    expect(first.candidates[0]?.semanticScopeIdentity).toBe(
+      second.candidates[0]?.semanticScopeIdentity,
+    );
+    expect(first.candidates[0]?.routingScopeIdentity).toBe(
+      second.candidates[0]?.routingScopeIdentity,
+    );
+  });
+
+  it("keeps equal-score radar ordering stable across source-only refreshes", () => {
+    const build = (rawHash: string) => radar([
+      listing("venue-a:alpha", "venue-a", "ALPHA election winner"),
+      listing("venue-b:alpha", "venue-b", "ALPHA election winner", { rawHash }),
+      listing("venue-a:beta", "venue-a", "BETA championship winner"),
+      listing("venue-c:beta", "venue-c", "BETA championship winner", { rawHash }),
+    ]).candidates
+      .filter((candidate) =>
+        candidate.sharedTerms.includes("alpha") || candidate.sharedTerms.includes("beta")
+      )
+      .map((candidate) => candidate.semanticScopeIdentity);
+
+    expect(build(HASH_A)).toEqual(build(HASH_B));
+  });
+
+  it("rotates unseen semantic scopes ahead of completed and repeated scopes", () => {
+    const projection = radar([
+      listing("venue-a:alpha", "venue-a", "ALPHA election winner"),
+      listing("venue-b:alpha", "venue-b", "ALPHA election winner", { rawHash: HASH_B }),
+      listing("venue-a:beta", "venue-a", "BETA championship winner"),
+      listing("venue-c:beta", "venue-c", "BETA championship winner", { rawHash: HASH_B }),
+      listing("venue-a:gamma", "venue-a", "GAMMA weather threshold"),
+      listing("venue-d:gamma", "venue-d", "GAMMA weather threshold", { rawHash: HASH_B }),
+    ]);
+    const alpha = projection.candidates.find((candidate) =>
+      candidate.sharedTerms.includes("alpha")
+    )!;
+    const beta = projection.candidates.find((candidate) =>
+      candidate.sharedTerms.includes("beta")
+    )!;
+    const gamma = projection.candidates.find((candidate) =>
+      candidate.sharedTerms.includes("gamma")
+    )!;
+
+    expect(orderRadarCandidatesForSearch([alpha, beta, gamma], {
+      completedSemanticScopeIdentities: [alpha.semanticScopeIdentity],
+      attemptedRoutingScopeIdentities: [alpha.routingScopeIdentity, beta.routingScopeIdentity],
+    })).toEqual([gamma, beta, alpha]);
   });
 });

@@ -226,7 +226,7 @@ export function buildStudioProjection(input: {
     authority: "PROPOSE_ONLY" as const,
   };
   const opportunityRadar = input.opportunityRadar ?? {
-    algorithmVersion: "pmh.opportunity-radar.economic-v2" as const,
+    algorithmVersion: "pmh.opportunity-radar.semantic-rotation-v3" as const,
     sourceSetIdentity: hashCanonical([]),
     observedListingCount: 0,
     eligibleSourceCount: 0,
@@ -357,6 +357,9 @@ export function buildStudioProjection(input: {
       economicGatePositiveCount: 0,
       economicGateBlockedCount: 0,
       piAvoidedCount: 0,
+      exactSemanticScopeCount: 0,
+      semanticScopeRevisitCount: 0,
+      noLeadSemanticScopeCount: 0,
       hypothesisCount: 0,
       proposalCount: 0,
       evidenceGapCount: 0,

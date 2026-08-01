@@ -34,6 +34,7 @@ export * from "./semantic-relation-graph.js";
 export * from "./search-lease-scheduler.js";
 export * from "./search-issue-scheduler.js";
 export * from "./search-outcome-attribution.js";
+export * from "./search-scope-identity.js";
 export * from "./relation-payoff.js";
 export * from "./review-attention.js";
 export * from "./simulation-intake.js";

@@ -42,15 +42,15 @@ the new gate has one positive result, two blocked results, and one recorded pi
 call avoided. Studio exposes those pre-pi results alongside downstream economic
 yield by durable issue.
 
-The next bottleneck is semantic search coverage. The positive live radar pair
-shared “Nashville” but joined an MLS Cup champion contract to a multi-game
-parlay. The cheap lane correctly returned no hypothesis, yet the next fresh
-snapshot can rank the same unchanged contract pair first again because radar
-candidate identity also binds receive time and price evidence. One lexical
-false positive can therefore monopolize a recurring issue while lower-ranked
-pairs remain unseen. The active campaign gives exact radar scopes stable,
-price-independent semantic identities plus price-sensitive routing identities,
-then rotates each issue toward unseen scopes using its own durable outcomes.
+The semantic-coverage campaign is qualified and ready to publish. Exact radar
+scopes now carry a price-independent semantic identity and an
+economic-posture-sensitive routing identity. Each issue uses its own retained
+terminal evidence to prefer unseen scopes, so a lexical false positive cannot
+monopolize recurring search. A seven-source, 467-listing smoke run preserved
+both identities for an unchanged top pair across catalog refresh and then
+assigned the next pair. Studio reports seven unique exact semantic scopes, two
+revisits, one semantic no-lead scope, and nine exact-pair assignments in the
+current retained window. Desktop and 390 px QA have no horizontal overflow.
 
 ## Deferred future campaigns
 
