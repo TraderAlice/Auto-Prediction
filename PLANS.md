@@ -1,8 +1,6 @@
 # Plans
 
-`plans/search-outcome-attribution.md` is the latest completed construction
-plan. The next serial campaign will make independent semantic review persistent
-and budget-aware before expanding search volume.
+`plans/persistent-semantic-review.md` is the active construction plan.
 
 ## Planning contract
 
@@ -24,13 +22,13 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-The completed attribution slice connects durable search issues to downstream
-opportunity outcomes. On the real retained corpus it attributes 28 of 41 AI
-lifecycle proposals to four recurring issues, and all 28 are waiting for
-independent semantic review. The next construction plan must therefore persist,
-schedule, lease, budget, retry, and observe review work before more scanner
-capacity is added. AI review remains advisory: it may reject or recommend a
-proposal, but cannot accept it for simulation or publish a certificate.
+The attribution slice connects durable search issues to downstream opportunity
+outcomes. Its initial real retained corpus attributed 28 of 41 AI lifecycle
+proposals to four recurring issues, and all 28 were waiting for independent
+semantic review. The active campaign therefore persists, schedules, leases,
+budgets, retries, and observes review work before more scanner capacity is
+added. AI review remains advisory: it may reject or recommend a proposal, but
+cannot accept it for simulation or publish a certificate.
 
 ## Deferred future campaigns
 

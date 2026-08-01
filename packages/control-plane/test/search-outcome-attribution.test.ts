@@ -188,6 +188,38 @@ describe("search outcome attribution", () => {
     expect(first.attributionIdentity).toBe(hashCanonical(body));
   });
 
+  it("retains issue attribution from durable review jobs after leases roll off", () => {
+    const original = input();
+    const projection = buildSearchOutcomeAttribution({
+      ...original,
+      searchLeases: [],
+      semanticReviewJobs: Object.freeze([
+        Object.freeze({
+          artifactHash: h("review-job-1"),
+          proposalId: p1,
+          issueIds: Object.freeze([issueA]),
+        }),
+        Object.freeze({
+          artifactHash: h("review-job-2"),
+          proposalId: p2,
+          issueIds: Object.freeze([issueA, issueB]),
+        }),
+      ]),
+    });
+
+    expect(projection).toMatchObject({
+      attributedLeaseCount: 0,
+      attributedProposalCount: 2,
+      multiIssueProposalCount: 1,
+    });
+    expect(projection.stages).toContainEqual({ stage: "REVIEWED", count: 2 });
+    expect(projection.byIssue.find((item) => item.issueId === issueA)).toMatchObject({
+      leaseCount: 0,
+      proposalCount: 2,
+      reviewedCount: 2,
+    });
+  });
+
   it("projects an empty, authority-locked funnel", () => {
     const projection = buildSearchOutcomeAttribution({
       issues: [],

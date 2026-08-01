@@ -33,6 +33,7 @@ import {
   Sparkles,
   SquareTerminal,
   TestTubeDiagonal,
+  TimerReset,
   Waypoints,
   X,
 } from "lucide-react";
@@ -103,6 +104,8 @@ const EMPTY_SEMANTIC_REVIEW: StudioProjection["ai"]["semanticReview"] = {
   runCount: 0,
   passCount: 0,
   failedCount: 0,
+  activeCount: 0,
+  concurrencyLimit: 3,
   retentionLimit: 10,
   storage: {
     mode: "MEMORY",
@@ -113,6 +116,45 @@ const EMPTY_SEMANTIC_REVIEW: StudioProjection["ai"]["semanticReview"] = {
   records: [],
   authority: "ADVISORY_ONLY",
   independenceGrade: "SEPARATE_INVOCATION_SAME_PROVIDER",
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
+const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewScheduler"] = {
+  schemaVersion: "pmh.semantic-review-scheduler.v1",
+  enabled: false,
+  configured: false,
+  status: "NEEDS_KEY",
+  tickIntervalMs: null,
+  concurrencyLimit: 3,
+  activeCount: 0,
+  dueCount: 0,
+  pendingCount: 0,
+  leasedCount: 0,
+  retryWaitCount: 0,
+  blockedEvidenceCount: 0,
+  passedCount: 0,
+  exhaustedCount: 0,
+  unreadNotificationCount: 0,
+  budget: {
+    basis: "REQUEST_ATTEMPTS",
+    maxAttemptsPerJob: 3,
+    maxRequestsPerTick: 3,
+    requestAttemptsStarted: 0,
+  },
+  jobs: [],
+  notifications: [],
+  storage: {
+    jobs: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "jobId" },
+    notifications: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "notificationId" },
+  },
+  authority: "ADVISORY_ORCHESTRATION_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
   effects: {
     externalWrites: false,
     valueMovingActions: false,
@@ -708,6 +750,19 @@ async function requestNotificationAcknowledgement(notificationId: string): Promi
   );
   const result = (await response.json()) as { diagnostic?: string };
   if (!response.ok) throw new Error(result.diagnostic ?? "notification acknowledgement failed");
+}
+
+async function requestReviewNotificationAcknowledgement(
+  notificationId: string,
+): Promise<void> {
+  const response = await fetch(
+    `/api/v1/semantic-review-notifications/${notificationId}/acknowledgements`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+  );
+  const result = (await response.json()) as { diagnostic?: string };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "review notification acknowledgement failed");
+  }
 }
 
 async function requestSemanticReview(opportunityId: string): Promise<boolean> {
@@ -2978,6 +3033,8 @@ function OpportunityLifecycleView() {
   const desk = studioProjection.opportunityLifecycle;
   const semanticReview =
     studioProjection.ai.semanticReview ?? EMPTY_SEMANTIC_REVIEW;
+  const reviewScheduler =
+    studioProjection.ai.semanticReviewScheduler ?? EMPTY_SEMANTIC_REVIEW_SCHEDULER;
   const relationPayoff =
     studioProjection.relationPayoff ?? EMPTY_RELATION_PAYOFF;
   const simulationMaterializer =
@@ -3008,6 +3065,7 @@ function OpportunityLifecycleView() {
   const [diagnostics, setDiagnostics] = useState<
     Readonly<Record<string, string>>
   >({});
+  const [reviewNotificationAction, setReviewNotificationAction] = useState<string | null>(null);
   const proposals = new Map(
     studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
       (record.report?.result.proposals ?? []).map((proposal) => [
@@ -3020,6 +3078,15 @@ function OpportunityLifecycleView() {
   const rejected = desk.cases.filter((item) =>
     item.state.startsWith("REJECTED"),
   ).length;
+
+  async function acknowledgeReviewNotification(notificationId: string): Promise<void> {
+    setReviewNotificationAction(notificationId);
+    try {
+      await requestReviewNotificationAcknowledgement(notificationId);
+    } finally {
+      setReviewNotificationAction(null);
+    }
+  }
 
   async function runReview(opportunityId: string): Promise<void> {
     setReviewStates((current) => ({ ...current, [opportunityId]: "RUNNING" }));
@@ -3206,6 +3273,84 @@ function OpportunityLifecycleView() {
         />
       </div>
 
+      <section className="review-operations" aria-label="Semantic review operations">
+        <div className="review-operations-heading">
+          <div>
+            <TimerReset size={15} />
+            <div>
+              <strong>Persistent semantic review queue</strong>
+              <span>
+                {reviewScheduler.enabled
+                  ? `${reviewScheduler.tickIntervalMs}ms tick · SQLite ${reviewScheduler.storage.jobs.durable ? "WAL" : "off"}`
+                  : "automatic dispatch disabled · retained jobs stay visible"}
+              </span>
+            </div>
+          </div>
+          <Badge variant={reviewScheduler.unreadNotificationCount > 0 ? "warning" : "muted"}>
+            <Bell size={11} /> {reviewScheduler.unreadNotificationCount} UNREAD
+          </Badge>
+        </div>
+        <div className="review-operations-stats">
+          <div><strong>{reviewScheduler.dueCount}</strong><span>due</span></div>
+          <div><strong>{reviewScheduler.leasedCount}/{reviewScheduler.concurrencyLimit}</strong><span>leased</span></div>
+          <div><strong>{reviewScheduler.retryWaitCount}</strong><span>retry wait</span></div>
+          <div><strong>{reviewScheduler.blockedEvidenceCount}</strong><span>evidence blocked</span></div>
+          <div><strong>{reviewScheduler.passedCount}</strong><span>reviewed</span></div>
+          <div><strong>{reviewScheduler.exhaustedCount}</strong><span>exhausted</span></div>
+          <div>
+            <strong>{reviewScheduler.budget.requestAttemptsStarted}</strong>
+            <span>request attempts · {reviewScheduler.budget.maxAttemptsPerJob}/job</span>
+          </div>
+        </div>
+        <div className="review-operations-body">
+          <div className="review-job-list">
+            {reviewScheduler.jobs.length === 0 ? (
+              <div className="review-operation-empty">
+                <strong>No attributed review jobs retained</strong>
+                <span>Passed issue leases seed one durable job per proposal.</span>
+              </div>
+            ) : reviewScheduler.jobs.slice(0, 8).map((job) => (
+              <article key={job.jobId}>
+                <Badge variant={job.status === "PASS" ? "verified" : job.status === "EXHAUSTED" ? "warning" : "muted"}>
+                  {job.status.replaceAll("_", " ")}
+                </Badge>
+                <div>
+                  <strong>{proposals.get(job.proposalId)?.statement ?? job.opportunityId}</strong>
+                  <span>P{job.priority} · {job.issueIds.length} issue{job.issueIds.length === 1 ? "" : "s"} · attempt {job.attemptCount}/{job.maxAttempts}</span>
+                </div>
+                <code>{job.proposalId.slice(0, 19)}…</code>
+              </article>
+            ))}
+          </div>
+          <div className="review-notification-list">
+            {reviewScheduler.notifications.length === 0 ? (
+              <div className="review-operation-empty">
+                <strong>Review inbox is quiet</strong>
+                <span>Completed advisory reports and exhausted jobs notify here.</span>
+              </div>
+            ) : reviewScheduler.notifications.slice(0, 6).map((notification) => (
+              <article className={notification.status === "READ" ? "is-read" : undefined} key={notification.notificationId}>
+                <div>
+                  <Badge variant={notification.kind === "JOB_EXHAUSTED" ? "warning" : "shadow"}>
+                    {notification.kind.replaceAll("_", " ")}
+                  </Badge>
+                  <time>{new Date(notification.createdAt).toLocaleString()}</time>
+                </div>
+                <strong>{notification.title}</strong>
+                <p>{notification.summary}</p>
+                {notification.status === "UNREAD" && (
+                  <button
+                    type="button"
+                    disabled={reviewNotificationAction === notification.notificationId}
+                    onClick={() => void acknowledgeReviewNotification(notification.notificationId)}
+                  >Acknowledge</button>
+                )}
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <div className="lifecycle-flow" aria-label="Opportunity promotion flow">
         {[
           ["Discover", "AI proposes relations"],
@@ -3345,7 +3490,7 @@ function OpportunityLifecycleView() {
                         variant="outline"
                         disabled={
                           !semanticReview.configured ||
-                          semanticReview.status === "RUNNING" ||
+                          semanticReview.activeCount >= semanticReview.concurrencyLimit ||
                           reviewRunning ||
                           review?.status === "PASS" ||
                           item.state !== "AWAITING_SEMANTIC_REVIEW"

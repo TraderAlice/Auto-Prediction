@@ -39,6 +39,12 @@ type ReviewSource = Readonly<{
   }> | null;
 }>;
 
+type ReviewJobSource = Readonly<{
+  artifactHash: Hash;
+  proposalId: Hash;
+  issueIds: readonly Hash[];
+}>;
+
 type LifecycleSource = Readonly<{
   cases: readonly Readonly<{
     opportunityId: string;
@@ -84,6 +90,7 @@ type MaterializationSource = Readonly<{
 export type SearchOutcomeAttributionInput = Readonly<{
   issues: readonly IssueSource[];
   searchLeases: readonly LeaseSource[];
+  semanticReviewJobs?: readonly ReviewJobSource[];
   semanticReviews: readonly ReviewSource[];
   lifecycle: LifecycleSource;
   materializations: readonly MaterializationSource[];
@@ -373,6 +380,15 @@ export function buildSearchOutcomeAttribution(
       proposalIssues.set(proposalId, attribution);
     }
   }
+  for (const job of input.semanticReviewJobs ?? []) {
+    for (const issueId of job.issueIds) {
+      if (!issueIds.has(issueId)) continue;
+      proposalsByIssue.get(issueId)!.add(job.proposalId);
+      const attribution = proposalIssues.get(job.proposalId) ?? new Set<Hash>();
+      attribution.add(issueId);
+      proposalIssues.set(job.proposalId, attribution);
+    }
+  }
   const attributedProposalIds = new Set(proposalIssues.keys());
   const aiProposalIds = new Set(input.lifecycle.cases
     .filter((item) => item.discoveryKind === "AI_RELATION_PROPOSAL")
@@ -433,6 +449,7 @@ export function buildSearchOutcomeAttribution(
   );
   const sourceArtifactHashes = uniqueHashes([
     ...leases.map((item) => item.artifactHash),
+    ...(input.semanticReviewJobs ?? []).map((item) => item.artifactHash),
     ...input.lifecycle.cases
       .filter((item) => item.discoveryKind === "AI_RELATION_PROPOSAL")
       .map((item) => item.discoveryArtifactHash),

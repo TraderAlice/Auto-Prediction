@@ -209,4 +209,49 @@ describe("adversarial semantic review", () => {
       }),
     ).toThrow(/authority|contract/);
   });
+
+  it("retains advisory review evidence for bounded multi-outcome listings", async () => {
+    const multiListings = listings.map((listing, index) => ({
+      ...listing,
+      quantityScale: index === 0 ? listing.quantityScale : undefined,
+      outcomes: [
+        ...listing.outcomes,
+        {
+          venueOutcomeId: `venue-${index === 0 ? "a" : "b"}-void`,
+          label: "Void",
+          indicativePrice: "0.00",
+        },
+      ],
+    }));
+    const multiSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ sources: "multi" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: multiListings,
+    });
+    const multiBody = {
+      ...proposalBody,
+      statement: "Both listings expose aligned Up, Down, and Void outcomes.",
+    };
+    const multiProposal: MarketRelationProposal = {
+      ...multiBody,
+      proposalId: hashCanonical({
+        corpusSnapshotIdentity: multiSnapshot.snapshotIdentity,
+        ...multiBody,
+      }),
+    };
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      { reviewer: { review: async () => reviewPayload } },
+    );
+    const record = await desk.begin(
+      `ai:${multiProposal.proposalId}`,
+      multiProposal,
+      multiSnapshot,
+    ).promise;
+
+    expect(record.status).toBe("PASS");
+    expect(record.report?.input.listingEvidence[0]?.outcomes).toHaveLength(3);
+    expect(() => assertSemanticReviewRecord(record)).not.toThrow();
+  });
 });
