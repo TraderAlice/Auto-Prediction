@@ -87,6 +87,22 @@ type MaterializationSource = Readonly<{
   status: "READY" | "BLOCKED";
 }>;
 
+type EconomicTriageSource = Readonly<{
+  contentHash: Hash;
+  items: readonly Readonly<{
+    proposalId: Hash;
+    status:
+      | "POSITIVE_GROSS_HINT"
+      | "NON_POSITIVE_GROSS_HINT"
+      | "PRICE_UNAVAILABLE"
+      | "SETTLEMENT_INELIGIBLE"
+      | "EVIDENCE_UNAVAILABLE"
+      | "CURRENT_CONTRACT_MISMATCH"
+      | "LISTING_SCOPE_UNSUPPORTED"
+      | "RELATION_UNSUPPORTED";
+  }>[];
+}>;
+
 export type SearchOutcomeAttributionInput = Readonly<{
   issues: readonly IssueSource[];
   searchLeases: readonly LeaseSource[];
@@ -94,6 +110,7 @@ export type SearchOutcomeAttributionInput = Readonly<{
   semanticReviews: readonly ReviewSource[];
   lifecycle: LifecycleSource;
   materializations: readonly MaterializationSource[];
+  proposalEconomicTriage?: EconomicTriageSource;
 }>;
 
 export type SearchOutcomeIssueAttribution = Readonly<{
@@ -103,6 +120,9 @@ export type SearchOutcomeIssueAttribution = Readonly<{
   reviewedCount: number;
   operatorAcceptedCount: number;
   operatorRejectedCount: number;
+  positiveGrossHintCount: number;
+  nonPositiveGrossHintCount: number;
+  economicUnavailableCount: number;
   materializedReadyCount: number;
   positiveSimulationCount: number;
   certifiedCount: number;
@@ -136,6 +156,11 @@ export type SearchOutcomeAttributionProjection = Readonly<{
     stage: SearchOutcomeStage;
     count: number;
   }>[];
+  economics: Readonly<{
+    positiveGrossHintCount: number;
+    nonPositiveGrossHintCount: number;
+    unavailableOrUnsupportedCount: number;
+  }>;
   bottlenecks: Readonly<{
     pendingReviewCount: number;
     reviewFailedCount: number;
@@ -167,6 +192,7 @@ type EvaluationContext = Readonly<{
   simulationsByProposal: ReadonlyMap<Hash, readonly LifecycleSource["simulationBundles"][number][]>;
   exactByProposal: ReadonlyMap<Hash, readonly LifecycleSource["exactVerifications"][number][]>;
   latestShadowByProposal: ReadonlyMap<Hash, LifecycleSource["shadowObservations"][number]>;
+  economicsByProposal: ReadonlyMap<Hash, EconomicTriageSource["items"][number]>;
 }>;
 
 type ProposalEvaluation = Readonly<{
@@ -184,6 +210,9 @@ type ProposalEvaluation = Readonly<{
   shadowObserved: Set<Hash>;
   shadowDiverged: Set<Hash>;
   lifecycleMissing: Set<Hash>;
+  positiveGrossHint: Set<Hash>;
+  nonPositiveGrossHint: Set<Hash>;
+  economicUnavailable: Set<Hash>;
   missingEvidenceCount: number;
 }>;
 
@@ -253,6 +282,9 @@ function evaluate(
   const shadowObserved = new Set<Hash>();
   const shadowDiverged = new Set<Hash>();
   const lifecycleMissing = new Set<Hash>();
+  const positiveGrossHint = new Set<Hash>();
+  const nonPositiveGrossHint = new Set<Hash>();
+  const economicUnavailable = new Set<Hash>();
   let missingEvidenceCount = 0;
 
   for (const proposalId of proposalIds) {
@@ -297,6 +329,14 @@ function evaluate(
       if (shadow.status === "DIVERGED") shadowDiverged.add(proposalId);
     }
     if (!context.casesByProposal.has(proposalId)) lifecycleMissing.add(proposalId);
+    const economics = context.economicsByProposal.get(proposalId);
+    if (economics?.status === "POSITIVE_GROSS_HINT") {
+      positiveGrossHint.add(proposalId);
+    } else if (economics?.status === "NON_POSITIVE_GROSS_HINT") {
+      nonPositiveGrossHint.add(proposalId);
+    } else {
+      economicUnavailable.add(proposalId);
+    }
   }
 
   return Object.freeze({
@@ -314,6 +354,9 @@ function evaluate(
     shadowObserved,
     shadowDiverged,
     lifecycleMissing,
+    positiveGrossHint,
+    nonPositiveGrossHint,
+    economicUnavailable,
     missingEvidenceCount,
   });
 }
@@ -331,6 +374,9 @@ function issueSummary(
     reviewedCount: evaluation.reviewed.size,
     operatorAcceptedCount: evaluation.accepted.size,
     operatorRejectedCount: evaluation.rejected.size,
+    positiveGrossHintCount: evaluation.positiveGrossHint.size,
+    nonPositiveGrossHintCount: evaluation.nonPositiveGrossHint.size,
+    economicUnavailableCount: evaluation.economicUnavailable.size,
     materializedReadyCount: evaluation.materializedReady.size,
     positiveSimulationCount: evaluation.positiveSimulation.size,
     certifiedCount: evaluation.certified.size,
@@ -437,6 +483,11 @@ export function buildSearchOutcomeAttribution(
     simulationsByProposal: groupByProposal(input.lifecycle.simulationBundles, knownProposalIds),
     exactByProposal: groupByProposal(input.lifecycle.exactVerifications, knownProposalIds),
     latestShadowByProposal,
+    economicsByProposal: new Map(
+      (input.proposalEconomicTriage?.items ?? []).map((item) =>
+        [item.proposalId, item] as const
+      ),
+    ),
   });
   const overall = evaluate(attributedProposalIds, context);
   const byIssue = Object.freeze([...issueIds].sort().map((issueId) => issueSummary(
@@ -471,6 +522,9 @@ export function buildSearchOutcomeAttribution(
     ...input.lifecycle.shadowObservations
       .filter((item) => attributedOpportunityIds.has(item.opportunityId))
       .map((item) => item.artifactHash),
+    ...(input.proposalEconomicTriage === undefined
+      ? []
+      : [input.proposalEconomicTriage.contentHash]),
   ]);
   const stages = Object.freeze([
     Object.freeze({ stage: "PROPOSED" as const, count: overall.proposed.size }),
@@ -495,6 +549,11 @@ export function buildSearchOutcomeAttribution(
     shadowDivergedCount: overall.shadowDiverged.size,
     missingEvidenceCount: overall.missingEvidenceCount,
   });
+  const economics = Object.freeze({
+    positiveGrossHintCount: overall.positiveGrossHint.size,
+    nonPositiveGrossHintCount: overall.nonPositiveGrossHint.size,
+    unavailableOrUnsupportedCount: overall.economicUnavailable.size,
+  });
   const body = Object.freeze({
     schemaVersion: "pmh.search-outcome-attribution.v1" as const,
     sourceSetIdentity: hashCanonical(sourceArtifactHashes),
@@ -517,6 +576,7 @@ export function buildSearchOutcomeAttribution(
       aiProposalIds.size,
     ),
     stages,
+    economics,
     bottlenecks,
     byIssue,
     modelConfidenceUsed: false as const,

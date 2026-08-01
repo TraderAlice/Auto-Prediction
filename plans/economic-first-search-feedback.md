@@ -1,6 +1,6 @@
 # Economic-first search feedback
 
-Status: active
+Status: qualified; ready to publish
 Started: 2026-08-02
 
 ## Outcome
@@ -28,6 +28,23 @@ that no policy-matching opportunity survived. This is useful falsification
 evidence, but an economically impossible pair should not consume the scarce
 deep lane on every new corpus.
 
+After implementation, a fresh seven-source refresh again retained 467
+listings. The radar exposed five lexical pairs and one current positive gross
+hint: buying the false leg of Gemini's `MLS Cup Champion — Nashville SC` with
+the true leg of a Kalshi multi-game Nashville parlay cost an indicative 8,900
+bps, leaving a 1,100 bps gross hint before fees and depth. The cheap semantic
+lane returned no hypothesis because those contracts do not define the same
+claim, so pi was correctly not invoked. This is the intended separation of
+economic possibility from semantic validity.
+
+Across the retained 40-lease window, four focused leases now contain an
+economic gate: one positive, two blocked, and one legacy `NOT_RUN` failure.
+One pi invocation was demonstrably avoided. The legacy failure also exposed a
+context-selection bug: generic words in the full Agent brief could cause one
+member of an already selected pair to be dropped. Exact radar scopes now rank
+their bounded context using only the pair's shared blocking terms while the
+full skeptical brief remains the Agent question.
+
 ## Architecture decision
 
 Extend the lexical radar with a proposal-independent, two-listing indicative
@@ -50,14 +67,14 @@ than model confidence.
 
 ## Construction slices
 
-- [ ] Add reusable bigint-only two-listing indicative economics.
-- [ ] Rank lexical radar pairs by economic posture without changing semantics.
-- [ ] Add the focused issue's pre-pi positive-gross gate and durable audit data.
-- [ ] Preserve restart compatibility for retained leases and operator issue state.
-- [ ] Attribute economic triage outcomes and avoided pi calls by issue.
-- [ ] Show economic search yield and gate outcomes in Studio.
-- [ ] Run focused and full Node 24 qualification plus responsive visual QA.
-- [ ] Exercise the gate against the live seven-source corpus.
+- [x] Add reusable bigint-only two-listing indicative economics.
+- [x] Rank lexical radar pairs by economic posture without changing semantics.
+- [x] Add the focused issue's pre-pi positive-gross gate and durable audit data.
+- [x] Preserve restart compatibility for retained leases and operator issue state.
+- [x] Attribute economic triage outcomes and avoided pi calls by issue.
+- [x] Show economic search yield and gate outcomes in Studio.
+- [x] Run focused and full Node 24 qualification plus responsive visual QA.
+- [x] Exercise the gate against the live seven-source corpus.
 - [ ] Publish and serially merge the campaign PR.
 
 ## Safety invariants

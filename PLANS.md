@@ -30,13 +30,20 @@ Fresh-corpus orchestration is merged and live. The five-minute catalog timer
 keeps all seven sources and the recurring issue queue attached to current,
 content-addressed evidence.
 
-The next bottleneck is search yield. The live funnel contains 59 economically
-triaged proposals and 50 completed semantic reviews, but no positive gross
-hint. Thirty-seven proposals have unsupported relation shapes and 15 have
-unsupported listing arity; even the settlement-qualified issue spent pi calls
-to learn that four proposed pairs were conflicts. The active campaign moves a
-bigint-only two-leg price hint ahead of pi for the focused parity issue and
-attributes saved escalations and downstream economic yield back to each issue.
+The active economic-first campaign is qualified and ready to publish. The
+focused parity issue now binds its exact radar pair to a bigint-only price gate
+before pi. A non-positive or unavailable pair records a terminal reason without
+poisoning future price-change deduplication; a positive pair still needs a
+grounded cheap-model hypothesis before pi. General semantic issues remain
+ungated.
+
+The live seven-source smoke retained 467 listings and found one 1,100 bps
+positive gross hint among five radar pairs. The cheap semantic lane correctly
+rejected it: an MLS Cup champion contract and a multi-game parlay happened to
+share “Nashville” but were not the same claim. In the retained 40-lease window,
+the new gate has one positive result, two blocked results, and one recorded pi
+call avoided. Studio now exposes those pre-pi results alongside downstream
+economic yield by durable issue.
 
 ## Deferred future campaigns
 

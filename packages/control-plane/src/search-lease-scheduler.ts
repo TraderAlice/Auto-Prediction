@@ -1,5 +1,9 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import {
+  calculateTwoListingIndicativeEconomics,
+  type CanonicalIndicativeEconomics,
+} from "./indicative-relation-economics.js";
+import {
   assertMarketCorpusSnapshot,
   type MarketCorpusSnapshot,
 } from "./market-corpus.js";
@@ -11,12 +15,17 @@ import type {
   OpportunityHypothesis,
 } from "./types.js";
 import type { MarketRelationKind } from "./market-archaeologist.js";
+import {
+  COMPILABLE_RELATIONS,
+  type CompilableRelation,
+} from "./relation-payoff.js";
 import type { SemanticGraphSearchContext } from "./semantic-relation-graph.js";
 
 const ALGORITHM_VERSION = "pmh.ai-search-leases.v1";
 const DEFAULT_RETENTION_LIMIT = 40;
 const DEFAULT_DEADLINE_MS = 300_000;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const INTEGER_PATTERN = /^-?(?:0|[1-9]\d*)$/u;
 const READ_ONLY_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
 
 export const SEARCH_LENSES = Object.freeze([
@@ -31,6 +40,32 @@ export type SearchLens = (typeof SEARCH_LENSES)[number];
 export type SearchCandidatePolicy = Readonly<{
   allowedRelationKinds: readonly MarketRelationKind[];
   exactListingRefCount: number;
+  requirePositiveGrossHint?: boolean;
+}>;
+
+export type SearchLeaseEconomicGate = Readonly<{
+  required: boolean;
+  status:
+    | "NOT_RUN"
+    | "NOT_REQUIRED"
+    | "POSITIVE_GROSS_HINT"
+    | "NON_POSITIVE_GROSS_HINT"
+    | "PRICE_UNAVAILABLE"
+    | "LISTING_SCOPE_UNSUPPORTED"
+    | "RELATION_UNSUPPORTED";
+  listingRefs: readonly string[];
+  portfolioLabel: string | null;
+  indicativeCostBpsCeil: string | null;
+  grossEdgeBpsFloor: string | null;
+  diagnostic: string | null;
+  feesIncluded: false;
+  depthIncluded: false;
+  executable: false;
+  authority: "SEARCH_ESCALATION_HINT_ONLY";
+  semanticDecisionAuthority: false;
+  simulationAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
 }>;
 
 export type SearchLease = Readonly<{
@@ -77,6 +112,7 @@ export type SearchLeaseFastLane = Readonly<{
   modelRequestCount: number;
   hypothesisIds: readonly string[];
   candidateListingRefs: readonly string[];
+  economicGate?: SearchLeaseEconomicGate;
   diagnostic: string | null;
 }>;
 
@@ -87,6 +123,7 @@ export type SearchLeaseDeepLane = Readonly<{
     | "NO_CANDIDATES"
     | "NOT_MULTI_LISTING"
     | "DUPLICATE"
+    | "ECONOMIC_GATE_BLOCKED"
     | "PI_DISABLED"
     | "NO_POLICY_MATCH"
     | "NOVEL_MULTI_LISTING"
@@ -263,6 +300,115 @@ function compactDiagnostic(value: unknown): string {
   return text.length <= 500 ? text : `${text.slice(0, 499).trimEnd()}…`;
 }
 
+function pendingEconomicGate(policy?: SearchCandidatePolicy | null): SearchLeaseEconomicGate {
+  return Object.freeze({
+    required: policy?.requirePositiveGrossHint === true,
+    status: "NOT_RUN" as const,
+    listingRefs: Object.freeze([]),
+    portfolioLabel: null,
+    indicativeCostBpsCeil: null,
+    grossEdgeBpsFloor: null,
+    diagnostic: null,
+    feesIncluded: false as const,
+    depthIncluded: false as const,
+    executable: false as const,
+    authority: "SEARCH_ESCALATION_HINT_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    simulationAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+}
+
+function completedEconomicGate(input: Readonly<{
+  policy: SearchCandidatePolicy | null | undefined;
+  listingRefs: readonly string[];
+  context: DiscoveryCatalogContext;
+}>): SearchLeaseEconomicGate {
+  const base = pendingEconomicGate(input.policy);
+  const listingRefs = Object.freeze([...new Set(input.listingRefs)].sort());
+  if (!base.required) {
+    return Object.freeze({ ...base, status: "NOT_REQUIRED", listingRefs });
+  }
+  if (listingRefs.length !== 2) {
+    return Object.freeze({
+      ...base,
+      status: "LISTING_SCOPE_UNSUPPORTED",
+      listingRefs,
+      diagnostic: "The positive-gross gate requires exactly two distinct fast-lane listing references.",
+    });
+  }
+  const relation = input.policy?.allowedRelationKinds[0];
+  if (
+    relation === undefined ||
+    !COMPILABLE_RELATIONS.includes(relation as CompilableRelation)
+  ) {
+    return Object.freeze({
+      ...base,
+      status: "RELATION_UNSUPPORTED",
+      listingRefs,
+      diagnostic: "The positive-gross gate requires one canonical compilable relation.",
+    });
+  }
+  const economics: CanonicalIndicativeEconomics =
+    calculateTwoListingIndicativeEconomics({
+      listingRefs,
+      relation: relation as CompilableRelation,
+      currentListings: new Map(
+        input.context.listings.map((listing) => [listing.listingRef, listing] as const),
+      ),
+    });
+  return Object.freeze({
+    ...base,
+    status: economics.status,
+    listingRefs,
+    portfolioLabel: economics.portfolioLabel,
+    indicativeCostBpsCeil: economics.indicativeCostBpsCeil,
+    grossEdgeBpsFloor: economics.grossEdgeBpsFloor,
+    diagnostic: economics.status === "POSITIVE_GROSS_HINT"
+      ? "Current catalog indications leave a positive gross search hint before fees and depth."
+      : economics.status === "NON_POSITIVE_GROSS_HINT"
+        ? "Current catalog indications leave no positive gross search hint before fees and depth."
+        : "Canonical current catalog prices are unavailable or malformed.",
+  });
+}
+
+function economicGateValid(
+  gate: SearchLeaseEconomicGate | undefined,
+  policy: SearchCandidatePolicy | null | undefined,
+): boolean {
+  if (gate === undefined) return true;
+  return (
+    gate.required === (policy?.requirePositiveGrossHint === true) &&
+    [
+      "NOT_RUN", "NOT_REQUIRED", "POSITIVE_GROSS_HINT",
+      "NON_POSITIVE_GROSS_HINT", "PRICE_UNAVAILABLE",
+      "LISTING_SCOPE_UNSUPPORTED", "RELATION_UNSUPPORTED",
+    ].includes(gate.status) &&
+    Array.isArray(gate.listingRefs) && gate.listingRefs.length <= 20 &&
+    new Set(gate.listingRefs).size === gate.listingRefs.length &&
+    gate.listingRefs.every((item) => typeof item === "string" && item.trim() !== "") &&
+    [gate.indicativeCostBpsCeil, gate.grossEdgeBpsFloor].every(
+      (item) => item === null ||
+        (typeof item === "string" && INTEGER_PATTERN.test(item)),
+    ) &&
+    (gate.portfolioLabel === null ||
+      (typeof gate.portfolioLabel === "string" && gate.portfolioLabel.length <= 200)) &&
+    (gate.diagnostic === null ||
+      (typeof gate.diagnostic === "string" && gate.diagnostic.length <= 500)) &&
+    gate.feesIncluded === false && gate.depthIncluded === false &&
+    gate.executable === false &&
+    gate.authority === "SEARCH_ESCALATION_HINT_ONLY" &&
+    gate.semanticDecisionAuthority === false &&
+    gate.simulationAuthority === false && gate.certificateAuthority === false &&
+    gate.executionAuthority === false &&
+    (gate.status !== "POSITIVE_GROSS_HINT" ||
+      (gate.grossEdgeBpsFloor !== null && BigInt(gate.grossEdgeBpsFloor) > 0n)) &&
+    (gate.status !== "NON_POSITIVE_GROSS_HINT" ||
+      (gate.grossEdgeBpsFloor !== null && BigInt(gate.grossEdgeBpsFloor) <= 0n))
+  );
+}
+
 function isIso(value: unknown): value is string {
   return typeof value === "string" &&
     !Number.isNaN(Date.parse(value)) &&
@@ -369,7 +515,15 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     ].includes(kind)) &&
     Number.isSafeInteger(candidatePolicy.exactListingRefCount) &&
     candidatePolicy.exactListingRefCount >= 2 &&
-    candidatePolicy.exactListingRefCount <= 8
+    candidatePolicy.exactListingRefCount <= 8 &&
+    (candidatePolicy.requirePositiveGrossHint === undefined ||
+      typeof candidatePolicy.requirePositiveGrossHint === "boolean") &&
+    (candidatePolicy.requirePositiveGrossHint !== true ||
+      (candidatePolicy.exactListingRefCount === 2 &&
+        candidatePolicy.allowedRelationKinds.length === 1 &&
+        COMPILABLE_RELATIONS.includes(
+          candidatePolicy.allowedRelationKinds[0] as CompilableRelation,
+        )))
   );
   if (
     record.schemaVersion !== "pmh.search-lease-record.v1" ||
@@ -396,6 +550,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     lease.executionAuthority !== false ||
     !graphContextValid ||
     !candidatePolicyValid ||
+    !economicGateValid(record.fastLane.economicGate, candidatePolicy) ||
     !Number.isSafeInteger(lease.budget.maxFastModelRequests) ||
     lease.budget.maxFastModelRequests < 0 ||
     lease.budget.maxFastModelRequests > 4 ||
@@ -421,6 +576,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
       "NO_CANDIDATES",
       "NOT_MULTI_LISTING",
       "DUPLICATE",
+      "ECONOMIC_GATE_BLOCKED",
       "PI_DISABLED",
       "NO_POLICY_MATCH",
       "NOVEL_MULTI_LISTING",
@@ -720,6 +876,7 @@ export class SearchLeaseScheduler {
           modelRequestCount: 0,
           hypothesisIds: Object.freeze([]),
           candidateListingRefs: Object.freeze([]),
+          economicGate: pendingEconomicGate(issue?.candidatePolicy),
           diagnostic: null,
         }),
         deepLane: Object.freeze({
@@ -796,7 +953,31 @@ export class SearchLeaseScheduler {
       if (modelRequestCount > issued.lease.budget.maxFastModelRequests) {
         throw new Error("fast lane exceeded its model request budget");
       }
-      const signature = candidateSignature(run.hypotheses);
+      const hypothesisSignature = candidateSignature(run.hypotheses);
+      const policy = issued.lease.candidatePolicy;
+      const contextListingRefs = Object.freeze(
+        context.listings.map((item) => item.listingRef).sort(),
+      );
+      const exactPolicyContext =
+        policy !== undefined &&
+        policy !== null &&
+        contextListingRefs.length === policy.exactListingRefCount &&
+        new Set(contextListingRefs).size === contextListingRefs.length
+          ? contextListingRefs
+          : null;
+      const hypothesisListingRefs = Object.freeze([...new Set(
+        run.hypotheses.flatMap((item) => item.listingRefs ?? []),
+      )].sort());
+      const listingRefs = exactPolicyContext ?? hypothesisListingRefs;
+      const signature = hypothesisSignature === null
+        ? null
+        : exactPolicyContext === null
+          ? hypothesisSignature
+          : hashCanonical({
+              schemaVersion: "pmh.search-candidate-signature.v2",
+              allowedRelationKinds: [...(policy?.allowedRelationKinds ?? [])].sort(),
+              listingRefs,
+            });
       const duplicate = signature === null ? undefined : this.#records.find(
         (record) =>
           record.status === "PASS" &&
@@ -807,9 +988,6 @@ export class SearchLeaseScheduler {
         ? undefined
         : this.#activeNovelty.get(signature);
       const duplicateLeaseId = duplicate?.lease.leaseId ?? activeDuplicateLeaseId ?? null;
-      const listingRefs = Object.freeze([...new Set(
-        run.hypotheses.flatMap((item) => item.listingRefs ?? []),
-      )].sort());
       const fastLane: SearchLeaseFastLane = Object.freeze({
         status: "PASS",
         taskId: task.taskId,
@@ -818,13 +996,30 @@ export class SearchLeaseScheduler {
         modelRequestCount,
         hypothesisIds: Object.freeze(run.hypotheses.map((item) => item.hypothesisId)),
         candidateListingRefs: listingRefs,
+        economicGate: completedEconomicGate({
+          policy: issued.lease.candidatePolicy,
+          listingRefs,
+          context,
+        }),
         diagnostic: run.diagnostics.length === 0 ? null : compactDiagnostic(run.diagnostics.join("; ")),
       });
       let deepLane: SearchLeaseDeepLane;
       if (signature === null) {
         deepLane = this.#skippedDeep("NO_CANDIDATES");
-      } else if (!hasMultiListingCandidate(run.hypotheses)) {
+      } else if (
+        exactPolicyContext === null
+          ? !hasMultiListingCandidate(run.hypotheses)
+          : listingRefs.length < 2
+      ) {
         deepLane = this.#skippedDeep("NOT_MULTI_LISTING");
+      } else if (
+        fastLane.economicGate?.required === true &&
+        fastLane.economicGate.status !== "POSITIVE_GROSS_HINT"
+      ) {
+        deepLane = this.#skippedDeep(
+          "ECONOMIC_GATE_BLOCKED",
+          fastLane.economicGate.diagnostic,
+        );
       } else if (duplicateLeaseId !== null) {
         deepLane = this.#skippedDeep("DUPLICATE");
       } else if (issued.lease.budget.maxPiInvocations === 0 || this.#runDeep === undefined) {
@@ -842,7 +1037,6 @@ export class SearchLeaseScheduler {
         this.#activeNovelty.set(signature, issued.lease.leaseId);
         try {
           const result = await this.#runDeep(snapshot, deepQuestion);
-          const policy = issued.lease.candidatePolicy;
           const proposalIds = policy === undefined || policy === null
             ? [...result.proposalIds].slice(0, 5)
             : (result.proposalDetails ?? [])
@@ -882,8 +1076,10 @@ export class SearchLeaseScheduler {
         deepLane,
         lineage: Object.freeze({
           ...issued.lineage,
-          duplicateOfLeaseId: duplicateLeaseId,
-          noveltySignature: signature,
+          duplicateOfLeaseId:
+            deepLane.reason === "ECONOMIC_GATE_BLOCKED" ? null : duplicateLeaseId,
+          noveltySignature:
+            deepLane.reason === "ECONOMIC_GATE_BLOCKED" ? null : signature,
         }),
         outcome: Object.freeze({
           novelCandidate: signature !== null && duplicateLeaseId === null &&
@@ -908,14 +1104,17 @@ export class SearchLeaseScheduler {
     }
   }
 
-  #skippedDeep(reason: SearchLeaseDeepLane["reason"]): SearchLeaseDeepLane {
+  #skippedDeep(
+    reason: SearchLeaseDeepLane["reason"],
+    diagnostic: string | null = null,
+  ): SearchLeaseDeepLane {
     return Object.freeze({
       status: "NOT_RUN",
       reason,
       runId: null,
       proposalIds: Object.freeze([]),
       evidenceGaps: Object.freeze([]),
-      diagnostic: null,
+      diagnostic,
       permittedTools: READ_ONLY_TOOLS,
       toolExecutionTraceStored: false,
     });

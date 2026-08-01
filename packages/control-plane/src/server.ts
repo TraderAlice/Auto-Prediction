@@ -507,14 +507,18 @@ export function createControlPlane(options?: {
       intervalMs: parseSearchLeaseInterval(process.env),
       concurrencyLimit: 3,
       context: (question, venueIds, lens) => {
-        const radarLead = lens === "EQUIVALENCE"
-          ? catalogObservationDesk.radar().candidates[0]
-          : undefined;
-        return radarLead === undefined
-          ? catalogObservationDesk.context(question, venueIds)
-          : catalogObservationDesk.radarTriageScope(
-              radarLead.candidateId,
-            ).catalogContext;
+        if (lens === "EQUIVALENCE") {
+          for (const candidate of catalogObservationDesk.radar().candidates) {
+            try {
+              return catalogObservationDesk.radarTriageScope(
+                candidate.candidateId,
+              ).catalogContext;
+            } catch (error) {
+              if (!(error instanceof RadarCandidateUnavailableError)) throw error;
+            }
+          }
+        }
+        return catalogObservationDesk.context(question, venueIds);
       },
       graphContext: (snapshot, lens) => {
         if (graphContextForLease === undefined) {
@@ -818,6 +822,7 @@ export function createControlPlane(options?: {
       semanticReviews: semanticReviewProjection.records,
       lifecycle: lifecycleProjection,
       materializations: materializerProjection.records,
+      proposalEconomicTriage: economicTriageProjection,
     });
     return buildStudioProjection({
       workers: pool.workers,

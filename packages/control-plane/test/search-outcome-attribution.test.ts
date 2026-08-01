@@ -96,6 +96,14 @@ function input(): SearchOutcomeAttributionInput {
     materializations: Object.freeze([
       Object.freeze({ materializationId: h("materialization-1"), opportunityId: `ai:${p1}`, completedAt: "2026-08-02T00:06:00.000Z", status: "READY" as const }),
     ]),
+    proposalEconomicTriage: Object.freeze({
+      contentHash: h("economic-triage"),
+      items: Object.freeze([
+        Object.freeze({ proposalId: p1, status: "POSITIVE_GROSS_HINT" as const }),
+        Object.freeze({ proposalId: p2, status: "NON_POSITIVE_GROSS_HINT" as const }),
+        Object.freeze({ proposalId: p3, status: "PRICE_UNAVAILABLE" as const }),
+      ]),
+    }),
   });
 }
 
@@ -105,7 +113,7 @@ describe("search outcome attribution", () => {
 
     expect(projection).toMatchObject({
       measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
-      sourceArtifactCount: 16,
+      sourceArtifactCount: 17,
       issueCount: 2,
       attributedLeaseCount: 3,
       attributedProposalCount: 4,
@@ -135,6 +143,11 @@ describe("search outcome attribution", () => {
       { stage: "CERTIFIED", count: 1 },
       { stage: "SHADOW_OBSERVED", count: 1 },
     ]);
+    expect(projection.economics).toEqual({
+      positiveGrossHintCount: 1,
+      nonPositiveGrossHintCount: 1,
+      unavailableOrUnsupportedCount: 2,
+    });
     expect(projection.bottlenecks).toEqual({
       pendingReviewCount: 2,
       reviewFailedCount: 1,
@@ -151,6 +164,9 @@ describe("search outcome attribution", () => {
       reviewedCount: 2,
       operatorAcceptedCount: 1,
       operatorRejectedCount: 1,
+      positiveGrossHintCount: 1,
+      nonPositiveGrossHintCount: 1,
+      economicUnavailableCount: 1,
       certifiedCount: 1,
       pendingReviewCount: 1,
       missingEvidenceCount: 3,
@@ -161,6 +177,9 @@ describe("search outcome attribution", () => {
       proposalCount: 2,
       reviewedCount: 1,
       operatorRejectedCount: 1,
+      positiveGrossHintCount: 0,
+      nonPositiveGrossHintCount: 1,
+      economicUnavailableCount: 1,
       pendingReviewCount: 1,
       operatorAcceptanceRateBps: 0,
     });
@@ -181,6 +200,10 @@ describe("search outcome attribution", () => {
         shadowObservations: Object.freeze([...original.lifecycle.shadowObservations].reverse()),
       }),
       materializations: Object.freeze([...original.materializations].reverse()),
+      proposalEconomicTriage: Object.freeze({
+        ...original.proposalEconomicTriage!,
+        items: Object.freeze([...original.proposalEconomicTriage!.items].reverse()),
+      }),
     });
     const first = buildSearchOutcomeAttribution(original);
     expect(reversed).toEqual(first);
