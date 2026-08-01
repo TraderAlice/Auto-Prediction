@@ -548,6 +548,221 @@ describe("AI-native search lease scheduler", () => {
     });
   });
 
+  it("lets a model select one exact pair from a bounded radar batch before economics", async () => {
+    const batchedListings = Object.freeze([
+      ...listings,
+      ...(["venue-c", "venue-d"] as const).map((venueId) => Object.freeze({
+        ...listings[0]!,
+        listingRef: `${venueId}:pizza-${venueId.at(-1)}`,
+        venueId,
+        venueInstrumentId: `pizza-${venueId.at(-1)}`,
+        outcomes: Object.freeze(listings[0]!.outcomes.map((outcome) =>
+          Object.freeze({ ...outcome, indicativePrice: "0.4" })
+        )),
+        sourceRawHash: hashCanonical({ venueId, price: "0.4" }),
+        protocolIdentity: `protocol:${venueId}`,
+      })),
+    ]);
+    const batchedSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "model-selected-batch" }),
+      eligibleSourceCount: 4,
+      excludedSourceCount: 0,
+      listings: batchedListings,
+    });
+    const batchedContext = (): DiscoveryCatalogContext => {
+      const body = Object.freeze({
+        schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+        source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+        contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+        listings: batchedListings,
+      });
+      return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+    };
+    const selectedRefs = Object.freeze(["venue-c:pizza-c", "venue-d:pizza-d"]);
+    const selectedProposalId = hashCanonical({ proposal: "selected-pair" });
+    const alternateProposalId = hashCanonical({ proposal: "alternate-pair" });
+    const runDeep = vi.fn(async () => Object.freeze({
+      runId: hashCanonical({ deep: "model-selected-batch" }),
+      status: "PASS" as const,
+      proposalIds: Object.freeze([alternateProposalId, selectedProposalId]),
+      proposalDetails: Object.freeze([
+        Object.freeze({
+          proposalId: alternateProposalId,
+          relationKind: "EQUIVALENT" as const,
+          listingRefs: Object.freeze(["venue-a:pizza-a", "venue-b:pizza-b"]),
+        }),
+        Object.freeze({
+          proposalId: selectedProposalId,
+          relationKind: "EQUIVALENT" as const,
+          listingRefs: selectedRefs,
+        }),
+      ]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    }));
+    const scheduler = new SearchLeaseScheduler({
+      context: (_question, _venueIds, _lens, _snapshot, _feedback, policy) => {
+        expect(policy?.candidateSelection).toBe("MODEL_HYPOTHESIS");
+        return batchedContext();
+      },
+      runFast: async (task) => {
+        const base = runRecord(task);
+        const heuristic = Object.freeze({
+          ...hypothesis(task),
+          hypothesisId: "hypothesis:heuristic-batch",
+          workerId: "heuristic:free",
+          venueIds: Object.freeze(["venue-a", "venue-b", "venue-c", "venue-d"]),
+          listingRefs: Object.freeze(batchedListings.map((item) => item.listingRef)),
+        });
+        const model = Object.freeze({
+          ...hypothesis(task),
+          hypothesisId: "hypothesis:model-selected-pair",
+          workerId: "model:fast",
+          venueIds: Object.freeze(["venue-c", "venue-d"]),
+          listingRefs: selectedRefs,
+        });
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([heuristic, model]),
+          workerReports: Object.freeze(base.workerReports!.map((report) =>
+            Object.freeze({ ...report, hypothesisCount: 1 })
+          )),
+        });
+      },
+      runDeep,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+    const record = await scheduler.begin(
+      batchedSnapshot,
+      "EQUIVALENCE",
+      "SCHEDULE",
+      {
+        issueId: hashCanonical({ issue: "model-selected-batch" }),
+        question: "Let the model select one exact cross-venue pair.",
+        venueIds: [],
+        candidatePolicy: Object.freeze({
+          allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
+          exactListingRefCount: 2,
+          requirePositiveGrossHint: true,
+          candidateSelection: "MODEL_HYPOTHESIS" as const,
+          requireDistinctVenues: true,
+        }),
+      },
+    ).promise;
+
+    expect(record.fastLane).toMatchObject({
+      candidateListingRefs: selectedRefs,
+      semanticScope: { kind: "BOUNDED_CONTEXT" },
+      economicGate: {
+        status: "POSITIVE_GROSS_HINT",
+        listingRefs: selectedRefs,
+        indicativeCostBpsCeil: "8000",
+        grossEdgeBpsFloor: "2000",
+      },
+    });
+    expect(record.deepLane).toMatchObject({
+      reason: "NOVEL_MULTI_LISTING",
+      proposalIds: [selectedProposalId],
+    });
+    expect(record.outcome.novelCandidate).toBe(true);
+    expect(runDeep).toHaveBeenCalledTimes(1);
+    expect(runDeep.mock.calls[0]?.[1]).toContain(selectedRefs.join(", "));
+  });
+
+  it("does not let heuristics or invalid model scope satisfy model selection", async () => {
+    const sameVenue = Object.freeze({
+      ...listings[0]!,
+      listingRef: "venue-a:pizza-second",
+      venueInstrumentId: "pizza-second",
+      sourceRawHash: hashCanonical({ source: "same-venue" }),
+    });
+    const batch = Object.freeze([...listings, sameVenue]);
+    const current = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "invalid-model-selection" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: batch,
+    });
+    const runDeep = vi.fn();
+    const scheduler = new SearchLeaseScheduler({
+      context: () => {
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+          source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+          listings: batch,
+        });
+        return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+      },
+      runFast: async (task) => {
+        const base = runRecord(task);
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([
+            Object.freeze({
+              ...hypothesis(task),
+              hypothesisId: "hypothesis:heuristic-valid-pair",
+              workerId: "heuristic:free",
+            }),
+            Object.freeze({
+              ...hypothesis(task),
+              hypothesisId: "hypothesis:model-same-venue",
+              workerId: "model:fast",
+              venueIds: Object.freeze(["venue-a"]),
+              listingRefs: Object.freeze([
+                "venue-a:pizza-a",
+                "venue-a:pizza-second",
+              ]),
+            }),
+            Object.freeze({
+              ...hypothesis(task),
+              hypothesisId: "hypothesis:model-out-of-context",
+              workerId: "model:fast",
+              venueIds: Object.freeze(["venue-a", "venue-z"]),
+              listingRefs: Object.freeze([
+                "venue-a:pizza-a",
+                "venue-z:not-in-context",
+              ]),
+            }),
+          ]),
+          workerReports: Object.freeze(base.workerReports!.map((report) =>
+            Object.freeze({
+              ...report,
+              hypothesisCount: report.kind === "MODEL" ? 2 : 1,
+            })
+          )),
+        });
+      },
+      runDeep,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+    const record = await scheduler.begin(
+      current,
+      "EQUIVALENCE",
+      "SCHEDULE",
+      {
+        issueId: hashCanonical({ issue: "invalid-model-selection" }),
+        question: "Require one model-selected cross-venue pair.",
+        venueIds: [],
+        candidatePolicy: Object.freeze({
+          allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
+          exactListingRefCount: 2,
+          requirePositiveGrossHint: true,
+          candidateSelection: "MODEL_HYPOTHESIS" as const,
+          requireDistinctVenues: true,
+        }),
+      },
+    ).promise;
+
+    expect(record.fastLane).toMatchObject({
+      candidateListingRefs: [],
+      economicGate: { required: true, status: "NOT_RUN", listingRefs: [] },
+    });
+    expect(record.deepLane.reason).toBe("NO_CANDIDATES");
+    expect(record.outcome.novelCandidate).toBe(false);
+    expect(runDeep).not.toHaveBeenCalled();
+  });
+
   it("persists issued-to-terminal records and restores idempotent results", async () => {
     const store = new SqliteOperationalStore(":memory:");
     const scheduler = new SearchLeaseScheduler({

@@ -45,6 +45,8 @@ export type SearchCandidatePolicy = Readonly<{
   allowedRelationKinds: readonly MarketRelationKind[];
   exactListingRefCount: number;
   requirePositiveGrossHint?: boolean;
+  candidateSelection?: "EXACT_CONTEXT" | "MODEL_HYPOTHESIS";
+  requireDistinctVenues?: boolean;
 }>;
 
 export type SearchLeaseEconomicGate = Readonly<{
@@ -256,6 +258,7 @@ type SearchLeaseOptions = Readonly<{
     lens: SearchLens,
     snapshot: MarketCorpusSnapshot,
     feedback: SearchLeaseContextFeedback,
+    candidatePolicy: SearchCandidatePolicy | null,
   ) => DiscoveryCatalogContext;
   graphContext?: (
     snapshot: MarketCorpusSnapshot,
@@ -551,6 +554,11 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     candidatePolicy.exactListingRefCount <= 8 &&
     (candidatePolicy.requirePositiveGrossHint === undefined ||
       typeof candidatePolicy.requirePositiveGrossHint === "boolean") &&
+    (candidatePolicy.candidateSelection === undefined ||
+      candidatePolicy.candidateSelection === "EXACT_CONTEXT" ||
+      candidatePolicy.candidateSelection === "MODEL_HYPOTHESIS") &&
+    (candidatePolicy.requireDistinctVenues === undefined ||
+      typeof candidatePolicy.requireDistinctVenues === "boolean") &&
     (candidatePolicy.requirePositiveGrossHint !== true ||
       (candidatePolicy.exactListingRefCount === 2 &&
         candidatePolicy.allowedRelationKinds.length === 1 &&
@@ -974,6 +982,7 @@ export class SearchLeaseScheduler {
         issued.lease.lens,
         snapshot,
         this.#contextFeedback(issued),
+        issued.lease.candidatePolicy ?? null,
       );
       const semanticScope = buildSearchScopeIdentity(context.listings);
       const task: DiscoveryTask = Object.freeze({
@@ -991,29 +1000,64 @@ export class SearchLeaseScheduler {
       }
       const hypothesisSignature = candidateSignature(run.hypotheses);
       const policy = issued.lease.candidatePolicy;
+      const candidateSelection = policy?.candidateSelection ?? "EXACT_CONTEXT";
       const contextListingRefs = Object.freeze(
         context.listings.map((item) => item.listingRef).sort(),
       );
+      const contextVenueByRef = new Map(
+        context.listings.map((item) => [item.listingRef, item.venueId] as const),
+      );
+      const meetsPolicyScope = (refs: readonly string[]) =>
+        policy !== undefined && policy !== null &&
+        refs.length === policy.exactListingRefCount &&
+        new Set(refs).size === refs.length &&
+        refs.every((listingRef) => contextVenueByRef.has(listingRef)) &&
+        (policy.requireDistinctVenues !== true ||
+          new Set(refs.map((listingRef) => contextVenueByRef.get(listingRef))).size ===
+            refs.length);
+      const modelWorkerIds = new Set(
+        run.workerReports
+          ?.filter((report) => report.kind === "MODEL" && report.status === "PASS")
+          .map((report) => report.workerId) ?? [],
+      );
+      const selectedModelHypothesis = candidateSelection === "MODEL_HYPOTHESIS"
+        ? run.hypotheses.find((hypothesis) =>
+            modelWorkerIds.has(hypothesis.workerId) &&
+            meetsPolicyScope(hypothesis.listingRefs ?? [])
+          ) ?? null
+        : null;
       const exactPolicyContext =
         policy !== undefined &&
         policy !== null &&
-        contextListingRefs.length === policy.exactListingRefCount &&
-        new Set(contextListingRefs).size === contextListingRefs.length
+        candidateSelection === "EXACT_CONTEXT" &&
+        meetsPolicyScope(contextListingRefs)
           ? contextListingRefs
           : null;
       const hypothesisListingRefs = Object.freeze([...new Set(
         run.hypotheses.flatMap((item) => item.listingRefs ?? []),
       )].sort());
-      const listingRefs = exactPolicyContext ?? hypothesisListingRefs;
-      const signature = hypothesisSignature === null
-        ? null
-        : exactPolicyContext === null
-          ? hypothesisSignature
-          : hashCanonical({
+      const listingRefs = exactPolicyContext ??
+        (selectedModelHypothesis === null
+          ? policy === undefined || policy === null
+            ? hypothesisListingRefs
+            : Object.freeze([])
+          : Object.freeze([...(selectedModelHypothesis.listingRefs ?? [])].sort()));
+      const signature = policy === undefined || policy === null
+        ? hypothesisSignature
+        : exactPolicyContext !== null && hypothesisSignature !== null
+          ? hashCanonical({
               schemaVersion: "pmh.search-candidate-signature.v2",
-              allowedRelationKinds: [...(policy?.allowedRelationKinds ?? [])].sort(),
+              allowedRelationKinds: [...policy.allowedRelationKinds].sort(),
               listingRefs,
-            });
+            })
+          : selectedModelHypothesis !== null
+            ? hashCanonical({
+                schemaVersion: "pmh.search-candidate-signature.v3",
+                selection: "MODEL_HYPOTHESIS",
+                allowedRelationKinds: [...policy.allowedRelationKinds].sort(),
+                listingRefs,
+              })
+            : null;
       const duplicate = signature === null ? undefined : this.#records.find(
         (record) =>
           record.status === "PASS" &&
@@ -1033,21 +1077,21 @@ export class SearchLeaseScheduler {
         hypothesisIds: Object.freeze(run.hypotheses.map((item) => item.hypothesisId)),
         candidateListingRefs: listingRefs,
         semanticScope,
-        economicGate: completedEconomicGate({
-          policy: issued.lease.candidatePolicy,
-          listingRefs,
-          context,
-        }),
+        economicGate: listingRefs.length === 0
+          ? pendingEconomicGate(issued.lease.candidatePolicy)
+          : completedEconomicGate({
+              policy: issued.lease.candidatePolicy,
+              listingRefs,
+              context,
+            }),
         diagnostic: run.diagnostics.length === 0 ? null : compactDiagnostic(run.diagnostics.join("; ")),
       });
       let deepLane: SearchLeaseDeepLane;
       if (signature === null) {
         deepLane = this.#skippedDeep("NO_CANDIDATES");
-      } else if (
-        exactPolicyContext === null
-          ? !hasMultiListingCandidate(run.hypotheses)
-          : listingRefs.length < 2
-      ) {
+      } else if (listingRefs.length < 2 ||
+        (policy === undefined || policy === null) &&
+          !hasMultiListingCandidate(run.hypotheses)) {
         deepLane = this.#skippedDeep("NOT_MULTI_LISTING");
       } else if (
         fastLane.economicGate?.required === true &&
@@ -1079,7 +1123,10 @@ export class SearchLeaseScheduler {
             : (result.proposalDetails ?? [])
               .filter((proposal) =>
                 policy.allowedRelationKinds.includes(proposal.relationKind) &&
-                proposal.listingRefs.length === policy.exactListingRefCount
+                proposal.listingRefs.length === policy.exactListingRefCount &&
+                proposal.listingRefs.every((listingRef) =>
+                  listingRefs.includes(listingRef)
+                )
               )
               .map((proposal) => proposal.proposalId)
               .filter((proposalId, index, values) => values.indexOf(proposalId) === index)

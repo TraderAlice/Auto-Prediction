@@ -85,6 +85,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
     economicGatePositiveCount: number;
     economicGateBlockedCount: number;
     piAvoidedCount: number;
+    modelSelectionRequiredCount: number;
+    modelSelectedCandidateCount: number;
+    modelSelectionMissCount: number;
     exactSemanticScopeCount: number;
     semanticScopeRevisitCount: number;
     noLeadSemanticScopeCount: number;
@@ -108,6 +111,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
       economicGatePositiveCount: number;
       economicGateBlockedCount: number;
       piAvoidedCount: number;
+      modelSelectionRequiredCount: number;
+      modelSelectedCandidateCount: number;
+      modelSelectionMissCount: number;
       exactSemanticScopeCount: number;
       semanticScopeRevisitCount: number;
       noLeadSemanticScopeCount: number;
@@ -179,6 +185,9 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   economicGatePositiveCount: number;
   economicGateBlockedCount: number;
   piAvoidedCount: number;
+  modelSelectionRequiredCount: number;
+  modelSelectedCandidateCount: number;
+  modelSelectionMissCount: number;
   exactSemanticScopeCount: number;
   semanticScopeRevisitCount: number;
   noLeadSemanticScopeCount: number;
@@ -214,6 +223,14 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     "NOT_MULTI_LISTING",
     "NO_POLICY_MATCH",
   ];
+  const modelSelectionRecords = records.filter(
+    (record) =>
+      record.lease.candidatePolicy?.candidateSelection === "MODEL_HYPOTHESIS",
+  );
+  const modelSelectedRecords = modelSelectionRecords.filter((record) =>
+    record.fastLane.candidateListingRefs.length ===
+      record.lease.candidatePolicy?.exactListingRefCount
+  );
   return Object.freeze({
     terminalLeaseCount: records.length,
     novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
@@ -234,6 +251,10 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
       (record) => record.deepLane.reason === "ECONOMIC_GATE_BLOCKED" &&
         record.deepLane.runId === null,
     ).length,
+    modelSelectionRequiredCount: modelSelectionRecords.length,
+    modelSelectedCandidateCount: modelSelectedRecords.length,
+    modelSelectionMissCount:
+      modelSelectionRecords.length - modelSelectedRecords.length,
     exactSemanticScopeCount: uniqueSemanticScopes.size,
     semanticScopeRevisitCount: exactScopes.length - uniqueSemanticScopes.size,
     noLeadSemanticScopeCount: exactScopes.filter((record) =>
@@ -287,6 +308,11 @@ export function assertSearchIssueRecord(value: unknown): SearchIssueRecord {
     candidatePolicy.exactListingRefCount <= 8 &&
     (candidatePolicy.requirePositiveGrossHint === undefined ||
       typeof candidatePolicy.requirePositiveGrossHint === "boolean") &&
+    (candidatePolicy.candidateSelection === undefined ||
+      candidatePolicy.candidateSelection === "EXACT_CONTEXT" ||
+      candidatePolicy.candidateSelection === "MODEL_HYPOTHESIS") &&
+    (candidatePolicy.requireDistinctVenues === undefined ||
+      typeof candidatePolicy.requireDistinctVenues === "boolean") &&
     (candidatePolicy.requirePositiveGrossHint !== true ||
       (candidatePolicy.exactListingRefCount === 2 &&
         candidatePolicy.allowedRelationKinds.length === 1 &&
@@ -362,6 +388,8 @@ const DEFAULT_ISSUES = Object.freeze([
       allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
       exactListingRefCount: 2,
       requirePositiveGrossHint: true,
+      candidateSelection: "MODEL_HYPOTHESIS" as const,
+      requireDistinctVenues: true,
     }),
   }),
   Object.freeze({

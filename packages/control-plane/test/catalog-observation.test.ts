@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  buildSearchScopeIdentity,
   CatalogObservationDesk,
   catalogObservationSources,
   type CatalogFetchLike,
@@ -110,6 +111,36 @@ describe("anonymous catalog observation desk", () => {
           listing.sourceRawHash.startsWith("sha256:"),
       ),
     ).toBe(true);
+
+    const venueIds = catalogObservationSources.map((source) => source.venueId);
+    const radar = desk.radar();
+    expect(radar.candidateCount).toBeGreaterThan(0);
+    const firstBatch = desk.radarSearchContext(venueIds, {
+      completedSemanticScopeIdentities: [],
+      attemptedRoutingScopeIdentities: [],
+    });
+    const radarRefs = new Set(
+      radar.candidates.flatMap((candidate) =>
+        candidate.listings.map((listing) => listing.listingRef)
+      ),
+    );
+    expect(firstBatch.listings.length).toBeGreaterThanOrEqual(2);
+    expect(firstBatch.listings.length).toBeLessThanOrEqual(4);
+    expect(firstBatch.listings.every((listing) =>
+      radarRefs.has(listing.listingRef)
+    )).toBe(true);
+    expect(JSON.stringify(firstBatch).length).toBeLessThanOrEqual(50_000);
+
+    if (radar.candidateCount > 2) {
+      const firstScope = buildSearchScopeIdentity(firstBatch.listings);
+      const secondBatch = desk.radarSearchContext(venueIds, {
+        completedSemanticScopeIdentities: [firstScope.semanticScopeIdentity],
+        attemptedRoutingScopeIdentities: [firstScope.routingScopeIdentity],
+      });
+      expect(buildSearchScopeIdentity(
+        secondBatch.listings,
+      ).semanticScopeIdentity).not.toBe(firstScope.semanticScopeIdentity);
+    }
   });
 
   it("isolates source failure and retains the last content-addressed success", async () => {

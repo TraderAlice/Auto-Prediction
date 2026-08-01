@@ -379,6 +379,9 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     economicGatePositiveCount: 0,
     economicGateBlockedCount: 0,
     piAvoidedCount: 0,
+    modelSelectionRequiredCount: 0,
+    modelSelectedCandidateCount: 0,
+    modelSelectionMissCount: 0,
     exactSemanticScopeCount: 0,
     semanticScopeRevisitCount: 0,
     noLeadSemanticScopeCount: 0,
@@ -2782,12 +2785,15 @@ function MarketArchaeologistView() {
           </div>
 
           <div className="issue-scheduler-strip issue-performance-strip" aria-label="Economic-first search yield">
-            <div><strong>{formatRateBps(issuePerformance.economicGatePositiveRateBps)}</strong><span>positive pre-pi gates</span></div>
-            <div><strong>{issuePerformance.economicGateBlockedCount}</strong><span>economically gated</span></div>
-            <div><strong>{issuePerformance.piAvoidedCount}</strong><span>pi calls avoided</span></div>
             <div>
-              <strong>{outcomeEconomics.positiveGrossHintCount}</strong>
-              <span>downstream positive · {outcomeEconomics.nonPositiveGrossHintCount} non-positive · {outcomeEconomics.unavailableOrUnsupportedCount} unavailable</span>
+              <strong>{issuePerformance.modelSelectedCandidateCount}/{issuePerformance.modelSelectionRequiredCount}</strong>
+              <span>AI-selected exact pairs</span>
+            </div>
+            <div><strong>{issuePerformance.modelSelectionMissCount}</strong><span>bounded batches with no model pair</span></div>
+            <div><strong>{formatRateBps(issuePerformance.economicGatePositiveRateBps)}</strong><span>positive gates after AI selection</span></div>
+            <div>
+              <strong>{issuePerformance.piAvoidedCount}</strong>
+              <span>pi calls avoided · {issuePerformance.economicGateBlockedCount} economically gated · {outcomeEconomics.positiveGrossHintCount} downstream positive</span>
             </div>
           </div>
 
@@ -2861,7 +2867,12 @@ function MarketArchaeologistView() {
                         {" · "}{(performance?.noLeadSemanticScopeCount ?? 0) + (performance?.noLeadBoundedScopeCount ?? 0)} no lead
                       </span>
                       {issue.candidatePolicy?.requirePositiveGrossHint === true && (
-                        <span>{performance?.economicGatePositiveCount ?? 0}/{performance?.economicGateRequiredCount ?? 0} gross-positive · {performance?.piAvoidedCount ?? 0} pi saved</span>
+                        <span>
+                          {issue.candidatePolicy.candidateSelection === "MODEL_HYPOTHESIS"
+                            ? `${performance?.modelSelectedCandidateCount ?? 0}/${performance?.modelSelectionRequiredCount ?? 0} AI pairs · `
+                            : ""}
+                          {performance?.economicGatePositiveCount ?? 0}/{performance?.economicGateRequiredCount ?? 0} gross-positive · {performance?.piAvoidedCount ?? 0} pi saved
+                        </span>
                       )}
                       <span>{outcome?.reviewedCount ?? 0}/{outcome?.proposalCount ?? 0} reviewed · {outcome?.operatorAcceptedCount ?? 0} accepted · {outcome?.certifiedCount ?? 0} certified</span>
                       <span>{outcome?.positiveGrossHintCount ?? 0} positive · {outcome?.nonPositiveGrossHintCount ?? 0} non-positive · {outcome?.economicUnavailableCount ?? 0} unpriceable</span>

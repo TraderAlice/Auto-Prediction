@@ -1,6 +1,6 @@
 # Plans
 
-`plans/bounded-context-rotation.md` is the active construction plan.
+`plans/ai-selected-radar-batches.md` is the active construction plan.
 
 ## Planning contract
 
@@ -46,7 +46,7 @@ Exact-pair semantic rotation is merged and live. A seven-source, 467-listing
 smoke run preserved both identities for an unchanged top pair across catalog
 refresh and then assigned the next pair.
 
-Bounded-context rotation is implemented and qualified for serial merge. General
+Bounded-context rotation is merged and live. General
 issues now keep their semantic brief fixed while deterministic listing-title
 anchors route each cheap scout into a different, content-addressed market
 neighborhood. Completed scope feedback is issue-local; failed work never
@@ -57,7 +57,25 @@ unchanged 18-listing primary scope to distinct 22- and 10-listing neighborhoods.
 The retained window now contains five unique bounded neighborhoods, including
 three for the implication issue. Both rotated runs honestly ended with
 `NO_CANDIDATES`: the product expanded its search frontier without manufacturing
-a relationship. Full checks, tests, build, desktop QA, and 390 px QA pass.
+a relationship. Full checks, tests, build, desktop QA, and 390 px QA passed.
+
+The AI-selected radar-batch campaign is implemented and qualified for serial
+merge. The focused parity issue now gives the cheap model a bounded batch of
+radar leads, requires it to choose one exact cross-venue pair, and only then
+applies bigint economics and optional pi escalation. Pi cannot substitute a
+different pair. Legacy exact-context policies and general semantic searches
+retain their previous behavior.
+
+The first live campaign smoke used fresh four-listing batches. DeepSeek selected
+exact Limitless/Opinion pairs twice; both stopped at unavailable prices without
+pi. A rotated batch then produced no model pair, leaving the economic gate
+`NOT_RUN`. The retained window now distinguishes four model-selection attempts,
+three selected pairs, and one honest miss.
+
+Full Node 24 checks, 212 control-plane tests, the production build, desktop QA,
+and 390 px QA pass. Studio has no horizontal overflow or browser warnings and
+shows `3/4` AI-selected exact pairs, one honest no-pair batch, an `11.76%`
+positive-gate rate after selection, and twelve pi calls avoided.
 
 ## Deferred future campaigns
 

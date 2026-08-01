@@ -172,6 +172,9 @@ describe("issue-driven concurrent search scheduler", () => {
       economicGatePositiveCount: 0,
       economicGateBlockedCount: 1,
       piAvoidedCount: 1,
+      modelSelectionRequiredCount: 1,
+      modelSelectedCandidateCount: 1,
+      modelSelectionMissCount: 0,
       exactSemanticScopeCount: 3,
       semanticScopeRevisitCount: 0,
       noLeadSemanticScopeCount: 0,
@@ -203,6 +206,8 @@ describe("issue-driven concurrent search scheduler", () => {
       allowedRelationKinds: ["EQUIVALENT"],
       exactListingRefCount: 2,
       requirePositiveGrossHint: true,
+      candidateSelection: "MODEL_HYPOTHESIS",
+      requireDistinctVenues: true,
     });
     expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 13 });
     expect(leases.projection()).toMatchObject({

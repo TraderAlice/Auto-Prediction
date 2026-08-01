@@ -509,8 +509,25 @@ export function createControlPlane(options?: {
     new SearchLeaseScheduler({
       intervalMs: parseSearchLeaseInterval(process.env),
       concurrencyLimit: 3,
-      context: (question, venueIds, lens, _snapshot, feedback) => {
+      context: (
+        question,
+        venueIds,
+        lens,
+        _snapshot,
+        feedback,
+        candidatePolicy,
+      ) => {
         if (lens === "EQUIVALENCE") {
+          if (candidatePolicy?.candidateSelection === "MODEL_HYPOTHESIS") {
+            try {
+              return catalogObservationDesk.radarSearchContext(
+                venueIds,
+                feedback,
+              );
+            } catch (error) {
+              if (!(error instanceof RadarCandidateUnavailableError)) throw error;
+            }
+          }
           const candidates = orderRadarCandidatesForSearch(
             catalogObservationDesk.radar().candidates,
             feedback,

@@ -19,8 +19,10 @@ import {
 } from "@pmh/venue-polymarket-us";
 import {
   buildDiscoveryCatalogContext,
+  buildExactDiscoveryCatalogContext,
   buildRotatingDiscoveryCatalogContext,
   MAX_LISTINGS_PER_TASK,
+  selectDiscoveryCatalogContextForFeedback,
   toDiscoveryCatalogListing,
   type DiscoveryContextRoutingFeedback,
 } from "./catalog-discovery.js";
@@ -45,6 +47,7 @@ const DEFAULT_CONTEXT_MAX_AGE_MS = 15 * 60 * 1_000;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const OBSERVATION_ID_PATTERN = /^catalog-observation:[0-9a-f]{64}$/;
 const BYTE_LENGTH_PATTERN = /^(?:0|[1-9]\d*)$/;
+export const RADAR_CANDIDATES_PER_SEARCH_BATCH = 2;
 
 export type CatalogObservationRecord = Readonly<{
   schemaVersion: "pmh.catalog-observation.v1";
@@ -622,6 +625,78 @@ export class CatalogObservationDesk {
     );
   }
 
+  public radarSearchContext(
+    venueIds: readonly string[],
+    feedback: DiscoveryContextRoutingFeedback,
+  ): DiscoveryCatalogContext {
+    const requested = [...new Set(venueIds)];
+    const now = this.#now();
+    if (requested.length === 0 || requested.length !== venueIds.length) {
+      throw new Error("live radar search context requires unique venue IDs");
+    }
+    const states = requested.map((venueId) => {
+      const state = this.#states.get(venueId);
+      if (state === undefined) {
+        throw new Error(`live catalog source ${venueId} is not registered`);
+      }
+      const eligibility = this.#contextEligibility(state, now);
+      if (!eligibility.eligible) {
+        throw new Error(
+          `live catalog source ${venueId} is not context eligible: ${eligibility.reason}`,
+        );
+      }
+      return state;
+    });
+    const allowedVenues = new Set(requested);
+    const candidates = this.radar().candidates.filter((candidate) =>
+      candidate.listings.every((listing) => allowedVenues.has(listing.venueId))
+    );
+    const listingByRef = new Map(
+      states.flatMap((state) => state.listings).map((listing) => [
+        listing.listingRef,
+        listing,
+      ] as const),
+    );
+    const contexts: DiscoveryCatalogContext[] = [];
+    for (
+      let index = 0;
+      index < candidates.length;
+      index += RADAR_CANDIDATES_PER_SEARCH_BATCH
+    ) {
+      const batch = candidates.slice(
+        index,
+        index + RADAR_CANDIDATES_PER_SEARCH_BATCH,
+      );
+      if (batch.length === 1 && index > 0) {
+        const overlap = candidates[index - 1];
+        if (overlap !== undefined) batch.unshift(overlap);
+      }
+      const refs = new Set(
+        batch
+          .flatMap((candidate) =>
+            candidate.listings.map((listing) => listing.listingRef)
+          ),
+      );
+      const listings = [...refs]
+        .map((listingRef) => listingByRef.get(listingRef))
+        .filter((listing): listing is DiscoveryCatalogListing =>
+          listing !== undefined
+        )
+        .sort((left, right) => left.listingRef.localeCompare(right.listingRef));
+      if (listings.length !== refs.size || listings.length < 2) continue;
+      contexts.push(buildExactDiscoveryCatalogContext(
+        "QUALIFIED_LIVE_OBSERVATIONS",
+        listings,
+      ));
+    }
+    if (contexts.length === 0) {
+      throw new RadarCandidateUnavailableError(
+        "radar has no bounded candidate batch for the requested venues",
+      );
+    }
+    return selectDiscoveryCatalogContextForFeedback(contexts, feedback);
+  }
+
   public radar(): OpportunityRadarProjection {
     const now = this.#now();
     const states = [...this.#states.values()].sort((left, right) =>
@@ -713,11 +788,9 @@ export class CatalogObservationDesk {
       `${(subject === "" ? candidate.sharedTerms.join(" ") : subject).toUpperCase()} ` +
       `${timeframe}: do these listings define the exact same claim and payout ` +
       "partition? Treat matching titles and times as search evidence, not proof.";
-    const catalogContext = buildDiscoveryCatalogContext(
+    const catalogContext = buildExactDiscoveryCatalogContext(
       "QUALIFIED_LIVE_OBSERVATIONS",
       listings,
-      candidate.sharedTerms.join(" "),
-      venueIds,
     );
     if (
       catalogContext.listings.length !== listings.length ||

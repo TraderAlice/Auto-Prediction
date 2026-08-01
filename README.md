@@ -39,14 +39,14 @@ This is not a trading bot and it has no live-trading authority. The repository d
   than substituting the latest catalog. A concurrent durable issue scheduler
   gives each lens its own priority and cadence, keeps up to three bounded Agent
   leases in flight, and emits deduplicated in-app findings for new signatures
-  and failures. Exact radar pairs and general bounded neighborhoods carry
+  and failures. Focused parity work presents deterministic batches of radar
+  leads and requires the cheap model to select one exact cross-venue pair before
+  bigint economics can permit pi. General bounded neighborhoods carry the same
   price-independent semantic identities plus routing identities. Each issue
-  feeds its retained terminal scopes back into the next assignment. Exact-pair
-  work rotates past unchanged lexical false positives; general issues rotate
-  through deterministic title-anchor neighborhoods like an Agent following
-  related files in a repository. A changed economic posture can still
-  reactivate an economically blocked pair, while raw price motion inside the
-  same posture does not restart semantic work.
+  feeds retained terminal scopes back into the next assignment: radar batches
+  and title-anchor neighborhoods rotate past completed search territory. A
+  changed economic posture can still reactivate an economically blocked pair,
+  while raw price motion inside the same posture does not restart semantic work.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection. It prices both canonical equivalent-claim portfolios with `bigint`, ranks positive gross search hints first, and still treats every pair as an unreviewed semantic lead rather than an opportunity. The focused two-leg issue requires a positive current hint before pi; fees, depth, fillability, and executability remain absent.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
@@ -104,18 +104,21 @@ promotion remain active campaign work.
    add a narrower brief. The cheap model searches a bounded context first; only
    a novel grounded lead can escalate to one pi run over the complete MarketFS
    snapshot. Negative and completed results rotate that issue toward unseen
-   semantic scopes on later corpora. Exact parity work advances through radar
-   pairs; implication, partition, and mechanism work advances through related
+   semantic scopes on later corpora. Exact parity work advances through small
+   batches of radar leads and lets the cheap model choose the exact pair;
+   implication, partition, and mechanism work advances through related
    title-anchor neighborhoods without changing the issue question the Agent
    must answer. Price-only changes do not erase a semantic rejection, while a
    changed economic posture can reactivate a pair that stopped only at the
    economic gate. Raw quote motion inside the same posture does not repeatedly
    consume Agent budget.
-3. For the focused parity issue, the server prices the exact radar-bound pair
-   before pi. Missing prices and non-positive gross hints stop there and record
-   why; a positive hint merely permits semantic investigation. The cheap model
-   must still propose a grounded relationship. A shared word plus attractive
-   prices is not enough.
+3. For the focused parity issue, lexical radar only supplies a replayable batch.
+   A model worker must choose exactly two in-context listings from distinct
+   venues. The server then prices only that chosen pair before pi. Missing
+   prices and non-positive gross hints stop there and record why; a positive
+   hint merely permits semantic investigation. pi cannot substitute a different
+   pair in the counted result. A shared word plus attractive prices is not
+   enough.
 4. Read the resulting proposals and falsifiers in the **Finding inbox** and
    issue funnel. Each new proposal freezes the
    exact normalized listings that produced it in a bounded, content-addressed

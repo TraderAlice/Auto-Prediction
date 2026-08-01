@@ -199,6 +199,22 @@ export function buildDiscoveryCatalogContext(
     selected.push(item.listing);
   }
   const listings = Object.freeze(selected);
+  return buildExactDiscoveryCatalogContext(source, listings);
+}
+
+/**
+ * Retains an explicitly selected bounded listing set without applying another
+ * lexical ranking pass. Callers own retrieval; this function owns the exact
+ * content and size boundary presented to an Agent.
+ */
+export function buildExactDiscoveryCatalogContext(
+  source: DiscoveryCatalogContextSource,
+  listingsInput: readonly DiscoveryCatalogListing[],
+): DiscoveryCatalogContext {
+  const listings = Object.freeze([...listingsInput]);
+  if (listings.length > MAX_LISTINGS_PER_TASK) {
+    throw new Error("exact catalog context exceeds the listing limit");
+  }
   if (new Set(listings.map((listing) => listing.listingRef)).size !== listings.length) {
     throw new Error("catalog context has duplicate listing references");
   }
@@ -208,7 +224,11 @@ export function buildDiscoveryCatalogContext(
     contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
     listings,
   };
-  return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+  const context = Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+  if (JSON.stringify(context).length > MAX_CATALOG_CONTEXT_CHARACTERS) {
+    throw new Error("exact catalog context exceeds the character limit");
+  }
+  return context;
 }
 
 export type DiscoveryContextRoutingFeedback = Readonly<{
@@ -233,6 +253,29 @@ function routingTier(
       ? routingAttempted ? 3 : 2
       : routingAttempted ? 1 : 0,
   });
+}
+
+export function selectDiscoveryCatalogContextForFeedback(
+  contexts: readonly DiscoveryCatalogContext[],
+  feedback: DiscoveryContextRoutingFeedback,
+): DiscoveryCatalogContext {
+  if (contexts.length === 0) {
+    throw new Error("discovery context rotation requires at least one candidate");
+  }
+  const seenSemanticScopes = new Set<Hash>();
+  let best = contexts[0]!;
+  let bestTier = 4;
+  for (const context of contexts) {
+    const routed = routingTier(context, feedback);
+    if (seenSemanticScopes.has(routed.scope.semanticScopeIdentity)) continue;
+    seenSemanticScopes.add(routed.scope.semanticScopeIdentity);
+    if (routed.tier === 0) return context;
+    if (routed.tier < bestTier) {
+      best = context;
+      bestTier = routed.tier;
+    }
+  }
+  return best;
 }
 
 /**

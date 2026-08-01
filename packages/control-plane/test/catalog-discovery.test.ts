@@ -5,6 +5,7 @@ import {
   FixtureCatalogDiscoveryDesk,
   HeuristicDiscoveryWorker,
   buildDiscoveryCatalogContext,
+  buildExactDiscoveryCatalogContext,
   buildRotatingDiscoveryCatalogContext,
   buildSearchScopeIdentity,
   type DiscoveryTask,
@@ -174,6 +175,44 @@ describe("verified catalog discovery context", () => {
       deadlineEpochMs: 2_000,
       catalogContext: context,
     })).resolves.toMatchObject({ executionAuthority: false });
+  });
+
+  it("retains an explicitly selected listing set without a second lexical filter", async () => {
+    const desk = new FixtureCatalogDiscoveryDesk();
+    await desk.load();
+    const seed = desk.context("Rihanna album", ["polymarket-global"]).listings[0]!;
+    const selected = Object.freeze([
+      Object.freeze({ ...seed, listingRef: "venue-b:beta", venueId: "venue-b" }),
+      Object.freeze({ ...seed, listingRef: "venue-a:alpha", venueId: "venue-a" }),
+      Object.freeze({ ...seed, listingRef: "venue-c:gamma", venueId: "venue-c" }),
+    ]);
+    const context = buildExactDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      selected,
+    );
+
+    expect(context.listings.map((listing) => listing.listingRef)).toEqual([
+      "venue-b:beta",
+      "venue-a:alpha",
+      "venue-c:gamma",
+    ]);
+    expect(context.contextIdentity).toBe(hashCanonical({
+      schemaVersion: context.schemaVersion,
+      source: context.source,
+      contentPolicy: context.contentPolicy,
+      listings: context.listings,
+    }));
+    expect(() => buildExactDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      [...selected, selected[0]!],
+    )).toThrow(/duplicate listing references/);
+    expect(() => buildExactDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      Array.from({ length: 31 }, (_, index) => ({
+        ...seed,
+        listingRef: `venue-a:${index}`,
+      })),
+    )).toThrow(/listing limit/);
   });
 
   it("rotates a general issue through stable anchor neighborhoods", async () => {
