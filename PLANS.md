@@ -1,10 +1,16 @@
 # Plans
 
-`plans/architecture-qualification.md` is the active execution plan.
+`plans/ai-native-market-archaeologist.md` is the active execution plan.
+`plans/architecture-qualification.md` remains the completed qualification
+ledger and supplies the safety/evidence baseline for the new campaign.
 
 ## Current checkpoint
 
 Architecture Qualification, pre-alpha. The work starts with venue reality and domain truth, then advances through exact verification, deterministic market state, shadow execution, and liquidity export.
+
+The current checkpoint turns discovery inside out: AI owns semantic search over
+a content-addressed market corpus; deterministic code owns acquisition,
+evidence, validation, exact economics, risk, and certification.
 
 ## Stable decisions
 
@@ -96,4 +102,7 @@ Architecture Qualification, pre-alpha. The work starts with venue reality and do
 - 2026-08-01: Passed Research Cases now derive `pmh.review-intake-packet.v1`, a self-verifying handoff binding exact scout/hypothesis/context/pi identities, candidate scope, unresolved evidence, and required independent assessments. There is a read-only retrieval API and no decision-ingestion route.
 - 2026-08-01: Review-intake handoff expands the Node.js 24.14.0 checkpoint to 217 passing tests plus full typecheck and production build. The real restarted Gemini case derives blocked packet `sha256:f89ffe56…4e638c` from durable evidence while keeping every review/promotion/execution effect disabled.
 - 2026-08-01: Interactive desktop/430px Browser inspection exposed a rolling-upgrade crash when a hot-reloaded Studio received a pre-packet SSE case with `reviewIntake` absent. The projection contract now treats that field as optional for backward compatibility, Studio resolves absence to a locked null state, and the checkpoint expands to 218 tests; the repaired Research Cases view has no horizontal overflow and renders the review-intake card cleanly at both widths.
+- 2026-08-01: Discovery becomes AI-native rather than pair-generator-led. Fresh eligible observations form content-addressed `pmh.market-corpus.v1`; bounded literal/regex search and an ephemeral MarketFS give pi the complete public corpus through read/find/grep/list only. Radar remains an optional low-cost blocking aid, not the primary entry path.
+- 2026-08-01: A real 314-listing, six-source BTC-trailhead run recursively searches MarketFS and publishes five UNREVIEWED relationships under `sha256:3faec2c7…26f1`. It rejects equivalence and identifies strict Pyth `>` versus inclusive Chainlink `>=`, window, source, and outage/void differences; no review, certificate, value movement, or execution occurs.
+- 2026-08-01: The Market Archaeologist checkpoint expands to 224 passing tests plus full typecheck and production build. Desktop/430px Browser inspection catches and fixes long-listingRef grid overflow and low-contrast auxiliary text; both layouts finish with no console errors or horizontal overflow.
 - 2026-08-01: Studio renders previous → changed book → current lineage with clean desktop/430px layouts and no runtime errors or horizontal overflow. The Node.js 24.14.0 checkpoint expands to 201 passing tests plus full typecheck and production build.

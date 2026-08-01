@@ -102,7 +102,7 @@ describe("control-plane HTTP surface", () => {
       liveExecutionEnabled: false,
       controlPlaneConnected: true,
     });
-    expect(projection.ai.architecture).toBe("SCOUT_THEN_VERIFY");
+    expect(projection.ai.architecture).toBe("AI_NATIVE_DISCOVERY");
     expect(projection.ai.catalogContext).toMatchObject({
       listingCount: 12,
       venueCount: 6,
@@ -482,6 +482,33 @@ describe("control-plane HTTP surface", () => {
     expect(projection.sources[0]).toMatchObject({
       credentialsUsed: false,
       rawHash: expect.stringMatching(/^sha256:/),
+    });
+    const corpusResponse = await fetch(`${baseUrl}/api/v1/market-corpus`);
+    await expect(corpusResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.market-corpus.v1",
+      listingCount: 1,
+      eligibleSourceCount: 1,
+      authority: "OBSERVE_ONLY",
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    const searchResponse = await fetch(
+      `${baseUrl}/api/v1/market-corpus/search`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ patterns: ["Rihanna"], fields: ["title"] }),
+      },
+    );
+    await expect(searchResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.market-corpus-search.v1",
+      matchCount: 1,
+      hits: [{ venueId: "polymarket-global" }],
+      authority: "SEARCH_EVIDENCE_ONLY",
+      executionAuthority: false,
     });
     const discoveryResponse = await fetch(
       `${baseUrl}/api/v1/discovery/runs`,

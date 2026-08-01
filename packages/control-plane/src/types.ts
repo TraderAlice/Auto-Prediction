@@ -228,11 +228,13 @@ export type StudioProjection = Readonly<{
     controlPlaneConnected: true;
   }>;
   ai: Readonly<{
-    architecture: "SCOUT_THEN_VERIFY";
+    architecture: "AI_NATIVE_DISCOVERY";
     activeRuns: number;
     catalogContext: DiscoveryCatalogProjection;
     catalogObservation: import("./catalog-observation.js").CatalogObservationProjection;
     opportunityRadar: import("./opportunity-radar.js").OpportunityRadarProjection;
+    marketCorpus: import("./market-corpus.js").MarketCorpusProjection;
+    marketArchaeologist: import("./market-archaeologist.js").MarketArchaeologistProjection;
     modelProvider: ModelProviderProjection;
     investigator: PiInvestigatorProjection;
     investigationDesk: import("./investigation-desk.js").InvestigationDeskProjection;
