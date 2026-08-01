@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { canonicalJson, hashCanonical } from "@pmh/domain";
+import { canonicalJson, hashCanonical, type Hash } from "@pmh/domain";
 import {
   assertDiscoveryRunRecord,
   type DiscoveryRunStore,
@@ -54,6 +54,10 @@ import {
   type SearchLeaseRecordStore,
 } from "./search-lease-scheduler.js";
 import {
+  assertMarketCorpusSnapshot,
+  type MarketCorpusSnapshot,
+} from "./market-corpus.js";
+import {
   assertSearchIssueRecord,
   assertSearchNotificationRecord,
   type SearchIssueRecord,
@@ -73,7 +77,8 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
+const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -123,6 +128,14 @@ type SearchLeaseRow = Readonly<{
   status: string;
   record_json: string;
   record_hash: string;
+}>;
+
+type SearchLeaseCorpusRow = Readonly<{
+  snapshot_identity: string;
+  source_set_identity: string;
+  listing_count: number | bigint;
+  corpus_json: string;
+  corpus_hash: string;
 }>;
 
 type SearchIssueRow = Readonly<{
@@ -431,6 +444,39 @@ function parseSearchLeaseRecord(value: unknown): SearchLeaseRecord {
   return record;
 }
 
+function parseSearchLeaseCorpus(value: unknown): MarketCorpusSnapshot {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite search lease corpus row is malformed");
+  }
+  const row = value as Partial<SearchLeaseCorpusRow>;
+  if (
+    typeof row.snapshot_identity !== "string" ||
+    typeof row.source_set_identity !== "string" ||
+    (typeof row.listing_count !== "number" && typeof row.listing_count !== "bigint") ||
+    typeof row.corpus_json !== "string" ||
+    Buffer.byteLength(row.corpus_json, "utf8") > MAX_SEARCH_LEASE_CORPUS_BYTES ||
+    typeof row.corpus_hash !== "string"
+  ) {
+    throw new Error("SQLite search lease corpus row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.corpus_json);
+  } catch {
+    throw new Error("SQLite search lease corpus contains invalid JSON");
+  }
+  const snapshot = assertMarketCorpusSnapshot(decoded);
+  if (
+    snapshot.snapshotIdentity !== row.snapshot_identity ||
+    snapshot.sourceSetIdentity !== row.source_set_identity ||
+    snapshot.listingCount !== Number(row.listing_count) ||
+    hashCanonical(snapshot) !== row.corpus_hash
+  ) {
+    throw new Error("SQLite search lease corpus identity mismatch");
+  }
+  return snapshot;
+}
+
 function parseSearchIssueRecord(value: unknown): SearchIssueRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite search issue row is malformed");
@@ -736,6 +782,7 @@ export class SqliteOperationalStore
   }>;
   public readonly marketArchaeologistStorage: OperationalStorageProjection<"runId">;
   public readonly searchLeaseStorage: OperationalStorageProjection<"leaseId">;
+  public readonly searchLeaseCorpusStorage: OperationalStorageProjection<"snapshotIdentity">;
   public readonly searchIssueStorage: OperationalStorageProjection<"issueId">;
   public readonly searchNotificationStorage: OperationalStorageProjection<"notificationId">;
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
@@ -769,6 +816,7 @@ export class SqliteOperationalStore
         }
       }
       this.#migrate();
+      this.#pruneUnreferencedSearchLeaseCorpora();
     } catch (error) {
       this.#closed = true;
       try {
@@ -819,6 +867,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "leaseId",
+    });
+    this.searchLeaseCorpusStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "snapshotIdentity",
     });
     this.searchIssueStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -877,6 +931,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'search_lease_records'`,
       )
       .get() !== undefined;
+    const searchLeaseCorpusTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_lease_corpora'`,
+      )
+      .get() !== undefined;
     const searchIssueTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -904,6 +964,7 @@ export class SqliteOperationalStore
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
+      searchLeaseCorpusTableExists &&
       searchIssueTableExists &&
       searchNotificationTableExists &&
       semanticReviewJobTableExists &&
@@ -1258,6 +1319,30 @@ export class SqliteOperationalStore
             ON semantic_review_jobs (status, next_attempt_at, priority DESC);
         `);
       }
+      if (current < 13 || !searchLeaseCorpusTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS search_lease_corpora (
+            snapshot_identity TEXT PRIMARY KEY NOT NULL CHECK (
+              length(snapshot_identity) = 71 AND
+              snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_set_identity TEXT NOT NULL CHECK (
+              length(source_set_identity) = 71 AND
+              source_set_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_count INTEGER NOT NULL CHECK (
+              listing_count BETWEEN 0 AND 5000
+            ),
+            created_at TEXT NOT NULL CHECK (length(created_at) > 0),
+            corpus_json TEXT NOT NULL CHECK (json_valid(corpus_json)),
+            corpus_hash TEXT NOT NULL CHECK (
+              length(corpus_hash) = 71 AND corpus_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS search_lease_corpora_created
+            ON search_lease_corpora (created_at DESC, snapshot_identity DESC);
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -1268,6 +1353,19 @@ export class SqliteOperationalStore
 
   #assertOpen(): void {
     if (this.#closed) throw new Error("operational database is closed");
+  }
+
+  #pruneUnreferencedSearchLeaseCorpora(): void {
+    this.#database
+      .prepare(
+        `DELETE FROM search_lease_corpora
+         WHERE NOT EXISTS (
+           SELECT 1 FROM search_lease_records
+           WHERE search_lease_records.snapshot_identity =
+                 search_lease_corpora.snapshot_identity
+         )`,
+      )
+      .run();
   }
 
   public load(limit: number): readonly DiscoveryRunRecord[] {
@@ -1774,6 +1872,97 @@ export class SqliteOperationalStore
     return Object.freeze(rows.map(parseSearchLeaseRecord));
   }
 
+  public saveSearchLeaseCorpus(
+    value: MarketCorpusSnapshot,
+  ): MarketCorpusSnapshot {
+    this.#assertOpen();
+    const snapshot = assertMarketCorpusSnapshot(value);
+    const corpusJson = canonicalJson(snapshot);
+    if (Buffer.byteLength(corpusJson, "utf8") > MAX_SEARCH_LEASE_CORPUS_BYTES) {
+      throw new Error("search lease corpus exceeds the retained byte limit");
+    }
+    const corpusHash = hashCanonical(snapshot);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const prior = this.#database
+        .prepare(
+          `SELECT snapshot_identity, source_set_identity, listing_count,
+                  corpus_json, corpus_hash
+           FROM search_lease_corpora WHERE snapshot_identity = ?`,
+        )
+        .get(snapshot.snapshotIdentity);
+      if (prior !== undefined) {
+        const retained = parseSearchLeaseCorpus(prior);
+        if (hashCanonical(retained) !== corpusHash) {
+          throw new Error("snapshotIdentity is already bound to another search corpus");
+        }
+        this.#database.exec("COMMIT");
+        return retained;
+      }
+      this.#database
+        .prepare(
+          `INSERT INTO search_lease_corpora (
+             snapshot_identity, source_set_identity, listing_count, created_at,
+             corpus_json, corpus_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          snapshot.snapshotIdentity,
+          snapshot.sourceSetIdentity,
+          snapshot.listingCount,
+          new Date().toISOString(),
+          corpusJson,
+          corpusHash,
+        );
+      const row = this.#database
+        .prepare(
+          `SELECT snapshot_identity, source_set_identity, listing_count,
+                  corpus_json, corpus_hash
+           FROM search_lease_corpora WHERE snapshot_identity = ?`,
+        )
+        .get(snapshot.snapshotIdentity);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the search lease corpus");
+      }
+      const retained = parseSearchLeaseCorpus(row);
+      this.#database.exec("COMMIT");
+      return retained;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSearchLeaseCorpus(
+    snapshotIdentity: Hash,
+  ): MarketCorpusSnapshot | null {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT snapshot_identity, source_set_identity, listing_count,
+                corpus_json, corpus_hash
+         FROM search_lease_corpora WHERE snapshot_identity = ?`,
+      )
+      .get(snapshotIdentity);
+    return row === undefined ? null : parseSearchLeaseCorpus(row);
+  }
+
+  public hasSearchLeaseCorpus(snapshotIdentity: Hash): boolean {
+    return this.loadSearchLeaseCorpus(snapshotIdentity) !== null;
+  }
+
+  public countSearchLeaseCorpora(): number {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare("SELECT COUNT(*) AS count FROM search_lease_corpora")
+      .get() as { count?: number | bigint } | undefined;
+    const count = Number(row?.count ?? -1);
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new Error("SQLite search lease corpus count is invalid");
+    }
+    return count;
+  }
+
   public saveSearchLeaseRecord(
     record: SearchLeaseRecord,
     retentionLimit: number,
@@ -1837,6 +2026,7 @@ export class SqliteOperationalStore
            )`,
         )
         .run(retentionLimit);
+      this.#pruneUnreferencedSearchLeaseCorpora();
       const row = this.#database
         .prepare(
           `SELECT lease_id, snapshot_identity, lens, status,

@@ -42,9 +42,9 @@ const listings = Object.freeze([
   listing("venue-b", "pizza-b"),
 ]);
 
-function snapshot() {
+function snapshot(source = "search-lease") {
   return buildMarketCorpusSnapshot({
-    sourceSetIdentity: hashCanonical({ receivedAt }),
+    sourceSetIdentity: hashCanonical({ receivedAt, source }),
     eligibleSourceCount: 2,
     excludedSourceCount: 0,
     listings,
@@ -250,7 +250,13 @@ describe("AI-native search lease scheduler", () => {
     const replay = restored.begin(snapshot(), "PARTITION");
     expect(replay.idempotentReplay).toBe(true);
     await expect(replay.promise).resolves.toEqual(completed);
-    expect(restored.projection().storage.schemaVersion).toBe(12);
+    expect(restored.projection()).toMatchObject({
+      retainedCorpusCount: 1,
+      recoverableIssuedCount: 0,
+      missingCorpusIssuedCount: 0,
+      storage: { schemaVersion: 13 },
+      corpusStorage: { schemaVersion: 13, idempotencyKey: "snapshotIdentity" },
+    });
     store.close();
   });
 
@@ -267,9 +273,21 @@ describe("AI-native search lease scheduler", () => {
       store,
       now: () => Date.parse("2026-08-01T00:00:00.000Z"),
     });
-    const inFlight = first.begin(snapshot(), "MECHANISM").promise;
+    const issueId = hashCanonical({ issue: "restart" });
+    const originalSnapshot = snapshot("restart-original");
+    const inFlight = first.begin(
+      originalSnapshot,
+      "MECHANISM",
+      "SCHEDULE",
+      { issueId, question: "Resume exact evidence.", venueIds: [] },
+    ).promise;
     const issued = store.loadSearchLeaseRecords(10)[0];
     expect(issued?.status).toBe("ISSUED");
+    expect(first.projection()).toMatchObject({
+      retainedCorpusCount: 1,
+      recoverableIssuedCount: 1,
+      missingCorpusIssuedCount: 0,
+    });
 
     const restored = new SearchLeaseScheduler({
       context,
@@ -278,8 +296,11 @@ describe("AI-native search lease scheduler", () => {
       store,
       now: () => Date.parse("2026-08-01T00:00:00.000Z"),
     });
-    const resumed = await restored.begin(snapshot(), undefined, "SCHEDULE").promise;
+    const resumedInvocation = restored.resumeIssued(issueId);
+    expect(resumedInvocation).not.toBeNull();
+    const resumed = await resumedInvocation!.promise;
     expect(resumed.lease.leaseId).toBe(issued?.lease.leaseId);
+    expect(resumed.lease.snapshotIdentity).toBe(originalSnapshot.snapshotIdentity);
     expect(resumed.status).toBe("PASS");
 
     if (release === undefined) throw new Error("missing pending fast lane");
@@ -292,6 +313,27 @@ describe("AI-native search lease scheduler", () => {
       catalogContext: context(issued!.trace.querySummary, issued!.lease.scope.venueIds),
     }));
     await expect(inFlight).resolves.toEqual(resumed);
+    store.close();
+  });
+
+  it("deduplicates retained corpora and prunes them with terminal lease retention", async () => {
+    const store = new SqliteOperationalStore(":memory:");
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => runRecord(task),
+      maxPiInvocations: 0,
+      retentionLimit: 4,
+      store,
+    });
+    const firstSnapshot = snapshot("retention-0");
+    await scheduler.begin(firstSnapshot, "EQUIVALENCE").promise;
+    await scheduler.begin(firstSnapshot, "IMPLICATION").promise;
+    expect(store.countSearchLeaseCorpora()).toBe(1);
+    for (let index = 1; index < 5; index += 1) {
+      await scheduler.begin(snapshot(`retention-${index}`), "EQUIVALENCE").promise;
+    }
+    expect(store.countSearchLeaseCorpora()).toBe(4);
+    expect(store.loadSearchLeaseCorpus(firstSnapshot.snapshotIdentity)).toBeNull();
     store.close();
   });
 

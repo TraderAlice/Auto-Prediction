@@ -34,7 +34,9 @@ This is not a trading bot and it has no live-trading authority. The repository d
   partition, and mechanism-divergence lenses over each immutable live corpus.
   Cheap discovery is model-request-budgeted; only novel grounded multi-listing
   signatures may escalate once to pi, and duplicate lineage is retained without
-  storing chain-of-thought.
+  storing chain-of-thought. Every issued lease first retains its exact normalized
+  corpus by content hash, so a restart resumes the original task evidence rather
+  than substituting the latest catalog.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection; each pair can be sent to the cheap scout pool only by an explicit operator action.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
@@ -154,7 +156,7 @@ path when a different local operational volume is required. The database is
 ignored by Git and contains bounded discovery runs plus their exact normalized
 catalog snapshots, completed investigations, and raw anonymous catalog
 observations, Candidate Watch raw books and its bounded refresh journal, and
-SQLite schema-v9 AI search-lease lineage;
+SQLite schema-v13 AI search-lease lineage plus deduplicated task corpora;
 it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.
 
@@ -280,8 +282,14 @@ Each lease still permits one cheap model request, one optional pi escalation,
 eight hypotheses, and a 300-second deadline. A new grounded multi-listing
 signature creates one deduplicated Finding Inbox notification; empty scans and
 known signatures stay quiet, while failures notify separately. Issues,
-terminal leases, acknowledgement state, and notifications survive restart in
-the hash-checked SQLite WAL.
+issued and terminal leases, acknowledgement state, and notifications survive
+restart in the hash-checked SQLite WAL. Before `ISSUED` is committed, the server
+stores the exact bounded `pmh.market-corpus.v1` body once by snapshot identity.
+If the process stops mid-run, the next process reloads that corpus and resumes
+the original lease even when a newer catalog is already current. Corpus text
+stays server-side and is pruned only after no retained lease references it.
+Legacy issued records without corpus evidence fail visibly and schedule fresh
+work; they never borrow a newer snapshot silently.
 
 The Scheduled Search Desk also derives a bounded operations window from the
 retained terminal leases. It reports new-signature, duplicate, and pi-escalation

@@ -305,11 +305,20 @@ const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler
   issuedCount: 0,
   duplicateCount: 0,
   piEscalationCount: 0,
+  retainedCorpusCount: 0,
+  recoverableIssuedCount: 0,
+  missingCorpusIssuedCount: 0,
   storage: {
     mode: "MEMORY",
     durable: false,
     schemaVersion: 0,
     idempotencyKey: "leaseId",
+  },
+  corpusStorage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "snapshotIdentity",
   },
   records: [],
   authority: "PROPOSE_ONLY",
@@ -2642,6 +2651,9 @@ function MarketArchaeologistView() {
             <Badge variant={issueScheduler.unreadNotificationCount > 0 ? "warning" : "muted"}>
               <Bell size={11} /> {issueScheduler.unreadNotificationCount} UNREAD
             </Badge>
+            <Badge variant={scheduler.missingCorpusIssuedCount > 0 ? "warning" : "verified"}>
+              <Database size={11} /> {scheduler.retainedCorpusCount} CORPORA · {scheduler.recoverableIssuedCount} RESUMABLE
+            </Badge>
           </div>
         </CardHeader>
         <CardContent>
@@ -2649,7 +2661,10 @@ function MarketArchaeologistView() {
             <div><strong>{issueScheduler.issueCount}</strong><span>durable issues</span></div>
             <div><strong>{issueScheduler.dueIssueCount}</strong><span>due now</span></div>
             <div><strong>{issueScheduler.activeCount}/{issueScheduler.concurrencyLimit}</strong><span>active slots</span></div>
-            <div><strong>{issueScheduler.storage.issues.durable ? "WAL" : "RAM"}</strong><span>queue storage</span></div>
+            <div>
+              <strong>{issueScheduler.storage.issues.durable ? "WAL" : "RAM"}</strong>
+              <span>{scheduler.missingCorpusIssuedCount} issued corpus gaps</span>
+            </div>
           </div>
 
           <div className="issue-scheduler-strip issue-performance-strip">

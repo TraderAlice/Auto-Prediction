@@ -1,5 +1,8 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
-import type { MarketCorpusSnapshot } from "./market-corpus.js";
+import {
+  assertMarketCorpusSnapshot,
+  type MarketCorpusSnapshot,
+} from "./market-corpus.js";
 import type {
   DiscoveryCatalogContext,
   DiscoveryRunRecord,
@@ -125,11 +128,16 @@ export type SearchLeaseRecord = Readonly<{
 
 export interface SearchLeaseRecordStore {
   readonly searchLeaseStorage: OperationalStorageProjection<"leaseId">;
+  readonly searchLeaseCorpusStorage: OperationalStorageProjection<"snapshotIdentity">;
   loadSearchLeaseRecords(limit: number): readonly SearchLeaseRecord[];
   saveSearchLeaseRecord(
     record: SearchLeaseRecord,
     retentionLimit: number,
   ): SearchLeaseRecord;
+  saveSearchLeaseCorpus(snapshot: MarketCorpusSnapshot): MarketCorpusSnapshot;
+  loadSearchLeaseCorpus(snapshotIdentity: Hash): MarketCorpusSnapshot | null;
+  hasSearchLeaseCorpus(snapshotIdentity: Hash): boolean;
+  countSearchLeaseCorpora(): number;
 }
 
 export type SearchLeaseDeepResult = Readonly<{
@@ -158,7 +166,11 @@ export type SearchLeaseSchedulerProjection = Readonly<{
   issuedCount: number;
   duplicateCount: number;
   piEscalationCount: number;
+  retainedCorpusCount: number;
+  recoverableIssuedCount: number;
+  missingCorpusIssuedCount: number;
   storage: OperationalStorageProjection<"leaseId">;
+  corpusStorage: OperationalStorageProjection<"snapshotIdentity">;
   records: readonly SearchLeaseRecord[];
   authority: "PROPOSE_ONLY";
   semanticDecisionAuthority: false;
@@ -540,6 +552,7 @@ export class SearchLeaseScheduler {
       item.lease.issueId !== undefined &&
       item.lease.issueId !== null &&
       item.lease.snapshotIdentity !== snapshot.snapshotIdentity &&
+      this.#store?.hasSearchLeaseCorpus(item.lease.snapshotIdentity) !== true &&
       !this.#active.has(item.lease.leaseId),
     )) {
       const diagnostic = "issued search lease snapshot is no longer available after restart";
@@ -557,12 +570,31 @@ export class SearchLeaseScheduler {
     return Object.freeze(failed);
   }
 
+  public resumeIssued(
+    issueId: Hash,
+  ): Readonly<{ promise: Promise<SearchLeaseRecord>; idempotentReplay: boolean }> | null {
+    const issued = this.#records.find((record) =>
+      record.status === "ISSUED" && record.lease.issueId === issueId
+    );
+    if (issued === undefined) return null;
+    const active = this.#active.get(issued.lease.leaseId);
+    if (active !== undefined) {
+      return Object.freeze({ promise: active, idempotentReplay: true });
+    }
+    const snapshot = this.#store?.loadSearchLeaseCorpus(
+      issued.lease.snapshotIdentity,
+    ) ?? null;
+    if (snapshot === null) return null;
+    return this.#launch(snapshot, issued);
+  }
+
   public begin(
     snapshot: MarketCorpusSnapshot,
     lens?: SearchLens,
     trigger: "OPERATOR" | "SCHEDULE" = "OPERATOR",
     issue?: SearchLeaseIssueInput,
   ): Readonly<{ promise: Promise<SearchLeaseRecord>; idempotentReplay: boolean }> {
+    snapshot = assertMarketCorpusSnapshot(snapshot);
     if (snapshot.listingCount === 0) {
       throw new SearchLeaseUnavailableError("search lease requires a non-empty qualified corpus");
     }
@@ -673,13 +705,35 @@ export class SearchLeaseScheduler {
         executionAuthority: false,
         effects: lease.effects,
       });
+      this.#store?.saveSearchLeaseCorpus(snapshot);
       issued = this.#persist(issued);
     }
-    const promise = this.#execute(snapshot, issued).then((record) => {
-      this.#active.delete(leaseId);
-      return record;
+    return this.#launch(snapshot, issued);
+  }
+
+  #launch(
+    snapshot: MarketCorpusSnapshot,
+    issued: SearchLeaseRecord,
+  ): Readonly<{ promise: Promise<SearchLeaseRecord>; idempotentReplay: boolean }> {
+    if (
+      snapshot.snapshotIdentity !== issued.lease.snapshotIdentity ||
+      snapshot.sourceSetIdentity !== issued.lease.sourceSetIdentity
+    ) {
+      throw new SearchLeaseUnavailableError(
+        "retained search lease corpus does not match issued scope",
+      );
+    }
+    const active = this.#active.get(issued.lease.leaseId);
+    if (active !== undefined) {
+      return Object.freeze({ promise: active, idempotentReplay: true });
+    }
+    if (this.#active.size >= this.#concurrencyLimit) {
+      throw new SearchLeaseBusyError("search lease concurrency limit is active");
+    }
+    const promise = this.#execute(snapshot, issued).finally(() => {
+      this.#active.delete(issued.lease.leaseId);
     });
-    this.#active.set(leaseId, promise);
+    this.#active.set(issued.lease.leaseId, promise);
     return Object.freeze({ promise, idempotentReplay: false });
   }
 
@@ -844,6 +898,10 @@ export class SearchLeaseScheduler {
 
   public projection(): SearchLeaseSchedulerProjection {
     const records = Object.freeze([...this.#records]);
+    const issued = records.filter((record) => record.status === "ISSUED");
+    const recoverableIssuedCount = issued.filter((record) =>
+      this.#store?.hasSearchLeaseCorpus(record.lease.snapshotIdentity) === true
+    ).length;
     return Object.freeze({
       schemaVersion: "pmh.search-lease-scheduler.v1",
       algorithmVersion: ALGORITHM_VERSION,
@@ -862,11 +920,20 @@ export class SearchLeaseScheduler {
       issuedCount: records.filter((record) => record.status === "ISSUED").length,
       duplicateCount: records.filter((record) => record.lineage.duplicateOfLeaseId !== null).length,
       piEscalationCount: records.filter((record) => record.deepLane.runId !== null).length,
+      retainedCorpusCount: this.#store?.countSearchLeaseCorpora() ?? 0,
+      recoverableIssuedCount,
+      missingCorpusIssuedCount: issued.length - recoverableIssuedCount,
       storage: this.#store?.searchLeaseStorage ?? Object.freeze({
         mode: "MEMORY" as const,
         durable: false as const,
         schemaVersion: 0,
         idempotencyKey: "leaseId" as const,
+      }),
+      corpusStorage: this.#store?.searchLeaseCorpusStorage ?? Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false as const,
+        schemaVersion: 0,
+        idempotencyKey: "snapshotIdentity" as const,
       }),
       records,
       authority: "PROPOSE_ONLY",

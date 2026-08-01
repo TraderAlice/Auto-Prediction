@@ -1,6 +1,6 @@
 # Plans
 
-`plans/economic-review-priority.md` is the active construction plan.
+`plans/search-lease-corpus-recovery.md` is the active construction plan.
 
 ## Planning contract
 
@@ -22,17 +22,17 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-The deterministic attention queue now separates semantic interest from payoff
-compilability, current-price coverage, and anonymous-book reach. The retained
-runtime has 50 attributed proposals and more than 30 passing reviews, yet only
-one compiler-ready item; its current gross hint is negative before fees and depth.
+The retained search runtime exposes the next durability failure directly: 21 of
+26 failed search leases were not model failures. They were leases persisted as
+`ISSUED` whose exact task corpus disappeared across process restart. The issue
+scheduler then failed those leases and spent a new request against a later
+corpus. Durable issues without durable task evidence are not durable work.
 
-Review scheduling still inherits static search-issue priority, so bounded model
-budget cannot prefer a grounded proposal whose declared canonical portfolio has
-current indicative room. The active campaign moves the same deterministic
-fixed-point hint ahead of review dispatch. Positive hints receive a capped
-one-level scheduling boost while every proposal remains retained and reviewable.
-AI still proposes and reviews; it does not decide semantics or economics.
+The active campaign stores each immutable market corpus once by content hash,
+binds every new lease to that retained evidence, and resumes an issued lease
+against the exact original corpus after restart. Legacy leases without retained
+corpora remain explicit migration debt; the scheduler must never substitute the
+latest catalog silently.
 
 ## Deferred future campaigns
 

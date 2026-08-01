@@ -6,6 +6,8 @@ import type { DiscoveryCatalogListing } from "./types.js";
 const MAX_PATTERNS = 12;
 const MAX_PATTERN_LENGTH = 160;
 const MAX_RESULTS = 50;
+const MAX_RETAINED_LISTINGS = 5_000;
+const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 export type MarketCorpusSnapshot = Readonly<{
   schemaVersion: "pmh.market-corpus.v1";
@@ -157,6 +159,61 @@ export function buildMarketCorpusSnapshot(input: Readonly<{
     }),
   });
   return Object.freeze({ ...body, snapshotIdentity: hashCanonical(body) });
+}
+
+export function assertMarketCorpusSnapshot(value: unknown): MarketCorpusSnapshot {
+  if (value === null || typeof value !== "object") {
+    throw new Error("retained market corpus is malformed");
+  }
+  const snapshot = value as MarketCorpusSnapshot;
+  if (
+    snapshot.schemaVersion !== "pmh.market-corpus.v1" ||
+    snapshot.contentPolicy !== "UNTRUSTED_VENUE_TEXT_DATA_ONLY" ||
+    !HASH_PATTERN.test(String(snapshot.sourceSetIdentity)) ||
+    !HASH_PATTERN.test(String(snapshot.snapshotIdentity)) ||
+    !Number.isSafeInteger(snapshot.eligibleSourceCount) ||
+    snapshot.eligibleSourceCount < 0 ||
+    !Number.isSafeInteger(snapshot.excludedSourceCount) ||
+    snapshot.excludedSourceCount < 0 ||
+    !Number.isSafeInteger(snapshot.listingCount) ||
+    snapshot.listingCount < 0 ||
+    snapshot.listingCount > MAX_RETAINED_LISTINGS ||
+    !Array.isArray(snapshot.listings) ||
+    snapshot.listings.length !== snapshot.listingCount ||
+    snapshot.listings.some((listing) =>
+      listing === null || typeof listing !== "object" ||
+      typeof listing.listingRef !== "string" || listing.listingRef.trim() === "" ||
+      typeof listing.venueId !== "string" || listing.venueId.trim() === "" ||
+      typeof listing.venueInstrumentId !== "string" ||
+      typeof listing.title !== "string" ||
+      typeof listing.description !== "string" ||
+      !Array.isArray(listing.outcomes)
+    ) ||
+    snapshot.authority !== "OBSERVE_ONLY" ||
+    snapshot.effects?.externalWrites !== false ||
+    snapshot.effects?.valueMovingActions !== false ||
+    snapshot.effects?.liveExecutionEnabled !== false
+  ) {
+    throw new Error("retained market corpus violates its bounded authority contract");
+  }
+  let rebuilt: MarketCorpusSnapshot;
+  try {
+    rebuilt = buildMarketCorpusSnapshot({
+      sourceSetIdentity: snapshot.sourceSetIdentity,
+      eligibleSourceCount: snapshot.eligibleSourceCount,
+      excludedSourceCount: snapshot.excludedSourceCount,
+      listings: snapshot.listings,
+    });
+  } catch {
+    throw new Error("retained market corpus violates its bounded authority contract");
+  }
+  if (
+    rebuilt.snapshotIdentity !== snapshot.snapshotIdentity ||
+    hashCanonical(rebuilt) !== hashCanonical(snapshot)
+  ) {
+    throw new Error("retained market corpus identity mismatch");
+  }
+  return rebuilt;
 }
 
 export function projectMarketCorpus(

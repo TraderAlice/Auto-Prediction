@@ -99,6 +99,17 @@ describe("Studio projection safety", () => {
         liveExecutionEnabled: false,
       },
     });
+    expect(studioProjection.ai.searchLeaseScheduler).toMatchObject({
+      retainedCorpusCount: 0,
+      recoverableIssuedCount: 0,
+      missingCorpusIssuedCount: 0,
+      corpusStorage: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "snapshotIdentity",
+      },
+    });
     expect(studioProjection.ai.semanticReviewScheduler).toMatchObject({
       pendingCount: 0,
       leasedCount: 0,
