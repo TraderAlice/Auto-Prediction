@@ -1,0 +1,165 @@
+{
+  "schemaVersion": "pmh.real-candidate-depth.v1",
+  "campaignId": "architecture-qualification",
+  "checkpointId": "three-venue-real-candidate-depth",
+  "status": "BLOCKED",
+  "classification": "SEARCH_LEAD_ONLY",
+  "preflightArtifactHash": "sha256:a217e2c9c84bd5b90eae0387c2826b18e5933755c97b305eabe50785e4f2024a",
+  "claimIdentity": "sha256:36f25c9731ffdc71a3bd442abbe0dfe137da349c6fb52fc4485ac6dd78a31481",
+  "canonicalTitle": "Trump out as President before 2027?",
+  "priceScale": "100000000",
+  "quantityScale": "100000000",
+  "screenQuantity": "500000000",
+  "quantityBound": true,
+  "certificateGrade": false,
+  "books": [
+    {
+      "venueId": "polymarket-global",
+      "instrumentId": "59252515735652674747158950210016502214756531287333895140318848923768750410355",
+      "sourceFixtureHash": "sha256:3104249f6bd3cc778c7211c7e8013c7ffbfcfa3c5376924a30e01cbdc9f333f4",
+      "sourceReceivedAt": "2026-08-01T05:18:38.911Z",
+      "protocolIdentity": "clob-book-rest:2026-08-01",
+      "venueGeneration": "bb814e6304b7ff645f0e8d697222a71422fa7c88"
+    },
+    {
+      "venueId": "limitless",
+      "instrumentId": "56154308742753982686710750162015444986563701968079760676518531584453506363044",
+      "sourceFixtureHash": "sha256:bb0ad494ea64ccbbcd9f5bbf08b0020a915bfb531a6b9ad6639ca6f996b6a6cf",
+      "sourceReceivedAt": "2026-08-01T05:18:39.232Z",
+      "protocolIdentity": "api-v1-orderbook:2026-08-01",
+      "venueGeneration": null
+    }
+  ],
+  "legs": [
+    {
+      "venueId": "polymarket-global",
+      "outcome": "YES",
+      "route": "DIRECT_BUY",
+      "sourceInstrumentId": "59252515735652674747158950210016502214756531287333895140318848923768750410355",
+      "quantity": "500000000",
+      "levelsConsumed": 1,
+      "marginalPrice": "7000000",
+      "collateralIn": "35000000",
+      "proceeds": "0",
+      "effectiveCost": "35000000",
+      "feePosture": "VENUE_REPORTS_DISABLED"
+    },
+    {
+      "venueId": "limitless",
+      "outcome": "NO",
+      "route": "SIMULATED_COMPLETE_SET_AND_SELL_YES",
+      "sourceInstrumentId": "56154308742753982686710750162015444986563701968079760676518531584453506363044",
+      "quantity": "500000000",
+      "levelsConsumed": 1,
+      "marginalPrice": "7000000",
+      "collateralIn": "500000000",
+      "proceeds": "35000000",
+      "effectiveCost": "465000000",
+      "feePosture": "VENUE_REPORTS_ENABLED_DYNAMIC_SCHEDULE_UNBOUND"
+    }
+  ],
+  "totalCostBeforeFees": "500000000",
+  "grossFloorBeforeFees": "0",
+  "grossEdgeBpsBeforeFees": "0",
+  "feeAdjustedFloor": null,
+  "blockers": [
+    {
+      "code": "NON_POSITIVE_DEPTH_BOUND_FLOOR",
+      "detail": "The quantity-bound route consumes the complete payout before fees."
+    },
+    {
+      "code": "FEE_SCHEDULE_INCOMPLETE",
+      "detail": "The Limitless taker fee is dynamic and is not bound by these anonymous book fixtures."
+    },
+    {
+      "code": "LIMITLESS_ROUTE_UNQUALIFIED",
+      "detail": "Acquiring NO requires a simulated complete-set split and YES sale; no value-moving route was invoked or qualified."
+    },
+    {
+      "code": "LIMITLESS_BOOK_GENERATION_UNAVAILABLE",
+      "detail": "The anonymous Limitless REST orderbook binds receive time and raw bytes but exposes no venue generation identity."
+    },
+    {
+      "code": "INDEPENDENT_REVIEW_AUTHORITY_ABSENT",
+      "detail": "The exact claim map remains qualification evidence, not a production equivalence review."
+    }
+  ],
+  "stages": [
+    {
+      "stage": "EXACT_CLAIM_MAP",
+      "status": "PASS",
+      "detail": "The depth screen reuses the immutable exact three-venue claim map.",
+      "evidenceHashes": [
+        "sha256:a52119a402b27f12cad6478545538551347de404f23615808acc4200efe2ee99"
+      ]
+    },
+    {
+      "stage": "BOOK_BINDING",
+      "status": "PASS",
+      "detail": "Both anonymous books bind the exact route instruments and raw bytes.",
+      "evidenceHashes": [
+        "sha256:3104249f6bd3cc778c7211c7e8013c7ffbfcfa3c5376924a30e01cbdc9f333f4",
+        "sha256:bb0ad494ea64ccbbcd9f5bbf08b0020a915bfb531a6b9ad6639ca6f996b6a6cf"
+      ]
+    },
+    {
+      "stage": "QUANTITY_SCREEN",
+      "status": "PASS",
+      "detail": "Five complete-payout shares fit inside the first level on both route legs.",
+      "evidenceHashes": [
+        "sha256:3104249f6bd3cc778c7211c7e8013c7ffbfcfa3c5376924a30e01cbdc9f333f4",
+        "sha256:bb0ad494ea64ccbbcd9f5bbf08b0020a915bfb531a6b9ad6639ca6f996b6a6cf"
+      ]
+    },
+    {
+      "stage": "GROSS_DEPTH_SCREEN",
+      "status": "BLOCKED",
+      "detail": "0 bps before fees at the quantity-bound route.",
+      "evidenceHashes": [
+        "sha256:3104249f6bd3cc778c7211c7e8013c7ffbfcfa3c5376924a30e01cbdc9f333f4",
+        "sha256:bb0ad494ea64ccbbcd9f5bbf08b0020a915bfb531a6b9ad6639ca6f996b6a6cf"
+      ]
+    },
+    {
+      "stage": "FEE_SCHEDULE",
+      "status": "BLOCKED",
+      "detail": "The dynamic Limitless taker fee is not fixture-bound.",
+      "evidenceHashes": [
+        "sha256:fa977da3e8f2dc817a4107eca46abd32b67f5d6e2d3653b75f90e894085be7e5"
+      ]
+    },
+    {
+      "stage": "ROUTE_QUALIFICATION",
+      "status": "BLOCKED",
+      "detail": "Complete-set split and YES sale remain simulation-only.",
+      "evidenceHashes": [
+        "sha256:bb0ad494ea64ccbbcd9f5bbf08b0020a915bfb531a6b9ad6639ca6f996b6a6cf"
+      ]
+    },
+    {
+      "stage": "INDEPENDENT_REVIEW",
+      "status": "BLOCKED",
+      "detail": "Production equivalence-review authority is not configured.",
+      "evidenceHashes": [
+        "sha256:a52119a402b27f12cad6478545538551347de404f23615808acc4200efe2ee99"
+      ]
+    },
+    {
+      "stage": "EXACT_VERIFICATION",
+      "status": "BLOCKED",
+      "detail": "Verifier not invoked because gross economics and prerequisites fail closed.",
+      "evidenceHashes": [
+        "sha256:3104249f6bd3cc778c7211c7e8013c7ffbfcfa3c5376924a30e01cbdc9f333f4",
+        "sha256:bb0ad494ea64ccbbcd9f5bbf08b0020a915bfb531a6b9ad6639ca6f996b6a6cf"
+      ]
+    }
+  ],
+  "verifierInvoked": false,
+  "arbitrageVerified": false,
+  "effects": {
+    "externalWrites": false,
+    "valueMovingActions": false,
+    "liveExecutionEnabled": false
+  },
+  "artifactHash": "sha256:b7aa9019b0e740233f31ff35c226271610c67f892e805491e651ec6aad87ef08"
+}

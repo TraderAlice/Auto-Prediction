@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "limitless-trump-out-2027-book",
+  "venue": "limitless",
+  "protocolVersion": "api-v1-orderbook:2026-08-01",
+  "sourceUrl": "https://api.limitless.exchange/markets/trump-out-as-president-before-2027-1768933068297/orderbook",
+  "fetchedAt": "2026-08-01T05:18:39.232Z",
+  "httpStatus": 200,
+  "contentType": "application/json; charset=utf-8",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:bb0ad494ea64ccbbcd9f5bbf08b0020a915bfb531a6b9ad6639ca6f996b6a6cf",
+  "byteLength": "449",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

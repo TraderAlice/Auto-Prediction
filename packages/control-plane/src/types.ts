@@ -230,6 +230,7 @@ export type StudioProjection = Readonly<{
     campaignEvidence: CampaignEvidenceBundle;
     reviewedCompilation: ReviewedCompilationEvidence;
     realCandidatePreflight: import("@pmh/evidence").RealCandidatePreflightEvidence | null;
+    realCandidateDepth: import("@pmh/evidence").RealCandidateDepthEvidence | null;
   }>;
   discoveryDesk: DiscoveryDeskProjection;
   venues: readonly Readonly<{

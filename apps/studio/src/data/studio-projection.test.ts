@@ -89,6 +89,7 @@ describe("Studio projection safety", () => {
       },
     });
     expect(studioProjection.qualification.realCandidatePreflight).toBeNull();
+    expect(studioProjection.qualification.realCandidateDepth).toBeNull();
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 
@@ -176,12 +177,22 @@ describe("Studio projection safety", () => {
       workers: [new HeuristicDiscoveryWorker()],
       activeRuns: 0,
       realCandidatePreflight: preflightDesk.projection(),
+      realCandidateDepth: preflightDesk.depthProjection(),
     });
     expect(projection.qualification.realCandidatePreflight).toMatchObject({
       status: "BLOCKED",
       classification: "SEARCH_LEAD_ONLY",
       catalogIndicativeGrossEdgeBps: "55",
       venueReportedBuyGrossEdgeBps: "0",
+      verifierInvoked: false,
+      arbitrageVerified: false,
+    });
+    expect(projection.qualification.realCandidateDepth).toMatchObject({
+      status: "BLOCKED",
+      classification: "SEARCH_LEAD_ONLY",
+      screenQuantity: "500000000",
+      quantityBound: true,
+      grossEdgeBpsBeforeFees: "0",
       verifierInvoked: false,
       arbitrageVerified: false,
     });
