@@ -7,6 +7,11 @@ import type {
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import type { ResearchSemanticDecision } from "./opportunity-lifecycle-desk.js";
 import {
+  assertProposalSettlementPosture,
+  explicitSettlementPosture,
+  type ProposalSettlementPosture,
+} from "./proposal-economic-triage.js";
+import {
   calculateCanonicalIndicativeEconomics,
   matchedCurrentContractListings,
 } from "./indicative-relation-economics.js";
@@ -45,6 +50,7 @@ export type ReviewAttentionItem = Readonly<{
   payoffReadiness: RelationPayoffReadiness;
   listingRefs: readonly string[];
   currentContractMatchCount: number;
+  settlementPosture: ProposalSettlementPosture;
   missingEvidenceCount: number;
   counterexampleCount: number;
   anonymousCoverage: Readonly<{
@@ -62,6 +68,7 @@ export type ReviewAttentionItem = Readonly<{
       | "POSITIVE_GROSS_HINT"
       | "NON_POSITIVE_GROSS_HINT"
       | "PRICE_UNAVAILABLE"
+      | "SETTLEMENT_INELIGIBLE"
       | "NOT_APPLICABLE";
     portfolioLabel: string | null;
     indicativeCostBpsCeil: string | null;
@@ -117,10 +124,18 @@ type CandidateSource = Readonly<{
   bundle: DurableProposalEvidenceBundle | null;
 }>;
 
+const notEvaluatedSettlementPosture: ProposalSettlementPosture = Object.freeze({
+  status: "NOT_EVALUATED",
+  policy: "EXPLICIT_NON_SETTLEMENT_TEXT_V1",
+  checkedListingCount: 0,
+  evidence: Object.freeze([]),
+});
+
 function indicativeEconomics(
   proposal: MarketRelationProposal,
   readiness: RelationPayoffReadiness,
   current: ReturnType<typeof matchedCurrentContractListings>,
+  settlementPosture: ProposalSettlementPosture,
 ): ReviewAttentionItem["indicativeEconomics"] {
   const inert = {
     portfolioLabel: null,
@@ -132,6 +147,9 @@ function indicativeEconomics(
     executable: false as const,
   };
   if (readiness.status !== "READY") return Object.freeze({ status: "NOT_APPLICABLE" as const, ...inert });
+  if (settlementPosture.status === "EXPLICITLY_INELIGIBLE") {
+    return Object.freeze({ status: "SETTLEMENT_INELIGIBLE" as const, ...inert });
+  }
   return calculateCanonicalIndicativeEconomics({
     proposal,
     relation: readiness.relationKind as CompilableRelation,
@@ -168,9 +186,11 @@ function anonymousCoverage(
 function postureFor(
   recommendation: SemanticReviewRecommendation,
   readiness: RelationPayoffReadiness,
+  settlementPosture: ProposalSettlementPosture,
 ): ReviewAttentionPosture {
   if (recommendation === "REJECT") return "REJECT_RECOMMENDED";
   if (recommendation === "ESCALATE") return "EVIDENCE_ESCALATION";
+  if (settlementPosture.status === "EXPLICITLY_INELIGIBLE") return "RESEARCH_ONLY";
   return readiness.status === "READY" ? "DECISION_READY" : "RESEARCH_ONLY";
 }
 
@@ -211,10 +231,14 @@ const effects = Object.freeze({
 
 function assertItem(item: ReviewAttentionItem): ReviewAttentionItem {
   const { itemId, ...body } = item;
+  assertProposalSettlementPosture(item.settlementPosture, item.listingRefs);
   if (
     item.schemaVersion !== "pmh.review-attention-item.v1" ||
     !HASH_PATTERN.test(itemId) ||
     itemId !== hashCanonical(body) ||
+    (item.settlementPosture.status === "EXPLICITLY_INELIGIBLE" &&
+      (item.indicativeEconomics.status !== "SETTLEMENT_INELIGIBLE" ||
+        item.operatorPosture === "DECISION_READY")) ||
     item.authority !== "OPERATOR_ATTENTION_ONLY" ||
     item.semanticDecisionAuthority !== false ||
     item.simulationAuthority !== false ||
@@ -277,7 +301,15 @@ export function buildReviewAttentionProjection(input: {
       review,
     });
     const current = matchedCurrentContractListings(source.proposal, source.bundle, input.corpus);
-    const operatorPosture = postureFor(review.report!.result.recommendation, readiness);
+    const settlementPosture = readiness.status === "READY" &&
+      current.size === source.proposal.listingRefs.length
+      ? explicitSettlementPosture([...current.values()])
+      : notEvaluatedSettlementPosture;
+    const operatorPosture = postureFor(
+      review.report!.result.recommendation,
+      readiness,
+      settlementPosture,
+    );
     const body = Object.freeze({
       schemaVersion: "pmh.review-attention-item.v1" as const,
       opportunityId: review.opportunityId,
@@ -292,10 +324,16 @@ export function buildReviewAttentionProjection(input: {
       payoffReadiness: readiness,
       listingRefs: Object.freeze([...source.proposal.listingRefs]),
       currentContractMatchCount: current.size,
+      settlementPosture,
       missingEvidenceCount: review.report!.result.missingEvidence.length,
       counterexampleCount: review.report!.result.counterexamples.length,
       anonymousCoverage: anonymousCoverage(source.proposal, readiness, source.bundle, current),
-      indicativeEconomics: indicativeEconomics(source.proposal, readiness, current),
+      indicativeEconomics: indicativeEconomics(
+        source.proposal,
+        readiness,
+        current,
+        settlementPosture,
+      ),
       nextAction: operatorPosture === "DECISION_READY" ? "REVIEW_AND_DECIDE" as const
         : operatorPosture === "RESEARCH_ONLY" ? "KEEP_FOR_RESEARCH" as const
           : operatorPosture === "EVIDENCE_ESCALATION" ? "RESOLVE_EVIDENCE_GAPS" as const

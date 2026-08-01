@@ -6,6 +6,7 @@ import {
   buildMarketCorpusSnapshot,
   buildProposalEconomicTriage,
   buildProposalEvidenceBundle,
+  explicitSettlementPosture,
   recoverBaseReviewPriority,
   type DiscoveryCatalogListing,
   type MarketCorpusSnapshot,
@@ -70,6 +71,7 @@ function proposal(
   relationKind: MarketRelationKind,
   name: string,
   listingRefs: readonly string[] = baseListings.slice(0, 2).map((item) => item.listingRef),
+  proposalSnapshot: MarketCorpusSnapshot = captured,
 ): MarketRelationProposal {
   const body = {
     relationKind,
@@ -83,7 +85,7 @@ function proposal(
   };
   return Object.freeze({
     ...body,
-    proposalId: hashCanonical({ corpusSnapshotIdentity: captured.snapshotIdentity, ...body }),
+    proposalId: hashCanonical({ corpusSnapshotIdentity: proposalSnapshot.snapshotIdentity, ...body }),
   });
 }
 
@@ -91,11 +93,12 @@ function candidate(
   item: MarketRelationProposal,
   priority: 1 | 2 | 3 | 4 | 5,
   withEvidence = true,
+  evidenceSnapshot: MarketCorpusSnapshot = captured,
 ): SemanticReviewCandidate {
   return Object.freeze({
     proposal: item,
-    proposalCorpusSnapshotIdentity: captured.snapshotIdentity,
-    evidenceBundle: withEvidence ? buildProposalEvidenceBundle(item, captured) : null,
+    proposalCorpusSnapshotIdentity: evidenceSnapshot.snapshotIdentity,
+    evidenceBundle: withEvidence ? buildProposalEvidenceBundle(item, evidenceSnapshot) : null,
     issueIds: Object.freeze([hashCanonical({ issue: item.proposalId })]),
     priority,
   });
@@ -111,6 +114,11 @@ describe("proposal economic triage", () => {
       priorityBoost: 1,
       effectivePriority: 4,
       currentContractMatchCount: 2,
+      settlementPosture: {
+        status: "NOT_EXPLICITLY_INELIGIBLE",
+        checkedListingCount: 2,
+        evidence: [],
+      },
       indicativeEconomics: {
         portfolioLabel: "Left true + right false",
         indicativeCostBpsCeil: "9000",
@@ -121,6 +129,96 @@ describe("proposal economic triage", () => {
       },
     });
     expect(applyProposalEconomicPriority([source], triage)[0]?.priority).toBe(4);
+  });
+
+  it("withholds a positive hint when exact current text explicitly denies settlement", () => {
+    const nonSettling = snapshot(baseListings.map((listing, index) => index === 0
+      ? {
+        ...listing,
+        description: "This market is trading only and will never be resolved towards either option.",
+      }
+      : listing));
+    const item = proposal("EQUIVALENT", "never resolves", undefined, nonSettling);
+    const source = candidate(item, 3, true, nonSettling);
+    const highPriorityResearch = candidate(
+      proposal("RELATED", "high priority research", undefined, nonSettling),
+      5,
+      true,
+      nonSettling,
+    );
+    const triage = buildProposalEconomicTriage({
+      candidates: [highPriorityResearch, source],
+      corpus: nonSettling,
+    });
+    expect(triage.items[0]).toMatchObject({
+      status: "SETTLEMENT_INELIGIBLE",
+      basePriority: 3,
+      priorityBoost: 0,
+      effectivePriority: 3,
+      diagnostic: expect.stringContaining("explicitly denies settlement"),
+      settlementPosture: {
+        status: "EXPLICITLY_INELIGIBLE",
+        policy: "EXPLICIT_NON_SETTLEMENT_TEXT_V1",
+        checkedListingCount: 2,
+        evidence: [{
+          listingRef: "polymarket-global:left",
+          signal: "NEVER_RESOLVES",
+        }],
+      },
+      indicativeEconomics: {
+        status: "NOT_APPLICABLE",
+        grossEdgeBpsFloor: null,
+      },
+    });
+    expect(triage.counts.SETTLEMENT_INELIGIBLE).toBe(1);
+    expect(triage.counts.POSITIVE_GROSS_HINT).toBe(0);
+    expect(triage.boostedCount).toBe(0);
+    expect(triage.items[0]?.status).toBe("SETTLEMENT_INELIGIBLE");
+    expect(triage.items[1]).toMatchObject({
+      status: "RELATION_UNSUPPORTED",
+      basePriority: 5,
+      effectivePriority: 5,
+    });
+    expect(applyProposalEconomicPriority([source], triage)[0]?.priority).toBe(3);
+
+    const changedCurrent = buildProposalEconomicTriage({
+      candidates: [source],
+      corpus: captured,
+    });
+    expect(changedCurrent.items[0]).toMatchObject({
+      status: "CURRENT_CONTRACT_MISMATCH",
+      settlementPosture: { status: "NOT_EVALUATED", checkedListingCount: 0 },
+    });
+  });
+
+  it("recognizes only explicit non-settlement evidence and does not infer eligibility", () => {
+    const fixtures = baseListings.map((listing, index) => ({
+      ...listing,
+      description: index === 0
+        ? "This market will not resolve. No resolution can be triggered in this market."
+        : "This market resolves Yes if the named event happens.",
+    }));
+    expect(explicitSettlementPosture(fixtures)).toEqual({
+      status: "EXPLICITLY_INELIGIBLE",
+      policy: "EXPLICIT_NON_SETTLEMENT_TEXT_V1",
+      checkedListingCount: 3,
+      evidence: [
+        { listingRef: "polymarket-global:left", signal: "NO_RESOLUTION_TRIGGER" },
+        { listingRef: "polymarket-global:left", signal: "WILL_NOT_RESOLVE" },
+      ],
+    });
+    expect(explicitSettlementPosture([fixtures[1]!])).toMatchObject({
+      status: "NOT_EXPLICITLY_INELIGIBLE",
+      checkedListingCount: 1,
+      evidence: [],
+    });
+    expect(explicitSettlementPosture([{
+      ...fixtures[1]!,
+      description: "This market will not resolve until official results are published.",
+    }])).toMatchObject({
+      status: "NOT_EXPLICITLY_INELIGIBLE",
+      evidence: [],
+    });
   });
 
   it("caps positive priority at five and never penalizes a non-positive hint", () => {

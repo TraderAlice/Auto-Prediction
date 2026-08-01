@@ -49,10 +49,14 @@ const corpus = buildMarketCorpusSnapshot({
   listings,
 });
 
-function proposal(relationKind: MarketRelationKind, name: string): MarketRelationProposal {
+function proposal(
+  relationKind: MarketRelationKind,
+  name: string,
+  sourceCorpus = corpus,
+): MarketRelationProposal {
   const body = {
     relationKind,
-    listingRefs: listings.map((listing) => listing.listingRef),
+    listingRefs: sourceCorpus.listings.map((listing) => listing.listingRef),
     statement: `${name} semantic relation`,
     rationale: "Fixture rationale.",
     falsifiers: ["Rules can diverge."],
@@ -62,13 +66,14 @@ function proposal(relationKind: MarketRelationKind, name: string): MarketRelatio
   };
   return Object.freeze({
     ...body,
-    proposalId: hashCanonical({ corpusSnapshotIdentity: corpus.snapshotIdentity, ...body }),
+    proposalId: hashCanonical({ corpusSnapshotIdentity: sourceCorpus.snapshotIdentity, ...body }),
   });
 }
 
 async function review(
   item: MarketRelationProposal,
   recommendation: SemanticReviewRecommendation,
+  reviewCorpus = corpus,
 ): Promise<SemanticReviewRecord> {
   const desk = createSemanticReviewDesk(
     { DEEPSEEK_API_KEY: "test-only" },
@@ -86,17 +91,20 @@ async function review(
       rationale: "Advisory fixture conclusion.",
     }) } },
   );
-  return desk.begin(`ai:${item.proposalId}`, item, corpus).promise;
+  return desk.begin(`ai:${item.proposalId}`, item, reviewCorpus).promise;
 }
 
-function archaeologist(proposals: readonly MarketRelationProposal[]): MarketArchaeologistProjection {
-  const bundles = proposals.map((item) => buildProposalEvidenceBundle(item, corpus));
+function archaeologist(
+  proposals: readonly MarketRelationProposal[],
+  evidenceCorpus = corpus,
+): MarketArchaeologistProjection {
+  const bundles = proposals.map((item) => buildProposalEvidenceBundle(item, evidenceCorpus));
   const reportBody = {
     schemaVersion: "pmh.market-archaeologist-report.v1" as const,
     status: "PASS" as const,
     startedAt: "2026-08-02T00:00:00.000Z", completedAt: "2026-08-02T00:00:01.000Z",
     engine: { name: "PI_CLI" as const, provider: "deepseek" as const, model: "deepseek-v4-flash", mode: "MARKETFS_RECURSIVE_SEARCH" as const },
-    task: { question: "fixture", corpusSnapshotIdentity: corpus.snapshotIdentity, sourceSetIdentity: corpus.sourceSetIdentity, corpusListingCount: corpus.listingCount },
+    task: { question: "fixture", corpusSnapshotIdentity: evidenceCorpus.snapshotIdentity, sourceSetIdentity: evidenceCorpus.sourceSetIdentity, corpusListingCount: evidenceCorpus.listingCount },
     result: { summary: "fixture", proposals, proposalEvidenceBundles: bundles, missingEvidence: [], authority: "PROPOSE_ONLY" as const, reviewStatus: "UNREVIEWED" as const, executionAuthority: false as const },
     trace: { workspace: "EPHEMERAL_MARKETFS" as const, permittedTools: ["read", "grep", "find", "ls"] as const, recursiveSearchAvailable: true as const, toolExecutionTraceAvailable: false as const, corpusRemovedAfterRun: true as const },
     effects: { sessionPersistence: false as const, shellAccess: false as const, agentFileWrites: false as const, valueMovingActions: false as const, liveExecutionEnabled: false as const },
@@ -106,8 +114,8 @@ function archaeologist(proposals: readonly MarketRelationProposal[]): MarketArch
     schemaVersion: "pmh.market-archaeologist-desk.v1", configured: true, model: "deepseek-v4-flash", status: "IDLE",
     activeCount: 0, concurrencyLimit: 1, runCount: 1, passCount: 1, failedCount: 0, retentionLimit: 10,
     storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "runId" },
-    scheduler: { enabled: true, intervalMs: 60_000, changedCorpusOnly: true, lastAttemptedSnapshotIdentity: corpus.snapshotIdentity },
-    records: [{ runId: hashCanonical({ run: "attention" }), corpusSnapshotIdentity: corpus.snapshotIdentity, question: "fixture", status: "PASS", startedAt: report.startedAt, completedAt: report.completedAt, diagnostic: null, report, trigger: "SCHEDULE" }],
+    scheduler: { enabled: true, intervalMs: 60_000, changedCorpusOnly: true, lastAttemptedSnapshotIdentity: evidenceCorpus.snapshotIdentity },
+    records: [{ runId: hashCanonical({ run: "attention", corpus: evidenceCorpus.snapshotIdentity }), corpusSnapshotIdentity: evidenceCorpus.snapshotIdentity, question: "fixture", status: "PASS", startedAt: report.startedAt, completedAt: report.completedAt, diagnostic: null, report, trigger: "SCHEDULE" }],
     authority: "PROPOSE_ONLY", effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
   });
 }
@@ -175,6 +183,52 @@ describe("review attention queue", () => {
       currentContractMatchCount: 1,
       anonymousCoverage: { status: "EXACT_ADAPTER_COVERAGE" },
       indicativeEconomics: { status: "PRICE_UNAVAILABLE", source: null },
+    });
+  });
+
+  it("keeps an accepted but explicitly non-settling relation out of simulation attention", async () => {
+    const nonSettlingCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ sources: "attention-non-settling" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: listings.map((listing, index) => index === 0
+        ? {
+          ...listing,
+          description: "This market is trading only and will never be resolved towards either option.",
+        }
+        : listing),
+    });
+    const item = proposal("EQUIVALENT", "non-settling", nonSettlingCorpus);
+    const projection = buildReviewAttentionProjection({
+      archaeologist: archaeologist([item], nonSettlingCorpus),
+      semanticReviews: [await review(
+        item,
+        "ACCEPT_FOR_RESEARCH_SIMULATION",
+        nonSettlingCorpus,
+      )],
+      semanticReviewJobs: [],
+      semanticDecisions: [],
+      corpus: nonSettlingCorpus,
+    });
+    expect(projection).toMatchObject({
+      counts: { DECISION_READY: 0, RESEARCH_ONLY: 1 },
+      positiveGrossHintCount: 0,
+    });
+    expect(projection.items[0]).toMatchObject({
+      operatorPosture: "RESEARCH_ONLY",
+      nextAction: "KEEP_FOR_RESEARCH",
+      settlementPosture: {
+        status: "EXPLICITLY_INELIGIBLE",
+        checkedListingCount: 2,
+        evidence: [{
+          listingRef: "polymarket-global:left",
+          signal: "NEVER_RESOLVES",
+        }],
+      },
+      indicativeEconomics: {
+        status: "SETTLEMENT_INELIGIBLE",
+        grossEdgeBpsFloor: null,
+      },
     });
   });
 

@@ -209,6 +209,7 @@ const EMPTY_PROPOSAL_ECONOMIC_TRIAGE: StudioProjection["ai"]["proposalEconomicTr
     POSITIVE_GROSS_HINT: 0,
     NON_POSITIVE_GROSS_HINT: 0,
     PRICE_UNAVAILABLE: 0,
+    SETTLEMENT_INELIGIBLE: 0,
     EVIDENCE_UNAVAILABLE: 0,
     CURRENT_CONTRACT_MISMATCH: 0,
     LISTING_SCOPE_UNSUPPORTED: 0,
@@ -3379,7 +3380,7 @@ function OpportunityLifecycleView() {
             <div>
               <strong>Pre-review economic frontier</strong>
               <span>
-                Current gross-price hints reorder bounded review work · no proposal is suppressed
+                Settlement-qualified gross-price hints reorder bounded review work · no proposal is suppressed
               </span>
             </div>
           </div>
@@ -3391,10 +3392,10 @@ function OpportunityLifecycleView() {
           <div><strong>{economicTriage.itemCount}</strong><span>retained candidates</span></div>
           <div><strong>{economicTriage.boostedCount}</strong><span>+1 priority</span></div>
           <div><strong>{economicTriage.counts.POSITIVE_GROSS_HINT}</strong><span>positive gross</span></div>
+          <div><strong>{economicTriage.counts.SETTLEMENT_INELIGIBLE}</strong><span>won't settle</span></div>
           <div><strong>{economicTriage.counts.NON_POSITIVE_GROSS_HINT}</strong><span>non-positive gross</span></div>
-          <div><strong>{economicTriage.counts.CURRENT_CONTRACT_MISMATCH}</strong><span>contract changed</span></div>
           <div>
-            <strong>{economicTriage.counts.PRICE_UNAVAILABLE + economicTriage.counts.EVIDENCE_UNAVAILABLE + economicTriage.counts.LISTING_SCOPE_UNSUPPORTED + economicTriage.counts.RELATION_UNSUPPORTED}</strong>
+            <strong>{economicTriage.counts.PRICE_UNAVAILABLE + economicTriage.counts.EVIDENCE_UNAVAILABLE + economicTriage.counts.CURRENT_CONTRACT_MISMATCH + economicTriage.counts.LISTING_SCOPE_UNSUPPORTED + economicTriage.counts.RELATION_UNSUPPORTED}</strong>
             <span>not priceable</span>
           </div>
         </div>
@@ -3420,6 +3421,7 @@ function OpportunityLifecycleView() {
               <div className="attention-item-facts">
                 <span>{item.currentContractMatchCount}/{item.listingRefs.length} current contracts matched</span>
                 <span>{item.issueIds.length} search issue{item.issueIds.length === 1 ? "" : "s"}</span>
+                <span>{item.settlementPosture.status.replaceAll("_", " ")}</span>
                 <span>
                   {item.indicativeEconomics.status === "POSITIVE_GROSS_HINT" || item.indicativeEconomics.status === "NON_POSITIVE_GROSS_HINT"
                     ? `${item.indicativeEconomics.grossEdgeBpsFloor} bps gross hint`
@@ -3432,7 +3434,7 @@ function OpportunityLifecycleView() {
         </div>
         <div className="attention-authority-lock">
           <CircleOff size={14} />
-          <span>A positive current hint adds one review-priority point only below P5; every other candidate keeps its original priority.</span>
+          <span>Only a positive current hint with no explicit non-settlement clause adds one review-priority point below P5; every candidate stays retained.</span>
           <code>{economicTriage.contentHash.slice(0, 22)}…</code>
         </div>
       </section>
@@ -3483,6 +3485,7 @@ function OpportunityLifecycleView() {
               </p>
               <div className="attention-item-facts">
                 <span>{item.currentContractMatchCount}/{item.listingRefs.length} current contracts matched</span>
+                <span>{item.settlementPosture.status.replaceAll("_", " ")}</span>
                 <span>{item.anonymousCoverage.status.replaceAll("_", " ")}</span>
                 <span>{item.missingEvidenceCount} missing · {item.counterexampleCount} counterexamples</span>
                 <span>

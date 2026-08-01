@@ -585,7 +585,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 328,
+      proofTests: 331,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },

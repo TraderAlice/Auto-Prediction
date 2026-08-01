@@ -148,6 +148,7 @@ describe("Studio projection safety", () => {
       sourceCandidateCount: 0,
       itemCount: 0,
       boostedCount: 0,
+      counts: { SETTLEMENT_INELIGIBLE: 0 },
       priorityPolicy: "POSITIVE_GROSS_HINT_PLUS_ONE_CAPPED_AT_FIVE",
       retentionPolicy: "NO_SUPPRESSION_NO_NEGATIVE_PENALTY",
       authority: "REVIEW_SCHEDULING_HINT_ONLY",

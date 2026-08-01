@@ -54,10 +54,12 @@ This is not a trading bot and it has no live-trading authority. The repository d
   adapter reach without making a model call or recording a decision.
 - A deterministic pre-review economic frontier that reuses the same canonical
   `bigint` portfolio arithmetic, current-contract matching, and gross-price
-  bounds as post-review attention. A positive hint below priority five adds
-  exactly one review-priority point; missing, stale, unsupported, non-positive,
-  and already-priority-five items stay at their original priority, and no hint
-  can approve semantics.
+  bounds as post-review attention. Exact current contract text that explicitly
+  denies settlement makes the portfolio economically ineligible before price
+  arithmetic. Otherwise a positive hint below priority five adds exactly one
+  review-priority point; missing, stale, unsupported, non-positive,
+  settlement-ineligible, and already-priority-five items stay at their original
+  priority, and no hint can approve semantics.
 - Certificate-bound shadow replay that derives intents from the certificate,
   uses virtual capital and the live-disabled ShadowExecutionEngine, records
   planned versus observed fills, and makes zero venue-gateway calls. Human
@@ -97,10 +99,11 @@ promotion remain active campaign work.
    trades. A valid run may conclude that no cross-venue relation exists.
 4. Let the **Pre-review economic frontier** order the bounded review queue. It
    prices only the canonical portfolio declared by the proposal, and only when
-   current contracts still match captured semantics. A positive gross hint
-   adds one priority point below P5; every other candidate keeps its original
-   priority. The hint excludes fees and depth, suppresses nothing, and
-   is not evidence that the proposed relationship is true.
+   current contracts still match captured semantics and none explicitly denies
+   settlement. A positive gross hint adds one priority point below P5; every
+   other candidate keeps its original priority. Lack of a detected denial does
+   not prove settlement. The hint excludes fees and depth, suppresses nothing,
+   and is not evidence that the proposed relationship is true.
 5. Send a grounded proposal through independent semantic review. The reviewer
    must bind exact listing refs, rule identities, outcome mapping, time windows,
    and counterexamples. The **Operator attention queue** then tells you whether
