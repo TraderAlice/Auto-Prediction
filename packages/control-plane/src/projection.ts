@@ -44,6 +44,7 @@ import type { SemanticReviewDeskProjection } from "./semantic-review.js";
 import type { SemanticReviewSchedulerProjection } from "./semantic-review-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
+import { emptyReviewAttentionProjection, type ReviewAttentionProjection } from "./review-attention.js";
 import {
   buildRelationPayoffProjection,
   type RelationPayoffProjection,
@@ -107,6 +108,7 @@ export function buildStudioProjection(input: {
   searchOutcomeAttribution?: SearchOutcomeAttributionProjection;
   semanticReview?: SemanticReviewDeskProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
+  reviewAttention?: ReviewAttentionProjection;
   semanticRelationGraph?: SemanticRelationGraphProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
   relationPayoff?: RelationPayoffProjection;
@@ -572,7 +574,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 317,
+      proofTests: 320,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -589,6 +591,7 @@ export function buildStudioProjection(input: {
       searchOutcomeAttribution,
       semanticReview,
       semanticReviewScheduler,
+      reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),
       semanticRelationGraph,
       modelProvider,
       investigator,

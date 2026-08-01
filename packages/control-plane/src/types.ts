@@ -244,6 +244,7 @@ export type StudioProjection = Readonly<{
     searchOutcomeAttribution: import("./search-outcome-attribution.js").SearchOutcomeAttributionProjection;
     semanticReview: import("./semantic-review.js").SemanticReviewDeskProjection;
     semanticReviewScheduler: import("./semantic-review-scheduler.js").SemanticReviewSchedulerProjection;
+    reviewAttention: import("./review-attention.js").ReviewAttentionProjection;
     semanticRelationGraph: import("./semantic-relation-graph.js").SemanticRelationGraphProjection;
     modelProvider: ModelProviderProjection;
     investigator: PiInvestigatorProjection;

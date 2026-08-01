@@ -36,6 +36,7 @@ import {
 } from "./discovery-ledger.js";
 import { radarTriageTaskId } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
+import { buildReviewAttentionProjection } from "./review-attention.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
   buildProposalEvidenceBundle,
@@ -742,6 +743,13 @@ export function createControlPlane(options?: {
       semanticReviews: semanticReviewProjection.records,
       semanticDecisions: lifecycleProjection.semanticDecisions,
     });
+    const reviewAttention = buildReviewAttentionProjection({
+      archaeologist: archaeologistProjection,
+      semanticReviews: semanticReviewProjection.records,
+      semanticReviewJobs: semanticReviewSchedulerProjection.jobs,
+      semanticDecisions: lifecycleProjection.semanticDecisions,
+      corpus: catalogObservationDesk.corpus(),
+    });
     const semanticRelationGraph = buildSemanticRelationGraph({
       corpus: catalogObservationDesk.corpus(),
       archaeologist: archaeologistProjection,
@@ -775,6 +783,7 @@ export function createControlPlane(options?: {
       searchOutcomeAttribution,
       semanticReview: semanticReviewProjection,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
+      reviewAttention,
       semanticRelationGraph,
       opportunityLifecycle: lifecycleProjection,
       relationPayoff,

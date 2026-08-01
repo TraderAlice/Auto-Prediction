@@ -45,6 +45,11 @@ This is not a trading bot and it has no live-trading authority. The repository d
   from compiler-bound relations plus durable anonymous book/fee evidence,
   rechecks canonical payouts, ticks, quantities, identities, and expiry, and
   persists either a certificate or an exact rejection.
+- A deterministic operator attention queue over retained semantic reviews. It
+  separates compiler-ready decisions from research-only relations, evidence
+  escalations, and suggested rejections; checks whether current contracts still
+  match captured semantics; and shows bigint indicative gross hints plus public
+  adapter reach without making a model call or recording a decision.
 - Certificate-bound shadow replay that derives intents from the certificate,
   uses virtual capital and the live-disabled ShadowExecutionEngine, records
   planned versus observed fills, and makes zero venue-gateway calls. Human
@@ -84,12 +89,18 @@ promotion remain active campaign work.
    trades. A valid run may conclude that no cross-venue relation exists.
 4. Send a grounded proposal through independent semantic review. The reviewer
    must bind exact listing refs, rule identities, outcome mapping, time windows,
-   and counterexamples before deterministic payoff compilation is available.
-5. Materialize a portfolio. The server reacquires current public books and fee
+   and counterexamples. The **Operator attention queue** then tells you whether
+   that advisory result defines a canonical payoff partition, whether current
+   contract semantics still match the retained evidence, and whether the
+   implemented anonymous adapters can reach its legs. Its gross-price hint
+   excludes depth and fees and is never an executable quote.
+5. Explicitly accept a compiler-ready item for research simulation, or leave it
+   in research/evidence/rejection triage. The queue cannot make this decision.
+6. Materialize a portfolio. The server reacquires current public books and fee
    evidence, walks depth with `bigint` arithmetic, and either produces a
    simulated worst-case floor or a precise blocker such as missing depth,
    unsupported fees, stale evidence, or incompatible outcome scope.
-6. Only the first-party exact verifier can issue a short-lived certificate.
+7. Only the first-party exact verifier can issue a short-lived certificate.
    The configured policy then notifies, requests human approval for shadow, or
    runs automatic shadow. A later observation reacquires the market and records
    whether it still matches the certificate bounds or has diverged.

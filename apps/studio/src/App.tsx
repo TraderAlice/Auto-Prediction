@@ -166,6 +166,39 @@ const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewSch
   },
 };
 
+const EMPTY_REVIEW_ATTENTION: StudioProjection["ai"]["reviewAttention"] = {
+  schemaVersion: "pmh.review-attention-queue.v1",
+  contentHash: `sha256:${"0".repeat(64)}`,
+  sourceReviewCount: 0,
+  decidedReviewCount: 0,
+  unresolvedInputCount: 0,
+  itemCount: 0,
+  truncated: false,
+  counts: {
+    DECISION_READY: 0,
+    RESEARCH_ONLY: 0,
+    EVIDENCE_ESCALATION: 0,
+    REJECT_RECOMMENDED: 0,
+  },
+  exactAdapterCoverageCount: 0,
+  positiveGrossHintCount: 0,
+  items: [],
+  sortContract: "POSTURE_THEN_ADAPTER_THEN_GROSS_HINT_THEN_EVIDENCE_THEN_RECENCY",
+  arithmetic: "BIGINT_FIXED_POINT_RATIONAL_BPS",
+  authority: "OPERATOR_ATTENTION_ONLY",
+  semanticDecisionAuthority: false,
+  simulationAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    modelCalls: false,
+    schedulerChanges: false,
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_MARKET_CORPUS: StudioProjection["ai"]["marketCorpus"] = {
   schemaVersion: "pmh.market-corpus.v1",
   contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
@@ -3039,6 +3072,8 @@ function OpportunityLifecycleView() {
     studioProjection.ai.semanticReview ?? EMPTY_SEMANTIC_REVIEW;
   const reviewScheduler =
     studioProjection.ai.semanticReviewScheduler ?? EMPTY_SEMANTIC_REVIEW_SCHEDULER;
+  const reviewAttention =
+    studioProjection.ai.reviewAttention ?? EMPTY_REVIEW_ATTENTION;
   const relationPayoff =
     studioProjection.relationPayoff ?? EMPTY_RELATION_PAYOFF;
   const simulationMaterializer =
@@ -3284,6 +3319,73 @@ function OpportunityLifecycleView() {
           detail={`${simulationMaterializer.storage.durable ? "SQLite WAL" : "memory"} · content addressed`}
         />
       </div>
+
+      <section className="attention-queue" aria-label="Operator review attention queue">
+        <div className="attention-queue-heading">
+          <div>
+            <Inbox size={15} />
+            <div>
+              <strong>Operator attention queue</strong>
+              <span>
+                Deterministic triage of undecided AI reviews · current prices never replace captured semantics
+              </span>
+            </div>
+          </div>
+          <Badge variant={reviewAttention.counts.DECISION_READY > 0 ? "verified" : "muted"}>
+            {reviewAttention.counts.DECISION_READY} DECISION READY
+          </Badge>
+        </div>
+        <div className="attention-queue-stats">
+          <div><strong>{reviewAttention.counts.DECISION_READY}</strong><span>decision ready</span></div>
+          <div><strong>{reviewAttention.counts.RESEARCH_ONLY}</strong><span>research only</span></div>
+          <div><strong>{reviewAttention.counts.EVIDENCE_ESCALATION}</strong><span>evidence gaps</span></div>
+          <div><strong>{reviewAttention.counts.REJECT_RECOMMENDED}</strong><span>reject suggested</span></div>
+          <div><strong>{reviewAttention.exactAdapterCoverageCount}</strong><span>exact adapter path</span></div>
+          <div><strong>{reviewAttention.positiveGrossHintCount}</strong><span>positive gross hints</span></div>
+        </div>
+        <div className="attention-item-list">
+          {reviewAttention.items.length === 0 ? (
+            <div className="review-operation-empty">
+              <strong>No undecided reviewed proposals</strong>
+              <span>Scheduled reviews appear here after advisory completion.</span>
+            </div>
+          ) : reviewAttention.items.slice(0, 8).map((item) => (
+            <article key={item.itemId}>
+              <div className="attention-item-topline">
+                <Badge variant={item.operatorPosture === "DECISION_READY" ? "verified" : item.operatorPosture === "REJECT_RECOMMENDED" ? "warning" : "muted"}>
+                  {item.operatorPosture.replaceAll("_", " ")}
+                </Badge>
+                <Badge variant="shadow">{item.relationConclusion}</Badge>
+                <time>{new Date(item.completedAt).toLocaleString()}</time>
+              </div>
+              <strong>{item.statement}</strong>
+              <p>
+                {item.payoffReadiness.status === "READY"
+                  ? "Canonical payoff partition is compiler-ready."
+                  : item.payoffReadiness.diagnostic}
+              </p>
+              <div className="attention-item-facts">
+                <span>{item.currentContractMatchCount}/{item.listingRefs.length} current contracts matched</span>
+                <span>{item.anonymousCoverage.status.replaceAll("_", " ")}</span>
+                <span>{item.missingEvidenceCount} missing · {item.counterexampleCount} counterexamples</span>
+                <span>
+                  {item.indicativeEconomics.status === "POSITIVE_GROSS_HINT" || item.indicativeEconomics.status === "NON_POSITIVE_GROSS_HINT"
+                    ? `${item.indicativeEconomics.grossEdgeBpsFloor} bps gross hint`
+                    : item.indicativeEconomics.status.replaceAll("_", " ")}
+                </span>
+              </div>
+              <small>
+                Next: {item.nextAction.replaceAll("_", " ")} · gross hint excludes fees and depth and is not executable
+              </small>
+            </article>
+          ))}
+        </div>
+        <div className="attention-authority-lock">
+          <CircleOff size={14} />
+          <span>Queue projection makes no model call, operator decision, simulation request, certificate, or execution action.</span>
+          <code>{reviewAttention.contentHash.slice(0, 22)}…</code>
+        </div>
+      </section>
 
       <section className="review-operations" aria-label="Semantic review operations">
         <div className="review-operations-heading">

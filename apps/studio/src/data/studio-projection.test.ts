@@ -119,6 +119,20 @@ describe("Studio projection safety", () => {
         liveExecutionEnabled: false,
       },
     });
+    expect(studioProjection.ai.reviewAttention).toMatchObject({
+      itemCount: 0,
+      counts: {
+        DECISION_READY: 0,
+        RESEARCH_ONLY: 0,
+        EVIDENCE_ESCALATION: 0,
+        REJECT_RECOMMENDED: 0,
+      },
+      authority: "OPERATOR_ATTENTION_ONLY",
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
     expect(studioProjection.ai.researchDesk).toEqual({
       caseCount: 0,
       activeCount: 0,

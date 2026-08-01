@@ -118,6 +118,14 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        reviewAttention: {
+          contentHash: string;
+          itemCount: number;
+          semanticDecisionAuthority: boolean;
+          simulationAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         semanticRelationGraph: {
           graphIdentity: string;
           listingCount: number;
@@ -195,6 +203,14 @@ describe("control-plane HTTP surface", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    expect(projection.ai.reviewAttention).toMatchObject({
+      itemCount: 0,
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.reviewAttention.contentHash).toMatch(/^sha256:/);
     const reviewSchedulerResponse = await fetch(
       `${baseUrl}/api/v1/semantic-review-scheduler`,
     );

@@ -1,6 +1,6 @@
 # Plans
 
-`plans/durable-proposal-evidence.md` is the active construction plan.
+`plans/review-attention-queue.md` is the active construction plan.
 
 ## Planning contract
 
@@ -22,16 +22,15 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-Persistent semantic-review scheduling now drains every proposal whose listing
-references are still present. A 2026-08-02 qualification retained 45 jobs:
-29 passed review, 27 hold durable v2 evidence (10 captured on the original
-corpus and 17 exact-current legacy rebases), no bundled job is evidence-blocked,
-and 16 older reference-only jobs remain visible legacy debt without spending a
-request. The active campaign freezes a minimal content-addressed evidence bundle
-at proposal time and carries it into the durable job so later review does not
-depend on the current catalog or archaeologist-report retention windows. AI
-review remains advisory and cannot accept, simulate, certify, or execute a
-proposal.
+Durable discovery and review now produce more conclusions than a human can
+sensibly inspect as one flat lifecycle list. The retained runtime has 30 passing
+semantic reviews—8 advisory accepts, 12 escalations, and 10 rejections—but zero
+operator decisions. Only one accepted review currently has a compiler-supported
+relation, and its venue has no anonymous book materializer. The active campaign
+therefore derives a deterministic attention queue that separates semantic
+interest from payoff compilability, current-price coverage, and anonymous-book
+reach. It ranks where operator attention can unlock the next exact stage without
+letting an AI review make or submit the decision itself.
 
 ## Deferred future campaigns
 
