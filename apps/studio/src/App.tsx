@@ -382,6 +382,9 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     exactSemanticScopeCount: 0,
     semanticScopeRevisitCount: 0,
     noLeadSemanticScopeCount: 0,
+    boundedSemanticScopeCount: 0,
+    boundedScopeRevisitCount: 0,
+    noLeadBoundedScopeCount: 0,
     hypothesisCount: 0,
     proposalCount: 0,
     evidenceGapCount: 0,
@@ -2766,12 +2769,15 @@ function MarketArchaeologistView() {
           </div>
 
           <div className="issue-scheduler-strip issue-performance-strip" aria-label="Semantic search coverage">
-            <div><strong>{issuePerformance.exactSemanticScopeCount}</strong><span>unique exact semantic scopes</span></div>
-            <div><strong>{issuePerformance.semanticScopeRevisitCount}</strong><span>scope revisits</span></div>
-            <div><strong>{issuePerformance.noLeadSemanticScopeCount}</strong><span>semantic no-lead scopes</span></div>
+            <div><strong>{issuePerformance.exactSemanticScopeCount}</strong><span>unique exact-pair scopes</span></div>
+            <div><strong>{issuePerformance.boundedSemanticScopeCount}</strong><span>unique bounded neighborhoods</span></div>
             <div>
-              <strong>{issuePerformance.exactSemanticScopeCount + issuePerformance.semanticScopeRevisitCount}</strong>
-              <span>exact pair assignments · issue-local rotation</span>
+              <strong>{issuePerformance.semanticScopeRevisitCount + issuePerformance.boundedScopeRevisitCount}</strong>
+              <span>scope revisits · exact + bounded</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.noLeadSemanticScopeCount + issuePerformance.noLeadBoundedScopeCount}</strong>
+              <span>no-lead scopes · issue-local rotation</span>
             </div>
           </div>
 
@@ -2849,7 +2855,11 @@ function MarketArchaeologistView() {
                       <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
                       <span>{issue.passCount}/{issue.runCount} passed</span>
                       <span>{performance?.novelCandidateCount ?? 0} new · {performance?.duplicateCount ?? 0} repeat · {performance?.piEscalationCount ?? 0} pi</span>
-                      <span>{performance?.exactSemanticScopeCount ?? 0} semantic scopes · {performance?.semanticScopeRevisitCount ?? 0} revisits · {performance?.noLeadSemanticScopeCount ?? 0} no lead</span>
+                      <span>
+                        {performance?.exactSemanticScopeCount ?? 0} exact · {performance?.boundedSemanticScopeCount ?? 0} neighborhoods
+                        {" · "}{(performance?.semanticScopeRevisitCount ?? 0) + (performance?.boundedScopeRevisitCount ?? 0)} revisits
+                        {" · "}{(performance?.noLeadSemanticScopeCount ?? 0) + (performance?.noLeadBoundedScopeCount ?? 0)} no lead
+                      </span>
                       {issue.candidatePolicy?.requirePositiveGrossHint === true && (
                         <span>{performance?.economicGatePositiveCount ?? 0}/{performance?.economicGateRequiredCount ?? 0} gross-positive · {performance?.piAvoidedCount ?? 0} pi saved</span>
                       )}

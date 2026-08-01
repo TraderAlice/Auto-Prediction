@@ -175,6 +175,9 @@ describe("issue-driven concurrent search scheduler", () => {
       exactSemanticScopeCount: 3,
       semanticScopeRevisitCount: 0,
       noLeadSemanticScopeCount: 0,
+      boundedSemanticScopeCount: 0,
+      boundedScopeRevisitCount: 0,
+      noLeadBoundedScopeCount: 0,
       hypothesisCount: 3,
       proposalCount: 1,
       evidenceGapCount: 0,
@@ -257,6 +260,71 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(retained.idempotentReplay).toBe(true);
     await retained.promise;
     expect(issues.projection().issues.find((item) => item.issueId === issue.issueId)?.runCount).toBe(1);
+  });
+
+  it("reports issue-local bounded neighborhood coverage and revisits", async () => {
+    const boundedListings = Object.freeze([
+      ...listings,
+      Object.freeze({
+        ...listings[0]!,
+        listingRef: "venue-c:pizza",
+        venueId: "venue-c",
+        sourceRawHash: hashCanonical({ venueId: "venue-c" }),
+        protocolIdentity: "protocol:venue-c",
+      }),
+    ]);
+    const boundedSnapshot = (source: string) => buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source }),
+      eligibleSourceCount: 3,
+      excludedSourceCount: 0,
+      listings: boundedListings,
+    });
+    const leases = new SearchLeaseScheduler({
+      context: (question) => {
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+          source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+          listings: boundedListings,
+        });
+        expect(question).not.toHaveLength(0);
+        return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+      },
+      runFast: async (task) => Object.freeze({
+        ...runRecord(task),
+        hypotheses: Object.freeze([]),
+      }),
+      maxPiInvocations: 0,
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      seedDefaults: false,
+      now: () => nowMs,
+    });
+    const issue = issues.create({
+      title: "Bounded rotation",
+      question: "Search a bounded semantic neighborhood.",
+      lens: "IMPLICATION",
+      cadenceMs: 3_600_000,
+    });
+    await issues.runNow(issue.issueId, boundedSnapshot("bounded-1")).promise;
+    await issues.runNow(issue.issueId, boundedSnapshot("bounded-2")).promise;
+
+    expect(issues.projection().performance).toMatchObject({
+      exactSemanticScopeCount: 0,
+      semanticScopeRevisitCount: 0,
+      noLeadSemanticScopeCount: 0,
+      boundedSemanticScopeCount: 1,
+      boundedScopeRevisitCount: 1,
+      noLeadBoundedScopeCount: 2,
+      byIssue: [expect.objectContaining({
+        issueId: issue.issueId,
+        boundedSemanticScopeCount: 1,
+        boundedScopeRevisitCount: 1,
+        noLeadBoundedScopeCount: 2,
+      })],
+    });
   });
 
   it("bounds a long operator brief to the durable lease audit contract", async () => {

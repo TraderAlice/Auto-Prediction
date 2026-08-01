@@ -31,9 +31,9 @@ pool with which to rotate general issues.
 For non-radar search, construct a bounded candidate pool consisting of:
 
 1. the existing question-ranked primary context;
-2. deterministic anchor neighborhoods, each formed by adding one current
-   listing's title trailhead to the issue query and reusing the bounded catalog
-   selector;
+2. deterministic anchor neighborhoods, each formed by using one current
+   listing's title as a retrieval-only trailhead with the bounded catalog
+   selector; the Agent still receives the unchanged issue question;
 3. unique contexts only, identified by the same price-independent semantic
    scope identity retained in the lease.
 
@@ -49,15 +49,15 @@ review, certify economics, or authorize execution.
 
 ## Construction slices
 
-- [ ] Build deterministic primary plus anchor-neighborhood context candidates.
-- [ ] Select candidates with issue-local semantic/routing feedback tiers.
-- [ ] Generalize terminal feedback from exact pairs to all retained scopes.
-- [ ] Preserve current one-context API behavior for existing callers.
-- [ ] Report bounded-context coverage, revisits, and no-lead scopes by issue.
-- [ ] Expose exact-pair and bounded-neighborhood coverage separately in Studio.
-- [ ] Prove receive-time/source-hash refreshes rotate to a different semantic
+- [x] Build deterministic primary plus anchor-neighborhood context candidates.
+- [x] Select candidates with issue-local semantic/routing feedback tiers.
+- [x] Generalize terminal feedback from exact pairs to all retained scopes.
+- [x] Preserve current one-context API behavior for existing callers.
+- [x] Report bounded-context coverage, revisits, and no-lead scopes by issue.
+- [x] Expose exact-pair and bounded-neighborhood coverage separately in Studio.
+- [x] Prove receive-time/source-hash refreshes rotate to a different semantic
   neighborhood rather than merely reordering the same one.
-- [ ] Run focused/full Node 24 checks, production build, live multi-refresh
+- [x] Run focused/full Node 24 checks, production build, live multi-refresh
   smoke, and desktop/390 px QA.
 - [ ] Publish and serially merge the campaign PR.
 
@@ -92,3 +92,25 @@ review, certify economics, or authorize execution.
 - Studio has no horizontal overflow at desktop or 390 px and introduces no new
   console errors.
 - Full type checking, tests, build, and live seven-source smoke pass.
+
+## Live rotation evidence
+
+The seven-source corpus retained 467 listings. Before this campaign, the
+implication issue's current primary context was semantic scope
+`sha256:b122a5…` with 18 listings. After two anonymous all-source refreshes, the
+same primary selector still rebuilt `b122a5…` exactly. Issue-local feedback
+instead assigned `sha256:341956…` with 22 listings and then
+`sha256:f82b56…` with 10 listings. Both runs were fresh, non-idempotent leases
+and stopped at `NO_CANDIDATES`; no failed work was used as suppression.
+
+In the retained 39-terminal-lease window, unique bounded coverage increased
+from three to five. The implication issue now accounts for three unique bounded
+neighborhoods, one retained revisit, and four no-lead bounded assignments. The
+primary-versus-assigned identities were rebuilt independently from the exact
+retained corpus bytes in SQLite WAL, proving feedback caused the rotation.
+
+Full Node 24 type checking, 209 control-plane tests, 10 Studio tests, and the
+production build pass. The live Studio reports eight exact-pair scopes, five
+bounded neighborhoods, four combined revisits, and five issue-local no-lead
+scopes. Desktop and 390 px inspection show no horizontal overflow; a clean
+reload introduces no console warnings or errors.

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { hashCanonical } from "@pmh/domain";
+import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   DiscoveryPool,
   FixtureCatalogDiscoveryDesk,
   HeuristicDiscoveryWorker,
   buildDiscoveryCatalogContext,
+  buildRotatingDiscoveryCatalogContext,
+  buildSearchScopeIdentity,
   type DiscoveryTask,
 } from "../src/index.js";
 
@@ -172,5 +174,128 @@ describe("verified catalog discovery context", () => {
       deadlineEpochMs: 2_000,
       catalogContext: context,
     })).resolves.toMatchObject({ executionAuthority: false });
+  });
+
+  it("rotates a general issue through stable anchor neighborhoods", async () => {
+    const desk = new FixtureCatalogDiscoveryDesk();
+    await desk.load();
+    const seed = desk.context("Rihanna album", ["polymarket-global"]).listings[0]!;
+    const corpus = Object.freeze(Array.from({ length: 40 }, (_, index) => ({
+      ...seed,
+      listingRef: `venue-${index % 2}:${index}`,
+      venueId: `venue-${index % 2}`,
+      venueInstrumentId: `${index}`,
+      title: `Marker${Math.floor(index / 2)}`,
+      description: `Contract ${index} in a paired event family.`,
+      sourceReceivedAt: "2026-08-01T00:00:00.000Z",
+      sourceRawHash: hashCanonical({ source: "first", index }),
+    })));
+    const question = "Find grounded implication and subset structures.";
+    const venueIds = ["venue-0", "venue-1"];
+    const emptyFeedback = Object.freeze({
+      completedSemanticScopeIdentities: Object.freeze([]),
+      attemptedRoutingScopeIdentities: Object.freeze([]),
+    });
+    const primary = buildDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      corpus,
+      question,
+      venueIds,
+    );
+    expect(buildRotatingDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      corpus,
+      question,
+      venueIds,
+      emptyFeedback,
+    )).toEqual(primary);
+
+    const primaryScope = buildSearchScopeIdentity(primary.listings);
+    const refreshed = Object.freeze(corpus.map((listing, index) => ({
+      ...listing,
+      sourceReceivedAt: "2026-08-01T00:05:00.000Z",
+      sourceRawHash: hashCanonical({ source: "second", index }),
+      outcomes: Object.freeze(listing.outcomes.map((outcome) => ({
+        ...outcome,
+        indicativePrice: outcome.indicativePrice === null ? null : "0.4",
+      }))),
+    })));
+    const rotated = buildRotatingDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      refreshed,
+      question,
+      venueIds,
+      Object.freeze({
+        completedSemanticScopeIdentities: Object.freeze([
+          primaryScope.semanticScopeIdentity,
+        ]),
+        attemptedRoutingScopeIdentities: Object.freeze([
+          primaryScope.routingScopeIdentity,
+        ]),
+      }),
+    );
+    const rotatedScope = buildSearchScopeIdentity(rotated.listings);
+    expect(buildSearchScopeIdentity(
+      buildDiscoveryCatalogContext(
+        "QUALIFIED_LIVE_OBSERVATIONS",
+        refreshed,
+        question,
+        venueIds,
+      ).listings,
+    ).semanticScopeIdentity).toBe(primaryScope.semanticScopeIdentity);
+    expect(rotatedScope.semanticScopeIdentity).not.toBe(
+      primaryScope.semanticScopeIdentity,
+    );
+    expect(rotated.listings).toHaveLength(2);
+    expect(new Set(rotated.listings.map((listing) => listing.venueId)).size).toBe(2);
+
+    // Feedback belongs to the caller's issue. With no feedback, another issue
+    // still receives the primary context on the same refreshed corpus.
+    expect(buildSearchScopeIdentity(buildRotatingDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      refreshed,
+      question,
+      venueIds,
+      emptyFeedback,
+    ).listings).semanticScopeIdentity).toBe(primaryScope.semanticScopeIdentity);
+  });
+
+  it("falls back deterministically after every anchor neighborhood is complete", async () => {
+    const desk = new FixtureCatalogDiscoveryDesk();
+    await desk.load();
+    const seed = desk.context("Rihanna album", ["polymarket-global"]).listings[0]!;
+    const corpus = Object.freeze(Array.from({ length: 8 }, (_, index) => ({
+      ...seed,
+      listingRef: `venue-${index % 2}:${index}`,
+      venueId: `venue-${index % 2}`,
+      venueInstrumentId: `${index}`,
+      title: `Marker${Math.floor(index / 2)}`,
+      description: `Listing ${index}`,
+      sourceRawHash: hashCanonical({ index }),
+    })));
+    const completed: Hash[] = [];
+    const attempted: Hash[] = [];
+    let repeated: Hash | null = null;
+    for (let index = 0; index < 12; index += 1) {
+      const context = buildRotatingDiscoveryCatalogContext(
+        "QUALIFIED_LIVE_OBSERVATIONS",
+        corpus,
+        "Find a logical implication.",
+        ["venue-0", "venue-1"],
+        {
+          completedSemanticScopeIdentities: completed,
+          attemptedRoutingScopeIdentities: attempted,
+        },
+      );
+      const scope = buildSearchScopeIdentity(context.listings);
+      if (completed.includes(scope.semanticScopeIdentity)) {
+        repeated = scope.semanticScopeIdentity;
+        break;
+      }
+      completed.push(scope.semanticScopeIdentity);
+      attempted.push(scope.routingScopeIdentity);
+    }
+    expect(completed.length).toBeGreaterThan(1);
+    expect(repeated).toBe(completed[0]);
   });
 });

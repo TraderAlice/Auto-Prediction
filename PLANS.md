@@ -46,16 +46,18 @@ Exact-pair semantic rotation is merged and live. A seven-source, 467-listing
 smoke run preserved both identities for an unchanged top pair across catalog
 refresh and then assigned the next pair.
 
-The next bottleneck is bounded-context starvation. General implication,
-partition, and mechanism issues rank the same generic question against the
-same corpus on every refresh. The current implication issue has seven terminal
-leases and no candidate; after scope identities shipped, its only observable
-bounded context contains the same 18 listings. The current mechanism issue
-similarly exposes one 23-listing context. Search feedback currently filters to
-`EXACT_PAIR`, so none of these completed scopes can influence the next
-assignment. The active campaign builds deterministic anchor-related market
-neighborhoods and rotates each issue across unseen bounded contexts before
-falling back to repeats.
+Bounded-context rotation is implemented and qualified for serial merge. General
+issues now keep their semantic brief fixed while deterministic listing-title
+anchors route each cheap scout into a different, content-addressed market
+neighborhood. Completed scope feedback is issue-local; failed work never
+suppresses a neighborhood, and exhaustion falls back deterministically.
+
+Two live seven-source refreshes proved the implication issue moved from its
+unchanged 18-listing primary scope to distinct 22- and 10-listing neighborhoods.
+The retained window now contains five unique bounded neighborhoods, including
+three for the implication issue. Both rotated runs honestly ended with
+`NO_CANDIDATES`: the product expanded its search frontier without manufacturing
+a relationship. Full checks, tests, build, desktop QA, and 390 px QA pass.
 
 ## Deferred future campaigns
 
