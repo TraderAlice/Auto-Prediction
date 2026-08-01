@@ -58,6 +58,20 @@ describe("Studio projection safety", () => {
       },
       records: [],
     });
+    expect(studioProjection.ai.researchDesk).toEqual({
+      caseCount: 0,
+      activeCount: 0,
+      evidenceGapCount: 0,
+      awaitingReviewCount: 0,
+      needsContextCount: 0,
+      needsInvestigationCount: 0,
+      cases: [],
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 

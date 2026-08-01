@@ -73,6 +73,28 @@ the synthetic golden fixture: discovery, independent review, deterministic
 compilation, exact verification, and blocked execution authority. This proves
 the code path without suggesting that a runtime scout result has been reviewed.
 
+## Research case desk
+
+The Research Cases view is a deterministic join over the bounded Discovery
+Ledger and Investigation Desk projections. A case identity binds normalized
+question, sorted venue scope, catalog-context identity, and fixture/live source
+grade. A catalog refresh therefore creates a new evidence revision rather than
+silently folding new venue bytes into an older case.
+
+Each dossier projects retained task IDs, scout lead count, pi attempts and
+failures, candidate listing references, findings/warnings, and the latest
+passed report's missing-evidence intake. Legacy scout records without a bounded
+catalog identity are labeled `NEEDS_CONTEXT`; grounded leads without a passed
+pi report are `NEEDS_INVESTIGATION`. A passed pi process with reported gaps is
+`EVIDENCE_GAPS`, not reviewed or complete.
+
+The six case stages deliberately use `BOUND` and `PRESENT` for AI inputs. They
+do not use verifier `PASS` terminology. Independent review, deterministic
+compilation, and exact verification remain `BLOCKED`, and every case carries
+literal-false promotion and execution authority. The view performs no write and
+does not create a new persistence authority; it is rebuilt from hash-checked
+bounded operational records on every control-plane projection.
+
 ## AI boundary
 
 Discovery workers may be cheap heuristics or external models. They can propose search terms, possible same-claim links, and strategy hypotheses. Every hypothesis is `PROPOSE_ONLY` and `UNREVIEWED`.

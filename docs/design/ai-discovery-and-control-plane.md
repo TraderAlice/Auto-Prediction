@@ -123,6 +123,23 @@ because an interrupted isolated subprocess cannot be resumed. Diagnostics are
 sanitized, and every record reconstructs proposal-only, unreviewed, and
 literal-false execution authority locally.
 
+## Research case coordination
+
+`ResearchCaseDesk` derives a bounded operational dossier from Discovery Ledger
+and Investigation Desk projections; it owns no mutable store. Scope identity is
+the hash of normalized question, sorted venues, catalog-context identity, and
+fixture/live source grade. This keeps successive live observation revisions
+separate and permits scout and pi task IDs to differ without losing their shared
+research scope.
+
+The desk retains retry history, latest scout proposals, the latest passed pi
+artifact, candidate listing references, warnings, and missing-evidence intake.
+It fails closed on any upstream authority assertion or conflicting listing
+counts for one context identity. `BOUND` and `PRESENT` mean only that evidence
+or model output exists. The case projection always reconstructs
+`PROPOSE_ONLY`, `UNREVIEWED`, `promotionEligible: false`, and
+`executionAuthority: false`; it cannot create a review or feed compilation.
+
 The first real DeepSeek V4 Flash qualification passed both paths on 2026-08-01.
 The AI SDK path emitted three fixture-grounded proposals under artifact
 `sha256:93e5612e…273735`. The corrected pi final-text path emitted a bounded,
