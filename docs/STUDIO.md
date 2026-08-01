@@ -114,6 +114,15 @@ verifier stages, and the requirement to rescreen changed books. It reports
 candidate to the opportunity list. The browser only presents the control-plane
 result and performs no price, depth, fee, route, or payoff calculation.
 
+When a bound book changes, the control plane also publishes
+`pmh.real-candidate-rescreen.v1`. Studio renders the previous snapshot, the
+substantive venue-book changes, and the new snapshot as a lineage rather than
+silently replacing one result with another. The current qualification fixture
+shows a Polymarket raw-hash and native-generation change. Its old rejection is
+invalidated; fresh depth and disposition identities reach the same rejection
+independently. At narrow widths the lineage becomes a vertical sequence while
+preserving the explicit `prior decision reused: NO` assertion.
+
 ## Scout inbox
 
 Completed discovery runs are retained by a `DiscoveryLedger` with a fixed

@@ -213,3 +213,13 @@ is already zero, no exact dynamic fee amount can make the post-fee floor
 strictly positive. The pipeline therefore does not spend independent-review
 or exact-verifier authority on this snapshot. The disposition is not a
 permanent market judgment: any changed book identity must be screened again.
+
+`real-candidate-rescreen.v1.json` exercises that invalidation rule with a
+second anonymous capture. Polymarket changes both raw book hash and native
+venue generation, while the byte-identical Limitless book is freshly observed
+but does not masquerade as a content change. The prior depth and disposition
+are rebuilt from their original fixtures, marked invalid for the new snapshot,
+and never reused. Fresh depth and disposition hashes independently reproduce
+the zero-floor economic rejection. The lineage records
+`priorDecisionReused: false`, skips review and verification again, and requires
+another rescreen on the next substantive book change.

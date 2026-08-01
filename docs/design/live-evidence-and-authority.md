@@ -46,6 +46,14 @@ independent review, and exact verification are unnecessary for rejection.
 The result expires logically when either book identity changes and grants no
 certificate or execution authority.
 
+A rescreen is a new decision, not an extension of the expired one. Its lineage
+rebuilds the prior disposition from immutable sources, binds fresh receive
+times, distinguishes byte-identical observations from substantive raw or
+native-generation changes, and requires at least one substantive book change.
+Only then may it recompute current depth and disposition evidence. A test with
+newly positive gross economics proves that an old rejection cannot be carried
+forward: the rejection builder fails instead of manufacturing continuity.
+
 The repository has no live-trading authority. No adapter method may turn configuration alone into permission to place an order or move value.
 
 Order-shape research emits `pmh.inert-order-ack.v1` receipts. Each receipt

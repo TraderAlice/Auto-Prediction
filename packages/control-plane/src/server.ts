@@ -321,6 +321,7 @@ export function createControlPlane(options?: {
       realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
       realCandidateDisposition:
         realCandidatePreflightDesk.dispositionProjection(),
+      realCandidateRescreen: realCandidatePreflightDesk.rescreenProjection(),
     });
   };
 
@@ -437,6 +438,7 @@ export function createControlPlane(options?: {
         realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
         realCandidateDisposition:
           realCandidatePreflightDesk.dispositionProjection(),
+        realCandidateRescreen: realCandidatePreflightDesk.rescreenProjection(),
       });
       return;
     }

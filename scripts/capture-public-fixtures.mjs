@@ -30,6 +30,12 @@ const fixtures = Object.freeze({
     sourceUrl:
       "https://clob.polymarket.com/book?token_id=59252515735652674747158950210016502214756531287333895140318848923768750410355",
   },
+  "polymarket-trump-out-2027-book-rescreen-1": {
+    venue: "polymarket-global",
+    protocolVersion: "clob-book-rest:2026-08-01",
+    sourceUrl:
+      "https://clob.polymarket.com/book?token_id=59252515735652674747158950210016502214756531287333895140318848923768750410355",
+  },
   "kalshi-catalog": {
     venue: "kalshi",
     protocolVersion: "trade-api-v2:2026-07-31",
@@ -76,6 +82,12 @@ const fixtures = Object.freeze({
       "https://api.limitless.exchange/markets/trump-out-as-president-before-2027-1768933068297",
   },
   "limitless-trump-out-2027-book": {
+    venue: "limitless",
+    protocolVersion: "api-v1-orderbook:2026-08-01",
+    sourceUrl:
+      "https://api.limitless.exchange/markets/trump-out-as-president-before-2027-1768933068297/orderbook",
+  },
+  "limitless-trump-out-2027-book-rescreen-1": {
     venue: "limitless",
     protocolVersion: "api-v1-orderbook:2026-08-01",
     sourceUrl:

@@ -3,6 +3,7 @@ import type {
   RealCandidateDepthEvidence,
   RealCandidateDispositionEvidence,
   RealCandidatePreflightEvidence,
+  RealCandidateRescreenEvidence,
 } from "@pmh/evidence";
 import { runReplayChaosSuite } from "@pmh/market-state";
 import { geminiManifest } from "@pmh/venue-gemini";
@@ -82,6 +83,7 @@ export function buildStudioProjection(input: {
   realCandidatePreflight?: RealCandidatePreflightEvidence;
   realCandidateDepth?: RealCandidateDepthEvidence;
   realCandidateDisposition?: RealCandidateDispositionEvidence;
+  realCandidateRescreen?: RealCandidateRescreenEvidence;
 }): StudioProjection {
   const bookDesk = input.bookDesk ?? {
     mode: "FIXTURE_REPLAY" as const,
@@ -235,7 +237,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 196,
+      proofTests: 201,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -280,6 +282,7 @@ export function buildStudioProjection(input: {
       realCandidatePreflight: input.realCandidatePreflight ?? null,
       realCandidateDepth: input.realCandidateDepth ?? null,
       realCandidateDisposition: input.realCandidateDisposition ?? null,
+      realCandidateRescreen: input.realCandidateRescreen ?? null,
     },
     discoveryDesk,
     venues: manifests

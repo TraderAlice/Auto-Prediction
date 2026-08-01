@@ -3,6 +3,7 @@ import type { VerifiedRawFixture } from "./raw-fixture.js";
 import {
   buildRealCandidateDepthEvidence,
   type RealCandidateDepthEvidence,
+  type RealCandidateDepthInput,
 } from "./real-candidate-depth.js";
 
 const FEE_PERCENT_SCALE = 100n;
@@ -72,6 +73,11 @@ export type RealCandidateDispositionEvidence = Readonly<{
   artifactHash: Hash;
 }>;
 
+export type RealCandidateDispositionInput = RealCandidateDepthInput &
+  Readonly<{
+    limitlessFees: VerifiedRawFixture;
+  }>;
+
 function feeDocumentText(fixture: VerifiedRawFixture): string {
   if (
     fixture.metadata.venue !== "limitless" ||
@@ -113,14 +119,9 @@ function parseSellTakerFeeRange(document: string): {
   return { minimumBps, maximumBps };
 }
 
-export function buildRealCandidateDispositionEvidence(input: {
-  polymarket: VerifiedRawFixture;
-  opinion: VerifiedRawFixture;
-  limitless: VerifiedRawFixture;
-  polymarketBook: VerifiedRawFixture;
-  limitlessBook: VerifiedRawFixture;
-  limitlessFees: VerifiedRawFixture;
-}): RealCandidateDispositionEvidence {
+export function buildRealCandidateDispositionEvidence(
+  input: RealCandidateDispositionInput,
+): RealCandidateDispositionEvidence {
   const depth: RealCandidateDepthEvidence =
     buildRealCandidateDepthEvidence(input);
   const limitlessLeg = depth.legs.find(
