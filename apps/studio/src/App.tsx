@@ -803,7 +803,7 @@ function ScoutInboxView() {
         <Metric
           label="Deep reports"
           value={`${studioProjection.ai.investigationDesk.passCount}`}
-          detail={`${studioProjection.ai.investigationDesk.activeCount} running · memory only`}
+          detail={`${studioProjection.ai.investigationDesk.activeCount} running · ${studioProjection.ai.investigationDesk.storage.durable ? "durable WAL" : "memory only"}`}
         />
       </div>
 
@@ -944,7 +944,9 @@ function ScoutInboxView() {
               <SquareTerminal size={14} />
               <span>
                 One read-only pi task at a time · may take about two minutes ·
-                reports are retained in process memory only.
+                completed reports are {studioProjection.ai.investigationDesk.storage.durable
+                  ? "hash-checked and retained in SQLite WAL"
+                  : "retained in process memory only"}.
                 {investigationDiagnostic !== null && (
                   <strong>{investigationDiagnostic}</strong>
                 )}
@@ -964,17 +966,24 @@ function ScoutInboxView() {
                 <span className="eyebrow">Read-only agent lane</span>
                 <h2>pi investigation desk</h2>
               </div>
-              <Badge
-                variant={
-                  studioProjection.ai.investigationDesk.activeCount > 0
-                    ? "shadow"
-                    : "muted"
-                }
-              >
-                {studioProjection.ai.investigationDesk.activeCount > 0
-                  ? "RUNNING"
-                  : `${studioProjection.ai.investigationDesk.passCount} PASS`}
-              </Badge>
+              <div className="investigation-desk-status">
+                <Badge
+                  variant={
+                    studioProjection.ai.investigationDesk.activeCount > 0
+                      ? "shadow"
+                      : "muted"
+                  }
+                >
+                  {studioProjection.ai.investigationDesk.activeCount > 0
+                    ? "RUNNING"
+                    : `${studioProjection.ai.investigationDesk.passCount} PASS`}
+                </Badge>
+                <Badge variant="muted">
+                  {studioProjection.ai.investigationDesk.storage.durable
+                    ? `WAL v${studioProjection.ai.investigationDesk.storage.schemaVersion}`
+                    : "MEMORY"}
+                </Badge>
+              </div>
             </div>
             {studioProjection.ai.investigationDesk.records.length === 0 ? (
               <div className="investigation-empty">

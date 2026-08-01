@@ -31,7 +31,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - SQLite WAL operational state with bounded retention, content-hash verification, cross-restart `taskId` idempotency, and in-process concurrent-request coalescing.
 - An AI-native discovery pool where cheap parallel scouts inspect bounded, content-addressed fixture catalogs and may propose hypotheses but can never certify or execute them; its default DeepSeek V4 Flash worker runs through Vercel AI SDK with timeout, token, schema, and application-side scope bounds, while direct OpenAI Responses remains an optional backend.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
-- An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, task-scope idempotency, bounded in-memory retention, SSE running/failure/completion state, and no route into review or execution.
+- An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, cross-restart task-scope idempotency, bounded hash-checked SQLite retention, SSE running/failure/completion state, and no route into review or execution.
 - A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
 - A Books desk that replays verified public frames into generation-bound order books, broadcasts them over SSE, and exposes venue-native sequence posture.
@@ -73,8 +73,8 @@ pnpm studio
 `pnpm studio` stores bounded Scout Inbox state in
 `.data/control-plane.sqlite` using WAL mode. Set `PMH_STATE_DB` to an alternate
 path when a different local operational volume is required. The database is
-ignored by Git and contains discovery records, not credentials or immutable
-campaign evidence.
+ignored by Git and contains bounded discovery and completed investigation
+records, not credentials or immutable campaign evidence.
 
 The model scout is opt-in. Set `DEEPSEEK_API_KEY` in the control-plane process
 to add a `deepseek-v4-flash` worker beside the free heuristic worker. It uses
@@ -119,11 +119,12 @@ extensions/skills/templates/themes, and exposes only `read`, `grep`, `find`, and
 content-hashed `pmh.pi-investigation-report.v1` with proposal-only authority.
 It is never scheduled automatically. A user may start it from Studio or
 `POST /api/v1/investigations`; the control plane permits only one active task,
-coalesces identical in-flight requests, retains at most ten reports in process
-memory, and streams its state over SSE. It cannot write files, run a shell,
-trade, review equivalence, or promote its own findings. Restarting the control
-plane clears this desk; the durable SQLite Discovery Ledger remains a separate
-fast-scout store.
+coalesces identical in-flight requests, retains at most ten completed reports
+in the hash-checked SQLite WAL, and streams its state over SSE. RUNNING state is
+deliberately process-local because a terminated subprocess cannot be resumed;
+completed PASS/FAILED records and passed-task idempotency survive restart. It
+cannot write files, run a shell, trade, review equivalence, or promote its own
+findings.
 
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 

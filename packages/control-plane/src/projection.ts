@@ -166,6 +166,7 @@ export function buildStudioProjection(input: {
         storage: {
           mode: "MEMORY" as const,
           durable: false as const,
+          schemaVersion: 0,
           idempotencyKey: "taskId+catalogContextIdentity" as const,
         },
         records: [],

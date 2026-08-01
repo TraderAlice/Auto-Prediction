@@ -281,6 +281,113 @@ describe("control-plane HTTP surface", () => {
     });
   });
 
+  it("restores pi reports and idempotency from SQLite after a server restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-investigation-state-"));
+    const path = join(directory, "control-plane.sqlite");
+    let invocations = 0;
+    const piRuntime = createPiInvestigatorRuntime(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        runner: async () => {
+          invocations += 1;
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              summary: "Persistent bounded report.",
+              candidateListingRefs: [],
+              findings: [],
+              missingEvidence: ["Independent rule review"],
+            }),
+            stderr: "",
+            timedOut: false,
+            outputLimitExceeded: false,
+          };
+        },
+      },
+    );
+    const request = {
+      taskId: "task:investigation:restart-safe",
+      question: "Investigate persistent bounded context",
+      venueIds: ["gemini-predictions"],
+    };
+    try {
+      const first = await listenControlPlane({
+        discoveryStore: new SqliteOperationalStore(path),
+        piRuntime,
+      });
+      const created = (await fetch(`${first.baseUrl}/api/v1/investigations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+      }).then((response) => response.json())) as {
+        investigationId: string;
+        idempotentReplay: boolean;
+      };
+      expect(created.idempotentReplay).toBe(false);
+      expect(invocations).toBe(1);
+      await closeTracked(first.controlPlane.server);
+
+      const second = await listenControlPlane({
+        discoveryStore: new SqliteOperationalStore(path),
+        piRuntime,
+      });
+      const restored = (await fetch(
+        `${second.baseUrl}/api/v1/investigations`,
+      ).then((response) => response.json())) as {
+        passCount: number;
+        storage: {
+          mode: string;
+          durable: boolean;
+          schemaVersion: number;
+        };
+        records: { investigationId: string }[];
+      };
+      expect(restored).toMatchObject({
+        passCount: 1,
+        storage: {
+          mode: "SQLITE_WAL",
+          durable: true,
+          schemaVersion: 2,
+        },
+        records: [{ investigationId: created.investigationId }],
+      });
+      const replayed = (await fetch(
+        `${second.baseUrl}/api/v1/investigations`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        },
+      ).then((response) => response.json())) as {
+        investigationId: string;
+        idempotentReplay: boolean;
+      };
+      expect(replayed).toEqual(
+        expect.objectContaining({
+          investigationId: created.investigationId,
+          idempotentReplay: true,
+        }),
+      );
+      expect(invocations).toBe(1);
+      const conflict = await fetch(`${second.baseUrl}/api/v1/investigations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...request,
+          question: "Substituted investigation scope",
+        }),
+      });
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toMatchObject({
+        executionAuthority: false,
+        diagnostic: "taskId is already bound to another investigation scope",
+      });
+      await closeTracked(second.controlPlane.server);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("retains a grounded run with no matching hypothesis", async () => {
     const baseUrl = await listen();
     const response = await fetch(`${baseUrl}/api/v1/discovery/runs`, {

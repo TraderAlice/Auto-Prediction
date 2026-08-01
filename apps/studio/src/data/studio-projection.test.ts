@@ -52,6 +52,7 @@ describe("Studio projection safety", () => {
       storage: {
         mode: "MEMORY",
         durable: false,
+        schemaVersion: 0,
         idempotencyKey: "taskId+catalogContextIdentity",
       },
       records: [],

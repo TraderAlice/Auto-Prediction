@@ -17,6 +17,7 @@ import {
   InvestigationDesk,
   InvestigationNotConfiguredError,
   InvestigationScopeConflictError,
+  type InvestigationRecordStore,
 } from "./investigation-desk.js";
 import {
   DiscoveryLedger,
@@ -142,6 +143,18 @@ function recordMatchesTask(
   );
 }
 
+function supportsInvestigationRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & InvestigationRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<InvestigationRecordStore>;
+  return (
+    candidate.investigationStorage !== undefined &&
+    typeof candidate.loadInvestigations === "function" &&
+    typeof candidate.saveInvestigation === "function"
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -151,12 +164,21 @@ export function createControlPlane(options?: {
   modelRuntime?: DiscoveryModelRuntime;
   piRuntime?: PiInvestigatorRuntime;
   investigationDesk?: InvestigationDesk;
+  investigationStore?: InvestigationRecordStore;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
     options.discoveryStore !== undefined
   ) {
     throw new Error("provide either discoveryLedger or discoveryStore, not both");
+  }
+  if (
+    options?.investigationDesk !== undefined &&
+    options.investigationStore !== undefined
+  ) {
+    throw new Error(
+      "provide either investigationDesk or investigationStore, not both",
+    );
   }
   const modelRuntime =
     options?.modelRuntime ?? createDiscoveryModelRuntime();
@@ -173,7 +195,15 @@ export function createControlPlane(options?: {
   const discoveryLedger =
     options?.discoveryLedger ?? new DiscoveryLedger(25, options?.discoveryStore);
   const investigationDesk =
-    options?.investigationDesk ?? new InvestigationDesk(piRuntime.investigator);
+    options?.investigationDesk ??
+    new InvestigationDesk(
+      piRuntime.investigator,
+      10,
+      options?.investigationStore ??
+        (supportsInvestigationRecords(options?.discoveryStore)
+          ? options.discoveryStore
+          : undefined),
+    );
   const ready = Promise.all([bookDesk.replay(), catalogDesk.load()]).then(
     () => undefined,
   );
@@ -488,7 +518,10 @@ export async function startControlPlane(
 ): Promise<void> {
   const { SqliteOperationalStore } = await import("./operational-store.js");
   const discoveryStore = new SqliteOperationalStore(databasePath);
-  const { server, ready } = createControlPlane({ discoveryStore });
+  const { server, ready } = createControlPlane({
+    discoveryStore,
+    investigationStore: discoveryStore,
+  });
   await ready;
   try {
     await new Promise<void>((resolveListen, reject) => {
