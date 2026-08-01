@@ -16,7 +16,12 @@ raw venue facts
 AI-native discovery sits beside, not inside, the authoritative path:
 
 ```text
-proposal-only scout hypothesis
+fresh anonymous catalogs
+  -> deterministic cross-venue Radar blocks
+  -> explicit cheap scout triage
+  -> durable exact-context research case
+  -> explicit read-only pi investigation
+  -> proposal-only scout / investigator findings
   -> independent hypothesis review artifact
   -> accepted EXACT market-link review graph
   -> deterministic capital-bounded compiler
@@ -38,6 +43,14 @@ authority fields locally; model output cannot supply an
 identity, review status, certificate, or execution flag. Missing credentials,
 HTTP errors, refusals, incomplete output, malformed JSON, and out-of-scope
 venues fail closed while independent heuristic workers may still finish.
+
+`OpportunityRadar` is a deterministic workload router, not an arbitrage
+solver. It uses integer rare-term-weighted title overlap to bound the search
+surface, requires different venues, rejects incompatible recurring cadences
+and exact close times, and retains no more than 25 pairs. Candidate identities
+bind both listings' source receive time, raw hash, and protocol identity. Only
+an explicit server-side triage action may create an exact two-listing discovery
+context; the browser never supplies the evidence body.
 
 Tasks that need repository-aware investigation use a second lane: a pinned pi
 CLI launched as an isolated, no-session final-text subprocess. It uses DeepSeek V4
@@ -64,6 +77,13 @@ references, and preserves failed pi attempts beside the latest passed report.
 Its `BOUND` / `PRESENT` stages describe retained research input, never semantic
 approval. Review, compilation, exact verification, promotion, and execution
 remain unavailable through this layer.
+
+New Discovery Ledger records also retain the complete bounded normalized
+catalog context used by their workers. This snapshot is hash-checked in SQLite
+but stripped from HTTP/SSE projections. Research Case and Radar pi handoffs
+load the stored context by task ID, so a catalog refresh or restart cannot
+replace the evidence between cheap scouting and deep investigation. Legacy
+runs without a snapshot fail closed and require a fresh scout.
 
 The hypothesis remains `PROPOSE_ONLY` and `UNREVIEWED`; approval is a separate
 content-addressed artifact. Compilation derives its claim-graph and resolution

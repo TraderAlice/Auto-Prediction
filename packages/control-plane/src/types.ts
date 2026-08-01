@@ -83,6 +83,8 @@ export type DiscoveryRunRecord = DiscoveryRun &
   Readonly<{
     question: string;
     venueIds: readonly string[];
+    catalogContext?: DiscoveryCatalogContext;
+    catalogContextRetained?: boolean;
     catalogContextIdentity?: string;
     catalogListingCount?: number;
     catalogContextSource?: DiscoveryCatalogContextSource;
@@ -209,6 +211,7 @@ export type StudioProjection = Readonly<{
     activeRuns: number;
     catalogContext: DiscoveryCatalogProjection;
     catalogObservation: import("./catalog-observation.js").CatalogObservationProjection;
+    opportunityRadar: import("./opportunity-radar.js").OpportunityRadarProjection;
     modelProvider: ModelProviderProjection;
     investigator: PiInvestigatorProjection;
     investigationDesk: import("./investigation-desk.js").InvestigationDeskProjection;

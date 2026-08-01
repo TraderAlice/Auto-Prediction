@@ -46,6 +46,8 @@ export type ResearchCaseProjection = Readonly<{
   scout: Readonly<{
     status: "LEADS" | "EMPTY" | "MISSING";
     runId: string | null;
+    taskId: string | null;
+    contextSnapshotRetained: boolean;
     workerIds: readonly string[];
     hypothesisCount: number;
     diagnosticCount: number;
@@ -56,8 +58,14 @@ export type ResearchCaseProjection = Readonly<{
     failedAttemptCount: number;
     latestInvestigationId: string | null;
     artifactHash: string | null;
+    summary: string | null;
     findingCount: number;
     warningCount: number;
+    findings: readonly Readonly<{
+      listingRefs: readonly string[];
+      statement: string;
+      severity: "INFO" | "WARNING";
+    }>[];
   }>;
   candidateListingRefCount: number;
   candidateListingRefs: readonly string[];
@@ -291,6 +299,8 @@ function buildCase(group: MutableCase): ResearchCaseProjection {
             ? ("LEADS" as const)
             : ("EMPTY" as const),
       runId: latestRun?.runId ?? null,
+      taskId: latestRun?.taskId ?? null,
+      contextSnapshotRetained: latestRun?.catalogContextRetained === true,
       workerIds: Object.freeze([...(latestRun?.workerIds ?? [])]),
       hypothesisCount,
       diagnosticCount: latestRun?.diagnostics.length ?? 0,
@@ -303,11 +313,23 @@ function buildCase(group: MutableCase): ResearchCaseProjection {
       ).length,
       latestInvestigationId: latestInvestigation?.investigationId ?? null,
       artifactHash: passedInvestigation?.report?.artifactHash ?? null,
+      summary: passedInvestigation?.report?.result.summary ?? null,
       findingCount: passedInvestigation?.report?.result.findings.length ?? 0,
       warningCount:
         passedInvestigation?.report?.result.findings.filter(
           (finding) => finding.severity === "WARNING",
         ).length ?? 0,
+      findings: Object.freeze(
+        (passedInvestigation?.report?.result.findings ?? [])
+          .slice(0, 8)
+          .map((finding) =>
+            Object.freeze({
+              listingRefs: Object.freeze([...finding.listingRefs]),
+              statement: finding.statement,
+              severity: finding.severity,
+            }),
+          ),
+      ),
     }),
     candidateListingRefCount: allCandidateListingRefs.length,
     candidateListingRefs,

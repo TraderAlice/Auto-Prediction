@@ -65,7 +65,7 @@ function hasBoundedCatalogListing(
   );
 }
 
-function assertTask(task: DiscoveryTask): void {
+export function assertDiscoveryTask(task: DiscoveryTask): void {
   const allowedVenueIds = new Set(task.venueIds);
   if (
     task.taskId.trim() === "" ||
@@ -463,7 +463,7 @@ export class DiscoveryPool {
   }
 
   public async run(task: DiscoveryTask): Promise<DiscoveryRun> {
-    assertTask(task);
+    assertDiscoveryTask(task);
     const startedAtMs = this.now();
     if (startedAtMs > task.deadlineEpochMs) {
       throw new Error("discovery task deadline has expired");

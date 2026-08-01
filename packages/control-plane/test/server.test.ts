@@ -7,6 +7,7 @@ import {
   createControlPlane,
   CatalogObservationDesk,
   catalogObservationSources,
+  type CatalogObservationSource,
   createOpenAiDiscoveryRuntime,
   createPiInvestigatorRuntime,
   DiscoveryPool,
@@ -222,6 +223,207 @@ describe("control-plane HTTP surface", () => {
       }),
     });
     expect(malformed.status).toBe(400);
+  });
+
+  it("triages only a current server-bound radar pair through the scout pool", async () => {
+    let nowMs = Date.parse("2026-08-01T04:07:36.000Z");
+    const source = (
+      venueId: string,
+      title: string,
+      closesAt?: string,
+    ): CatalogObservationSource => ({
+      venueId,
+      protocolIdentity: `${venueId}:v1`,
+      sourceUrl: `https://example.test/${venueId}`,
+      decode: (fixture) => [
+        {
+          venueId,
+          venueInstrumentId: `${venueId}-bnb-hourly`,
+          title,
+          description: "Whether BNB finishes the hour up or down.",
+          status: "OPEN",
+          mechanism: "ONCHAIN_CLOB",
+          ...(closesAt === undefined ? {} : { closesAt }),
+          outcomes: [
+            { venueOutcomeId: "up", label: "Up" },
+            { venueOutcomeId: "down", label: "Down" },
+          ],
+          priceScale: 1_000_000n,
+          quantityScale: 1_000_000n,
+          sourceFixtureHash: fixture.rawHash,
+          protocolIdentity: `${venueId}:v1`,
+        },
+      ],
+    });
+    const sources = [
+      source(
+        "opinion",
+        "BNB Up or Down - Hourly (Aug 01, 2026 05:00 UTC Close)",
+      ),
+      source(
+        "limitless",
+        "BNB Up or Down - Hourly",
+        "2026-08-01T05:00:00.000Z",
+      ),
+    ];
+    const desk = new CatalogObservationDesk({
+      sources,
+      now: () => nowMs,
+      fetcher: async (input) =>
+        new Response(JSON.stringify({ source: input }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    const piRuntime = createPiInvestigatorRuntime(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        runner: async () => ({
+          exitCode: 0,
+          stdout: JSON.stringify({
+            summary: "The bounded radar pair needs independent rule review.",
+            candidateListingRefs: [
+              "limitless:limitless-bnb-hourly",
+              "opinion:opinion-bnb-hourly",
+            ],
+            findings: [],
+            missingEvidence: ["Independent oracle and comparator review"],
+          }),
+          stderr: "",
+          timedOut: false,
+          outputLimitExceeded: false,
+        }),
+      },
+    );
+    const { baseUrl } = await listenControlPlane({
+      catalogObservationDesk: desk,
+      piRuntime,
+    });
+    await desk.refresh();
+    const radar = (await fetch(`${baseUrl}/api/v1/radar`).then((response) =>
+      response.json(),
+    )) as {
+      candidateCount: number;
+      candidates: { candidateId: string }[];
+      effects: { liveExecutionEnabled: boolean };
+    };
+    expect(radar).toMatchObject({
+      candidateCount: 1,
+      effects: { liveExecutionEnabled: false },
+    });
+    const candidateId = radar.candidates[0]?.candidateId;
+    if (candidateId === undefined) throw new Error("missing radar candidate");
+
+    const triageResponse = await fetch(`${baseUrl}/api/v1/radar/triage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ candidateId }),
+    });
+    const triage = (await triageResponse.json()) as {
+      radarCandidateId: string;
+      idempotentReplay: boolean;
+      catalogListingCount: number;
+      catalogContextSource: string;
+      executionAuthority: boolean;
+      hypotheses: {
+        listingRefs: string[];
+        authority: string;
+        reviewStatus: string;
+      }[];
+    };
+    expect(triageResponse.status).toBe(200);
+    expect(triage).toMatchObject({
+      radarCandidateId: candidateId,
+      idempotentReplay: false,
+      catalogListingCount: 2,
+      catalogContextSource: "QUALIFIED_LIVE_OBSERVATIONS",
+      executionAuthority: false,
+    });
+    expect(triage.hypotheses[0]).toMatchObject({
+      listingRefs: ["limitless:limitless-bnb-hourly", "opinion:opinion-bnb-hourly"],
+      authority: "PROPOSE_ONLY",
+      reviewStatus: "UNREVIEWED",
+    });
+
+    const replay = await fetch(`${baseUrl}/api/v1/radar/triage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ candidateId }),
+    }).then((response) => response.json()) as { idempotentReplay: boolean };
+    expect(replay.idempotentReplay).toBe(true);
+
+    nowMs += 1_000;
+    await desk.refresh();
+    const refreshedRadar = desk.radar();
+    expect(refreshedRadar.candidates[0]?.candidateId).not.toBe(candidateId);
+
+    const investigationResponse = await fetch(
+      `${baseUrl}/api/v1/radar/investigate`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ candidateId }),
+      },
+    );
+    const investigation = (await investigationResponse.json()) as {
+      status: string;
+      radarCandidateId: string;
+      taskId: string;
+      catalogListingCount: number;
+      authority: string;
+      reviewStatus: string;
+      executionAuthority: boolean;
+      report: { result: { executionAuthority: boolean } };
+    };
+    expect(investigationResponse.status).toBe(200);
+    expect(investigation).toMatchObject({
+      status: "PASS",
+      radarCandidateId: candidateId,
+      taskId: expect.stringMatching(/^task:[0-9a-f]{64}$/),
+      catalogListingCount: 2,
+      authority: "PROPOSE_ONLY",
+      reviewStatus: "UNREVIEWED",
+      executionAuthority: false,
+      report: { result: { executionAuthority: false } },
+    });
+    const caseReplay = await fetch(
+      `${baseUrl}/api/v1/research-cases/investigate`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ taskId: investigation.taskId }),
+      },
+    ).then((response) => response.json()) as { idempotentReplay: boolean };
+    expect(caseReplay.idempotentReplay).toBe(true);
+    const joinedCase = (await fetch(`${baseUrl}/api/v1/projection`).then(
+      (response) => response.json(),
+    )) as {
+      ai: {
+        researchDesk: {
+          cases: { taskIds: string[]; status: string; missingEvidence: string[] }[];
+        };
+      };
+    };
+    expect(
+      joinedCase.ai.researchDesk.cases.find((item) =>
+        item.taskIds.includes(investigation.taskId),
+      ),
+    ).toMatchObject({
+      status: "EVIDENCE_GAPS",
+      missingEvidence: ["Independent oracle and comparator review"],
+    });
+
+    nowMs += 900_001;
+    const stale = await fetch(`${baseUrl}/api/v1/radar/triage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ candidateId }),
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      executionAuthority: false,
+      diagnostic: expect.stringMatching(/no longer present/),
+    });
   });
 
   it("refreshes an anonymous catalog observation without promoting it", async () => {

@@ -1,4 +1,5 @@
 import type {
+  DiscoveryCatalogContext,
   DiscoveryDeskProjection,
   DiscoveryRun,
   DiscoveryRunRecord,
@@ -6,6 +7,7 @@ import type {
   OperationalStorageProjection,
   OpportunityHypothesis,
 } from "./types.js";
+import { assertDiscoveryTask } from "./discovery.js";
 
 export interface DiscoveryRunStore {
   readonly storage: OperationalStorageProjection;
@@ -65,6 +67,27 @@ function freezeHypothesis(value: unknown): OpportunityHypothesis {
   });
 }
 
+function freezeCatalogContext(
+  value: DiscoveryCatalogContext,
+): DiscoveryCatalogContext {
+  return Object.freeze({
+    schemaVersion: value.schemaVersion,
+    source: value.source,
+    contentPolicy: value.contentPolicy,
+    contextIdentity: value.contextIdentity,
+    listings: Object.freeze(
+      value.listings.map((listing) =>
+        Object.freeze({
+          ...listing,
+          outcomes: Object.freeze(
+            listing.outcomes.map((outcome) => Object.freeze({ ...outcome })),
+          ),
+        }),
+      ),
+    ),
+  });
+}
+
 export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("stored discovery run is malformed");
@@ -109,6 +132,27 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
   ) {
     throw new Error("stored discovery run has an invalid catalog source");
   }
+  let catalogContext: DiscoveryCatalogContext | undefined;
+  if (record.catalogContext !== undefined) {
+    assertDiscoveryTask({
+      taskId: record.taskId,
+      question: record.question,
+      venueIds: record.venueIds,
+      maxHypotheses: 1,
+      deadlineEpochMs: 0,
+      catalogContext: record.catalogContext as DiscoveryCatalogContext,
+    });
+    catalogContext = freezeCatalogContext(
+      record.catalogContext as DiscoveryCatalogContext,
+    );
+    if (
+      record.catalogContextIdentity !== catalogContext.contextIdentity ||
+      record.catalogListingCount !== catalogContext.listings.length ||
+      record.catalogContextSource !== catalogContext.source
+    ) {
+      throw new Error("stored discovery run context summary does not match snapshot");
+    }
+  }
   return Object.freeze({
     runId: record.runId,
     taskId: record.taskId,
@@ -132,7 +176,18 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
                   | "VERIFIED_FIXTURE_CATALOGS"
                   | "QUALIFIED_LIVE_OBSERVATIONS",
               }),
+          ...(catalogContext === undefined ? {} : { catalogContext }),
         }),
+  });
+}
+
+export function projectDiscoveryRunRecord(
+  record: DiscoveryRunRecord,
+): DiscoveryRunRecord {
+  const { catalogContext: _catalogContext, ...projection } = record;
+  return Object.freeze({
+    ...projection,
+    catalogContextRetained: record.catalogContext !== undefined,
   });
 }
 
@@ -182,6 +237,7 @@ export class DiscoveryLedger {
             catalogContextIdentity: task.catalogContext.contextIdentity,
             catalogListingCount: task.catalogContext.listings.length,
             catalogContextSource: task.catalogContext.source,
+            catalogContext: task.catalogContext,
           }),
     });
     const stored = this.#store?.save(record, this.#retentionLimit) ?? record;
@@ -191,6 +247,8 @@ export class DiscoveryLedger {
       stored.venueIds.some((item, index) => item !== record.venueIds[index]) ||
       stored.catalogContextIdentity !== record.catalogContextIdentity ||
       stored.catalogListingCount !== record.catalogListingCount ||
+      stored.catalogContext?.contextIdentity !==
+        record.catalogContext?.contextIdentity ||
       (stored.catalogContextSource ?? "VERIFIED_FIXTURE_CATALOGS") !==
         (record.catalogContextSource ?? "VERIFIED_FIXTURE_CATALOGS")
     ) {
@@ -221,7 +279,7 @@ export class DiscoveryLedger {
           schemaVersion: 0,
           idempotencyKey: "taskId" as const,
         }),
-      runs: this.#runs,
+      runs: Object.freeze(this.#runs.map(projectDiscoveryRunRecord)),
     });
   }
 

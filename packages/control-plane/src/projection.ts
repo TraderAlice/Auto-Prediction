@@ -18,6 +18,7 @@ import type {
 } from "./types.js";
 import type { InvestigationDeskProjection } from "./investigation-desk.js";
 import type { CatalogObservationProjection } from "./catalog-observation.js";
+import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
 import { buildResearchCaseDesk } from "./research-case-desk.js";
@@ -67,6 +68,7 @@ export function buildStudioProjection(input: {
   activeRuns: number;
   catalogContext?: DiscoveryCatalogProjection;
   catalogObservation?: CatalogObservationProjection;
+  opportunityRadar?: OpportunityRadarProjection;
   modelProvider?: ModelProviderProjection;
   investigator?: PiInvestigatorProjection;
   investigationDesk?: InvestigationDeskProjection;
@@ -145,6 +147,21 @@ export function buildStudioProjection(input: {
     maxOutputBytes: 2_000_000,
     authority: "PROPOSE_ONLY" as const,
   };
+  const opportunityRadar = input.opportunityRadar ?? {
+    algorithmVersion: "pmh.opportunity-radar.lexical-v1" as const,
+    sourceSetIdentity: hashCanonical([]),
+    observedListingCount: 0,
+    eligibleSourceCount: 0,
+    excludedSourceCount: 0,
+    candidateCount: 0,
+    candidates: [],
+    scoreMeaning: "LEXICAL_BLOCKING_ONLY_NOT_CONFIDENCE" as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const investigationDesk = input.investigationDesk ?? {
     retentionLimit: 10,
     activeCount: 0 as const,
@@ -210,7 +227,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 175,
+      proofTests: 182,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -219,6 +236,7 @@ export function buildStudioProjection(input: {
       activeRuns: input.activeRuns,
       catalogContext,
       catalogObservation,
+      opportunityRadar,
       modelProvider,
       investigator,
       investigationDesk,
