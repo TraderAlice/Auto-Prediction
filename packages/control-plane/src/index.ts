@@ -6,6 +6,7 @@ export * from "./candidate-watch.js";
 export * from "./discovery.js";
 export * from "./discovery-ledger.js";
 export * from "./deepseek-model.js";
+export * from "./exact-promotion.js";
 export * from "./investigation-desk.js";
 export * from "./local-environment.js";
 export * from "./market-archaeologist.js";

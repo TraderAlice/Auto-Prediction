@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import { runOpportunitySimulation } from "@pmh/execution";
 import {
+  verifyArbitrageCandidate,
+  type ArbitrageCandidate,
+} from "@pmh/opportunity";
+import {
   OpportunityLifecycleDesk,
   RealCandidatePreflightDesk,
+  type ExactOpportunityVerificationRecord,
   type SemanticReviewRecord,
   type MarketArchaeologistProjection,
 } from "../src/index.js";
@@ -252,10 +257,181 @@ describe("opportunity lifecycle desk", () => {
       ],
     });
 
+    const bindings = simulation.reports.map((simulationReport, index) => ({
+      legId: simulation.plan.legs[index]!.legId,
+      listingId: simulationReport.instrumentId,
+      listingRuleHash: hashCanonical({ listing: index }),
+      feeScheduleHash: simulationReport.feeScheduleHash,
+      bookGenerationHash: hashCanonical({ generation: index }),
+      bookStateHash: simulationReport.inputStateHash,
+      priceTick: 1n,
+      quantityTick: 1n,
+    }));
+    const candidate: ArbitrageCandidate = {
+      classification: "VENUE_BOUNDED_ARBITRAGE",
+      claimGraphHash: hashCanonical({ qualification: "durable" }),
+      resolutionPartitionHash: hashCanonical({ states: ["FF", "TT"] }),
+      resolutionStateIds: ["FF", "TT"],
+      legs: simulation.plan.legs.map((simulationLeg, index) => {
+        const simulationReport = simulation.reports[index]!;
+        const binding = bindings[index]!;
+        return {
+          id: simulationLeg.legId,
+          venueId: simulationReport.venueId,
+          listingId: simulationReport.instrumentId,
+          action: "BUY",
+          quantity: simulationReport.filledQuantity,
+          maxQuantity: simulationReport.filledQuantity,
+          quantityScale: simulationReport.quantityScale,
+          quantityTick: 1n,
+          unitPrice:
+            (simulationReport.grossCollateral *
+              simulationReport.quantityScale) /
+            simulationReport.filledQuantity,
+          priceTick: 1n,
+          fee: { flat: 0n, rate: 0n, rateScale: 10_000n },
+          payoutPerUnitByResolution: Object.fromEntries(
+            simulation.plan.canonicalStates.map((state) => [
+              state.stateId,
+              state.winningLegIds.includes(simulationLeg.legId)
+                ? simulationLeg.payoutPerWinningUnit
+                : 0n,
+            ]),
+          ),
+          listingRuleHash: binding.listingRuleHash,
+          feeScheduleHash: binding.feeScheduleHash,
+          bookGenerationHash: binding.bookGenerationHash,
+          bookStateHash: binding.bookStateHash,
+        };
+      }),
+      venueAssumptions: [
+        `SIMULATION_BUNDLE=${simulation.artifactHash}`,
+        `MATERIALIZATION=${hashCanonical({ materialization: "durable" })}`,
+      ],
+      expiresAtEpochMs: BigInt(
+        Date.parse("2026-08-01T00:03:00.000Z"),
+      ),
+    };
+    const verifiedAtEpochMs = BigInt(
+      Date.parse("2026-08-01T00:02:00.000Z"),
+    );
+    const certificate = verifyArbitrageCandidate(candidate, {
+      nowEpochMs: verifiedAtEpochMs,
+      claimGraphHash: candidate.claimGraphHash,
+      resolutionPartitionHash: candidate.resolutionPartitionHash,
+      listingRuleHashById: new Map(
+        bindings.map((binding) => [binding.listingId, binding.listingRuleHash]),
+      ),
+      feeScheduleHashByListingId: new Map(
+        bindings.map((binding) => [binding.listingId, binding.feeScheduleHash]),
+      ),
+      bookGenerationHashByListingId: new Map(
+        bindings.map((binding) => [binding.listingId, binding.bookGenerationHash]),
+      ),
+      bookStateHashByListingId: new Map(
+        bindings.map((binding) => [binding.listingId, binding.bookStateHash]),
+      ),
+    });
+    const exactBody = {
+      schemaVersion: "pmh.exact-opportunity-verification.v1" as const,
+      opportunityId,
+      qualificationHash: candidate.claimGraphHash,
+      materializationId: hashCanonical({ materialization: "durable" }),
+      simulationBundleHash: simulation.artifactHash,
+      candidateHash: hashCanonical(candidate),
+      attemptedAt: "2026-08-01T00:02:00.000Z",
+      verifiedAtEpochMs,
+      status: "CERTIFIED" as const,
+      diagnostic: null,
+      bindings,
+      candidate,
+      certificate,
+      authority: "FIRST_PARTY_EXACT_VERIFIER" as const,
+      executionAuthority: false as const,
+      effects: {
+        externalWrites: false as const,
+        valueMovingActions: false as const,
+        liveExecutionEnabled: false as const,
+      },
+    };
+    const exact: ExactOpportunityVerificationRecord = {
+      ...exactBody,
+      artifactHash: hashCanonical(exactBody),
+    };
+    expect(first.recordExactVerification(opportunityId, exact)).toMatchObject({
+      state: "AWAITING_HUMAN_APPROVAL",
+      certificateId: certificate.id,
+    });
+    expect(
+      first.recordShadowDecision(opportunityId, "APPROVE_SHADOW"),
+    ).toMatchObject({
+      state: "SHADOW_COMPLETE",
+      effects: {
+        productionApprovalAccepted: false,
+        liveOrdersPlaced: false,
+        valueMovingActions: false,
+      },
+    });
+    expect(first.projection()).toMatchObject({
+      exactVerifications: [
+        {
+          artifactHash: exact.artifactHash,
+          certificateId: certificate.id,
+          status: "CERTIFIED",
+        },
+      ],
+      shadowRuns: [
+        {
+          certificateId: certificate.id,
+          status: "LOCKED",
+          gatewayCalls: 0,
+          executionAuthority: false,
+        },
+      ],
+    });
+
     const restored = new OpportunityLifecycleDesk(undefined, store);
     expect(restored.projection()).toEqual(first.projection());
     restored.syncMarketArchaeologist(archaeologist);
     expect(restored.projection().caseCount).toBe(1);
+
+    const automatic = new OpportunityLifecycleDesk(
+      {
+        routeAfterCertificate: "AUTO_SHADOW",
+        notificationChannel: "IN_APP_ONLY",
+        liveExecutionEnabled: false,
+      },
+      undefined,
+      250,
+      () => Date.parse("2026-08-01T00:02:00.000Z"),
+    );
+    automatic.syncMarketArchaeologist(archaeologist);
+    automatic.recordResearchSemanticDecision(
+      opportunityId,
+      review,
+      "ACCEPT_FOR_SIMULATION",
+      "Operator accepts this exact conditional scope for non-value-moving simulation.",
+    );
+    automatic.recordOpportunitySimulation(opportunityId, simulation);
+    expect(
+      automatic.recordExactVerification(opportunityId, exact),
+    ).toMatchObject({
+      state: "SHADOW_COMPLETE",
+      shadowExecutionArtifactHash: expect.stringMatching(/^sha256:/),
+      effects: {
+        productionApprovalAccepted: false,
+        liveOrdersPlaced: false,
+        valueMovingActions: false,
+      },
+    });
+    expect(automatic.projection().shadowRuns).toEqual([
+      expect.objectContaining({
+        certificateId: certificate.id,
+        status: "LOCKED",
+        gatewayCalls: 0,
+        executionAuthority: false,
+      }),
+    ]);
     store.close();
   });
 });

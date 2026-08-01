@@ -13,6 +13,12 @@ The current checkpoint connects AI-native discovery to a deterministic product
 lifecycle. AI owns semantic search; exact exchange models, independent review,
 the verifier, routing policy, and shadow execution own every promotion step.
 
+The next checkpoint turns discovery into scheduled repository-style market
+archaeology. A durable scheduler will issue bounded search leases over immutable
+catalog/rule snapshots to cheap fast Agents, escalating difficult abstraction
+work to pi. Search remains subjective and adaptive; authority, budgets,
+deduplication, verification, and all shadow/live boundaries remain deterministic.
+
 ## Stable decisions
 
 - TypeScript strict monorepo with pnpm.
@@ -23,6 +29,22 @@ the verifier, routing policy, and shadow execution own every promotion step.
 - Live execution remains disabled.
 
 ## Findings log
+
+- 2026-08-01: A positive anonymous, raw-evidence-bound portfolio now promotes
+  through the first-party exact verifier into a content-hashed certificate.
+  Generic browser simulations, uncalibrated venue models, and fee curves whose
+  match-level rounding cannot be reproduced remain certificate-ineligible.
+- 2026-08-01: Exact verification and certificate-bound shadow runs are durable
+  lifecycle artifacts. Human approval starts only a virtual-capital replay;
+  replay gateway calls, live orders, value movement, and production authority
+  are all literal false/zero.
+- 2026-08-01: AI-native discovery is defined as a scheduled semantic search
+  system rather than a periodic classifier. Agents choose search paths over
+  immutable market/rules corpora; deterministic leases constrain cost and time,
+  and lifecycle outcomes provide feedback without widening Agent authority.
+- 2026-08-01: The exact-promotion and certificate-bound shadow checkpoint passes
+  280 workspace tests, full typecheck, production build, SQLite restart replay,
+  and desktop/430px Studio inspection under Node.js 24.14.0.
 
 - 2026-07-31: Input design document accepted as the initial baseline, with permission to revise abstractions when official venue evidence contradicts them.
 - 2026-07-31: Local runtime is Node 22 / Python 3.9; repository targets remain Node 24+ / Python 3.12+.

@@ -1,5 +1,6 @@
 export * from "./order-machine.js";
 export * from "./exchange-simulator.js";
+export * from "./certificate-shadow.js";
 export * from "./opportunity-lifecycle.js";
 export * from "./opportunity-simulation.js";
 export * from "./plan.js";

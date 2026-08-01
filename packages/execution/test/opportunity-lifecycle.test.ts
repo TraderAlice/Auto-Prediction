@@ -329,6 +329,10 @@ describe("opportunity product lifecycle", () => {
         worstCaseAfterFees: 2n,
       }),
     ).toThrow(/certificate is invalid/);
+    expect(invalid.projection()).toMatchObject({
+      state: "AWAITING_EXACT_CERTIFICATE",
+      certificateId: null,
+    });
 
     const expiredBody = { ...certificateBody, expiresAtEpochMs: 1n };
     const expired: ArbitrageCertificate = {
@@ -338,6 +342,32 @@ describe("opportunity product lifecycle", () => {
     expect(() => reviewedMachine(policies.auto!).bindExactCertificate(expired)).toThrow(
       /expired/,
     );
+  });
+
+  it("records a terminal exact-verification rejection without certificate authority", () => {
+    const machine = reviewedMachine(policies.approval!);
+    const rejection = hashCanonical({ exact: "candidate expired" });
+    const projection = machine.recordExactVerificationRejection(
+      rejection,
+      "candidate is expired",
+    );
+
+    expect(projection).toMatchObject({
+      state: "REJECTED_EXACT_VERIFICATION",
+      certificateId: null,
+      nextAction: "NONE",
+      effects: {
+        productionApprovalAccepted: false,
+        liveOrdersPlaced: false,
+        valueMovingActions: false,
+      },
+    });
+    expect(projection.events.at(-1)).toMatchObject({
+      kind: "EXACT_VERIFICATION_REJECTED",
+      artifactHash: rejection,
+      detail: "candidate is expired",
+    });
+    expect(() => assertOpportunityLifecycleProjection(projection)).not.toThrow();
   });
 
   it("restores a content-verified lifecycle journal and rejects rewritten events", () => {

@@ -69,6 +69,7 @@ import {
   AnonymousSimulationMaterializerDesk,
   type AnonymousSimulationMaterializationStore,
 } from "./anonymous-simulation-materializer.js";
+import { verifyMaterializedOpportunity } from "./exact-promotion.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -677,6 +678,7 @@ export function createControlPlane(options?: {
           requestedQuantity: (body as { requestedQuantity: string }).requestedQuantity,
         });
         let summary = null;
+        let exactVerification = null;
         if (result.plan !== null) {
           const bundle = runOpportunitySimulation(result.plan);
           opportunityLifecycleDesk.recordOpportunitySimulation(
@@ -689,16 +691,38 @@ export function createControlPlane(options?: {
               .simulationBundles.find(
                 (item) => item.artifactHash === bundle.artifactHash,
               ) ?? null;
+          if (bundle.status === "POSITIVE_SIMULATED_FLOOR") {
+            const exact = verifyMaterializedOpportunity({
+              qualification,
+              materialization: result.record,
+              bundle,
+              nowEpochMs: BigInt(Date.now()),
+            });
+            opportunityLifecycleDesk.recordExactVerification(
+              opportunityId,
+              exact,
+            );
+            exactVerification =
+              opportunityLifecycleDesk
+                .projection()
+                .exactVerifications.find(
+                  (item) => item.artifactHash === exact.artifactHash,
+                ) ?? null;
+          }
         }
         await broadcastProjection();
         writeJson(response, 200, {
           materialization: result.record,
           simulation: summary,
+          exactVerification,
           lifecycle:
             opportunityLifecycleDesk
               .projection()
               .cases.find((item) => item.opportunityId === opportunityId) ?? null,
-          certificateAuthority: false,
+          certificateAuthority:
+            exactVerification?.status === "CERTIFIED"
+              ? "FIRST_PARTY_EXACT_VERIFIER"
+              : false,
           executionAuthority: false,
         });
       } catch (error) {
@@ -710,6 +734,61 @@ export function createControlPlane(options?: {
               : "anonymous simulation materialization failed",
           certificateAuthority: false,
           executionAuthority: false,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/opportunity-lifecycle/shadow-decisions"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null ||
+          typeof body !== "object" ||
+          Array.isArray(body) ||
+          typeof (body as { opportunityId?: unknown }).opportunityId !==
+            "string" ||
+          !["APPROVE_SHADOW", "REJECT"].includes(
+            (body as { decision?: unknown }).decision as string,
+          ) ||
+          Object.keys(body).length !== 2
+        ) {
+          throw new Error(
+            "shadow decision requires exactly opportunityId and APPROVE_SHADOW or REJECT",
+          );
+        }
+        const opportunityId = (
+          body as { opportunityId: string }
+        ).opportunityId.trim();
+        const lifecycle = opportunityLifecycleDesk.recordShadowDecision(
+          opportunityId,
+          (body as { decision: "APPROVE_SHADOW" | "REJECT" }).decision,
+        );
+        const shadow =
+          opportunityLifecycleDesk
+            .projection()
+            .shadowRuns.find(
+              (item) => item.opportunityId === opportunityId,
+            ) ?? null;
+        await broadcastProjection();
+        writeJson(response, 200, {
+          lifecycle,
+          shadow,
+          productionApprovalAccepted: false,
+          executionAuthority: false,
+          liveExecutionEnabled: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic:
+            error instanceof Error ? error.message : "shadow decision failed",
+          productionApprovalAccepted: false,
+          executionAuthority: false,
+          liveExecutionEnabled: false,
         });
       }
       return;

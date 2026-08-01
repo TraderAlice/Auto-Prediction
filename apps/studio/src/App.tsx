@@ -533,8 +533,13 @@ async function requestAnonymousMaterialization(
   );
   const result = (await response.json()) as {
     diagnostic?: string;
-    certificateAuthority?: boolean;
+    certificateAuthority?: false | "FIRST_PARTY_EXACT_VERIFIER";
     executionAuthority?: boolean;
+    exactVerification?: {
+      status?: "CERTIFIED" | "REJECTED";
+      authority?: string;
+      executionAuthority?: boolean;
+    } | null;
     materialization?: {
       authority?: string;
       certificateAuthority?: boolean;
@@ -550,7 +555,12 @@ async function requestAnonymousMaterialization(
     throw new Error(result.diagnostic ?? "public-book materialization failed");
   }
   if (
-    result.certificateAuthority !== false ||
+    (result.certificateAuthority !== false &&
+      (result.certificateAuthority !== "FIRST_PARTY_EXACT_VERIFIER" ||
+        result.exactVerification?.status !== "CERTIFIED" ||
+        result.exactVerification.authority !==
+          "FIRST_PARTY_EXACT_VERIFIER" ||
+        result.exactVerification.executionAuthority !== false)) ||
     result.executionAuthority !== false ||
     result.materialization?.authority !==
       "ANONYMOUS_RESEARCH_MATERIALIZER" ||
@@ -561,6 +571,57 @@ async function requestAnonymousMaterialization(
     result.materialization.effects.liveExecutionEnabled !== false
   ) {
     throw new Error("public-book materializer crossed its authority boundary");
+  }
+}
+
+async function requestShadowDecision(
+  opportunityId: string,
+  decision: "APPROVE_SHADOW" | "REJECT",
+): Promise<void> {
+  const response = await fetch(
+    "/api/v1/opportunity-lifecycle/shadow-decisions",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ opportunityId, decision }),
+    },
+  );
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    productionApprovalAccepted?: boolean;
+    executionAuthority?: boolean;
+    liveExecutionEnabled?: boolean;
+    lifecycle?: {
+      effects?: {
+        productionApprovalAccepted?: boolean;
+        liveOrdersPlaced?: boolean;
+        valueMovingActions?: boolean;
+        liveExecutionEnabled?: boolean;
+      };
+    };
+    shadow?: {
+      authority?: string;
+      executionAuthority?: boolean;
+      gatewayCalls?: number;
+    } | null;
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "shadow decision failed");
+  }
+  if (
+    result.productionApprovalAccepted !== false ||
+    result.executionAuthority !== false ||
+    result.liveExecutionEnabled !== false ||
+    result.lifecycle?.effects?.productionApprovalAccepted !== false ||
+    result.lifecycle.effects.liveOrdersPlaced !== false ||
+    result.lifecycle.effects.valueMovingActions !== false ||
+    result.lifecycle.effects.liveExecutionEnabled !== false ||
+    (decision === "APPROVE_SHADOW" &&
+      (result.shadow?.authority !== "SHADOW_REPLAY_ONLY" ||
+        result.shadow.executionAuthority !== false ||
+        result.shadow.gatewayCalls !== 0))
+  ) {
+    throw new Error("shadow decision crossed its non-value-moving boundary");
   }
 }
 
@@ -2171,6 +2232,8 @@ function OpportunityLifecycleView() {
     studioProjection.simulationMaterializer ?? EMPTY_SIMULATION_MATERIALIZER;
   const semanticDecisions = desk.semanticDecisions ?? [];
   const simulationBundles = desk.simulationBundles ?? [];
+  const exactVerifications = desk.exactVerifications ?? [];
+  const shadowRuns = desk.shadowRuns ?? [];
   const [reviewStates, setReviewStates] = useState<
     Readonly<Record<string, "RUNNING" | "DONE" | "RESTORED" | "FAILED">>
   >({});
@@ -2178,6 +2241,9 @@ function OpportunityLifecycleView() {
     Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
   >({});
   const [materializationStates, setMaterializationStates] = useState<
+    Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
+  >({});
+  const [shadowDecisionStates, setShadowDecisionStates] = useState<
     Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
   >({});
   const [rationales, setRationales] = useState<Readonly<Record<string, string>>>(
@@ -2281,6 +2347,34 @@ function OpportunityLifecycleView() {
           error instanceof Error
             ? error.message
             : "public-book materialization failed",
+      }));
+    }
+  }
+
+  async function decideShadow(
+    opportunityId: string,
+    decision: "APPROVE_SHADOW" | "REJECT",
+  ): Promise<void> {
+    setShadowDecisionStates((current) => ({
+      ...current,
+      [opportunityId]: "RUNNING",
+    }));
+    setDiagnostics((current) => ({ ...current, [opportunityId]: "" }));
+    try {
+      await requestShadowDecision(opportunityId, decision);
+      setShadowDecisionStates((current) => ({
+        ...current,
+        [opportunityId]: "DONE",
+      }));
+    } catch (error) {
+      setShadowDecisionStates((current) => ({
+        ...current,
+        [opportunityId]: "FAILED",
+      }));
+      setDiagnostics((current) => ({
+        ...current,
+        [opportunityId]:
+          error instanceof Error ? error.message : "shadow decision failed",
       }));
     }
   }
@@ -2411,12 +2505,20 @@ function OpportunityLifecycleView() {
             const simulationBundle = simulationBundles.find(
               (bundle) => bundle.opportunityId === item.opportunityId,
             );
+            const exactVerification = exactVerifications.find(
+              (record) => record.opportunityId === item.opportunityId,
+            );
+            const shadowRun = shadowRuns.find(
+              (run) => run.opportunityId === item.opportunityId,
+            );
             const reviewRunning =
               reviewStates[item.opportunityId] === "RUNNING" ||
               (review?.status === "RUNNING" && semanticReview.status === "RUNNING");
             const decisionRunning =
               decisionStates[item.opportunityId] === "RUNNING";
             const rationale = rationales[item.opportunityId] ?? "";
+            const shadowDecisionRunning =
+              shadowDecisionStates[item.opportunityId] === "RUNNING";
             return (
               <article key={item.opportunityId}>
                 <div className="lifecycle-case-topline">
@@ -2781,6 +2883,109 @@ function OpportunityLifecycleView() {
                         <small>
                           {simulationBundle.reportCount} EXACT BIGINT MODEL
                           REPORTS · SIMULATION ONLY · CERTIFICATE AUTHORITY FALSE
+                        </small>
+                      </div>
+                    )}
+                    {exactVerification !== undefined && (
+                      <div
+                        className={`lifecycle-exact-evidence ${
+                          exactVerification.status === "CERTIFIED"
+                            ? "is-certified"
+                            : "is-rejected"
+                        }`}
+                      >
+                        <div>
+                          <Badge
+                            variant={
+                              exactVerification.status === "CERTIFIED"
+                                ? "verified"
+                                : "warning"
+                            }
+                          >
+                            {exactVerification.status}
+                          </Badge>
+                          <strong>First-party exact verifier</strong>
+                          <code>
+                            {exactVerification.artifactHash.slice(0, 23)}…
+                          </code>
+                        </div>
+                        {exactVerification.status === "CERTIFIED" ? (
+                          <div>
+                            <span>Worst-case after fees</span>
+                            <strong>
+                              {exactVerification.worstCaseAfterFees}
+                            </strong>
+                            <span>Certificate</span>
+                            <code>
+                              {exactVerification.certificateId?.slice(0, 23)}…
+                            </code>
+                          </div>
+                        ) : (
+                          <p>{exactVerification.diagnostic}</p>
+                        )}
+                        <small>
+                          CERTIFICATE AUTHORITY · FIRST PARTY · EXECUTION
+                          AUTHORITY FALSE
+                        </small>
+                      </div>
+                    )}
+                    {item.state === "AWAITING_HUMAN_APPROVAL" && (
+                      <div className="lifecycle-shadow-approval">
+                        <div>
+                          <ShieldCheck size={14} />
+                          <div>
+                            <strong>Shadow approval requested</strong>
+                            <span>
+                              Approval runs the certificate-bound local replay;
+                              it cannot place an order.
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          <Button
+                            disabled={shadowDecisionRunning}
+                            onClick={() =>
+                              void decideShadow(
+                                item.opportunityId,
+                                "APPROVE_SHADOW",
+                              )
+                            }
+                          >
+                            {shadowDecisionRunning ? (
+                              <RefreshCw className="is-spinning" size={13} />
+                            ) : (
+                              <Play size={13} />
+                            )}
+                            Approve shadow replay
+                          </Button>
+                          <Button
+                            variant="outline"
+                            disabled={shadowDecisionRunning}
+                            onClick={() =>
+                              void decideShadow(item.opportunityId, "REJECT")
+                            }
+                          >
+                            <X size={13} />
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {shadowRun !== undefined && (
+                      <div className="lifecycle-shadow-evidence">
+                        <div>
+                          <Badge variant="shadow">SHADOW COMPLETE</Badge>
+                          <strong>Certificate-bound replay</strong>
+                          <code>{shadowRun.artifactHash.slice(0, 23)}…</code>
+                        </div>
+                        <span>
+                          {shadowRun.filledIntentCount}/
+                          {shadowRun.plannedIntentCount} intents filled · {" "}
+                          {shadowRun.gatewayCalls} gateway calls
+                        </span>
+                        <small>
+                          SHADOW REPLAY ONLY · NO VALUE MOVEMENT · LIVE ROUTE
+                          ABSENT
                         </small>
                       </div>
                     )}

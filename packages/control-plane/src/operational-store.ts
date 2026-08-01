@@ -1481,6 +1481,16 @@ export class SqliteOperationalStore
             (bundle, index) =>
               bundle.artifactHash !==
               (validated.simulationBundles ?? [])[index]?.artifactHash,
+          ) ||
+          (prior.exactVerifications ?? []).some(
+            (record, index) =>
+              record.artifactHash !==
+              (validated.exactVerifications ?? [])[index]?.artifactHash,
+          ) ||
+          (prior.shadowRuns ?? []).some(
+            (run, index) =>
+              run.artifactHash !==
+              (validated.shadowRuns ?? [])[index]?.artifactHash,
           )
         ) {
           throw new Error("opportunity lifecycle journal cannot be rewritten");

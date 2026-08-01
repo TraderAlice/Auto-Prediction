@@ -2,7 +2,10 @@ import type { RealCandidateDispositionEvidence } from "@pmh/evidence";
 import {
   assertOpportunityLifecycleProjection,
   assertOpportunitySimulationBundle,
+  assertCertificateBoundShadowRun,
   OpportunityLifecycleMachine,
+  runCertificateBoundShadow,
+  type CertificateBoundShadowRun,
   type OpportunitySimulationBundle,
   type OpportunityLifecyclePolicy,
   type OpportunityLifecycleProjection,
@@ -16,6 +19,10 @@ import {
   type SemanticReviewRecommendation,
 } from "./semantic-review.js";
 import type { OperationalStorageProjection } from "./types.js";
+import {
+  assertExactOpportunityVerificationRecord,
+  type ExactOpportunityVerificationRecord,
+} from "./exact-promotion.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
@@ -69,6 +76,30 @@ export type OpportunityLifecycleDeskProjection = Readonly<{
   cases: readonly OpportunityLifecycleProjection[];
   semanticDecisions: readonly ResearchSemanticDecision[];
   simulationBundles: readonly OpportunitySimulationSummary[];
+  exactVerifications: readonly Readonly<{
+    artifactHash: Hash;
+    opportunityId: string;
+    simulationBundleHash: Hash;
+    status: "CERTIFIED" | "REJECTED";
+    certificateId: Hash | null;
+    worstCaseAfterFees: string | null;
+    expiresAtEpochMs: string | null;
+    diagnostic: string | null;
+    authority: "FIRST_PARTY_EXACT_VERIFIER";
+    executionAuthority: false;
+  }>[];
+  shadowRuns: readonly Readonly<{
+    artifactHash: Hash;
+    opportunityId: string;
+    certificateId: Hash;
+    simulationBundleHash: Hash;
+    status: "LOCKED";
+    plannedIntentCount: number;
+    filledIntentCount: number;
+    gatewayCalls: 0;
+    authority: "SHADOW_REPLAY_ONLY";
+    executionAuthority: false;
+  }>[];
   effects: Readonly<{
     externalMessagesSent: false;
     liveOrdersPlaced: false;
@@ -105,6 +136,8 @@ export type OpportunityLifecycleJournal = Readonly<{
   lifecycle: OpportunityLifecycleProjection;
   semanticDecisions: readonly ResearchSemanticDecision[];
   simulationBundles?: readonly OpportunitySimulationBundle[];
+  exactVerifications?: readonly ExactOpportunityVerificationRecord[];
+  shadowRuns?: readonly CertificateBoundShadowRun[];
 }>;
 
 export interface OpportunityLifecycleJournalStore {
@@ -221,6 +254,68 @@ export function assertOpportunityLifecycleJournal(
       throw new Error("lifecycle journal does not bind its simulation bundle");
     }
   }
+  const exactVerifications = journal.exactVerifications ?? [];
+  if (
+    !Array.isArray(exactVerifications) ||
+    exactVerifications.length > 20 ||
+    new Set(exactVerifications.map((item) => item.artifactHash)).size !==
+      exactVerifications.length
+  ) {
+    throw new Error("lifecycle journal exact-verification history is malformed");
+  }
+  for (const exact of exactVerifications) {
+    assertExactOpportunityVerificationRecord(exact);
+    const certificateId = exact.certificate?.id ?? null;
+    if (
+      exact.opportunityId !== journal.opportunityId ||
+      !simulationBundles.some(
+        (bundle) => bundle.artifactHash === exact.simulationBundleHash,
+      ) ||
+      (exact.status === "CERTIFIED"
+        ? certificateId === null ||
+          certificateId !== lifecycle.certificateId ||
+          !lifecycle.events.some(
+            (event) =>
+              event.kind === "CERTIFICATE_BOUND" &&
+              event.artifactHash === certificateId,
+          )
+        : !lifecycle.events.some(
+            (event) =>
+              event.kind === "EXACT_VERIFICATION_REJECTED" &&
+              event.artifactHash === exact.artifactHash,
+          ))
+    ) {
+      throw new Error("lifecycle journal does not bind exact verification");
+    }
+  }
+  const shadowRuns = journal.shadowRuns ?? [];
+  if (
+    !Array.isArray(shadowRuns) ||
+    shadowRuns.length > 20 ||
+    new Set(shadowRuns.map((item) => item.artifactHash)).size !==
+      shadowRuns.length
+  ) {
+    throw new Error("lifecycle journal shadow history is malformed");
+  }
+  for (const shadow of shadowRuns) {
+    assertCertificateBoundShadowRun(shadow);
+    if (
+      shadow.opportunityId !== journal.opportunityId ||
+      !exactVerifications.some(
+        (exact) => exact.certificate?.id === shadow.certificateId,
+      ) ||
+      !simulationBundles.some(
+        (bundle) => bundle.artifactHash === shadow.simulationBundleHash,
+      ) ||
+      !lifecycle.events.some(
+        (event) =>
+          event.kind === "SHADOW_COMPLETED" &&
+          event.artifactHash === shadow.artifactHash,
+      )
+    ) {
+      throw new Error("lifecycle journal does not bind its shadow run");
+    }
+  }
   const { artifactHash, ...body } = journal;
   if (artifactHash !== hashCanonical(body)) {
     throw new Error("opportunity lifecycle journal identity mismatch");
@@ -232,6 +327,8 @@ type LifecycleEntry = {
   machine: OpportunityLifecycleMachine;
   decisions: ResearchSemanticDecision[];
   simulationBundles: OpportunitySimulationBundle[];
+  exactVerifications: ExactOpportunityVerificationRecord[];
+  shadowRuns: CertificateBoundShadowRun[];
 };
 
 export class OpportunityLifecycleDesk {
@@ -261,6 +358,8 @@ export class OpportunityLifecycleDesk {
         ),
         decisions: [...validated.semanticDecisions],
         simulationBundles: [...(validated.simulationBundles ?? [])],
+        exactVerifications: [...(validated.exactVerifications ?? [])],
+        shadowRuns: [...(validated.shadowRuns ?? [])],
       });
     }
   }
@@ -291,6 +390,8 @@ export class OpportunityLifecycleDesk {
           ),
           decisions: [],
           simulationBundles: [],
+          exactVerifications: [],
+          shadowRuns: [],
         };
         this.#entries.set(opportunityId, entry);
         this.#persist(entry);
@@ -315,7 +416,13 @@ export class OpportunityLifecycleDesk {
       disposition.artifactHash,
       disposition.rejectionReasons.map((reason) => reason.detail).join(" "),
     );
-    const entry = { machine, decisions: [], simulationBundles: [] };
+    const entry = {
+      machine,
+      decisions: [],
+      simulationBundles: [],
+      exactVerifications: [],
+      shadowRuns: [],
+    };
     this.#entries.set(opportunityId, entry);
     this.#persist(entry);
   }
@@ -379,9 +486,16 @@ export class OpportunityLifecycleDesk {
     if (entry === undefined) {
       throw new Error("unknown opportunity lifecycle");
     }
-    const projection = entry.machine.recordHumanDecision(decision);
+    const run =
+      decision === "APPROVE_SHADOW" ? this.#createShadowRun(entry) : null;
+    entry.machine.recordHumanDecision(decision);
+    if (run !== null) {
+      entry.machine.beginShadowExecution();
+      entry.machine.completeShadowExecution(run.artifactHash);
+      entry.shadowRuns.push(run);
+    }
     this.#persist(entry);
-    return projection;
+    return entry.machine.projection();
   }
 
   public recordOpportunitySimulation(
@@ -403,6 +517,70 @@ export class OpportunityLifecycleDesk {
     return projection;
   }
 
+  public recordExactVerification(
+    opportunityId: string,
+    recordValue: ExactOpportunityVerificationRecord,
+  ): OpportunityLifecycleProjection {
+    const entry = this.#entries.get(opportunityId);
+    const record = assertExactOpportunityVerificationRecord(recordValue);
+    if (
+      entry === undefined ||
+      record.opportunityId !== opportunityId ||
+      entry.exactVerifications.length > 0 ||
+      !entry.simulationBundles.some(
+        (bundle) => bundle.artifactHash === record.simulationBundleHash,
+      )
+    ) {
+      throw new Error("exact verification input is invalid or stale");
+    }
+    const autoShadowRun =
+      record.status === "CERTIFIED" &&
+      entry.machine.projection().policy.routeAfterCertificate === "AUTO_SHADOW"
+        ? this.#createShadowRun(entry, record)
+        : null;
+    if (record.status === "CERTIFIED") {
+      entry.machine.bindExactCertificate(record.certificate!);
+    } else {
+      entry.machine.recordExactVerificationRejection(
+        record.artifactHash,
+        record.diagnostic!,
+      );
+    }
+    entry.exactVerifications.push(record);
+    if (autoShadowRun !== null) {
+      entry.machine.beginShadowExecution();
+      entry.machine.completeShadowExecution(autoShadowRun.artifactHash);
+      entry.shadowRuns.push(autoShadowRun);
+    }
+    this.#persist(entry);
+    return entry.machine.projection();
+  }
+
+  #createShadowRun(
+    entry: LifecycleEntry,
+    pendingExact?: ExactOpportunityVerificationRecord,
+  ): CertificateBoundShadowRun {
+    const exact = pendingExact ?? entry.exactVerifications.at(-1);
+    const certificate = exact?.certificate;
+    const bundle = entry.simulationBundles.find(
+      (item) => item.artifactHash === exact?.simulationBundleHash,
+    );
+    if (
+      certificate === null ||
+      certificate === undefined ||
+      bundle === undefined ||
+      entry.shadowRuns.length > 0
+    ) {
+      throw new Error("shadow route has no unique certificate-bound simulation");
+    }
+    return runCertificateBoundShadow({
+      opportunityId: entry.machine.opportunityId,
+      certificate,
+      simulationBundle: bundle,
+      nowEpochMs: BigInt(this.now()),
+    });
+  }
+
   #journal(entry: LifecycleEntry): OpportunityLifecycleJournal {
     const lifecycle = entry.machine.projection();
     const body = Object.freeze({
@@ -412,6 +590,8 @@ export class OpportunityLifecycleDesk {
       lifecycle,
       semanticDecisions: Object.freeze([...entry.decisions]),
       simulationBundles: Object.freeze([...entry.simulationBundles]),
+      exactVerifications: Object.freeze([...entry.exactVerifications]),
+      shadowRuns: Object.freeze([...entry.shadowRuns]),
     });
     return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
   }
@@ -517,6 +697,52 @@ export class OpportunityLifecycleDesk {
               authority: "SIMULATION_ONLY" as const,
               verifierEligible: false as const,
               certificateAuthority: false as const,
+              executionAuthority: false as const,
+            }),
+          ),
+      ),
+      exactVerifications: Object.freeze(
+        [...this.#entries.values()]
+          .flatMap((entry) => entry.exactVerifications)
+          .sort((left, right) =>
+            left.opportunityId.localeCompare(right.opportunityId),
+          )
+          .map((record) =>
+            Object.freeze({
+              artifactHash: record.artifactHash,
+              opportunityId: record.opportunityId,
+              simulationBundleHash: record.simulationBundleHash,
+              status: record.status,
+              certificateId: record.certificate?.id ?? null,
+              worstCaseAfterFees:
+                record.certificate?.worstCaseAfterFees.toString() ?? null,
+              expiresAtEpochMs:
+                record.certificate?.expiresAtEpochMs.toString() ?? null,
+              diagnostic: record.diagnostic,
+              authority: "FIRST_PARTY_EXACT_VERIFIER" as const,
+              executionAuthority: false as const,
+            }),
+          ),
+      ),
+      shadowRuns: Object.freeze(
+        [...this.#entries.values()]
+          .flatMap((entry) => entry.shadowRuns)
+          .sort((left, right) =>
+            left.opportunityId.localeCompare(right.opportunityId),
+          )
+          .map((run) =>
+            Object.freeze({
+              artifactHash: run.artifactHash,
+              opportunityId: run.opportunityId,
+              certificateId: run.certificateId,
+              simulationBundleHash: run.simulationBundleHash,
+              status: run.status,
+              plannedIntentCount: run.executionPlan.intents.length,
+              filledIntentCount: run.observations.filter(
+                (item) => item.status === "FILLED",
+              ).length,
+              gatewayCalls: 0 as const,
+              authority: "SHADOW_REPLAY_ONLY" as const,
               executionAuthority: false as const,
             }),
           ),
