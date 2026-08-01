@@ -17,6 +17,7 @@ import type {
   StudioProjection,
 } from "./types.js";
 import type { InvestigationDeskProjection } from "./investigation-desk.js";
+import type { CatalogObservationProjection } from "./catalog-observation.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
 
@@ -64,6 +65,7 @@ export function buildStudioProjection(input: {
   workers: readonly DiscoveryWorker[];
   activeRuns: number;
   catalogContext?: DiscoveryCatalogProjection;
+  catalogObservation?: CatalogObservationProjection;
   modelProvider?: ModelProviderProjection;
   investigator?: PiInvestigatorProjection;
   investigationDesk?: InvestigationDeskProjection;
@@ -95,6 +97,29 @@ export function buildStudioProjection(input: {
     venueCount: 0,
     sourceFixtureCount: 0,
     maxListingsPerTask: 30,
+  };
+  const catalogObservation = input.catalogObservation ?? {
+    mode: "ANONYMOUS_PUBLIC_GET" as const,
+    status: "IDLE" as const,
+    promotion: "OBSERVE_ONLY" as const,
+    currentSetIdentity: hashCanonical([]),
+    sourceCount: 0,
+    healthySourceCount: 0,
+    listingCount: 0,
+    timeoutMs: 10_000,
+    maxResponseBytes: 2_000_000,
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "observationId" as const,
+    },
+    sources: [],
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
   };
   const investigator = input.investigator ?? {
     engine: "PI_CLI" as const,
@@ -147,7 +172,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 147,
+      proofTests: 168,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -155,6 +180,7 @@ export function buildStudioProjection(input: {
       architecture: "SCOUT_THEN_VERIFY" as const,
       activeRuns: input.activeRuns,
       catalogContext,
+      catalogObservation,
       modelProvider,
       investigator,
       investigationDesk: input.investigationDesk ?? {

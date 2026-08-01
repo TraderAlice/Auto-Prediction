@@ -1,8 +1,12 @@
 import { parseFixed } from "@pmh/domain";
-import type { VerifiedStreamFixture } from "@pmh/evidence";
+import type {
+  VerifiedRawFixture,
+  VerifiedStreamFixture,
+} from "@pmh/evidence";
 import type { NormalizedBookUpdate } from "@pmh/market-state";
 import {
   parseJsonWithNumberLexemes,
+  type NormalizedCatalogListing,
   type VenueManifest,
 } from "@pmh/protocol";
 import { z } from "zod";
@@ -22,6 +26,29 @@ const OrderbookUpdateSchema = z.object({
   }),
   version: z.string().regex(/^\d+$/),
   timestamp: z.string(),
+});
+
+const CatalogResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string(),
+      conditionId: z.string(),
+      groupId: z.string().nullable(),
+      title: z.string(),
+      description: z.string(),
+      startAt: z.string(),
+      expirationTimestamp: z.string().regex(/^\d+$/),
+      status: z.string(),
+      expired: z.boolean(),
+      tokens: z.object({ yes: z.string(), no: z.string() }),
+      prices: z.tuple([z.string(), z.string()]),
+      collateralToken: z.object({
+        address: z.string(),
+        decimals: z.string().regex(/^\d+$/),
+        symbol: z.string(),
+      }),
+    }),
+  ),
 });
 
 function gcd(left: bigint, right: bigint): bigint {
@@ -56,6 +83,13 @@ export const limitlessManifest: VenueManifest = {
     "public market-price subscriptions only; authenticated account and order streams excluded",
   capabilities: [
     {
+      capability: "MARKET_CATALOG",
+      implemented: true,
+      qualification: ["DISCOVER"],
+      evidenceRefs: ["limitless-catalog"],
+      limitations: ["fixture-backed catalog slice"],
+    },
+    {
       capability: "REALTIME_BOOK",
       implemented: true,
       qualification: ["DISCOVER", "OBSERVE"],
@@ -63,12 +97,59 @@ export const limitlessManifest: VenueManifest = {
       limitations: [
         "orderbookUpdate is treated as a full snapshot",
         "each replacement snapshot must enter rebuild before application",
-        "catalog normalization is not implemented",
       ],
     },
   ],
   liveExecutionEnabled: false,
 };
+
+export function normalizeLimitlessCatalog(
+  fixture: VerifiedRawFixture,
+): readonly NormalizedCatalogListing[] {
+  if (fixture.metadata.venue !== limitlessManifest.venueId) {
+    throw new Error("fixture venue does not match Limitless adapter");
+  }
+  const response = CatalogResponseSchema.parse(
+    parseJsonWithNumberLexemes(new TextDecoder().decode(fixture.bytes)),
+  );
+  return response.data.map((market) => {
+    const timestamp = BigInt(market.expirationTimestamp);
+    if (timestamp > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(`Limitless market ${market.id} expiration is out of range`);
+    }
+    const collateralScale = 10n ** BigInt(market.collateralToken.decimals);
+    return {
+      venueId: limitlessManifest.venueId,
+      venueEventId: market.groupId ?? market.conditionId,
+      venueInstrumentId: market.id,
+      title: market.title,
+      description: market.description,
+      status: market.expired ? "EXPIRED" : market.status.toUpperCase(),
+      mechanism: "ONCHAIN_CLOB" as const,
+      opensAt: market.startAt,
+      closesAt: new Date(Number(timestamp)).toISOString(),
+      rulesText: market.description,
+      outcomes: [
+        {
+          venueOutcomeId: market.tokens.yes,
+          label: "Yes",
+          indicativePrice: parseFixed(market.prices[0], 100_000_000n),
+        },
+        {
+          venueOutcomeId: market.tokens.no,
+          label: "No",
+          indicativePrice: parseFixed(market.prices[1], 100_000_000n),
+        },
+      ],
+      collateralId:
+        `${market.collateralToken.symbol}:${market.collateralToken.address}`,
+      priceScale: 100_000_000n,
+      quantityScale: collateralScale,
+      sourceFixtureHash: fixture.rawHash,
+      protocolIdentity: fixture.metadata.protocolVersion,
+    };
+  });
+}
 
 export function decodeLimitlessBookStream(
   fixture: VerifiedStreamFixture,

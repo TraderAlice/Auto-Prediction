@@ -105,11 +105,17 @@ subprocess cannot be resumed after termination. Every record and report is
 outside review and compilation. `pnpm --silent investigation:smoke` remains the
 independent one-shot qualification path.
 
-The Catalog Facts panel reflects the verified discovery corpus: 11 normalized
-listings from six fixture artifacts across five venues. Each task receives at
+The Catalog Facts panel reflects the verified discovery corpus: 12 normalized
+listings from seven fixture artifacts across six venues. Each task receives at
 most 30 relevance-ranked listings. Studio shows the corpus identity, retained
 context identity, and concrete listing references used by each hypothesis;
 zero hypotheses is a valid grounded result rather than a transport failure.
+
+The adjacent Live Catalog Observation row is a separate authority surface. It
+shows the current listing count, healthy/total source count, refresh state, and
+an operator-triggered refresh action. These records come from anonymous public
+GETs, are content-addressed and durably retained, and remain `OBSERVE ONLY`.
+They do not silently replace the verified fixture corpus supplied to scouts.
 
 AI output cannot:
 

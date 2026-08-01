@@ -34,6 +34,23 @@ content-addressed as `pmh.discovery-catalog-context.v1`. The context identity is
 part of task idempotency and durable run scope. A worker may return no lead, but
 every returned lead must name at least one listing from that exact context.
 
+## Live catalog observation
+
+Fresh public catalog data enters a separate `OBSERVE_ONLY` desk rather than
+silently replacing the fixture-grounded AI context. The desk issues anonymous
+GET requests only, sends no authorization material, follows no redirects, and
+caps each source at 10 seconds and 2,000,000 response bytes. Polymarket Global,
+Kalshi, Gemini, Opinion, Myriad, and Limitless refresh independently.
+
+Every successful response is preserved byte-for-byte in bounded SQLite WAL
+schema v3. Its record binds receive time, source URL, protocol identity, HTTP
+metadata, byte length, raw SHA-256, normalized listing count, and a second hash
+over the normalized listings. Hydration re-runs the venue codec and rejects a
+raw or normalized mismatch. Failure is source-local: the projection becomes
+degraded, records a compact diagnostic, and retains the last successful
+content-addressed snapshot for that venue. The desk has no route into task
+context, hypothesis review, compilation, certification, or execution.
+
 The default adapter binds that port to `deepseek-v4-flash` through Vercel AI
 SDK. It requests validated `pmh.discovery-output.v1` object output, disables
 thinking for the fast lane, exposes no tools, and allows at most 800 output

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { hashCanonical } from "@pmh/domain";
+import { hashBytes, hashCanonical } from "@pmh/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createPiInvestigatorRuntime,
@@ -91,6 +91,40 @@ function piResult(summary = "Bounded investigation complete."): PiProcessResult 
   };
 }
 
+function catalogObservation(
+  receivedAt = "2026-08-01T03:20:00.000Z",
+  venueId = "kalshi",
+) {
+  const bytes = new TextEncoder().encode('{"markets":[]}');
+  const body = {
+    schemaVersion: "pmh.catalog-observation.v1" as const,
+    venueId,
+    protocolIdentity: "trade-api-v2:test",
+    sourceUrl: `https://example.test/${venueId}/markets`,
+    receivedAt,
+    httpStatus: 200 as const,
+    contentType: "application/json",
+    etag: null,
+    lastModified: null,
+    rawHash: hashBytes(bytes),
+    byteLength: bytes.byteLength.toString(),
+    listingCount: 0,
+    listingIdentity: hashCanonical([]),
+    acquisition: {
+      method: "GET" as const,
+      credentialsUsed: false as const,
+      valueMovingOperation: false as const,
+    },
+  };
+  return {
+    record: {
+      ...body,
+      observationId: `catalog-observation:${hashCanonical(body).slice(7)}`,
+    },
+    bytes,
+  };
+}
+
 function durableDesk(
   store: SqliteOperationalStore,
   onRun: () => void = () => undefined,
@@ -134,7 +168,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 2,
+        schemaVersion: 3,
         idempotencyKey: "taskId",
       },
     });
@@ -222,11 +256,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(2);
+    expect(migrated.storage.schemaVersion).toBe(3);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 2,
+      schemaVersion: 3,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -241,8 +275,12 @@ describe("SQLite operational store", () => {
     const version = inspected.prepare("PRAGMA user_version").get() as {
       user_version: number;
     };
-    expect(tables).toEqual(["discovery_runs", "investigation_records"]);
-    expect(version.user_version).toBe(2);
+    expect(tables).toEqual([
+      "catalog_observations",
+      "discovery_runs",
+      "investigation_records",
+    ]);
+    expect(version.user_version).toBe(3);
     inspected.close();
   });
 
@@ -257,7 +295,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 2,
+      schemaVersion: 3,
     });
     firstStore.close();
 
@@ -357,5 +395,58 @@ describe("SQLite operational store", () => {
     const reopened = new SqliteOperationalStore(path);
     expect(() => reopened.loadInvestigations(10)).toThrow(/identity mismatch/);
     reopened.close();
+  });
+
+  it("restores bounded raw catalog observations byte-for-byte", async () => {
+    const path = await databasePath();
+    const first = new SqliteOperationalStore(path);
+    const observation = catalogObservation();
+    expect(first.saveCatalogObservation(observation, 3)).toEqual(observation);
+    expect(first.catalogObservationStorage).toEqual({
+      mode: "SQLITE_WAL",
+      durable: true,
+      schemaVersion: 3,
+      idempotencyKey: "observationId",
+    });
+    first.close();
+
+    const second = new SqliteOperationalStore(path);
+    expect(second.loadCatalogObservations(3)).toEqual([observation]);
+    second.close();
+  });
+
+  it("fails closed when persisted catalog bytes no longer match their hash", async () => {
+    const path = await databasePath();
+    const store = new SqliteOperationalStore(path);
+    store.saveCatalogObservation(catalogObservation(), 3);
+    store.close();
+
+    const database = new DatabaseSync(path);
+    database.prepare("UPDATE catalog_observations SET raw_bytes = X'00'").run();
+    database.close();
+
+    const reopened = new SqliteOperationalStore(path);
+    expect(() => reopened.loadCatalogObservations(3)).toThrow(
+      /raw payload identity mismatch/,
+    );
+    reopened.close();
+  });
+
+  it("retains catalog history per venue so one source cannot evict another", async () => {
+    const path = await databasePath();
+    const store = new SqliteOperationalStore(path);
+    const oldKalshi = catalogObservation("2026-08-01T03:20:00.000Z", "kalshi");
+    const opinion = catalogObservation("2026-08-01T03:21:00.000Z", "opinion");
+    const newKalshi = catalogObservation("2026-08-01T03:22:00.000Z", "kalshi");
+    store.saveCatalogObservation(oldKalshi, 1);
+    store.saveCatalogObservation(opinion, 1);
+    store.saveCatalogObservation(newKalshi, 1);
+    expect(
+      store.loadCatalogObservations(10).map((item) => item.record.observationId),
+    ).toEqual([
+      newKalshi.record.observationId,
+      opinion.record.observationId,
+    ]);
+    store.close();
   });
 });

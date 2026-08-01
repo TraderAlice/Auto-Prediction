@@ -196,6 +196,7 @@ export type StudioProjection = Readonly<{
     architecture: "SCOUT_THEN_VERIFY";
     activeRuns: number;
     catalogContext: DiscoveryCatalogProjection;
+    catalogObservation: import("./catalog-observation.js").CatalogObservationProjection;
     modelProvider: ModelProviderProjection;
     investigator: PiInvestigatorProjection;
     investigationDesk: import("./investigation-desk.js").InvestigationDeskProjection;

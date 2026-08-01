@@ -33,9 +33,16 @@ const ResponseSchema = z.object({
           instrumentSymbol: z.string(),
           status: z.string(),
           termsAndConditionsUrl: z.string().optional(),
-          prices: z.object({
-            buy: z.object({ yes: z.string(), no: z.string() }),
-          }),
+          prices: z
+            .object({
+              buy: z
+                .object({
+                  yes: z.string().optional(),
+                  no: z.string().optional(),
+                })
+                .optional(),
+            })
+            .optional(),
         }),
       ),
     }),
@@ -242,12 +249,26 @@ export function normalizeGeminiCatalog(
         {
           venueOutcomeId: `${contract.id}:YES`,
           label: "Yes",
-          indicativePrice: parseFixed(contract.prices.buy.yes, 100_000_000n),
+          ...(contract.prices?.buy?.yes === undefined
+            ? {}
+            : {
+                indicativePrice: parseFixed(
+                  contract.prices.buy.yes,
+                  100_000_000n,
+                ),
+              }),
         },
         {
           venueOutcomeId: `${contract.id}:NO`,
           label: "No",
-          indicativePrice: parseFixed(contract.prices.buy.no, 100_000_000n),
+          ...(contract.prices?.buy?.no === undefined
+            ? {}
+            : {
+                indicativePrice: parseFixed(
+                  contract.prices.buy.no,
+                  100_000_000n,
+                ),
+              }),
         },
       ],
       collateralId: "USD",
