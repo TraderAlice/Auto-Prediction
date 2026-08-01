@@ -1,6 +1,6 @@
 # Plans
 
-`plans/fresh-corpus-search-orchestration.md` is the active construction plan.
+`plans/economic-first-search-feedback.md` is the active construction plan.
 
 ## Planning contract
 
@@ -26,13 +26,17 @@ The settlement-qualified two-leg issue is merged and live. Its deterministic
 candidate policy counts only two-ref `EQUIVALENT` proposals as hits; conflicts
 remain research evidence without becoming finding notifications.
 
-The active temporal-correctness campaign now refreshes the anonymous catalog
-on an explicit bounded cadence and coordinates refresh with issue dispatch.
-Its first live five-minute timer run captured all seven sources, 467 listings,
-and a new immutable corpus before the issue queue returned to idle. Studio
-shows refresh health, next run, source coverage, and corpus identity. Full
-Node 24 qualification and responsive browser checks passed; only serial
-publication remains.
+Fresh-corpus orchestration is merged and live. The five-minute catalog timer
+keeps all seven sources and the recurring issue queue attached to current,
+content-addressed evidence.
+
+The next bottleneck is search yield. The live funnel contains 59 economically
+triaged proposals and 50 completed semantic reviews, but no positive gross
+hint. Thirty-seven proposals have unsupported relation shapes and 15 have
+unsupported listing arity; even the settlement-qualified issue spent pi calls
+to learn that four proposed pairs were conflicts. The active campaign moves a
+bigint-only two-leg price hint ahead of pi for the focused parity issue and
+attributes saved escalations and downstream economic yield back to each issue.
 
 ## Deferred future campaigns
 
