@@ -17,12 +17,18 @@ import {
   type CatalogObservationStore,
   type StoredCatalogObservation,
 } from "./catalog-observation.js";
+import {
+  verifyStoredCandidateBookObservation,
+  type CandidateBookObservationStore,
+  type CandidateBookObservationRecord,
+  type StoredCandidateBookObservation,
+} from "./candidate-watch.js";
 import type {
   DiscoveryRunRecord,
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -39,6 +45,13 @@ type StoredInvestigationRow = Readonly<{
 }>;
 
 type StoredCatalogObservationRow = Readonly<{
+  observation_id: string;
+  record_json: string;
+  record_hash: string;
+  raw_bytes: Uint8Array;
+}>;
+
+type StoredCandidateBookObservationRow = Readonly<{
   observation_id: string;
   record_json: string;
   record_hash: string;
@@ -146,6 +159,47 @@ function parseStoredCatalogObservation(
   return verifyStoredCatalogObservation({ record, bytes: row.raw_bytes });
 }
 
+function parseStoredCandidateBookObservation(
+  value: unknown,
+): StoredCandidateBookObservation {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite candidate book observation row is malformed");
+  }
+  const row = value as Partial<StoredCandidateBookObservationRow>;
+  if (
+    typeof row.observation_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string" ||
+    !(row.raw_bytes instanceof Uint8Array)
+  ) {
+    throw new Error(
+      "SQLite candidate book observation row has invalid column types",
+    );
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite candidate book observation contains invalid JSON");
+  }
+  if (decoded === null || typeof decoded !== "object") {
+    throw new Error("SQLite candidate book observation record is malformed");
+  }
+  const record = decoded as CandidateBookObservationRecord;
+  if (
+    record.observationId !== row.observation_id ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error(
+      "SQLite candidate book observation record identity mismatch",
+    );
+  }
+  return verifyStoredCandidateBookObservation({
+    record,
+    bytes: row.raw_bytes,
+  });
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -171,13 +225,23 @@ function readJournalMode(database: DatabaseSync): string {
 }
 
 export class SqliteOperationalStore
-  implements DiscoveryRunStore, InvestigationRecordStore, CatalogObservationStore
+  implements
+    DiscoveryRunStore,
+    InvestigationRecordStore,
+    CatalogObservationStore,
+    CandidateBookObservationStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
   public readonly storage: OperationalStorageProjection;
   public readonly investigationStorage: OperationalStorageProjection<"taskId+catalogContextIdentity">;
   public readonly catalogObservationStorage: Readonly<{
+    mode: "MEMORY" | "SQLITE_WAL";
+    durable: boolean;
+    schemaVersion: number;
+    idempotencyKey: "observationId";
+  }>;
+  public readonly candidateBookObservationStorage: Readonly<{
     mode: "MEMORY" | "SQLITE_WAL";
     durable: boolean;
     schemaVersion: number;
@@ -226,6 +290,12 @@ export class SqliteOperationalStore
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     this.catalogObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
+    });
+    this.candidateBookObservationStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
@@ -298,6 +368,37 @@ export class SqliteOperationalStore
             ON catalog_observations (received_at DESC, observation_id DESC);
           CREATE INDEX catalog_observations_venue
             ON catalog_observations (venue_id, received_at DESC);
+        `);
+      }
+      if (current < 4) {
+        this.#database.exec(`
+          CREATE TABLE candidate_book_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) > 0 AND
+              observation_id GLOB 'candidate-book-observation:[0-9a-f]*'
+            ),
+            refresh_id TEXT NOT NULL CHECK (
+              length(refresh_id) > 0 AND
+              refresh_id GLOB 'candidate-watch-refresh:[0-9a-f]*'
+            ),
+            venue_id TEXT NOT NULL CHECK (
+              venue_id IN ('polymarket-global', 'limitless')
+            ),
+            received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            raw_bytes BLOB NOT NULL
+          ) STRICT;
+          CREATE INDEX candidate_book_observations_received
+            ON candidate_book_observations (
+              received_at DESC, observation_id DESC
+            );
+          CREATE INDEX candidate_book_observations_venue
+            ON candidate_book_observations (venue_id, received_at DESC);
+          CREATE INDEX candidate_book_observations_refresh
+            ON candidate_book_observations (refresh_id, venue_id);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -536,6 +637,92 @@ export class SqliteOperationalStore
       const stored = parseStoredCatalogObservation(row);
       if (hashCanonical(stored.record) !== recordHash) {
         throw new Error("observationId is already bound to another record");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadCandidateBookObservations(
+    limit: number,
+  ): readonly StoredCandidateBookObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT observation_id, record_json, record_hash, raw_bytes
+         FROM candidate_book_observations
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseStoredCandidateBookObservation));
+  }
+
+  public saveCandidateBookObservation(
+    observation: StoredCandidateBookObservation,
+    retentionLimit: number,
+  ): StoredCandidateBookObservation {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = verifyStoredCandidateBookObservation(observation);
+    const recordJson = canonicalJson(validated.record);
+    const recordHash = hashCanonical(validated.record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO candidate_book_observations (
+             observation_id, refresh_id, venue_id, received_at,
+             record_json, record_hash, raw_bytes
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+        )
+        .run(
+          validated.record.observationId,
+          validated.record.refreshId,
+          validated.record.venueId,
+          validated.record.receivedAt,
+          recordJson,
+          recordHash,
+          validated.bytes,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM candidate_book_observations
+           WHERE venue_id = ? AND observation_id IN (
+             SELECT observation_id
+             FROM candidate_book_observations
+             WHERE venue_id = ?
+             ORDER BY rowid DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(
+          validated.record.venueId,
+          validated.record.venueId,
+          retentionLimit,
+        );
+      const row = this.#database
+        .prepare(
+          `SELECT observation_id, record_json, record_hash, raw_bytes
+           FROM candidate_book_observations
+           WHERE observation_id = ?`,
+        )
+        .get(validated.record.observationId);
+      if (row === undefined) {
+        throw new Error(
+          "SQLite failed to retain the candidate book observation",
+        );
+      }
+      const stored = parseStoredCandidateBookObservation(row);
+      if (hashCanonical(stored.record) !== recordHash) {
+        throw new Error(
+          "candidate observationId is already bound to another record",
+        );
       }
       this.#database.exec("COMMIT");
       return stored;

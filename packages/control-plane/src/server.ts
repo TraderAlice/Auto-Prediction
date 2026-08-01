@@ -8,6 +8,10 @@ import {
   RadarCandidateUnavailableError,
   type CatalogObservationStore,
 } from "./catalog-observation.js";
+import {
+  CandidateWatchDesk,
+  type CandidateBookObservationStore,
+} from "./candidate-watch.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
 import {
   createDiscoveryModelRuntime,
@@ -226,6 +230,18 @@ function supportsCatalogObservations(
   );
 }
 
+function supportsCandidateBookObservations(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & CandidateBookObservationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<CandidateBookObservationStore>;
+  return (
+    candidate.candidateBookObservationStorage !== undefined &&
+    typeof candidate.loadCandidateBookObservations === "function" &&
+    typeof candidate.saveCandidateBookObservation === "function"
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -239,6 +255,7 @@ export function createControlPlane(options?: {
   investigationDesk?: InvestigationDesk;
   investigationStore?: InvestigationRecordStore;
   realCandidatePreflightDesk?: RealCandidatePreflightDesk;
+  candidateWatchDesk?: CandidateWatchDesk;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -287,10 +304,20 @@ export function createControlPlane(options?: {
     );
   const realCandidatePreflightDesk =
     options?.realCandidatePreflightDesk ?? new RealCandidatePreflightDesk();
+  const candidateWatchDesk =
+    options?.candidateWatchDesk ??
+    new CandidateWatchDesk({
+      evidenceDesk: realCandidatePreflightDesk,
+      ...(supportsCandidateBookObservations(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
     catalogDesk.load(),
-    realCandidatePreflightDesk.load(),
+    realCandidateReady,
+    realCandidateReady.then(() => candidateWatchDesk.load()),
     ...(options?.refreshCatalogOnReady === true
       ? [catalogObservationDesk.refresh()]
       : []),
@@ -322,6 +349,7 @@ export function createControlPlane(options?: {
       realCandidateDisposition:
         realCandidatePreflightDesk.dispositionProjection(),
       realCandidateRescreen: realCandidatePreflightDesk.rescreenProjection(),
+      candidateWatch: candidateWatchDesk.projection(),
     });
   };
 
@@ -439,6 +467,7 @@ export function createControlPlane(options?: {
         realCandidateDisposition:
           realCandidatePreflightDesk.dispositionProjection(),
         realCandidateRescreen: realCandidatePreflightDesk.rescreenProjection(),
+        candidateWatch: candidateWatchDesk.projection(),
       });
       return;
     }
@@ -480,6 +509,26 @@ export function createControlPlane(options?: {
     ) {
       const current = await projection();
       writeJson(response, 200, current.qualification);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/candidate-watch"
+    ) {
+      await ready;
+      writeJson(response, 200, candidateWatchDesk.projection());
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/candidate-watch/refresh"
+    ) {
+      await ready;
+      const pending = candidateWatchDesk.refresh();
+      await broadcastProjection();
+      const result = await pending;
+      await broadcastProjection();
+      writeJson(response, result.status === "READY" ? 200 : 207, result);
       return;
     }
     if (
@@ -754,6 +803,7 @@ export function createControlPlane(options?: {
     investigationDesk,
     piRuntime,
     realCandidatePreflightDesk,
+    candidateWatchDesk,
     projection,
     ready,
   };

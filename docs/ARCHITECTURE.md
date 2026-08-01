@@ -111,15 +111,29 @@ protocol identity, and an untrusted-venue-text policy. This does not promote
 the observation desk: live data still cannot enter review, compilation,
 certification, or execution by this path.
 
+The real-candidate watch is a separate operational evidence grade. An explicit
+operator refresh anonymously reads the current Polymarket and Limitless books
+and binds both raw observations to one `candidate-watch-refresh` identity.
+SQLite schema v4 retains the raw BLOB, response metadata, protocol identity,
+receive time, raw hash, native generation when available, and candidate claim
+identity. Screening is permitted only when both latest observations share the
+same successful refresh ID. Partial failure preserves evidence for diagnostics
+but publishes no decision, preventing a fresh source from being stitched to an
+older counter-leg. Unchanged source identities reuse only their already-bound
+snapshot result; substantive changes rebuild the `bigint` depth screen. A
+positive gross screen stops at `POSITIVE_GROSS_REQUIRES_QUALIFICATION`; it does
+not call review or the verifier.
+
 The long-running control plane owns `ReplayBookDesk`. It verifies stream
 artifacts, applies normalized events to deterministic books, and publishes
 JSON/SSE projections. Studio is a read-only view of those projections and may
 request an in-memory replay, but it never applies book events itself.
 
-The same process owns bounded discovery, investigation, and catalog-observation operational state. In development it
+The same process owns bounded discovery, investigation, catalog-observation,
+and candidate-book operational state. In development it
 opens `.data/control-plane.sqlite`, selects WAL journal mode with full
 synchronous durability, applies an explicit schema migration, and hydrates the
-Scout Inbox and latest catalog observations before publishing the first
+Scout Inbox, latest catalog observations, and latest candidate books before publishing the first
 projection. Canonical records carry SHA-256 identities; catalog rows also keep
 the exact raw response BLOB. Malformed, tampered, or newer-schema state fails
 closed at startup/read time.
@@ -223,3 +237,12 @@ and never reused. Fresh depth and disposition hashes independently reproduce
 the zero-floor economic rejection. The lineage records
 `priorDecisionReused: false`, skips review and verification again, and requires
 another rescreen on the next substantive book change.
+
+At runtime, Candidate Watch applies that same invalidation rule to later public
+books without manufacturing new immutable fixtures. Its first retained live
+batch on 2026-08-01 changed only Polymarket (`sha256:dcdc0fae…c6e8`, native
+generation `36bbecef…b57e`); Limitless remained `sha256:bb0ad494…a6cf`. The
+new screen produced depth `sha256:ea217c9e…cb89` and disposition
+`sha256:d0f7fd48…de86`, again rejecting a zero gross floor. The old decision
+was not reused, and review, verifier, certificate, and execution effects stayed
+absent.

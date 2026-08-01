@@ -233,6 +233,7 @@ export type StudioProjection = Readonly<{
     realCandidateDepth: import("@pmh/evidence").RealCandidateDepthEvidence | null;
     realCandidateDisposition: import("@pmh/evidence").RealCandidateDispositionEvidence | null;
     realCandidateRescreen: import("@pmh/evidence").RealCandidateRescreenEvidence | null;
+    candidateWatch: import("./candidate-watch.js").CandidateWatchProjection;
   }>;
   discoveryDesk: DiscoveryDeskProjection;
   venues: readonly Readonly<{

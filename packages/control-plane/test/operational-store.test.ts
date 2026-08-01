@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { hashBytes, hashCanonical } from "@pmh/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  candidateWatchSources,
   createPiInvestigatorRuntime,
   DiscoveryLedger,
   DiscoveryPool,
@@ -12,6 +13,7 @@ import {
   InvestigationDesk,
   type DiscoveryTask,
   type PiProcessResult,
+  type StoredCandidateBookObservation,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
@@ -132,6 +134,52 @@ function catalogObservation(
   };
 }
 
+function candidateBookObservation(
+  venueId: "polymarket-global" | "limitless",
+  receivedAt = "2026-08-01T06:20:00.000Z",
+): StoredCandidateBookObservation {
+  const source = candidateWatchSources.find(
+    (candidate) => candidate.venueId === venueId,
+  );
+  if (source === undefined) throw new Error("missing candidate watch source");
+  const bytes = new TextEncoder().encode(
+    venueId === "polymarket-global"
+      ? '{"hash":"generation:test","bids":[],"asks":[]}'
+      : '{"bids":[],"asks":[]}',
+  );
+  const refreshId = `candidate-watch-refresh:${hashCanonical({ receivedAt }).slice(7)}`;
+  const body = {
+    schemaVersion: "pmh.candidate-book-observation.v1" as const,
+    refreshId,
+    candidateClaimIdentity: hashCanonical({ claim: "fixture" }),
+    venueId,
+    protocolIdentity: source.protocolIdentity,
+    sourceUrl: source.sourceUrl,
+    receivedAt,
+    httpStatus: 200 as const,
+    contentType: "application/json",
+    etag: null,
+    lastModified: null,
+    rawHash: hashBytes(bytes),
+    byteLength: bytes.byteLength.toString(),
+    nativeGeneration:
+      venueId === "polymarket-global" ? "generation:test" : null,
+    acquisition: {
+      method: "GET" as const,
+      credentialsUsed: false as const,
+      valueMovingOperation: false as const,
+    },
+  };
+  return {
+    record: {
+      ...body,
+      observationId:
+        `candidate-book-observation:${hashCanonical(body).slice(7)}`,
+    },
+    bytes,
+  };
+}
+
 function durableDesk(
   store: SqliteOperationalStore,
   onRun: () => void = () => undefined,
@@ -175,7 +223,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 3,
+        schemaVersion: 4,
         idempotencyKey: "taskId",
       },
     });
@@ -337,11 +385,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(3);
+    expect(migrated.storage.schemaVersion).toBe(4);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 3,
+      schemaVersion: 4,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -357,11 +405,12 @@ describe("SQLite operational store", () => {
       user_version: number;
     };
     expect(tables).toEqual([
+      "candidate_book_observations",
       "catalog_observations",
       "discovery_runs",
       "investigation_records",
     ]);
-    expect(version.user_version).toBe(3);
+    expect(version.user_version).toBe(4);
     inspected.close();
   });
 
@@ -376,7 +425,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 3,
+      schemaVersion: 4,
     });
     firstStore.close();
 
@@ -486,7 +535,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 3,
+      schemaVersion: 4,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -529,5 +578,50 @@ describe("SQLite operational store", () => {
       opinion.record.observationId,
     ]);
     store.close();
+  });
+
+  it("restores bounded candidate books byte-for-byte across store lifetimes", async () => {
+    const path = await databasePath();
+    const polymarket = candidateBookObservation("polymarket-global");
+    const limitless = candidateBookObservation("limitless");
+    const first = new SqliteOperationalStore(path);
+    expect(first.saveCandidateBookObservation(polymarket, 3)).toEqual(polymarket);
+    expect(first.saveCandidateBookObservation(limitless, 3)).toEqual(limitless);
+    expect(first.candidateBookObservationStorage).toEqual({
+      mode: "SQLITE_WAL",
+      durable: true,
+      schemaVersion: 4,
+      idempotencyKey: "observationId",
+    });
+    first.close();
+
+    const second = new SqliteOperationalStore(path);
+    expect(second.loadCandidateBookObservations(6)).toEqual([
+      limitless,
+      polymarket,
+    ]);
+    second.close();
+  });
+
+  it("fails closed when persisted candidate book bytes are tampered", async () => {
+    const path = await databasePath();
+    const store = new SqliteOperationalStore(path);
+    store.saveCandidateBookObservation(
+      candidateBookObservation("polymarket-global"),
+      3,
+    );
+    store.close();
+
+    const database = new DatabaseSync(path);
+    database
+      .prepare("UPDATE candidate_book_observations SET raw_bytes = X'00'")
+      .run();
+    database.close();
+
+    const reopened = new SqliteOperationalStore(path);
+    expect(() => reopened.loadCandidateBookObservations(3)).toThrow(
+      /raw payload identity mismatch/,
+    );
+    reopened.close();
   });
 });

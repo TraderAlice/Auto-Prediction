@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CandidateWatchDesk,
+  candidateWatchSources,
   createControlPlane,
   CatalogObservationDesk,
   catalogObservationSources,
@@ -11,6 +13,7 @@ import {
   createOpenAiDiscoveryRuntime,
   createPiInvestigatorRuntime,
   DiscoveryPool,
+  RealCandidatePreflightDesk,
   type DiscoveryWorker,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
@@ -513,6 +516,85 @@ describe("control-plane HTTP surface", () => {
     expect(current).toEqual(projection);
   });
 
+  it("refreshes a complete candidate watch batch without granting review authority", async () => {
+    const fixtureRoot = join(import.meta.dirname, "../../../projects/fixtures");
+    const evidenceDesk = new RealCandidatePreflightDesk(fixtureRoot);
+    await evidenceDesk.load();
+    const watchDesk = new CandidateWatchDesk({
+      evidenceDesk,
+      now: () => Date.parse("2026-08-01T06:30:00.000Z"),
+      fetcher: async (input, init) => {
+        const source = candidateWatchSources.find(
+          (candidate) => candidate.sourceUrl === input,
+        );
+        if (source === undefined) return new Response(null, { status: 404 });
+        expect(init).toMatchObject({ method: "GET", credentials: "omit" });
+        const fixtureName =
+          source.venueId === "polymarket-global"
+            ? "polymarket-trump-out-2027-book-rescreen-1"
+            : "limitless-trump-out-2027-book-rescreen-1";
+        const bytes = await readFile(
+          join(
+            fixtureRoot,
+            source.venueId,
+            "2026-08-01",
+            `${fixtureName}.json`,
+          ),
+        );
+        return new Response(new Uint8Array(bytes).buffer, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const { baseUrl } = await listenControlPlane({
+      realCandidatePreflightDesk: evidenceDesk,
+      candidateWatchDesk: watchDesk,
+    });
+    const response = await fetch(`${baseUrl}/api/v1/candidate-watch/refresh`, {
+      method: "POST",
+    });
+    const result = (await response.json()) as {
+      status: string;
+      authority: string;
+      latestRefreshId: string | null;
+      decision: {
+        status: string;
+        priorDecisionReused: boolean;
+        independentReviewInvoked: boolean;
+        verifierInvoked: boolean;
+        arbitrageVerified: boolean;
+      } | null;
+      effects: {
+        externalWrites: boolean;
+        valueMovingActions: boolean;
+        liveExecutionEnabled: boolean;
+      };
+    };
+    expect(response.status).toBe(200);
+    expect(result).toMatchObject({
+      status: "READY",
+      authority: "OBSERVE_AND_SCREEN_ONLY",
+      latestRefreshId: expect.stringMatching(/^candidate-watch-refresh:/),
+      decision: {
+        status: "UNCHANGED_BOUND_SNAPSHOT",
+        priorDecisionReused: true,
+        independentReviewInvoked: false,
+        verifierInvoked: false,
+        arbitrageVerified: false,
+      },
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    const qualification = (await fetch(
+      `${baseUrl}/api/v1/qualification`,
+    ).then((item) => item.json())) as { candidateWatch: unknown };
+    expect(qualification.candidateWatch).toEqual(result);
+  });
+
   it("rejects explicitly requested live context after its freshness window", async () => {
     const source = catalogObservationSources.find(
       (candidate) => candidate.venueId === "polymarket-global",
@@ -711,7 +793,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 3,
+          schemaVersion: 4,
         },
         records: [{ investigationId: created.investigationId }],
       });

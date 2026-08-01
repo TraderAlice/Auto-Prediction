@@ -123,6 +123,16 @@ invalidated; fresh depth and disposition identities reach the same rejection
 independently. At narrow widths the lineage becomes a vertical sequence while
 preserving the explicit `prior decision reused: NO` assertion.
 
+Above that immutable lineage, Candidate Watch is the operator-facing runtime
+surface. `Refresh books` requests one anonymous two-source batch from the
+control plane. Studio renders each source's health, raw hash, native generation
+posture, change-from-bound result, common refresh ID, deterministic screen
+disposition, and SQLite durability. It does not fetch or calculate books in the
+browser. `DEGRADED` means no complete same-refresh pair exists and therefore no
+decision is displayed. A newly positive gross result is labeled qualification
+required; Studio does not offer review, verifier, certificate, or execution
+controls.
+
 ## Scout inbox
 
 Completed discovery runs are retained by a `DiscoveryLedger` with a fixed

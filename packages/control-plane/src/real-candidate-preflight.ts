@@ -6,10 +6,19 @@ import {
   buildRealCandidateRescreenEvidence,
   loadRawFixture,
   type RealCandidateDepthEvidence,
+  type RealCandidateBookFixtureNames,
   type RealCandidateDispositionEvidence,
   type RealCandidatePreflightEvidence,
   type RealCandidateRescreenEvidence,
+  type VerifiedRawFixture,
 } from "@pmh/evidence";
+
+type CandidateSourceFixtures = Readonly<{
+  polymarket: VerifiedRawFixture;
+  opinion: VerifiedRawFixture;
+  limitless: VerifiedRawFixture;
+  limitlessFees: VerifiedRawFixture;
+}>;
 
 const currentBookFixtureNames = Object.freeze({
   polymarket: "polymarket-trump-out-2027-book-rescreen-1",
@@ -22,6 +31,7 @@ export class RealCandidatePreflightDesk {
   #depthEvidence: RealCandidateDepthEvidence | undefined;
   #dispositionEvidence: RealCandidateDispositionEvidence | undefined;
   #rescreenEvidence: RealCandidateRescreenEvidence | undefined;
+  #sourceFixtures: CandidateSourceFixtures | undefined;
   #inFlight: Promise<RealCandidatePreflightEvidence> | undefined;
 
   public constructor(
@@ -117,6 +127,12 @@ export class RealCandidatePreflightDesk {
       currentLimitlessBook,
       currentBookFixtureNames,
     });
+    this.#sourceFixtures = Object.freeze({
+      polymarket,
+      opinion,
+      limitless,
+      limitlessFees,
+    });
     this.#evidence = buildRealCandidatePreflightEvidence({
       polymarket,
       opinion,
@@ -151,5 +167,28 @@ export class RealCandidatePreflightDesk {
       throw new Error("real candidate rescreen evidence is not loaded");
     }
     return this.#rescreenEvidence;
+  }
+
+  public screenBooks(input: Readonly<{
+    polymarketBook: VerifiedRawFixture;
+    limitlessBook: VerifiedRawFixture;
+    bookFixtureNames: RealCandidateBookFixtureNames;
+  }>): Readonly<{
+    depth: RealCandidateDepthEvidence;
+    disposition: RealCandidateDispositionEvidence | null;
+  }> {
+    if (this.#sourceFixtures === undefined) {
+      throw new Error("real candidate source evidence is not loaded");
+    }
+    const screenInput = {
+      ...this.#sourceFixtures,
+      ...input,
+    };
+    const depth = buildRealCandidateDepthEvidence(screenInput);
+    const disposition =
+      BigInt(depth.grossFloorBeforeFees) <= 0n
+        ? buildRealCandidateDispositionEvidence(screenInput)
+        : null;
+    return Object.freeze({ depth, disposition });
   }
 }

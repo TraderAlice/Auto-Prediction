@@ -92,6 +92,18 @@ describe("Studio projection safety", () => {
     expect(studioProjection.qualification.realCandidateDepth).toBeNull();
     expect(studioProjection.qualification.realCandidateDisposition).toBeNull();
     expect(studioProjection.qualification.realCandidateRescreen).toBeNull();
+    expect(studioProjection.qualification.candidateWatch).toMatchObject({
+      status: "IDLE",
+      authority: "OBSERVE_AND_SCREEN_ONLY",
+      latestRefreshId: null,
+      decision: null,
+      storage: { mode: "MEMORY", durable: false, schemaVersion: 0 },
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 
