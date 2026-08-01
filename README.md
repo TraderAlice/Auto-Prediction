@@ -32,6 +32,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - An AI-native discovery pool where cheap parallel scouts inspect bounded, content-addressed fixture catalogs and may propose hypotheses but can never certify or execute them; its default DeepSeek V4 Flash worker runs through Vercel AI SDK with timeout, token, schema, and application-side scope bounds, while direct OpenAI Responses remains an optional backend.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection; each pair can be sent to the cheap scout pool only by an explicit operator action.
+- A content-addressed real-candidate preflight that parses fixture prices lexically into `bigint`, compares catalog hints with venue-reported buy quotes, and blocks the exact verifier when gross floor, depth, fee, or review prerequisites are absent.
 - An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, cross-restart task-scope idempotency, bounded hash-checked SQLite retention, SSE running/failure/completion state, and no route into review or execution.
 - A deterministic Research Case Desk that joins scout runs and pi retry history by question, venue scope, catalog-context identity, and source grade; it retains the exact bounded scout context for later pi handoff and exposes investigation summaries, findings, candidate scope, and missing-evidence intake without creating review or promotion authority.
 - A bounded anonymous catalog-observation desk for six venues. It preserves raw public GET bytes in SQLite WAL, binds normalized listings to their source identities, isolates protocol drift per venue, and stays `OBSERVE_ONLY`; explicit fresh-context qualification grants proposal input only.
@@ -45,8 +46,9 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-Production equivalence-review workflow, dense long-run evidence storage, and
-real-fixture candidate promotion remain active campaign work.
+Production equivalence-review workflow, quantity-bound live book/fee
+qualification, dense long-run evidence storage, and real-candidate promotion
+remain active campaign work.
 
 ## Safety boundary
 

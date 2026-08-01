@@ -60,6 +60,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Expose pi as an explicitly triggered, one-at-a-time Investigation Desk with SSE state and bounded durable completion retention.
 - [x] Join scout and pi history into deterministic, context-versioned research cases without granting promotion authority.
 - [x] Reduce fresh live catalogs into deterministic cross-venue Radar pairs and preserve exact scout-to-pi context across refresh and restart.
+- [x] Screen the real three-venue exact-claim fixtures with lexical `bigint` quotes and fail closed before verification when reported buy economics or prerequisite evidence is insufficient.
 - [x] Qualify real AI SDK and pi responses with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -129,6 +130,8 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: Discovery Ledger records retain the exact bounded catalog context server-side and omit it from HTTP/SSE projections. Candidate IDs rotate with live evidence, while an existing case can still start pi from its hash-checked scout snapshot after refresh or restart; pre-snapshot records fail closed and require rescouting.
 - 2026-08-01: A real six-source refresh reduced 314 observed listings to three aligned hourly BTC/ETH/BNB Opinion–Limitless pairs. DeepSeek fast scouting and a retained-context pi run both rejected title-level equivalence, identifying Pyth-versus-Chainlink settlement, strict-versus-inclusive thresholds, and asymmetric outage handling; the pi artifact is `sha256:7d0cd196…e1d908` and remains unreviewed and non-executable.
 - 2026-08-01: Opportunity Radar and durable AI handoff expand the Node.js 24.14.0 checkpoint to 182 passing tests plus full typecheck and production build, with nested-context tamper rejection, refresh-race coverage, idempotent case investigation, and desktop/mobile Studio inspection.
+- 2026-08-01: Real-candidate preflight binds the exact three-venue claim and lexically parsed fixture quotes into an immutable artifact. A 55 bp catalog hint collapses to 0 bp at venue-reported buy costs before fees, so depth, fee, and independent-review gaps keep the verifier uninvoked and the candidate non-executable.
+- 2026-08-01: The preflight checkpoint expands the Node.js 24.14.0 suite to 188 passing tests plus full typecheck, production build, and clean desktop/430px Studio inspection.
 
 ## Blockers
 

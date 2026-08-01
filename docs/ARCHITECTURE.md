@@ -181,3 +181,14 @@ Polymarket Global, Opinion, and Limitless. The evidence builder requires
 identical titles, binary partitions, and normalized resolution rules, plus the
 Limitless external Polymarket slug. Trading-window metadata remains
 listing-local and is deliberately excluded from the canonical claim identity.
+
+`real-candidate-preflight.v1.json` advances that exact claim map one step into
+economic screening without pretending that fixture prices are executable. It
+parses every numeric quote from its source lexeme into `bigint` fixed point.
+The catalog indications suggest a 55 bp gross complete-payout floor, but the
+same Polymarket YES and Limitless NO legs total exactly one unit at the venues'
+reported buy quotes. The artifact remains `SEARCH_LEAD_ONLY` and explicitly
+blocks fee/depth qualification, independent review, candidate compilation, and
+the exact verifier. This rejected handoff is campaign evidence: it proves that
+a plausible nominal spread cannot enter the authoritative path merely because
+the underlying claim map is exact.

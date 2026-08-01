@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 type View =
   | "overview"
   | "radar"
+  | "preflight"
   | "scouts"
   | "cases"
   | "venues"
@@ -84,6 +85,7 @@ const EMPTY_OPPORTUNITY_RADAR: StudioProjection["ai"]["opportunityRadar"] = {
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "radar", label: "Opportunity radar", icon: Radar },
+  { id: "preflight", label: "Candidate preflight", icon: FileCheck2 },
   { id: "scouts", label: "Scout inbox", icon: Inbox },
   { id: "cases", label: "Research cases", icon: Waypoints },
   { id: "venues", label: "Venue matrix", icon: Network },
@@ -898,6 +900,265 @@ function countLabel(count: number, singular: string): string {
 
 function similarityLabel(scoreBps: number): string {
   return `${Math.floor(scoreBps / 100)}.${String(scoreBps % 100).padStart(2, "0")}%`;
+}
+
+function unitCostLabel(value: string, scale: string): string {
+  const amount = BigInt(value);
+  const units = BigInt(scale);
+  const tenThousandths = (amount * 10_000n) / units;
+  return `${tenThousandths / 10_000n}.${String(tenThousandths % 10_000n).padStart(4, "0")}`;
+}
+
+function edgeLabel(value: string): string {
+  const bps = BigInt(value);
+  return `${bps > 0n ? "+" : ""}${bps} bp`;
+}
+
+function RealCandidatePreflightView() {
+  const studioProjection = useStudioProjection();
+  const preflight = studioProjection.qualification.realCandidatePreflight;
+  if (preflight === null || preflight === undefined) {
+    return (
+      <section className="page-section preflight-page">
+        <div className="page-heading">
+          <span className="eyebrow">Immutable fixture screen</span>
+          <h1>Candidate preflight</h1>
+          <p>
+            The real-fixture preflight is unavailable in this projection. The
+            control plane must load its content-addressed evidence before this
+            desk can render.
+          </p>
+        </div>
+        <div className="preflight-empty">
+          <CircleOff size={22} />
+          <strong>Evidence not loaded</strong>
+        </div>
+      </section>
+    );
+  }
+  const indicatedPositive = BigInt(preflight.catalogIndicativeGrossFloor) > 0n;
+
+  return (
+    <section className="page-section preflight-page">
+      <div className="page-heading preflight-heading">
+        <div>
+          <span className="eyebrow">Real fixtures · fail-closed economics</span>
+          <h1>Candidate preflight</h1>
+          <p>
+            One exact three-venue claim map produces a tempting catalog hint.
+            Repricing the same two legs at venue-reported buy quotes removes the
+            gross floor before fees or depth—so the exact verifier is never
+            invoked.
+          </p>
+        </div>
+        <Badge variant="shadow">
+          <CircleOff size={11} />
+          {preflight.status}
+        </Badge>
+      </div>
+
+      <div className="metric-grid preflight-summary-grid">
+        <Metric
+          label="Exact claim map"
+          value={`${preflight.exactVenueCount} venues`}
+          detail="identical rules · binary partition"
+        />
+        <Metric
+          label="Catalog hint"
+          value={edgeLabel(preflight.catalogIndicativeGrossEdgeBps)}
+          detail="gross · before fees and quantity"
+        />
+        <Metric
+          label="Reported buy floor"
+          value={edgeLabel(preflight.venueReportedBuyGrossEdgeBps)}
+          detail="same two outcomes · still no depth"
+        />
+        <Metric
+          label="Exact verifier"
+          value={preflight.verifierInvoked ? "RUN" : "NOT RUN"}
+          detail="prerequisites fail closed"
+        />
+      </div>
+
+      <div className="preflight-claim-strip">
+        <GitBranch size={15} />
+        <div>
+          <span>Canonical claim</span>
+          <strong>{preflight.canonicalTitle}</strong>
+        </div>
+        <code>{preflight.claimIdentity}</code>
+      </div>
+
+      <div className="preflight-comparison-grid">
+        <Card className="preflight-signal-card is-hint">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Catalog indicative screen</span>
+              <h2>A 55 bp search hint</h2>
+            </div>
+            <Badge variant={indicatedPositive ? "verified" : "shadow"}>
+              SCREEN ONLY
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="preflight-total">
+              <span>Complete payout cost</span>
+              <strong>
+                {unitCostLabel(
+                  preflight.catalogIndicativeTotalCost,
+                  preflight.payoutScale,
+                )}
+              </strong>
+            </div>
+            <div className="preflight-floor is-positive">
+              <Activity size={14} />
+              <span>Gross floor</span>
+              <strong>
+                {unitCostLabel(
+                  preflight.catalogIndicativeGrossFloor,
+                  preflight.payoutScale,
+                )}
+              </strong>
+            </div>
+            <p>
+              Catalog prices carry no executable quantity, book generation, or
+              complete fee schedule. Positive here means “inspect next,” not
+              arbitrage.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="preflight-signal-card is-stopped">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Venue-reported buy screen</span>
+              <h2>The edge disappears</h2>
+            </div>
+            <Badge variant="shadow">STOP</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="preflight-total">
+              <span>Complete payout cost</span>
+              <strong>
+                {unitCostLabel(
+                  preflight.venueReportedBuyTotalCost,
+                  preflight.payoutScale,
+                )}
+              </strong>
+            </div>
+            <div className="preflight-floor">
+              <CircleOff size={14} />
+              <span>Gross floor</span>
+              <strong>
+                {unitCostLabel(
+                  preflight.venueReportedBuyGrossFloor,
+                  preflight.payoutScale,
+                )}
+              </strong>
+            </div>
+            <p>
+              The two venue-reported buy costs consume the full unit payout.
+              Fees can only make this worse, and no depth is bound.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="preflight-leg-grid">
+        {preflight.legs.map((leg) => (
+          <article className="preflight-leg" key={`${leg.venueId}:${leg.outcome}`}>
+            <div className="preflight-leg-head">
+              <div>
+                <Badge variant={leg.outcome === "YES" ? "verified" : "shadow"}>
+                  {leg.outcome}
+                </Badge>
+                <span>{leg.venueId}</span>
+              </div>
+              <code>{leg.venueId}:{leg.listingId}</code>
+            </div>
+            <div className="preflight-leg-prices">
+              <div>
+                <span>Catalog</span>
+                <strong>
+                  {unitCostLabel(leg.catalogIndicativeCost, preflight.payoutScale)}
+                </strong>
+              </div>
+              <ChevronRight size={16} />
+              <div>
+                <span>Reported buy</span>
+                <strong>
+                  {unitCostLabel(leg.venueReportedBuyCost, preflight.payoutScale)}
+                </strong>
+              </div>
+            </div>
+            <div className="preflight-leg-source">
+              <Fingerprint size={11} />
+              <span>{leg.venueReportedBuyKind.replaceAll("_", " ")}</span>
+              <code>{leg.sourceFixtureHash.slice(0, 24)}…</code>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="preflight-detail-grid">
+        <Card>
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Qualification trace</span>
+              <h2>Where the candidate stops</h2>
+            </div>
+            <FileCheck2 size={18} className="muted-icon" />
+          </CardHeader>
+          <CardContent className="preflight-stage-list">
+            {preflight.stages.map((stage, index) => (
+              <div className="preflight-stage" key={stage.stage}>
+                <span className={stage.status === "BLOCKED" ? "is-blocked" : ""}>
+                  {stage.status === "PASS" ? index + 1 : <CircleOff size={11} />}
+                </span>
+                <div>
+                  <strong>{stage.stage.replaceAll("_", " ")}</strong>
+                  <small>{stage.detail}</small>
+                </div>
+                <Badge variant={stage.status === "PASS" ? "verified" : "shadow"}>
+                  {stage.status}
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Fail-closed intake</span>
+              <h2>Required before verification</h2>
+            </div>
+            <CircleOff size={18} className="muted-icon" />
+          </CardHeader>
+          <CardContent className="preflight-blocker-list">
+            {preflight.blockers.map((blocker, index) => (
+              <div className="preflight-blocker" key={blocker.code}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <div>
+                  <strong>{blocker.code.replaceAll("_", " ")}</strong>
+                  <p>{blocker.detail}</p>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="case-authority-lock preflight-authority-lock">
+        <ShieldCheck size={15} />
+        <span>
+          This immutable artifact is a search preflight, not an accepted market
+          link, executable quote, arbitrage certificate, or trading authority.
+        </span>
+        <code>{preflight.artifactHash}</code>
+      </div>
+    </section>
+  );
 }
 
 function OpportunityRadarView() {
@@ -2755,6 +3016,7 @@ function StudioShell() {
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
           {view === "radar" && <OpportunityRadarView />}
+          {view === "preflight" && <RealCandidatePreflightView />}
           {view === "scouts" && <ScoutInboxView />}
           {view === "cases" && <ResearchCaseDeskView />}
           {view === "venues" && <VenueMatrix />}

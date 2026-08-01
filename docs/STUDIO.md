@@ -78,6 +78,29 @@ snapshot after catalog refresh or process restart; it cannot substitute the
 new current Radar candidate. Context tampering fails both the enclosing record
 hash and the nested context identity check.
 
+## Candidate preflight
+
+The Candidate Preflight view is the economic screening layer between a real
+exact-claim fixture map and any future reviewed candidate. It is derived from
+the three checked-in `Trump out as President before 2027?` venue fixtures and
+the immutable `pmh.real-candidate-preflight.v1` artifact. JSON numeric tokens
+are preserved lexically and all prices, costs, payout floors, and basis-point
+values are recomputed with `bigint` fixed point.
+
+The real fixture illustrates why catalog spreads are only search hints.
+Polymarket YES at catalog indication `0.0650` plus Limitless NO at `0.9295`
+appears to cost `0.9945`, a gross 55 bp floor. Repricing the same outcomes at
+the venues' reported buy quotes (`0.0700` and `0.9300`) consumes the entire
+`1.0000` payout before fees. No executable quantity or book generation is
+bound, the complete fee schedule is absent, and production equivalence-review
+authority is unconfigured.
+
+Studio therefore renders the artifact as `SEARCH_LEAD_ONLY` / `BLOCKED`, shows
+the two quote layers separately, and reports `verifierInvoked: false` plus
+`arbitrageVerified: false`. It is not added to the opportunity list. The
+browser only presents the control-plane result and performs no price or payoff
+calculation.
+
 ## Scout inbox
 
 Completed discovery runs are retained by a `DiscoveryLedger` with a fixed

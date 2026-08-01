@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "pmh.real-candidate-preflight.v1",
+  "campaignId": "architecture-qualification",
+  "checkpointId": "three-venue-real-candidate-preflight",
+  "status": "BLOCKED",
+  "classification": "SEARCH_LEAD_ONLY",
+  "claimEvidenceHash": "sha256:a52119a402b27f12cad6478545538551347de404f23615808acc4200efe2ee99",
+  "claimIdentity": "sha256:36f25c9731ffdc71a3bd442abbe0dfe137da349c6fb52fc4485ac6dd78a31481",
+  "canonicalTitle": "Trump out as President before 2027?",
+  "exactVenueCount": 3,
+  "payoutScale": "1000000",
+  "legs": [
+    {
+      "venueId": "polymarket-global",
+      "listingId": "666861",
+      "outcome": "YES",
+      "catalogIndicativeCost": "65000",
+      "venueReportedBuyCost": "70000",
+      "venueReportedBuyKind": "GAMMA_BEST_ASK",
+      "sourceFixtureHash": "sha256:e15a8399332c4596ca8e739c35d2734433b3494f7b01a678df1c02c091426b48",
+      "sourceReceivedAt": "2026-07-31T11:38:42.211Z"
+    },
+    {
+      "venueId": "limitless",
+      "listingId": "36814",
+      "outcome": "NO",
+      "catalogIndicativeCost": "929500",
+      "venueReportedBuyCost": "930000",
+      "venueReportedBuyKind": "LIMITLESS_MARKET_BUY",
+      "sourceFixtureHash": "sha256:fa977da3e8f2dc817a4107eca46abd32b67f5d6e2d3653b75f90e894085be7e5",
+      "sourceReceivedAt": "2026-07-31T11:38:42.836Z"
+    }
+  ],
+  "catalogIndicativeTotalCost": "994500",
+  "catalogIndicativeGrossFloor": "5500",
+  "catalogIndicativeGrossEdgeBps": "55",
+  "venueReportedBuyTotalCost": "1000000",
+  "venueReportedBuyGrossFloor": "0",
+  "venueReportedBuyGrossEdgeBps": "0",
+  "quoteEvidenceHash": "sha256:07c3e66c7d31bcf57cea5469ebbd5d1f5ecc89074d6e02ee57737173ff158731",
+  "blockers": [
+    {
+      "code": "NON_POSITIVE_REPORTED_BUY_FLOOR",
+      "detail": "Venue-reported buy costs consume the complete payout before fees."
+    },
+    {
+      "code": "EXECUTABLE_DEPTH_MISSING",
+      "detail": "Catalog and venue-reported quotes do not bind executable quantity or book generation."
+    },
+    {
+      "code": "FEE_SCHEDULE_INCOMPLETE",
+      "detail": "The fixtures do not bind a complete conservative fee schedule for both legs."
+    },
+    {
+      "code": "INDEPENDENT_REVIEW_AUTHORITY_ABSENT",
+      "detail": "The exact claim map is qualification evidence, not a production equivalence review."
+    }
+  ],
+  "stages": [
+    {
+      "stage": "EXACT_CLAIM_MAP",
+      "status": "PASS",
+      "detail": "Three fixture listings bind identical rules and binary payouts.",
+      "evidenceHashes": [
+        "sha256:a52119a402b27f12cad6478545538551347de404f23615808acc4200efe2ee99"
+      ]
+    },
+    {
+      "stage": "INDICATIVE_SCREEN",
+      "status": "PASS",
+      "detail": "55 bps gross catalog hint before fees and depth.",
+      "evidenceHashes": [
+        "sha256:07c3e66c7d31bcf57cea5469ebbd5d1f5ecc89074d6e02ee57737173ff158731"
+      ]
+    },
+    {
+      "stage": "REPORTED_BUY_SCREEN",
+      "status": "BLOCKED",
+      "detail": "0 bps gross floor at venue-reported buy quotes.",
+      "evidenceHashes": [
+        "sha256:07c3e66c7d31bcf57cea5469ebbd5d1f5ecc89074d6e02ee57737173ff158731"
+      ]
+    },
+    {
+      "stage": "FEE_AND_DEPTH",
+      "status": "BLOCKED",
+      "detail": "No quantity-bound book generation or complete fee evidence.",
+      "evidenceHashes": [
+        "sha256:e15a8399332c4596ca8e739c35d2734433b3494f7b01a678df1c02c091426b48",
+        "sha256:fa977da3e8f2dc817a4107eca46abd32b67f5d6e2d3653b75f90e894085be7e5"
+      ]
+    },
+    {
+      "stage": "INDEPENDENT_REVIEW",
+      "status": "BLOCKED",
+      "detail": "Production equivalence-review authority is not configured.",
+      "evidenceHashes": [
+        "sha256:a52119a402b27f12cad6478545538551347de404f23615808acc4200efe2ee99"
+      ]
+    },
+    {
+      "stage": "EXACT_VERIFICATION",
+      "status": "BLOCKED",
+      "detail": "Verifier not invoked because prerequisite evidence failed closed.",
+      "evidenceHashes": [
+        "sha256:07c3e66c7d31bcf57cea5469ebbd5d1f5ecc89074d6e02ee57737173ff158731"
+      ]
+    }
+  ],
+  "verifierInvoked": false,
+  "arbitrageVerified": false,
+  "effects": {
+    "externalWrites": false,
+    "valueMovingActions": false,
+    "liveExecutionEnabled": false
+  },
+  "artifactHash": "sha256:a217e2c9c84bd5b90eae0387c2826b18e5933755c97b305eabe50785e4f2024a"
+}

@@ -929,6 +929,16 @@ describe("control-plane HTTP surface", () => {
         artifactHash: string;
         effects: { liveExecutionEnabled: boolean };
       };
+      realCandidatePreflight: {
+        status: string;
+        classification: string;
+        catalogIndicativeGrossEdgeBps: string;
+        venueReportedBuyGrossEdgeBps: string;
+        verifierInvoked: boolean;
+        arbitrageVerified: boolean;
+        artifactHash: string;
+        effects: { liveExecutionEnabled: boolean };
+      };
     };
     expect(response.status).toBe(200);
     expect(qualification.replayChaos).toMatchObject({
@@ -946,6 +956,18 @@ describe("control-plane HTTP surface", () => {
       effects: { liveExecutionEnabled: false },
     });
     expect(qualification.reviewedCompilation.artifactHash).toMatch(/^sha256:/);
+    expect(qualification.realCandidatePreflight).toMatchObject({
+      status: "BLOCKED",
+      classification: "SEARCH_LEAD_ONLY",
+      catalogIndicativeGrossEdgeBps: "55",
+      venueReportedBuyGrossEdgeBps: "0",
+      verifierInvoked: false,
+      arbitrageVerified: false,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(qualification.realCandidatePreflight.artifactHash).toMatch(
+      /^sha256:/,
+    );
   });
 
   it("broadcasts the replayed projection to connected SSE clients", async () => {

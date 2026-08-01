@@ -1,4 +1,5 @@
 import { hashCanonical } from "@pmh/domain";
+import type { RealCandidatePreflightEvidence } from "@pmh/evidence";
 import { runReplayChaosSuite } from "@pmh/market-state";
 import { geminiManifest } from "@pmh/venue-gemini";
 import { kalshiManifest } from "@pmh/venue-kalshi";
@@ -74,6 +75,7 @@ export function buildStudioProjection(input: {
   investigationDesk?: InvestigationDeskProjection;
   bookDesk?: BookDeskProjection;
   discoveryDesk?: DiscoveryDeskProjection;
+  realCandidatePreflight?: RealCandidatePreflightEvidence;
 }): StudioProjection {
   const bookDesk = input.bookDesk ?? {
     mode: "FIXTURE_REPLAY" as const,
@@ -227,7 +229,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 182,
+      proofTests: 188,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -269,6 +271,7 @@ export function buildStudioProjection(input: {
       replayChaos,
       campaignEvidence: buildCampaignEvidence(bookDesk, replayChaos),
       reviewedCompilation,
+      realCandidatePreflight: input.realCandidatePreflight ?? null,
     },
     discoveryDesk,
     venues: manifests

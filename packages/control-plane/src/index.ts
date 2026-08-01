@@ -14,6 +14,7 @@ export * from "./pi-investigator-smoke.js";
 export * from "./projection.js";
 export * from "./provider-smoke.js";
 export * from "./qualification.js";
+export * from "./real-candidate-preflight.js";
 export * from "./reviewed-compilation.js";
 export * from "./research-case-desk.js";
 export * from "./server.js";

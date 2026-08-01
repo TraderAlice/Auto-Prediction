@@ -31,6 +31,7 @@ import {
 } from "./discovery-ledger.js";
 import { radarTriageTaskId } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
+import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -237,6 +238,7 @@ export function createControlPlane(options?: {
   piRuntime?: PiInvestigatorRuntime;
   investigationDesk?: InvestigationDesk;
   investigationStore?: InvestigationRecordStore;
+  realCandidatePreflightDesk?: RealCandidatePreflightDesk;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -283,9 +285,12 @@ export function createControlPlane(options?: {
           ? options.discoveryStore
           : undefined),
     );
+  const realCandidatePreflightDesk =
+    options?.realCandidatePreflightDesk ?? new RealCandidatePreflightDesk();
   const ready = Promise.all([
     bookDesk.replay(),
     catalogDesk.load(),
+    realCandidatePreflightDesk.load(),
     ...(options?.refreshCatalogOnReady === true
       ? [catalogObservationDesk.refresh()]
       : []),
@@ -312,6 +317,7 @@ export function createControlPlane(options?: {
       opportunityRadar: catalogObservationDesk.radar(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
+      realCandidatePreflight: realCandidatePreflightDesk.projection(),
     });
   };
 
@@ -424,6 +430,7 @@ export function createControlPlane(options?: {
         catalogContext: catalogDesk.projection(),
         catalogObservation: catalogObservationDesk.projection(),
         opportunityRadar: catalogObservationDesk.radar(),
+        realCandidatePreflight: realCandidatePreflightDesk.projection(),
       });
       return;
     }
@@ -738,6 +745,7 @@ export function createControlPlane(options?: {
     discoveryLedger,
     investigationDesk,
     piRuntime,
+    realCandidatePreflightDesk,
     projection,
     ready,
   };
