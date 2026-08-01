@@ -455,6 +455,99 @@ describe("AI-native search lease scheduler", () => {
     );
   });
 
+  it("feeds completed bounded contexts back without crossing issue boundaries", async () => {
+    const boundedListings = Object.freeze([
+      ...listings,
+      Object.freeze({
+        ...listings[0]!,
+        listingRef: "venue-c:pizza-c",
+        venueId: "venue-c",
+        venueInstrumentId: "pizza-c",
+        sourceRawHash: hashCanonical({ venueId: "venue-c" }),
+        protocolIdentity: "protocol:venue-c",
+      }),
+    ]);
+    const boundedSnapshot = (source: string) => buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source }),
+      eligibleSourceCount: 3,
+      excludedSourceCount: 0,
+      listings: boundedListings,
+    });
+    const feedbackSeen: unknown[] = [];
+    const scheduler = new SearchLeaseScheduler({
+      context: (question, _venueIds, _lens, _snapshot, feedback) => {
+        feedbackSeen.push(feedback);
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+          source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+          listings: boundedListings,
+        });
+        expect(question).not.toHaveLength(0);
+        return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+      },
+      runFast: async (task) => Object.freeze({
+        ...runRecord(task),
+        hypotheses: Object.freeze([]),
+      }),
+      maxPiInvocations: 0,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+    const firstIssueId = hashCanonical({ issue: "bounded-rotation" });
+    const firstIssue = Object.freeze({
+      issueId: firstIssueId,
+      question: "Rotate bounded semantic neighborhoods.",
+      venueIds: Object.freeze([]),
+    });
+    const secondIssue = Object.freeze({
+      issueId: hashCanonical({ issue: "independent-bounded-rotation" }),
+      question: firstIssue.question,
+      venueIds: Object.freeze([]),
+    });
+
+    const first = await scheduler.begin(
+      boundedSnapshot("bounded-1"),
+      "IMPLICATION",
+      "SCHEDULE",
+      firstIssue,
+    ).promise;
+    await scheduler.begin(
+      boundedSnapshot("bounded-2"),
+      "IMPLICATION",
+      "SCHEDULE",
+      firstIssue,
+    ).promise;
+    await scheduler.begin(
+      boundedSnapshot("bounded-3"),
+      "IMPLICATION",
+      "SCHEDULE",
+      secondIssue,
+    ).promise;
+
+    expect(first.fastLane.semanticScope).toMatchObject({
+      kind: "BOUNDED_CONTEXT",
+      listingRefs: [
+        "venue-a:pizza-a",
+        "venue-b:pizza-b",
+        "venue-c:pizza-c",
+      ],
+    });
+    expect(feedbackSeen[1]).toMatchObject({
+      issueId: firstIssueId,
+      completedSemanticScopeIdentities: [
+        first.fastLane.semanticScope?.semanticScopeIdentity,
+      ],
+      attemptedRoutingScopeIdentities: [
+        first.fastLane.semanticScope?.routingScopeIdentity,
+      ],
+    });
+    expect(feedbackSeen[2]).toMatchObject({
+      issueId: secondIssue.issueId,
+      completedSemanticScopeIdentities: [],
+      attemptedRoutingScopeIdentities: [],
+    });
+  });
+
   it("persists issued-to-terminal records and restores idempotent results", async () => {
     const store = new SqliteOperationalStore(":memory:");
     const scheduler = new SearchLeaseScheduler({

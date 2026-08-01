@@ -15,6 +15,7 @@ import type {
   DiscoveryCatalogContextSource,
   DiscoveryCatalogProjection,
 } from "./types.js";
+import { buildSearchScopeIdentity } from "./search-scope-identity.js";
 
 export const MAX_LISTINGS_PER_TASK = 30;
 export const MAX_CATALOG_CONTEXT_CHARACTERS = 50_000;
@@ -104,6 +105,29 @@ function searchTerms(value: string): ReadonlySet<string> {
   );
 }
 
+function rankListings(
+  listingsInput: readonly DiscoveryCatalogListing[],
+  question: string,
+  venueIds: readonly string[],
+) {
+  const allowedVenues = new Set(venueIds);
+  const queryTerms = searchTerms(question);
+  return listingsInput
+    .filter((listing) => allowedVenues.has(listing.venueId))
+    .map((listing) => {
+      const listingTerms = searchTerms(
+        `${listing.title} ${listing.description} ${listing.rulesText ?? ""}`,
+      );
+      const score = [...queryTerms].filter((term) => listingTerms.has(term)).length;
+      return { listing, score };
+    })
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.listing.listingRef.localeCompare(right.listing.listingRef),
+    );
+}
+
 export function toDiscoveryCatalogListing(
   listing: NormalizedCatalogListing,
   source: Readonly<{
@@ -152,22 +176,7 @@ export function buildDiscoveryCatalogContext(
   question: string,
   venueIds: readonly string[],
 ): DiscoveryCatalogContext {
-  const allowedVenues = new Set(venueIds);
-  const queryTerms = searchTerms(question);
-  const ranked = listingsInput
-    .filter((listing) => allowedVenues.has(listing.venueId))
-    .map((listing) => {
-      const listingTerms = searchTerms(
-        `${listing.title} ${listing.description} ${listing.rulesText ?? ""}`,
-      );
-      const score = [...queryTerms].filter((term) => listingTerms.has(term)).length;
-      return { listing, score };
-    })
-    .sort(
-      (left, right) =>
-        right.score - left.score ||
-        left.listing.listingRef.localeCompare(right.listing.listingRef),
-    );
+  const ranked = rankListings(listingsInput, question, venueIds);
   const positive = ranked.filter((item) => item.score > 0);
   const strongestScore = positive[0]?.score ?? 0;
   const relevant = positive.filter(
@@ -200,6 +209,78 @@ export function buildDiscoveryCatalogContext(
     listings,
   };
   return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+}
+
+export type DiscoveryContextRoutingFeedback = Readonly<{
+  completedSemanticScopeIdentities: readonly Hash[];
+  attemptedRoutingScopeIdentities: readonly Hash[];
+}>;
+
+function routingTier(
+  context: DiscoveryCatalogContext,
+  feedback: DiscoveryContextRoutingFeedback,
+) {
+  const scope = buildSearchScopeIdentity(context.listings);
+  const semanticCompleted = feedback.completedSemanticScopeIdentities.includes(
+    scope.semanticScopeIdentity,
+  );
+  const routingAttempted = feedback.attemptedRoutingScopeIdentities.includes(
+    scope.routingScopeIdentity,
+  );
+  return Object.freeze({
+    scope,
+    tier: semanticCompleted
+      ? routingAttempted ? 3 : 2
+      : routingAttempted ? 1 : 0,
+  });
+}
+
+/**
+ * Selects one deterministic, issue-feedback-aware semantic neighborhood.
+ * The original question-ranked context remains the first candidate. Later
+ * candidates add one current listing title as a retrieval trailhead while the
+ * Agent still receives the unchanged issue question.
+ */
+export function buildRotatingDiscoveryCatalogContext(
+  source: DiscoveryCatalogContextSource,
+  listingsInput: readonly DiscoveryCatalogListing[],
+  question: string,
+  venueIds: readonly string[],
+  feedback: DiscoveryContextRoutingFeedback,
+): DiscoveryCatalogContext {
+  const primary = buildDiscoveryCatalogContext(
+    source,
+    listingsInput,
+    question,
+    venueIds,
+  );
+  if (primary.listings.length === 0) return primary;
+
+  const primaryRouting = routingTier(primary, feedback);
+  if (primaryRouting.tier === 0) return primary;
+  const seenSemanticScopes = new Set<Hash>([
+    primaryRouting.scope.semanticScopeIdentity,
+  ]);
+  let bestContext = primary;
+  let bestTier = primaryRouting.tier;
+  for (const { listing: anchor } of rankListings(listingsInput, question, venueIds)) {
+    const context = buildDiscoveryCatalogContext(
+      source,
+      listingsInput,
+      anchor.title,
+      venueIds,
+    );
+    if (context.listings.length < 2) continue;
+    const routed = routingTier(context, feedback);
+    if (seenSemanticScopes.has(routed.scope.semanticScopeIdentity)) continue;
+    seenSemanticScopes.add(routed.scope.semanticScopeIdentity);
+    if (routed.tier === 0) return context;
+    if (routed.tier < bestTier) {
+      bestContext = context;
+      bestTier = routed.tier;
+    }
+  }
+  return bestContext;
 }
 
 export class FixtureCatalogDiscoveryDesk {
@@ -288,6 +369,23 @@ export class FixtureCatalogDiscoveryDesk {
       this.#listings,
       question,
       venueIds,
+    );
+  }
+
+  public rotatingContext(
+    question: string,
+    venueIds: readonly string[],
+    feedback: DiscoveryContextRoutingFeedback,
+  ): DiscoveryCatalogContext {
+    if (!this.#loaded) {
+      throw new Error("catalog discovery corpus is not loaded");
+    }
+    return buildRotatingDiscoveryCatalogContext(
+      "VERIFIED_FIXTURE_CATALOGS",
+      this.#listings,
+      question,
+      venueIds,
+      feedback,
     );
   }
 }

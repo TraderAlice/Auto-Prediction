@@ -1167,11 +1167,11 @@ export class SearchLeaseScheduler {
         authority: "SEARCH_ROUTING_ONLY" as const,
       });
     }
-    const exactTerminal = this.#records.filter((record) =>
+    const terminalScopes = this.#records.filter((record) =>
       record.lease.issueId === issueId &&
       record.lease.leaseId !== issued.lease.leaseId &&
       record.status === "PASS" &&
-      record.fastLane.semanticScope?.kind === "EXACT_PAIR"
+      record.fastLane.semanticScope !== undefined
     );
     const completedReasons = new Set<SearchLeaseDeepLane["reason"]>([
       "NO_CANDIDATES",
@@ -1185,14 +1185,14 @@ export class SearchLeaseScheduler {
       issueId,
       completedSemanticScopeIdentities: Object.freeze([
         ...new Set(
-          exactTerminal
+          terminalScopes
             .filter((record) => completedReasons.has(record.deepLane.reason))
             .map((record) => record.fastLane.semanticScope!.semanticScopeIdentity),
         ),
       ].sort()),
       attemptedRoutingScopeIdentities: Object.freeze([
         ...new Set(
-          exactTerminal.map(
+          terminalScopes.map(
             (record) => record.fastLane.semanticScope!.routingScopeIdentity,
           ),
         ),

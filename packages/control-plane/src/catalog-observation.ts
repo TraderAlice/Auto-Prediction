@@ -19,8 +19,10 @@ import {
 } from "@pmh/venue-polymarket-us";
 import {
   buildDiscoveryCatalogContext,
+  buildRotatingDiscoveryCatalogContext,
   MAX_LISTINGS_PER_TASK,
   toDiscoveryCatalogListing,
+  type DiscoveryContextRoutingFeedback,
 } from "./catalog-discovery.js";
 import {
   buildOpportunityRadar,
@@ -585,6 +587,38 @@ export class CatalogObservationDesk {
       states.flatMap((state) => state.listings),
       question,
       requested,
+    );
+  }
+
+  public rotatingContext(
+    question: string,
+    venueIds: readonly string[],
+    feedback: DiscoveryContextRoutingFeedback,
+  ): DiscoveryCatalogContext {
+    const requested = [...new Set(venueIds)];
+    const now = this.#now();
+    if (requested.length === 0 || requested.length !== venueIds.length) {
+      throw new Error("live catalog context requires unique venue IDs");
+    }
+    const states = requested.map((venueId) => {
+      const state = this.#states.get(venueId);
+      if (state === undefined) {
+        throw new Error(`live catalog source ${venueId} is not registered`);
+      }
+      const eligibility = this.#contextEligibility(state, now);
+      if (!eligibility.eligible) {
+        throw new Error(
+          `live catalog source ${venueId} is not context eligible: ${eligibility.reason}`,
+        );
+      }
+      return state;
+    });
+    return buildRotatingDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      states.flatMap((state) => state.listings),
+      question,
+      requested,
+      feedback,
     );
   }
 

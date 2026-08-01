@@ -1,6 +1,6 @@
 # Plans
 
-`plans/semantic-scope-rotation.md` is the active construction plan.
+`plans/bounded-context-rotation.md` is the active construction plan.
 
 ## Planning contract
 
@@ -42,15 +42,22 @@ the new gate has one positive result, two blocked results, and one recorded pi
 call avoided. Studio exposes those pre-pi results alongside downstream economic
 yield by durable issue.
 
-The semantic-coverage campaign is qualified and ready to publish. Exact radar
-scopes now carry a price-independent semantic identity and an
-economic-posture-sensitive routing identity. Each issue uses its own retained
-terminal evidence to prefer unseen scopes, so a lexical false positive cannot
-monopolize recurring search. A seven-source, 467-listing smoke run preserved
-both identities for an unchanged top pair across catalog refresh and then
-assigned the next pair. Studio reports seven unique exact semantic scopes, two
-revisits, one semantic no-lead scope, and nine exact-pair assignments in the
-current retained window. Desktop and 390 px QA have no horizontal overflow.
+Exact-pair semantic rotation is merged and live. A seven-source, 467-listing
+smoke run preserved both identities for an unchanged top pair across catalog
+refresh and then assigned the next pair.
+
+Bounded-context rotation is implemented and qualified for serial merge. General
+issues now keep their semantic brief fixed while deterministic listing-title
+anchors route each cheap scout into a different, content-addressed market
+neighborhood. Completed scope feedback is issue-local; failed work never
+suppresses a neighborhood, and exhaustion falls back deterministically.
+
+Two live seven-source refreshes proved the implication issue moved from its
+unchanged 18-listing primary scope to distinct 22- and 10-listing neighborhoods.
+The retained window now contains five unique bounded neighborhoods, including
+three for the implication issue. Both rotated runs honestly ended with
+`NO_CANDIDATES`: the product expanded its search frontier without manufacturing
+a relationship. Full checks, tests, build, desktop QA, and 390 px QA pass.
 
 ## Deferred future campaigns
 

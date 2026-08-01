@@ -525,7 +525,11 @@ export function createControlPlane(options?: {
             }
           }
         }
-        return catalogObservationDesk.context(question, venueIds);
+        return catalogObservationDesk.rotatingContext(
+          question,
+          venueIds,
+          feedback,
+        );
       },
       graphContext: (snapshot, lens) => {
         if (graphContextForLease === undefined) {

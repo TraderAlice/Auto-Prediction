@@ -88,6 +88,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
     exactSemanticScopeCount: number;
     semanticScopeRevisitCount: number;
     noLeadSemanticScopeCount: number;
+    boundedSemanticScopeCount: number;
+    boundedScopeRevisitCount: number;
+    noLeadBoundedScopeCount: number;
     hypothesisCount: number;
     proposalCount: number;
     evidenceGapCount: number;
@@ -108,6 +111,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
       exactSemanticScopeCount: number;
       semanticScopeRevisitCount: number;
       noLeadSemanticScopeCount: number;
+      boundedSemanticScopeCount: number;
+      boundedScopeRevisitCount: number;
+      noLeadBoundedScopeCount: number;
       hypothesisCount: number;
       proposalCount: number;
       evidenceGapCount: number;
@@ -176,6 +182,9 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   exactSemanticScopeCount: number;
   semanticScopeRevisitCount: number;
   noLeadSemanticScopeCount: number;
+  boundedSemanticScopeCount: number;
+  boundedScopeRevisitCount: number;
+  noLeadBoundedScopeCount: number;
   hypothesisCount: number;
   proposalCount: number;
   evidenceGapCount: number;
@@ -190,6 +199,21 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
         record.fastLane.semanticScope!.semanticScopeIdentity,
     ),
   );
+  const boundedScopes = records.filter(
+    (record) => record.fastLane.semanticScope?.kind === "BOUNDED_CONTEXT",
+  );
+  const uniqueBoundedScopes = new Set(
+    boundedScopes.map(
+      (record) =>
+        `${record.lease.issueId ?? "unassigned"}:` +
+        record.fastLane.semanticScope!.semanticScopeIdentity,
+    ),
+  );
+  const noLeadReasons = [
+    "NO_CANDIDATES",
+    "NOT_MULTI_LISTING",
+    "NO_POLICY_MATCH",
+  ];
   return Object.freeze({
     terminalLeaseCount: records.length,
     novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
@@ -212,11 +236,14 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     ).length,
     exactSemanticScopeCount: uniqueSemanticScopes.size,
     semanticScopeRevisitCount: exactScopes.length - uniqueSemanticScopes.size,
-    noLeadSemanticScopeCount: exactScopes.filter((record) => [
-      "NO_CANDIDATES",
-      "NOT_MULTI_LISTING",
-      "NO_POLICY_MATCH",
-    ].includes(record.deepLane.reason)).length,
+    noLeadSemanticScopeCount: exactScopes.filter((record) =>
+      noLeadReasons.includes(record.deepLane.reason)
+    ).length,
+    boundedSemanticScopeCount: uniqueBoundedScopes.size,
+    boundedScopeRevisitCount: boundedScopes.length - uniqueBoundedScopes.size,
+    noLeadBoundedScopeCount: boundedScopes.filter((record) =>
+      noLeadReasons.includes(record.deepLane.reason)
+    ).length,
     hypothesisCount: records.reduce((sum, record) => sum + record.outcome.hypothesisCount, 0),
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     evidenceGapCount: records.reduce((sum, record) => sum + record.outcome.evidenceGapCount, 0),
