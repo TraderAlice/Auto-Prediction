@@ -1,6 +1,8 @@
 # Plans
 
-`plans/arbitrage-first-review-admission.md` is the active construction plan.
+No construction campaign is active after the arbitrage-first review-admission
+merge. The next campaign should be selected from measured live funnel evidence
+and recorded in a fresh file under `plans/`.
 
 ## Planning contract
 
@@ -106,19 +108,13 @@ does not replay the historical backlog. Studio passed desktop and 390 px QA
 without horizontal overflow; all 376 workspace tests and the production build
 pass.
 
-The next measured bottleneck is automatic review admission. The current
-retained proposal set contains 37 unique relations, but only three are exact
-two-listing shapes supported by the deterministic payoff compiler. The other
-34 retain research value yet currently share the same automatic reviewer
-budget. The active campaign separates those lanes without deleting research
-evidence or granting semantic authority.
-
-The campaign is qualified locally. The live cumulative projection currently
-admits 10 of 97 candidates to automatic review and retains 87 as research-only
-with deterministic reasons. SQLite migrated to schema v16, historical passed
-reviews stayed intact, and repeated scheduler ticks held the request-attempt
-counter steady. All 383 workspace tests, production build, desktop QA, and
-390 px QA pass; publication is the remaining slice.
+Arbitrage-first automatic review admission is merged and live in PR #64. The
+live cumulative projection admits 10 of 97 candidates to automatic review and
+retains 87 as research-only with deterministic reasons: 62 have a relation the
+current payoff compiler cannot consume and 25 have unsupported listing arity.
+SQLite migrated to schema v16, historical passed reviews stayed intact, and
+repeated scheduler ticks held the request-attempt counter at 113. All 383
+workspace tests, production build, desktop QA, and 390 px QA pass.
 
 ## Deferred future campaigns
 
