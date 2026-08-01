@@ -81,7 +81,7 @@ const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
 };
 
 const EMPTY_OPPORTUNITY_RADAR: StudioProjection["ai"]["opportunityRadar"] = {
-  algorithmVersion: "pmh.opportunity-radar.lexical-v1",
+  algorithmVersion: "pmh.opportunity-radar.economic-v2",
   sourceSetIdentity: `sha256:${"0".repeat(64)}`,
   observedListingCount: 0,
   eligibleSourceCount: 0,
@@ -375,12 +375,17 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     novelCandidateCount: 0,
     duplicateCount: 0,
     piEscalationCount: 0,
+    economicGateRequiredCount: 0,
+    economicGatePositiveCount: 0,
+    economicGateBlockedCount: 0,
+    piAvoidedCount: 0,
     hypothesisCount: 0,
     proposalCount: 0,
     evidenceGapCount: 0,
     novelCandidateRateBps: null,
     duplicateRateBps: null,
     piEscalationRateBps: null,
+    economicGatePositiveRateBps: null,
     byIssue: [],
   },
   issues: [],
@@ -423,6 +428,11 @@ const EMPTY_SEARCH_OUTCOME_ATTRIBUTION: StudioProjection["ai"]["searchOutcomeAtt
     stage: stage as StudioProjection["ai"]["searchOutcomeAttribution"]["stages"][number]["stage"],
     count: 0,
   })),
+  economics: {
+    positiveGrossHintCount: 0,
+    nonPositiveGrossHintCount: 0,
+    unavailableOrUnsupportedCount: 0,
+  },
   bottlenecks: {
     pendingReviewCount: 0,
     reviewFailedCount: 0,
@@ -2748,6 +2758,16 @@ function MarketArchaeologistView() {
             <div><strong>{formatRateBps(issuePerformance.piEscalationRateBps)}</strong><span>pi escalation · {issuePerformance.proposalCount} proposals · {issuePerformance.evidenceGapCount} gaps</span></div>
           </div>
 
+          <div className="issue-scheduler-strip issue-performance-strip" aria-label="Economic-first search yield">
+            <div><strong>{formatRateBps(issuePerformance.economicGatePositiveRateBps)}</strong><span>positive pre-pi gates</span></div>
+            <div><strong>{issuePerformance.economicGateBlockedCount}</strong><span>economically gated</span></div>
+            <div><strong>{issuePerformance.piAvoidedCount}</strong><span>pi calls avoided</span></div>
+            <div>
+              <strong>{outcomeAttribution.economics.positiveGrossHintCount}</strong>
+              <span>downstream positive · {outcomeAttribution.economics.nonPositiveGrossHintCount} non-positive · {outcomeAttribution.economics.unavailableOrUnsupportedCount} unavailable</span>
+            </div>
+          </div>
+
           <section className="search-outcome-attribution" aria-label="Search outcome attribution">
             <div className="issue-column-heading">
               <div><Waypoints size={14} /><strong>Issue-to-opportunity funnel</strong></div>
@@ -2805,13 +2825,18 @@ function MarketArchaeologistView() {
                       {issue.candidatePolicy !== undefined && issue.candidatePolicy !== null && (
                         <span className="is-policy">
                           target {issue.candidatePolicy.allowedRelationKinds.join("/")} · exactly {issue.candidatePolicy.exactListingRefCount} refs
+                          {issue.candidatePolicy.requirePositiveGrossHint === true ? " · positive gross gate" : ""}
                         </span>
                       )}
                       <span>every {issue.cadenceMs / 60_000}m</span>
                       <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
                       <span>{issue.passCount}/{issue.runCount} passed</span>
                       <span>{performance?.novelCandidateCount ?? 0} new · {performance?.duplicateCount ?? 0} repeat · {performance?.piEscalationCount ?? 0} pi</span>
+                      {issue.candidatePolicy?.requirePositiveGrossHint === true && (
+                        <span>{performance?.economicGatePositiveCount ?? 0}/{performance?.economicGateRequiredCount ?? 0} gross-positive · {performance?.piAvoidedCount ?? 0} pi saved</span>
+                      )}
                       <span>{outcome?.reviewedCount ?? 0}/{outcome?.proposalCount ?? 0} reviewed · {outcome?.operatorAcceptedCount ?? 0} accepted · {outcome?.certifiedCount ?? 0} certified</span>
+                      <span>{outcome?.positiveGrossHintCount ?? 0} positive · {outcome?.nonPositiveGrossHintCount ?? 0} non-positive · {outcome?.economicUnavailableCount ?? 0} unpriceable</span>
                     </div>
                     <div className="search-issue-actions">
                       <Button
@@ -4476,7 +4501,7 @@ function OpportunityRadarView() {
         <Metric
           label="Candidate pairs"
           value={`${radar.candidateCount}`}
-          detail="cross-venue lexical blocks"
+          detail={`${radar.candidates.filter((candidate) => candidate.indicativeEconomics.status === "POSITIVE_GROSS_HINT").length} positive gross hints`}
         />
         <Metric
           label="Scout triage"
@@ -4489,7 +4514,7 @@ function OpportunityRadarView() {
         <Radar size={15} />
         <span>
           Rare-term weighted overlap · incompatible cadence and exact close
-          times rejected · maximum 25 pairs
+          times rejected · positive bigint gross hints ranked first · maximum 25 pairs
         </span>
         <code>{radar.algorithmVersion}</code>
       </div>
@@ -4580,6 +4605,25 @@ function OpportunityRadarView() {
                     </Badge>
                     <code>
                       {candidate.effectiveCloseAt ?? "close unresolved"}
+                    </code>
+                  </div>
+                </div>
+
+                <div className="radar-temporal-strip" aria-label="Indicative pair economics">
+                  <div>
+                    <Gauge size={13} />
+                    <span>{candidate.indicativeEconomics.portfolioLabel ?? "Canonical price pair unavailable"}</span>
+                  </div>
+                  <div>
+                    <Badge
+                      variant={candidate.indicativeEconomics.status === "POSITIVE_GROSS_HINT" ? "verified" : candidate.indicativeEconomics.status === "NON_POSITIVE_GROSS_HINT" ? "muted" : "warning"}
+                    >
+                      {candidate.indicativeEconomics.status.replaceAll("_", " ")}
+                    </Badge>
+                    <code>
+                      {candidate.indicativeEconomics.grossEdgeBpsFloor === null
+                        ? "price unavailable"
+                        : `${candidate.indicativeEconomics.grossEdgeBpsFloor} bps before fees/depth`}
                     </code>
                   </div>
                 </div>

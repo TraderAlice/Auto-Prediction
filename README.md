@@ -36,9 +36,12 @@ This is not a trading bot and it has no live-trading authority. The repository d
   signatures may escalate once to pi, and duplicate lineage is retained without
   storing chain-of-thought. Every issued lease first retains its exact normalized
   corpus by content hash, so a restart resumes the original task evidence rather
-  than substituting the latest catalog.
+  than substituting the latest catalog. A concurrent durable issue scheduler
+  gives each lens its own priority and cadence, keeps up to three bounded Agent
+  leases in flight, and emits deduplicated in-app findings for new signatures
+  and failures.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
-- A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection; each pair can be sent to the cheap scout pool only by an explicit operator action.
+- A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection. It prices both canonical equivalent-claim portfolios with `bigint`, ranks positive gross search hints first, and still treats every pair as an unreviewed semantic lead rather than an opportunity. The focused two-leg issue requires a positive current hint before pi; fees, depth, fillability, and executability remain absent.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
 - An operator-triggered Candidate Watch that captures current Polymarket and Limitless books under one refresh identity, retains exact raw bytes plus a bounded hash-checked attempt journal in SQLite WAL schema v5, restores failures across restart, refuses mixed-time screens after partial failure, and either reuses an unchanged bound result or recomputes changed-book economics without invoking review or verification.
@@ -86,38 +89,47 @@ promotion remain active campaign work.
 1. Refresh anonymous catalogs in Studio. The control plane freezes a
    content-addressed snapshot of current listings and rules; failed or stale
    venues stay visible but cannot enter the Agent context.
-2. Start **Next search lease** for broad discovery, or give **Market
-   Archaeologist** a trailhead such as a person, team, deadline, threshold, or
-   suspicious pair. The cheap model searches a bounded context first. Only a
-   novel multi-listing lead can escalate to one pi run over the complete
-   MarketFS snapshot.
-3. Read the resulting proposals and falsifiers. Each new proposal freezes the
+2. Use the five durable issues in **Market Archaeologist** as standing search
+   briefs: same-claim aliases, exact two-leg parity, implication chains,
+   partitions, and mechanism/oracle conflicts. Their independent cadences feed
+   a three-slot Agent scheduler whenever the five-minute catalog refresh
+   produces a new immutable corpus. You can also run any issue immediately or
+   add a narrower brief. The cheap model searches a bounded context first; only
+   a novel grounded lead can escalate to one pi run over the complete MarketFS
+   snapshot.
+3. For the focused parity issue, the server prices the exact radar-bound pair
+   before pi. Missing prices and non-positive gross hints stop there and record
+   why; a positive hint merely permits semantic investigation. The cheap model
+   must still propose a grounded relationship. A shared word plus attractive
+   prices is not enough.
+4. Read the resulting proposals and falsifiers in the **Finding inbox** and
+   issue funnel. Each new proposal freezes the
    exact normalized listings that produced it in a bounded, content-addressed
    evidence bundle, so a later review does not silently substitute whatever the
    live catalog happens to contain then. `EQUIVALENT`, `IMPLIES`,
    `MUTUALLY_EXCLUSIVE`, `EXHAUSTIVE`, and related labels are hypotheses, not
    trades. A valid run may conclude that no cross-venue relation exists.
-4. Let the **Pre-review economic frontier** order the bounded review queue. It
+5. Let the **Pre-review economic frontier** order the bounded review queue. It
    prices only the canonical portfolio declared by the proposal, and only when
    current contracts still match captured semantics and none explicitly denies
    settlement. A positive gross hint adds one priority point below P5; every
    other candidate keeps its original priority. Lack of a detected denial does
    not prove settlement. The hint excludes fees and depth, suppresses nothing,
    and is not evidence that the proposed relationship is true.
-5. Send a grounded proposal through independent semantic review. The reviewer
+6. Send a grounded proposal through independent semantic review. The reviewer
    must bind exact listing refs, rule identities, outcome mapping, time windows,
    and counterexamples. The **Operator attention queue** then tells you whether
    that advisory result defines a canonical payoff partition, whether current
    contract semantics still match the retained evidence, and whether the
    implemented anonymous adapters can reach its legs. Its gross-price hint
    excludes depth and fees and is never an executable quote.
-6. Explicitly accept a compiler-ready item for research simulation, or leave it
+7. Explicitly accept a compiler-ready item for research simulation, or leave it
    in research/evidence/rejection triage. The queue cannot make this decision.
-7. Materialize a portfolio. The server reacquires current public books and fee
+8. Materialize a portfolio. The server reacquires current public books and fee
    evidence, walks depth with `bigint` arithmetic, and either produces a
    simulated worst-case floor or a precise blocker such as missing depth,
    unsupported fees, stale evidence, or incompatible outcome scope.
-8. Only the first-party exact verifier can issue a short-lived certificate.
+9. Only the first-party exact verifier can issue a short-lived certificate.
    The configured policy then notifies, requests human approval for shadow, or
    runs automatic shadow. A later observation reacquires the market and records
    whether it still matches the certificate bounds or has diverged.

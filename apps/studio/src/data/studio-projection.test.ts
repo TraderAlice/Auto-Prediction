@@ -180,7 +180,7 @@ describe("Studio projection safety", () => {
       },
     });
     expect(studioProjection.ai.opportunityRadar).toEqual({
-      algorithmVersion: "pmh.opportunity-radar.lexical-v1",
+      algorithmVersion: "pmh.opportunity-radar.economic-v2",
       sourceSetIdentity: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       observedListingCount: 0,
       eligibleSourceCount: 0,

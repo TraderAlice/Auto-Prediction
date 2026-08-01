@@ -28,8 +28,8 @@ const listings = Object.freeze(["venue-a", "venue-b"].map((venueId) => Object.fr
   closesAt: "2026-09-01T00:00:00.000Z",
   rulesText: "Resolves yes if the named event occurs.",
   outcomes: Object.freeze([
-    Object.freeze({ venueOutcomeId: "yes", label: "Yes", indicativePrice: "500000" }),
-    Object.freeze({ venueOutcomeId: "no", label: "No", indicativePrice: "500000" }),
+    Object.freeze({ venueOutcomeId: "yes", label: "Yes", indicativePrice: "0.5" }),
+    Object.freeze({ venueOutcomeId: "no", label: "No", indicativePrice: "0.5" }),
   ]),
   priceScale: "1000000",
   quantityScale: "1000000",
@@ -166,14 +166,19 @@ describe("issue-driven concurrent search scheduler", () => {
       retainedLeaseLimit: 40,
       terminalLeaseCount: 3,
       novelCandidateCount: 1,
-      duplicateCount: 2,
+      duplicateCount: 1,
       piEscalationCount: 1,
+      economicGateRequiredCount: 1,
+      economicGatePositiveCount: 0,
+      economicGateBlockedCount: 1,
+      piAvoidedCount: 1,
       hypothesisCount: 3,
       proposalCount: 1,
       evidenceGapCount: 0,
       novelCandidateRateBps: 3_333,
-      duplicateRateBps: 6_666,
+      duplicateRateBps: 3_333,
       piEscalationRateBps: 3_333,
+      economicGatePositiveRateBps: 0,
     });
     expect(completed.performance.byIssue).toHaveLength(5);
     expect(completed.performance.byIssue.reduce(
@@ -191,6 +196,7 @@ describe("issue-driven concurrent search scheduler", () => {
     )?.lease.candidatePolicy).toEqual({
       allowedRelationKinds: ["EQUIVALENT"],
       exactListingRefCount: 2,
+      requirePositiveGrossHint: true,
     });
     expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 13 });
     expect(leases.projection()).toMatchObject({
@@ -209,7 +215,7 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(restored.projection()).toMatchObject({
       issueCount: 5,
       unreadNotificationCount: 1,
-      performance: { terminalLeaseCount: 3, duplicateCount: 2 },
+      performance: { terminalLeaseCount: 3, duplicateCount: 1 },
     });
     const notification = restored.projection().notifications[0]!;
     restored.acknowledge(notification.notificationId);
@@ -356,6 +362,18 @@ describe("issue-driven concurrent search scheduler", () => {
         issue.title === "Settlement-qualified two-leg parity"
       )!;
       const disabledDefault = restored.setEnabled(focusedDefault.issueId, false);
+      const { artifactHash: _focusedHash, ...disabledBody } = disabledDefault;
+      const legacyPolicyBody = Object.freeze({
+        ...disabledBody,
+        candidatePolicy: Object.freeze({
+          allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
+          exactListingRefCount: 2,
+        }),
+      });
+      secondStore.saveSearchIssueRecord(Object.freeze({
+        ...legacyPolicyBody,
+        artifactHash: hashCanonical(legacyPolicyBody),
+      }));
       const restarted = new SearchIssueScheduler({
         leaseScheduler: secondLeases,
         store: secondStore,
@@ -371,6 +389,7 @@ describe("issue-driven concurrent search scheduler", () => {
           candidatePolicy: {
             allowedRelationKinds: ["EQUIVALENT"],
             exactListingRefCount: 2,
+            requirePositiveGrossHint: true,
           },
         });
       secondStore.close();

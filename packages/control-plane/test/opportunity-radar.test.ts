@@ -12,7 +12,13 @@ function listing(
   listingRef: string,
   venueId: string,
   title: string,
-  options: Readonly<{ closesAt?: string; rawHash?: string }> = {},
+  options: Readonly<{
+    closesAt?: string;
+    rawHash?: string;
+    yesPrice?: string;
+    noPrice?: string;
+    priceScale?: string;
+  }> = {},
 ): DiscoveryCatalogListing {
   return Object.freeze({
     listingRef,
@@ -25,9 +31,12 @@ function listing(
     closesAt: options.closesAt ?? null,
     rulesText: null,
     outcomes: Object.freeze([
-      Object.freeze({ label: "Yes", indicativePrice: "0.5" }),
-      Object.freeze({ label: "No", indicativePrice: "0.5" }),
+      Object.freeze({ venueOutcomeId: `${listingRef}:yes`, label: "Yes", indicativePrice: options.yesPrice ?? "0.5" }),
+      Object.freeze({ venueOutcomeId: `${listingRef}:no`, label: "No", indicativePrice: options.noPrice ?? "0.5" }),
     ]),
+    priceScale: options.priceScale ?? "1000000",
+    quantityScale: "1000000",
+    minPriceTick: "1000",
     sourceKind: "LIVE_OBSERVATION",
     sourceReceivedAt: "2026-08-01T04:07:36.000Z",
     sourceRawHash: options.rawHash ?? HASH_A,
@@ -61,7 +70,7 @@ describe("opportunity radar", () => {
     ]);
 
     expect(projection).toMatchObject({
-      algorithmVersion: "pmh.opportunity-radar.lexical-v1",
+      algorithmVersion: "pmh.opportunity-radar.economic-v2",
       candidateCount: 1,
       scoreMeaning: "LEXICAL_BLOCKING_ONLY_NOT_CONFIDENCE",
       effects: {
@@ -77,11 +86,53 @@ describe("opportunity radar", () => {
       timeframe: "HOURLY",
       effectiveCloseAt: "2026-08-01T05:00:00.000Z",
       temporalAlignment: "ALIGNED",
+      indicativeEconomics: {
+        status: "NON_POSITIVE_GROSS_HINT",
+        grossEdgeBpsFloor: "0",
+      },
       status: "READY_FOR_SCOUT",
       authority: "PROPOSE_ONLY",
       reviewStatus: "UNREVIEWED",
       arbitrageVerified: false,
       executionAuthority: false,
+    });
+  });
+
+  it("ranks a positive mixed-scale pair before a higher lexical non-positive pair", () => {
+    const projection = radar([
+      listing("venue-a:alpha", "venue-a", "ALPHA election winner", {
+        yesPrice: "0.40",
+        noPrice: "0.60",
+        priceScale: "1000000",
+      }),
+      listing("venue-b:alpha", "venue-b", "ALPHA election winner", {
+        yesPrice: "0.70",
+        noPrice: "0.30",
+        priceScale: "100000000",
+        rawHash: HASH_B,
+      }),
+      listing("venue-a:beta", "venue-a", "BETA election winner exact", {
+        yesPrice: "0.50",
+        noPrice: "0.50",
+      }),
+      listing("venue-c:beta", "venue-c", "BETA election winner exact", {
+        yesPrice: "0.50",
+        noPrice: "0.50",
+        rawHash: HASH_B,
+      }),
+    ]);
+
+    expect(projection.candidates[0]).toMatchObject({
+      sharedTerms: expect.arrayContaining(["alpha"]),
+      indicativeEconomics: {
+        status: "POSITIVE_GROSS_HINT",
+        portfolioLabel: "Left true + right false",
+        indicativeCostBpsCeil: "7000",
+        grossEdgeBpsFloor: "3000",
+        feesIncluded: false,
+        depthIncluded: false,
+        executable: false,
+      },
     });
   });
 

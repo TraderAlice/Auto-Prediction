@@ -1,6 +1,7 @@
 import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it, vi } from "vitest";
 import {
+  assertSearchLeaseRecord,
   buildMarketCorpusSnapshot,
   SearchLeaseScheduler,
   SqliteOperationalStore,
@@ -24,8 +25,8 @@ function listing(venueId: string, suffix: string) {
     closesAt: "2026-09-01T00:00:00.000Z",
     rulesText: "Resolves yes if the named event occurs.",
     outcomes: Object.freeze([
-      Object.freeze({ venueOutcomeId: "yes", label: "Yes", indicativePrice: "500000" }),
-      Object.freeze({ venueOutcomeId: "no", label: "No", indicativePrice: "500000" }),
+      Object.freeze({ venueOutcomeId: "yes", label: "Yes", indicativePrice: "0.5" }),
+      Object.freeze({ venueOutcomeId: "no", label: "No", indicativePrice: "0.5" }),
     ]),
     priceScale: "1000000",
     quantityScale: "1000000",
@@ -190,6 +191,14 @@ describe("AI-native search lease scheduler", () => {
     expect(runDeep.mock.calls[0]?.[1]).toContain(record.trace.querySummary);
     expect(runDeep.mock.calls[0]?.[1]).toContain("Obey any exact candidate arity");
 
+    const { economicGate: _economicGate, ...legacyFastLane } = record.fastLane;
+    const { artifactHash: _recordHash, ...recordBody } = record;
+    const legacyBody = Object.freeze({ ...recordBody, fastLane: legacyFastLane });
+    expect(() => assertSearchLeaseRecord(Object.freeze({
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    }))).not.toThrow();
+
     const replay = scheduler.begin(snapshot(), "EQUIVALENCE");
     expect(replay.idempotentReplay).toBe(true);
     await expect(replay.promise).resolves.toEqual(record);
@@ -268,6 +277,116 @@ describe("AI-native search lease scheduler", () => {
       "retained as research evidence; none matched the issue candidate policy",
     );
     expect(record.lineage.noveltySignature).not.toBeNull();
+  });
+
+  it("skips pi on a non-positive focused pair and reconsiders it after prices change", async () => {
+    const runDeep = vi.fn(async () => Object.freeze({
+      runId: hashCanonical({ deep: "economic-gate" }),
+      status: "PASS" as const,
+      proposalIds: Object.freeze([]),
+      proposalDetails: Object.freeze([]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    }));
+    const contextFromSnapshot = (
+      question: string,
+      venueIds: readonly string[],
+      _lens: unknown,
+      current: ReturnType<typeof snapshot>,
+    ): DiscoveryCatalogContext => {
+      const body = Object.freeze({
+        schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+        source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+        contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+        listings: Object.freeze(current.listings.filter((item) =>
+          venueIds.includes(item.venueId)
+        )),
+      });
+      expect(question).not.toHaveLength(0);
+      return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+    };
+    const scheduler = new SearchLeaseScheduler({
+      context: contextFromSnapshot,
+      runFast: async (task) => {
+        const run = runRecord(task);
+        const first = run.hypotheses[0];
+        if (first === undefined) throw new Error("missing focused hypothesis");
+        return Object.freeze({
+          ...run,
+          hypotheses: Object.freeze([
+            Object.freeze({
+              ...first,
+              venueIds: Object.freeze(["venue-a"]),
+              listingRefs: Object.freeze(["venue-a:pizza-a"]),
+            }),
+          ]),
+        });
+      },
+      runDeep,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+    const issue = {
+      issueId: hashCanonical({ issue: "economic-gate" }),
+      question: "Find an economically live exact pair.",
+      venueIds: Object.freeze([]),
+      candidatePolicy: Object.freeze({
+        allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
+        exactListingRefCount: 2,
+        requirePositiveGrossHint: true,
+      }),
+    };
+
+    const blocked = await scheduler.begin(
+      snapshot("non-positive"),
+      "EQUIVALENCE",
+      "SCHEDULE",
+      issue,
+    ).promise;
+    expect(blocked).toMatchObject({
+      status: "PASS",
+      fastLane: {
+        candidateListingRefs: ["venue-a:pizza-a", "venue-b:pizza-b"],
+        economicGate: {
+          required: true,
+          status: "NON_POSITIVE_GROSS_HINT",
+          indicativeCostBpsCeil: "10000",
+          grossEdgeBpsFloor: "0",
+          executable: false,
+        },
+      },
+      deepLane: { reason: "ECONOMIC_GATE_BLOCKED", runId: null },
+      lineage: { duplicateOfLeaseId: null, noveltySignature: null },
+      outcome: { novelCandidate: false, proposalCount: 0 },
+    });
+    expect(runDeep).not.toHaveBeenCalled();
+
+    const positiveListings = Object.freeze(listings.map((item) => Object.freeze({
+      ...item,
+      outcomes: Object.freeze(item.outcomes.map((outcome) => Object.freeze({
+        ...outcome,
+        indicativePrice: "0.4",
+      }))),
+      sourceRawHash: hashCanonical({ listingRef: item.listingRef, prices: "positive" }),
+    })));
+    const positiveSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "positive" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: positiveListings,
+    });
+    const passed = await scheduler.begin(
+      positiveSnapshot,
+      "EQUIVALENCE",
+      "SCHEDULE",
+      issue,
+    ).promise;
+    expect(passed.fastLane.economicGate).toMatchObject({
+      status: "POSITIVE_GROSS_HINT",
+      indicativeCostBpsCeil: "8000",
+      grossEdgeBpsFloor: "2000",
+    });
+    expect(passed.deepLane.runId).not.toBeNull();
+    expect(runDeep).toHaveBeenCalledTimes(1);
   });
 
   it("persists issued-to-terminal records and restores idempotent results", async () => {

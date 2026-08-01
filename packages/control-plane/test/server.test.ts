@@ -921,7 +921,9 @@ describe("control-plane HTTP surface", () => {
           venueId,
           venueInstrumentId: `${venueId}-bnb-hourly`,
           title,
-          description: "Whether BNB finishes the hour up or down.",
+          description: venueId === "opinion"
+            ? "Whether BNB finishes the hour up or down. Exact same claim payout partition matching titles times search evidence proof."
+            : "Whether BNB finishes the hour up or down.",
           status: "OPEN",
           mechanism: "ONCHAIN_CLOB",
           ...(closesAt === undefined ? {} : { closesAt }),

@@ -1,6 +1,6 @@
 # Plans
 
-`plans/fresh-corpus-search-orchestration.md` is the active construction plan.
+`plans/economic-first-search-feedback.md` is the active construction plan.
 
 ## Planning contract
 
@@ -26,13 +26,24 @@ The settlement-qualified two-leg issue is merged and live. Its deterministic
 candidate policy counts only two-ref `EQUIVALENT` proposals as hits; conflicts
 remain research evidence without becoming finding notifications.
 
-The active temporal-correctness campaign now refreshes the anonymous catalog
-on an explicit bounded cadence and coordinates refresh with issue dispatch.
-Its first live five-minute timer run captured all seven sources, 467 listings,
-and a new immutable corpus before the issue queue returned to idle. Studio
-shows refresh health, next run, source coverage, and corpus identity. Full
-Node 24 qualification and responsive browser checks passed; only serial
-publication remains.
+Fresh-corpus orchestration is merged and live. The five-minute catalog timer
+keeps all seven sources and the recurring issue queue attached to current,
+content-addressed evidence.
+
+The active economic-first campaign is qualified and ready to publish. The
+focused parity issue now binds its exact radar pair to a bigint-only price gate
+before pi. A non-positive or unavailable pair records a terminal reason without
+poisoning future price-change deduplication; a positive pair still needs a
+grounded cheap-model hypothesis before pi. General semantic issues remain
+ungated.
+
+The live seven-source smoke retained 467 listings and found one 1,100 bps
+positive gross hint among five radar pairs. The cheap semantic lane correctly
+rejected it: an MLS Cup champion contract and a multi-game parlay happened to
+share “Nashville” but were not the same claim. In the retained 40-lease window,
+the new gate has one positive result, two blocked results, and one recorded pi
+call avoided. Studio now exposes those pre-pi results alongside downstream
+economic yield by durable issue.
 
 ## Deferred future campaigns
 

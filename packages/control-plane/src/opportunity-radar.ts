@@ -1,7 +1,11 @@
 import { hashCanonical } from "@pmh/domain";
+import {
+  calculateTwoListingIndicativeEconomics,
+  type CanonicalIndicativeEconomics,
+} from "./indicative-relation-economics.js";
 import type { DiscoveryCatalogListing } from "./types.js";
 
-const ALGORITHM_VERSION = "pmh.opportunity-radar.lexical-v1";
+const ALGORITHM_VERSION = "pmh.opportunity-radar.economic-v2";
 const TRIAGE_TASK_VERSION = "pmh.radar-triage.v2";
 const MAX_CANDIDATES = 25;
 const SCORE_THRESHOLD_BPS = 3_000;
@@ -72,6 +76,7 @@ export type OpportunityRadarCandidate = Readonly<{
   timeframe: string | null;
   effectiveCloseAt: string | null;
   temporalAlignment: "ALIGNED" | "UNRESOLVED";
+  indicativeEconomics: CanonicalIndicativeEconomics;
   listings: readonly [
     Readonly<{
       listingRef: string;
@@ -204,6 +209,15 @@ function compactListing(listing: DiscoveryCatalogListing) {
   });
 }
 
+function compareGrossEdge(
+  left: CanonicalIndicativeEconomics,
+  right: CanonicalIndicativeEconomics,
+): number {
+  const leftEdge = BigInt(left.grossEdgeBpsFloor ?? "-1000000000");
+  const rightEdge = BigInt(right.grossEdgeBpsFloor ?? "-1000000000");
+  return leftEdge === rightEdge ? 0 : leftEdge > rightEdge ? -1 : 1;
+}
+
 export function radarTriageTaskId(candidateId: string): string {
   if (!/^radar-candidate:[0-9a-f]{64}$/u.test(candidateId)) {
     throw new Error("radar candidate ID is invalid");
@@ -319,6 +333,15 @@ export function buildOpportunityRadar(
         leftClose === rightClose
           ? ("ALIGNED" as const)
           : ("UNRESOLVED" as const);
+      const listingRefsForEconomics = listings.map((listing) => listing.listingRef);
+      const indicativeEconomics = calculateTwoListingIndicativeEconomics({
+        listingRefs: listingRefsForEconomics,
+        relation: "EQUIVALENT",
+        currentListings: new Map([
+          [left.listing.listingRef, left.listing],
+          [right.listing.listingRef, right.listing],
+        ]),
+      });
       const candidateBody = {
         schemaVersion: "pmh.opportunity-radar-candidate.v1" as const,
         algorithmVersion: ALGORITHM_VERSION,
@@ -341,6 +364,7 @@ export function buildOpportunityRadar(
           timeframe,
           effectiveCloseAt: effectiveClose,
           temporalAlignment,
+          indicativeEconomics,
           listings: Object.freeze(listings),
           status: "READY_FOR_SCOUT" as const,
           authority: "PROPOSE_ONLY" as const,
@@ -356,6 +380,11 @@ export function buildOpportunityRadar(
     candidates
       .sort(
         (left, right) =>
+          Number(right.indicativeEconomics.status === "POSITIVE_GROSS_HINT") -
+            Number(left.indicativeEconomics.status === "POSITIVE_GROSS_HINT") ||
+          Number(right.indicativeEconomics.status !== "PRICE_UNAVAILABLE") -
+            Number(left.indicativeEconomics.status !== "PRICE_UNAVAILABLE") ||
+          compareGrossEdge(left.indicativeEconomics, right.indicativeEconomics) ||
           right.semanticScoreBps - left.semanticScoreBps ||
           left.candidateId.localeCompare(right.candidateId),
       )

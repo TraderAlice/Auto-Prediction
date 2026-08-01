@@ -682,7 +682,7 @@ export class CatalogObservationDesk {
     const catalogContext = buildDiscoveryCatalogContext(
       "QUALIFIED_LIVE_OBSERVATIONS",
       listings,
-      question,
+      candidate.sharedTerms.join(" "),
       venueIds,
     );
     if (

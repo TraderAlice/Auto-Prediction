@@ -106,6 +106,18 @@ export function calculateCanonicalIndicativeEconomics(input: {
   relation: CompilableRelation;
   currentListings: ReadonlyMap<string, DiscoveryCatalogListing>;
 }): CanonicalIndicativeEconomics {
+  return calculateTwoListingIndicativeEconomics({
+    listingRefs: input.proposal.listingRefs,
+    relation: input.relation,
+    currentListings: input.currentListings,
+  });
+}
+
+export function calculateTwoListingIndicativeEconomics(input: {
+  listingRefs: readonly string[];
+  relation: CompilableRelation;
+  currentListings: ReadonlyMap<string, DiscoveryCatalogListing>;
+}): CanonicalIndicativeEconomics {
   const inert = Object.freeze({
     portfolioLabel: null,
     indicativeCostBpsCeil: null,
@@ -115,7 +127,13 @@ export function calculateCanonicalIndicativeEconomics(input: {
     depthIncluded: false as const,
     executable: false as const,
   });
-  const [leftRef, rightRef] = input.proposal.listingRefs;
+  if (
+    input.listingRefs.length !== 2 ||
+    new Set(input.listingRefs).size !== 2
+  ) {
+    return Object.freeze({ status: "PRICE_UNAVAILABLE" as const, ...inert });
+  }
+  const [leftRef, rightRef] = input.listingRefs;
   const left = leftRef === undefined
     ? undefined
     : input.currentListings.get(leftRef);

@@ -81,18 +81,27 @@ export type SearchIssueSchedulerProjection = Readonly<{
     novelCandidateCount: number;
     duplicateCount: number;
     piEscalationCount: number;
+    economicGateRequiredCount: number;
+    economicGatePositiveCount: number;
+    economicGateBlockedCount: number;
+    piAvoidedCount: number;
     hypothesisCount: number;
     proposalCount: number;
     evidenceGapCount: number;
     novelCandidateRateBps: number | null;
     duplicateRateBps: number | null;
     piEscalationRateBps: number | null;
+    economicGatePositiveRateBps: number | null;
     byIssue: readonly Readonly<{
       issueId: Hash;
       terminalLeaseCount: number;
       novelCandidateCount: number;
       duplicateCount: number;
       piEscalationCount: number;
+      economicGateRequiredCount: number;
+      economicGatePositiveCount: number;
+      economicGateBlockedCount: number;
+      piAvoidedCount: number;
       hypothesisCount: number;
       proposalCount: number;
       evidenceGapCount: number;
@@ -154,6 +163,10 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   novelCandidateCount: number;
   duplicateCount: number;
   piEscalationCount: number;
+  economicGateRequiredCount: number;
+  economicGatePositiveCount: number;
+  economicGateBlockedCount: number;
+  piAvoidedCount: number;
   hypothesisCount: number;
   proposalCount: number;
   evidenceGapCount: number;
@@ -163,6 +176,21 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
     duplicateCount: records.filter((record) => record.lineage.duplicateOfLeaseId !== null).length,
     piEscalationCount: records.filter((record) => record.deepLane.runId !== null).length,
+    economicGateRequiredCount: records.filter(
+      (record) => record.fastLane.economicGate?.required === true,
+    ).length,
+    economicGatePositiveCount: records.filter(
+      (record) => record.fastLane.economicGate?.status === "POSITIVE_GROSS_HINT",
+    ).length,
+    economicGateBlockedCount: records.filter(
+      (record) => record.fastLane.economicGate?.required === true &&
+        record.fastLane.economicGate.status !== "NOT_RUN" &&
+        record.fastLane.economicGate.status !== "POSITIVE_GROSS_HINT",
+    ).length,
+    piAvoidedCount: records.filter(
+      (record) => record.deepLane.reason === "ECONOMIC_GATE_BLOCKED" &&
+        record.deepLane.runId === null,
+    ).length,
     hypothesisCount: records.reduce((sum, record) => sum + record.outcome.hypothesisCount, 0),
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     evidenceGapCount: records.reduce((sum, record) => sum + record.outcome.evidenceGapCount, 0),
@@ -203,7 +231,14 @@ export function assertSearchIssueRecord(value: unknown): SearchIssueRecord {
     ].includes(kind)) &&
     Number.isSafeInteger(candidatePolicy.exactListingRefCount) &&
     candidatePolicy.exactListingRefCount >= 2 &&
-    candidatePolicy.exactListingRefCount <= 8
+    candidatePolicy.exactListingRefCount <= 8 &&
+    (candidatePolicy.requirePositiveGrossHint === undefined ||
+      typeof candidatePolicy.requirePositiveGrossHint === "boolean") &&
+    (candidatePolicy.requirePositiveGrossHint !== true ||
+      (candidatePolicy.exactListingRefCount === 2 &&
+        candidatePolicy.allowedRelationKinds.length === 1 &&
+        ["EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE"]
+          .includes(candidatePolicy.allowedRelationKinds[0] ?? "")))
   );
   if (
     record.schemaVersion !== "pmh.search-issue.v1" ||
@@ -269,10 +304,11 @@ const DEFAULT_ISSUES = Object.freeze([
     lens: "EQUIVALENCE" as const,
     cadenceMs: 15 * 60_000,
     priority: 5 as const,
-    question: "Find exactly two current OPEN/ACTIVE binary listings encoding the same payout claim, each with an explicit settlement path. Require exact refs, compatible mappings, close windows, resolution sources, void rules, and indicative prices. Reject RELATED matches, trading-only/non-settlement clauses, or more than two refs. Rough pricing only prioritizes search; fees, depth, fillability, latency, and executable profit remain unproven. Return no hypothesis unless current contracts ground the pair.",
+    question: "Find exactly two current OPEN/ACTIVE binary listings for the same payout claim with explicit settlement paths. Require exact refs, compatible outcome mappings, close windows, resolution sources, void rules, and indicative prices. Reject RELATED, trading-only/non-settlement, or wider-scope candidates. Require a deterministic positive gross catalog hint before deep investigation. Fees, depth, fillability, latency, and executable profit remain unproven. Return no hypothesis unless current contracts ground the pair.",
     candidatePolicy: Object.freeze({
       allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
       exactListingRefCount: 2,
+      requirePositiveGrossHint: true,
     }),
   }),
   Object.freeze({
@@ -351,14 +387,14 @@ export class SearchIssueScheduler {
           this.#saveIssue(defaultIssue);
         } else if (
           defaultIssue.candidatePolicy !== undefined &&
-          this.#issues.find((issue) => issue.issueId === defaultIssue.issueId)
-            ?.candidatePolicy === undefined
+          hashCanonical(this.#issues.find((issue) =>
+            issue.issueId === defaultIssue.issueId
+          )?.candidatePolicy ?? null) !== hashCanonical(defaultIssue.candidatePolicy)
         ) {
           const existing = this.#issues.find((issue) => issue.issueId === defaultIssue.issueId)!;
           this.#saveIssue(withIssueHash({
             ...this.#withoutIssueHash(existing),
             candidatePolicy: defaultIssue.candidatePolicy,
-            updatedAt: new Date(now).toISOString(),
           }));
         }
       }
@@ -697,10 +733,14 @@ export class SearchIssueScheduler {
           performance.duplicateCount,
           performance.terminalLeaseCount,
         ),
-        piEscalationRateBps: ratioBps(
-          performance.piEscalationCount,
-          performance.terminalLeaseCount,
-        ),
+      piEscalationRateBps: ratioBps(
+        performance.piEscalationCount,
+        performance.terminalLeaseCount,
+      ),
+      economicGatePositiveRateBps: ratioBps(
+        performance.economicGatePositiveCount,
+        performance.economicGateRequiredCount,
+      ),
         byIssue: Object.freeze(issues.map((issue) => Object.freeze({
           issueId: issue.issueId,
           ...summarizeLeasePerformance(terminalIssueLeases.filter(
