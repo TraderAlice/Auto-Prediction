@@ -28,6 +28,15 @@ quantity, fee, and reviewer evidence is incomplete. Its
 `verifierInvoked: false` field is positive evidence that screening did not
 silently turn a nominal spread into a certificate.
 
+The follow-on real-candidate depth artifact binds two anonymous public REST
+books and walks them with conservative `bigint` rounding at a common
+five-share quantity. It models Limitless NO acquisition as a complete-set split
+followed by selling YES, but does not call either operation. A raw fixture hash
+and receive time are not silently promoted into a venue generation: because
+the Limitless REST response exposes no generation identity, the route remains
+non-certificate-grade even before its dynamic taker fee and independent review
+gaps are considered.
+
 The repository has no live-trading authority. No adapter method may turn configuration alone into permission to place an order or move value.
 
 Order-shape research emits `pmh.inert-order-ack.v1` receipts. Each receipt

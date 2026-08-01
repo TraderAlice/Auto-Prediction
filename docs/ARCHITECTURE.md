@@ -192,3 +192,14 @@ blocks fee/depth qualification, independent review, candidate compilation, and
 the exact verifier. This rejected handoff is campaign evidence: it proves that
 a plausible nominal spread cannot enter the authoritative path merely because
 the underlying claim map is exact.
+
+`real-candidate-depth.v1.json` adds anonymous, byte-preserved order books for
+the same Polymarket YES and Limitless NO route. Polymarket exposes a public
+token book with a venue hash; Limitless exposes a public market book whose
+YES bids imply a NO acquisition route through a simulated complete-set split
+and YES sale. At the common five-share minimum, one Polymarket ask level costs
+`0.35` and the Limitless route costs `4.65`, consuming the full `5.00` payout
+before fees. The screen is quantity-bound but not certificate-grade: the
+Limitless REST response has no venue generation identity, its taker fee is
+dynamic and unbound, and the split/sell route remains simulation-only. No
+value-moving method is invoked.

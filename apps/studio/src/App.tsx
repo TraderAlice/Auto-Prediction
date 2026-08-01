@@ -917,6 +917,7 @@ function edgeLabel(value: string): string {
 function RealCandidatePreflightView() {
   const studioProjection = useStudioProjection();
   const preflight = studioProjection.qualification.realCandidatePreflight;
+  const depth = studioProjection.qualification.realCandidateDepth;
   if (preflight === null || preflight === undefined) {
     return (
       <section className="page-section preflight-page">
@@ -937,6 +938,8 @@ function RealCandidatePreflightView() {
     );
   }
   const indicatedPositive = BigInt(preflight.catalogIndicativeGrossFloor) > 0n;
+  const currentStages = depth?.stages ?? preflight.stages;
+  const currentBlockers = depth?.blockers ?? preflight.blockers;
 
   return (
     <section className="page-section preflight-page">
@@ -946,9 +949,9 @@ function RealCandidatePreflightView() {
           <h1>Candidate preflight</h1>
           <p>
             One exact three-venue claim map produces a tempting catalog hint.
-            Repricing the same two legs at venue-reported buy quotes removes the
-            gross floor before fees or depth—so the exact verifier is never
-            invoked.
+            Repricing the same two legs at venue-reported quotes removes the
+            gross floor; replaying anonymous books at a common five-share size
+            confirms zero edge before fees, so the exact verifier is never invoked.
           </p>
         </div>
         <Badge variant="shadow">
@@ -971,7 +974,7 @@ function RealCandidatePreflightView() {
         <Metric
           label="Reported buy floor"
           value={edgeLabel(preflight.venueReportedBuyGrossEdgeBps)}
-          detail="same two outcomes · still no depth"
+          detail="same two outcomes · top-level screen"
         />
         <Metric
           label="Exact verifier"
@@ -1058,11 +1061,119 @@ function RealCandidatePreflightView() {
             </div>
             <p>
               The two venue-reported buy costs consume the full unit payout.
-              Fees can only make this worse, and no depth is bound.
+              The quantity-bound book replay below confirms the same result.
             </p>
           </CardContent>
         </Card>
       </div>
+
+      {depth !== null && depth !== undefined && (
+        <Card className="preflight-depth-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Anonymous books · quantity-bound replay</span>
+              <h2>Five shares still land at zero gross edge</h2>
+            </div>
+            <div className="preflight-depth-badges">
+              <Badge variant="verified">QUANTITY BOUND</Badge>
+              <Badge variant="shadow">NOT A CERTIFICATE</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="preflight-depth-summary">
+              <div>
+                <span>Screen quantity</span>
+                <strong>
+                  {unitCostLabel(depth.screenQuantity, depth.quantityScale)}
+                </strong>
+                <small>complete-payout shares</small>
+              </div>
+              <div>
+                <span>Total before fees</span>
+                <strong>
+                  {unitCostLabel(depth.totalCostBeforeFees, depth.priceScale)}
+                </strong>
+                <small>full collateral consumed</small>
+              </div>
+              <div>
+                <span>Depth-bound floor</span>
+                <strong>
+                  {edgeLabel(depth.grossEdgeBpsBeforeFees)}
+                </strong>
+                <small>fees can only reduce it</small>
+              </div>
+            </div>
+
+            <div className="preflight-depth-route">
+              <article>
+                <div className="preflight-route-index">01</div>
+                <div>
+                  <span>Polymarket · YES</span>
+                  <strong>Direct buy</strong>
+                  <p>
+                    Buy {unitCostLabel(depth.legs[0]?.quantity ?? "0", depth.quantityScale)}
+                    {" "}shares at a marginal {unitCostLabel(depth.legs[0]?.marginalPrice ?? "0", depth.priceScale)}.
+                  </p>
+                </div>
+                <code>
+                  −{unitCostLabel(depth.legs[0]?.effectiveCost ?? "0", depth.priceScale)}
+                </code>
+              </article>
+              <ChevronRight size={17} />
+              <article>
+                <div className="preflight-route-index">02</div>
+                <div>
+                  <span>Limitless · NO</span>
+                  <strong>Complete pair → sell YES</strong>
+                  <p>
+                    Simulate {unitCostLabel(depth.legs[1]?.collateralIn ?? "0", depth.priceScale)}
+                    {" "}collateral in, then sell YES for {unitCostLabel(depth.legs[1]?.proceeds ?? "0", depth.priceScale)}.
+                  </p>
+                </div>
+                <code>
+                  −{unitCostLabel(depth.legs[1]?.effectiveCost ?? "0", depth.priceScale)}
+                </code>
+              </article>
+              <ChevronRight size={17} />
+              <article className="is-stopped">
+                <div className="preflight-route-index"><CircleOff size={11} /></div>
+                <div>
+                  <span>Complete payout</span>
+                  <strong>Economics stop</strong>
+                  <p>Gross floor is zero before the unbound dynamic taker fee.</p>
+                </div>
+                <code>{edgeLabel(depth.grossEdgeBpsBeforeFees)}</code>
+              </article>
+            </div>
+
+            <div className="preflight-book-binding-grid">
+              {depth.books.map((book) => (
+                <div key={book.venueId}>
+                  <BookOpenCheck size={13} />
+                  <div>
+                    <span>{book.venueId}</span>
+                    <strong>
+                      {book.venueGeneration === null
+                        ? "receive-time binding only"
+                        : `generation ${book.venueGeneration.slice(0, 12)}…`}
+                    </strong>
+                  </div>
+                  <code>{book.sourceFixtureHash.slice(0, 22)}…</code>
+                </div>
+              ))}
+            </div>
+
+            <div className="preflight-depth-warning">
+              <ShieldCheck size={14} />
+              <p>
+                The Limitless route is simulated only. No complete-set split,
+                token approval, signature, order, or value-moving call was made.
+                Its REST book also exposes no venue generation identity.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="preflight-leg-grid">
         {preflight.legs.map((leg) => (
@@ -1110,7 +1221,7 @@ function RealCandidatePreflightView() {
             <FileCheck2 size={18} className="muted-icon" />
           </CardHeader>
           <CardContent className="preflight-stage-list">
-            {preflight.stages.map((stage, index) => (
+            {currentStages.map((stage, index) => (
               <div className="preflight-stage" key={stage.stage}>
                 <span className={stage.status === "BLOCKED" ? "is-blocked" : ""}>
                   {stage.status === "PASS" ? index + 1 : <CircleOff size={11} />}
@@ -1136,7 +1247,7 @@ function RealCandidatePreflightView() {
             <CircleOff size={18} className="muted-icon" />
           </CardHeader>
           <CardContent className="preflight-blocker-list">
-            {preflight.blockers.map((blocker, index) => (
+            {currentBlockers.map((blocker, index) => (
               <div className="preflight-blocker" key={blocker.code}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
                 <div>
@@ -1155,7 +1266,7 @@ function RealCandidatePreflightView() {
           This immutable artifact is a search preflight, not an accepted market
           link, executable quote, arbitrage certificate, or trading authority.
         </span>
-        <code>{preflight.artifactHash}</code>
+        <code>{depth?.artifactHash ?? preflight.artifactHash}</code>
       </div>
     </section>
   );

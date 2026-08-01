@@ -61,6 +61,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Join scout and pi history into deterministic, context-versioned research cases without granting promotion authority.
 - [x] Reduce fresh live catalogs into deterministic cross-venue Radar pairs and preserve exact scout-to-pi context across refresh and restart.
 - [x] Screen the real three-venue exact-claim fixtures with lexical `bigint` quotes and fail closed before verification when reported buy economics or prerequisite evidence is insufficient.
+- [x] Bind the real candidate to anonymous Polymarket and Limitless book depth at a common quantity without invoking the simulated complete-set route.
 - [x] Qualify real AI SDK and pi responses with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -132,6 +133,8 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: Opportunity Radar and durable AI handoff expand the Node.js 24.14.0 checkpoint to 182 passing tests plus full typecheck and production build, with nested-context tamper rejection, refresh-race coverage, idempotent case investigation, and desktop/mobile Studio inspection.
 - 2026-08-01: Real-candidate preflight binds the exact three-venue claim and lexically parsed fixture quotes into an immutable artifact. A 55 bp catalog hint collapses to 0 bp at venue-reported buy costs before fees, so depth, fee, and independent-review gaps keep the verifier uninvoked and the candidate non-executable.
 - 2026-08-01: The preflight checkpoint expands the Node.js 24.14.0 suite to 188 passing tests plus full typecheck, production build, and clean desktop/430px Studio inspection.
+- 2026-08-01: Anonymous public books bind five shares of the real Polymarket YES / Limitless NO route. Direct YES costs `0.35`; a simulated Limitless complete-set split and YES sale makes NO cost `4.65`; the full `5.00` payout is consumed before fees.
+- 2026-08-01: The depth screen is quantity-bound but not certificate-grade. Limitless REST exposes no venue generation, its dynamic taker fee is unbound, the split/sell route is simulation-only, and independent review remains absent; verifier invocation and all value-moving effects stay literal false.
 
 ## Blockers
 

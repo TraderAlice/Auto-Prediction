@@ -11,6 +11,7 @@ describe("real candidate preflight desk", () => {
   it("loads the immutable real-fixture screen once and projects no authority", async () => {
     const desk = new RealCandidatePreflightDesk(fixtureRoot);
     expect(() => desk.projection()).toThrow(/not loaded/);
+    expect(() => desk.depthProjection()).toThrow(/not loaded/);
     const [first, second] = await Promise.all([desk.load(), desk.load()]);
     expect(first).toBe(second);
     expect(desk.projection()).toMatchObject({
@@ -18,6 +19,17 @@ describe("real candidate preflight desk", () => {
       classification: "SEARCH_LEAD_ONLY",
       catalogIndicativeGrossEdgeBps: "55",
       venueReportedBuyGrossEdgeBps: "0",
+      verifierInvoked: false,
+      arbitrageVerified: false,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(desk.depthProjection()).toMatchObject({
+      status: "BLOCKED",
+      classification: "SEARCH_LEAD_ONLY",
+      screenQuantity: "500000000",
+      quantityBound: true,
+      totalCostBeforeFees: "500000000",
+      grossEdgeBpsBeforeFees: "0",
       verifierInvoked: false,
       arbitrageVerified: false,
       effects: { liveExecutionEnabled: false },

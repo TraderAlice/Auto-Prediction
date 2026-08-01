@@ -318,6 +318,7 @@ export function createControlPlane(options?: {
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
       realCandidatePreflight: realCandidatePreflightDesk.projection(),
+      realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
     });
   };
 
@@ -431,6 +432,7 @@ export function createControlPlane(options?: {
         catalogObservation: catalogObservationDesk.projection(),
         opportunityRadar: catalogObservationDesk.radar(),
         realCandidatePreflight: realCandidatePreflightDesk.projection(),
+        realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
       });
       return;
     }

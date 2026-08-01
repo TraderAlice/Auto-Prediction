@@ -24,6 +24,12 @@ const fixtures = Object.freeze({
     sourceUrl:
       "https://gamma-api.polymarket.com/markets?slug=trump-out-as-president-before-2027",
   },
+  "polymarket-trump-out-2027-book": {
+    venue: "polymarket-global",
+    protocolVersion: "clob-book-rest:2026-08-01",
+    sourceUrl:
+      "https://clob.polymarket.com/book?token_id=59252515735652674747158950210016502214756531287333895140318848923768750410355",
+  },
   "kalshi-catalog": {
     venue: "kalshi",
     protocolVersion: "trade-api-v2:2026-07-31",
@@ -68,6 +74,12 @@ const fixtures = Object.freeze({
     protocolVersion: "api-v1:2026-07-31",
     sourceUrl:
       "https://api.limitless.exchange/markets/trump-out-as-president-before-2027-1768933068297",
+  },
+  "limitless-trump-out-2027-book": {
+    venue: "limitless",
+    protocolVersion: "api-v1-orderbook:2026-08-01",
+    sourceUrl:
+      "https://api.limitless.exchange/markets/trump-out-as-president-before-2027-1768933068297/orderbook",
   },
   "myriad-amm-catalog": {
     venue: "myriad",

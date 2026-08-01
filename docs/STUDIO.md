@@ -83,23 +83,32 @@ hash and the nested context identity check.
 The Candidate Preflight view is the economic screening layer between a real
 exact-claim fixture map and any future reviewed candidate. It is derived from
 the three checked-in `Trump out as President before 2027?` venue fixtures and
-the immutable `pmh.real-candidate-preflight.v1` artifact. JSON numeric tokens
-are preserved lexically and all prices, costs, payout floors, and basis-point
+the immutable `pmh.real-candidate-preflight.v1` and
+`pmh.real-candidate-depth.v1` artifacts. JSON numeric tokens are preserved
+lexically and all prices, quantities, costs, payout floors, and basis-point
 values are recomputed with `bigint` fixed point.
 
 The real fixture illustrates why catalog spreads are only search hints.
 Polymarket YES at catalog indication `0.0650` plus Limitless NO at `0.9295`
 appears to cost `0.9945`, a gross 55 bp floor. Repricing the same outcomes at
 the venues' reported buy quotes (`0.0700` and `0.9300`) consumes the entire
-`1.0000` payout before fees. No executable quantity or book generation is
-bound, the complete fee schedule is absent, and production equivalence-review
-authority is unconfigured.
+`1.0000` payout before fees. The next screen binds anonymous books at five
+shares: buying Polymarket YES costs `0.3500`; simulating a complete-set split
+on Limitless and selling YES returns `0.3500`, making the effective NO cost
+`4.6500`. The route therefore consumes the full `5.0000` payout before fees.
+
+The depth artifact is intentionally not certificate-grade. Polymarket binds a
+venue book hash, while the anonymous Limitless REST book binds raw bytes and
+receive time but exposes no venue generation. Limitless also reports dynamic
+taker fees, and its complete-set split plus YES sale is a simulation-only route.
+Studio shows these facts without invoking a split, approval, signature, order,
+or any other value-moving operation.
 
 Studio therefore renders the artifact as `SEARCH_LEAD_ONLY` / `BLOCKED`, shows
-the two quote layers separately, and reports `verifierInvoked: false` plus
-`arbitrageVerified: false`. It is not added to the opportunity list. The
-browser only presents the control-plane result and performs no price or payoff
-calculation.
+the two quote layers plus the quantity route separately, and reports
+`verifierInvoked: false` plus `arbitrageVerified: false`. It is not added to the
+opportunity list. The browser only presents the control-plane result and
+performs no price, depth, route, or payoff calculation.
 
 ## Scout inbox
 
