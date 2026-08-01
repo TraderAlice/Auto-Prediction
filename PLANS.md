@@ -54,6 +54,12 @@ shadow/live boundaries remain deterministic.
   The real local database also exposed a v9-version/missing-table partial
   migration; startup now repairs that exact non-destructive schema gap and a
   regression test preserves the behavior.
+- 2026-08-01: The first real equivalence lease over 440 fresh listings passed
+  end to end. One budgeted DeepSeek fast request grounded a Limitless–Opinion
+  pair; one pi MarketFS escalation returned three proposal-only relations and
+  five explicit evidence gaps in about 129 seconds. Lease artifact
+  `sha256:90e17fbe…a8d04` retains no chain-of-thought and grants no semantic,
+  certificate, execution, external-write, live, or value-moving authority.
 - 2026-08-01: The exact-promotion and certificate-bound shadow checkpoint passes
   280 workspace tests, full typecheck, production build, SQLite restart replay,
   and desktop/430px Studio inspection under Node.js 24.14.0.

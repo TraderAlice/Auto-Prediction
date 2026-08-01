@@ -75,6 +75,7 @@ export type SearchLeaseDeepLane = Readonly<{
     | "NOT_MULTI_LISTING"
     | "DUPLICATE"
     | "PI_DISABLED"
+    | "NOVEL_MULTI_LISTING"
     | "NOVEL_MULTI_VENUE";
   runId: string | null;
   proposalIds: readonly string[];
@@ -306,6 +307,15 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     record.fastLane.modelRequestCount < 0 ||
     (record.fastLane.status !== "NOT_RUN" && record.fastLane.status !== "PASS" && record.fastLane.status !== "FAILED") ||
     (record.deepLane.status !== "NOT_RUN" && record.deepLane.status !== "PASS" && record.deepLane.status !== "FAILED") ||
+    !([
+      "PENDING_FAST_LANE",
+      "NO_CANDIDATES",
+      "NOT_MULTI_LISTING",
+      "DUPLICATE",
+      "PI_DISABLED",
+      "NOVEL_MULTI_LISTING",
+      "NOVEL_MULTI_VENUE",
+    ] as const).includes(record.deepLane.reason) ||
     !READ_ONLY_TOOLS.every((tool, index) => record.deepLane.permittedTools[index] === tool) ||
     record.deepLane.permittedTools.length !== READ_ONLY_TOOLS.length ||
     !nonEmptyStrings(record.deepLane.proposalIds, 5) ||
@@ -601,7 +611,7 @@ export class SearchLeaseScheduler {
         const result = await this.#runDeep(snapshot, deepQuestion);
         deepLane = Object.freeze({
           status: result.status,
-          reason: "NOVEL_MULTI_VENUE",
+          reason: "NOVEL_MULTI_LISTING",
           runId: result.runId,
           proposalIds: Object.freeze([...result.proposalIds].slice(0, 5)),
           evidenceGaps: Object.freeze([...result.evidenceGaps].slice(0, 20)),

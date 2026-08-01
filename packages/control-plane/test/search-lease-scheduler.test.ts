@@ -151,7 +151,7 @@ describe("AI-native search lease scheduler", () => {
 
     expect(record.status).toBe("PASS");
     expect(record.fastLane.modelRequestCount).toBe(1);
-    expect(record.deepLane.reason).toBe("NOVEL_MULTI_VENUE");
+    expect(record.deepLane.reason).toBe("NOVEL_MULTI_LISTING");
     expect(record.deepLane.permittedTools).toEqual(["read", "grep", "find", "ls"]);
     expect(record.trace.chainOfThoughtStored).toBe(false);
     expect(record.semanticDecisionAuthority).toBe(false);

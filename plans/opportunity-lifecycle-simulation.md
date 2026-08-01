@@ -322,6 +322,13 @@ decision and cannot be inferred from this state machine.
   migration with `user_version=9` but no lease table is repaired by verifying
   schema facts in addition to the version marker; the repair is covered by a
   non-destructive regression test.
+- 2026-08-01: Real lease `sha256:f0a18e47…328fdc` bound a six-source,
+  440-listing snapshot and passed within its 300-second deadline. The fast lane
+  consumed exactly one DeepSeek request and cited two concrete listing refs;
+  the single pi escalation searched full MarketFS and produced three unreviewed
+  proposals plus five evidence gaps. Terminal artifact
+  `sha256:90e17fbe…a8d04` records literal-false authority/effects and no
+  chain-of-thought or per-tool trace.
 - 2026-08-01: Exact promotion and certificate-bound shadow routing close at 280
   passing workspace tests, full typecheck, and production build under Node.js
   24.14.0. Desktop and 430px lifecycle inspection show no console errors or
