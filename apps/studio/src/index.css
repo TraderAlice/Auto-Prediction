@@ -5364,6 +5364,7 @@ footer span:first-child {
 
 .review-operations {
   margin-top: 18px;
+  min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -5384,6 +5385,7 @@ footer span:first-child {
 
 .review-operations-heading > div {
   gap: 9px;
+  min-width: 0;
 }
 
 .review-operations-heading svg {
@@ -5454,7 +5456,15 @@ footer span:first-child {
   display: grid;
   gap: 10px;
   grid-template-columns: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
   padding: 8px;
+}
+
+.review-job-list article > div,
+.review-notification-list article,
+.review-notification-list article > div {
+  min-width: 0;
 }
 
 .review-job-list article + article,
@@ -5470,6 +5480,7 @@ footer span:first-child {
 .review-job-list strong,
 .review-notification-list > article > strong {
   font-size: 8px;
+  overflow-wrap: anywhere;
 }
 
 .review-job-list span,
@@ -5503,6 +5514,7 @@ footer span:first-child {
 .review-notification-list p {
   margin: 5px 0 0;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .review-notification-list button {
@@ -5653,6 +5665,7 @@ footer span:first-child {
   font-size: 14px;
   line-height: 1.45;
   margin: 14px 0 7px;
+  overflow-wrap: anywhere;
 }
 
 .lifecycle-case-next {
@@ -5762,6 +5775,7 @@ footer span:first-child {
   background: rgba(7, 14, 23, 0.96);
   display: grid;
   gap: 6px;
+  min-width: 0;
   padding: 11px;
 }
 
@@ -5777,6 +5791,7 @@ footer span:first-child {
   font-size: 10px;
   font-weight: 500;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .lifecycle-counterexamples {

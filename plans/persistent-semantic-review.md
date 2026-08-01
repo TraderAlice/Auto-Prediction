@@ -1,6 +1,6 @@
 # Persistent semantic review
 
-Status: active
+Status: completed
 Started: 2026-08-02
 
 ## Outcome
@@ -55,7 +55,7 @@ usage metadata may refine this later without changing job identity.
   recommendation outcomes in the control-plane projection and Studio.
 - [x] Prove deterministic identities, concurrency bounds, request ceilings,
   retries, restart recovery, notification dedupe, and zero authority/effects.
-- [ ] Qualify the real SQLite-backed runtime and responsive Studio, then retire
+- [x] Qualify the real SQLite-backed runtime and responsive Studio, then retire
   the completed attribution plan after its Git-history recovery is verified.
 
 ## Safety invariants
@@ -87,4 +87,11 @@ without exhausting their request budget, and left all 19 reviewed proposals at
 the operator-decision boundary. A development-process reload stranded two
 leases; both became bounded retry-wait jobs at expiry and then completed on the
 next tick, demonstrating restart recovery against the real store. Responsive
-Studio browser qualification remains the final retirement gate.
+The final retirement gate, Studio qualification, passed at a 1440px desktop
+viewport and a 415px
+device viewport. The mobile run exposed long semantic claims widening the page
+to 563px; bounded wrapping fixed the document width at 400px while preserving
+the single-column queue and notification layout. Notification acknowledgement
+persisted successfully, reduced unread count from 29 to 28, and emitted no
+browser console errors. The desktop regression remained free of horizontal
+overflow.
