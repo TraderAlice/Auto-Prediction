@@ -10,6 +10,8 @@ This repository is a pre-alpha, research-first interoperability harness. It must
 - Solvers propose candidates. Only the first-party exact verifier may publish a certificate.
 - Venue SDK and generated API types stay inside their adapter package.
 - Live execution is disabled by construction and by policy. Tests must prove this.
+- Read `PLANS.md` before non-trivial construction; it indexes the active plan
+  under `plans/` when one exists and defines when completed plans should be retired.
 - Update `PLANS.md` and the active file under `plans/` when evidence changes a decision.
 - Do not create placeholder packages. A package must own working source and focused tests.
 

@@ -65,6 +65,11 @@ type RadarCandidate = StudioProjection["ai"]["opportunityRadar"]["candidates"][n
 type SearchIssue = StudioProjection["ai"]["searchIssueScheduler"]["issues"][number];
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 
+function formatRateBps(value: number | null): string {
+  if (value === null) return "—";
+  return `${Math.floor(value / 100)}.${String(value % 100).padStart(2, "0")}%`;
+}
+
 const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
   mode: "VERIFIED_FIXTURE_CATALOGS",
   corpusIdentity: `sha256:${"0".repeat(64)}`,
@@ -215,6 +220,21 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   enabledIssueCount: 0,
   dueIssueCount: 0,
   unreadNotificationCount: 0,
+  performance: {
+    measurementWindow: "RETAINED_TERMINAL_LEASES",
+    retainedLeaseLimit: 40,
+    terminalLeaseCount: 0,
+    novelCandidateCount: 0,
+    duplicateCount: 0,
+    piEscalationCount: 0,
+    hypothesisCount: 0,
+    proposalCount: 0,
+    evidenceGapCount: 0,
+    novelCandidateRateBps: null,
+    duplicateRateBps: null,
+    piEscalationRateBps: null,
+    byIssue: [],
+  },
   issues: [],
   notifications: [],
   storage: {
@@ -2279,6 +2299,8 @@ function MarketArchaeologistView() {
     studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
   const issueScheduler =
     studioProjection.ai.searchIssueScheduler ?? EMPTY_SEARCH_ISSUE_SCHEDULER;
+  const issuePerformance =
+    issueScheduler.performance ?? EMPTY_SEARCH_ISSUE_SCHEDULER.performance;
   const graph =
     studioProjection.ai.semanticRelationGraph ?? EMPTY_SEMANTIC_RELATION_GRAPH;
   const [question, setQuestion] = useState(
@@ -2455,51 +2477,64 @@ function MarketArchaeologistView() {
             <div><strong>{issueScheduler.storage.issues.durable ? "WAL" : "RAM"}</strong><span>queue storage</span></div>
           </div>
 
+          <div className="issue-scheduler-strip issue-performance-strip">
+            <div><strong>{issuePerformance.terminalLeaseCount}</strong><span>retained completed scans</span></div>
+            <div><strong>{formatRateBps(issuePerformance.novelCandidateRateBps)}</strong><span>new candidate signatures</span></div>
+            <div><strong>{formatRateBps(issuePerformance.duplicateRateBps)}</strong><span>duplicate scans</span></div>
+            <div><strong>{formatRateBps(issuePerformance.piEscalationRateBps)}</strong><span>pi escalation · {issuePerformance.proposalCount} proposals · {issuePerformance.evidenceGapCount} gaps</span></div>
+          </div>
+
           <div className="issue-scheduler-workbench">
             <section className="search-issue-list" aria-label="Scheduled search issues">
               <div className="issue-column-heading">
                 <div><GitBranch size={14} /><strong>Search issues</strong></div>
                 <span>priority first · one lease per corpus snapshot</span>
               </div>
-              {issueScheduler.issues.map((issue) => (
-                <article className={cn("search-issue", !issue.enabled && "is-paused")} key={issue.issueId}>
-                  <div className="search-issue-head">
-                    <div>
-                      <Badge variant={issue.enabled ? "verified" : "muted"}>
-                        {issue.enabled ? "ACTIVE" : "PAUSED"}
-                      </Badge>
-                      <Badge variant="muted">P{issue.priority}</Badge>
-                      <Badge variant="muted">{issue.lens}</Badge>
+              {issueScheduler.issues.map((issue) => {
+                const performance = issuePerformance.byIssue.find(
+                  (item) => item.issueId === issue.issueId,
+                );
+                return (
+                  <article className={cn("search-issue", !issue.enabled && "is-paused")} key={issue.issueId}>
+                    <div className="search-issue-head">
+                      <div>
+                        <Badge variant={issue.enabled ? "verified" : "muted"}>
+                          {issue.enabled ? "ACTIVE" : "PAUSED"}
+                        </Badge>
+                        <Badge variant="muted">P{issue.priority}</Badge>
+                        <Badge variant="muted">{issue.lens}</Badge>
+                      </div>
+                      <code>{issue.issueId.slice(7, 14)}</code>
                     </div>
-                    <code>{issue.issueId.slice(7, 14)}</code>
-                  </div>
-                  <h3>{issue.title}</h3>
-                  <p>{issue.question}</p>
-                  <div className="search-issue-meta">
-                    <span>every {issue.cadenceMs / 60_000}m</span>
-                    <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
-                    <span>{issue.passCount}/{issue.runCount} passed</span>
-                  </div>
-                  <div className="search-issue-actions">
-                    <Button
-                      variant="outline"
-                      disabled={corpus.listingCount === 0 || issueAction !== null}
-                      onClick={() => void runIssue(issue.issueId)}
-                    >
-                      {issueAction === `RUN:${issue.issueId}` ? <RefreshCw className="is-spinning" size={13} /> : <Play size={13} />}
-                      Run now
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={issueAction !== null}
-                      onClick={() => void toggleIssue(issue)}
-                    >
-                      {issue.enabled ? <Pause size={13} /> : <Play size={13} />}
-                      {issue.enabled ? "Pause" : "Resume"}
-                    </Button>
-                  </div>
-                </article>
-              ))}
+                    <h3>{issue.title}</h3>
+                    <p>{issue.question}</p>
+                    <div className="search-issue-meta">
+                      <span>every {issue.cadenceMs / 60_000}m</span>
+                      <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
+                      <span>{issue.passCount}/{issue.runCount} passed</span>
+                      <span>{performance?.novelCandidateCount ?? 0} new · {performance?.duplicateCount ?? 0} repeat · {performance?.piEscalationCount ?? 0} pi</span>
+                    </div>
+                    <div className="search-issue-actions">
+                      <Button
+                        variant="outline"
+                        disabled={corpus.listingCount === 0 || issueAction !== null}
+                        onClick={() => void runIssue(issue.issueId)}
+                      >
+                        {issueAction === `RUN:${issue.issueId}` ? <RefreshCw className="is-spinning" size={13} /> : <Play size={13} />}
+                        Run now
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={issueAction !== null}
+                        onClick={() => void toggleIssue(issue)}
+                      >
+                        {issue.enabled ? <Pause size={13} /> : <Play size={13} />}
+                        {issue.enabled ? "Pause" : "Resume"}
+                      </Button>
+                    </div>
+                  </article>
+                );
+              })}
             </section>
 
             <section className="search-notification-inbox" aria-label="Search notifications">
