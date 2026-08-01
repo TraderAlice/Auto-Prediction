@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 
 type View =
   | "overview"
+  | "radar"
   | "scouts"
   | "cases"
   | "venues"
@@ -52,6 +53,7 @@ type View =
   | "evidence";
 type Opportunity = StudioProjection["opportunities"][number];
 type ResearchCase = StudioProjection["ai"]["researchDesk"]["cases"][number];
+type RadarCandidate = StudioProjection["ai"]["opportunityRadar"]["candidates"][number];
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 
 const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
@@ -63,8 +65,25 @@ const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
   maxListingsPerTask: 30,
 };
 
+const EMPTY_OPPORTUNITY_RADAR: StudioProjection["ai"]["opportunityRadar"] = {
+  algorithmVersion: "pmh.opportunity-radar.lexical-v1",
+  sourceSetIdentity: `sha256:${"0".repeat(64)}`,
+  observedListingCount: 0,
+  eligibleSourceCount: 0,
+  excludedSourceCount: 0,
+  candidateCount: 0,
+  candidates: [],
+  scoreMeaning: "LEXICAL_BLOCKING_ONLY_NOT_CONFIDENCE",
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "radar", label: "Opportunity radar", icon: Radar },
   { id: "scouts", label: "Scout inbox", icon: Inbox },
   { id: "cases", label: "Research cases", icon: Waypoints },
   { id: "venues", label: "Venue matrix", icon: Network },
@@ -166,6 +185,103 @@ async function requestInvestigation(
     result.report?.result?.executionAuthority !== false
   ) {
     throw new Error("pi investigator crossed its authority boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
+async function requestRadarTriage(candidateId: string): Promise<boolean> {
+  const response = await fetch("/api/v1/radar/triage", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidateId }),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    radarCandidateId?: string;
+    executionAuthority?: boolean;
+    idempotentReplay?: boolean;
+    hypotheses?: readonly Readonly<{
+      authority?: string;
+      reviewStatus?: string;
+    }>[];
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "radar triage failed");
+  }
+  if (
+    result.radarCandidateId !== candidateId ||
+    result.executionAuthority !== false ||
+    result.hypotheses?.some(
+      (hypothesis) =>
+        hypothesis.authority !== "PROPOSE_ONLY" ||
+        hypothesis.reviewStatus !== "UNREVIEWED",
+    ) !== false
+  ) {
+    throw new Error("radar triage crossed its authority boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
+async function requestRadarInvestigation(
+  candidateId: string,
+): Promise<boolean> {
+  const response = await fetch("/api/v1/radar/investigate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ candidateId }),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    radarCandidateId?: string;
+    authority?: string;
+    reviewStatus?: string;
+    executionAuthority?: boolean;
+    idempotentReplay?: boolean;
+    report?: { result?: { executionAuthority?: boolean } };
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "radar investigation failed");
+  }
+  if (
+    result.radarCandidateId !== candidateId ||
+    result.authority !== "PROPOSE_ONLY" ||
+    result.reviewStatus !== "UNREVIEWED" ||
+    result.executionAuthority !== false ||
+    result.report?.result?.executionAuthority !== false
+  ) {
+    throw new Error("radar investigator crossed its authority boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
+async function requestResearchCaseInvestigation(
+  taskId: string,
+): Promise<boolean> {
+  const response = await fetch("/api/v1/research-cases/investigate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ taskId }),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    taskId?: string;
+    authority?: string;
+    reviewStatus?: string;
+    executionAuthority?: boolean;
+    idempotentReplay?: boolean;
+    report?: { result?: { executionAuthority?: boolean } };
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "case investigation failed");
+  }
+  if (
+    result.taskId !== taskId ||
+    result.authority !== "PROPOSE_ONLY" ||
+    result.reviewStatus !== "UNREVIEWED" ||
+    result.executionAuthority !== false ||
+    result.report?.result?.executionAuthority !== false
+  ) {
+    throw new Error("case investigator crossed its authority boundary");
   }
   return result.idempotentReplay === true;
 }
@@ -780,6 +896,321 @@ function countLabel(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
+function similarityLabel(scoreBps: number): string {
+  return `${Math.floor(scoreBps / 100)}.${String(scoreBps % 100).padStart(2, "0")}%`;
+}
+
+function OpportunityRadarView() {
+  const studioProjection = useStudioProjection();
+  const radar =
+    studioProjection.ai.opportunityRadar ?? EMPTY_OPPORTUNITY_RADAR;
+  const [refreshStatus, setRefreshStatus] = useState<
+    "IDLE" | "RUNNING" | "DONE" | "FAILED"
+  >("IDLE");
+  const [triageStates, setTriageStates] = useState<
+    Readonly<Record<string, "RUNNING" | "DONE" | "RESTORED" | "FAILED">>
+  >({});
+  const [investigationStates, setInvestigationStates] = useState<
+    Readonly<Record<string, "RUNNING" | "DONE" | "RESTORED" | "FAILED">>
+  >({});
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const retainedTaskIds = new Set(
+    studioProjection.discoveryDesk.runs.map((run) => run.taskId),
+  );
+  const triagedCount = radar.candidates.filter((candidate) =>
+    retainedTaskIds.has(candidate.triageTaskId),
+  ).length;
+
+  async function refreshRadar(): Promise<void> {
+    setRefreshStatus("RUNNING");
+    setDiagnostic(null);
+    try {
+      await requestCatalogRefresh();
+      setRefreshStatus("DONE");
+    } catch (error) {
+      setRefreshStatus("FAILED");
+      setDiagnostic(
+        error instanceof Error ? error.message : "catalog refresh failed",
+      );
+    }
+  }
+
+  async function triage(candidate: RadarCandidate): Promise<void> {
+    setTriageStates((current) => ({
+      ...current,
+      [candidate.candidateId]: "RUNNING",
+    }));
+    setDiagnostic(null);
+    try {
+      const restored = await requestRadarTriage(candidate.candidateId);
+      setTriageStates((current) => ({
+        ...current,
+        [candidate.candidateId]: restored ? "RESTORED" : "DONE",
+      }));
+    } catch (error) {
+      setTriageStates((current) => ({
+        ...current,
+        [candidate.candidateId]: "FAILED",
+      }));
+      setDiagnostic(
+        error instanceof Error ? error.message : "radar triage failed",
+      );
+    }
+  }
+
+  async function investigate(candidate: RadarCandidate): Promise<void> {
+    setInvestigationStates((current) => ({
+      ...current,
+      [candidate.candidateId]: "RUNNING",
+    }));
+    setDiagnostic(null);
+    try {
+      const restored = await requestRadarInvestigation(candidate.candidateId);
+      setInvestigationStates((current) => ({
+        ...current,
+        [candidate.candidateId]: restored ? "RESTORED" : "DONE",
+      }));
+    } catch (error) {
+      setInvestigationStates((current) => ({
+        ...current,
+        [candidate.candidateId]: "FAILED",
+      }));
+      setDiagnostic(
+        error instanceof Error ? error.message : "radar investigation failed",
+      );
+    }
+  }
+
+  return (
+    <section className="page-section radar-page">
+      <div className="page-heading radar-heading">
+        <div>
+          <span className="eyebrow">Deterministic blocking · AI on demand</span>
+          <h1>Opportunity radar</h1>
+          <p>
+            The control plane reduces fresh multi-venue catalogs into small,
+            evidence-bound pairs before a cheap scout sees them. Similarity is
+            a search filter—not semantic equivalence, profit, or a certificate.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          disabled={refreshStatus === "RUNNING"}
+          onClick={() => void refreshRadar()}
+        >
+          <RefreshCw
+            className={refreshStatus === "RUNNING" ? "is-spinning" : undefined}
+            size={14}
+          />
+          {refreshStatus === "RUNNING"
+            ? "Refreshing sources…"
+            : refreshStatus === "DONE"
+              ? "Sources refreshed"
+              : refreshStatus === "FAILED"
+                ? "Retry refresh"
+                : "Refresh live radar"}
+        </Button>
+      </div>
+
+      <div className="radar-summary-grid">
+        <Metric
+          label="Observed listings"
+          value={`${radar.observedListingCount}`}
+          detail="latest retained anonymous catalogs"
+        />
+        <Metric
+          label="Fresh sources"
+          value={`${radar.eligibleSourceCount}`}
+          detail={`${radar.excludedSourceCount} excluded by freshness gate`}
+        />
+        <Metric
+          label="Candidate pairs"
+          value={`${radar.candidateCount}`}
+          detail="cross-venue lexical blocks"
+        />
+        <Metric
+          label="Scout triage"
+          value={`${triagedCount}`}
+          detail="retained bounded runs"
+        />
+      </div>
+
+      <div className="radar-method-strip">
+        <Radar size={15} />
+        <span>
+          Rare-term weighted overlap · incompatible cadence and exact close
+          times rejected · maximum 25 pairs
+        </span>
+        <code>{radar.algorithmVersion}</code>
+      </div>
+
+      {diagnostic !== null && (
+        <div className="radar-diagnostic" role="status">
+          <CircleOff size={14} />
+          <span>{diagnostic}</span>
+        </div>
+      )}
+
+      {radar.candidates.length === 0 ? (
+        <div className="radar-empty">
+          <Radar size={28} />
+          <strong>No fresh cross-venue blocks</strong>
+          <span>
+            Refresh the anonymous catalogs. Stale or failed sources are omitted,
+            and a zero-result scan is valid.
+          </span>
+        </div>
+      ) : (
+        <div className="radar-candidate-grid">
+          {radar.candidates.map((candidate, index) => {
+            const localState = triageStates[candidate.candidateId];
+            const retained = retainedTaskIds.has(candidate.triageTaskId);
+            const running = localState === "RUNNING";
+            const investigationState =
+              investigationStates[candidate.candidateId];
+            const investigationRecord =
+              studioProjection.ai.investigationDesk.records.find(
+                (record) => record.taskId === candidate.triageTaskId,
+              );
+            const investigating = investigationState === "RUNNING";
+            return (
+              <article className="radar-candidate" key={candidate.candidateId}>
+                <div className="radar-candidate-head">
+                  <div>
+                    <span className="eyebrow">
+                      Pair {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <h2>{candidate.sharedTerms.join(" · ")}</h2>
+                  </div>
+                  <div className="radar-score">
+                    <strong>{similarityLabel(candidate.semanticScoreBps)}</strong>
+                    <span>blocking score</span>
+                  </div>
+                </div>
+
+                <div className="radar-pair">
+                  {candidate.listings.map((listing, listingIndex) => (
+                    <div className="radar-leg" key={listing.listingRef}>
+                      <div>
+                        <Badge variant={listingIndex === 0 ? "verified" : "shadow"}>
+                          {listing.venueId}
+                        </Badge>
+                        <span>{listing.mechanism.replaceAll("_", " ")}</span>
+                      </div>
+                      <strong>{listing.title}</strong>
+                      <code>{listing.listingRef}</code>
+                      <small>
+                        <Fingerprint size={10} />
+                        {listing.sourceRawHash.slice(0, 22)}… ·{" "}
+                        {new Date(listing.sourceReceivedAt).toLocaleTimeString()}
+                      </small>
+                      {listingIndex === 0 && (
+                        <span className="radar-pair-link" aria-hidden="true">
+                          <ChevronRight size={14} />
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="radar-temporal-strip">
+                  <div>
+                    <Activity size={13} />
+                    <span>{candidate.timeframe ?? "No cadence extracted"}</span>
+                  </div>
+                  <div>
+                    <Badge
+                      variant={
+                        candidate.temporalAlignment === "ALIGNED"
+                          ? "verified"
+                          : "warning"
+                      }
+                    >
+                      {candidate.temporalAlignment}
+                    </Badge>
+                    <code>
+                      {candidate.effectiveCloseAt ?? "close unresolved"}
+                    </code>
+                  </div>
+                </div>
+
+                <div className="radar-action-row">
+                  <div>
+                    <ShieldCheck size={14} />
+                    <span>
+                      Exact two-listing context · proposal only · no auto spend
+                    </span>
+                  </div>
+                  <div className="radar-action-buttons">
+                    <Button
+                      disabled={running || studioProjection.ai.activeRuns > 0}
+                      onClick={() => void triage(candidate)}
+                    >
+                      {running ? (
+                        <RefreshCw className="is-spinning" size={14} />
+                      ) : (
+                        <Sparkles size={14} />
+                      )}
+                      {running
+                        ? "Scouts triaging…"
+                        : localState === "DONE"
+                          ? "Triage complete"
+                          : localState === "RESTORED" || retained
+                            ? "Restore scout result"
+                            : localState === "FAILED"
+                              ? "Retry scout triage"
+                              : "Triage with fast scouts"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={
+                        !retained ||
+                        !studioProjection.ai.investigator.configured ||
+                        studioProjection.ai.investigationDesk.activeCount > 0 ||
+                        investigating
+                      }
+                      onClick={() => void investigate(candidate)}
+                    >
+                      {investigating ? (
+                        <RefreshCw className="is-spinning" size={14} />
+                      ) : (
+                        <SquareTerminal size={14} />
+                      )}
+                      {investigating
+                        ? "pi investigating…"
+                        : investigationState === "DONE"
+                          ? "pi complete"
+                          : investigationState === "RESTORED" ||
+                              investigationRecord?.status === "PASS"
+                            ? "Restore pi report"
+                            : investigationState === "FAILED" ||
+                                investigationRecord?.status === "FAILED"
+                              ? "Retry deep pi"
+                              : "Run deep pi"}
+                    </Button>
+                  </div>
+                </div>
+                <code className="radar-candidate-id">
+                  {candidate.candidateId}
+                </code>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="case-authority-lock radar-authority-lock">
+        <CircleOff size={15} />
+        <span>
+          Radar candidates are workload routing hints. They cannot establish
+          equivalent rules, compute executable profit, enter review, publish a
+          certificate, or grant execution authority.
+        </span>
+      </div>
+    </section>
+  );
+}
+
 function ScoutInboxView() {
   const studioProjection = useStudioProjection();
   const catalogContext =
@@ -1303,6 +1734,11 @@ function ResearchCaseDeskView() {
   const [selectedCaseId, setSelectedCaseId] = useState(
     researchDesk.cases[0]?.caseId ?? "",
   );
+  const [caseInvestigationState, setCaseInvestigationState] = useState<
+    "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
+  >("IDLE");
+  const [caseInvestigationDiagnostic, setCaseInvestigationDiagnostic] =
+    useState<string | null>(null);
   const selectedCase =
     researchDesk.cases.find((item) => item.caseId === selectedCaseId) ??
     researchDesk.cases[0];
@@ -1315,6 +1751,27 @@ function ResearchCaseDeskView() {
       setSelectedCaseId(researchDesk.cases[0]?.caseId ?? "");
     }
   }, [researchDesk.cases, selectedCaseId]);
+
+  useEffect(() => {
+    setCaseInvestigationState("IDLE");
+    setCaseInvestigationDiagnostic(null);
+  }, [selectedCaseId]);
+
+  async function investigateSelectedCase(): Promise<void> {
+    const taskId = selectedCase?.scout.taskId;
+    if (taskId === null || taskId === undefined) return;
+    setCaseInvestigationState("RUNNING");
+    setCaseInvestigationDiagnostic(null);
+    try {
+      const restored = await requestResearchCaseInvestigation(taskId);
+      setCaseInvestigationState(restored ? "RESTORED" : "DONE");
+    } catch (error) {
+      setCaseInvestigationState("FAILED");
+      setCaseInvestigationDiagnostic(
+        error instanceof Error ? error.message : "case investigation failed",
+      );
+    }
+  }
 
   return (
     <section className="page-section">
@@ -1467,6 +1924,122 @@ function ResearchCaseDeskView() {
                 </div>
               ))}
             </div>
+
+            {selectedCase.status === "NEEDS_INVESTIGATION" && (
+              <div className="case-investigation-action">
+                <div>
+                  <SquareTerminal size={15} />
+                  <span>
+                    {selectedCase.scout.contextSnapshotRetained
+                      ? "Deep pi will reuse the exact catalog snapshot retained with "
+                      : "This legacy scout predates exact context retention for "}
+                    scout task <code>{selectedCase.scout.taskId}</code>.
+                    {selectedCase.scout.contextSnapshotRetained
+                      ? " Refreshes cannot substitute newer evidence."
+                      : " Re-run a fresh bounded scout before deep investigation."}
+                    {caseInvestigationDiagnostic !== null && (
+                      <strong>{caseInvestigationDiagnostic}</strong>
+                    )}
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  disabled={
+                    selectedCase.scout.taskId === null ||
+                    !selectedCase.scout.contextSnapshotRetained ||
+                    !studioProjection.ai.investigator.configured ||
+                    studioProjection.ai.investigationDesk.activeCount > 0 ||
+                    caseInvestigationState === "RUNNING"
+                  }
+                  onClick={() => void investigateSelectedCase()}
+                >
+                  {caseInvestigationState === "RUNNING" ? (
+                    <RefreshCw className="is-spinning" size={14} />
+                  ) : (
+                    <SquareTerminal size={14} />
+                  )}
+                  {!studioProjection.ai.investigator.configured
+                    ? "Deep investigator needs key"
+                    : !selectedCase.scout.contextSnapshotRetained
+                      ? "Exact context snapshot unavailable"
+                    : caseInvestigationState === "RUNNING"
+                      ? "pi investigating retained context…"
+                      : caseInvestigationState === "DONE"
+                        ? "pi investigation complete"
+                        : caseInvestigationState === "RESTORED"
+                          ? "Restored retained report"
+                          : caseInvestigationState === "FAILED"
+                            ? "Retry retained-context pi"
+                            : "Run deep pi on retained context"}
+                </Button>
+              </div>
+            )}
+
+            {selectedCase.investigation.summary !== null && (
+              <section className="case-investigation-brief">
+                <div className="case-section-heading">
+                  <div>
+                    <SquareTerminal size={14} />
+                    <strong>Deep investigation brief</strong>
+                  </div>
+                  <div className="case-brief-badges">
+                    <Badge variant="muted">
+                      {countLabel(
+                        selectedCase.investigation.findingCount,
+                        "finding",
+                      )}
+                    </Badge>
+                    <Badge
+                      variant={
+                        selectedCase.investigation.warningCount > 0
+                          ? "warning"
+                          : "muted"
+                      }
+                    >
+                      {countLabel(
+                        selectedCase.investigation.warningCount,
+                        "warning",
+                      )}
+                    </Badge>
+                  </div>
+                </div>
+                <p>{selectedCase.investigation.summary}</p>
+                {selectedCase.investigation.findings.length > 0 && (
+                  <div className="case-finding-list">
+                    {selectedCase.investigation.findings.map(
+                      (finding, index) => (
+                        <article
+                          key={`${selectedCase.caseId}:finding:${index}`}
+                        >
+                          <div>
+                            <Badge
+                              variant={
+                                finding.severity === "WARNING"
+                                  ? "warning"
+                                  : "muted"
+                              }
+                            >
+                              {finding.severity}
+                            </Badge>
+                            <code>{finding.listingRefs.join(" · ")}</code>
+                          </div>
+                          <p>{finding.statement}</p>
+                        </article>
+                      ),
+                    )}
+                  </div>
+                )}
+                {selectedCase.investigation.findingCount >
+                  selectedCase.investigation.findings.length && (
+                  <small className="case-more-gaps">
+                    +
+                    {selectedCase.investigation.findingCount -
+                      selectedCase.investigation.findings.length} more retained
+                    outside the bounded dossier slice
+                  </small>
+                )}
+              </section>
+            )}
 
             <div className="case-evidence-grid">
               <section>
@@ -2181,6 +2754,7 @@ function StudioShell() {
         />
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
+          {view === "radar" && <OpportunityRadarView />}
           {view === "scouts" && <ScoutInboxView />}
           {view === "cases" && <ResearchCaseDeskView />}
           {view === "venues" && <VenueMatrix />}

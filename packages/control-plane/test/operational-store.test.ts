@@ -46,6 +46,30 @@ function investigationTask(
   taskId: string,
   question = "Investigate the fixture",
 ): DiscoveryTask {
+  const listings = [
+    {
+      listingRef: "gemini-predictions:fixture-a",
+      venueId: "gemini-predictions",
+      venueInstrumentId: "fixture-a",
+      title: "Fixture A",
+      description: "Bounded fixture",
+      status: "OPEN",
+      mechanism: "CLOB",
+      closesAt: null,
+      rulesText: null,
+      outcomes: [{ label: "Yes", indicativePrice: "0.5" }],
+      sourceKind: "VERIFIED_FIXTURE" as const,
+      sourceReceivedAt: "2026-07-31T00:00:00.000Z",
+      sourceRawHash: hashCanonical({ source: "fixture-a" }),
+      protocolIdentity: "prediction-markets-v1:test",
+    },
+  ];
+  const contextBody = {
+    schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+    source: "VERIFIED_FIXTURE_CATALOGS" as const,
+    contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+    listings,
+  };
   return {
     taskId,
     question,
@@ -53,28 +77,8 @@ function investigationTask(
     maxHypotheses: 3,
     deadlineEpochMs: Date.now() + 30_000,
     catalogContext: {
-      schemaVersion: "pmh.discovery-catalog-context.v2",
-      source: "VERIFIED_FIXTURE_CATALOGS",
-      contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
-      contextIdentity: hashCanonical({ taskId, question }),
-      listings: [
-        {
-          listingRef: "gemini-predictions:fixture-a",
-          venueId: "gemini-predictions",
-          venueInstrumentId: "fixture-a",
-          title: "Fixture A",
-          description: "Bounded fixture",
-          status: "OPEN",
-          mechanism: "CLOB",
-          closesAt: null,
-          rulesText: null,
-          outcomes: [{ label: "Yes", indicativePrice: "0.5" }],
-          sourceKind: "VERIFIED_FIXTURE",
-          sourceReceivedAt: "2026-07-31T00:00:00.000Z",
-          sourceRawHash: hashCanonical({ source: "fixture-a" }),
-          protocolIdentity: "prediction-markets-v1:test",
-        },
-      ],
+      ...contextBody,
+      contextIdentity: hashCanonical(contextBody),
     },
   };
 }
@@ -181,8 +185,45 @@ describe("SQLite operational store", () => {
     const secondStore = new SqliteOperationalStore(path);
     const secondLedger = new DiscoveryLedger(25, secondStore);
     expect(secondLedger.projection().runs).toEqual([firstRun]);
-    expect(secondLedger.findByTaskId("task:persistent")).toEqual(firstRun);
+    expect(secondLedger.findByTaskId("task:persistent")).toMatchObject({
+      taskId: "task:persistent",
+      question: "Will the fixture resolve yes?",
+      executionAuthority: false,
+    });
+    expect(
+      secondLedger.findByTaskId("task:persistent")?.catalogContext,
+    ).toBeUndefined();
     secondLedger.close();
+  });
+
+  it("retains an exact catalog snapshot for server-side handoff without projecting it", async () => {
+    const path = await databasePath();
+    const taskWithContext = investigationTask("task:context-handoff");
+    const firstLedger = new DiscoveryLedger(
+      25,
+      new SqliteOperationalStore(path),
+    );
+    await recordTask(firstLedger, taskWithContext);
+    expect(firstLedger.findByTaskId(taskWithContext.taskId)?.catalogContext).toEqual(
+      taskWithContext.catalogContext,
+    );
+    expect(firstLedger.projection().runs[0]).not.toHaveProperty(
+      "catalogContext",
+    );
+    expect(firstLedger.projection().runs[0]).toMatchObject({
+      catalogContextRetained: true,
+    });
+    firstLedger.close();
+
+    const restored = new DiscoveryLedger(25, new SqliteOperationalStore(path));
+    expect(restored.findByTaskId(taskWithContext.taskId)?.catalogContext).toEqual(
+      taskWithContext.catalogContext,
+    );
+    expect(restored.projection().runs[0]).not.toHaveProperty("catalogContext");
+    expect(restored.projection().runs[0]).toMatchObject({
+      catalogContextRetained: true,
+    });
+    restored.close();
   });
 
   it("enforces retention in the durable transaction", async () => {
@@ -219,6 +260,43 @@ describe("SQLite operational store", () => {
 
     const reopened = new SqliteOperationalStore(path);
     expect(() => reopened.load(25)).toThrow(/identity mismatch/);
+    reopened.close();
+  });
+
+  it("rejects a rehashed discovery row whose retained context was substituted", async () => {
+    const path = await databasePath();
+    const ledger = new DiscoveryLedger(25, new SqliteOperationalStore(path));
+    await recordTask(ledger, investigationTask("task:context-tamper"));
+    ledger.close();
+
+    const database = new DatabaseSync(path);
+    const row = database
+      .prepare(
+        "SELECT task_id, record_json FROM discovery_runs WHERE task_id = ?",
+      )
+      .get("task:context-tamper") as {
+      task_id: string;
+      record_json: string;
+    };
+    const decoded = JSON.parse(row.record_json) as {
+      catalogContext: { listings: { title: string }[] };
+    };
+    const firstListing = decoded.catalogContext.listings[0];
+    if (firstListing === undefined) throw new Error("missing retained listing");
+    firstListing.title = "Substituted retained context";
+    database
+      .prepare(
+        "UPDATE discovery_runs SET record_json = ?, record_hash = ? WHERE task_id = ?",
+      )
+      .run(
+        JSON.stringify(decoded),
+        hashCanonical(decoded),
+        "task:context-tamper",
+      );
+    database.close();
+
+    const reopened = new SqliteOperationalStore(path);
+    expect(() => reopened.load(25)).toThrow(/invalid or unbounded/);
     reopened.close();
   });
 

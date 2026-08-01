@@ -31,8 +31,9 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - SQLite WAL operational state with bounded retention, content-hash verification, cross-restart `taskId` idempotency, and in-process concurrent-request coalescing.
 - An AI-native discovery pool where cheap parallel scouts inspect bounded, content-addressed fixture catalogs and may propose hypotheses but can never certify or execute them; its default DeepSeek V4 Flash worker runs through Vercel AI SDK with timeout, token, schema, and application-side scope bounds, while direct OpenAI Responses remains an optional backend.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
+- A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection; each pair can be sent to the cheap scout pool only by an explicit operator action.
 - An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, cross-restart task-scope idempotency, bounded hash-checked SQLite retention, SSE running/failure/completion state, and no route into review or execution.
-- A deterministic Research Case Desk that joins scout runs and pi retry history by question, venue scope, catalog-context identity, and source grade; it exposes candidate listing scope and missing-evidence intake without creating review or promotion authority.
+- A deterministic Research Case Desk that joins scout runs and pi retry history by question, venue scope, catalog-context identity, and source grade; it retains the exact bounded scout context for later pi handoff and exposes investigation summaries, findings, candidate scope, and missing-evidence intake without creating review or promotion authority.
 - A bounded anonymous catalog-observation desk for six venues. It preserves raw public GET bytes in SQLite WAL, binds normalized listings to their source identities, isolates protocol drift per venue, and stays `OBSERVE_ONLY`; explicit fresh-context qualification grants proposal input only.
 - A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
@@ -75,9 +76,10 @@ pnpm studio
 `pnpm studio` stores bounded Scout Inbox state in
 `.data/control-plane.sqlite` using WAL mode. Set `PMH_STATE_DB` to an alternate
 path when a different local operational volume is required. The database is
-ignored by Git and contains bounded discovery runs, completed investigations,
-and raw anonymous catalog observations, not credentials or immutable campaign
-evidence.
+ignored by Git and contains bounded discovery runs plus their exact normalized
+catalog snapshots, completed investigations, and raw anonymous catalog
+observations, not credentials or immutable campaign evidence. Snapshot bodies
+remain server-side and are omitted from the Studio/SSE projection.
 
 The model scout is opt-in. Set `DEEPSEEK_API_KEY` in the control-plane process
 to add a `deepseek-v4-flash` worker beside the free heuristic worker. It uses
@@ -105,6 +107,10 @@ proposal-only AI context only when its latest refresh succeeded, is non-empty,
 and is at most 15 minutes old; stale, failed, or empty sources fail the request.
 This qualification grants no review, compilation, certification, or execution
 authority. Refresh explicitly with `POST /api/v1/catalog/observations/refresh`.
+`GET /api/v1/radar` projects only fresh-source candidate pairs. A Studio action
+may send one server-bound pair to `POST /api/v1/radar/triage`; the browser
+cannot substitute listing text or references. The lexical score is a blocking
+score, never confidence, semantic equivalence, profit, or a verifier verdict.
 Select `PMH_DISCOVERY_PROVIDER=deepseek|openai` and override the model defaults
 with `PMH_DISCOVERY_MODEL`,
 `PMH_DISCOVERY_MAX_OUTPUT_TOKENS` (128–4096), and
@@ -134,8 +140,9 @@ catalog, starts with an isolated config directory, persists no session, disables
 extensions/skills/templates/themes, and exposes only `read`, `grep`, `find`, and
 `ls`. Its final-text output is bounded, scope-validated, and rebuilt into a
 content-hashed `pmh.pi-investigation-report.v1` with proposal-only authority.
-It is never scheduled automatically. A user may start it from Studio or
-`POST /api/v1/investigations`; the control plane permits only one active task,
+It is never scheduled automatically. A user may start it from Studio,
+`POST /api/v1/investigations`, or a retained Research Case; the control plane
+permits only one active task,
 coalesces identical in-flight requests, retains at most ten completed reports
 in the hash-checked SQLite WAL, and streams its state over SSE. RUNNING state is
 deliberately process-local because a terminated subprocess cannot be resumed;

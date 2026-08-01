@@ -98,13 +98,26 @@ describe("research case desk", () => {
       status: "EVIDENCE_GAPS",
       catalogContextSource: "VERIFIED_FIXTURE_CATALOGS",
       catalogListingCount: 6,
-      scout: { status: "LEADS", hypothesisCount: 1 },
+      scout: {
+        status: "LEADS",
+        taskId: "task:case:scout",
+        contextSnapshotRetained: true,
+        hypothesisCount: 1,
+      },
       investigation: {
         status: "PASS",
         attemptCount: 2,
         failedAttemptCount: 1,
+        summary: "The fixture range needs independent rule evidence.",
         findingCount: 1,
         warningCount: 1,
+        findings: [
+          {
+            listingRefs: [listingRef],
+            statement: "The listing is one member of a temperature partition.",
+            severity: "WARNING",
+          },
+        ],
       },
       candidateListingRefCount: 6,
       missingEvidence: ["Independent station-resolution evidence"],

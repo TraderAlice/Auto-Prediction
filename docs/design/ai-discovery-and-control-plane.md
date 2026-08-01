@@ -140,6 +140,40 @@ or model output exists. The case projection always reconstructs
 `PROPOSE_ONLY`, `UNREVIEWED`, `promotionEligible: false`, and
 `executionAuthority: false`; it cannot create a review or feed compilation.
 
+## Opportunity radar and durable handoff
+
+Prompt-driven discovery alone does not search a changing multi-venue catalog.
+`OpportunityRadar` therefore performs a deterministic first reduction over
+fresh live observations. It scores only cross-venue title pairs using integer
+rare-term weighting, rejects explicit cadence and exact close-time conflicts,
+and caps the output at 25. This layer proposes workload, not meaning: the score
+is labeled lexical blocking only and every candidate remains `PROPOSE_ONLY`,
+`UNREVIEWED`, `arbitrageVerified: false`, and non-executable.
+
+An operator may send one candidate to the fast pool. The control plane resolves
+the candidate against its current evidence identity and constructs an exact
+two-listing context itself; clients supply only the candidate ID. The resulting
+Discovery Ledger record stores the complete bounded context beside its compact
+identity/count/source summary. The full snapshot is intentionally removed from
+the public projection to keep SSE bounded, while `catalogContextRetained`
+advertises whether a safe deep handoff is possible.
+
+Case-driven pi investigation loads that stored task context rather than asking
+the mutable live catalog to rebuild it. A refresh may and should create new
+Radar candidate IDs, but it cannot change an existing research case's pi
+input. Canonical record hashes, nested context identities, scope checks, and a
+rehashed-tamper test protect this boundary across restart. Pre-snapshot legacy
+runs cannot use the handoff and must be rescouted.
+
+A real six-source refresh qualified the reduction on 2026-08-01: 314 observed
+listings became three aligned hourly Opinion–Limitless pairs for BTC, ETH, and
+BNB. Fast DeepSeek scouting and a pi investigation started from a retained
+pre-refresh context both found contract-level mismatches instead of claiming
+equivalence: Pyth versus Chainlink settlement, strict versus inclusive
+thresholds, and asymmetric outage fallbacks. The pi artifact
+`sha256:7d0cd196…e1d908` remains an unreviewed proposal with no compilation,
+certificate, or execution authority.
+
 The first real DeepSeek V4 Flash qualification passed both paths on 2026-08-01.
 The AI SDK path emitted three fixture-grounded proposals under artifact
 `sha256:93e5612e…273735`. The corrected pi final-text path emitted a bounded,

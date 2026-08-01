@@ -11,9 +11,13 @@ Harmony Studio is the read-only visual surface for architecture qualification. I
 - `GET /api/v1/books`
 - `GET /api/v1/qualification`
 - `GET /api/v1/investigations`
+- `GET /api/v1/radar`
 - `POST /api/v1/books/replay`
 - `POST /api/v1/discovery/runs`
 - `POST /api/v1/investigations`
+- `POST /api/v1/radar/triage`
+- `POST /api/v1/radar/investigate`
+- `POST /api/v1/research-cases/investigate`
 
 If the process is unavailable, Studio shows an explicit offline state. It does not silently fall back to a build-time snapshot.
 
@@ -50,6 +54,30 @@ the updated projection to Studio over SSE.
 The UI displays lifecycle, generation, native sequence policy, top depth,
 state identity, and evidence identity. It does not recompute book truth.
 
+## Opportunity radar
+
+The Opportunity Radar is the bounded search-reduction layer before the Scout
+Inbox. It examines only fresh, context-eligible anonymous catalog observations,
+forms cross-venue pairs, weights rare shared title terms, and rejects known
+cadence or exact close-time conflicts. It emits at most 25 candidates. A
+100.00% score means only that the remaining normalized title tokens overlap;
+it is not model confidence, equivalence, or expected return.
+
+Every candidate identity binds the algorithm version, fresh source-set
+identity, listing references, receive times, raw response hashes, and protocol
+identities. `POST /api/v1/radar/triage` accepts only that candidate identity;
+the server reconstructs an exact two-listing `pmh.discovery-catalog-context.v2`
+and runs the cheap heuristic/model pool. The browser cannot provide its own
+listing payload. No candidate is sent automatically, so catalog refresh does
+not silently spend provider budget.
+
+The resulting discovery record durably retains its exact normalized context
+server-side. Studio and SSE receive only `catalogContextRetained: true`, not the
+potentially large context body. A later pi action therefore reuses the original
+snapshot after catalog refresh or process restart; it cannot substitute the
+new current Radar candidate. Context tampering fails both the enclosing record
+hash and the nested context identity check.
+
 ## Scout inbox
 
 Completed discovery runs are retained by a `DiscoveryLedger` with a fixed
@@ -82,11 +110,17 @@ grade. A catalog refresh therefore creates a new evidence revision rather than
 silently folding new venue bytes into an older case.
 
 Each dossier projects retained task IDs, scout lead count, pi attempts and
-failures, candidate listing references, findings/warnings, and the latest
-passed report's missing-evidence intake. Legacy scout records without a bounded
+failures, the latest investigation summary and bounded findings, candidate
+listing references, and the passed report's missing-evidence intake. Legacy scout records without a bounded
 catalog identity are labeled `NEEDS_CONTEXT`; grounded leads without a passed
 pi report are `NEEDS_INVESTIGATION`. A passed pi process with reported gaps is
 `EVIDENCE_GAPS`, not reviewed or complete.
+
+New scout runs retain their exact bounded catalog context in SQLite. A
+`NEEDS_INVESTIGATION` dossier can explicitly hand that immutable snapshot to pi
+through `POST /api/v1/research-cases/investigate`. Older runs are visibly
+disabled when no snapshot exists; the operator must create a fresh bounded
+scout rather than reconstructing or guessing its evidence.
 
 The six case stages deliberately use `BOUND` and `PRESENT` for AI inputs. They
 do not use verifier `PASS` terminology. Independent review, deterministic

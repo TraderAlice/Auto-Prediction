@@ -5,6 +5,7 @@ import { ReplayBookDesk } from "./book-desk.js";
 import { FixtureCatalogDiscoveryDesk } from "./catalog-discovery.js";
 import {
   CatalogObservationDesk,
+  RadarCandidateUnavailableError,
   type CatalogObservationStore,
 } from "./catalog-observation.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
@@ -25,8 +26,10 @@ import {
 } from "./investigation-desk.js";
 import {
   DiscoveryLedger,
+  projectDiscoveryRunRecord,
   type DiscoveryRunStore,
 } from "./discovery-ledger.js";
+import { radarTriageTaskId } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
 import type {
   DiscoveryCatalogMode,
@@ -35,6 +38,9 @@ import type {
 } from "./types.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
+
+class DiscoveryScopeConflictError extends Error {}
+class ResearchContextUnavailableError extends Error {}
 
 function writeJson(
   response: ServerResponse,
@@ -62,6 +68,37 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
     chunks.push(bytes);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function readRadarCandidateId(request: IncomingMessage): Promise<string> {
+  const body = await readJson(request);
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    typeof (body as { candidateId?: unknown }).candidateId !== "string" ||
+    Object.keys(body).length !== 1
+  ) {
+    throw new RadarCandidateUnavailableError(
+      "radar action requires exactly one candidateId",
+    );
+  }
+  return (body as { candidateId: string }).candidateId;
+}
+
+async function readResearchTaskId(request: IncomingMessage): Promise<string> {
+  const body = await readJson(request);
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    typeof (body as { taskId?: unknown }).taskId !== "string" ||
+    Object.keys(body).length !== 1 ||
+    (body as { taskId: string }).taskId.trim() === ""
+  ) {
+    throw new ResearchContextUnavailableError(
+      "research case investigation requires exactly one taskId",
+    );
+  }
+  return (body as { taskId: string }).taskId;
 }
 
 function parseDiscoveryTask(
@@ -272,6 +309,7 @@ export function createControlPlane(options?: {
       investigationDesk: investigationDesk.projection(),
       catalogContext: catalogDesk.projection(),
       catalogObservation: catalogObservationDesk.projection(),
+      opportunityRadar: catalogObservationDesk.radar(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
     });
@@ -288,6 +326,77 @@ export function createControlPlane(options?: {
         subscriber.write(payload);
       }
     }
+  };
+
+  const invokeDiscovery = async (
+    task: DiscoveryTask,
+  ): Promise<
+    Readonly<{ record: DiscoveryRunRecord; idempotentReplay: boolean }>
+  > => {
+    const existing = discoveryLedger.findByTaskId(task.taskId);
+    if (existing !== undefined) {
+      if (!recordMatchesTask(existing, task)) {
+        throw new DiscoveryScopeConflictError(
+          "taskId is already bound to another discovery scope",
+        );
+      }
+      return Object.freeze({ record: existing, idempotentReplay: true });
+    }
+    const scopeHash = taskScopeHash(task);
+    const pending = pendingRuns.get(task.taskId);
+    if (pending !== undefined) {
+      if (pending.scopeHash !== scopeHash) {
+        throw new DiscoveryScopeConflictError(
+          "taskId is already running with another discovery scope",
+        );
+      }
+      return Object.freeze({
+        record: await pending.promise,
+        idempotentReplay: true,
+      });
+    }
+    const promise = (async (): Promise<DiscoveryRunRecord> => {
+      activeRuns += 1;
+      try {
+        await broadcastProjection();
+        const run = await pool.run(task);
+        return discoveryLedger.record(task, run);
+      } finally {
+        activeRuns -= 1;
+        await broadcastProjection();
+      }
+    })();
+    pendingRuns.set(task.taskId, { scopeHash, promise });
+    try {
+      return Object.freeze({
+        record: await promise,
+        idempotentReplay: false,
+      });
+    } finally {
+      if (pendingRuns.get(task.taskId)?.promise === promise) {
+        pendingRuns.delete(task.taskId);
+      }
+    }
+  };
+
+  const retainedDiscoveryTask = (
+    taskId: string,
+    deadlineMs: number,
+  ): DiscoveryTask => {
+    const record = discoveryLedger.findByTaskId(taskId);
+    if (record === undefined || record.catalogContext === undefined) {
+      throw new ResearchContextUnavailableError(
+        "research task has no retained exact catalog context",
+      );
+    }
+    return Object.freeze({
+      taskId: record.taskId,
+      question: record.question,
+      venueIds: record.venueIds,
+      maxHypotheses: 10,
+      deadlineEpochMs: Date.now() + deadlineMs,
+      catalogContext: record.catalogContext,
+    });
   };
 
   const server = createServer(async (request, response) => {
@@ -314,6 +423,7 @@ export function createControlPlane(options?: {
         investigationDesk: investigationDesk.projection(),
         catalogContext: catalogDesk.projection(),
         catalogObservation: catalogObservationDesk.projection(),
+        opportunityRadar: catalogObservationDesk.radar(),
       });
       return;
     }
@@ -331,6 +441,11 @@ export function createControlPlane(options?: {
       url.pathname === "/api/v1/catalog/observations"
     ) {
       writeJson(response, 200, catalogObservationDesk.projection());
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/radar") {
+      await ready;
+      writeJson(response, 200, catalogObservationDesk.radar());
       return;
     }
     if (
@@ -420,95 +535,142 @@ export function createControlPlane(options?: {
       request.method === "POST" &&
       url.pathname === "/api/v1/discovery/runs"
     ) {
-      let task: DiscoveryTask;
       try {
         await ready;
-        task = parseDiscoveryTask(
+        const task = parseDiscoveryTask(
           await readJson(request),
           catalogDesk,
           catalogObservationDesk,
         );
+        const invocation = await invokeDiscovery(task);
+        writeJson(response, 200, {
+          ...projectDiscoveryRunRecord(invocation.record),
+          idempotentReplay: invocation.idempotentReplay,
+        });
       } catch (error) {
-        writeJson(response, 400, {
+        writeJson(response, error instanceof DiscoveryScopeConflictError ? 409 : 400, {
           ok: false,
           diagnostic:
             error instanceof Error ? error.message : "discovery run failed",
           executionAuthority: false,
         });
-        return;
       }
-      const existing = discoveryLedger.findByTaskId(task.taskId);
-      if (existing !== undefined) {
-        if (!recordMatchesTask(existing, task)) {
-          writeJson(response, 409, {
-            ok: false,
-            diagnostic: "taskId is already bound to another discovery scope",
-            executionAuthority: false,
-          });
-          return;
-        }
-        writeJson(response, 200, {
-          ...existing,
-          idempotentReplay: true,
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/radar/triage"
+    ) {
+      try {
+        await ready;
+        const scope = catalogObservationDesk.radarTriageScope(
+          await readRadarCandidateId(request),
+        );
+        const task: DiscoveryTask = Object.freeze({
+          taskId: scope.candidate.triageTaskId,
+          question: scope.question,
+          venueIds: scope.venueIds,
+          maxHypotheses: 10,
+          deadlineEpochMs: Date.now() + 10_000,
+          catalogContext: scope.catalogContext,
         });
-        return;
-      }
-      const scopeHash = taskScopeHash(task);
-      const pending = pendingRuns.get(task.taskId);
-      if (pending !== undefined) {
-        if (pending.scopeHash !== scopeHash) {
-          writeJson(response, 409, {
-            ok: false,
-            diagnostic: "taskId is already running with another discovery scope",
-            executionAuthority: false,
-          });
-          return;
-        }
-        try {
-          const record = await pending.promise;
-          writeJson(response, 200, {
-            ...record,
-            idempotentReplay: true,
-          });
-        } catch (error) {
-          writeJson(response, 400, {
+        const invocation = await invokeDiscovery(task);
+        writeJson(response, 200, {
+          ...projectDiscoveryRunRecord(invocation.record),
+          radarCandidateId: scope.candidate.candidateId,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        writeJson(
+          response,
+          error instanceof RadarCandidateUnavailableError ||
+            error instanceof DiscoveryScopeConflictError
+            ? 409
+            : 400,
+          {
             ok: false,
             diagnostic:
-              error instanceof Error ? error.message : "discovery run failed",
+              error instanceof Error ? error.message : "radar triage failed",
             executionAuthority: false,
-          });
-        }
-        return;
+          },
+        );
       }
-      const promise = (async (): Promise<DiscoveryRunRecord> => {
-        activeRuns += 1;
-        try {
-          await broadcastProjection();
-          const run = await pool.run(task);
-          return discoveryLedger.record(task, run);
-        } finally {
-          activeRuns -= 1;
-          await broadcastProjection();
-        }
-      })();
-      pendingRuns.set(task.taskId, { scopeHash, promise });
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/radar/investigate"
+    ) {
       try {
-        const record = await promise;
-        writeJson(response, 200, {
+        await ready;
+        const candidateId = await readRadarCandidateId(request);
+        const task = retainedDiscoveryTask(
+          radarTriageTaskId(candidateId),
+          piRuntime.projection.timeoutMs + 2_000,
+        );
+        const invocation = investigationDesk.begin(task);
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" ? 200 : 422, {
           ...record,
-          idempotentReplay: false,
+          radarCandidateId: candidateId,
+          idempotentReplay: invocation.idempotentReplay,
         });
       } catch (error) {
-        writeJson(response, 400, {
+        const status =
+          error instanceof RadarCandidateUnavailableError ||
+          error instanceof ResearchContextUnavailableError ||
+          error instanceof InvestigationBusyError ||
+          error instanceof InvestigationScopeConflictError
+            ? 409
+            : error instanceof InvestigationNotConfiguredError
+              ? 503
+              : 500;
+        writeJson(response, status, {
           ok: false,
           diagnostic:
-            error instanceof Error ? error.message : "discovery run failed",
+            error instanceof Error ? error.message : "radar investigation failed",
           executionAuthority: false,
         });
-      } finally {
-        if (pendingRuns.get(task.taskId)?.promise === promise) {
-          pendingRuns.delete(task.taskId);
-        }
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/research-cases/investigate"
+    ) {
+      try {
+        await ready;
+        const task = retainedDiscoveryTask(
+          await readResearchTaskId(request),
+          piRuntime.projection.timeoutMs + 2_000,
+        );
+        const invocation = investigationDesk.begin(task);
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" ? 200 : 422, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        const status =
+          error instanceof ResearchContextUnavailableError ||
+          error instanceof InvestigationBusyError ||
+          error instanceof InvestigationScopeConflictError
+            ? 409
+            : error instanceof InvestigationNotConfiguredError
+              ? 503
+              : 500;
+        writeJson(response, status, {
+          ok: false,
+          diagnostic:
+            error instanceof Error
+              ? error.message
+              : "research case investigation failed",
+          executionAuthority: false,
+        });
       }
       return;
     }

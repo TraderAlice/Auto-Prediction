@@ -72,6 +72,21 @@ describe("Studio projection safety", () => {
         liveExecutionEnabled: false,
       },
     });
+    expect(studioProjection.ai.opportunityRadar).toEqual({
+      algorithmVersion: "pmh.opportunity-radar.lexical-v1",
+      sourceSetIdentity: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      observedListingCount: 0,
+      eligibleSourceCount: 0,
+      excludedSourceCount: 0,
+      candidateCount: 0,
+      candidates: [],
+      scoreMeaning: "LEXICAL_BLOCKING_ONLY_NOT_CONFIDENCE",
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 

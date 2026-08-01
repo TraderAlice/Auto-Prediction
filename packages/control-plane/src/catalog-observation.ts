@@ -18,6 +18,11 @@ import {
   MAX_LISTINGS_PER_TASK,
   toDiscoveryCatalogListing,
 } from "./catalog-discovery.js";
+import {
+  buildOpportunityRadar,
+  type OpportunityRadarCandidate,
+  type OpportunityRadarProjection,
+} from "./opportunity-radar.js";
 import type {
   DiscoveryCatalogContext,
   DiscoveryCatalogListing,
@@ -127,6 +132,15 @@ export type CatalogObservationSource = Readonly<{
   protocolIdentity: string;
   sourceUrl: string;
   decode: (fixture: VerifiedRawFixture) => readonly NormalizedCatalogListing[];
+}>;
+
+export class RadarCandidateUnavailableError extends Error {}
+
+export type RadarTriageScope = Readonly<{
+  candidate: OpportunityRadarCandidate;
+  question: string;
+  venueIds: readonly string[];
+  catalogContext: DiscoveryCatalogContext;
 }>;
 
 export const catalogObservationSources: readonly CatalogObservationSource[] =
@@ -557,6 +571,95 @@ export class CatalogObservationDesk {
       question,
       requested,
     );
+  }
+
+  public radar(): OpportunityRadarProjection {
+    const now = this.#now();
+    const states = [...this.#states.values()].sort((left, right) =>
+      left.source.venueId.localeCompare(right.source.venueId),
+    );
+    const eligibleStates = states.filter(
+      (state) => this.#contextEligibility(state, now).eligible,
+    );
+    const sourceSetIdentity = hashCanonical(
+      eligibleStates.map((state) => ({
+        venueId: state.source.venueId,
+        rawHash: state.latest?.record.rawHash ?? null,
+        listingCount: state.latest?.record.listingCount ?? 0,
+      })),
+    );
+    return buildOpportunityRadar({
+      sourceSetIdentity,
+      observedListingCount: states.reduce(
+        (total, state) => total + state.listings.length,
+        0,
+      ),
+      eligibleSourceCount: eligibleStates.length,
+      excludedSourceCount: states.length - eligibleStates.length,
+      listings: eligibleStates.flatMap((state) => state.listings),
+    });
+  }
+
+  public radarTriageScope(candidateId: string): RadarTriageScope {
+    if (!/^radar-candidate:[0-9a-f]{64}$/u.test(candidateId)) {
+      throw new RadarCandidateUnavailableError("radar candidate ID is invalid");
+    }
+    const radar = this.radar();
+    const candidate = radar.candidates.find(
+      (item) => item.candidateId === candidateId,
+    );
+    if (candidate === undefined) {
+      throw new RadarCandidateUnavailableError(
+        "radar candidate is no longer present in the fresh source set",
+      );
+    }
+    const listingRefs = candidate.listings.map((listing) => listing.listingRef);
+    const requestedRefs = new Set(listingRefs);
+    const listings = [...this.#states.values()]
+      .flatMap((state) => state.listings)
+      .filter((listing) => requestedRefs.has(listing.listingRef))
+      .sort((left, right) => left.listingRef.localeCompare(right.listingRef));
+    if (
+      listings.length !== listingRefs.length ||
+      listings.some((listing, index) => listing.listingRef !== listingRefs[index])
+    ) {
+      throw new RadarCandidateUnavailableError(
+        "radar candidate listings are no longer available",
+      );
+    }
+    const venueIds = Object.freeze(
+      [...new Set(listings.map((listing) => listing.venueId))].sort(),
+    );
+    const subject = candidate.sharedTerms
+      .filter((term) => term !== "up" && term !== "down")
+      .join(" ");
+    const timeframe = candidate.timeframe?.toLowerCase() ?? "bounded";
+    const question =
+      `${(subject === "" ? candidate.sharedTerms.join(" ") : subject).toUpperCase()} ` +
+      `${timeframe}: do these listings define the exact same claim and payout ` +
+      "partition? Treat matching titles and times as search evidence, not proof.";
+    const catalogContext = buildDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      listings,
+      question,
+      venueIds,
+    );
+    if (
+      catalogContext.listings.length !== listings.length ||
+      catalogContext.listings.some(
+        (listing, index) => listing.listingRef !== listings[index]?.listingRef,
+      )
+    ) {
+      throw new RadarCandidateUnavailableError(
+        "radar candidate could not produce an exact bounded context",
+      );
+    }
+    return Object.freeze({
+      candidate,
+      question,
+      venueIds,
+      catalogContext,
+    });
   }
 
   #contextEligibility(
