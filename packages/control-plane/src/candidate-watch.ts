@@ -7,6 +7,7 @@ import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000;
 const DEFAULT_RETENTION_PER_SOURCE = 10;
+const DEFAULT_REFRESH_RETENTION = 25;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const OBSERVATION_ID_PATTERN = /^candidate-book-observation:[0-9a-f]{64}$/u;
 const REFRESH_ID_PATTERN = /^candidate-watch-refresh:[0-9a-f]{64}$/u;
@@ -138,6 +139,47 @@ export type CandidateWatchDecision =
       arbitrageVerified: false;
     }>;
 
+export type CandidateWatchRefreshRecord = Readonly<{
+  schemaVersion: "pmh.candidate-watch-refresh.v1";
+  refreshId: string;
+  candidateClaimIdentity: Hash;
+  attemptedAt: string;
+  completedAt: string;
+  status: "READY" | "DEGRADED";
+  diagnostic: string | null;
+  decision: CandidateWatchDecision | null;
+  sources: readonly Readonly<{
+    venueId: CandidateWatchVenueId;
+    status: "SUCCESS" | "FAILED";
+    observationId: string | null;
+    diagnostic: string | null;
+  }>[];
+  effects: Readonly<{
+    externalWrites: false;
+    valueMovingActions: false;
+    liveExecutionEnabled: false;
+  }>;
+}>;
+
+export interface CandidateWatchRefreshStore {
+  readonly candidateWatchRefreshStorage: Readonly<{
+    mode: "MEMORY" | "SQLITE_WAL";
+    durable: boolean;
+    schemaVersion: number;
+    idempotencyKey: "refreshId";
+  }>;
+  loadCandidateWatchRefreshes(
+    limit: number,
+  ): readonly CandidateWatchRefreshRecord[];
+  saveCandidateWatchRefresh(
+    record: CandidateWatchRefreshRecord,
+    retentionLimit: number,
+  ): CandidateWatchRefreshRecord;
+}
+
+export type CandidateWatchStore = CandidateBookObservationStore &
+  CandidateWatchRefreshStore;
+
 export type CandidateWatchProjection = Readonly<{
   schemaVersion: "pmh.candidate-watch.v1";
   mode: "ANONYMOUS_PUBLIC_GET";
@@ -150,10 +192,13 @@ export type CandidateWatchProjection = Readonly<{
   observationSetIdentity: Hash;
   changedVenueCount: number;
   retentionPerSource: number;
+  refreshRetentionLimit: number;
   timeoutMs: number;
   maxResponseBytes: number;
   storage: CandidateBookObservationStore["candidateBookObservationStorage"];
+  refreshStorage: CandidateWatchRefreshStore["candidateWatchRefreshStorage"];
   decision: CandidateWatchDecision | null;
+  refreshHistory: readonly CandidateWatchRefreshRecord[];
   sources: readonly Readonly<{
     venueId: CandidateWatchVenueId;
     protocolIdentity: string;
@@ -321,12 +366,182 @@ function compactDiagnostic(value: string, limit = 500): string {
     : `${compacted.slice(0, limit - 1).trimEnd()}…`;
 }
 
+function assertIsoTimestamp(
+  value: unknown,
+  label: string,
+): asserts value is string {
+  if (typeof value !== "string") {
+    throw new Error(`${label} is malformed`);
+  }
+  try {
+    if (new Date(value).toISOString() !== value) throw new Error("invalid");
+  } catch {
+    throw new Error(`${label} is malformed`);
+  }
+}
+
+function assertDecision(value: unknown): asserts value is CandidateWatchDecision {
+  if (value === null || typeof value !== "object") {
+    throw new Error("candidate watch refresh decision is malformed");
+  }
+  const decision = value as Partial<CandidateWatchDecision>;
+  const changedVenueIds = decision.changedVenueIds;
+  const validVenueIds =
+    Array.isArray(changedVenueIds) &&
+    changedVenueIds.every(
+      (venueId) => venueId === "limitless" || venueId === "polymarket-global",
+    ) &&
+    new Set(changedVenueIds).size === changedVenueIds.length;
+  const validCommon =
+    validVenueIds &&
+    typeof decision.snapshotIdentity === "string" &&
+    HASH_PATTERN.test(decision.snapshotIdentity) &&
+    typeof decision.depthArtifactHash === "string" &&
+    HASH_PATTERN.test(decision.depthArtifactHash) &&
+    typeof decision.grossFloorBeforeFees === "string" &&
+    /^-?(?:0|[1-9]\d*)$/u.test(decision.grossFloorBeforeFees) &&
+    decision.independentReviewInvoked === false &&
+    decision.verifierInvoked === false &&
+    decision.arbitrageVerified === false;
+  if (!validCommon) {
+    throw new Error("candidate watch refresh decision is malformed");
+  }
+  if (decision.status === "POSITIVE_GROSS_REQUIRES_QUALIFICATION") {
+    if (
+      decision.dispositionArtifactHash !== null ||
+      decision.postFeeFloorUpperBound !== null ||
+      decision.priorDecisionReused !== false ||
+      decision.reviewRequired !== true ||
+      BigInt(decision.grossFloorBeforeFees) <= 0n
+    ) {
+      throw new Error("candidate watch refresh decision is malformed");
+    }
+    return;
+  }
+  if (
+    (decision.status !== "UNCHANGED_BOUND_SNAPSHOT" &&
+      decision.status !== "REJECTED_ECONOMICS") ||
+    typeof decision.dispositionArtifactHash !== "string" ||
+    !HASH_PATTERN.test(decision.dispositionArtifactHash) ||
+    typeof decision.postFeeFloorUpperBound !== "string" ||
+    !/^-?(?:0|[1-9]\d*)$/u.test(decision.postFeeFloorUpperBound) ||
+    decision.reviewRequired !== false ||
+    decision.priorDecisionReused !==
+      (decision.status === "UNCHANGED_BOUND_SNAPSHOT") ||
+    (decision.status === "UNCHANGED_BOUND_SNAPSHOT" &&
+      changedVenueIds.length !== 0) ||
+    (decision.status === "REJECTED_ECONOMICS" &&
+      changedVenueIds.length === 0)
+  ) {
+    throw new Error("candidate watch refresh decision is malformed");
+  }
+}
+
+export function verifyCandidateWatchRefreshRecord(
+  value: unknown,
+): CandidateWatchRefreshRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("candidate watch refresh record is malformed");
+  }
+  const record = value as Partial<CandidateWatchRefreshRecord>;
+  assertIsoTimestamp(record.attemptedAt, "candidate watch attempted timestamp");
+  assertIsoTimestamp(record.completedAt, "candidate watch completed timestamp");
+  if (
+    record.schemaVersion !== "pmh.candidate-watch-refresh.v1" ||
+    typeof record.refreshId !== "string" ||
+    !REFRESH_ID_PATTERN.test(record.refreshId) ||
+    typeof record.candidateClaimIdentity !== "string" ||
+    !HASH_PATTERN.test(record.candidateClaimIdentity) ||
+    Date.parse(record.completedAt) < Date.parse(record.attemptedAt) ||
+    (record.status !== "READY" && record.status !== "DEGRADED") ||
+    (record.diagnostic !== null &&
+      (typeof record.diagnostic !== "string" ||
+        record.diagnostic === "" ||
+        record.diagnostic.length > 500)) ||
+    !Array.isArray(record.sources) ||
+    record.sources.length !== 2 ||
+    record.effects === null ||
+    typeof record.effects !== "object" ||
+    record.effects.externalWrites !== false ||
+    record.effects.valueMovingActions !== false ||
+    record.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("candidate watch refresh record is malformed");
+  }
+  const sourceIds = new Set<CandidateWatchVenueId>();
+  const sources = record.sources.map((value) => {
+    if (value === null || typeof value !== "object") {
+      throw new Error("candidate watch refresh source outcome is malformed");
+    }
+    const source = value as CandidateWatchRefreshRecord["sources"][number];
+    if (
+      (source.venueId !== "limitless" &&
+        source.venueId !== "polymarket-global") ||
+      sourceIds.has(source.venueId) ||
+      (source.status !== "SUCCESS" && source.status !== "FAILED")
+    ) {
+      throw new Error("candidate watch refresh source outcome is malformed");
+    }
+    sourceIds.add(source.venueId);
+    if (
+      (source.status === "SUCCESS" &&
+        (typeof source.observationId !== "string" ||
+          !OBSERVATION_ID_PATTERN.test(source.observationId) ||
+          source.diagnostic !== null)) ||
+      (source.status === "FAILED" &&
+        (source.observationId !== null ||
+          typeof source.diagnostic !== "string" ||
+          source.diagnostic === "" ||
+          source.diagnostic.length > 500))
+    ) {
+      throw new Error("candidate watch refresh source outcome is malformed");
+    }
+    return Object.freeze({ ...source });
+  });
+  if (
+    !sourceIds.has("limitless") ||
+    !sourceIds.has("polymarket-global") ||
+    (record.status === "READY" &&
+      (record.diagnostic !== null ||
+        record.decision === null ||
+        sources.some((source) => source.status !== "SUCCESS"))) ||
+    (record.status === "DEGRADED" &&
+      (record.decision !== null ||
+        (record.diagnostic === null &&
+          sources.every((source) => source.status === "SUCCESS"))))
+  ) {
+    throw new Error("candidate watch refresh record state is inconsistent");
+  }
+  if (record.decision !== null) assertDecision(record.decision);
+  return Object.freeze({
+    ...record,
+    decision:
+      record.decision === null
+        ? null
+        : Object.freeze({
+            ...record.decision,
+            changedVenueIds: Object.freeze([...record.decision.changedVenueIds]),
+          }),
+    sources: Object.freeze(sources),
+    effects: Object.freeze({ ...record.effects }),
+  }) as CandidateWatchRefreshRecord;
+}
+
 function memoryStorage(): CandidateBookObservationStore["candidateBookObservationStorage"] {
   return Object.freeze({
     mode: "MEMORY",
     durable: false,
     schemaVersion: 0,
     idempotencyKey: "observationId",
+  });
+}
+
+function memoryRefreshStorage(): CandidateWatchRefreshStore["candidateWatchRefreshStorage"] {
+  return Object.freeze({
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "refreshId",
   });
 }
 
@@ -337,8 +552,11 @@ export class CandidateWatchDesk {
   readonly #timeoutMs: number;
   readonly #maxResponseBytes: number;
   readonly #retentionLimit: number;
-  readonly #store: CandidateBookObservationStore | undefined;
+  readonly #refreshRetentionLimit: number;
+  readonly #store: CandidateWatchStore | undefined;
   readonly #states: Map<CandidateWatchVenueId, SourceState>;
+  #refreshHistory: readonly CandidateWatchRefreshRecord[] = Object.freeze([]);
+  #screenDiagnostic: string | null = null;
   #loaded = false;
   #refreshing: Promise<CandidateWatchProjection> | null = null;
 
@@ -349,7 +567,8 @@ export class CandidateWatchDesk {
     timeoutMs?: number;
     maxResponseBytes?: number;
     retentionLimit?: number;
-    store?: CandidateBookObservationStore;
+    refreshRetentionLimit?: number;
+    store?: CandidateWatchStore;
     sources?: readonly CandidateWatchSource[];
   }>) {
     this.#evidenceDesk = options.evidenceDesk;
@@ -360,6 +579,8 @@ export class CandidateWatchDesk {
       options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
     this.#retentionLimit =
       options.retentionLimit ?? DEFAULT_RETENTION_PER_SOURCE;
+    this.#refreshRetentionLimit =
+      options.refreshRetentionLimit ?? DEFAULT_REFRESH_RETENTION;
     assertPositiveInteger(this.#timeoutMs, "candidate watch timeout");
     assertPositiveInteger(
       this.#maxResponseBytes,
@@ -369,13 +590,19 @@ export class CandidateWatchDesk {
       this.#retentionLimit,
       "candidate watch retention",
     );
+    assertPositiveInteger(
+      this.#refreshRetentionLimit,
+      "candidate watch refresh retention",
+    );
     this.#store = options.store;
     const sources = options.sources ?? candidateWatchSources;
     if (
       sources.length !== 2 ||
       new Set(sources.map((source) => source.venueId)).size !== sources.length
     ) {
-      throw new Error("candidate watch requires unique Polymarket and Limitless sources");
+      throw new Error(
+        "candidate watch requires unique Polymarket and Limitless sources",
+      );
     }
     this.#states = new Map(
       sources.map((source) => [
@@ -383,28 +610,116 @@ export class CandidateWatchDesk {
         { source, latest: null, lastAttemptAt: null, diagnostic: null },
       ]),
     );
-    for (const stored of this.#store?.loadCandidateBookObservations(
-      this.#retentionLimit * sources.length,
-    ) ?? []) {
+    const observations = (
+      this.#store?.loadCandidateBookObservations(
+        this.#retentionLimit * sources.length,
+      ) ?? []
+    ).map((stored) => {
       const verified = verifyStoredCandidateBookObservation(stored);
       const state = this.#states.get(verified.record.venueId);
-      if (state === undefined || state.latest !== null) continue;
+      if (state === undefined) {
+        throw new Error("stored candidate book venue identity mismatch");
+      }
       if (
         verified.record.protocolIdentity !== state.source.protocolIdentity ||
         verified.record.sourceUrl !== state.source.sourceUrl
       ) {
         throw new Error("stored candidate book source identity mismatch");
       }
-      state.latest = verified;
-      state.lastAttemptAt = verified.record.receivedAt;
+      return verified;
+    });
+    this.#refreshHistory = Object.freeze(
+      (this.#store?.loadCandidateWatchRefreshes(
+        this.#refreshRetentionLimit,
+      ) ?? []).map(verifyCandidateWatchRefreshRecord),
+    );
+    const latestRefresh = this.#refreshHistory[0];
+    const oldestJournalAttempt =
+      this.#refreshHistory[this.#refreshHistory.length - 1]?.attemptedAt;
+    for (const state of this.#states.values()) {
+      const venueObservations = observations.filter(
+        (item) => item.record.venueId === state.source.venueId,
+      );
+      const latestOutcome = latestRefresh?.sources.find(
+        (item) => item.venueId === state.source.venueId,
+      );
+      const journaledSuccessIds = new Set(
+        this.#refreshHistory.flatMap((refresh) =>
+          refresh.sources.flatMap((outcome) =>
+            outcome.venueId === state.source.venueId &&
+            outcome.status === "SUCCESS"
+              ? [outcome.observationId]
+              : [],
+          ),
+        ),
+      );
+      state.latest =
+        latestOutcome?.status === "SUCCESS"
+          ? venueObservations.find(
+              (item) =>
+                item.record.observationId === latestOutcome.observationId,
+            ) ?? null
+          : latestRefresh === undefined
+            ? venueObservations[0] ?? null
+            : venueObservations.find(
+                (item) =>
+                  journaledSuccessIds.has(item.record.observationId) ||
+                  (oldestJournalAttempt !== undefined &&
+                    item.record.receivedAt < oldestJournalAttempt),
+              ) ?? null;
+      state.lastAttemptAt = state.latest?.record.receivedAt ?? null;
     }
   }
 
   public load(): CandidateWatchProjection {
     // This also proves the underlying immutable evidence desk is ready.
-    this.#evidenceDesk.rescreenProjection();
+    const baseline = this.#evidenceDesk.rescreenProjection();
+    const latest = this.#refreshHistory[0];
+    for (const state of this.#states.values()) {
+      if (
+        state.latest !== null &&
+        state.latest.record.candidateClaimIdentity !== baseline.claimIdentity
+      ) {
+        throw new Error("stored candidate book claim identity mismatch");
+      }
+    }
+    if (latest !== undefined) {
+      if (latest.candidateClaimIdentity !== baseline.claimIdentity) {
+        throw new Error("stored candidate watch claim identity mismatch");
+      }
+      for (const outcome of latest.sources) {
+        const state = this.#states.get(outcome.venueId);
+        if (state === undefined) {
+          throw new Error("stored candidate watch venue identity mismatch");
+        }
+        state.lastAttemptAt = latest.attemptedAt;
+        if (outcome.status === "FAILED") {
+          state.diagnostic = outcome.diagnostic;
+          continue;
+        }
+        if (
+          state.latest?.record.observationId !== outcome.observationId ||
+          state.latest.record.refreshId !== latest.refreshId
+        ) {
+          throw new Error(
+            "stored candidate watch refresh is missing its bound observation",
+          );
+        }
+        state.diagnostic = null;
+      }
+      this.#screenDiagnostic = latest.diagnostic;
+    }
     this.#loaded = true;
-    return this.projection();
+    const projection = this.projection();
+    if (
+      latest !== undefined &&
+      (projection.status !== latest.status ||
+        hashCanonical(projection.decision) !== hashCanonical(latest.decision))
+    ) {
+      this.#loaded = false;
+      throw new Error("stored candidate watch refresh decision mismatch");
+    }
+    return projection;
   }
 
   public refresh(): Promise<CandidateWatchProjection> {
@@ -412,6 +727,18 @@ export class CandidateWatchDesk {
       return Promise.reject(new Error("candidate watch evidence is not loaded"));
     }
     if (this.#refreshing !== null) return this.#refreshing;
+    const priorStates = new Map(
+      [...this.#states.entries()].map(([venueId, state]) => [
+        venueId,
+        {
+          latest: state.latest,
+          lastAttemptAt: state.lastAttemptAt,
+          diagnostic: state.diagnostic,
+        },
+      ]),
+    );
+    const priorScreenDiagnostic = this.#screenDiagnostic;
+    this.#screenDiagnostic = null;
     const attemptedAt = new Date(this.#now()).toISOString();
     const refreshId =
       `candidate-watch-refresh:${hashCanonical({
@@ -420,22 +747,103 @@ export class CandidateWatchDesk {
         attemptedAt,
         refreshNonce: randomUUID(),
       }).slice(7)}`;
+    let journalSaved = false;
     const operation = Promise.all(
       [...this.#states.values()].map((state) =>
         this.#refreshSource(state, attemptedAt, refreshId),
       ),
-    ).then(
-      () => {
+    )
+      .then(() => {
+        const states = this.#sortedStates();
+        const observationSetIdentity = this.#observationSetIdentity(states);
+        let decision: CandidateWatchDecision | null = null;
+        try {
+          decision = this.#decision(states, observationSetIdentity);
+        } catch (error) {
+          this.#screenDiagnostic =
+            error instanceof Error
+              ? compactDiagnostic(error.message)
+              : "candidate watch screening failed";
+        }
+        const record = verifyCandidateWatchRefreshRecord({
+          schemaVersion: "pmh.candidate-watch-refresh.v1",
+          refreshId,
+          candidateClaimIdentity:
+            this.#evidenceDesk.rescreenProjection().claimIdentity,
+          attemptedAt,
+          completedAt: new Date(this.#now()).toISOString(),
+          status: decision === null ? "DEGRADED" : "READY",
+          diagnostic: this.#screenDiagnostic,
+          decision,
+          sources: states.map((state) => {
+            const current = state.latest?.record;
+            const succeeded =
+              current?.refreshId === refreshId && state.diagnostic === null;
+            return {
+              venueId: state.source.venueId,
+              status: succeeded ? ("SUCCESS" as const) : ("FAILED" as const),
+              observationId: succeeded ? current.observationId : null,
+              diagnostic: succeeded
+                ? null
+                : state.diagnostic ?? "candidate book refresh did not complete",
+            };
+          }),
+          effects: {
+            externalWrites: false,
+            valueMovingActions: false,
+            liveExecutionEnabled: false,
+          },
+        });
+        const saved =
+          this.#store?.saveCandidateWatchRefresh(
+            record,
+            this.#refreshRetentionLimit,
+          ) ?? record;
+        this.#refreshHistory = Object.freeze([
+          saved,
+          ...this.#refreshHistory
+            .filter((item) => item.refreshId !== saved.refreshId)
+            .slice(0, this.#refreshRetentionLimit - 1),
+        ]);
+        journalSaved = true;
+      })
+      .then(() => {
         this.#refreshing = null;
         return this.projection();
-      },
-      (error: unknown) => {
+      })
+      .catch((error: unknown) => {
         this.#refreshing = null;
+        if (!journalSaved) {
+          for (const [venueId, prior] of priorStates) {
+            const state = this.#states.get(venueId);
+            if (state === undefined) continue;
+            state.latest = prior.latest;
+            state.lastAttemptAt = prior.lastAttemptAt;
+            state.diagnostic = prior.diagnostic;
+          }
+          this.#screenDiagnostic = priorScreenDiagnostic;
+        }
         throw error;
-      },
-    );
+      });
     this.#refreshing = operation;
     return operation;
+  }
+
+  #sortedStates(): readonly SourceState[] {
+    return [...this.#states.values()].sort((left, right) =>
+      left.source.venueId.localeCompare(right.source.venueId),
+    );
+  }
+
+  #observationSetIdentity(states: readonly SourceState[]): Hash {
+    return hashCanonical(
+      states.map((state) => ({
+        venueId: state.source.venueId,
+        refreshId: state.latest?.record.refreshId ?? null,
+        rawHash: state.latest?.record.rawHash ?? null,
+        nativeGeneration: state.latest?.record.nativeGeneration ?? null,
+      })),
+    );
   }
 
   async #refreshSource(
@@ -538,6 +946,7 @@ export class CandidateWatchDesk {
     states: readonly SourceState[],
     snapshotIdentity: Hash,
   ): CandidateWatchDecision | null {
+    if (this.#screenDiagnostic !== null) return null;
     const refreshIds = new Set(
       states.map((state) => state.latest?.record.refreshId),
     );
@@ -635,17 +1044,8 @@ export class CandidateWatchDesk {
       throw new Error("candidate watch evidence is not loaded");
     }
     const baseline = this.#evidenceDesk.rescreenProjection();
-    const states = [...this.#states.values()].sort((left, right) =>
-      left.source.venueId.localeCompare(right.source.venueId),
-    );
-    const observationSetIdentity = hashCanonical(
-      states.map((state) => ({
-        venueId: state.source.venueId,
-        refreshId: state.latest?.record.refreshId ?? null,
-        rawHash: state.latest?.record.rawHash ?? null,
-        nativeGeneration: state.latest?.record.nativeGeneration ?? null,
-      })),
-    );
+    const states = this.#sortedStates();
+    const observationSetIdentity = this.#observationSetIdentity(states);
     const decision = this.#decision(states, observationSetIdentity);
     const sources = Object.freeze(
       states.map((state) => {
@@ -710,11 +1110,15 @@ export class CandidateWatchDesk {
       observationSetIdentity,
       changedVenueCount: decision?.changedVenueIds.length ?? 0,
       retentionPerSource: this.#retentionLimit,
+      refreshRetentionLimit: this.#refreshRetentionLimit,
       timeoutMs: this.#timeoutMs,
       maxResponseBytes: this.#maxResponseBytes,
       storage:
         this.#store?.candidateBookObservationStorage ?? memoryStorage(),
+      refreshStorage:
+        this.#store?.candidateWatchRefreshStorage ?? memoryRefreshStorage(),
       decision,
+      refreshHistory: this.#refreshHistory,
       sources,
       effects: Object.freeze({
         externalWrites: false as const,

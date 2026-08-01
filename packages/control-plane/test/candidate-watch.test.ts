@@ -1,13 +1,26 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   CandidateWatchDesk,
   candidateWatchSources,
   RealCandidatePreflightDesk,
   type CandidateWatchFetchLike,
+  type CandidateWatchStore,
   type CandidateWatchVenueId,
 } from "../src/index.js";
+import { SqliteOperationalStore } from "../src/operational-store.js";
+
+const tempDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    tempDirectories.splice(0).map((directory) =>
+      rm(directory, { recursive: true, force: true }),
+    ),
+  );
+});
 
 const fixtureRoot = resolve(
   import.meta.dirname,
@@ -100,6 +113,16 @@ describe("candidate watch desk", () => {
         verifierInvoked: false,
         arbitrageVerified: false,
       },
+      refreshHistory: [
+        {
+          status: "READY",
+          refreshId: expect.stringMatching(/^candidate-watch-refresh:/),
+          sources: [
+            expect.objectContaining({ status: "SUCCESS" }),
+            expect.objectContaining({ status: "SUCCESS" }),
+          ],
+        },
+      ],
       effects: {
         externalWrites: false,
         valueMovingActions: false,
@@ -207,6 +230,17 @@ describe("candidate watch desk", () => {
       status: "STALE_AFTER_FAILURE",
       diagnostic: "anonymous candidate book GET returned HTTP 503",
     });
+    expect(degraded.refreshHistory[0]).toMatchObject({
+      status: "DEGRADED",
+      decision: null,
+      sources: expect.arrayContaining([
+        expect.objectContaining({ venueId: "limitless", status: "FAILED" }),
+        expect.objectContaining({
+          venueId: "polymarket-global",
+          status: "SUCCESS",
+        }),
+      ]),
+    });
   });
 
   it("coalesces concurrent refreshes and rejects oversized responses", async () => {
@@ -242,5 +276,184 @@ describe("candidate watch desk", () => {
       ],
     });
     expect(calls).toBe(2);
+  });
+
+  it("restores the latest failed refresh instead of reviving stale READY books", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-watch-restart-"));
+    tempDirectories.push(directory);
+    const path = join(directory, "control-plane.sqlite");
+    const stable = fixtureFetcher();
+    let failAll = false;
+    let nowMs = Date.parse("2026-08-01T06:40:00.000Z");
+    const fetcher: CandidateWatchFetchLike = async (input, init) =>
+      failAll
+        ? new Response("unavailable", { status: 503 })
+        : stable(input, init);
+
+    const firstStore = new SqliteOperationalStore(path);
+    const first = new CandidateWatchDesk({
+      evidenceDesk: await evidenceDesk(),
+      fetcher,
+      now: () => nowMs,
+      store: firstStore,
+    });
+    first.load();
+    await expect(first.refresh()).resolves.toMatchObject({ status: "READY" });
+    failAll = true;
+    nowMs = Date.parse("2026-08-01T06:41:00.000Z");
+    await expect(first.refresh()).resolves.toMatchObject({
+      status: "DEGRADED",
+      decision: null,
+    });
+    firstStore.close();
+
+    const secondStore = new SqliteOperationalStore(path);
+    const restored = new CandidateWatchDesk({
+      evidenceDesk: await evidenceDesk(),
+      fetcher,
+      now: () => nowMs,
+      store: secondStore,
+    }).load();
+    expect(restored).toMatchObject({
+      status: "DEGRADED",
+      decision: null,
+      refreshStorage: {
+        mode: "SQLITE_WAL",
+        durable: true,
+        schemaVersion: 5,
+      },
+      refreshHistory: [
+        {
+          status: "DEGRADED",
+          attemptedAt: "2026-08-01T06:41:00.000Z",
+        },
+        { status: "READY" },
+      ],
+      sources: [
+        expect.objectContaining({
+          status: "STALE_AFTER_FAILURE",
+          lastAttemptAt: "2026-08-01T06:41:00.000Z",
+          diagnostic: "anonymous candidate book GET returned HTTP 503",
+        }),
+        expect.objectContaining({
+          status: "STALE_AFTER_FAILURE",
+          lastAttemptAt: "2026-08-01T06:41:00.000Z",
+          diagnostic: "anonymous candidate book GET returned HTTP 503",
+        }),
+      ],
+    });
+    secondStore.close();
+  });
+
+  it("persists a screen-level diagnostic when both raw GETs succeeded", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-watch-screen-"));
+    tempDirectories.push(directory);
+    const path = join(directory, "control-plane.sqlite");
+    const store = new SqliteOperationalStore(path);
+    const desk = new CandidateWatchDesk({
+      evidenceDesk: await evidenceDesk(),
+      fetcher: fixtureFetcher({
+        limitlessRewrite: () => '{"bids":"malformed","asks":[]}',
+      }),
+      now: () => Date.parse("2026-08-01T06:42:00.000Z"),
+      store,
+    });
+    desk.load();
+    const degraded = await desk.refresh();
+    expect(degraded).toMatchObject({
+      status: "DEGRADED",
+      decision: null,
+      sources: [
+        expect.objectContaining({ status: "CURRENT", diagnostic: null }),
+        expect.objectContaining({ status: "CURRENT", diagnostic: null }),
+      ],
+      refreshHistory: [
+        {
+          status: "DEGRADED",
+          diagnostic: expect.any(String),
+          sources: [
+            expect.objectContaining({ status: "SUCCESS" }),
+            expect.objectContaining({ status: "SUCCESS" }),
+          ],
+        },
+      ],
+    });
+    store.close();
+
+    const reopenedStore = new SqliteOperationalStore(path);
+    const restored = new CandidateWatchDesk({
+      evidenceDesk: await evidenceDesk(),
+      fetcher: fixtureFetcher(),
+      store: reopenedStore,
+    }).load();
+    expect(restored).toMatchObject({
+      status: "DEGRADED",
+      decision: null,
+      refreshHistory: [
+        {
+          status: "DEGRADED",
+          diagnostic: degraded.refreshHistory[0]?.diagnostic,
+        },
+      ],
+    });
+    reopenedStore.close();
+  });
+
+  it("ignores raw observations left behind when journal persistence fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-watch-orphan-"));
+    tempDirectories.push(directory);
+    const path = join(directory, "control-plane.sqlite");
+    const sqlite = new SqliteOperationalStore(path);
+    let failJournal = false;
+    const crashStore: CandidateWatchStore = {
+      candidateBookObservationStorage:
+        sqlite.candidateBookObservationStorage,
+      candidateWatchRefreshStorage: sqlite.candidateWatchRefreshStorage,
+      loadCandidateBookObservations: (limit) =>
+        sqlite.loadCandidateBookObservations(limit),
+      saveCandidateBookObservation: (observation, limit) =>
+        sqlite.saveCandidateBookObservation(observation, limit),
+      loadCandidateWatchRefreshes: (limit) =>
+        sqlite.loadCandidateWatchRefreshes(limit),
+      saveCandidateWatchRefresh: (record, limit) => {
+        if (failJournal) throw new Error("simulated journal fsync failure");
+        return sqlite.saveCandidateWatchRefresh(record, limit);
+      },
+    };
+    let nowMs = Date.parse("2026-08-01T06:43:00.000Z");
+    const desk = new CandidateWatchDesk({
+      evidenceDesk: await evidenceDesk(),
+      fetcher: fixtureFetcher(),
+      now: () => nowMs,
+      store: crashStore,
+    });
+    desk.load();
+    const committed = await desk.refresh();
+    failJournal = true;
+    nowMs = Date.parse("2026-08-01T06:44:00.000Z");
+    await expect(desk.refresh()).rejects.toThrow(/journal fsync failure/);
+    expect(desk.projection()).toMatchObject({
+      status: "READY",
+      latestRefreshId: committed.latestRefreshId,
+      refreshHistory: [{ refreshId: committed.latestRefreshId }],
+    });
+    sqlite.close();
+
+    const reopenedStore = new SqliteOperationalStore(path);
+    const restored = new CandidateWatchDesk({
+      evidenceDesk: await evidenceDesk(),
+      fetcher: fixtureFetcher(),
+      store: reopenedStore,
+    }).load();
+    expect(restored).toMatchObject({
+      status: "READY",
+      latestRefreshId: committed.latestRefreshId,
+      refreshHistory: [{ refreshId: committed.latestRefreshId }],
+      sources: [
+        expect.objectContaining({ refreshId: committed.latestRefreshId }),
+        expect.objectContaining({ refreshId: committed.latestRefreshId }),
+      ],
+    });
+    reopenedStore.close();
   });
 });

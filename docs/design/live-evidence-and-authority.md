@@ -58,11 +58,14 @@ forward: the rejection builder fails instead of manufacturing continuity.
 Candidate Watch operationalizes this rule without widening authority. Both
 venue observations must share a successful refresh identity before screening;
 otherwise the projection is degraded and has no decision. Exact raw bytes are
-retained under schema v4 and reverified during hydration. Unchanged identities
-may reuse only their already-bound snapshot result. Changed identities produce
-a fresh depth result; non-positive economics may be rejected, while positive
-gross economics can only request later qualification. Independent review and
-the exact verifier remain literal false in all watch outcomes.
+retained under schema v5 and reverified during hydration. A bounded,
+content-hashed refresh journal records success and failure outcomes separately;
+its newest entry is the restart authority and every successful source outcome
+must bind an exact retained observation. Unchanged identities may reuse only
+their already-bound snapshot result. Changed identities produce a fresh depth
+result; non-positive economics may be rejected, while positive gross economics
+can only request later qualification. Independent review and the exact verifier
+remain literal false in all watch outcomes.
 
 The repository has no live-trading authority. No adapter method may turn configuration alone into permission to place an order or move value.
 

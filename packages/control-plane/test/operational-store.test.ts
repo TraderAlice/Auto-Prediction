@@ -12,6 +12,7 @@ import {
   HeuristicDiscoveryWorker,
   InvestigationDesk,
   type DiscoveryTask,
+  type CandidateWatchRefreshRecord,
   type PiProcessResult,
   type StoredCandidateBookObservation,
 } from "../src/index.js";
@@ -180,6 +181,41 @@ function candidateBookObservation(
   };
 }
 
+function candidateWatchRefresh(
+  attemptedAt = "2026-08-01T06:30:00.000Z",
+): CandidateWatchRefreshRecord {
+  return {
+    schemaVersion: "pmh.candidate-watch-refresh.v1",
+    refreshId:
+      `candidate-watch-refresh:${hashCanonical({ attemptedAt }).slice(7)}`,
+    candidateClaimIdentity: hashCanonical({ claim: "fixture" }),
+    attemptedAt,
+    completedAt: attemptedAt,
+    status: "DEGRADED",
+    diagnostic: null,
+    decision: null,
+    sources: [
+      {
+        venueId: "limitless",
+        status: "FAILED",
+        observationId: null,
+        diagnostic: "fixture outage",
+      },
+      {
+        venueId: "polymarket-global",
+        status: "FAILED",
+        observationId: null,
+        diagnostic: "fixture outage",
+      },
+    ],
+    effects: {
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    },
+  };
+}
+
 function durableDesk(
   store: SqliteOperationalStore,
   onRun: () => void = () => undefined,
@@ -223,7 +259,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 4,
+        schemaVersion: 5,
         idempotencyKey: "taskId",
       },
     });
@@ -385,11 +421,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(4);
+    expect(migrated.storage.schemaVersion).toBe(5);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -406,11 +442,12 @@ describe("SQLite operational store", () => {
     };
     expect(tables).toEqual([
       "candidate_book_observations",
+      "candidate_watch_refreshes",
       "catalog_observations",
       "discovery_runs",
       "investigation_records",
     ]);
-    expect(version.user_version).toBe(4);
+    expect(version.user_version).toBe(5);
     inspected.close();
   });
 
@@ -425,7 +462,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
     });
     firstStore.close();
 
@@ -535,7 +572,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -590,7 +627,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -621,6 +658,50 @@ describe("SQLite operational store", () => {
     const reopened = new SqliteOperationalStore(path);
     expect(() => reopened.loadCandidateBookObservations(3)).toThrow(
       /raw payload identity mismatch/,
+    );
+    reopened.close();
+  });
+
+  it("restores a bounded candidate watch refresh journal", async () => {
+    const path = await databasePath();
+    const oldest = candidateWatchRefresh("2026-08-01T06:30:00.000Z");
+    const middle = candidateWatchRefresh("2026-08-01T06:31:00.000Z");
+    const latest = candidateWatchRefresh("2026-08-01T06:32:00.000Z");
+    const first = new SqliteOperationalStore(path);
+    first.saveCandidateWatchRefresh(oldest, 2);
+    first.saveCandidateWatchRefresh(middle, 2);
+    expect(first.saveCandidateWatchRefresh(latest, 2)).toEqual(latest);
+    expect(first.candidateWatchRefreshStorage).toEqual({
+      mode: "SQLITE_WAL",
+      durable: true,
+      schemaVersion: 5,
+      idempotencyKey: "refreshId",
+    });
+    first.close();
+
+    const second = new SqliteOperationalStore(path);
+    expect(second.loadCandidateWatchRefreshes(10)).toEqual([latest, middle]);
+    second.close();
+  });
+
+  it("fails closed when a candidate watch refresh journal is tampered", async () => {
+    const path = await databasePath();
+    const store = new SqliteOperationalStore(path);
+    store.saveCandidateWatchRefresh(candidateWatchRefresh(), 3);
+    store.close();
+
+    const database = new DatabaseSync(path);
+    database
+      .prepare(
+        `UPDATE candidate_watch_refreshes
+         SET record_json = json_set(record_json, '$.status', 'READY')`,
+      )
+      .run();
+    database.close();
+
+    const reopened = new SqliteOperationalStore(path);
+    expect(() => reopened.loadCandidateWatchRefreshes(3)).toThrow(
+      /record state is inconsistent|identity mismatch/,
     );
     reopened.close();
   });

@@ -114,13 +114,18 @@ certification, or execution by this path.
 The real-candidate watch is a separate operational evidence grade. An explicit
 operator refresh anonymously reads the current Polymarket and Limitless books
 and binds both raw observations to one `candidate-watch-refresh` identity.
-SQLite schema v4 retains the raw BLOB, response metadata, protocol identity,
+SQLite schema v5 retains the raw BLOB, response metadata, protocol identity,
 receive time, raw hash, native generation when available, and candidate claim
-identity. Screening is permitted only when both latest observations share the
-same successful refresh ID. Partial failure preserves evidence for diagnostics
-but publishes no decision, preventing a fresh source from being stitched to an
-older counter-leg. Unchanged source identities reuse only their already-bound
-snapshot result; substantive changes rebuild the `bigint` depth screen. A
+identity. It also retains a bounded canonical attempt journal with the common
+refresh ID, per-source outcome and observation binding, deterministic decision,
+diagnostics, and literal-false effects. The newest journal entry is hydration
+authority, so a failed attempt survives restart instead of allowing older raw
+books to revive a `READY` projection. Screening is permitted only when both
+latest observations share the same successful refresh ID. Partial failure
+preserves evidence for diagnostics but publishes no decision, preventing a
+fresh source from being stitched to an older counter-leg. Unchanged source
+identities reuse only their already-bound snapshot result; substantive changes
+rebuild the `bigint` depth screen. A
 positive gross screen stops at `POSITIVE_GROSS_REQUIRES_QUALIFICATION`; it does
 not call review or the verifier.
 

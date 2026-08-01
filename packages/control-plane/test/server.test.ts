@@ -558,6 +558,7 @@ describe("control-plane HTTP surface", () => {
       status: string;
       authority: string;
       latestRefreshId: string | null;
+      refreshHistory: unknown[];
       decision: {
         status: string;
         priorDecisionReused: boolean;
@@ -576,6 +577,15 @@ describe("control-plane HTTP surface", () => {
       status: "READY",
       authority: "OBSERVE_AND_SCREEN_ONLY",
       latestRefreshId: expect.stringMatching(/^candidate-watch-refresh:/),
+      refreshHistory: [
+        {
+          status: "READY",
+          sources: [
+            expect.objectContaining({ status: "SUCCESS" }),
+            expect.objectContaining({ status: "SUCCESS" }),
+          ],
+        },
+      ],
       decision: {
         status: "UNCHANGED_BOUND_SNAPSHOT",
         priorDecisionReused: true,
@@ -793,7 +803,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 4,
+          schemaVersion: 5,
         },
         records: [{ investigationId: created.investigationId }],
       });

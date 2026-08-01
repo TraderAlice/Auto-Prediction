@@ -214,6 +214,7 @@ export function buildStudioProjection(input: {
     observationSetIdentity: hashCanonical([]),
     changedVenueCount: 0,
     retentionPerSource: 10,
+    refreshRetentionLimit: 25,
     timeoutMs: 10_000,
     maxResponseBytes: 1_000_000,
     storage: {
@@ -222,7 +223,14 @@ export function buildStudioProjection(input: {
       schemaVersion: 0,
       idempotencyKey: "observationId" as const,
     },
+    refreshStorage: {
+      mode: "MEMORY" as const,
+      durable: false as const,
+      schemaVersion: 0,
+      idempotencyKey: "refreshId" as const,
+    },
     decision: null,
+    refreshHistory: [],
     sources: [],
     effects: {
       externalWrites: false as const,
@@ -267,7 +275,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 209,
+      proofTests: 214,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },

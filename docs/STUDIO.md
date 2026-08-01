@@ -131,7 +131,10 @@ disposition, and SQLite durability. It does not fetch or calculate books in the
 browser. `DEGRADED` means no complete same-refresh pair exists and therefore no
 decision is displayed. A newly positive gross result is labeled qualification
 required; Studio does not offer review, verifier, certificate, or execution
-controls.
+controls. The refresh journal shows the three newest attempts, source success
+count, disposition, failure diagnostic, and whether the history is restart-safe.
+This makes a persisted failure visible even when older successful raw books are
+still retained for diagnostics.
 
 ## Scout inbox
 

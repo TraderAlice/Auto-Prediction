@@ -94,6 +94,7 @@ const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"]
   observationSetIdentity: `sha256:${"0".repeat(64)}`,
   changedVenueCount: 0,
   retentionPerSource: 10,
+  refreshRetentionLimit: 25,
   timeoutMs: 10_000,
   maxResponseBytes: 1_000_000,
   storage: {
@@ -102,7 +103,14 @@ const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"]
     schemaVersion: 0,
     idempotencyKey: "observationId",
   },
+  refreshStorage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "refreshId",
+  },
   decision: null,
+  refreshHistory: [],
   sources: [],
   effects: {
     externalWrites: false,
@@ -1167,11 +1175,57 @@ function RealCandidatePreflightView() {
           </div>
         </div>
 
+        {watch.refreshHistory.length > 0 && (
+          <div className="candidate-watch-history">
+            <div className="candidate-watch-history-head">
+              <span>Refresh journal</span>
+              <small>
+                Latest {Math.min(3, watch.refreshHistory.length)} of {watch.refreshHistory.length}
+                {watch.refreshStorage.durable ? " · restart-safe" : " · memory-only"}
+              </small>
+            </div>
+            <div className="candidate-watch-history-grid">
+              {watch.refreshHistory.slice(0, 3).map((refresh) => {
+                const successfulSources = refresh.sources.filter(
+                  (source) => source.status === "SUCCESS",
+                ).length;
+                const failure = refresh.sources.find(
+                  (source) => source.status === "FAILED",
+                );
+                return (
+                  <article key={refresh.refreshId}>
+                    <div>
+                      <time dateTime={refresh.attemptedAt}>
+                        {new Date(refresh.attemptedAt).toLocaleString()}
+                      </time>
+                      <Badge
+                        variant={refresh.status === "READY" ? "verified" : "shadow"}
+                      >
+                        {refresh.status}
+                      </Badge>
+                    </div>
+                    <strong>
+                      {refresh.decision?.status.replaceAll("_", " ") ?? "NO DECISION"}
+                    </strong>
+                    <small>
+                      {successfulSources}/2 sources · {refresh.refreshId.slice(-12)}
+                    </small>
+                    {(refresh.diagnostic ?? failure?.diagnostic) !== null &&
+                      (refresh.diagnostic ?? failure?.diagnostic) !== undefined && (
+                        <p>{refresh.diagnostic ?? failure?.diagnostic}</p>
+                      )}
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="candidate-watch-foot">
           <Database size={13} />
           <span>
-            {watch.storage.durable
-              ? `Raw bytes retained in SQLite schema v${watch.storage.schemaVersion}`
+            {watch.storage.durable && watch.refreshStorage.durable
+              ? `Raw bytes and refresh journal retained in SQLite schema v${watch.storage.schemaVersion}`
               : "Runtime observations are memory-only"}
           </span>
           <code>{watch.observationSetIdentity}</code>
