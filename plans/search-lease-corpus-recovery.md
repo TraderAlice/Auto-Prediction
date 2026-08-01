@@ -1,6 +1,6 @@
 # Search lease corpus recovery
 
-Status: active
+Status: draft PR #53
 Started: 2026-08-02
 
 ## Outcome
@@ -42,7 +42,7 @@ new lease on current evidence; the system never substitutes silently.
   fallback, concurrency, and no-double-budget behavior.
 - [x] Run a real SQLite restart drill, full Node 24 qualification, and Studio
   desktop/narrow-screen check.
-- [ ] Publish the next serial PR.
+- [x] Publish the next serial PR.
 
 ## Safety invariants
 
