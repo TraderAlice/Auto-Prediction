@@ -9,9 +9,11 @@ import {
   createControlPlane,
   CatalogObservationDesk,
   catalogObservationSources,
+  createMarketArchaeologistDesk,
   type CatalogObservationSource,
   createOpenAiDiscoveryRuntime,
   createPiInvestigatorRuntime,
+  createSemanticReviewDesk,
   DiscoveryPool,
   RealCandidatePreflightDesk,
   type DiscoveryWorker,
@@ -132,6 +134,171 @@ describe("control-plane HTTP surface", () => {
       schemaVersion: 0,
       idempotencyKey: "taskId",
     });
+  });
+
+  it("runs advisory counterexample review before a research-only lifecycle decision", async () => {
+    const source = (venueId: string): CatalogObservationSource => ({
+      venueId,
+      protocolIdentity: `${venueId}:v1`,
+      sourceUrl: `https://example.test/${venueId}`,
+      decode: (fixture) => [
+        {
+          venueId,
+          venueInstrumentId: `${venueId}-btc-hourly`,
+          title: "BTC Up or Down - Hourly",
+          description:
+            venueId === "opinion"
+              ? "Inclusive Chainlink comparison; a tie is Up."
+              : "Strict Pyth comparison; a tie is Down.",
+          status: "OPEN",
+          mechanism: "ONCHAIN_CLOB",
+          closesAt: "2026-08-01T10:00:00.000Z",
+          outcomes: [
+            { venueOutcomeId: "up", label: "Up" },
+            { venueOutcomeId: "down", label: "Down" },
+          ],
+          priceScale: 1_000_000n,
+          quantityScale: 1_000_000n,
+          sourceFixtureHash: fixture.rawHash,
+          protocolIdentity: `${venueId}:v1`,
+        },
+      ],
+    });
+    const catalogDesk = new CatalogObservationDesk({
+      sources: [source("opinion"), source("limitless")],
+      now: () => Date.parse("2026-08-01T09:30:00.000Z"),
+      fetcher: async () =>
+        new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await catalogDesk.refresh();
+    const archaeologist = createMarketArchaeologistDesk(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        runner: async () => ({
+          exitCode: 0,
+          stdout: JSON.stringify({
+            summary: "The hourly markets diverge on ties and source disagreement.",
+            proposals: [
+              {
+                relationKind: "CONDITIONAL",
+                listingRefs: [
+                  "limitless:limitless-btc-hourly",
+                  "opinion:opinion-btc-hourly",
+                ],
+                statement:
+                  "The outcomes align only outside ties and when both sources agree.",
+                rationale: "Comparator and source semantics differ.",
+                falsifiers: ["A flat hour resolves differently."],
+              },
+            ],
+            missingEvidence: [],
+          }),
+          stderr: "",
+          timedOut: false,
+          outputLimitExceeded: false,
+        }),
+      },
+    );
+    const archaeologyRecord = await archaeologist.begin(
+      catalogDesk.corpus(),
+      "Find conditional BTC relations",
+    ).promise;
+    const proposalId = archaeologyRecord.report?.result.proposals[0]?.proposalId;
+    if (proposalId === undefined) throw new Error("missing archaeology proposal");
+    const opportunityId = `ai:${proposalId}`;
+    const semanticReview = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        reviewer: {
+          review: async () => ({
+            recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION",
+            relationConclusion: "CONDITIONAL",
+            assessments: {
+              outcomeMapping: "Up and Down labels map directly.",
+              timingAndClose: "The hourly close times align.",
+              voidAndCancellation: "No complete outage policy is supplied.",
+              resolutionSources: "The relation explicitly conditions on source agreement.",
+            },
+            counterexamples: ["A tie resolves differently."],
+            missingEvidence: [],
+            rationale: "The conditional scope is explicit enough for simulation.",
+          }),
+        },
+      },
+    );
+    const { baseUrl } = await listenControlPlane({
+      catalogObservationDesk: catalogDesk,
+      marketArchaeologistDesk: archaeologist,
+      semanticReviewDesk: semanticReview,
+    });
+
+    const reviewResponse = await fetch(
+      `${baseUrl}/api/v1/semantic-reviews/runs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ opportunityId }),
+      },
+    );
+    expect(reviewResponse.status).toBe(200);
+    expect(await reviewResponse.json()).toMatchObject({
+      opportunityId,
+      status: "PASS",
+      report: {
+        result: {
+          recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION",
+          authority: "ADVISORY_ONLY",
+          simulationAuthority: false,
+          executionAuthority: false,
+        },
+      },
+    });
+
+    const decisionResponse = await fetch(
+      `${baseUrl}/api/v1/opportunity-lifecycle/semantic-decisions`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          opportunityId,
+          decision: "ACCEPT_FOR_SIMULATION",
+          rationale: "Accept the exact conditional scope for research simulation only.",
+        }),
+      },
+    );
+    expect(decisionResponse.status).toBe(200);
+    expect(await decisionResponse.json()).toMatchObject({
+      decision: {
+        authority: "LOCAL_OPERATOR_RESEARCH_ONLY",
+        productionPromotionEligible: false,
+        executionAuthority: false,
+      },
+      lifecycle: {
+        state: "AWAITING_EXCHANGE_SIMULATION",
+        nextAction: "RUN_EXCHANGE_SIMULATION",
+        effects: {
+          liveOrdersPlaced: false,
+          valueMovingActions: false,
+          liveExecutionEnabled: false,
+        },
+      },
+    });
+    const duplicate = await fetch(
+      `${baseUrl}/api/v1/opportunity-lifecycle/semantic-decisions`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          opportunityId,
+          decision: "REJECT",
+          rationale: "Attempt to rewrite the decision.",
+        }),
+      },
+    );
+    expect(duplicate.status).toBe(409);
   });
 
   it("accepts discovery work without returning execution authority", async () => {
@@ -937,7 +1104,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 6,
+          schemaVersion: 7,
         },
         records: [{ investigationId: created.investigationId }],
       });

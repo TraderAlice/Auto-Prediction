@@ -87,6 +87,14 @@ export type OpportunityLifecycleProjection = Readonly<{
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
+function isIsoDate(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    !Number.isNaN(Date.parse(value)) &&
+    new Date(value).toISOString() === value
+  );
+}
+
 function checkedHash(value: string, name: string): Hash {
   if (!HASH_PATTERN.test(value)) throw new Error(`${name} must be a SHA-256 hash`);
   return value as Hash;
@@ -124,6 +132,213 @@ function nextActionFor(
   }
 }
 
+export function assertOpportunityLifecycleProjection(
+  value: unknown,
+): OpportunityLifecycleProjection {
+  if (value === null || typeof value !== "object") {
+    throw new Error("opportunity lifecycle projection is malformed");
+  }
+  const projection = value as OpportunityLifecycleProjection;
+  if (
+    projection.schemaVersion !== "pmh.opportunity-lifecycle.v1" ||
+    typeof projection.opportunityId !== "string" ||
+    projection.opportunityId.trim() === "" ||
+    projection.opportunityId.length > 500 ||
+    !["AI_RELATION_PROPOSAL", "DETERMINISTIC_SEARCH_LEAD"].includes(
+      projection.discoveryKind,
+    ) ||
+    !HASH_PATTERN.test(projection.discoveryArtifactHash) ||
+    projection.policy.liveExecutionEnabled !== false ||
+    !["NOTIFY_ONLY", "REQUIRE_HUMAN_APPROVAL", "AUTO_SHADOW"].includes(
+      projection.policy.routeAfterCertificate,
+    ) ||
+    !["IN_APP_ONLY", "DISABLED"].includes(
+      projection.policy.notificationChannel,
+    ) ||
+    !Array.isArray(projection.events) ||
+    projection.events.length === 0 ||
+    projection.events.length > 1_000 ||
+    projection.effects.externalMessagesSent !== false ||
+    projection.effects.productionApprovalAccepted !== false ||
+    projection.effects.liveOrdersPlaced !== false ||
+    projection.effects.valueMovingActions !== false ||
+    projection.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("opportunity lifecycle projection violates its contract");
+  }
+
+  let state: OpportunityLifecycleState | null = null;
+  let semanticReviewArtifactHash: Hash | null = null;
+  let simulationBundleHash: Hash | null = null;
+  let certificateId: Hash | null = null;
+  let shadowExecutionArtifactHash: Hash | null = null;
+  for (const [index, event] of projection.events.entries()) {
+    if (
+      event.sequence !== index + 1 ||
+      !isIsoDate(event.occurredAt) ||
+      typeof event.detail !== "string" ||
+      event.detail.trim() === "" ||
+      event.detail.length > 1_000 ||
+      (event.artifactHash !== null &&
+        !HASH_PATTERN.test(event.artifactHash))
+    ) {
+      throw new Error("opportunity lifecycle event is malformed");
+    }
+    const { eventId, ...eventBody } = event;
+    if (
+      !HASH_PATTERN.test(eventId) ||
+      eventId !==
+        hashCanonical({ opportunityId: projection.opportunityId, ...eventBody })
+    ) {
+      throw new Error("opportunity lifecycle event identity mismatch");
+    }
+    switch (event.kind) {
+      case "DISCOVERED":
+        if (
+          state !== null ||
+          event.artifactHash !== projection.discoveryArtifactHash
+        ) {
+          throw new Error("opportunity lifecycle discovery transition is invalid");
+        }
+        state = "AWAITING_SEMANTIC_REVIEW";
+        break;
+      case "PREFLIGHT_REJECTED":
+        if (state !== "AWAITING_SEMANTIC_REVIEW") {
+          throw new Error("opportunity lifecycle preflight transition is invalid");
+        }
+        state = "REJECTED_PREFLIGHT";
+        break;
+      case "SEMANTIC_REVIEW_ACCEPTED":
+      case "SEMANTIC_REVIEW_REJECTED":
+        if (
+          state !== "AWAITING_SEMANTIC_REVIEW" ||
+          event.artifactHash === null
+        ) {
+          throw new Error("opportunity lifecycle review transition is invalid");
+        }
+        semanticReviewArtifactHash = event.artifactHash;
+        state =
+          event.kind === "SEMANTIC_REVIEW_ACCEPTED"
+            ? "AWAITING_EXCHANGE_SIMULATION"
+            : "REJECTED_SEMANTICS";
+        break;
+      case "SIMULATION_ACCEPTED":
+      case "SIMULATION_REJECTED":
+      case "MODEL_CALIBRATION_REQUIRED":
+        if (
+          state !== "AWAITING_EXCHANGE_SIMULATION" ||
+          event.artifactHash === null
+        ) {
+          throw new Error("opportunity lifecycle simulation transition is invalid");
+        }
+        simulationBundleHash = event.artifactHash;
+        state =
+          event.kind === "SIMULATION_ACCEPTED"
+            ? "AWAITING_EXACT_CERTIFICATE"
+            : event.kind === "SIMULATION_REJECTED"
+              ? "REJECTED_SIMULATION"
+              : "AWAITING_MODEL_CALIBRATION";
+        break;
+      case "CERTIFICATE_BOUND":
+        if (
+          state !== "AWAITING_EXACT_CERTIFICATE" ||
+          event.artifactHash === null
+        ) {
+          throw new Error("opportunity lifecycle certificate transition is invalid");
+        }
+        certificateId = event.artifactHash;
+        break;
+      case "IN_APP_NOTIFICATION_QUEUED":
+        if (
+          state !== "AWAITING_EXACT_CERTIFICATE" ||
+          certificateId === null ||
+          event.artifactHash !== certificateId ||
+          projection.policy.routeAfterCertificate !== "NOTIFY_ONLY" ||
+          projection.policy.notificationChannel !== "IN_APP_ONLY"
+        ) {
+          throw new Error("opportunity lifecycle notification transition is invalid");
+        }
+        state = "NOTIFIED_ONLY";
+        break;
+      case "HUMAN_APPROVAL_REQUESTED":
+        if (
+          state !== "AWAITING_EXACT_CERTIFICATE" ||
+          certificateId === null ||
+          event.artifactHash !== certificateId ||
+          projection.policy.routeAfterCertificate !== "REQUIRE_HUMAN_APPROVAL"
+        ) {
+          throw new Error("opportunity lifecycle approval transition is invalid");
+        }
+        state = "AWAITING_HUMAN_APPROVAL";
+        break;
+      case "AUTO_SHADOW_QUEUED":
+        if (
+          state !== "AWAITING_EXACT_CERTIFICATE" ||
+          certificateId === null ||
+          event.artifactHash !== certificateId ||
+          projection.policy.routeAfterCertificate !== "AUTO_SHADOW"
+        ) {
+          throw new Error("opportunity lifecycle auto-shadow transition is invalid");
+        }
+        state = "SHADOW_READY";
+        break;
+      case "HUMAN_APPROVED_SHADOW":
+      case "HUMAN_REJECTED":
+        if (
+          state !== "AWAITING_HUMAN_APPROVAL" ||
+          event.artifactHash !== certificateId
+        ) {
+          throw new Error("opportunity lifecycle human decision is invalid");
+        }
+        state =
+          event.kind === "HUMAN_APPROVED_SHADOW"
+            ? "SHADOW_READY"
+            : "REJECTED_BY_OPERATOR";
+        break;
+      case "SHADOW_STARTED":
+        if (state !== "SHADOW_READY" || event.artifactHash !== certificateId) {
+          throw new Error("opportunity lifecycle shadow start is invalid");
+        }
+        state = "SHADOW_RUNNING";
+        break;
+      case "SHADOW_COMPLETED":
+        if (state !== "SHADOW_RUNNING" || event.artifactHash === null) {
+          throw new Error("opportunity lifecycle shadow completion is invalid");
+        }
+        shadowExecutionArtifactHash = event.artifactHash;
+        state = "SHADOW_COMPLETE";
+        break;
+      case "ARCHIVED":
+        if (state === null || state === "SHADOW_RUNNING") {
+          throw new Error("opportunity lifecycle archive transition is invalid");
+        }
+        state = "ARCHIVED";
+        break;
+      default:
+        throw new Error("opportunity lifecycle event kind is invalid");
+    }
+  }
+  if (
+    state === "AWAITING_EXACT_CERTIFICATE" &&
+    certificateId !== null &&
+    projection.policy.routeAfterCertificate === "NOTIFY_ONLY" &&
+    projection.policy.notificationChannel === "DISABLED"
+  ) {
+    state = "NOTIFIED_ONLY";
+  }
+  if (
+    state !== projection.state ||
+    projection.nextAction !== nextActionFor(projection.state) ||
+    projection.semanticReviewArtifactHash !== semanticReviewArtifactHash ||
+    projection.simulationBundleHash !== simulationBundleHash ||
+    projection.certificateId !== certificateId ||
+    projection.shadowExecutionArtifactHash !== shadowExecutionArtifactHash
+  ) {
+    throw new Error("opportunity lifecycle projection state mismatch");
+  }
+  return projection;
+}
+
 export class OpportunityLifecycleMachine {
   #state: OpportunityLifecycleState = "AWAITING_SEMANTIC_REVIEW";
   #semanticReviewArtifactHash: Hash | null = null;
@@ -153,6 +368,29 @@ export class OpportunityLifecycleMachine {
       throw new Error("opportunity lifecycle policy is invalid");
     }
     this.#append("DISCOVERED", discoveryArtifactHash, "Unreviewed opportunity entered the research lifecycle.");
+  }
+
+  public static restore(
+    value: unknown,
+    now: () => number = Date.now,
+  ): OpportunityLifecycleMachine {
+    const projection = assertOpportunityLifecycleProjection(value);
+    const restored = new OpportunityLifecycleMachine(
+      projection.opportunityId,
+      projection.discoveryKind,
+      projection.discoveryArtifactHash,
+      projection.policy,
+      now,
+    );
+    restored.#state = projection.state;
+    restored.#semanticReviewArtifactHash =
+      projection.semanticReviewArtifactHash;
+    restored.#simulationBundleHash = projection.simulationBundleHash;
+    restored.#certificateId = projection.certificateId;
+    restored.#shadowExecutionArtifactHash =
+      projection.shadowExecutionArtifactHash;
+    restored.#events.splice(0, restored.#events.length, ...projection.events);
+    return restored;
   }
 
   public recordSemanticReview(

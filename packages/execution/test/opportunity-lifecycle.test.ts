@@ -3,6 +3,7 @@ import { hashCanonical } from "@pmh/domain";
 import type { ArbitrageCertificate } from "@pmh/opportunity";
 import {
   OpportunityLifecycleMachine,
+  assertOpportunityLifecycleProjection,
   simulateClobTaker,
   simulateConstantProductAmm,
   type OpportunityLifecyclePolicy,
@@ -336,6 +337,29 @@ describe("opportunity product lifecycle", () => {
     };
     expect(() => reviewedMachine(policies.auto!).bindExactCertificate(expired)).toThrow(
       /expired/,
+    );
+  });
+
+  it("restores a content-verified lifecycle journal and rejects rewritten events", () => {
+    const original = reviewedMachine(policies.approval!);
+    original.bindExactCertificate(CERTIFICATE);
+    original.recordHumanDecision("APPROVE_SHADOW");
+    const projection = original.projection();
+    const restored = OpportunityLifecycleMachine.restore(projection, () => 2_000);
+    expect(restored.projection()).toEqual(projection);
+    expect(restored.beginShadowExecution()).toMatchObject({
+      state: "SHADOW_RUNNING",
+      nextAction: "MONITOR_SHADOW_EXECUTION",
+    });
+
+    const rewritten = {
+      ...projection,
+      events: projection.events.map((event, index) =>
+        index === 1 ? { ...event, detail: "rewritten review" } : event,
+      ),
+    };
+    expect(() => assertOpportunityLifecycleProjection(rewritten)).toThrow(
+      /event identity mismatch/,
     );
   });
 });

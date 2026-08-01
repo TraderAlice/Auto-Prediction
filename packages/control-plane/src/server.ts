@@ -54,6 +54,14 @@ import type {
   DiscoveryTask,
 } from "./types.js";
 import { OpportunityLifecycleDesk } from "./opportunity-lifecycle-desk.js";
+import {
+  createSemanticReviewDesk,
+  SemanticReviewBusyError,
+  SemanticReviewDesk,
+  SemanticReviewNotConfiguredError,
+  type SemanticReviewRecordStore,
+} from "./semantic-review.js";
+import type { OpportunityLifecycleJournalStore } from "./opportunity-lifecycle-desk.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -270,6 +278,30 @@ function supportsMarketArchaeologistRecords(
   );
 }
 
+function supportsSemanticReviewRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & SemanticReviewRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<SemanticReviewRecordStore>;
+  return (
+    candidate.semanticReviewStorage !== undefined &&
+    typeof candidate.loadSemanticReviewRecords === "function" &&
+    typeof candidate.saveSemanticReviewRecord === "function"
+  );
+}
+
+function supportsOpportunityLifecycleJournals(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & OpportunityLifecycleJournalStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<OpportunityLifecycleJournalStore>;
+  return (
+    candidate.opportunityLifecycleStorage !== undefined &&
+    typeof candidate.loadOpportunityLifecycleJournals === "function" &&
+    typeof candidate.saveOpportunityLifecycleJournal === "function"
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -285,6 +317,7 @@ export function createControlPlane(options?: {
   realCandidatePreflightDesk?: RealCandidatePreflightDesk;
   candidateWatchDesk?: CandidateWatchDesk;
   marketArchaeologistDesk?: MarketArchaeologistDesk;
+  semanticReviewDesk?: SemanticReviewDesk;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
 }) {
   if (
@@ -349,8 +382,21 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const semanticReviewDesk =
+    options?.semanticReviewDesk ??
+    createSemanticReviewDesk(process.env, {
+      ...(supportsSemanticReviewRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const opportunityLifecycleDesk =
-    options?.opportunityLifecycleDesk ?? new OpportunityLifecycleDesk();
+    options?.opportunityLifecycleDesk ??
+    new OpportunityLifecycleDesk(
+      undefined,
+      supportsOpportunityLifecycleJournals(options?.discoveryStore)
+        ? options.discoveryStore
+        : undefined,
+    );
   const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
@@ -388,6 +434,7 @@ export function createControlPlane(options?: {
       opportunityRadar: catalogObservationDesk.radar(),
       marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
       marketArchaeologist: archaeologistProjection,
+      semanticReview: semanticReviewDesk.projection(),
       opportunityLifecycle: opportunityLifecycleDesk.projection(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
@@ -510,6 +557,8 @@ export function createControlPlane(options?: {
         opportunityRadar: catalogObservationDesk.radar(),
         marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
         marketArchaeologist: marketArchaeologistDesk.projection(),
+        semanticReview: semanticReviewDesk.projection(),
+        opportunityLifecycle: opportunityLifecycleDesk.projection(),
         realCandidatePreflight: realCandidatePreflightDesk.projection(),
         realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
         realCandidateDisposition:
@@ -631,6 +680,13 @@ export function createControlPlane(options?: {
       url.pathname === "/api/v1/market-archaeologist"
     ) {
       writeJson(response, 200, marketArchaeologistDesk.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/semantic-reviews"
+    ) {
+      writeJson(response, 200, semanticReviewDesk.projection());
       return;
     }
     if (
@@ -787,6 +843,135 @@ export function createControlPlane(options?: {
             executionAuthority: false,
           },
         );
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/semantic-reviews/runs"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null ||
+          typeof body !== "object" ||
+          typeof (body as { opportunityId?: unknown }).opportunityId !==
+            "string" ||
+          Object.keys(body).length !== 1
+        ) {
+          throw new Error("semantic review requires exactly one opportunityId");
+        }
+        const opportunityId = (
+          body as { opportunityId: string }
+        ).opportunityId.trim();
+        const source = marketArchaeologistDesk
+          .projection()
+          .records.flatMap((record) =>
+            record.status === "PASS" && record.report !== null
+              ? record.report.result.proposals.map((proposal) => ({
+                  proposal,
+                  corpusSnapshotIdentity: record.corpusSnapshotIdentity,
+                }))
+              : [],
+          )
+          .find(
+            ({ proposal }) => `ai:${proposal.proposalId}` === opportunityId,
+          );
+        if (source === undefined) {
+          throw new Error("semantic review opportunity was not found");
+        }
+        const invocation = semanticReviewDesk.begin(
+          opportunityId,
+          source.proposal,
+          catalogObservationDesk.corpus(),
+          source.corpusSnapshotIdentity,
+        );
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" ? 200 : 422, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        writeJson(
+          response,
+          error instanceof SemanticReviewNotConfiguredError
+            ? 503
+            : error instanceof SemanticReviewBusyError
+              ? 409
+              : 400,
+          {
+            ok: false,
+            diagnostic:
+              error instanceof Error ? error.message : "semantic review failed",
+            executionAuthority: false,
+          },
+        );
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/opportunity-lifecycle/semantic-decisions"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null ||
+          typeof body !== "object" ||
+          typeof (body as { opportunityId?: unknown }).opportunityId !==
+            "string" ||
+          typeof (body as { decision?: unknown }).decision !== "string" ||
+          typeof (body as { rationale?: unknown }).rationale !== "string" ||
+          Object.keys(body).length !== 3
+        ) {
+          throw new Error(
+            "semantic decision requires opportunityId, decision, and rationale",
+          );
+        }
+        const input = body as {
+          opportunityId: string;
+          decision: string;
+          rationale: string;
+        };
+        if (
+          input.decision !== "ACCEPT_FOR_SIMULATION" &&
+          input.decision !== "REJECT"
+        ) {
+          throw new Error("semantic decision is invalid");
+        }
+        const review = semanticReviewDesk.findPassedForOpportunity(
+          input.opportunityId.trim(),
+        );
+        if (review === undefined) {
+          throw new Error("a passed advisory review is required first");
+        }
+        const decision =
+          opportunityLifecycleDesk.recordResearchSemanticDecision(
+            input.opportunityId.trim(),
+            review,
+            input.decision,
+            input.rationale,
+          );
+        await broadcastProjection();
+        writeJson(response, 200, {
+          decision,
+          lifecycle: opportunityLifecycleDesk
+            .projection()
+            .cases.find(
+              (item) => item.opportunityId === input.opportunityId.trim(),
+            ),
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic:
+            error instanceof Error ? error.message : "semantic decision failed",
+          executionAuthority: false,
+        });
       }
       return;
     }
@@ -999,6 +1184,7 @@ export function createControlPlane(options?: {
     realCandidatePreflightDesk,
     candidateWatchDesk,
     marketArchaeologistDesk,
+    semanticReviewDesk,
     opportunityLifecycleDesk,
     projection,
     ready,
