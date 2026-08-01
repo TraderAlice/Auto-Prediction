@@ -50,6 +50,12 @@ This is not a trading bot and it has no live-trading authority. The repository d
   escalations, and suggested rejections; checks whether current contracts still
   match captured semantics; and shows bigint indicative gross hints plus public
   adapter reach without making a model call or recording a decision.
+- A deterministic pre-review economic frontier that reuses the same canonical
+  `bigint` portfolio arithmetic, current-contract matching, and gross-price
+  bounds as post-review attention. A positive hint below priority five adds
+  exactly one review-priority point; missing, stale, unsupported, non-positive,
+  and already-priority-five items stay at their original priority, and no hint
+  can approve semantics.
 - Certificate-bound shadow replay that derives intents from the certificate,
   uses virtual capital and the live-disabled ShadowExecutionEngine, records
   planned versus observed fills, and makes zero venue-gateway calls. Human
@@ -87,25 +93,32 @@ promotion remain active campaign work.
    live catalog happens to contain then. `EQUIVALENT`, `IMPLIES`,
    `MUTUALLY_EXCLUSIVE`, `EXHAUSTIVE`, and related labels are hypotheses, not
    trades. A valid run may conclude that no cross-venue relation exists.
-4. Send a grounded proposal through independent semantic review. The reviewer
+4. Let the **Pre-review economic frontier** order the bounded review queue. It
+   prices only the canonical portfolio declared by the proposal, and only when
+   current contracts still match captured semantics. A positive gross hint
+   adds one priority point below P5; every other candidate keeps its original
+   priority. The hint excludes fees and depth, suppresses nothing, and
+   is not evidence that the proposed relationship is true.
+5. Send a grounded proposal through independent semantic review. The reviewer
    must bind exact listing refs, rule identities, outcome mapping, time windows,
    and counterexamples. The **Operator attention queue** then tells you whether
    that advisory result defines a canonical payoff partition, whether current
    contract semantics still match the retained evidence, and whether the
    implemented anonymous adapters can reach its legs. Its gross-price hint
    excludes depth and fees and is never an executable quote.
-5. Explicitly accept a compiler-ready item for research simulation, or leave it
+6. Explicitly accept a compiler-ready item for research simulation, or leave it
    in research/evidence/rejection triage. The queue cannot make this decision.
-6. Materialize a portfolio. The server reacquires current public books and fee
+7. Materialize a portfolio. The server reacquires current public books and fee
    evidence, walks depth with `bigint` arithmetic, and either produces a
    simulated worst-case floor or a precise blocker such as missing depth,
    unsupported fees, stale evidence, or incompatible outcome scope.
-7. Only the first-party exact verifier can issue a short-lived certificate.
+8. Only the first-party exact verifier can issue a short-lived certificate.
    The configured policy then notifies, requests human approval for shadow, or
    runs automatic shadow. A later observation reacquires the market and records
    whether it still matches the certificate bounds or has diverged.
 
-The intended funnel is therefore **AI search → skeptical semantic review →
+The intended funnel is therefore **AI search → deterministic economic queueing
+→ skeptical semantic review →
 deterministic payoff compilation → fresh exchange simulation → exact
 certificate → policy-controlled shadow observation**. Model confidence is
 never used as profit confidence.

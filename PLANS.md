@@ -1,6 +1,6 @@
 # Plans
 
-`plans/review-attention-queue.md` is the active construction plan.
+`plans/economic-review-priority.md` is the active construction plan.
 
 ## Planning contract
 
@@ -22,15 +22,17 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-Durable discovery and review now produce more conclusions than a human can
-sensibly inspect as one flat lifecycle list. The retained runtime has 30 passing
-semantic reviews—8 advisory accepts, 12 escalations, and 10 rejections—but zero
-operator decisions. Only one accepted review currently has a compiler-supported
-relation, and its venue has no anonymous book materializer. The active campaign
-therefore derives a deterministic attention queue that separates semantic
-interest from payoff compilability, current-price coverage, and anonymous-book
-reach. It ranks where operator attention can unlock the next exact stage without
-letting an AI review make or submit the decision itself.
+The deterministic attention queue now separates semantic interest from payoff
+compilability, current-price coverage, and anonymous-book reach. The retained
+runtime has 50 attributed proposals and more than 30 passing reviews, yet only
+one compiler-ready item; its current gross hint is negative before fees and depth.
+
+Review scheduling still inherits static search-issue priority, so bounded model
+budget cannot prefer a grounded proposal whose declared canonical portfolio has
+current indicative room. The active campaign moves the same deterministic
+fixed-point hint ahead of review dispatch. Positive hints receive a capped
+one-level scheduling boost while every proposal remains retained and reviewable.
+AI still proposes and reviews; it does not decide semantics or economics.
 
 ## Deferred future campaigns
 

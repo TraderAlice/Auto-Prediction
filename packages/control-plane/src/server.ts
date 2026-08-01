@@ -36,6 +36,11 @@ import {
 } from "./discovery-ledger.js";
 import { radarTriageTaskId } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
+import {
+  applyProposalEconomicPriority,
+  buildProposalEconomicTriage,
+  recoverBaseReviewPriority,
+} from "./proposal-economic-triage.js";
 import { buildReviewAttentionProjection } from "./review-attention.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
@@ -600,7 +605,7 @@ export function createControlPlane(options?: {
   };
   graphContextForLease = (snapshot, lens) =>
     searchSemanticGraphNeighborhood(semanticGraph(snapshot), lens);
-  const semanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
+  const baseSemanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
     const issues = new Map(
       searchIssueScheduler.projection().issues.map((issue) => [issue.issueId, issue] as const),
     );
@@ -622,13 +627,22 @@ export function createControlPlane(options?: {
       }
     }
     for (const job of semanticReviewScheduler.projection().jobs) {
-      const current = lineage.get(job.proposalId) ?? {
-        issueIds: new Set<Hash>(),
-        priority: job.priority,
-      };
-      for (const issueId of job.issueIds) current.issueIds.add(issueId);
-      if (job.priority > current.priority) current.priority = job.priority;
-      lineage.set(job.proposalId, current);
+      const current = lineage.get(job.proposalId);
+      const issueIds = new Set<Hash>(current?.issueIds ?? []);
+      for (const issueId of job.issueIds) issueIds.add(issueId);
+      const issuePriorities = [...issueIds].flatMap((issueId) => {
+        const issue = issues.get(issueId);
+        return issue === undefined ? [] : [issue.priority];
+      });
+      lineage.set(job.proposalId, {
+        issueIds,
+        // A retained job stores effective priority. Re-derive the base from its
+        // issue lineage so a current-price boost cannot compound across ticks.
+        priority: recoverBaseReviewPriority({
+          issuePriorities,
+          retainedJobPriority: current?.priority ?? job.priority,
+        }),
+      });
     }
     const sources = new Map<Hash, {
       proposal: SemanticReviewCandidate["proposal"];
@@ -702,6 +716,16 @@ export function createControlPlane(options?: {
       left.proposal.proposalId.localeCompare(right.proposal.proposalId)
     ));
   };
+  const semanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
+    const candidates = baseSemanticReviewCandidates();
+    return applyProposalEconomicPriority(
+      candidates,
+      buildProposalEconomicTriage({
+        candidates,
+        corpus: catalogObservationDesk.corpus(),
+      }),
+    );
+  };
   const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
@@ -729,8 +753,13 @@ export function createControlPlane(options?: {
     opportunityLifecycleDesk.syncMarketArchaeologist(archaeologistProjection);
     opportunityLifecycleDesk.syncRealCandidate(realCandidateDisposition);
     const semanticReviewProjection = semanticReviewDesk.projection();
+    const baseReviewCandidates = baseSemanticReviewCandidates();
+    const economicTriageProjection = buildProposalEconomicTriage({
+      candidates: baseReviewCandidates,
+      corpus: catalogObservationDesk.corpus(),
+    });
     semanticReviewScheduler.reconcile(
-      semanticReviewCandidates(),
+      applyProposalEconomicPriority(baseReviewCandidates, economicTriageProjection),
       semanticReviewProjection.records,
     );
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
@@ -784,6 +813,7 @@ export function createControlPlane(options?: {
       semanticReview: semanticReviewProjection,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
       reviewAttention,
+      proposalEconomicTriage: economicTriageProjection,
       semanticRelationGraph,
       opportunityLifecycle: lifecycleProjection,
       relationPayoff,
