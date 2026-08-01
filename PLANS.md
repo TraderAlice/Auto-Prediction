@@ -1,6 +1,8 @@
 # Plans
 
-`plans/semantic-review-scope-deduplication.md` is the active construction plan.
+There is no active construction plan. The next measured bottleneck should be
+promoted from the deferred list only after fresh runtime evidence defines a
+bounded campaign.
 
 ## Planning contract
 
@@ -114,21 +116,15 @@ SQLite migrated to schema v16, historical passed reviews stayed intact, and
 repeated scheduler ticks held the request-attempt counter at 113. All 383
 workspace tests, production build, desktop QA, and 390 px QA pass.
 
-The next measured waste is recurring semantic-review duplication. The current
-automatic lane contains 11 proposal artifacts but only eight distinct
-relation-and-listing scopes before contract-evidence identity is considered.
-Three Atlanta implication artifacts repeat one directional pair and two Myriad
-equivalence artifacts repeat one symmetric pair in reverse order. The active
-campaign gives review work a price-independent semantic scope so unchanged
-contracts can reuse prior advisory work without conflating changed rules or
-directional relations.
+Semantic-review scope deduplication is merged and live in PR #66. Review work
+now has a price-independent contract-semantic identity that canonicalizes only
+symmetric relations and preserves directional implication and subset scopes.
+Historical decisions remain immutable; future same-scope proposals link to one
+canonical job and consume zero automatic review requests.
 
-The v17 live backfill sharpens that estimate: 102 scoped jobs collapse to 81
-unique contract-semantic scopes, with 17 historical redundant passes. Repeated
-ticks keep the request counter at 114. Historical results remain untouched;
-future same-scope proposals are durably linked to a canonical job and consume
-zero automatic review requests. Full checks, workspace tests, production build,
-desktop QA, and 390 px QA pass.
+The v17 live backfill maps 102 scoped jobs to 81 unique scopes and measures 17
+historical redundant passes. Repeated ticks keep the request counter at 114.
+Full checks, workspace tests, production build, desktop QA, and 390 px QA pass.
 
 ## Deferred future campaigns
 
