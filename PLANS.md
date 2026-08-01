@@ -1,6 +1,7 @@
 # Plans
 
-`plans/attention-aware-notification-outbox.md` is the active construction plan.
+`plans/attention-aware-notification-outbox.md` is the latest completed
+construction plan.
 
 ## Planning contract
 
@@ -90,18 +91,21 @@ Full Node 24 checks, all workspace tests, the production build, desktop QA, and
 390 px QA pass. Browser QA also caught and fixed a clipped mobile Market
 Archaeologist title; the page now has no horizontal overflow or console errors.
 
-The scheduler now retains 97 unread in-app notifications. The next measured
-bottleneck is attention, not raw event emission: severity, digest aggregation,
-delivery attempts, and acknowledgement need separate durable identities so
-concurrent issues can notify a human without turning the inbox into a second
-search corpus.
+The attention-aware notification campaign is merged and live. Raw issue
+outcomes remain immutable research evidence; a separate deterministic policy
+groups ordinary activity into one stable closed-hour digest and emits only a
+grounded positive-gross candidate or a third consecutive issue failure
+immediately. Immutable messages and mutable per-channel deliveries survive
+restart in SQLite WAL schema v15, with acknowledgement, bounded retry, and
+dead-letter state kept outside semantic authority.
 
-The active campaign builds that attention layer. Raw issue outcomes remain
-immutable research evidence; a separate deterministic policy classifies them,
-groups ordinary activity into closed-window digests, emits only genuinely
-urgent conditions immediately, and owns a restart-safe delivery outbox. A
-generic JSON webhook can be configured later without changing search logic or
-replaying the existing unread backlog.
+The live scheduler retained 100 unread raw finding events, while the operator
+projection coalesced the completed window into one 25-scan brief. A real
+loopback JSON webhook received one `ACTION_CANDIDATE` with a delivery-bound
+idempotency key. Enabling an external channel starts at process activation and
+does not replay the historical backlog. Studio passed desktop and 390 px QA
+without horizontal overflow; all 376 workspace tests and the production build
+pass.
 
 ## Deferred future campaigns
 

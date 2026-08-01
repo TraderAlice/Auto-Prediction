@@ -1,6 +1,6 @@
 # Attention-aware scheduled search notifications
 
-Status: active
+Status: complete
 Started: 2026-08-02
 
 ## Outcome
@@ -62,7 +62,7 @@ coverage.
   tests.
 - [x] Run full Node 24 checks, production build, local webhook smoke, live
   scheduler smoke, and desktop/390 px QA.
-- [ ] Publish and serially merge the campaign PR.
+- [x] Publish and serially merge the campaign PR (#62).
 
 ## Attention policy v1
 
