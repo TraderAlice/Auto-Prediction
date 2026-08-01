@@ -11,6 +11,7 @@ Harmony Studio is the read-only visual surface for architecture qualification. I
 - `GET /api/v1/books`
 - `GET /api/v1/qualification`
 - `GET /api/v1/investigations`
+- `GET /api/v1/research-cases/review-intake?caseId=...`
 - `GET /api/v1/radar`
 - `POST /api/v1/books/replay`
 - `POST /api/v1/discovery/runs`
@@ -186,6 +187,13 @@ compilation, and exact verification remain `BLOCKED`, and every case carries
 literal-false promotion and execution authority. The view performs no write and
 does not create a new persistence authority; it is rebuilt from hash-checked
 bounded operational records on every control-plane projection.
+
+After both retained scout context and a passed pi report exist, the dossier
+renders the derived `pmh.review-intake-packet.v1` identity, readiness or first
+blocker, and the required independent-review assessments. The dedicated GET
+endpoint exposes that same self-verifying JSON packet for handoff. Studio still
+has no accept/reject form: the packet declares decision ingestion, promotion,
+execution, external writes, and value movement literal false.
 
 ## AI boundary
 

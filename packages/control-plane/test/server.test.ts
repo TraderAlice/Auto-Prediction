@@ -737,6 +737,113 @@ describe("control-plane HTTP surface", () => {
     });
   });
 
+  it("serves a self-verifying review intake packet without a decision path", async () => {
+    const piRuntime = createPiInvestigatorRuntime(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        runner: async () => ({
+          exitCode: 0,
+          stdout: JSON.stringify({
+            summary: "The fixture partition is ready for independent assessment.",
+            candidateListingRefs: [],
+            findings: [],
+            missingEvidence: [],
+          }),
+          stderr: "",
+          timedOut: false,
+          outputLimitExceeded: false,
+        }),
+      },
+    );
+    const { baseUrl } = await listenControlPlane({ piRuntime });
+    const discovery = (await fetch(`${baseUrl}/api/v1/discovery/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "Highest temperature in Boston on July 31, 2026?",
+        venueIds: ["gemini-predictions"],
+      }),
+    }).then((response) => response.json())) as { taskId: string };
+    const beforeInvestigation = (await fetch(
+      `${baseUrl}/api/v1/projection`,
+    ).then((response) => response.json())) as {
+      ai: { researchDesk: { cases: { caseId: string }[] } };
+    };
+    const unreadyCaseId = beforeInvestigation.ai.researchDesk.cases[0]?.caseId;
+    if (unreadyCaseId === undefined) throw new Error("missing research case");
+    const unreadyPacket = await fetch(
+      `${baseUrl}/api/v1/research-cases/review-intake?caseId=${encodeURIComponent(unreadyCaseId)}`,
+    );
+    expect(unreadyPacket.status).toBe(409);
+    await expect(unreadyPacket.json()).resolves.toMatchObject({
+      executionAuthority: false,
+    });
+    const investigation = await fetch(
+      `${baseUrl}/api/v1/research-cases/investigate`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ taskId: discovery.taskId }),
+      },
+    );
+    expect(investigation.status).toBe(200);
+    const projection = (await fetch(`${baseUrl}/api/v1/projection`).then(
+      (response) => response.json(),
+    )) as {
+      ai: {
+        researchDesk: {
+          cases: {
+            caseId: string;
+            status: string;
+            reviewIntake: {
+              packetHash: string;
+              readiness: string;
+            } | null;
+          }[];
+        };
+      };
+    };
+    const researchCase = projection.ai.researchDesk.cases[0];
+    if (researchCase?.reviewIntake === null || researchCase === undefined) {
+      throw new Error("missing review intake packet");
+    }
+    expect(researchCase).toMatchObject({
+      status: "AWAITING_REVIEW",
+      reviewIntake: { readiness: "READY_FOR_INDEPENDENT_REVIEW" },
+    });
+    const packetResponse = await fetch(
+      `${baseUrl}/api/v1/research-cases/review-intake?caseId=${encodeURIComponent(researchCase.caseId)}`,
+    );
+    expect(packetResponse.status).toBe(200);
+    await expect(packetResponse.json()).resolves.toMatchObject({
+      packetHash: researchCase.reviewIntake.packetHash,
+      readiness: "READY_FOR_INDEPENDENT_REVIEW",
+      authority: {
+        posture: "REVIEW_INTAKE_ONLY",
+        decisionIngestionEnabled: false,
+        promotionEligible: false,
+        executionAuthority: false,
+      },
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    const decisionAttempt = await fetch(
+      `${baseUrl}/api/v1/research-cases/review-intake?caseId=${encodeURIComponent(researchCase.caseId)}`,
+      { method: "POST" },
+    );
+    expect(decisionAttempt.status).toBe(404);
+    await expect(decisionAttempt.json()).resolves.toMatchObject({
+      diagnostic: "route not found",
+    });
+    const absent = await fetch(
+      `${baseUrl}/api/v1/research-cases/review-intake?caseId=missing`,
+    );
+    expect(absent.status).toBe(404);
+  });
+
   it("restores pi reports and idempotency from SQLite after a server restart", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-investigation-state-"));
     const path = join(directory, "control-plane.sqlite");

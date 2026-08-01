@@ -7,6 +7,7 @@ import {
   FixtureCatalogDiscoveryDesk,
   HeuristicDiscoveryWorker,
   InvestigationDesk,
+  verifyReviewIntakePacket,
   type DiscoveryDeskProjection,
   type DiscoveryTask,
   type PiProcessResult,
@@ -127,6 +128,56 @@ describe("research case desk", () => {
       executionAuthority: false,
     });
     expect(desk.cases[0]?.candidateListingRefs).toContain(listingRef);
+    const packet = desk.cases[0]?.reviewIntake;
+    if (packet === null || packet === undefined) {
+      throw new Error("missing review intake packet");
+    }
+    expect(packet).toMatchObject({
+      schemaVersion: "pmh.review-intake-packet.v1",
+      caseId: desk.cases[0]?.caseId,
+      readiness: "BLOCKED_EVIDENCE",
+      sourceBindings: {
+        discoveryRunId: desk.cases[0]?.scout.runId,
+        discoveryTaskId: "task:case:scout",
+        investigationArtifactHash: desk.cases[0]?.investigation.artifactHash,
+      },
+      authority: {
+        posture: "REVIEW_INTAKE_ONLY",
+        reviewStatus: "UNREVIEWED",
+        decisionIngestionEnabled: false,
+        promotionEligible: false,
+        executionAuthority: false,
+      },
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    expect(packet.packetHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(packet.sourceBindings.hypothesisHashes).toHaveLength(1);
+    expect(packet.blockers).toContain(
+      "missing evidence: Independent station-resolution evidence",
+    );
+    expect(() => verifyReviewIntakePacket(packet)).not.toThrow();
+    expect(
+      buildResearchCaseDesk(
+        ledger.projection(),
+        investigations.projection(),
+      ).cases[0]?.reviewIntake?.packetHash,
+    ).toBe(packet.packetHash);
+    expect(() =>
+      verifyReviewIntakePacket({
+        ...packet,
+        missingEvidence: ["tampered evidence"],
+      }),
+    ).toThrow(/hash mismatch/);
+    expect(() =>
+      verifyReviewIntakePacket({
+        ...packet,
+        authority: { ...packet.authority, executionAuthority: true },
+      } as unknown as typeof packet),
+    ).toThrow();
     expect(desk.cases[0]?.stages.map((stage) => [stage.stage, stage.status]))
       .toEqual([
         ["CATALOG_CONTEXT", "BOUND"],
@@ -167,6 +218,7 @@ describe("research case desk", () => {
           status: "NEEDS_INVESTIGATION",
           investigation: { status: "MISSING", attemptCount: 0 },
           promotionEligible: false,
+          reviewIntake: null,
         },
       ],
     });

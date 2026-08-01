@@ -2866,6 +2866,77 @@ function ResearchCaseDeskView() {
               </section>
             </div>
 
+            {selectedCase.reviewIntake !== null && (
+              <section className="case-review-intake">
+                <div className="case-section-heading">
+                  <div>
+                    <FileCheck2 size={14} />
+                    <strong>Independent review intake</strong>
+                  </div>
+                  <Badge
+                    variant={
+                      selectedCase.reviewIntake.readiness ===
+                      "READY_FOR_INDEPENDENT_REVIEW"
+                        ? "verified"
+                        : "warning"
+                    }
+                  >
+                    {selectedCase.reviewIntake.readiness.replaceAll("_", " ")}
+                  </Badge>
+                </div>
+                <div className="case-review-intake-grid">
+                  <div>
+                    <span>Self-verifying packet</span>
+                    <code>{selectedCase.reviewIntake.packetHash}</code>
+                    <small>
+                      Binds{" "}
+                      {
+                        selectedCase.reviewIntake.sourceBindings.hypothesisHashes
+                          .length
+                      }{" "}
+                      hypothesis hash
+                      {selectedCase.reviewIntake.sourceBindings.hypothesisHashes
+                        .length === 1
+                        ? ""
+                        : "es"}
+                      , the retained catalog identity, and the passed pi
+                      artifact.
+                    </small>
+                  </div>
+                  <div>
+                    <span>Required reviewer assessments</span>
+                    <div className="case-review-assessments">
+                      {selectedCase.reviewIntake.requiredAssessments.map(
+                        (assessment) => (
+                          <span key={assessment}>
+                            {assessment.replaceAll("_", " ").toLowerCase()}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {selectedCase.reviewIntake.blockers.length > 0 && (
+                  <p>
+                    {countLabel(
+                      selectedCase.reviewIntake.blockers.length,
+                      "blocker",
+                    )}
+                    {" · "}
+                    {selectedCase.reviewIntake.blockers[0]}
+                  </p>
+                )}
+                <div className="case-review-intake-lock">
+                  <ShieldCheck size={13} />
+                  <span>
+                    Intake only. Decision ingestion, promotion, and execution
+                    remain disabled; a future independent authority must publish
+                    separate hash-bound review artifacts.
+                  </span>
+                </div>
+              </section>
+            )}
+
             <div className="case-footer-strip">
               <div>
                 <SquareTerminal size={13} />

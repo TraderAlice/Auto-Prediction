@@ -147,6 +147,15 @@ or model output exists. The case projection always reconstructs
 `PROPOSE_ONLY`, `UNREVIEWED`, `promotionEligible: false`, and
 `executionAuthority: false`; it cannot create a review or feed compilation.
 
+A case with a retained exact scout context and passed pi report also derives a
+`pmh.review-intake-packet.v1`. This is a content-addressed handoff contract, not
+a review: it binds the latest proposal hashes and proposer identities to the
+catalog context, pi artifact, candidate listing scope, evidence gaps, and the
+required rule/outcome/timing/void/resolution-source assessments. The verifier
+recomputes the packet hash and rejects malformed or authority-widening fields.
+`GET /api/v1/research-cases/review-intake?caseId=...` returns only an existing
+packet and has no decision-write counterpart.
+
 ## Opportunity radar and durable handoff
 
 Prompt-driven discovery alone does not search a changing multi-venue catalog.
