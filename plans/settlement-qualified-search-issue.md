@@ -1,6 +1,6 @@
 # Settlement-qualified search issue
 
-Status: active
+Status: merged in PR #55
 Started: 2026-08-02
 
 ## Outcome
@@ -52,7 +52,7 @@ notification.
 - [x] Deterministically separate target relations from retained falsification evidence.
 - [x] Exercise the issue against the current immutable market corpus.
 - [x] Run focused and full Node 24 qualification plus visual inspection.
-- [ ] Publish and serially merge the next PR.
+- [x] Publish and serially merge the next PR.
 
 ## Safety invariants
 
