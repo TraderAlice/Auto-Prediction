@@ -920,6 +920,7 @@ function RealCandidatePreflightView() {
   const depth = studioProjection.qualification.realCandidateDepth;
   const disposition =
     studioProjection.qualification.realCandidateDisposition;
+  const rescreen = studioProjection.qualification.realCandidateRescreen;
   if (preflight === null || preflight === undefined) {
     return (
       <section className="page-section preflight-page">
@@ -940,7 +941,8 @@ function RealCandidatePreflightView() {
     );
   }
   const indicatedPositive = BigInt(preflight.catalogIndicativeGrossFloor) > 0n;
-  const currentStages = disposition?.stages ?? depth?.stages ?? preflight.stages;
+  const currentStages =
+    rescreen?.stages ?? disposition?.stages ?? depth?.stages ?? preflight.stages;
   const currentBlockers =
     disposition?.rejectionReasons ?? depth?.blockers ?? preflight.blockers;
 
@@ -954,13 +956,14 @@ function RealCandidatePreflightView() {
             One exact three-venue claim map produces a tempting catalog hint.
             Repricing the same two legs at venue-reported quotes removes the
             gross floor; replaying anonymous books at a common five-share size
-            confirms zero edge before fees. The current snapshot is rejected
-            deterministically before review or exact verification.
+            confirms zero edge before fees. A changed Polymarket book identity
+            invalidated the first result; a fresh screen independently reached
+            the same rejection before review or exact verification.
           </p>
         </div>
         <Badge variant="shadow">
           <CircleOff size={11} />
-          {(disposition?.classification ?? preflight.status).replaceAll("_", " ")}
+          {(rescreen?.classification ?? disposition?.classification ?? preflight.status).replaceAll("_", " ")}
         </Badge>
       </div>
 
@@ -987,14 +990,72 @@ function RealCandidatePreflightView() {
         />
       </div>
 
+      {rescreen !== null && rescreen !== undefined && (
+        <div className="preflight-rescreen">
+          <div className="preflight-rescreen-head">
+            <div className="preflight-rescreen-mark">
+              <RefreshCw size={17} />
+            </div>
+            <div>
+              <span>Book-change lineage · rescreen {rescreen.rescreenSequence}</span>
+              <strong>Old rejection invalidated, current rejection recomputed</strong>
+              <p>
+                The conclusion stayed the same, but its authority did not carry
+                forward. Fresh books produced a new depth identity and a new
+                snapshot-scoped disposition.
+              </p>
+            </div>
+            <Badge variant="verified">RECOMPUTED</Badge>
+          </div>
+
+          <div className="preflight-rescreen-flow">
+            <article>
+              <span>Previous snapshot</span>
+              <strong>REJECTED · now invalid</strong>
+              <code>
+                {rescreen.previousSnapshot.bookSnapshotIdentity.slice(0, 22)}…
+              </code>
+            </article>
+            <div className="preflight-rescreen-change">
+              <ChevronRight size={15} />
+              <span>{rescreen.changedBooks.length} book changed</span>
+              <small>
+                {rescreen.changedBooks.map((book) => book.venueId).join(" · ")}
+              </small>
+            </div>
+            <article className="is-current">
+              <span>Current snapshot</span>
+              <strong>REJECTED · independently</strong>
+              <code>
+                {rescreen.currentSnapshot.bookSnapshotIdentity.slice(0, 22)}…
+              </code>
+            </article>
+          </div>
+
+          <div className="preflight-rescreen-proof">
+            <span>
+              Prior decision reused <strong>NO</strong>
+            </span>
+            <span>
+              Economics recomputed <strong>YES</strong>
+            </span>
+            <code>{rescreen.artifactHash}</code>
+          </div>
+        </div>
+      )}
+
       {disposition !== null && disposition !== undefined && (
         <div className="preflight-disposition">
           <div className="preflight-disposition-mark">
             <CircleOff size={19} />
           </div>
           <div className="preflight-disposition-copy">
-            <span>Deterministic snapshot disposition</span>
-            <strong>Rejected before scarce review work</strong>
+            <span>Deterministic current-snapshot disposition</span>
+            <strong>
+              {rescreen === null || rescreen === undefined
+                ? "Rejected before scarce review work"
+                : "Fresh snapshot still fails economics"}
+            </strong>
             <p>
               The quantity-bound gross floor is already non-positive. An
               official non-negative sell-taker fee cannot restore strict
@@ -1315,12 +1376,12 @@ function RealCandidatePreflightView() {
       <div className="case-authority-lock preflight-authority-lock">
         <ShieldCheck size={15} />
         <span>
-          This disposition rejects only the bound book snapshot. It is not a
-          permanent market judgment, arbitrage certificate, or trading authority;
-          changed books require a fresh screen.
+          The previous decision was invalidated and the current decision was
+          recomputed. This still rejects only the latest bound book snapshot—not
+          the market permanently—and grants no certificate or trading authority.
         </span>
         <code>
-          {disposition?.artifactHash ?? depth?.artifactHash ?? preflight.artifactHash}
+          {rescreen?.artifactHash ?? disposition?.artifactHash ?? depth?.artifactHash ?? preflight.artifactHash}
         </code>
       </div>
     </section>

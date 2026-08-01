@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "polymarket-trump-out-2027-book-rescreen-1",
+  "venue": "polymarket-global",
+  "protocolVersion": "clob-book-rest:2026-08-01",
+  "sourceUrl": "https://clob.polymarket.com/book?token_id=59252515735652674747158950210016502214756531287333895140318848923768750410355",
+  "fetchedAt": "2026-08-01T05:50:59.000Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": null,
+  "rawHash": "sha256:da56fcd44d5e02ae7f08484f7cb50cbb12adf9d0f864c9fc9874d49c79c43481",
+  "byteLength": "2462",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

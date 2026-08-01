@@ -91,6 +91,7 @@ describe("Studio projection safety", () => {
     expect(studioProjection.qualification.realCandidatePreflight).toBeNull();
     expect(studioProjection.qualification.realCandidateDepth).toBeNull();
     expect(studioProjection.qualification.realCandidateDisposition).toBeNull();
+    expect(studioProjection.qualification.realCandidateRescreen).toBeNull();
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 
@@ -180,6 +181,7 @@ describe("Studio projection safety", () => {
       realCandidatePreflight: preflightDesk.projection(),
       realCandidateDepth: preflightDesk.depthProjection(),
       realCandidateDisposition: preflightDesk.dispositionProjection(),
+      realCandidateRescreen: preflightDesk.rescreenProjection(),
     });
     expect(projection.qualification.realCandidatePreflight).toMatchObject({
       status: "BLOCKED",
@@ -204,6 +206,22 @@ describe("Studio projection safety", () => {
       postFeeFloorUpperBound: "0",
       strictlyPositivePostFeeFloorPossible: false,
       terminalForSnapshot: true,
+      rescreenRequiredOnBookChange: true,
+      independentReviewInvoked: false,
+      verifierInvoked: false,
+      arbitrageVerified: false,
+    });
+    expect(projection.qualification.realCandidateRescreen).toMatchObject({
+      status: "REJECTED",
+      classification: "REJECTED_ECONOMICS",
+      rescreenSequence: 2,
+      previousDispositionInvalidated: true,
+      conclusionRecomputed: true,
+      priorDecisionReused: false,
+      decisionContinuity: "REJECTED_TO_REJECTED",
+      currentGrossFloorUpperBoundBeforeFees: "0",
+      currentPostFeeFloorUpperBound: "0",
+      terminalForCurrentSnapshot: true,
       rescreenRequiredOnBookChange: true,
       independentReviewInvoked: false,
       verifierInvoked: false,

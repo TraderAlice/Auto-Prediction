@@ -66,6 +66,25 @@ const LimitlessBookSchema = z.object({
 
 type Level = Readonly<{ price: bigint; quantity: bigint }>;
 
+export type RealCandidateBookFixtureNames = Readonly<{
+  polymarket: string;
+  limitless: string;
+}>;
+
+export type RealCandidateDepthInput = Readonly<{
+  polymarket: VerifiedRawFixture;
+  opinion: VerifiedRawFixture;
+  limitless: VerifiedRawFixture;
+  polymarketBook: VerifiedRawFixture;
+  limitlessBook: VerifiedRawFixture;
+  bookFixtureNames?: RealCandidateBookFixtureNames;
+}>;
+
+const DEFAULT_BOOK_FIXTURE_NAMES: RealCandidateBookFixtureNames = Object.freeze({
+  polymarket: "polymarket-trump-out-2027-book",
+  limitless: "limitless-trump-out-2027-book",
+});
+
 export type RealCandidateDepthEvidence = Readonly<{
   schemaVersion: "pmh.real-candidate-depth.v1";
   campaignId: "architecture-qualification";
@@ -207,24 +226,22 @@ function assertFixture(
   }
 }
 
-export function buildRealCandidateDepthEvidence(input: {
-  polymarket: VerifiedRawFixture;
-  opinion: VerifiedRawFixture;
-  limitless: VerifiedRawFixture;
-  polymarketBook: VerifiedRawFixture;
-  limitlessBook: VerifiedRawFixture;
-}): RealCandidateDepthEvidence {
+export function buildRealCandidateDepthEvidence(
+  input: RealCandidateDepthInput,
+): RealCandidateDepthEvidence {
   const preflight: RealCandidatePreflightEvidence =
     buildRealCandidatePreflightEvidence(input);
+  const bookFixtureNames =
+    input.bookFixtureNames ?? DEFAULT_BOOK_FIXTURE_NAMES;
   assertFixture(
     input.polymarketBook,
     "polymarket-global",
-    "polymarket-trump-out-2027-book",
+    bookFixtureNames.polymarket,
   );
   assertFixture(
     input.limitlessBook,
     "limitless",
-    "limitless-trump-out-2027-book",
+    bookFixtureNames.limitless,
   );
 
   const [polymarketMarket] = PolymarketMarketSchema.parse(

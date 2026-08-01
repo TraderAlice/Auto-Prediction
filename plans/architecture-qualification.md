@@ -63,6 +63,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Screen the real three-venue exact-claim fixtures with lexical `bigint` quotes and fail closed before verification when reported buy economics or prerequisite evidence is insufficient.
 - [x] Bind the real candidate to anonymous Polymarket and Limitless book depth at a common quantity without invoking the simulated complete-set route.
 - [x] Publish a deterministic snapshot-scoped rejection when official non-negative taker-fee evidence proves a non-positive depth-bound floor cannot become strictly positive.
+- [x] Invalidate and recompute a real candidate after a fresh anonymous book generation changes, preserving explicit prior/current decision lineage.
 - [x] Qualify real AI SDK and pi responses with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -137,6 +138,7 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: Anonymous public books bind five shares of the real Polymarket YES / Limitless NO route. Direct YES costs `0.35`; a simulated Limitless complete-set split and YES sale makes NO cost `4.65`; the full `5.00` payout is consumed before fees.
 - 2026-08-01: The depth screen is quantity-bound but not certificate-grade. Limitless REST exposes no venue generation, its dynamic taker fee is unbound, the split/sell route is simulation-only, and independent review remains absent; verifier invocation and all value-moving effects stay literal false.
 - 2026-08-01: The official Limitless fee document binds sell-taker fees to a non-negative 42–150 bp range with no maker rebate. Since the five-share gross-floor upper bound is already zero, `pmh.real-candidate-disposition.v1` rejects only the current book snapshot before review or verification; changed book identities require a fresh screen.
+- 2026-08-01: A second anonymous book capture changes the Polymarket raw hash and native generation while Limitless remains byte-identical. `pmh.real-candidate-rescreen.v1` rebuilds and invalidates the prior decision, recomputes fresh depth and disposition identities, and independently reaches `REJECTED_ECONOMICS`; prior-decision reuse, review, verification, and value-moving effects remain literal false.
 
 ## Blockers
 

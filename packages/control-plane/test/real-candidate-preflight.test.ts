@@ -13,6 +13,7 @@ describe("real candidate preflight desk", () => {
     expect(() => desk.projection()).toThrow(/not loaded/);
     expect(() => desk.depthProjection()).toThrow(/not loaded/);
     expect(() => desk.dispositionProjection()).toThrow(/not loaded/);
+    expect(() => desk.rescreenProjection()).toThrow(/not loaded/);
     const [first, second] = await Promise.all([desk.load(), desk.load()]);
     expect(first).toBe(second);
     expect(desk.projection()).toMatchObject({
@@ -48,5 +49,30 @@ describe("real candidate preflight desk", () => {
       arbitrageVerified: false,
       effects: { liveExecutionEnabled: false },
     });
+    expect(desk.rescreenProjection()).toMatchObject({
+      status: "REJECTED",
+      classification: "REJECTED_ECONOMICS",
+      scope: "CURRENT_BOUND_BOOK_SNAPSHOT_ONLY",
+      rescreenSequence: 2,
+      previousDispositionInvalidated: true,
+      conclusionRecomputed: true,
+      priorDecisionReused: false,
+      decisionContinuity: "REJECTED_TO_REJECTED",
+      currentGrossFloorUpperBoundBeforeFees: "0",
+      currentPostFeeFloorUpperBound: "0",
+      terminalForCurrentSnapshot: true,
+      rescreenRequiredOnBookChange: true,
+      independentReviewInvoked: false,
+      verifierInvoked: false,
+      arbitrageVerified: false,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(desk.rescreenProjection().changedBooks).toEqual([
+      expect.objectContaining({
+        venueId: "polymarket-global",
+        rawContentChanged: true,
+        venueGenerationChanged: true,
+      }),
+    ]);
   });
 });

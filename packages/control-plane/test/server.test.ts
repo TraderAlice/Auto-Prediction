@@ -965,6 +965,25 @@ describe("control-plane HTTP surface", () => {
         artifactHash: string;
         effects: { liveExecutionEnabled: boolean };
       };
+      realCandidateRescreen: {
+        status: string;
+        classification: string;
+        scope: string;
+        rescreenSequence: number;
+        previousDispositionInvalidated: boolean;
+        conclusionRecomputed: boolean;
+        priorDecisionReused: boolean;
+        decisionContinuity: string;
+        currentGrossFloorUpperBoundBeforeFees: string;
+        currentPostFeeFloorUpperBound: string;
+        terminalForCurrentSnapshot: boolean;
+        rescreenRequiredOnBookChange: boolean;
+        independentReviewInvoked: boolean;
+        verifierInvoked: boolean;
+        arbitrageVerified: boolean;
+        artifactHash: string;
+        effects: { liveExecutionEnabled: boolean };
+      };
     };
     expect(response.status).toBe(200);
     expect(qualification.replayChaos).toMatchObject({
@@ -1020,6 +1039,27 @@ describe("control-plane HTTP surface", () => {
       effects: { liveExecutionEnabled: false },
     });
     expect(qualification.realCandidateDisposition.artifactHash).toMatch(
+      /^sha256:/,
+    );
+    expect(qualification.realCandidateRescreen).toMatchObject({
+      status: "REJECTED",
+      classification: "REJECTED_ECONOMICS",
+      scope: "CURRENT_BOUND_BOOK_SNAPSHOT_ONLY",
+      rescreenSequence: 2,
+      previousDispositionInvalidated: true,
+      conclusionRecomputed: true,
+      priorDecisionReused: false,
+      decisionContinuity: "REJECTED_TO_REJECTED",
+      currentGrossFloorUpperBoundBeforeFees: "0",
+      currentPostFeeFloorUpperBound: "0",
+      terminalForCurrentSnapshot: true,
+      rescreenRequiredOnBookChange: true,
+      independentReviewInvoked: false,
+      verifierInvoked: false,
+      arbitrageVerified: false,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(qualification.realCandidateRescreen.artifactHash).toMatch(
       /^sha256:/,
     );
   });
