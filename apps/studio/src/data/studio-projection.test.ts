@@ -102,6 +102,8 @@ describe("Studio projection safety", () => {
     expect(studioProjection.ai.semanticReviewScheduler).toMatchObject({
       pendingCount: 0,
       leasedCount: 0,
+      bundledJobCount: 0,
+      legacyEvidenceDebtCount: 0,
       exhaustedCount: 0,
       budget: {
         basis: "REQUEST_ATTEMPTS",

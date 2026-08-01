@@ -188,6 +188,8 @@ describe("control-plane HTTP surface", () => {
     expect(projection.ai.semanticReviewScheduler).toMatchObject({
       configured: false,
       pendingCount: 0,
+      bundledJobCount: 0,
+      legacyEvidenceDebtCount: 0,
       budget: { basis: "REQUEST_ATTEMPTS", maxAttemptsPerJob: 3 },
       semanticDecisionAuthority: false,
       certificateAuthority: false,

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertSemanticReviewJobRecord,
   buildMarketCorpusSnapshot,
+  buildProposalEvidenceBundle,
   createSemanticReviewDesk,
   SemanticReviewScheduler,
   type MarketRelationProposal,
@@ -88,10 +89,12 @@ function candidate(
   item: MarketRelationProposal,
   priority: 1 | 2 | 3 | 4 | 5,
   issueIds: readonly Hash[] = [hashCanonical({ issue: priority })],
+  evidenceBundle: SemanticReviewCandidate["evidenceBundle"] = null,
 ): SemanticReviewCandidate {
   return Object.freeze({
     proposal: item,
     proposalCorpusSnapshotIdentity: snapshot.snapshotIdentity,
+    evidenceBundle,
     issueIds,
     priority,
   });
@@ -293,10 +296,106 @@ describe("persistent semantic review scheduler", () => {
     expect(calls).toBe(1);
   });
 
+  it("reviews captured proposal evidence after the live catalog rotates", async () => {
+    const item = proposal("captured-evidence");
+    const bundle = buildProposalEvidenceBundle(item, snapshot);
+    const captured = candidate(item, 5, undefined, bundle);
+    let receivedTitles: readonly string[] = [];
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      {
+        reviewer: {
+          review: async ({ listings }) => {
+            receivedTitles = listings.map((listing) => listing.title);
+            return reviewResult("ESCALATE");
+          },
+        },
+      },
+    );
+    const rotatedSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ sources: "rotated" }),
+      eligibleSourceCount: 1,
+      excludedSourceCount: 0,
+      listings: [{
+        ...listings[0]!,
+        listingRef: "venue-c:replacement",
+        venueId: "venue-c",
+        venueInstrumentId: "replacement",
+        title: "An unrelated replacement listing",
+      }],
+    });
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    await Promise.all(scheduler.tick([captured], rotatedSnapshot));
+    expect(receivedTitles).toEqual(listings.map((listing) => listing.title));
+    expect(scheduler.projection()).toMatchObject({
+      passedCount: 1,
+      blockedEvidenceCount: 0,
+      bundledJobCount: 1,
+      capturedOriginalJobCount: 1,
+      rebasedJobCount: 0,
+      legacyEvidenceDebtCount: 0,
+      budget: { requestAttemptsStarted: 1 },
+    });
+    expect(desk.projection().records[0]).toMatchObject({
+      proposalCorpusSnapshotIdentity: snapshot.snapshotIdentity,
+      corpusSnapshotIdentity: snapshot.snapshotIdentity,
+      report: { input: { evidencePosture: "ORIGINAL_CORPUS" } },
+    });
+    const durableJob = scheduler.projection().jobs[0]!;
+    const durableBundle = durableJob.evidenceBundle!;
+    if (durableBundle.schemaVersion !== "pmh.proposal-evidence-bundle.v2") {
+      throw new Error("fixture expected a durable evidence bundle");
+    }
+    const {
+      bundleId: _bundleId,
+      proposal: _proposal,
+      schemaVersion: _schemaVersion,
+      ...legacyFields
+    } = durableBundle;
+    const legacyBundleBody = {
+      schemaVersion: "pmh.proposal-evidence-bundle.v1" as const,
+      ...legacyFields,
+    };
+    const { artifactHash: _artifactHash, ...jobBody } = durableJob;
+    const legacyJobBody = {
+      ...jobBody,
+      evidenceBundle: {
+        ...legacyBundleBody,
+        bundleId: hashCanonical(legacyBundleBody),
+      },
+    };
+    expect(() => assertSemanticReviewJobRecord({
+      ...legacyJobBody,
+      artifactHash: hashCanonical(legacyJobBody),
+    })).not.toThrow();
+  });
+
   it("recovers an expired SQLite lease and retains the result across restart", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-review-scheduler-"));
     const path = join(directory, "control-plane.sqlite");
-    const item = candidate(proposal("restart"), 5);
+    const restartProposal = proposal("restart");
+    const item = candidate(
+      restartProposal,
+      5,
+      undefined,
+      buildProposalEvidenceBundle(restartProposal, snapshot),
+    );
+    const rotatedSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ sources: "restart-rotated" }),
+      eligibleSourceCount: 1,
+      excludedSourceCount: 0,
+      listings: [{
+        ...listings[0]!,
+        listingRef: "venue-c:after-restart",
+        venueId: "venue-c",
+        venueInstrumentId: "after-restart",
+      }],
+    });
     let now = Date.parse("2026-08-02T00:00:00.000Z");
     try {
       const firstStore = new SqliteOperationalStore(path);
@@ -334,12 +433,15 @@ describe("persistent semantic review scheduler", () => {
         store: secondStore,
         now: () => now,
       });
-      expect(secondScheduler.tick([item], snapshot)).toHaveLength(0);
+      expect(secondScheduler.tick([], rotatedSnapshot)).toHaveLength(0);
       expect(secondScheduler.projection().retryWaitCount).toBe(1);
       now += 1_000;
-      await Promise.all(secondScheduler.tick([item], snapshot));
+      await Promise.all(secondScheduler.tick([], rotatedSnapshot));
       expect(secondScheduler.projection()).toMatchObject({
         passedCount: 1,
+        bundledJobCount: 1,
+        capturedOriginalJobCount: 1,
+        legacyEvidenceDebtCount: 0,
         unreadNotificationCount: 1,
         budget: { requestAttemptsStarted: 2 },
       });
@@ -353,6 +455,7 @@ describe("persistent semantic review scheduler", () => {
       }).projection();
       expect(restored).toMatchObject({
         passedCount: 1,
+        bundledJobCount: 1,
         unreadNotificationCount: 1,
         storage: {
           jobs: { durable: true, schemaVersion: 12 },

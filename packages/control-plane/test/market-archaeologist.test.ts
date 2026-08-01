@@ -5,7 +5,9 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  assertProposalEvidenceBundle,
   buildMarketCorpusSnapshot,
+  buildProposalEvidenceBundle,
   createMarketArchaeologistDesk,
   type DiscoveryCatalogListing,
   type PiProcessRequest,
@@ -128,6 +130,21 @@ describe("Market Archaeologist", () => {
       },
     });
     expect(JSON.stringify(record)).not.toContain(secret);
+    const bundle = record.report?.result.proposalEvidenceBundles?.[0];
+    expect(bundle).toMatchObject({
+      proposalCorpusSnapshotIdentity: snapshot.snapshotIdentity,
+      evidenceCorpusSnapshotIdentity: snapshot.snapshotIdentity,
+      captureKind: "PROPOSAL_CORPUS",
+      authority: "SEMANTIC_REVIEW_EVIDENCE_ONLY",
+      executionAuthority: false,
+      listingRefs: [
+        "venue-b:august-pizza-youtube",
+        "venue-a:august-pizza",
+      ],
+    });
+    expect(bundle?.listings.map((listing) => listing.listingRef)).toEqual(
+      bundle?.listingRefs,
+    );
     expect(desk.projection()).toMatchObject({
       status: "IDLE",
       runCount: 1,
@@ -137,6 +154,71 @@ describe("Market Archaeologist", () => {
     const replay = desk.begin(snapshot, "Search for pizza event relations");
     expect(replay.idempotentReplay).toBe(true);
     expect((await replay.promise).runId).toBe(record.runId);
+  });
+
+  it("content-addresses exact proposal evidence and rejects tampering", () => {
+    const proposalBody = {
+      relationKind: "IMPLIES" as const,
+      listingRefs: [
+        "venue-b:august-pizza-youtube",
+        "venue-a:august-pizza",
+      ],
+      statement: "The platform-specific claim may imply the broad claim.",
+      rationale: "YouTube is a public livestream platform.",
+      falsifiers: ["The broad rule excludes YouTube."],
+      authority: "PROPOSE_ONLY" as const,
+      reviewStatus: "UNREVIEWED" as const,
+      executionAuthority: false as const,
+    };
+    const proposal = Object.freeze({
+      ...proposalBody,
+      proposalId: hashCanonical({
+        corpusSnapshotIdentity: snapshot.snapshotIdentity,
+        ...proposalBody,
+      }),
+    });
+    const bundle = buildProposalEvidenceBundle(proposal, snapshot);
+    expect(assertProposalEvidenceBundle(bundle)).toBe(bundle);
+    expect(bundle.listingHashes).toEqual(bundle.listings.map(hashCanonical));
+
+    const {
+      bundleId: _durableBundleId,
+      proposal: _embeddedProposal,
+      schemaVersion: _durableSchemaVersion,
+      ...legacyFields
+    } = bundle;
+    const legacyBody = {
+      schemaVersion: "pmh.proposal-evidence-bundle.v1" as const,
+      ...legacyFields,
+    };
+    expect(assertProposalEvidenceBundle({
+      ...legacyBody,
+      bundleId: hashCanonical(legacyBody),
+    }).schemaVersion).toBe("pmh.proposal-evidence-bundle.v1");
+
+    const tampered = {
+      ...bundle,
+      listings: bundle.listings.map((listing, index) =>
+        index === 0 ? { ...listing, title: "substituted title" } : listing
+      ),
+    };
+    expect(() => assertProposalEvidenceBundle(tampered)).toThrow(
+      /bounded contract|identity mismatch/,
+    );
+
+    const { bundleId: _bundleId, ...bundleBody } = bundle;
+    const oversizedListings = bundle.listings.map((listing, index) =>
+      index === 0 ? { ...listing, title: "x".repeat(512_000) } : listing
+    );
+    const oversizedBody = {
+      ...bundleBody,
+      listings: oversizedListings,
+      listingHashes: oversizedListings.map(hashCanonical),
+    };
+    expect(() => assertProposalEvidenceBundle({
+      ...oversizedBody,
+      bundleId: hashCanonical(oversizedBody),
+    })).toThrow(/bounded contract/);
   });
 
   it("keeps scheduling opt-in and changed-corpus only", () => {

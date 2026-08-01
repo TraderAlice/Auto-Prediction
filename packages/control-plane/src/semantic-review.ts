@@ -4,7 +4,9 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import type {
   MarketRelationKind,
   MarketRelationProposal,
+  ProposalEvidenceBundle,
 } from "./market-archaeologist.js";
+import { assertProposalEvidenceBundle } from "./market-archaeologist.js";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import type { OperationalStorageProjection } from "./types.js";
 
@@ -532,6 +534,7 @@ export class SemanticReviewDesk {
     proposal: MarketRelationProposal,
     snapshot: MarketCorpusSnapshot,
     proposalCorpusSnapshotIdentity: Hash = snapshot.snapshotIdentity,
+    evidenceBundle?: ProposalEvidenceBundle,
   ): Readonly<{
     promise: Promise<SemanticReviewRecord>;
     idempotentReplay: boolean;
@@ -544,11 +547,21 @@ export class SemanticReviewDesk {
     if (
       opportunityId !== `ai:${proposal.proposalId}` ||
       !HASH_PATTERN.test(proposalCorpusSnapshotIdentity) ||
-      snapshot.listingCount === 0
+      (snapshot.listingCount === 0 && evidenceBundle === undefined)
     ) {
       throw new Error("semantic review opportunity scope is invalid");
     }
-    const listings = proposal.listingRefs.map((listingRef) => {
+    const captured = evidenceBundle === undefined
+      ? undefined
+      : assertProposalEvidenceBundle(evidenceBundle);
+    if (captured !== undefined && (
+      captured.proposalId !== proposal.proposalId ||
+      captured.proposalCorpusSnapshotIdentity !== proposalCorpusSnapshotIdentity ||
+      captured.listingRefs.join("\n") !== proposal.listingRefs.join("\n")
+    )) {
+      throw new Error("semantic review evidence bundle lineage mismatch");
+    }
+    const listings = captured?.listings ?? proposal.listingRefs.map((listingRef) => {
       const listing = snapshot.listings.find(
         (candidate) => candidate.listingRef === listingRef,
       );
@@ -557,12 +570,14 @@ export class SemanticReviewDesk {
       }
       return listing;
     });
+    const corpusSnapshotIdentity =
+      captured?.evidenceCorpusSnapshotIdentity ?? snapshot.snapshotIdentity;
     const reviewId = hashCanonical({
       schemaVersion: "pmh.semantic-review-run.v1",
       opportunityId,
       proposalId: proposal.proposalId,
       proposalCorpusSnapshotIdentity,
-      corpusSnapshotIdentity: snapshot.snapshotIdentity,
+      corpusSnapshotIdentity,
       model: this.model,
     });
     const active = this.#active.get(reviewId);
@@ -587,7 +602,7 @@ export class SemanticReviewDesk {
       opportunityId,
       proposalId: proposal.proposalId,
       proposalCorpusSnapshotIdentity,
-      corpusSnapshotIdentity: snapshot.snapshotIdentity,
+      corpusSnapshotIdentity,
       model: this.model,
       status: "RUNNING",
       startedAt,
@@ -617,9 +632,9 @@ export class SemanticReviewDesk {
               opportunityId,
               proposalId: proposal.proposalId,
               proposalCorpusSnapshotIdentity,
-              corpusSnapshotIdentity: snapshot.snapshotIdentity,
+              corpusSnapshotIdentity,
               evidencePosture:
-                proposalCorpusSnapshotIdentity === snapshot.snapshotIdentity
+                proposalCorpusSnapshotIdentity === corpusSnapshotIdentity
                   ? ("ORIGINAL_CORPUS" as const)
                   : ("REBASED_CURRENT_CORPUS" as const),
               relationKind: proposal.relationKind,
