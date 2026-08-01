@@ -81,6 +81,12 @@ const fixtures = Object.freeze({
     sourceUrl:
       "https://api.limitless.exchange/markets/trump-out-as-president-before-2027-1768933068297/orderbook",
   },
+  "limitless-fees": {
+    venue: "limitless",
+    protocolVersion: "official-fees-markdown:2026-08-01",
+    sourceUrl: "https://docs.limitless.exchange/user-guide/fees.md",
+    format: "TEXT",
+  },
   "myriad-amm-catalog": {
     venue: "myriad",
     protocolVersion: "api-v2.0.4:2026-07-31",
@@ -119,7 +125,11 @@ async function capture(name) {
   }
 
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  JSON.parse(text);
+  if (definition.format === "TEXT") {
+    if (text.trim() === "") throw new Error(`${name} returned an empty document`);
+  } else {
+    JSON.parse(text);
+  }
 
   const rawHash = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
   const date = fetchedAt.slice(0, 10);

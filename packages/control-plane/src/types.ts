@@ -231,6 +231,7 @@ export type StudioProjection = Readonly<{
     reviewedCompilation: ReviewedCompilationEvidence;
     realCandidatePreflight: import("@pmh/evidence").RealCandidatePreflightEvidence | null;
     realCandidateDepth: import("@pmh/evidence").RealCandidateDepthEvidence | null;
+    realCandidateDisposition: import("@pmh/evidence").RealCandidateDispositionEvidence | null;
   }>;
   discoveryDesk: DiscoveryDeskProjection;
   venues: readonly Readonly<{

@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "pmh.real-candidate-disposition.v1",
+  "campaignId": "architecture-qualification",
+  "checkpointId": "three-venue-real-candidate-disposition",
+  "status": "REJECTED",
+  "classification": "REJECTED_ECONOMICS",
+  "scope": "BOUND_BOOK_SNAPSHOT_ONLY",
+  "depthArtifactHash": "sha256:b7aa9019b0e740233f31ff35c226271610c67f892e805491e651ec6aad87ef08",
+  "claimIdentity": "sha256:36f25c9731ffdc71a3bd442abbe0dfe137da349c6fb52fc4485ac6dd78a31481",
+  "canonicalTitle": "Trump out as President before 2027?",
+  "screenQuantity": "500000000",
+  "quantityScale": "100000000",
+  "grossFloorUpperBoundBeforeFees": "0",
+  "postFeeFloorUpperBound": "0",
+  "strictlyPositivePostFeeFloorPossible": false,
+  "feeEvidence": {
+    "venueId": "limitless",
+    "routeLeg": "SELL_YES_TAKER",
+    "sourceFixtureHash": "sha256:dfecf840b4307981f75e29b802835c40f85e3e16229c8e255fb75936690e1369",
+    "sourceReceivedAt": "2026-08-01T05:36:55.802Z",
+    "protocolIdentity": "official-fees-markdown:2026-08-01",
+    "minimumSellTakerFeeBps": "42",
+    "maximumSellTakerFeeBps": "150",
+    "makerRebateApplicable": false,
+    "exactFeeAmountBound": false
+  },
+  "decisionRule": "REJECT_WHEN_GROSS_FLOOR_IS_NOT_STRICTLY_POSITIVE",
+  "rejectionReasons": [
+    {
+      "code": "GROSS_FLOOR_NOT_STRICTLY_POSITIVE",
+      "detail": "The quantity-bound complete-payout route has no strictly positive floor before fees."
+    },
+    {
+      "code": "NON_NEGATIVE_TAKER_FEE_CANNOT_IMPROVE_FLOOR",
+      "detail": "The official Limitless sell-taker fee range is non-negative, so an exact fee can only preserve or reduce the gross floor."
+    }
+  ],
+  "decisionDoesNotRequire": [
+    "EXACT_DYNAMIC_FEE_AMOUNT",
+    "LIMITLESS_BOOK_GENERATION",
+    "VALUE_MOVING_ROUTE_QUALIFICATION",
+    "INDEPENDENT_EQUIVALENCE_REVIEW",
+    "EXACT_ARBITRAGE_VERIFICATION"
+  ],
+  "terminalForSnapshot": true,
+  "rescreenRequiredOnBookChange": true,
+  "stages": [
+    {
+      "stage": "QUANTITY_BOUND_ECONOMICS",
+      "status": "PASS",
+      "detail": "Five shares are bound to both route legs and consume the full payout.",
+      "evidenceHashes": [
+        "sha256:b7aa9019b0e740233f31ff35c226271610c67f892e805491e651ec6aad87ef08"
+      ]
+    },
+    {
+      "stage": "TAKER_FEE_POSTURE",
+      "status": "PASS",
+      "detail": "42–150 bps official sell-taker fee range; no maker rebate applies.",
+      "evidenceHashes": [
+        "sha256:dfecf840b4307981f75e29b802835c40f85e3e16229c8e255fb75936690e1369"
+      ]
+    },
+    {
+      "stage": "STRICT_POSITIVE_FLOOR",
+      "status": "REJECTED",
+      "detail": "The post-fee floor upper bound is 0; strict positivity is impossible for this snapshot.",
+      "evidenceHashes": [
+        "sha256:b7aa9019b0e740233f31ff35c226271610c67f892e805491e651ec6aad87ef08",
+        "sha256:dfecf840b4307981f75e29b802835c40f85e3e16229c8e255fb75936690e1369"
+      ]
+    },
+    {
+      "stage": "INDEPENDENT_REVIEW",
+      "status": "NOT_RUN",
+      "detail": "Review is unnecessary after deterministic economic rejection.",
+      "evidenceHashes": [
+        "sha256:a217e2c9c84bd5b90eae0387c2826b18e5933755c97b305eabe50785e4f2024a"
+      ]
+    },
+    {
+      "stage": "EXACT_VERIFICATION",
+      "status": "NOT_RUN",
+      "detail": "The arbitrage verifier accepts only candidates with a strictly positive precondition.",
+      "evidenceHashes": [
+        "sha256:b7aa9019b0e740233f31ff35c226271610c67f892e805491e651ec6aad87ef08"
+      ]
+    },
+    {
+      "stage": "SNAPSHOT_DISPOSITION",
+      "status": "REJECTED",
+      "detail": "Current book identities are terminally rejected; changed books require a new screen.",
+      "evidenceHashes": [
+        "sha256:b7aa9019b0e740233f31ff35c226271610c67f892e805491e651ec6aad87ef08"
+      ]
+    }
+  ],
+  "independentReviewInvoked": false,
+  "verifierInvoked": false,
+  "arbitrageVerified": false,
+  "effects": {
+    "externalWrites": false,
+    "valueMovingActions": false,
+    "liveExecutionEnabled": false
+  },
+  "artifactHash": "sha256:14cb644872dac803451bb61068b4314df87a33f691237acb48ce973eba2bcd55"
+}

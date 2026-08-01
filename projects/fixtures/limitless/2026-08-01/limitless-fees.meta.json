@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "limitless-fees",
+  "venue": "limitless",
+  "protocolVersion": "official-fees-markdown:2026-08-01",
+  "sourceUrl": "https://docs.limitless.exchange/user-guide/fees.md",
+  "fetchedAt": "2026-08-01T05:36:55.802Z",
+  "httpStatus": 200,
+  "contentType": "text/markdown; charset=utf-8",
+  "etag": null,
+  "lastModified": "Sat, 01 Aug 2026 05:36:56 GMT",
+  "rawHash": "sha256:dfecf840b4307981f75e29b802835c40f85e3e16229c8e255fb75936690e1369",
+  "byteLength": "4208",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

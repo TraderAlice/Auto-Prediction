@@ -203,3 +203,13 @@ before fees. The screen is quantity-bound but not certificate-grade: the
 Limitless REST response has no venue generation identity, its taker fee is
 dynamic and unbound, and the split/sell route remains simulation-only. No
 value-moving method is invoked.
+
+`real-candidate-disposition.v1.json` turns that snapshot's intermediate
+`BLOCKED` economics into a terminal, snapshot-scoped
+`REJECTED_ECONOMICS` decision. An anonymous byte-preserved copy of the
+official Limitless fee document binds sell-taker fees to a non-negative
+42–150 bp range with no maker rebate. Because the quantity-bound gross floor
+is already zero, no exact dynamic fee amount can make the post-fee floor
+strictly positive. The pipeline therefore does not spend independent-review
+or exact-verifier authority on this snapshot. The disposition is not a
+permanent market judgment: any changed book identity must be screened again.

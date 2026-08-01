@@ -90,6 +90,7 @@ describe("Studio projection safety", () => {
     });
     expect(studioProjection.qualification.realCandidatePreflight).toBeNull();
     expect(studioProjection.qualification.realCandidateDepth).toBeNull();
+    expect(studioProjection.qualification.realCandidateDisposition).toBeNull();
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 
@@ -178,6 +179,7 @@ describe("Studio projection safety", () => {
       activeRuns: 0,
       realCandidatePreflight: preflightDesk.projection(),
       realCandidateDepth: preflightDesk.depthProjection(),
+      realCandidateDisposition: preflightDesk.dispositionProjection(),
     });
     expect(projection.qualification.realCandidatePreflight).toMatchObject({
       status: "BLOCKED",
@@ -193,6 +195,17 @@ describe("Studio projection safety", () => {
       screenQuantity: "500000000",
       quantityBound: true,
       grossEdgeBpsBeforeFees: "0",
+      verifierInvoked: false,
+      arbitrageVerified: false,
+    });
+    expect(projection.qualification.realCandidateDisposition).toMatchObject({
+      status: "REJECTED",
+      classification: "REJECTED_ECONOMICS",
+      postFeeFloorUpperBound: "0",
+      strictlyPositivePostFeeFloorPossible: false,
+      terminalForSnapshot: true,
+      rescreenRequiredOnBookChange: true,
+      independentReviewInvoked: false,
       verifierInvoked: false,
       arbitrageVerified: false,
     });
