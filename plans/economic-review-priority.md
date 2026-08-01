@@ -1,6 +1,6 @@
 # Economic review priority
 
-Status: active
+Status: complete — draft PR #52
 Started: 2026-08-02
 
 ## Outcome
@@ -53,7 +53,7 @@ certify, or execute.
   caveats in Studio.
 - [x] Prove stale-contract, missing/malformed-price, unsupported-relation,
   positive/non-positive, cap, ordering, identity, and authority behavior.
-- [ ] Qualify the retained runtime, responsive Studio, and the serial PR.
+- [x] Qualify the retained runtime, responsive Studio, and the serial PR.
 
 ## Safety invariants
 
