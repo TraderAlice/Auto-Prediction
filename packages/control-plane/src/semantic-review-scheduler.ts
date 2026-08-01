@@ -1,5 +1,10 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
-import type { MarketRelationProposal } from "./market-archaeologist.js";
+import {
+  assertProposalEvidenceBundle,
+  type DurableProposalEvidenceBundle,
+  type MarketRelationProposal,
+  type ProposalEvidenceBundle,
+} from "./market-archaeologist.js";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import {
   SemanticReviewBusyError,
@@ -31,6 +36,7 @@ export type SemanticReviewJobRecord = Readonly<{
   opportunityId: string;
   proposalId: Hash;
   proposalCorpusSnapshotIdentity: Hash;
+  evidenceBundle?: ProposalEvidenceBundle | null;
   issueIds: readonly Hash[];
   priority: 1 | 2 | 3 | 4 | 5;
   status: SemanticReviewJobStatus;
@@ -80,6 +86,7 @@ export interface SemanticReviewSchedulerStore {
 export type SemanticReviewCandidate = Readonly<{
   proposal: MarketRelationProposal;
   proposalCorpusSnapshotIdentity: Hash;
+  evidenceBundle: DurableProposalEvidenceBundle | null;
   issueIds: readonly Hash[];
   priority: 1 | 2 | 3 | 4 | 5;
 }>;
@@ -97,6 +104,10 @@ export type SemanticReviewSchedulerProjection = Readonly<{
   leasedCount: number;
   retryWaitCount: number;
   blockedEvidenceCount: number;
+  bundledJobCount: number;
+  capturedOriginalJobCount: number;
+  rebasedJobCount: number;
+  legacyEvidenceDebtCount: number;
   passedCount: number;
   exhaustedCount: number;
   unreadNotificationCount: number;
@@ -167,6 +178,7 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
   const record = value as SemanticReviewJobRecord;
   const terminal = record.status === "PASS" || record.status === "EXHAUSTED";
   const leased = record.status === "LEASED";
+  const evidenceBundle = record.evidenceBundle ?? null;
   if (
     record.schemaVersion !== "pmh.semantic-review-job.v1" ||
     !HASH_PATTERN.test(String(record.jobId)) ||
@@ -177,6 +189,10 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
     record.opportunityId !== `ai:${record.proposalId}` ||
     !HASH_PATTERN.test(String(record.proposalId)) ||
     !HASH_PATTERN.test(String(record.proposalCorpusSnapshotIdentity)) ||
+    (evidenceBundle !== null && (
+      assertProposalEvidenceBundle(evidenceBundle).proposalId !== record.proposalId ||
+      evidenceBundle.proposalCorpusSnapshotIdentity !== record.proposalCorpusSnapshotIdentity
+    )) ||
     !Array.isArray(record.issueIds) || record.issueIds.length === 0 ||
     record.issueIds.length > 20 ||
     record.issueIds.some((item) => !HASH_PATTERN.test(String(item))) ||
@@ -322,6 +338,7 @@ export class SemanticReviewScheduler {
           opportunityId: `ai:${proposalId}`,
           proposalId,
           proposalCorpusSnapshotIdentity: candidate.proposalCorpusSnapshotIdentity,
+          evidenceBundle: candidate.evidenceBundle,
           issueIds,
           priority: candidate.priority,
           status: review === undefined ? "PENDING" : "PASS",
@@ -358,12 +375,15 @@ export class SemanticReviewScheduler {
       }
       if (
         existing.issueIds.join("\n") !== issueIds.join("\n") ||
-        existing.priority !== candidate.priority
+        existing.priority !== candidate.priority ||
+        (candidate.evidenceBundle !== null &&
+          (existing.evidenceBundle?.bundleId ?? null) !== candidate.evidenceBundle.bundleId)
       ) {
         this.#saveJob(withJobHash({
           ...this.#withoutJobHash(existing),
           issueIds,
           priority: candidate.priority,
+          evidenceBundle: candidate.evidenceBundle ?? existing.evidenceBundle ?? null,
           updatedAt: now,
         }));
       }
@@ -386,9 +406,7 @@ export class SemanticReviewScheduler {
     );
     if (available <= 0) return Object.freeze([]);
     const now = this.#now();
-    const candidateByProposal = new Map(
-      candidates.map((candidate) => [candidate.proposal.proposalId, candidate] as const),
-    );
+    const candidateByProposal = this.#candidateByProposal(candidates);
     const due = this.#jobs
       .filter((job) =>
         (job.status === "PENDING" || job.status === "RETRY_WAIT") &&
@@ -412,9 +430,15 @@ export class SemanticReviewScheduler {
     candidate: SemanticReviewCandidate,
     snapshot: MarketCorpusSnapshot,
   ): Promise<SemanticReviewJobRecord> {
-    const missingListingRefs = candidate.proposal.listingRefs.filter(
-      (listingRef) => !snapshot.listings.some((listing) => listing.listingRef === listingRef),
-    );
+    const storedBundle = job.evidenceBundle ?? null;
+    const evidenceBundle = storedBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
+      ? storedBundle
+      : candidate.evidenceBundle;
+    const missingListingRefs = evidenceBundle === null || evidenceBundle === undefined
+      ? candidate.proposal.listingRefs.filter(
+        (listingRef) => !snapshot.listings.some((listing) => listing.listingRef === listingRef),
+      )
+      : [];
     if (missingListingRefs.length > 0) {
       return Promise.resolve(this.#blockForEvidence(job, missingListingRefs));
     }
@@ -436,6 +460,7 @@ export class SemanticReviewScheduler {
         candidate.proposal,
         snapshot,
         candidate.proposalCorpusSnapshotIdentity,
+        evidenceBundle ?? undefined,
       );
     } catch (error) {
       const reverted = this.#saveJob(withJobHash({
@@ -515,19 +540,43 @@ export class SemanticReviewScheduler {
     }
   }
 
+  #candidateByProposal(
+    candidates: readonly SemanticReviewCandidate[],
+  ): Map<Hash, SemanticReviewCandidate> {
+    const byProposal = new Map(
+      candidates.map((candidate) => [candidate.proposal.proposalId, candidate] as const),
+    );
+    for (const job of this.#jobs) {
+      const bundle = job.evidenceBundle ?? null;
+      if (
+        bundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2" ||
+        byProposal.has(job.proposalId)
+      ) continue;
+      byProposal.set(job.proposalId, Object.freeze({
+        proposal: bundle.proposal,
+        proposalCorpusSnapshotIdentity: job.proposalCorpusSnapshotIdentity,
+        evidenceBundle: bundle,
+        issueIds: job.issueIds,
+        priority: job.priority,
+      }));
+    }
+    return byProposal;
+  }
+
   #reconcileEvidenceAvailability(
     candidates: readonly SemanticReviewCandidate[],
     snapshot: MarketCorpusSnapshot,
   ): void {
-    const candidateByProposal = new Map(
-      candidates.map((candidate) => [candidate.proposal.proposalId, candidate] as const),
-    );
+    const candidateByProposal = this.#candidateByProposal(candidates);
     const availableRefs = new Set(snapshot.listings.map((listing) => listing.listingRef));
     for (const job of this.#jobs.filter((item) => item.status === "BLOCKED_EVIDENCE")) {
       const candidate = candidateByProposal.get(job.proposalId);
       if (
         candidate === undefined ||
-        candidate.proposal.listingRefs.some((listingRef) => !availableRefs.has(listingRef))
+        (((job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
+          ? job.evidenceBundle
+          : candidate.evidenceBundle) ?? null) === null &&
+          candidate.proposal.listingRefs.some((listingRef) => !availableRefs.has(listingRef)))
       ) continue;
       const updatedAt = new Date(this.#now()).toISOString();
       this.#saveJob(withJobHash({
@@ -717,6 +766,23 @@ export class SemanticReviewScheduler {
       leasedCount: jobs.filter((job) => job.status === "LEASED").length,
       retryWaitCount: jobs.filter((job) => job.status === "RETRY_WAIT").length,
       blockedEvidenceCount: jobs.filter((job) => job.status === "BLOCKED_EVIDENCE").length,
+      bundledJobCount: jobs.filter(
+        (job) => job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2",
+      ).length,
+      capturedOriginalJobCount: jobs.filter(
+        (job) => job.evidenceBundle?.schemaVersion ===
+          "pmh.proposal-evidence-bundle.v2" &&
+          job.evidenceBundle.captureKind === "PROPOSAL_CORPUS",
+      ).length,
+      rebasedJobCount: jobs.filter(
+        (job) => job.evidenceBundle?.schemaVersion ===
+          "pmh.proposal-evidence-bundle.v2" &&
+          job.evidenceBundle.captureKind === "EXACT_CURRENT_REBASE",
+      ).length,
+      legacyEvidenceDebtCount: jobs.filter(
+        (job) => job.status === "BLOCKED_EVIDENCE" &&
+          job.evidenceBundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2",
+      ).length,
       passedCount: jobs.filter((job) => job.status === "PASS").length,
       exhaustedCount: jobs.filter((job) => job.status === "EXHAUSTED").length,
       unreadNotificationCount: notifications.filter((item) => item.status === "UNREAD").length,

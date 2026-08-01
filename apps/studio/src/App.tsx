@@ -136,6 +136,10 @@ const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewSch
   leasedCount: 0,
   retryWaitCount: 0,
   blockedEvidenceCount: 0,
+  bundledJobCount: 0,
+  capturedOriginalJobCount: 0,
+  rebasedJobCount: 0,
+  legacyEvidenceDebtCount: 0,
   passedCount: 0,
   exhaustedCount: 0,
   unreadNotificationCount: 0,
@@ -3074,6 +3078,14 @@ function OpportunityLifecycleView() {
       ] as const),
     ),
   );
+  for (const job of reviewScheduler.jobs) {
+    const proposal = job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
+      ? job.evidenceBundle.proposal
+      : undefined;
+    if (proposal !== undefined && !proposals.has(proposal.proposalId)) {
+      proposals.set(proposal.proposalId, proposal);
+    }
+  }
   const awaiting = desk.cases.filter((item) => item.nextAction !== "NONE").length;
   const rejected = desk.cases.filter((item) =>
     item.state.startsWith("REJECTED"),
@@ -3295,6 +3307,10 @@ function OpportunityLifecycleView() {
           <div><strong>{reviewScheduler.leasedCount}/{reviewScheduler.concurrencyLimit}</strong><span>leased</span></div>
           <div><strong>{reviewScheduler.retryWaitCount}</strong><span>retry wait</span></div>
           <div><strong>{reviewScheduler.blockedEvidenceCount}</strong><span>evidence blocked</span></div>
+          <div>
+            <strong>{reviewScheduler.bundledJobCount}/{reviewScheduler.jobs.length}</strong>
+            <span>evidence bundled · {reviewScheduler.legacyEvidenceDebtCount} legacy debt</span>
+          </div>
           <div><strong>{reviewScheduler.passedCount}</strong><span>reviewed</span></div>
           <div><strong>{reviewScheduler.exhaustedCount}</strong><span>exhausted</span></div>
           <div>
@@ -3316,7 +3332,9 @@ function OpportunityLifecycleView() {
                 </Badge>
                 <div>
                   <strong>{proposals.get(job.proposalId)?.statement ?? job.opportunityId}</strong>
-                  <span>P{job.priority} · {job.issueIds.length} issue{job.issueIds.length === 1 ? "" : "s"} · attempt {job.attemptCount}/{job.maxAttempts}</span>
+                  <span>
+                    P{job.priority} · {job.issueIds.length} issue{job.issueIds.length === 1 ? "" : "s"} · attempt {job.attemptCount}/{job.maxAttempts} · {job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" ? job.evidenceBundle.captureKind.replaceAll("_", " ") : "LEGACY REFS"}
+                  </span>
                 </div>
                 <code>{job.proposalId.slice(0, 19)}…</code>
               </article>

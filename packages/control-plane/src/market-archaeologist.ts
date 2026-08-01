@@ -11,13 +11,14 @@ import {
   materializeMarketCorpus,
   type MarketCorpusSnapshot,
 } from "./market-corpus.js";
-import type { OperationalStorageProjection } from "./types.js";
+import type { DiscoveryCatalogListing, OperationalStorageProjection } from "./types.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 2_000_000;
 const DEFAULT_RETENTION_LIMIT = 10;
 const MAX_PROPOSALS = 5;
+const MAX_EVIDENCE_BUNDLE_BYTES = 512_000;
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const READ_ONLY_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
@@ -44,6 +45,39 @@ export type MarketRelationProposal = Readonly<{
   executionAuthority: false;
 }>;
 
+type ProposalEvidenceBundleBody = Readonly<{
+  proposalId: Hash;
+  proposalCorpusSnapshotIdentity: Hash;
+  evidenceCorpusSnapshotIdentity: Hash;
+  sourceSetIdentity: Hash;
+  captureKind: "PROPOSAL_CORPUS" | "EXACT_CURRENT_REBASE";
+  listingRefs: readonly string[];
+  listingHashes: readonly Hash[];
+  listings: readonly DiscoveryCatalogListing[];
+  authority: "SEMANTIC_REVIEW_EVIDENCE_ONLY";
+  executionAuthority: false;
+  effects: Readonly<{
+    externalWrites: false;
+    valueMovingActions: false;
+    liveExecutionEnabled: false;
+  }>;
+}>;
+
+export type LegacyProposalEvidenceBundle = ProposalEvidenceBundleBody & Readonly<{
+  schemaVersion: "pmh.proposal-evidence-bundle.v1";
+  bundleId: Hash;
+}>;
+
+export type DurableProposalEvidenceBundle = ProposalEvidenceBundleBody & Readonly<{
+  schemaVersion: "pmh.proposal-evidence-bundle.v2";
+  bundleId: Hash;
+  proposal: MarketRelationProposal;
+}>;
+
+export type ProposalEvidenceBundle =
+  | LegacyProposalEvidenceBundle
+  | DurableProposalEvidenceBundle;
+
 export type MarketArchaeologistReport = Readonly<{
   schemaVersion: "pmh.market-archaeologist-report.v1";
   artifactHash: Hash;
@@ -65,6 +99,7 @@ export type MarketArchaeologistReport = Readonly<{
   result: Readonly<{
     summary: string;
     proposals: readonly MarketRelationProposal[];
+    proposalEvidenceBundles?: readonly ProposalEvidenceBundle[];
     missingEvidence: readonly string[];
     authority: "PROPOSE_ONLY";
     reviewStatus: "UNREVIEWED";
@@ -196,6 +231,127 @@ function deepFreeze<T>(value: T): T {
     Object.freeze(value);
   }
   return value;
+}
+
+export function assertProposalEvidenceBundle(
+  value: unknown,
+): ProposalEvidenceBundle {
+  if (value === null || typeof value !== "object") {
+    throw new Error("proposal evidence bundle is malformed");
+  }
+  const bundle = value as ProposalEvidenceBundle;
+  if (
+    ![
+      "pmh.proposal-evidence-bundle.v1",
+      "pmh.proposal-evidence-bundle.v2",
+    ].includes(bundle.schemaVersion) ||
+    !HASH_PATTERN.test(String(bundle.bundleId)) ||
+    !HASH_PATTERN.test(String(bundle.proposalId)) ||
+    (bundle.schemaVersion === "pmh.proposal-evidence-bundle.v2" && (
+      bundle.proposal === null || typeof bundle.proposal !== "object" ||
+      bundle.proposal.proposalId !== bundle.proposalId ||
+      ![
+        "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
+        "CONDITIONAL", "RELATED", "CONFLICTING",
+      ].includes(bundle.proposal.relationKind) ||
+      !Array.isArray(bundle.proposal.listingRefs) ||
+      bundle.proposal.listingRefs.join("\n") !== bundle.listingRefs?.join("\n") ||
+      !isNonEmptyString(bundle.proposal.statement) || bundle.proposal.statement.length > 1_000 ||
+      !isNonEmptyString(bundle.proposal.rationale) || bundle.proposal.rationale.length > 2_000 ||
+      !isStringArray(bundle.proposal.falsifiers) || bundle.proposal.falsifiers.length > 12 ||
+      bundle.proposal.authority !== "PROPOSE_ONLY" ||
+      bundle.proposal.reviewStatus !== "UNREVIEWED" ||
+      bundle.proposal.executionAuthority !== false
+    )) ||
+    !HASH_PATTERN.test(String(bundle.proposalCorpusSnapshotIdentity)) ||
+    !HASH_PATTERN.test(String(bundle.evidenceCorpusSnapshotIdentity)) ||
+    !HASH_PATTERN.test(String(bundle.sourceSetIdentity)) ||
+    !["PROPOSAL_CORPUS", "EXACT_CURRENT_REBASE"].includes(bundle.captureKind) ||
+    (bundle.captureKind === "PROPOSAL_CORPUS" &&
+      bundle.proposalCorpusSnapshotIdentity !== bundle.evidenceCorpusSnapshotIdentity) ||
+    (bundle.captureKind === "EXACT_CURRENT_REBASE" &&
+      bundle.proposalCorpusSnapshotIdentity === bundle.evidenceCorpusSnapshotIdentity) ||
+    !Array.isArray(bundle.listingRefs) ||
+    bundle.listingRefs.length < 2 || bundle.listingRefs.length > 8 ||
+    new Set(bundle.listingRefs).size !== bundle.listingRefs.length ||
+    bundle.listingRefs.some((item) => !isNonEmptyString(item) || item.length > 500) ||
+    !Array.isArray(bundle.listingHashes) ||
+    bundle.listingHashes.length !== bundle.listingRefs.length ||
+    bundle.listingHashes.some((item) => !HASH_PATTERN.test(String(item))) ||
+    !Array.isArray(bundle.listings) ||
+    bundle.listings.length !== bundle.listingRefs.length ||
+    bundle.listings.some((listing, index) =>
+      listing === null || typeof listing !== "object" ||
+      listing.listingRef !== bundle.listingRefs[index] ||
+      hashCanonical(listing) !== bundle.listingHashes[index]
+    ) ||
+    bundle.authority !== "SEMANTIC_REVIEW_EVIDENCE_ONLY" ||
+    bundle.executionAuthority !== false ||
+    bundle.effects?.externalWrites !== false ||
+    bundle.effects.valueMovingActions !== false ||
+    bundle.effects.liveExecutionEnabled !== false ||
+    new TextEncoder().encode(JSON.stringify(bundle)).byteLength > MAX_EVIDENCE_BUNDLE_BYTES
+  ) {
+    throw new Error("proposal evidence bundle violates its bounded contract");
+  }
+  if (bundle.schemaVersion === "pmh.proposal-evidence-bundle.v2") {
+    const { proposalId: _proposalId, ...proposalBody } = bundle.proposal;
+    if (
+      bundle.proposal.proposalId !== hashCanonical({
+        corpusSnapshotIdentity: bundle.proposalCorpusSnapshotIdentity,
+        ...proposalBody,
+      })
+    ) {
+      throw new Error("proposal evidence bundle proposal identity mismatch");
+    }
+  }
+  const { bundleId: _bundleId, ...body } = bundle;
+  if (bundle.bundleId !== hashCanonical(body)) {
+    throw new Error("proposal evidence bundle identity mismatch");
+  }
+  return deepFreeze(bundle);
+}
+
+export function buildProposalEvidenceBundle(
+  proposal: MarketRelationProposal,
+  evidenceSnapshot: MarketCorpusSnapshot,
+  proposalCorpusSnapshotIdentity: Hash = evidenceSnapshot.snapshotIdentity,
+): DurableProposalEvidenceBundle {
+  const byRef = new Map(
+    evidenceSnapshot.listings.map((listing) => [listing.listingRef, listing] as const),
+  );
+  const listings = Object.freeze(proposal.listingRefs.map((listingRef) => {
+    const listing = byRef.get(listingRef);
+    if (listing === undefined) {
+      throw new Error("proposal evidence bundle exceeds the supplied corpus");
+    }
+    return listing;
+  }));
+  const body = Object.freeze({
+    schemaVersion: "pmh.proposal-evidence-bundle.v2" as const,
+    proposalId: proposal.proposalId,
+    proposal,
+    proposalCorpusSnapshotIdentity,
+    evidenceCorpusSnapshotIdentity: evidenceSnapshot.snapshotIdentity,
+    sourceSetIdentity: evidenceSnapshot.sourceSetIdentity,
+    captureKind: proposalCorpusSnapshotIdentity === evidenceSnapshot.snapshotIdentity
+      ? "PROPOSAL_CORPUS" as const
+      : "EXACT_CURRENT_REBASE" as const,
+    listingRefs: Object.freeze([...proposal.listingRefs]),
+    listingHashes: Object.freeze(listings.map((listing) => hashCanonical(listing))),
+    listings,
+    authority: "SEMANTIC_REVIEW_EVIDENCE_ONLY" as const,
+    executionAuthority: false as const,
+    effects: Object.freeze({
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    }),
+  });
+  return assertProposalEvidenceBundle(Object.freeze({
+    ...body,
+    bundleId: hashCanonical(body),
+  })) as DurableProposalEvidenceBundle;
 }
 
 export function assertMarketArchaeologistRecord(
@@ -334,6 +490,32 @@ export function assertMarketArchaeologistRecord(
         })
       ) {
         throw new Error("stored Market Archaeologist proposal identity mismatch");
+      }
+    }
+    const rawBundles = result.proposalEvidenceBundles;
+    if (rawBundles !== undefined) {
+      if (!Array.isArray(rawBundles) || rawBundles.length !== result.proposals.length) {
+        throw new Error("stored Market Archaeologist evidence bundle set is incomplete");
+      }
+      const proposalsById = new Map(
+        (result.proposals as MarketRelationProposal[]).map((proposal) => [
+          proposal.proposalId,
+          proposal,
+        ] as const),
+      );
+      const seen = new Set<Hash>();
+      for (const rawBundle of rawBundles) {
+        const bundle = assertProposalEvidenceBundle(rawBundle);
+        const proposal = proposalsById.get(bundle.proposalId);
+        if (
+          proposal === undefined || seen.has(bundle.proposalId) ||
+          bundle.proposalCorpusSnapshotIdentity !== record.corpusSnapshotIdentity ||
+          bundle.captureKind !== "PROPOSAL_CORPUS" ||
+          bundle.listingRefs.join("\n") !== proposal.listingRefs.join("\n")
+        ) {
+          throw new Error("stored Market Archaeologist evidence bundle lineage mismatch");
+        }
+        seen.add(bundle.proposalId);
       }
     }
     const { artifactHash: _artifactHash, ...reportBody } = report;
@@ -603,6 +785,9 @@ export class MarketArchaeologist {
           });
         }),
       );
+      const proposalEvidenceBundles = Object.freeze(
+        proposals.map((proposal) => buildProposalEvidenceBundle(proposal, snapshot)),
+      );
       const body = Object.freeze({
         schemaVersion: "pmh.market-archaeologist-report.v1" as const,
         status: "PASS" as const,
@@ -623,6 +808,7 @@ export class MarketArchaeologist {
         result: Object.freeze({
           summary: payload.summary,
           proposals,
+          proposalEvidenceBundles,
           missingEvidence: payload.missingEvidence,
           authority: "PROPOSE_ONLY" as const,
           reviewStatus: "UNREVIEWED" as const,

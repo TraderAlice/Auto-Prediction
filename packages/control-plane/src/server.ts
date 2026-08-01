@@ -38,6 +38,7 @@ import { radarTriageTaskId } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
+  buildProposalEvidenceBundle,
   createMarketArchaeologistDesk,
   MarketArchaeologistBusyError,
   MarketArchaeologistDesk,
@@ -631,16 +632,61 @@ export function createControlPlane(options?: {
     const sources = new Map<Hash, {
       proposal: SemanticReviewCandidate["proposal"];
       proposalCorpusSnapshotIdentity: Hash;
+      evidenceBundle: SemanticReviewCandidate["evidenceBundle"];
     }>();
+    const currentSnapshot = catalogObservationDesk.corpus();
+    const jobsByProposal = new Map(
+      semanticReviewScheduler.projection().jobs.map((job) => [job.proposalId, job] as const),
+    );
     for (const record of marketArchaeologistDesk.projection().records) {
       if (record.status !== "PASS" || record.report === null) continue;
+      const reportBundles = new Map(
+        (record.report.result.proposalEvidenceBundles ?? []).flatMap(
+          (bundle) => bundle.schemaVersion === "pmh.proposal-evidence-bundle.v2"
+            ? [[bundle.proposalId, bundle] as const]
+            : [],
+        ),
+      );
       for (const proposal of record.report.result.proposals) {
         if (!sources.has(proposal.proposalId)) {
+          const storedJobBundle = jobsByProposal.get(proposal.proposalId)?.evidenceBundle;
+          let evidenceBundle =
+            reportBundles.get(proposal.proposalId) ??
+            (storedJobBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
+              ? storedJobBundle
+              : null) ??
+            null;
+          if (
+            evidenceBundle === null &&
+            proposal.listingRefs.every((listingRef) =>
+              currentSnapshot.listings.some((listing) => listing.listingRef === listingRef)
+            )
+          ) {
+            evidenceBundle = buildProposalEvidenceBundle(
+              proposal,
+              currentSnapshot,
+              record.corpusSnapshotIdentity,
+            );
+          }
           sources.set(proposal.proposalId, {
             proposal,
             proposalCorpusSnapshotIdentity: record.corpusSnapshotIdentity,
+            evidenceBundle,
           });
         }
+      }
+    }
+    for (const job of semanticReviewScheduler.projection().jobs) {
+      const bundle = job.evidenceBundle ?? null;
+      if (
+        bundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" &&
+        !sources.has(job.proposalId)
+      ) {
+        sources.set(job.proposalId, {
+          proposal: bundle.proposal,
+          proposalCorpusSnapshotIdentity: job.proposalCorpusSnapshotIdentity,
+          evidenceBundle: bundle,
+        });
       }
     }
     return Object.freeze([...lineage.entries()].flatMap(([proposalId, item]) => {

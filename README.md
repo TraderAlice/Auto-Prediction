@@ -76,7 +76,10 @@ promotion remain active campaign work.
    suspicious pair. The cheap model searches a bounded context first. Only a
    novel multi-listing lead can escalate to one pi run over the complete
    MarketFS snapshot.
-3. Read the resulting proposals and falsifiers. `EQUIVALENT`, `IMPLIES`,
+3. Read the resulting proposals and falsifiers. Each new proposal freezes the
+   exact normalized listings that produced it in a bounded, content-addressed
+   evidence bundle, so a later review does not silently substitute whatever the
+   live catalog happens to contain then. `EQUIVALENT`, `IMPLIES`,
    `MUTUALLY_EXCLUSIVE`, `EXHAUSTIVE`, and related labels are hypotheses, not
    trades. A valid run may conclude that no cross-venue relation exists.
 4. Send a grounded proposal through independent semantic review. The reviewer
@@ -279,11 +282,16 @@ issue priority, retain all contributing issue identities, lease up to three
 independent review requests concurrently, spend at most three request attempts
 per job, and retry with bounded backoff. Expired leases are recovered after
 restart, while completed reports and exhausted jobs create deduplicated in-app
-notifications. A proposal whose original listing references are absent from the
-current corpus waits in `BLOCKED_EVIDENCE` without spending an attempt and
-resumes automatically after evidence becomes available. These reports remain
-advisory: they cannot accept a proposal, simulate it, certify it, or route an
-order.
+notifications. New Market Archaeologist proposals carry a
+`pmh.proposal-evidence-bundle.v2` containing the full proposal, original corpus
+identity, exact referenced normalized listings, per-listing hashes, and a bundle
+hash. The job copies that bundle into its own SQLite record, so review survives
+catalog rotation, archaeologist-report retention, and process restart. Legacy
+jobs backfill only when every exact ref is present in the current corpus;
+otherwise they wait in `BLOCKED_EVIDENCE` without spending an attempt. Studio
+separately reports original captures, exact-current rebases, and unresolved
+legacy evidence debt. These reports remain advisory: they cannot accept a
+proposal, simulate it, certify it, or route an order.
 
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 
@@ -335,8 +343,8 @@ an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 - `projects/campaigns`: immutable content-addressed qualification checkpoints.
 - `docs/design`: current architecture truth.
 - `PLANS.md`: short construction-plan index and current checkpoint.
-- `plans/persistent-semantic-review.md`: active durable, concurrent advisory
-  review campaign; retired plans remain recoverable from Git history.
+- `plans/durable-proposal-evidence.md`: active content-addressed evidence
+  continuity campaign; retired plans remain recoverable from Git history.
 - `QUESTIONS.md`: non-blocking user decisions queued for batch support.
 - `AGENTS.md`: collaboration rules and the user-input/access ledger.
 

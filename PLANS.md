@@ -1,6 +1,6 @@
 # Plans
 
-`plans/persistent-semantic-review.md` is the active construction plan.
+`plans/durable-proposal-evidence.md` is the active construction plan.
 
 ## Planning contract
 
@@ -22,13 +22,16 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-The attribution slice connects durable search issues to downstream opportunity
-outcomes. Its initial real retained corpus attributed 28 of 41 AI lifecycle
-proposals to four recurring issues, and all 28 were waiting for independent
-semantic review. The active campaign therefore persists, schedules, leases,
-budgets, retries, and observes review work before more scanner capacity is
-added. AI review remains advisory: it may reject or recommend a proposal, but
-cannot accept it for simulation or publish a certificate.
+Persistent semantic-review scheduling now drains every proposal whose listing
+references are still present. A 2026-08-02 qualification retained 45 jobs:
+29 passed review, 27 hold durable v2 evidence (10 captured on the original
+corpus and 17 exact-current legacy rebases), no bundled job is evidence-blocked,
+and 16 older reference-only jobs remain visible legacy debt without spending a
+request. The active campaign freezes a minimal content-addressed evidence bundle
+at proposal time and carries it into the durable job so later review does not
+depend on the current catalog or archaeologist-report retention windows. AI
+review remains advisory and cannot accept, simulate, certify, or execute a
+proposal.
 
 ## Deferred future campaigns
 
