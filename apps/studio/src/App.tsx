@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 
 type View =
   | "overview"
+  | "archaeologist"
   | "radar"
   | "preflight"
   | "scouts"
@@ -76,6 +77,46 @@ const EMPTY_OPPORTUNITY_RADAR: StudioProjection["ai"]["opportunityRadar"] = {
   candidateCount: 0,
   candidates: [],
   scoreMeaning: "LEXICAL_BLOCKING_ONLY_NOT_CONFIDENCE",
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
+const EMPTY_MARKET_CORPUS: StudioProjection["ai"]["marketCorpus"] = {
+  schemaVersion: "pmh.market-corpus.v1",
+  contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
+  sourceSetIdentity: `sha256:${"0".repeat(64)}`,
+  snapshotIdentity: `sha256:${"0".repeat(64)}`,
+  eligibleSourceCount: 0,
+  excludedSourceCount: 0,
+  listingCount: 0,
+  authority: "OBSERVE_ONLY",
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
+const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] = {
+  schemaVersion: "pmh.market-archaeologist-desk.v1",
+  configured: false,
+  model: "deepseek-v4-flash",
+  status: "NEEDS_KEY",
+  runCount: 0,
+  passCount: 0,
+  failedCount: 0,
+  retentionLimit: 10,
+  scheduler: {
+    enabled: false,
+    intervalMs: null,
+    changedCorpusOnly: true,
+    lastAttemptedSnapshotIdentity: null,
+  },
+  records: [],
+  authority: "PROPOSE_ONLY",
   effects: {
     externalWrites: false,
     valueMovingActions: false,
@@ -122,6 +163,7 @@ const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"]
 
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "archaeologist", label: "Market archaeologist", icon: Search },
   { id: "radar", label: "Opportunity radar", icon: Radar },
   { id: "preflight", label: "Candidate preflight", icon: FileCheck2 },
   { id: "scouts", label: "Scout inbox", icon: Inbox },
@@ -258,6 +300,44 @@ async function requestRadarTriage(candidateId: string): Promise<boolean> {
     ) !== false
   ) {
     throw new Error("radar triage crossed its authority boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
+async function requestMarketArchaeologist(question: string): Promise<boolean> {
+  const response = await fetch("/api/v1/market-archaeologist/runs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    status?: string;
+    idempotentReplay?: boolean;
+    report?: {
+      result?: {
+        authority?: string;
+        reviewStatus?: string;
+        executionAuthority?: boolean;
+      };
+      effects?: {
+        valueMovingActions?: boolean;
+        liveExecutionEnabled?: boolean;
+      };
+    };
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "Market Archaeologist run failed");
+  }
+  if (
+    result.status !== "PASS" ||
+    result.report?.result?.authority !== "PROPOSE_ONLY" ||
+    result.report.result.reviewStatus !== "UNREVIEWED" ||
+    result.report.result.executionAuthority !== false ||
+    result.report.effects?.valueMovingActions !== false ||
+    result.report.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("Market Archaeologist crossed its authority boundary");
   }
   return result.idempotentReplay === true;
 }
@@ -782,9 +862,9 @@ function Overview({
             <span>before execution.</span>
           </h1>
           <p>
-            Let fast scouts search subjectively, then normalize contract
-            meaning and prove the payoff floor—without granting a browser or
-            model the authority to trade.
+            Let an agent search market meaning recursively, then normalize
+            contract semantics and prove the payoff floor—without granting a
+            browser or model the authority to trade.
           </p>
         </div>
         <div className="hero-identity">
@@ -825,8 +905,8 @@ function Overview({
             <Sparkles size={16} />
           </div>
           <div>
-            <span className="eyebrow">Scout then verify</span>
-            <strong>Subjective discovery pool</strong>
+            <span className="eyebrow">Agent search · exact verification</span>
+            <strong>AI-native discovery pool</strong>
           </div>
         </div>
         <div className="worker-chips">
@@ -1628,6 +1708,231 @@ function RealCandidatePreflightView() {
         <code>
           {rescreen?.artifactHash ?? disposition?.artifactHash ?? depth?.artifactHash ?? preflight.artifactHash}
         </code>
+      </div>
+    </section>
+  );
+}
+
+function MarketArchaeologistView() {
+  const studioProjection = useStudioProjection();
+  const corpus =
+    studioProjection.ai.marketCorpus ?? EMPTY_MARKET_CORPUS;
+  const desk =
+    studioProjection.ai.marketArchaeologist ?? EMPTY_MARKET_ARCHAEOLOGIST;
+  const [question, setQuestion] = useState(
+    "Search the full corpus for semantically related events across venues. Prefer implication, subset, mutual-exclusion, and exhaustive structures; try to falsify every relationship.",
+  );
+  const [localStatus, setLocalStatus] = useState<
+    "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
+  >("IDLE");
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const proposalCount = desk.records.reduce(
+    (total, record) => total + (record.report?.result.proposals.length ?? 0),
+    0,
+  );
+
+  async function run(): Promise<void> {
+    setLocalStatus("RUNNING");
+    setDiagnostic(null);
+    try {
+      const restored = await requestMarketArchaeologist(question);
+      setLocalStatus(restored ? "RESTORED" : "DONE");
+    } catch (error) {
+      setLocalStatus("FAILED");
+      setDiagnostic(
+        error instanceof Error ? error.message : "Market Archaeologist run failed",
+      );
+    }
+  }
+
+  return (
+    <section className="page-section archaeology-page">
+      <div className="page-heading archaeology-heading">
+        <div>
+          <span className="eyebrow">AI-native discovery · recursive search</span>
+          <h1>Market archaeologist</h1>
+          <p>
+            pi explores the complete, content-addressed MarketFS snapshot like a
+            repository. Programs freeze evidence and enforce bounds; the agent
+            chooses aliases, searches, and semantic paths.
+          </p>
+        </div>
+        <div className="archaeology-heading-badges">
+          <Badge variant="verified">PRIMARY DISCOVERY</Badge>
+          <Badge variant={desk.configured ? "shadow" : "warning"}>
+            {desk.configured ? `${desk.model} · PI` : "KEY REQUIRED"}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="radar-summary-grid archaeology-summary-grid">
+        <Metric
+          label="MarketFS corpus"
+          value={`${corpus.listingCount}`}
+          detail="fresh public listings"
+        />
+        <Metric
+          label="Eligible sources"
+          value={`${corpus.eligibleSourceCount}`}
+          detail={`${corpus.excludedSourceCount} excluded by freshness`}
+        />
+        <Metric
+          label="Agent runs"
+          value={`${desk.runCount}`}
+          detail={`${desk.passCount} passed · ${desk.failedCount} failed`}
+        />
+        <Metric
+          label="Relation proposals"
+          value={`${proposalCount}`}
+          detail="all unreviewed"
+        />
+      </div>
+
+      <div className="archaeology-pipeline" aria-label="Discovery authority flow">
+        <div><Database size={15} /><strong>Freeze</strong><span>public catalogs</span></div>
+        <ChevronRight size={14} />
+        <div><Search size={15} /><strong>Explore</strong><span>pi + MarketFS</span></div>
+        <ChevronRight size={14} />
+        <div><Waypoints size={15} /><strong>Propose</strong><span>typed relations</span></div>
+        <ChevronRight size={14} />
+        <div><ShieldCheck size={15} /><strong>Verify</strong><span>first-party exact</span></div>
+      </div>
+
+      <Card className="archaeology-console">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Operator seed · full corpus scope</span>
+            <h2>Give the agent a trailhead</h2>
+          </div>
+          <Badge variant={desk.scheduler.enabled ? "shadow" : "muted"}>
+            SCHEDULE {desk.scheduler.enabled ? "ON" : "OFF"}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <textarea
+            aria-label="Market Archaeologist question"
+            value={question}
+            maxLength={1000}
+            onChange={(event) => setQuestion(event.target.value)}
+          />
+          <div className="archaeology-console-footer">
+            <div>
+              <SquareTerminal size={14} />
+              <span>read · grep · find · ls</span>
+              <code>{corpus.snapshotIdentity.slice(0, 23)}…</code>
+            </div>
+            <Button
+              disabled={
+                !desk.configured ||
+                corpus.listingCount === 0 ||
+                desk.status === "RUNNING" ||
+                localStatus === "RUNNING" ||
+                question.trim() === ""
+              }
+              onClick={() => void run()}
+            >
+              {desk.status === "RUNNING" || localStatus === "RUNNING" ? (
+                <RefreshCw className="is-spinning" size={14} />
+              ) : (
+                <Sparkles size={14} />
+              )}
+              {desk.status === "RUNNING" || localStatus === "RUNNING"
+                ? "Exploring MarketFS…"
+                : localStatus === "RESTORED"
+                  ? "Restore same run"
+                  : localStatus === "FAILED"
+                    ? "Retry exploration"
+                    : "Run market archaeology"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {diagnostic !== null && (
+        <div className="radar-diagnostic" role="status">
+          <CircleOff size={14} />
+          <span>{diagnostic}</span>
+        </div>
+      )}
+
+      <div className="case-section-heading archaeology-results-heading">
+        <div>
+          <GitBranch size={16} />
+          <div>
+            <span className="eyebrow">Content-bound research trail</span>
+            <h2>Recent relationships</h2>
+          </div>
+        </div>
+        <code>{desk.runCount}/{desk.retentionLimit} retained</code>
+      </div>
+
+      {desk.records.length === 0 ? (
+        <div className="radar-empty archaeology-empty">
+          <Search size={28} />
+          <strong>No archaeology run yet</strong>
+          <span>
+            The corpus is ready. Start with a broad semantic question; pi will
+            choose its own searches instead of receiving a preselected pair.
+          </span>
+        </div>
+      ) : (
+        <div className="archaeology-run-list">
+          {desk.records.map((record) => (
+            <article className="archaeology-run" key={record.runId}>
+              <div className="archaeology-run-head">
+                <div>
+                  <Badge
+                    variant={
+                      record.status === "PASS"
+                        ? "verified"
+                        : record.status === "RUNNING"
+                          ? "shadow"
+                          : "warning"
+                    }
+                  >
+                    {record.status}
+                  </Badge>
+                  <span>{record.trigger}</span>
+                </div>
+                <code>{record.runId.slice(0, 23)}…</code>
+              </div>
+              <h3>{record.question}</h3>
+              {record.diagnostic !== null && <p>{record.diagnostic}</p>}
+              {record.report !== null && (
+                <>
+                  <p>{record.report.result.summary}</p>
+                  <div className="archaeology-proposals">
+                    {record.report.result.proposals.length === 0 ? (
+                      <span>No grounded relation survived this search.</span>
+                    ) : (
+                      record.report.result.proposals.map((proposal) => (
+                        <div key={proposal.proposalId}>
+                          <Badge variant="muted">{proposal.relationKind}</Badge>
+                          <strong>{proposal.statement}</strong>
+                          <p>{proposal.rationale}</p>
+                          <code>{proposal.listingRefs.join(" ↔ ")}</code>
+                          <small>
+                            {proposal.falsifiers.length} falsifier
+                            {proposal.falsifiers.length === 1 ? "" : "s"} · UNREVIEWED
+                          </small>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+
+      <div className="case-authority-lock archaeology-authority-lock">
+        <CircleOff size={15} />
+        <span>
+          Agent relationships are search proposals only. Independent semantic
+          review, exact payoff compilation, fee/depth checks, and the verifier
+          remain separate mandatory gates; execution is unavailable.
+        </span>
       </div>
     </section>
   );
@@ -3577,6 +3882,7 @@ function StudioShell() {
         />
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
+          {view === "archaeologist" && <MarketArchaeologistView />}
           {view === "radar" && <OpportunityRadarView />}
           {view === "preflight" && <RealCandidatePreflightView />}
           {view === "scouts" && <ScoutInboxView />}

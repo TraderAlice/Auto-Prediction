@@ -36,6 +36,17 @@ import {
 import { radarTriageTaskId } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
+import {
+  createMarketArchaeologistDesk,
+  MarketArchaeologistBusyError,
+  MarketArchaeologistDesk,
+  MarketArchaeologistNotConfiguredError,
+} from "./market-archaeologist.js";
+import {
+  projectMarketCorpus,
+  searchMarketCorpus,
+  type MarketCorpusSearchQuery,
+} from "./market-corpus.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -259,6 +270,7 @@ export function createControlPlane(options?: {
   investigationStore?: InvestigationRecordStore;
   realCandidatePreflightDesk?: RealCandidatePreflightDesk;
   candidateWatchDesk?: CandidateWatchDesk;
+  marketArchaeologistDesk?: MarketArchaeologistDesk;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -315,6 +327,8 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const marketArchaeologistDesk =
+    options?.marketArchaeologistDesk ?? createMarketArchaeologistDesk();
   const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
@@ -345,6 +359,8 @@ export function createControlPlane(options?: {
       catalogContext: catalogDesk.projection(),
       catalogObservation: catalogObservationDesk.projection(),
       opportunityRadar: catalogObservationDesk.radar(),
+      marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
+      marketArchaeologist: marketArchaeologistDesk.projection(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
       realCandidatePreflight: realCandidatePreflightDesk.projection(),
@@ -465,6 +481,8 @@ export function createControlPlane(options?: {
         catalogContext: catalogDesk.projection(),
         catalogObservation: catalogObservationDesk.projection(),
         opportunityRadar: catalogObservationDesk.radar(),
+        marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
+        marketArchaeologist: marketArchaeologistDesk.projection(),
         realCandidatePreflight: realCandidatePreflightDesk.projection(),
         realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
         realCandidateDisposition:
@@ -493,6 +511,39 @@ export function createControlPlane(options?: {
     if (request.method === "GET" && url.pathname === "/api/v1/radar") {
       await ready;
       writeJson(response, 200, catalogObservationDesk.radar());
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/market-corpus") {
+      await ready;
+      writeJson(
+        response,
+        200,
+        projectMarketCorpus(catalogObservationDesk.corpus()),
+      );
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/market-corpus/search"
+    ) {
+      try {
+        await ready;
+        writeJson(
+          response,
+          200,
+          searchMarketCorpus(
+            catalogObservationDesk.corpus(),
+            (await readJson(request)) as MarketCorpusSearchQuery,
+          ),
+        );
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic:
+            error instanceof Error ? error.message : "market corpus search failed",
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (
@@ -546,6 +597,13 @@ export function createControlPlane(options?: {
       url.pathname === "/api/v1/investigations"
     ) {
       writeJson(response, 200, investigationDesk.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/market-archaeologist"
+    ) {
+      writeJson(response, 200, marketArchaeologistDesk.projection());
       return;
     }
     if (
@@ -650,6 +708,58 @@ export function createControlPlane(options?: {
             error instanceof Error ? error.message : "discovery run failed",
           executionAuthority: false,
         });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/market-archaeologist/runs"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null ||
+          typeof body !== "object" ||
+          typeof (body as { question?: unknown }).question !== "string" ||
+          Object.keys(body).length !== 1
+        ) {
+          throw new Error("Market Archaeologist run requires exactly one question");
+        }
+        const question = (body as { question: string }).question
+          .trim()
+          .replace(/\s+/gu, " ");
+        if (question === "" || question.length > 1_000) {
+          throw new Error("Market Archaeologist question exceeds bounded input limits");
+        }
+        const invocation = marketArchaeologistDesk.begin(
+          catalogObservationDesk.corpus(),
+          question,
+        );
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" ? 200 : 422, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        writeJson(
+          response,
+          error instanceof MarketArchaeologistNotConfiguredError
+            ? 503
+            : error instanceof MarketArchaeologistBusyError
+              ? 409
+              : 400,
+          {
+            ok: false,
+            diagnostic:
+              error instanceof Error
+                ? error.message
+                : "Market Archaeologist run failed",
+            executionAuthority: false,
+          },
+        );
       }
       return;
     }
@@ -824,7 +934,32 @@ export function createControlPlane(options?: {
       diagnostic: "route not found",
     });
   });
-  server.once("close", () => discoveryLedger.close());
+  let archaeologyScheduler: ReturnType<typeof setInterval> | null = null;
+  const archaeologyIntervalMs = marketArchaeologistDesk.schedulerIntervalMs;
+  if (archaeologyIntervalMs !== null) {
+    void ready.then(() => {
+      archaeologyScheduler = setInterval(() => {
+        const snapshot = catalogObservationDesk.corpus();
+        if (!marketArchaeologistDesk.shouldSchedule(snapshot)) return;
+        try {
+          const invocation = marketArchaeologistDesk.begin(
+            snapshot,
+            "Search the changed market corpus for cross-venue semantic relationships that could create exact payoff constraints. Prefer non-obvious implication, subset, exclusion, and exhaustive structures; identify falsifiers and missing rule evidence.",
+            "SCHEDULE",
+          );
+          void broadcastProjection();
+          void invocation.promise.then(() => broadcastProjection());
+        } catch {
+          // A later interval retries only when the desk can make progress.
+        }
+      }, archaeologyIntervalMs);
+      archaeologyScheduler.unref();
+    });
+  }
+  server.once("close", () => {
+    if (archaeologyScheduler !== null) clearInterval(archaeologyScheduler);
+    discoveryLedger.close();
+  });
   return {
     server,
     pool,
@@ -836,6 +971,7 @@ export function createControlPlane(options?: {
     piRuntime,
     realCandidatePreflightDesk,
     candidateWatchDesk,
+    marketArchaeologistDesk,
     projection,
     ready,
   };

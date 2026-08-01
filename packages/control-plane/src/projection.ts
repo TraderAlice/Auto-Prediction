@@ -27,6 +27,8 @@ import { modelScoutWorkerId } from "./model-scout.js";
 import type { CatalogObservationProjection } from "./catalog-observation.js";
 import type { CandidateWatchProjection } from "./candidate-watch.js";
 import type { OpportunityRadarProjection } from "./opportunity-radar.js";
+import type { MarketCorpusProjection } from "./market-corpus.js";
+import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
 import { buildResearchCaseDesk } from "./research-case-desk.js";
@@ -77,6 +79,8 @@ export function buildStudioProjection(input: {
   catalogContext?: DiscoveryCatalogProjection;
   catalogObservation?: CatalogObservationProjection;
   opportunityRadar?: OpportunityRadarProjection;
+  marketCorpus?: MarketCorpusProjection;
+  marketArchaeologist?: MarketArchaeologistProjection;
   modelProvider?: ModelProviderProjection;
   investigator?: PiInvestigatorProjection;
   investigationDesk?: InvestigationDeskProjection;
@@ -171,6 +175,44 @@ export function buildStudioProjection(input: {
     candidateCount: 0,
     candidates: [],
     scoreMeaning: "LEXICAL_BLOCKING_ONLY_NOT_CONFIDENCE" as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
+  const marketCorpus = input.marketCorpus ?? {
+    schemaVersion: "pmh.market-corpus.v1" as const,
+    contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+    sourceSetIdentity: hashCanonical([]),
+    snapshotIdentity: hashCanonical({ listings: [] }),
+    eligibleSourceCount: 0,
+    excludedSourceCount: 0,
+    listingCount: 0,
+    authority: "OBSERVE_ONLY" as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
+  const marketArchaeologist = input.marketArchaeologist ?? {
+    schemaVersion: "pmh.market-archaeologist-desk.v1" as const,
+    configured: false,
+    model: "deepseek-v4-flash",
+    status: "NEEDS_KEY" as const,
+    runCount: 0,
+    passCount: 0,
+    failedCount: 0,
+    retentionLimit: 10,
+    scheduler: {
+      enabled: false,
+      intervalMs: null,
+      changedCorpusOnly: true as const,
+      lastAttemptedSnapshotIdentity: null,
+    },
+    records: [],
+    authority: "PROPOSE_ONLY" as const,
     effects: {
       externalWrites: false as const,
       valueMovingActions: false as const,
@@ -278,16 +320,18 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 218,
+      proofTests: 224,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
     ai: {
-      architecture: "SCOUT_THEN_VERIFY" as const,
+      architecture: "AI_NATIVE_DISCOVERY" as const,
       activeRuns: input.activeRuns,
       catalogContext,
       catalogObservation,
       opportunityRadar,
+      marketCorpus,
+      marketArchaeologist,
       modelProvider,
       investigator,
       investigationDesk,

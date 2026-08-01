@@ -23,6 +23,10 @@ import {
   type OpportunityRadarCandidate,
   type OpportunityRadarProjection,
 } from "./opportunity-radar.js";
+import {
+  buildMarketCorpusSnapshot,
+  type MarketCorpusSnapshot,
+} from "./market-corpus.js";
 import type {
   DiscoveryCatalogContext,
   DiscoveryCatalogListing,
@@ -594,6 +598,32 @@ export class CatalogObservationDesk {
         (total, state) => total + state.listings.length,
         0,
       ),
+      eligibleSourceCount: eligibleStates.length,
+      excludedSourceCount: states.length - eligibleStates.length,
+      listings: eligibleStates.flatMap((state) => state.listings),
+    });
+  }
+
+  public corpus(): MarketCorpusSnapshot {
+    const now = this.#now();
+    const states = [...this.#states.values()].sort((left, right) =>
+      left.source.venueId.localeCompare(right.source.venueId),
+    );
+    const eligibleStates = states.filter(
+      (state) => this.#contextEligibility(state, now).eligible,
+    );
+    const sourceSetIdentity = hashCanonical(
+      eligibleStates.map((state) => ({
+        venueId: state.source.venueId,
+        protocolIdentity: state.source.protocolIdentity,
+        receivedAt: state.latest?.record.receivedAt ?? null,
+        rawHash: state.latest?.record.rawHash ?? null,
+        listingIdentity: state.latest?.record.listingIdentity ?? null,
+        listingCount: state.listings.length,
+      })),
+    );
+    return buildMarketCorpusSnapshot({
+      sourceSetIdentity,
       eligibleSourceCount: eligibleStates.length,
       excludedSourceCount: states.length - eligibleStates.length,
       listings: eligibleStates.flatMap((state) => state.listings),

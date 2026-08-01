@@ -71,6 +71,11 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
 
+The next architecture campaign is tracked in
+`plans/ai-native-market-archaeologist.md`. It replaces deterministic candidate
+pairing as the primary discovery entry point with agent-owned recursive search;
+Radar remains a low-cost blocking aid only.
+
 ## Verification gate
 
 - [x] Focused fixture and contract tests.

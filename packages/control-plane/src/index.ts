@@ -7,6 +7,8 @@ export * from "./discovery-ledger.js";
 export * from "./deepseek-model.js";
 export * from "./investigation-desk.js";
 export * from "./local-environment.js";
+export * from "./market-archaeologist.js";
+export * from "./market-corpus.js";
 export * from "./model-runtime.js";
 export * from "./model-scout.js";
 export * from "./openai-model.js";
