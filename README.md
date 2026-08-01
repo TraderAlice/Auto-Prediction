@@ -34,7 +34,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection; each pair can be sent to the cheap scout pool only by an explicit operator action.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
-- An operator-triggered Candidate Watch that captures current Polymarket and Limitless books under one refresh identity, retains exact raw bytes in SQLite WAL schema v4, refuses mixed-time screens after partial failure, and either reuses an unchanged bound result or recomputes changed-book economics without invoking review or verification.
+- An operator-triggered Candidate Watch that captures current Polymarket and Limitless books under one refresh identity, retains exact raw bytes plus a bounded hash-checked attempt journal in SQLite WAL schema v5, restores failures across restart, refuses mixed-time screens after partial failure, and either reuses an unchanged bound result or recomputes changed-book economics without invoking review or verification.
 - An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, cross-restart task-scope idempotency, bounded hash-checked SQLite retention, SSE running/failure/completion state, and no route into review or execution.
 - A deterministic Research Case Desk that joins scout runs and pi retry history by question, venue scope, catalog-context identity, and source grade; it retains the exact bounded scout context for later pi handoff and exposes investigation summaries, findings, candidate scope, and missing-evidence intake without creating review or promotion authority.
 - A bounded anonymous catalog-observation desk for six venues. It preserves raw public GET bytes in SQLite WAL, binds normalized listings to their source identities, isolates protocol drift per venue, and stays `OBSERVE_ONLY`; explicit fresh-context qualification grants proposal input only.
@@ -82,7 +82,8 @@ pnpm studio
 path when a different local operational volume is required. The database is
 ignored by Git and contains bounded discovery runs plus their exact normalized
 catalog snapshots, completed investigations, and raw anonymous catalog
-observations, not credentials or immutable campaign evidence. Snapshot bodies
+observations, plus Candidate Watch raw books and its bounded refresh journal;
+it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.
 
 The model scout is opt-in. Set `DEEPSEEK_API_KEY` in the control-plane process
@@ -119,6 +120,10 @@ stores their exact bytes and source bindings in SQLite. A complete unchanged
 batch may reuse only the result already bound to those exact identities. A
 changed batch is screened again; a partial batch returns `DEGRADED` with no
 decision, so a new book can never be paired with the other venue's older book.
+Every attempt is retained in a bounded canonical journal. On restart the latest
+journal entry, including per-source failures, is authoritative; a stale prior
+success cannot silently revive the watch as `READY`. Journal records and their
+referenced raw observations are hash-checked during hydration.
 The endpoint can reject economics or request later qualification, but it cannot
 invoke independent review, publish a certificate, or move value.
 

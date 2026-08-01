@@ -3499,6 +3499,93 @@ footer span:first-child {
   white-space: nowrap;
 }
 
+.candidate-watch-history {
+  border-bottom: 1px solid rgba(126, 240, 193, 0.09);
+  padding: 11px 16px 13px;
+}
+
+.candidate-watch-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.candidate-watch-history-head span {
+  color: #60766b;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 6px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.candidate-watch-history-head small {
+  color: #405047;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 6px;
+}
+
+.candidate-watch-history-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.candidate-watch-history-grid article {
+  min-width: 0;
+  border: 1px solid rgba(126, 240, 193, 0.1);
+  border-radius: 7px;
+  background: rgba(7, 12, 9, 0.38);
+  padding: 9px 10px;
+}
+
+.candidate-watch-history-grid article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.candidate-watch-history-grid time {
+  overflow: hidden;
+  color: #52645b;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-watch-history-grid strong,
+.candidate-watch-history-grid small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-watch-history-grid strong {
+  margin-top: 8px;
+  color: #8ca99b;
+  font-size: 8px;
+}
+
+.candidate-watch-history-grid small {
+  margin-top: 5px;
+  color: #43534b;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 6px;
+}
+
+.candidate-watch-history-grid p {
+  overflow: hidden;
+  margin: 6px 0 0;
+  color: #9f7169;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .candidate-watch-foot {
   display: flex;
   min-width: 0;
@@ -4401,6 +4488,10 @@ footer span:first-child {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .candidate-watch-history-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .candidate-watch-decision > div:nth-child(2) {
     border-right: 0;
   }
@@ -4653,7 +4744,8 @@ footer span:first-child {
   }
 
   .candidate-watch-source-grid,
-  .candidate-watch-decision {
+  .candidate-watch-decision,
+  .candidate-watch-history-grid {
     grid-template-columns: 1fr;
   }
 

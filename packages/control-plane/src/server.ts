@@ -10,7 +10,7 @@ import {
 } from "./catalog-observation.js";
 import {
   CandidateWatchDesk,
-  type CandidateBookObservationStore,
+  type CandidateWatchStore,
 } from "./candidate-watch.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
 import {
@@ -230,15 +230,18 @@ function supportsCatalogObservations(
   );
 }
 
-function supportsCandidateBookObservations(
+function supportsCandidateWatch(
   store: DiscoveryRunStore | undefined,
-): store is DiscoveryRunStore & CandidateBookObservationStore {
+): store is DiscoveryRunStore & CandidateWatchStore {
   if (store === undefined) return false;
-  const candidate = store as Partial<CandidateBookObservationStore>;
+  const candidate = store as Partial<CandidateWatchStore>;
   return (
     candidate.candidateBookObservationStorage !== undefined &&
     typeof candidate.loadCandidateBookObservations === "function" &&
-    typeof candidate.saveCandidateBookObservation === "function"
+    typeof candidate.saveCandidateBookObservation === "function" &&
+    candidate.candidateWatchRefreshStorage !== undefined &&
+    typeof candidate.loadCandidateWatchRefreshes === "function" &&
+    typeof candidate.saveCandidateWatchRefresh === "function"
   );
 }
 
@@ -308,7 +311,7 @@ export function createControlPlane(options?: {
     options?.candidateWatchDesk ??
     new CandidateWatchDesk({
       evidenceDesk: realCandidatePreflightDesk,
-      ...(supportsCandidateBookObservations(options?.discoveryStore)
+      ...(supportsCandidateWatch(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });

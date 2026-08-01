@@ -18,9 +18,12 @@ import {
   type StoredCatalogObservation,
 } from "./catalog-observation.js";
 import {
+  verifyCandidateWatchRefreshRecord,
   verifyStoredCandidateBookObservation,
   type CandidateBookObservationStore,
   type CandidateBookObservationRecord,
+  type CandidateWatchRefreshRecord,
+  type CandidateWatchRefreshStore,
   type StoredCandidateBookObservation,
 } from "./candidate-watch.js";
 import type {
@@ -28,7 +31,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -56,6 +59,12 @@ type StoredCandidateBookObservationRow = Readonly<{
   record_json: string;
   record_hash: string;
   raw_bytes: Uint8Array;
+}>;
+
+type CandidateWatchRefreshRow = Readonly<{
+  refresh_id: string;
+  record_json: string;
+  record_hash: string;
 }>;
 
 function assertLimit(limit: number): void {
@@ -200,6 +209,38 @@ function parseStoredCandidateBookObservation(
   });
 }
 
+function parseCandidateWatchRefresh(
+  value: unknown,
+): CandidateWatchRefreshRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite candidate watch refresh row is malformed");
+  }
+  const row = value as Partial<CandidateWatchRefreshRow>;
+  if (
+    typeof row.refresh_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error(
+      "SQLite candidate watch refresh row has invalid column types",
+    );
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite candidate watch refresh contains invalid JSON");
+  }
+  const record = verifyCandidateWatchRefreshRecord(decoded);
+  if (
+    record.refreshId !== row.refresh_id ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite candidate watch refresh identity mismatch");
+  }
+  return record;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -229,7 +270,8 @@ export class SqliteOperationalStore
     DiscoveryRunStore,
     InvestigationRecordStore,
     CatalogObservationStore,
-    CandidateBookObservationStore
+    CandidateBookObservationStore,
+    CandidateWatchRefreshStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -246,6 +288,12 @@ export class SqliteOperationalStore
     durable: boolean;
     schemaVersion: number;
     idempotencyKey: "observationId";
+  }>;
+  public readonly candidateWatchRefreshStorage: Readonly<{
+    mode: "MEMORY" | "SQLITE_WAL";
+    durable: boolean;
+    schemaVersion: number;
+    idempotencyKey: "refreshId";
   }>;
 
   public constructor(databasePath: string) {
@@ -300,6 +348,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "observationId",
+    });
+    this.candidateWatchRefreshStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "refreshId",
     });
   }
 
@@ -399,6 +453,27 @@ export class SqliteOperationalStore
             ON candidate_book_observations (venue_id, received_at DESC);
           CREATE INDEX candidate_book_observations_refresh
             ON candidate_book_observations (refresh_id, venue_id);
+        `);
+      }
+      if (current < 5) {
+        this.#database.exec(`
+          CREATE TABLE candidate_watch_refreshes (
+            refresh_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(refresh_id) > 0 AND
+              refresh_id GLOB 'candidate-watch-refresh:[0-9a-f]*'
+            ),
+            attempted_at TEXT NOT NULL CHECK (length(attempted_at) > 0),
+            completed_at TEXT NOT NULL CHECK (length(completed_at) > 0),
+            status TEXT NOT NULL CHECK (status IN ('READY', 'DEGRADED')),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX candidate_watch_refreshes_attempted
+            ON candidate_watch_refreshes (
+              attempted_at DESC, refresh_id DESC
+            );
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -723,6 +798,82 @@ export class SqliteOperationalStore
         throw new Error(
           "candidate observationId is already bound to another record",
         );
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadCandidateWatchRefreshes(
+    limit: number,
+  ): readonly CandidateWatchRefreshRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT refresh_id, record_json, record_hash
+         FROM candidate_watch_refreshes
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseCandidateWatchRefresh));
+  }
+
+  public saveCandidateWatchRefresh(
+    record: CandidateWatchRefreshRecord,
+    retentionLimit: number,
+  ): CandidateWatchRefreshRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = verifyCandidateWatchRefreshRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO candidate_watch_refreshes (
+             refresh_id, attempted_at, completed_at, status,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(refresh_id) DO NOTHING`,
+        )
+        .run(
+          validated.refreshId,
+          validated.attemptedAt,
+          validated.completedAt,
+          validated.status,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM candidate_watch_refreshes
+           WHERE refresh_id IN (
+             SELECT refresh_id
+             FROM candidate_watch_refreshes
+             ORDER BY rowid DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT refresh_id, record_json, record_hash
+           FROM candidate_watch_refreshes
+           WHERE refresh_id = ?`,
+        )
+        .get(validated.refreshId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the candidate watch refresh");
+      }
+      const stored = parseCandidateWatchRefresh(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("refreshId is already bound to another record");
       }
       this.#database.exec("COMMIT");
       return stored;
