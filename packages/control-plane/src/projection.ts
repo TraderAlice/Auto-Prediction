@@ -24,6 +24,7 @@ import type {
 } from "./types.js";
 import type { InvestigationDeskProjection } from "./investigation-desk.js";
 import type { CatalogObservationProjection } from "./catalog-observation.js";
+import type { CandidateWatchProjection } from "./candidate-watch.js";
 import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
@@ -84,6 +85,7 @@ export function buildStudioProjection(input: {
   realCandidateDepth?: RealCandidateDepthEvidence;
   realCandidateDisposition?: RealCandidateDispositionEvidence;
   realCandidateRescreen?: RealCandidateRescreenEvidence;
+  candidateWatch?: CandidateWatchProjection;
 }): StudioProjection {
   const bookDesk = input.bookDesk ?? {
     mode: "FIXTURE_REPLAY" as const,
@@ -200,6 +202,34 @@ export function buildStudioProjection(input: {
     runs: [],
   };
   const researchDesk = buildResearchCaseDesk(discoveryDesk, investigationDesk);
+  const candidateWatch = input.candidateWatch ?? {
+    schemaVersion: "pmh.candidate-watch.v1" as const,
+    mode: "ANONYMOUS_PUBLIC_GET" as const,
+    status: "IDLE" as const,
+    authority: "OBSERVE_AND_SCREEN_ONLY" as const,
+    candidateClaimIdentity: hashCanonical({ candidate: "unloaded" }),
+    canonicalTitle: "Candidate watch unavailable",
+    boundSnapshotIdentity: hashCanonical({ books: [] }),
+    latestRefreshId: null,
+    observationSetIdentity: hashCanonical([]),
+    changedVenueCount: 0,
+    retentionPerSource: 10,
+    timeoutMs: 10_000,
+    maxResponseBytes: 1_000_000,
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false as const,
+      schemaVersion: 0,
+      idempotencyKey: "observationId" as const,
+    },
+    decision: null,
+    sources: [],
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const reviewedCompilation = buildReviewedCompilationEvidence();
   const compiledCapital = Object.entries(
     reviewedCompilation.certificate.capitalRequiredByVenue,
@@ -237,7 +267,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 201,
+      proofTests: 209,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -283,6 +313,7 @@ export function buildStudioProjection(input: {
       realCandidateDepth: input.realCandidateDepth ?? null,
       realCandidateDisposition: input.realCandidateDisposition ?? null,
       realCandidateRescreen: input.realCandidateRescreen ?? null,
+      candidateWatch,
     },
     discoveryDesk,
     venues: manifests

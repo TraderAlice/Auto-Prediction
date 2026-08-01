@@ -82,6 +82,35 @@ const EMPTY_OPPORTUNITY_RADAR: StudioProjection["ai"]["opportunityRadar"] = {
   },
 };
 
+const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"] = {
+  schemaVersion: "pmh.candidate-watch.v1",
+  mode: "ANONYMOUS_PUBLIC_GET",
+  status: "IDLE",
+  authority: "OBSERVE_AND_SCREEN_ONLY",
+  candidateClaimIdentity: `sha256:${"0".repeat(64)}`,
+  canonicalTitle: "Candidate watch unavailable",
+  boundSnapshotIdentity: `sha256:${"0".repeat(64)}`,
+  latestRefreshId: null,
+  observationSetIdentity: `sha256:${"0".repeat(64)}`,
+  changedVenueCount: 0,
+  retentionPerSource: 10,
+  timeoutMs: 10_000,
+  maxResponseBytes: 1_000_000,
+  storage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "observationId",
+  },
+  decision: null,
+  sources: [],
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "radar", label: "Opportunity radar", icon: Radar },
@@ -314,6 +343,36 @@ async function requestCatalogRefresh(): Promise<"READY" | "DEGRADED"> {
     result.effects.liveExecutionEnabled !== false
   ) {
     throw new Error("catalog observation crossed its authority boundary");
+  }
+  return result.status;
+}
+
+async function requestCandidateWatchRefresh(): Promise<"READY" | "DEGRADED"> {
+  const response = await fetch("/api/v1/candidate-watch/refresh", {
+    method: "POST",
+  });
+  const result = (await response.json()) as {
+    status?: string;
+    authority?: string;
+    effects?: {
+      externalWrites?: boolean;
+      valueMovingActions?: boolean;
+      liveExecutionEnabled?: boolean;
+    };
+  };
+  if (
+    (response.status !== 200 && response.status !== 207) ||
+    (result.status !== "READY" && result.status !== "DEGRADED")
+  ) {
+    throw new Error("candidate watch refresh failed");
+  }
+  if (
+    result.authority !== "OBSERVE_AND_SCREEN_ONLY" ||
+    result.effects?.externalWrites !== false ||
+    result.effects.valueMovingActions !== false ||
+    result.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("candidate watch crossed its authority boundary");
   }
   return result.status;
 }
@@ -921,6 +980,19 @@ function RealCandidatePreflightView() {
   const disposition =
     studioProjection.qualification.realCandidateDisposition;
   const rescreen = studioProjection.qualification.realCandidateRescreen;
+  const watch =
+    studioProjection.qualification.candidateWatch ?? EMPTY_CANDIDATE_WATCH;
+  const [watchRefreshStatus, setWatchRefreshStatus] = useState<
+    "IDLE" | "RUNNING" | "READY" | "DEGRADED" | "FAILED"
+  >("IDLE");
+  async function refreshCandidateBooks(): Promise<void> {
+    setWatchRefreshStatus("RUNNING");
+    try {
+      setWatchRefreshStatus(await requestCandidateWatchRefresh());
+    } catch {
+      setWatchRefreshStatus("FAILED");
+    }
+  }
   if (preflight === null || preflight === undefined) {
     return (
       <section className="page-section preflight-page">
@@ -988,6 +1060,122 @@ function RealCandidatePreflightView() {
           value={preflight.verifierInvoked ? "RUN" : "NOT RUN"}
           detail="prerequisites fail closed"
         />
+      </div>
+
+      <div className="candidate-watch">
+        <div className="candidate-watch-head">
+          <div className="candidate-watch-mark">
+            <Radio size={18} />
+          </div>
+          <div>
+            <span>Candidate watch · anonymous public books</span>
+            <strong>One refresh ID, two venues, no mixed-time screen</strong>
+            <p>
+              The control plane captures both raw responses, binds their hashes
+              to one refresh, and recomputes only when the bound book identity
+              changes. A partial refresh cannot produce a decision.
+            </p>
+          </div>
+          <div className="candidate-watch-actions">
+            <Badge
+              variant={watch.status === "READY" ? "verified" : "shadow"}
+            >
+              {watch.status}
+            </Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={
+                watch.status === "REFRESHING" || watchRefreshStatus === "RUNNING"
+              }
+              onClick={() => void refreshCandidateBooks()}
+            >
+              <RefreshCw
+                size={13}
+                className={
+                  watch.status === "REFRESHING" ||
+                  watchRefreshStatus === "RUNNING"
+                    ? "is-spinning"
+                    : undefined
+                }
+              />
+              {watchRefreshStatus === "FAILED" ? "Retry books" : "Refresh books"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="candidate-watch-source-grid">
+          {watch.sources.length === 0 ? (
+            <div className="candidate-watch-empty">
+              <Radio size={14} />
+              <span>No runtime book observation has been retained yet.</span>
+            </div>
+          ) : (
+            watch.sources.map((source) => (
+              <article key={source.venueId}>
+                <div>
+                  <span>{source.venueId}</span>
+                  <Badge
+                    variant={source.status === "CURRENT" ? "verified" : "shadow"}
+                  >
+                    {source.status.replaceAll("_", " ")}
+                  </Badge>
+                </div>
+                <strong>
+                  {source.changedFromBound === null
+                    ? "Awaiting first comparison"
+                    : source.changedFromBound
+                      ? "Book identity changed"
+                      : "Matches bound snapshot"}
+                </strong>
+                <code>{source.rawHash ?? "raw hash unavailable"}</code>
+                <small>
+                  {source.nativeGeneration === null
+                    ? "receive-time binding · no native generation"
+                    : `generation ${source.nativeGeneration}`}
+                </small>
+                {source.diagnostic !== null && <p>{source.diagnostic}</p>}
+              </article>
+            ))
+          )}
+        </div>
+
+        <div className="candidate-watch-decision">
+          <div>
+            <span>Latest complete refresh</span>
+            <code>{watch.latestRefreshId ?? "none"}</code>
+          </div>
+          <div>
+            <span>Screen disposition</span>
+            <strong>
+              {watch.decision === null
+                ? "NO DECISION"
+                : watch.decision.status.replaceAll("_", " ")}
+            </strong>
+          </div>
+          <div>
+            <span>Gross floor before fees</span>
+            <strong>{watch.decision?.grossFloorBeforeFees ?? "—"}</strong>
+          </div>
+          <div>
+            <span>Review / verifier</span>
+            <strong>
+              {watch.decision?.reviewRequired === true
+                ? "QUALIFICATION REQUIRED"
+                : "NOT INVOKED"}
+            </strong>
+          </div>
+        </div>
+
+        <div className="candidate-watch-foot">
+          <Database size={13} />
+          <span>
+            {watch.storage.durable
+              ? `Raw bytes retained in SQLite schema v${watch.storage.schemaVersion}`
+              : "Runtime observations are memory-only"}
+          </span>
+          <code>{watch.observationSetIdentity}</code>
+        </div>
       </div>
 
       {rescreen !== null && rescreen !== undefined && (

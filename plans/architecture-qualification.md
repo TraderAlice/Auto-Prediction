@@ -64,6 +64,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Bind the real candidate to anonymous Polymarket and Limitless book depth at a common quantity without invoking the simulated complete-set route.
 - [x] Publish a deterministic snapshot-scoped rejection when official non-negative taker-fee evidence proves a non-positive depth-bound floor cannot become strictly positive.
 - [x] Invalidate and recompute a real candidate after a fresh anonymous book generation changes, preserving explicit prior/current decision lineage.
+- [x] Retain operator-triggered current candidate books in SQLite and screen only complete same-refresh pairs, with partial failure and positive-gross outcomes failing closed before review.
 - [x] Qualify real AI SDK and pi responses with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -139,6 +140,9 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: The depth screen is quantity-bound but not certificate-grade. Limitless REST exposes no venue generation, its dynamic taker fee is unbound, the split/sell route is simulation-only, and independent review remains absent; verifier invocation and all value-moving effects stay literal false.
 - 2026-08-01: The official Limitless fee document binds sell-taker fees to a non-negative 42–150 bp range with no maker rebate. Since the five-share gross-floor upper bound is already zero, `pmh.real-candidate-disposition.v1` rejects only the current book snapshot before review or verification; changed book identities require a fresh screen.
 - 2026-08-01: A second anonymous book capture changes the Polymarket raw hash and native generation while Limitless remains byte-identical. `pmh.real-candidate-rescreen.v1` rebuilds and invalidates the prior decision, recomputes fresh depth and disposition identities, and independently reaches `REJECTED_ECONOMICS`; prior-decision reuse, review, verification, and value-moving effects remain literal false.
+- 2026-08-01: Operational schema v4 adds per-venue candidate-book observations with exact raw BLOBs, source/protocol/claim binding, common refresh IDs, bounded per-source retention, restart hydration, and tamper rejection. Candidate Watch publishes no decision unless both sources succeeded in the same refresh.
+- 2026-08-01: The first runtime Candidate Watch batch succeeds without credentials or proxy changes. Limitless remains `sha256:bb0ad494…a6cf`; Polymarket advances to `sha256:dcdc0fae…c6e8` / generation `36bbecef…b57e`. Fresh `bigint` screening produces depth `sha256:ea217c9e…cb89` and disposition `sha256:d0f7fd48…de86`, rejects the unchanged zero gross floor, and keeps prior reuse, review, verifier, certificate, and value movement false.
+- 2026-08-01: Candidate Watch closes the checkpoint at 209 passing tests with full typecheck, production build, and clean desktop/430px Studio layouts. Refresh IDs include a per-operation nonce, and the no-stitch test deliberately repeats the same clock instant across a successful and partial refresh.
 
 ## Blockers
 

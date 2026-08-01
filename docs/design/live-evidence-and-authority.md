@@ -3,8 +3,9 @@
 Git owns small reviewed facts, source, tests, campaign definitions, and content-addressed manifests. SQLite WAL owns operational projections and idempotency state. Segmented NDJSON or Parquet owns dense streams.
 
 The current SQLite schema stores bounded discovery runs, completed pi
-investigations, and anonymous catalog observations. Records bind their scope,
-completion/receive time, canonical JSON or raw bytes, and content hashes. WAL
+investigations, anonymous catalog observations, and candidate-book
+observations. Records bind their scope, completion/receive time, canonical JSON
+or raw bytes, and content hashes. WAL
 plus full synchronous mode protects local restart recovery; schema version,
 retention deletion, and insertion occur transactionally. A duplicate `taskId`
 never overwrites a previous scope, and database persistence never upgrades a
@@ -53,6 +54,15 @@ native-generation changes, and requires at least one substantive book change.
 Only then may it recompute current depth and disposition evidence. A test with
 newly positive gross economics proves that an old rejection cannot be carried
 forward: the rejection builder fails instead of manufacturing continuity.
+
+Candidate Watch operationalizes this rule without widening authority. Both
+venue observations must share a successful refresh identity before screening;
+otherwise the projection is degraded and has no decision. Exact raw bytes are
+retained under schema v4 and reverified during hydration. Unchanged identities
+may reuse only their already-bound snapshot result. Changed identities produce
+a fresh depth result; non-positive economics may be rejected, while positive
+gross economics can only request later qualification. Independent review and
+the exact verifier remain literal false in all watch outcomes.
 
 The repository has no live-trading authority. No adapter method may turn configuration alone into permission to place an order or move value.
 
