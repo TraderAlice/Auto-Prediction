@@ -102,6 +102,19 @@ type OpportunityLifecycleRow = Readonly<{
   journal_hash: string;
 }>;
 
+function reviveCanonicalBigInt(_key: string, value: unknown): unknown {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    Object.keys(value).length === 1 &&
+    typeof (value as { $bigint?: unknown }).$bigint === "string" &&
+    /^-?(?:0|[1-9]\d*)$/u.test((value as { $bigint: string }).$bigint)
+  ) {
+    return BigInt((value as { $bigint: string }).$bigint);
+  }
+  return value;
+}
+
 function assertLimit(limit: number): void {
   if (!Number.isSafeInteger(limit) || limit < 1) {
     throw new Error("operational retention limit must be a positive integer");
@@ -360,7 +373,7 @@ function parseOpportunityLifecycleJournal(
   }
   let decoded: unknown;
   try {
-    decoded = JSON.parse(row.journal_json);
+    decoded = JSON.parse(row.journal_json, reviveCanonicalBigInt);
   } catch {
     throw new Error("SQLite opportunity lifecycle journal contains invalid JSON");
   }
@@ -1324,6 +1337,11 @@ export class SqliteOperationalStore
             (decision, index) =>
               decision.decisionId !==
               validated.semanticDecisions[index]?.decisionId,
+          ) ||
+          (prior.simulationBundles ?? []).some(
+            (bundle, index) =>
+              bundle.artifactHash !==
+              (validated.simulationBundles ?? [])[index]?.artifactHash,
           )
         ) {
           throw new Error("opportunity lifecycle journal cannot be rewritten");

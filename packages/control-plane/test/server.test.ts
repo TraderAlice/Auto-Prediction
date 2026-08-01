@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { hashCanonical } from "@pmh/domain";
 import {
   CandidateWatchDesk,
   candidateWatchSources,
@@ -17,6 +18,7 @@ import {
   DiscoveryPool,
   RealCandidatePreflightDesk,
   type DiscoveryWorker,
+  type StudioProjection,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
@@ -183,15 +185,15 @@ describe("control-plane HTTP surface", () => {
             summary: "The hourly markets diverge on ties and source disagreement.",
             proposals: [
               {
-                relationKind: "CONDITIONAL",
+                relationKind: "IMPLIES",
                 listingRefs: [
                   "limitless:limitless-btc-hourly",
                   "opinion:opinion-btc-hourly",
                 ],
                 statement:
-                  "The outcomes align only outside ties and when both sources agree.",
-                rationale: "Comparator and source semantics differ.",
-                falsifiers: ["A flat hour resolves differently."],
+                  "A Limitless Up outcome implies an Opinion Up outcome under the reviewed scope.",
+                rationale: "The left event is a strict subset of the right event.",
+                falsifiers: ["Limitless Up while Opinion resolves Down."],
               },
             ],
             missingEvidence: [],
@@ -215,7 +217,7 @@ describe("control-plane HTTP surface", () => {
         reviewer: {
           review: async () => ({
             recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION",
-            relationConclusion: "CONDITIONAL",
+            relationConclusion: "IMPLIES",
             assessments: {
               outcomeMapping: "Up and Down labels map directly.",
               timingAndClose: "The hourly close times align.",
@@ -224,7 +226,7 @@ describe("control-plane HTTP surface", () => {
             },
             counterexamples: ["A tie resolves differently."],
             missingEvidence: [],
-            rationale: "The conditional scope is explicit enough for simulation.",
+            rationale: "The implication scope is explicit enough for simulation.",
           }),
         },
       },
@@ -265,7 +267,7 @@ describe("control-plane HTTP surface", () => {
         body: JSON.stringify({
           opportunityId,
           decision: "ACCEPT_FOR_SIMULATION",
-          rationale: "Accept the exact conditional scope for research simulation only.",
+          rationale: "Accept the exact implication scope for research simulation only.",
         }),
       },
     );
@@ -299,6 +301,88 @@ describe("control-plane HTTP surface", () => {
       },
     );
     expect(duplicate.status).toBe(409);
+    const projection = (await (
+      await fetch(`${baseUrl}/api/v1/projection`)
+    ).json()) as StudioProjection;
+    expect(projection.relationPayoff).toMatchObject({
+      sourceDecisionCount: 1,
+      qualificationCount: 1,
+      readyCount: 1,
+      blockedCount: 0,
+      verifierEligible: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      qualifications: [
+        {
+          opportunityId,
+          relationKind: "IMPLIES",
+          status: "SIMULATION_TEMPLATE_READY",
+        },
+      ],
+    });
+    const qualification = projection.relationPayoff.qualifications[0]!;
+    const portfolio = qualification.portfolios[0]!;
+    const wireRequest = (venueId: string, price: string) => ({
+      model: "CLOB_TAKER_V1",
+      venueId,
+      instrumentId: `${venueId}:binary-outcome`,
+      side: "BUY",
+      fillPolicy: "FILL_OR_KILL",
+      requestedQuantity: "1000",
+      quantityScale: "1000",
+      collateralScale: "1000",
+      levels: [
+        {
+          price,
+          quantity: "1000",
+          levelIdentity: hashCanonical({ venueId, price }),
+        },
+      ],
+      fee: {
+        rate: "0",
+        rateScale: "10000",
+        flat: "0",
+        scheduleHash: hashCanonical({ venueId, fee: 0 }),
+      },
+      bookStateHash: hashCanonical({ venueId, book: 1 }),
+      observedAtEpochMs: "1785523200000",
+    });
+    const simulationResponse = await fetch(
+      `${baseUrl}/api/v1/opportunity-lifecycle/simulations`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          opportunityId,
+          portfolioId: portfolio.portfolioId,
+          legs: portfolio.legs.map((leg, index) => ({
+            legId: leg.legId,
+            request: wireRequest(
+              leg.listingRef.split(":", 1)[0]!,
+              index === 0 ? "400" : "450",
+            ),
+          })),
+        }),
+      },
+    );
+    expect(simulationResponse.status).toBe(200);
+    expect(await simulationResponse.json()).toMatchObject({
+      simulation: {
+        status: "POSITIVE_SIMULATED_FLOOR",
+        minimumPayoutCollateral: "1000",
+        simulatedCostCollateral: "850",
+        floorAfterSimulatedFees: "150",
+        authority: "SIMULATION_ONLY",
+        verifierEligible: false,
+        certificateAuthority: false,
+        executionAuthority: false,
+      },
+      lifecycle: {
+        state: "AWAITING_EXACT_CERTIFICATE",
+        nextAction: "RUN_EXACT_VERIFIER",
+        certificateId: null,
+      },
+    });
   });
 
   it("accepts discovery work without returning execution authority", async () => {

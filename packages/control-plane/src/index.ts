@@ -23,5 +23,7 @@ export * from "./real-candidate-preflight.js";
 export * from "./reviewed-compilation.js";
 export * from "./research-case-desk.js";
 export * from "./semantic-review.js";
+export * from "./relation-payoff.js";
+export * from "./simulation-intake.js";
 export * from "./server.js";
 export * from "./types.js";

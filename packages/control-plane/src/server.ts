@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import { hashCanonical } from "@pmh/domain";
+import { runOpportunitySimulation } from "@pmh/execution";
 import { ReplayBookDesk } from "./book-desk.js";
 import { FixtureCatalogDiscoveryDesk } from "./catalog-discovery.js";
 import {
@@ -61,6 +62,8 @@ import {
   SemanticReviewNotConfiguredError,
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
+import { deriveRelationPayoffProjection } from "./relation-payoff.js";
+import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
 import type { OpportunityLifecycleJournalStore } from "./opportunity-lifecycle-desk.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -423,6 +426,13 @@ export function createControlPlane(options?: {
       realCandidatePreflightDesk.dispositionProjection();
     opportunityLifecycleDesk.syncMarketArchaeologist(archaeologistProjection);
     opportunityLifecycleDesk.syncRealCandidate(realCandidateDisposition);
+    const semanticReviewProjection = semanticReviewDesk.projection();
+    const lifecycleProjection = opportunityLifecycleDesk.projection();
+    const relationPayoff = deriveRelationPayoffProjection({
+      archaeologist: archaeologistProjection,
+      semanticReviews: semanticReviewProjection.records,
+      semanticDecisions: lifecycleProjection.semanticDecisions,
+    });
     return buildStudioProjection({
       workers: pool.workers,
       activeRuns,
@@ -434,8 +444,9 @@ export function createControlPlane(options?: {
       opportunityRadar: catalogObservationDesk.radar(),
       marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
       marketArchaeologist: archaeologistProjection,
-      semanticReview: semanticReviewDesk.projection(),
-      opportunityLifecycle: opportunityLifecycleDesk.projection(),
+      semanticReview: semanticReviewProjection,
+      opportunityLifecycle: lifecycleProjection,
+      relationPayoff,
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
       realCandidatePreflight: realCandidatePreflightDesk.projection(),
@@ -596,6 +607,67 @@ export function createControlPlane(options?: {
         200,
         projectMarketCorpus(catalogObservationDesk.corpus()),
       );
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/opportunity-lifecycle/simulations"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        const archaeologist = marketArchaeologistDesk.projection();
+        const semanticReviews = semanticReviewDesk.projection();
+        const lifecycle = opportunityLifecycleDesk.projection();
+        const relationPayoff = deriveRelationPayoffProjection({
+          archaeologist,
+          semanticReviews: semanticReviews.records,
+          semanticDecisions: lifecycle.semanticDecisions,
+        });
+        const opportunityId =
+          body !== null &&
+          typeof body === "object" &&
+          typeof (body as { opportunityId?: unknown }).opportunityId ===
+            "string"
+            ? (body as { opportunityId: string }).opportunityId.trim()
+            : "";
+        const qualification = relationPayoff.qualifications.find(
+          (item) => item.opportunityId === opportunityId,
+        );
+        if (qualification === undefined) {
+          throw new Error(
+            "a compiled, research-accepted relation is required first",
+          );
+        }
+        const plan = parseOpportunitySimulationIntake(body, qualification);
+        const bundle = runOpportunitySimulation(plan);
+        opportunityLifecycleDesk.recordOpportunitySimulation(
+          opportunityId,
+          bundle,
+        );
+        const summary = opportunityLifecycleDesk
+          .projection()
+          .simulationBundles.find(
+            (item) => item.artifactHash === bundle.artifactHash,
+          );
+        await broadcastProjection();
+        writeJson(response, 200, {
+          simulation: summary,
+          lifecycle: opportunityLifecycleDesk
+            .projection()
+            .cases.find((item) => item.opportunityId === opportunityId),
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic:
+            error instanceof Error
+              ? error.message
+              : "opportunity simulation failed",
+          certificateAuthority: false,
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (

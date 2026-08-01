@@ -77,12 +77,39 @@ decision and cannot be inferred from this state machine.
 - [x] Expose counterexamples, missing evidence, exact assessments, rationale,
   and the research-only decision boundary in Harmony Studio.
 
+## Phase 5 — relation payoff compilation and portfolio simulation
+
+- [x] Deterministically compile accepted two-listing `EQUIVALENT`, `IMPLIES`,
+  `SUBSET`, `MUTUALLY_EXCLUSIVE`, and `EXHAUSTIVE` relations into canonical
+  truth states and buy-only complete-payout portfolios.
+- [x] Keep `RELATED`, `CONDITIONAL`, `CONFLICTING`, changed reviewer
+  conclusions, and multi-listing proposals blocked from automatic payoff
+  compilation.
+- [x] Bind a simulation plan to the relation artifact, research decision,
+  payoff portfolio, venue, outcome instrument, exact book/pool state, fee
+  schedule, quantity, and fixed-point scales.
+- [x] Calculate the minimum canonical payout, total simulated cost, and
+  post-fee floor across the whole portfolio rather than judging full fills leg
+  by leg.
+- [x] Reject complete fills with a non-positive portfolio floor, reject partial
+  legs, and stop generic AMMs at venue calibration before exact verification.
+- [x] Persist bigint simulation bundles inside the append-only lifecycle
+  journal and restore them through canonical bigint decoding.
+- [x] Add a strict decimal-string HTTP intake and JSON-safe Studio summaries;
+  neither surface grants verifier, certificate, or execution authority.
+
 ## Next slices
 
 - Calibrate AMM implementations against each venue's official contract and fee
   semantics instead of treating `x*y=k` as a venue fact.
-- Compile accepted relation kinds into exact payoff constraints and exercise the
-  CLOB simulator against fresh, bound multi-leg candidate books.
+- Add outcome-token book and fee acquisition for AI-discovered listing refs so
+  accepted portfolios can be materialized from fresh anonymous venue state
+  without hand-authoring the simulation intake.
+- Add an operator-authored structured scope for conditional, multi-listing, or
+  reviewer-reclassified relations; free-text rationale must not become a payoff
+  partition implicitly.
+- Convert a positive simulation bundle into the existing exact candidate shape
+  while preserving aggregate multi-level rounding and one-time fee semantics.
 - Connect certificate-bound cases to the existing shadow engine and record
   planned versus observed fills, hedge checkpoints, and divergence.
 - Add in-app notification acknowledgement. External channels require an explicit
@@ -131,3 +158,15 @@ decision and cannot be inferred from this state machine.
 - 2026-08-01: The semantic-review workflow passes 244 workspace tests, full
   typecheck, and production build under Node.js 24.14.0. Operator acceptance
   remains intentionally pending rather than being inferred from AI advice.
+- 2026-08-01: The deterministic relation compiler maps five exact binary
+  relation families to canonical truth tables and guaranteed-payout buy
+  templates. Broad `RELATED` and conditional semantics remain research leads,
+  not verifier inputs.
+- 2026-08-01: Opportunity simulation now evaluates the complete portfolio.
+  Full CLOB fills costing 850 units against a 1,000-unit canonical payout
+  advance only to `AWAITING_EXACT_CERTIFICATE`; 1,200-unit cost, incomplete FOK
+  legs, and generic AMMs stop at their appropriate gates.
+- 2026-08-01: The relation-to-simulation slice passes 256 workspace tests, full
+  typecheck, production build, SQLite restart recovery, and desktop/430px
+  Browser inspection with no horizontal overflow. Real operator decisions and
+  simulations remain zero.

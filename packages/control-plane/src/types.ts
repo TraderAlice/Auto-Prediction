@@ -250,6 +250,7 @@ export type StudioProjection = Readonly<{
   }>;
   bookDesk: BookDeskProjection;
   opportunityLifecycle: import("./opportunity-lifecycle-desk.js").OpportunityLifecycleDeskProjection;
+  relationPayoff: import("./relation-payoff.js").RelationPayoffProjection;
   qualification: Readonly<{
     replayChaos: ReplayChaosReport;
     campaignEvidence: CampaignEvidenceBundle;

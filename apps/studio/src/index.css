@@ -5138,6 +5138,110 @@ footer span:first-child {
   letter-spacing: 0.09em;
 }
 
+.lifecycle-payoff-qualification {
+  border: 1px solid rgba(142, 169, 255, 0.2);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin-top: 13px;
+  padding: 12px;
+}
+
+.lifecycle-payoff-qualification.is-ready {
+  border-color: rgba(126, 240, 193, 0.28);
+}
+
+.lifecycle-payoff-qualification.is-blocked {
+  border-color: rgba(255, 199, 142, 0.28);
+}
+
+.lifecycle-payoff-qualification > div:first-child {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lifecycle-payoff-qualification > div:first-child > span,
+.lifecycle-payoff-qualification > small,
+.lifecycle-payoff-portfolio > span {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  letter-spacing: 0.07em;
+}
+
+.lifecycle-payoff-qualification > div:first-child > code {
+  margin-left: auto;
+}
+
+.lifecycle-payoff-qualification > p {
+  color: var(--warning);
+}
+
+.lifecycle-truth-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lifecycle-truth-states > span {
+  background: rgba(126, 240, 193, 0.05);
+  border: 1px solid rgba(126, 240, 193, 0.16);
+  border-radius: 999px;
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  padding: 4px 7px;
+}
+
+.lifecycle-payoff-portfolio {
+  background: rgba(3, 8, 14, 0.6);
+  border-left: 2px solid rgba(126, 240, 193, 0.4);
+  display: grid;
+  gap: 5px;
+  padding: 8px 10px;
+}
+
+.lifecycle-payoff-portfolio > strong {
+  font-size: 10px;
+}
+
+.lifecycle-simulation-evidence {
+  background: rgba(126, 240, 193, 0.035);
+  border: 1px solid rgba(126, 240, 193, 0.22);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin-top: 13px;
+  padding: 12px;
+}
+
+.lifecycle-simulation-evidence > div:first-child {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.lifecycle-simulation-evidence > div:nth-child(2) {
+  display: grid;
+  gap: 6px 12px;
+  grid-template-columns: repeat(3, auto 1fr);
+}
+
+.lifecycle-simulation-evidence span,
+.lifecycle-simulation-evidence small {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  letter-spacing: 0.07em;
+}
+
+.lifecycle-simulation-evidence strong {
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
 .lifecycle-route-grid {
   display: grid;
   gap: 1px;
@@ -5462,6 +5566,10 @@ footer span:first-child {
 
   .lifecycle-assessment-grid {
     grid-template-columns: 1fr;
+  }
+
+  .lifecycle-simulation-evidence > div:nth-child(2) {
+    grid-template-columns: auto 1fr;
   }
 
   .archaeology-heading,

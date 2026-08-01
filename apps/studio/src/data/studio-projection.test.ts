@@ -118,6 +118,17 @@ describe("Studio projection safety", () => {
     expect(studioProjection.qualification.realCandidateDepth).toBeNull();
     expect(studioProjection.qualification.realCandidateDisposition).toBeNull();
     expect(studioProjection.qualification.realCandidateRescreen).toBeNull();
+    expect(studioProjection.relationPayoff).toMatchObject({
+      qualificationCount: 0,
+      sourceDecisionCount: 0,
+      unresolvedInputCount: 0,
+      readyCount: 0,
+      blockedCount: 0,
+      authority: "DETERMINISTIC_RESEARCH_COMPILER",
+      verifierEligible: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
     expect(studioProjection.qualification.candidateWatch).toMatchObject({
       status: "IDLE",
       authority: "OBSERVE_AND_SCREEN_ONLY",
