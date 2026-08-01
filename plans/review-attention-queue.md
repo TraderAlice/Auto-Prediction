@@ -55,24 +55,26 @@ nor profit claims.
 - [x] Expose queue counts, blockers, and top reviewed proposals in Studio.
 - [x] Prove fixed-point arithmetic, stale/missing-price behavior, decision
   exclusion, recommendation classes, ordering, and authority locks.
-- [ ] Qualify the historical SQLite runtime and responsive Studio, then publish
+- [x] Qualify the historical SQLite runtime and responsive Studio, then publish
   the next serial draft PR.
 
 ## Current qualification evidence
 
 - Node.js 24.14.0 workspace typecheck, 320 tests, and production build pass.
-- The retained SQLite runtime projects 30 latest passing reviews, of which 27
-  still have reconstructable proposal evidence and three are named unresolved
-  legacy inputs. The queue contains one decision-ready item, six research-only
-  items, eleven evidence escalations, and nine suggested rejections.
+- The retained SQLite runtime initially projected 30 latest passing reviews, of
+  which 27 had reconstructable proposal evidence and three were named unresolved
+  legacy inputs. During responsive inspection the live scheduler advanced the
+  journal to 35 passing reviews and the derived queue to 32 items without a
+  restart, retaining the same three explicit legacy gaps.
 - The sole decision-ready item is an `IMPLIES` pair on Polymarket US. Both
   current contracts match their retained semantics, but the anonymous
   materializer does not cover that venue and the current fixed-point gross hint
   is `-490` bps before fees and depth. It is therefore first in operator
   attention while plainly not presented as an arbitrage.
-- Responsive browser inspection of the new queue remains the final merge gate;
-  the production CSS already includes a one-column mobile layout and the Studio
-  typecheck/build pass.
+- Browser inspection passed at the default 1280×720 desktop viewport and a
+  415×900 mobile override. The queue renders two and one columns respectively,
+  long proposal text wraps, both document scroll widths remain below the
+  viewport widths, and the browser console contains no warnings or errors.
 
 ## Safety invariants
 
