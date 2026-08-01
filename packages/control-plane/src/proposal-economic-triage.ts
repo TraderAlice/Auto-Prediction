@@ -10,6 +10,7 @@ import {
   type CompilableRelation,
 } from "./relation-payoff.js";
 import type { SemanticReviewCandidate } from "./semantic-review-scheduler.js";
+import type { DiscoveryCatalogListing } from "./types.js";
 
 const MAX_ITEMS = 250;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
@@ -18,6 +19,7 @@ export type ProposalEconomicTriageStatus =
   | "POSITIVE_GROSS_HINT"
   | "NON_POSITIVE_GROSS_HINT"
   | "PRICE_UNAVAILABLE"
+  | "SETTLEMENT_INELIGIBLE"
   | "EVIDENCE_UNAVAILABLE"
   | "CURRENT_CONTRACT_MISMATCH"
   | "LISTING_SCOPE_UNSUPPORTED"
@@ -27,11 +29,43 @@ const TRIAGE_STATUSES: readonly ProposalEconomicTriageStatus[] = Object.freeze([
   "POSITIVE_GROSS_HINT",
   "NON_POSITIVE_GROSS_HINT",
   "PRICE_UNAVAILABLE",
+  "SETTLEMENT_INELIGIBLE",
   "EVIDENCE_UNAVAILABLE",
   "CURRENT_CONTRACT_MISMATCH",
   "LISTING_SCOPE_UNSUPPORTED",
   "RELATION_UNSUPPORTED",
 ]);
+
+const SETTLEMENT_SIGNALS = Object.freeze([
+  Object.freeze({
+    signal: "NEVER_RESOLVES" as const,
+    pattern: /\bwill\s+never\s+(?:be\s+resolved|resolve)\b/u,
+  }),
+  Object.freeze({
+    signal: "WILL_NOT_RESOLVE" as const,
+    pattern: /\b(?:this|the)\s+market\s+will\s+not\s+(?:be\s+resolved|resolve)(?=\s*(?:[.!*]|$))/u,
+  }),
+  Object.freeze({
+    signal: "NO_RESOLUTION_TRIGGER" as const,
+    pattern: /\bno\s+resolution\s+can\s+be\s+triggered\b/u,
+  }),
+]);
+
+export type ExplicitNonSettlementSignal =
+  (typeof SETTLEMENT_SIGNALS)[number]["signal"];
+
+export type ProposalSettlementPosture = Readonly<{
+  status:
+    | "EXPLICITLY_INELIGIBLE"
+    | "NOT_EXPLICITLY_INELIGIBLE"
+    | "NOT_EVALUATED";
+  policy: "EXPLICIT_NON_SETTLEMENT_TEXT_V1";
+  checkedListingCount: number;
+  evidence: readonly Readonly<{
+    listingRef: string;
+    signal: ExplicitNonSettlementSignal;
+  }>[];
+}>;
 
 export type ProposalEconomicTriageItem = Readonly<{
   schemaVersion: "pmh.proposal-economic-triage-item.v1";
@@ -48,6 +82,7 @@ export type ProposalEconomicTriageItem = Readonly<{
   effectivePriority: 1 | 2 | 3 | 4 | 5;
   status: ProposalEconomicTriageStatus;
   diagnostic: string;
+  settlementPosture: ProposalSettlementPosture;
   indicativeEconomics:
     | CanonicalIndicativeEconomics
     | Readonly<{
@@ -115,6 +150,75 @@ const inertEconomics = Object.freeze({
   executable: false as const,
 });
 
+const notEvaluatedSettlementPosture: ProposalSettlementPosture = Object.freeze({
+  status: "NOT_EVALUATED",
+  policy: "EXPLICIT_NON_SETTLEMENT_TEXT_V1",
+  checkedListingCount: 0,
+  evidence: Object.freeze([]),
+});
+
+function normalizedContractText(listing: DiscoveryCatalogListing): string {
+  return `${listing.description}\n${listing.rulesText ?? ""}`
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+export function explicitSettlementPosture(
+  listings: readonly DiscoveryCatalogListing[],
+): ProposalSettlementPosture {
+  const evidence = Object.freeze(listings.flatMap((listing) => {
+    const text = normalizedContractText(listing);
+    return SETTLEMENT_SIGNALS.flatMap(({ signal, pattern }) =>
+      pattern.test(text)
+        ? [Object.freeze({ listingRef: listing.listingRef, signal })]
+        : []
+    );
+  }).sort((left, right) =>
+    left.listingRef.localeCompare(right.listingRef) ||
+    left.signal.localeCompare(right.signal),
+  ));
+  return Object.freeze({
+    status: evidence.length > 0
+      ? "EXPLICITLY_INELIGIBLE"
+      : "NOT_EXPLICITLY_INELIGIBLE",
+    policy: "EXPLICIT_NON_SETTLEMENT_TEXT_V1",
+    checkedListingCount: listings.length,
+    evidence,
+  });
+}
+
+export function assertProposalSettlementPosture(
+  posture: ProposalSettlementPosture,
+  listingRefs: readonly string[],
+): ProposalSettlementPosture {
+  if (
+    posture.policy !== "EXPLICIT_NON_SETTLEMENT_TEXT_V1" ||
+    !(["EXPLICITLY_INELIGIBLE", "NOT_EXPLICITLY_INELIGIBLE", "NOT_EVALUATED"] as const)
+      .includes(posture.status) ||
+    !Number.isSafeInteger(posture.checkedListingCount) ||
+    posture.checkedListingCount < 0 ||
+    posture.checkedListingCount > listingRefs.length ||
+    posture.evidence.some((evidence) =>
+      !listingRefs.includes(evidence.listingRef) ||
+      !SETTLEMENT_SIGNALS.some(({ signal }) => signal === evidence.signal)
+    ) ||
+    new Set(posture.evidence.map((evidence) =>
+      `${evidence.listingRef}\u0000${evidence.signal}`
+    )).size !== posture.evidence.length ||
+    (posture.status === "NOT_EVALUATED" &&
+      (posture.checkedListingCount !== 0 || posture.evidence.length !== 0)) ||
+    (posture.status === "NOT_EXPLICITLY_INELIGIBLE" &&
+      (posture.checkedListingCount !== listingRefs.length ||
+        posture.evidence.length !== 0)) ||
+    (posture.status === "EXPLICITLY_INELIGIBLE" &&
+      (posture.checkedListingCount !== listingRefs.length ||
+        posture.evidence.length === 0))
+  ) throw new Error("proposal settlement posture violates its evidence contract");
+  return posture;
+}
+
 function cappedPriority(
   base: SemanticReviewCandidate["priority"],
   boost: 0 | 1,
@@ -140,6 +244,7 @@ function classify(
   diagnostic: string;
   currentContractMatchCount: number;
   economics: ProposalEconomicTriageItem["indicativeEconomics"];
+  settlementPosture: ProposalSettlementPosture;
 }> {
   const proposal = candidate.proposal;
   const bundle = candidate.evidenceBundle;
@@ -149,6 +254,7 @@ function classify(
       diagnostic: "No durable v2 proposal evidence bundle is available for contract matching.",
       currentContractMatchCount: 0,
       economics: inertEconomics,
+      settlementPosture: notEvaluatedSettlementPosture,
     });
   }
   const current = matchedCurrentContractListings(proposal, bundle, corpus);
@@ -158,6 +264,7 @@ function classify(
       diagnostic: "Indicative scheduling economics require exactly two distinct listing references.",
       currentContractMatchCount: current.size,
       economics: inertEconomics,
+      settlementPosture: notEvaluatedSettlementPosture,
     });
   }
   if (!COMPILABLE_RELATIONS.includes(proposal.relationKind as CompilableRelation)) {
@@ -166,6 +273,7 @@ function classify(
       diagnostic: `${proposal.relationKind} does not declare a canonical guaranteed-payout portfolio.`,
       currentContractMatchCount: current.size,
       economics: inertEconomics,
+      settlementPosture: notEvaluatedSettlementPosture,
     });
   }
   if (current.size !== proposal.listingRefs.length) {
@@ -174,6 +282,20 @@ function classify(
       diagnostic: "At least one current listing is missing or no longer matches the captured contract semantics.",
       currentContractMatchCount: current.size,
       economics: inertEconomics,
+      settlementPosture: notEvaluatedSettlementPosture,
+    });
+  }
+  const settlementPosture = explicitSettlementPosture([...current.values()]);
+  if (settlementPosture.status === "EXPLICITLY_INELIGIBLE") {
+    const refs = [...new Set(
+      settlementPosture.evidence.map((item) => item.listingRef),
+    )].join(", ");
+    return Object.freeze({
+      status: "SETTLEMENT_INELIGIBLE",
+      diagnostic: `Exact current contract text explicitly denies settlement for: ${refs}. No realizable payout is assumed.`,
+      currentContractMatchCount: current.size,
+      economics: inertEconomics,
+      settlementPosture,
     });
   }
   const economics = calculateCanonicalIndicativeEconomics({
@@ -190,11 +312,13 @@ function classify(
         : "The proposal-declared canonical portfolio has no positive current gross hint before fees and depth.",
     currentContractMatchCount: current.size,
     economics,
+    settlementPosture,
   });
 }
 
 function assertItem(item: ProposalEconomicTriageItem): ProposalEconomicTriageItem {
   const { itemId, ...body } = item;
+  assertProposalSettlementPosture(item.settlementPosture, item.listingRefs);
   if (
     item.schemaVersion !== "pmh.proposal-economic-triage-item.v1" ||
     !HASH_PATTERN.test(item.itemId) ||
@@ -206,6 +330,11 @@ function assertItem(item: ProposalEconomicTriageItem): ProposalEconomicTriageIte
     !Number.isSafeInteger(item.effectivePriority) ||
     item.effectivePriority < 1 || item.effectivePriority > 5 ||
     item.issueIds.some((issueId) => !HASH_PATTERN.test(issueId)) ||
+    (item.settlementPosture.status === "EXPLICITLY_INELIGIBLE" &&
+      item.status !== "SETTLEMENT_INELIGIBLE") ||
+    (item.status === "SETTLEMENT_INELIGIBLE" &&
+      (item.settlementPosture.status !== "EXPLICITLY_INELIGIBLE" ||
+        item.indicativeEconomics.status !== "NOT_APPLICABLE")) ||
     item.priorityBoost !== (
       item.status === "POSITIVE_GROSS_HINT" && item.basePriority < 5 ? 1 : 0
     ) ||
@@ -281,6 +410,7 @@ export function buildProposalEconomicTriage(input: {
       effectivePriority: cappedPriority(candidate.priority, priorityBoost),
       status: classification.status,
       diagnostic: classification.diagnostic,
+      settlementPosture: classification.settlementPosture,
       indicativeEconomics: classification.economics,
       authority: "REVIEW_SCHEDULING_HINT_ONLY" as const,
       semanticDecisionAuthority: false as const,
@@ -293,6 +423,8 @@ export function buildProposalEconomicTriage(input: {
   });
   allItems.sort((left, right) =>
     right.priorityBoost - left.priorityBoost ||
+    Number(right.status === "SETTLEMENT_INELIGIBLE") -
+      Number(left.status === "SETTLEMENT_INELIGIBLE") ||
     right.effectivePriority - left.effectivePriority ||
     Number(right.currentContractMatchCount === right.listingRefs.length) -
       Number(left.currentContractMatchCount === left.listingRefs.length) ||
