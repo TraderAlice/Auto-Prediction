@@ -14,7 +14,7 @@ import {
 } from "./semantic-review.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
-const COMPILABLE_RELATIONS = Object.freeze([
+export const COMPILABLE_RELATIONS = Object.freeze([
   "EQUIVALENT",
   "IMPLIES",
   "SUBSET",
@@ -22,7 +22,19 @@ const COMPILABLE_RELATIONS = Object.freeze([
   "EXHAUSTIVE",
 ] as const);
 
-type CompilableRelation = (typeof COMPILABLE_RELATIONS)[number];
+export type CompilableRelation = (typeof COMPILABLE_RELATIONS)[number];
+
+export type RelationPayoffReadiness = Readonly<{
+  status: "READY" | "BLOCKED";
+  relationKind: MarketRelationKind;
+  blocker:
+    | null
+    | "LISTING_ARITY_UNSUPPORTED"
+    | "RELATION_CHANGED"
+    | "RELATION_UNSUPPORTED"
+    | "TRADING_BINDING_UNAVAILABLE";
+  diagnostic: string | null;
+}>;
 
 export type RelationTruthState = Readonly<{
   stateId: string;
@@ -123,7 +135,7 @@ function allowedTruths(
   }
 }
 
-function portfolioOutcomes(
+export function relationPortfolioOutcomes(
   relation: CompilableRelation,
 ): readonly Readonly<{
   label: string;
@@ -150,6 +162,66 @@ function portfolioOutcomes(
         Object.freeze({ label: "Left true + right true", left: "TRUE", right: "TRUE" }),
       ]);
   }
+}
+
+export function inspectRelationPayoffReadiness(input: {
+  opportunityId: string;
+  proposal: MarketRelationProposal;
+  review: SemanticReviewRecord;
+}): RelationPayoffReadiness {
+  const review = assertSemanticReviewRecord(input.review);
+  if (
+    input.opportunityId !== `ai:${input.proposal.proposalId}` ||
+    review.status !== "PASS" ||
+    review.report === null ||
+    review.opportunityId !== input.opportunityId ||
+    review.proposalId !== input.proposal.proposalId
+  ) {
+    throw new Error("relation payoff readiness input is stale or incomplete");
+  }
+  const conclusion = review.report.result.relationConclusion;
+  if (
+    input.proposal.listingRefs.length !== 2 ||
+    new Set(input.proposal.listingRefs).size !== 2
+  ) {
+    return Object.freeze({
+      status: "BLOCKED",
+      relationKind: conclusion,
+      blocker: "LISTING_ARITY_UNSUPPORTED",
+      diagnostic: "Only a two-listing binary relation has a deterministic payoff template.",
+    });
+  }
+  if (conclusion !== input.proposal.relationKind) {
+    return Object.freeze({
+      status: "BLOCKED",
+      relationKind: conclusion,
+      blocker: "RELATION_CHANGED",
+      diagnostic: "The reviewer changed the relation kind; an operator-authored exact scope is required.",
+    });
+  }
+  if (!COMPILABLE_RELATIONS.includes(conclusion as CompilableRelation)) {
+    return Object.freeze({
+      status: "BLOCKED",
+      relationKind: conclusion,
+      blocker: "RELATION_UNSUPPORTED",
+      diagnostic: `${conclusion} has research value but does not define a canonical payoff partition.`,
+    });
+  }
+  const bindingDiagnostic = tradingBindingDiagnostic(input.proposal, review);
+  if (bindingDiagnostic !== null) {
+    return Object.freeze({
+      status: "BLOCKED",
+      relationKind: conclusion,
+      blocker: "TRADING_BINDING_UNAVAILABLE",
+      diagnostic: bindingDiagnostic,
+    });
+  }
+  return Object.freeze({
+    status: "READY",
+    relationKind: conclusion,
+    blocker: null,
+    diagnostic: null,
+  });
 }
 
 function payoutFor(
@@ -239,7 +311,7 @@ function compileReadyBody(input: {
     }),
   );
   const portfolios = Object.freeze(
-    portfolioOutcomes(input.relation).map((portfolio) => {
+    relationPortfolioOutcomes(input.relation).map((portfolio) => {
       const legs = Object.freeze([
         Object.freeze({ legId: "left", listingRef: leftRef, outcome: portfolio.left }),
         Object.freeze({ legId: "right", listingRef: rightRef, outcome: portfolio.right }),
@@ -374,44 +446,24 @@ export function compileResearchRelationPayoff(input: {
     throw new Error("relation payoff compiler input is stale or not accepted");
   }
   let body: Omit<ResearchRelationPayoffQualification, "artifactHash">;
-  const conclusion = review.report.result.relationConclusion;
-  if (
-    input.proposal.listingRefs.length !== 2 ||
-    new Set(input.proposal.listingRefs).size !== 2
-  ) {
+  const readiness = inspectRelationPayoffReadiness({
+    opportunityId: input.opportunityId,
+    proposal: input.proposal,
+    review,
+  });
+  if (readiness.status === "BLOCKED") {
     body = blockedBody({
       ...input,
       review,
       decision,
-      diagnostic: "Only a two-listing binary relation has a deterministic payoff template.",
-    });
-  } else if (conclusion !== input.proposal.relationKind) {
-    body = blockedBody({
-      ...input,
-      review,
-      decision,
-      diagnostic: "The reviewer changed the relation kind; an operator-authored exact scope is required.",
-    });
-  } else if (!COMPILABLE_RELATIONS.includes(conclusion as CompilableRelation)) {
-    body = blockedBody({
-      ...input,
-      review,
-      decision,
-      diagnostic: `${conclusion} has research value but does not define a canonical payoff partition.`,
-    });
-  } else if (tradingBindingDiagnostic(input.proposal, review) !== null) {
-    body = blockedBody({
-      ...input,
-      review,
-      decision,
-      diagnostic: tradingBindingDiagnostic(input.proposal, review)!,
+      diagnostic: readiness.diagnostic!,
     });
   } else {
     body = compileReadyBody({
       ...input,
       review,
       decision,
-      relation: conclusion as CompilableRelation,
+      relation: readiness.relationKind as CompilableRelation,
     });
   }
   return assertResearchRelationPayoff({ ...body, artifactHash: hashCanonical(body) });
