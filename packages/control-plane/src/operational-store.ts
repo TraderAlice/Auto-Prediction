@@ -71,6 +71,13 @@ import {
   type SearchNotificationRecord,
 } from "./search-issue-scheduler.js";
 import {
+  assertSearchAttentionDelivery,
+  assertSearchAttentionMessage,
+  type SearchAttentionDeliveryRecord,
+  type SearchAttentionMessageRecord,
+  type SearchAttentionStore,
+} from "./search-attention-outbox.js";
+import {
   assertAnonymousSimulationMaterializationRecord,
   verifyStoredAnonymousMaterializationSource,
   verifyStoredAnonymousSimulationMaterialization,
@@ -83,7 +90,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -159,6 +166,18 @@ type SearchIssueRow = Readonly<{
 
 type SearchNotificationRow = Readonly<{
   notification_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type SearchAttentionMessageRow = Readonly<{
+  message_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type SearchAttentionDeliveryRow = Readonly<{
+  delivery_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -577,6 +596,54 @@ function parseSearchNotificationRecord(value: unknown): SearchNotificationRecord
   return record;
 }
 
+function parseSearchAttentionMessage(value: unknown): SearchAttentionMessageRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite search attention message row is malformed");
+  }
+  const row = value as Partial<SearchAttentionMessageRow>;
+  if (
+    typeof row.message_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite search attention message row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite search attention message contains invalid JSON");
+  }
+  const record = assertSearchAttentionMessage(decoded as SearchAttentionMessageRecord);
+  if (
+    record.messageId !== row.message_id ||
+    hashCanonical(record) !== row.record_hash
+  ) throw new Error("SQLite search attention message identity mismatch");
+  return record;
+}
+
+function parseSearchAttentionDelivery(value: unknown): SearchAttentionDeliveryRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite search attention delivery row is malformed");
+  }
+  const row = value as Partial<SearchAttentionDeliveryRow>;
+  if (
+    typeof row.delivery_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite search attention delivery row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite search attention delivery contains invalid JSON");
+  }
+  const record = assertSearchAttentionDelivery(decoded as SearchAttentionDeliveryRecord);
+  if (
+    record.deliveryId !== row.delivery_id ||
+    hashCanonical(record) !== row.record_hash
+  ) throw new Error("SQLite search attention delivery identity mismatch");
+  return record;
+}
+
 function parseSemanticReviewRecord(value: unknown): SemanticReviewRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite semantic review row is malformed");
@@ -801,6 +868,7 @@ export class SqliteOperationalStore
     SearchLeaseRecordStore,
     SearchQuoteObservationStore,
     SearchIssueRecordStore,
+    SearchAttentionStore,
     SemanticReviewRecordStore,
     SemanticReviewSchedulerStore,
     OpportunityLifecycleJournalStore,
@@ -839,6 +907,8 @@ export class SqliteOperationalStore
   }>;
   public readonly searchIssueStorage: OperationalStorageProjection<"issueId">;
   public readonly searchNotificationStorage: OperationalStorageProjection<"notificationId">;
+  public readonly searchAttentionMessageStorage: OperationalStorageProjection<"messageId">;
+  public readonly searchAttentionDeliveryStorage: OperationalStorageProjection<"deliveryId">;
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
   public readonly semanticReviewJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -946,6 +1016,18 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "notificationId",
     });
+    this.searchAttentionMessageStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "messageId",
+    });
+    this.searchAttentionDeliveryStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "deliveryId",
+    });
     this.semanticReviewStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -1009,6 +1091,18 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'search_notification_records'`,
       )
       .get() !== undefined;
+    const searchAttentionMessageTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_attention_messages'`,
+      )
+      .get() !== undefined;
+    const searchAttentionDeliveryTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_attention_deliveries'`,
+      )
+      .get() !== undefined;
     const semanticReviewJobTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -1033,6 +1127,8 @@ export class SqliteOperationalStore
       searchLeaseCorpusTableExists &&
       searchIssueTableExists &&
       searchNotificationTableExists &&
+      searchAttentionMessageTableExists &&
+      searchAttentionDeliveryTableExists &&
       semanticReviewJobTableExists &&
       semanticReviewNotificationTableExists &&
       searchQuoteObservationTableExists
@@ -1430,6 +1526,64 @@ export class SqliteOperationalStore
             ON search_quote_observations (received_at DESC, observation_id DESC);
           CREATE INDEX IF NOT EXISTS search_quote_observations_listing
             ON search_quote_observations (listing_ref, received_at DESC);
+        `);
+      }
+      if (
+        current < 15 ||
+        !searchAttentionMessageTableExists ||
+        !searchAttentionDeliveryTableExists
+      ) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS search_attention_messages (
+            message_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(message_id) = 71 AND message_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            dedupe_identity TEXT NOT NULL UNIQUE CHECK (
+              length(dedupe_identity) = 71 AND
+              dedupe_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            kind TEXT NOT NULL CHECK (
+              kind IN ('HOURLY_DIGEST', 'ACTION_CANDIDATE', 'ISSUE_DEGRADED')
+            ),
+            severity TEXT NOT NULL CHECK (
+              severity IN ('ROUTINE', 'WATCH', 'ACTION', 'DEGRADED')
+            ),
+            occurred_at TEXT NOT NULL CHECK (length(occurred_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS search_attention_messages_occurred
+            ON search_attention_messages (occurred_at DESC, message_id DESC);
+
+          CREATE TABLE IF NOT EXISTS search_attention_deliveries (
+            delivery_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(delivery_id) = 71 AND delivery_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            message_id TEXT NOT NULL CHECK (
+              length(message_id) = 71 AND message_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            channel TEXT NOT NULL CHECK (channel IN ('IN_APP', 'WEBHOOK_JSON')),
+            status TEXT NOT NULL CHECK (
+              status IN (
+                'PENDING', 'RETRY_WAIT', 'DELIVERED', 'ACKNOWLEDGED',
+                'DEAD_LETTER'
+              )
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (message_id) REFERENCES search_attention_messages(message_id)
+              ON DELETE CASCADE
+          ) STRICT;
+          CREATE UNIQUE INDEX IF NOT EXISTS search_attention_delivery_channel
+            ON search_attention_deliveries (message_id, channel);
+          CREATE INDEX IF NOT EXISTS search_attention_deliveries_due
+            ON search_attention_deliveries (status, next_attempt_at, delivery_id);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -2339,6 +2493,182 @@ export class SqliteOperationalStore
       const stored = parseSearchNotificationRecord(row);
       if (hashCanonical(stored) !== recordHash) {
         throw new Error("notificationId is already bound to another notification");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSearchAttentionMessages(
+    limit: number,
+  ): readonly SearchAttentionMessageRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT message_id, record_json, record_hash
+         FROM search_attention_messages
+         ORDER BY occurred_at DESC, message_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseSearchAttentionMessage));
+  }
+
+  public saveSearchAttentionMessage(
+    record: SearchAttentionMessageRecord,
+    retentionLimit: number,
+  ): SearchAttentionMessageRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertSearchAttentionMessage(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO search_attention_messages (
+             message_id, dedupe_identity, kind, severity, occurred_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(message_id) DO NOTHING`,
+        )
+        .run(
+          validated.messageId,
+          validated.dedupeIdentity,
+          validated.kind,
+          validated.severity,
+          validated.occurredAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM search_attention_messages
+           WHERE message_id IN (
+             SELECT message_id FROM search_attention_messages
+             ORDER BY occurred_at DESC, message_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT message_id, record_json, record_hash
+           FROM search_attention_messages WHERE message_id = ?`,
+        )
+        .get(validated.messageId);
+      if (row === undefined) throw new Error("SQLite failed to retain the search attention message");
+      const stored = parseSearchAttentionMessage(row);
+      if (stored.artifactHash !== validated.artifactHash || hashCanonical(stored) !== recordHash) {
+        throw new Error("messageId is already bound to another search attention message");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSearchAttentionDeliveries(
+    limit: number,
+  ): readonly SearchAttentionDeliveryRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT delivery_id, record_json, record_hash
+         FROM search_attention_deliveries
+         ORDER BY updated_at DESC, delivery_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseSearchAttentionDelivery));
+  }
+
+  public saveSearchAttentionDelivery(
+    record: SearchAttentionDeliveryRecord,
+    retentionLimit: number,
+  ): SearchAttentionDeliveryRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertSearchAttentionDelivery(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const existingRow = this.#database
+        .prepare(
+          `SELECT delivery_id, record_json, record_hash
+           FROM search_attention_deliveries WHERE delivery_id = ?`,
+        )
+        .get(validated.deliveryId);
+      if (existingRow !== undefined) {
+        const existing = parseSearchAttentionDelivery(existingRow);
+        const transitions: Readonly<Record<SearchAttentionDeliveryRecord["status"],
+          readonly SearchAttentionDeliveryRecord["status"][]>> = {
+          PENDING: ["PENDING", "RETRY_WAIT", "DELIVERED", "DEAD_LETTER"],
+          RETRY_WAIT: ["RETRY_WAIT", "DELIVERED", "DEAD_LETTER"],
+          DELIVERED: ["DELIVERED", "ACKNOWLEDGED"],
+          ACKNOWLEDGED: ["ACKNOWLEDGED"],
+          DEAD_LETTER: ["DEAD_LETTER"],
+        };
+        if (
+          existing.messageId !== validated.messageId ||
+          existing.channel !== validated.channel ||
+          !transitions[existing.status].includes(validated.status) ||
+          validated.attemptCount < existing.attemptCount ||
+          validated.attemptCount > existing.attemptCount + 1
+        ) throw new Error("search attention delivery transition is invalid");
+      }
+      this.#database
+        .prepare(
+          `INSERT INTO search_attention_deliveries (
+             delivery_id, message_id, channel, status, next_attempt_at,
+             updated_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(delivery_id) DO UPDATE SET
+             status = excluded.status,
+             next_attempt_at = excluded.next_attempt_at,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          validated.deliveryId,
+          validated.messageId,
+          validated.channel,
+          validated.status,
+          validated.nextAttemptAt,
+          validated.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM search_attention_deliveries
+           WHERE delivery_id IN (
+             SELECT delivery_id FROM search_attention_deliveries
+             ORDER BY updated_at DESC, delivery_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT delivery_id, record_json, record_hash
+           FROM search_attention_deliveries WHERE delivery_id = ?`,
+        )
+        .get(validated.deliveryId);
+      if (row === undefined) throw new Error("SQLite failed to retain the search attention delivery");
+      const stored = parseSearchAttentionDelivery(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("deliveryId is already bound to another search attention delivery");
       }
       this.#database.exec("COMMIT");
       return stored;

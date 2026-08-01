@@ -241,6 +241,7 @@ export type StudioProjection = Readonly<{
     marketCorpus: import("./market-corpus.js").MarketCorpusProjection;
     marketArchaeologist: import("./market-archaeologist.js").MarketArchaeologistProjection;
     searchQuoteEnrichment: import("./search-quote-enrichment.js").SearchQuoteEnrichmentProjection;
+    searchAttention: import("./search-attention-outbox.js").SearchAttentionProjection;
     searchLeaseScheduler: import("./search-lease-scheduler.js").SearchLeaseSchedulerProjection;
     searchIssueScheduler: import("./search-issue-scheduler.js").SearchIssueSchedulerProjection;
     searchOutcomeAttribution: import("./search-outcome-attribution.js").SearchOutcomeAttributionProjection;

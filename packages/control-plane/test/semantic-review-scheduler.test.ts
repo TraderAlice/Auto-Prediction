@@ -415,7 +415,7 @@ describe("persistent semantic review scheduler", () => {
       expect(firstScheduler.tick([item], snapshot)).toHaveLength(1);
       expect(firstScheduler.projection()).toMatchObject({
         leasedCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 14 } },
+        storage: { jobs: { durable: true, schemaVersion: 15 } },
       });
       firstStore.close();
 
@@ -458,8 +458,8 @@ describe("persistent semantic review scheduler", () => {
         bundledJobCount: 1,
         unreadNotificationCount: 1,
         storage: {
-          jobs: { durable: true, schemaVersion: 14 },
-          notifications: { durable: true, schemaVersion: 14 },
+          jobs: { durable: true, schemaVersion: 15 },
+          notifications: { durable: true, schemaVersion: 15 },
         },
       });
       thirdStore.close();

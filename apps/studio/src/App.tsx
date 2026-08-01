@@ -64,6 +64,7 @@ type Opportunity = StudioProjection["opportunities"][number];
 type ResearchCase = StudioProjection["ai"]["researchDesk"]["cases"][number];
 type RadarCandidate = StudioProjection["ai"]["opportunityRadar"]["candidates"][number];
 type SearchIssue = StudioProjection["ai"]["searchIssueScheduler"]["issues"][number];
+type SearchAttentionMessage = StudioProjection["ai"]["searchAttention"]["messages"][number];
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 
 function formatRateBps(value: number | null): string {
@@ -411,6 +412,43 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   },
   authority: "PROPOSE_ONLY",
   semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+};
+
+const EMPTY_SEARCH_ATTENTION: StudioProjection["ai"]["searchAttention"] = {
+  schemaVersion: "pmh.search-attention-outbox.v1",
+  status: "IDLE",
+  digestWindowMs: 3_600_000,
+  activationAt: new Date(0).toISOString(),
+  retentionLimit: 100,
+  messageCount: 0,
+  digestCount: 0,
+  immediateCount: 0,
+  unreadInAppCount: 0,
+  pendingDeliveryCount: 0,
+  retryWaitCount: 0,
+  deliveredWebhookCount: 0,
+  deadLetterCount: 0,
+  channels: {
+    inApp: { configured: true },
+    webhookJson: {
+      configured: false,
+      destinationStored: false,
+      destinationProjected: false,
+      cutoverPolicy: "PROCESS_ACTIVATION_NO_HISTORY_REPLAY",
+    },
+  },
+  messages: [],
+  deliveries: [],
+  storage: {
+    messages: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "messageId" },
+    deliveries: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "deliveryId" },
+  },
+  authority: "ATTENTION_ROUTING_ONLY",
+  semanticDecisionAuthority: false,
+  simulationAuthority: false,
   certificateAuthority: false,
   executionAuthority: false,
   effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
@@ -905,6 +943,15 @@ async function requestNotificationAcknowledgement(notificationId: string): Promi
   );
   const result = (await response.json()) as { diagnostic?: string };
   if (!response.ok) throw new Error(result.diagnostic ?? "notification acknowledgement failed");
+}
+
+async function requestAttentionAcknowledgement(deliveryId: string): Promise<void> {
+  const response = await fetch(
+    `/api/v1/search-attention-deliveries/${deliveryId}/acknowledgements`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+  );
+  const result = (await response.json()) as { diagnostic?: string };
+  if (!response.ok) throw new Error(result.diagnostic ?? "attention acknowledgement failed");
 }
 
 async function requestReviewNotificationAcknowledgement(
@@ -2557,6 +2604,8 @@ function MarketArchaeologistView() {
     studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
   const issueScheduler =
     studioProjection.ai.searchIssueScheduler ?? EMPTY_SEARCH_ISSUE_SCHEDULER;
+  const attention =
+    studioProjection.ai.searchAttention ?? EMPTY_SEARCH_ATTENTION;
   const issuePerformance = {
     ...EMPTY_SEARCH_ISSUE_SCHEDULER.performance,
     ...(issueScheduler.performance ?? {}),
@@ -2675,6 +2724,24 @@ function MarketArchaeologistView() {
     } finally {
       setIssueAction(null);
     }
+  }
+
+  async function acknowledgeAttention(deliveryId: string): Promise<void> {
+    setIssueAction(`ATTENTION_ACK:${deliveryId}`);
+    setIssueDiagnostic(null);
+    try {
+      await requestAttentionAcknowledgement(deliveryId);
+    } catch (error) {
+      setIssueDiagnostic(error instanceof Error ? error.message : "attention acknowledgement failed");
+    } finally {
+      setIssueAction(null);
+    }
+  }
+
+  function attentionDelivery(message: SearchAttentionMessage) {
+    return attention.deliveries.find(
+      (delivery) => delivery.messageId === message.messageId && delivery.channel === "IN_APP",
+    );
   }
 
   return (
@@ -2832,6 +2899,65 @@ function MarketArchaeologistView() {
             </div>
           </div>
 
+          <section className="search-attention-console" aria-label="Search attention inbox">
+            <div className="issue-column-heading">
+              <div><Bell size={14} /><strong>Attention inbox</strong></div>
+              <span>routine scans roll into hourly digests · action and degradation notify immediately</span>
+            </div>
+            <div className="search-attention-summary">
+              <div><strong>{attention.unreadInAppCount}</strong><span>unread briefs</span></div>
+              <div><strong>{attention.digestCount}</strong><span>hourly digests</span></div>
+              <div><strong>{attention.immediateCount}</strong><span>immediate alerts</span></div>
+              <div>
+                <strong>{attention.channels.webhookJson.configured ? "WEBHOOK ON" : "IN-APP"}</strong>
+                <span>{attention.retryWaitCount} retrying · {attention.deadLetterCount} dead letter</span>
+              </div>
+            </div>
+            <div className="search-attention-list">
+              {attention.messages.length === 0 ? (
+                <div className="search-notification-empty search-attention-empty">
+                  <Bell size={20} />
+                  <strong>No closed digest window yet</strong>
+                  <span>Concurrent issue runs stay quiet until an hourly brief or immediate alert is warranted.</span>
+                </div>
+              ) : attention.messages.slice(0, 8).map((message) => {
+                const delivery = attentionDelivery(message);
+                const acknowledged = delivery?.status === "ACKNOWLEDGED";
+                return (
+                  <article className={cn("search-attention-message", acknowledged && "is-read")} key={message.messageId}>
+                    <div className="search-attention-message-head">
+                      <div>
+                        <Badge variant={message.severity === "ACTION" ? "shadow" : message.severity === "DEGRADED" ? "warning" : message.severity === "WATCH" ? "verified" : "muted"}>
+                          {message.severity}
+                        </Badge>
+                        <Badge variant="muted">{message.kind.replaceAll("_", " ")}</Badge>
+                      </div>
+                      <time>{new Date(message.occurredAt).toLocaleString()}</time>
+                    </div>
+                    <strong>{message.title}</strong>
+                    <p>{message.summary}</p>
+                    <div className="search-attention-metrics">
+                      <span>{message.metrics.scanCount} scans</span>
+                      <span>{message.metrics.novelCandidateCount} novel</span>
+                      <span>{message.metrics.proposalCount} proposals</span>
+                      <span>{message.metrics.economicPositiveCount} positive gates</span>
+                      <span>{message.metrics.failedCount} failed</span>
+                    </div>
+                    {delivery?.status === "DELIVERED" && (
+                      <Button
+                        variant="ghost"
+                        disabled={issueAction !== null}
+                        onClick={() => void acknowledgeAttention(delivery.deliveryId)}
+                      >
+                        <BadgeCheck size={13} /> Acknowledge brief
+                      </Button>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
           <section className="search-outcome-attribution" aria-label="Search outcome attribution">
             <div className="issue-column-heading">
               <div><Waypoints size={14} /><strong>Issue-to-opportunity funnel</strong></div>
@@ -2940,8 +3066,8 @@ function MarketArchaeologistView() {
 
             <section className="search-notification-inbox" aria-label="Search notifications">
               <div className="issue-column-heading">
-                <div><Inbox size={14} /><strong>Finding inbox</strong></div>
-                <span>novel signatures and failures only</span>
+                <div><Inbox size={14} /><strong>Raw finding events</strong></div>
+                <span>source event log · attention inbox above is the operator queue</span>
               </div>
               {issueScheduler.notifications.length === 0 ? (
                 <div className="search-notification-empty">

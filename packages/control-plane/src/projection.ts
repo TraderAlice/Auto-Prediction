@@ -34,6 +34,7 @@ import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
 import type { SearchLeaseSchedulerProjection } from "./search-lease-scheduler.js";
 import type { SearchQuoteEnrichmentProjection } from "./search-quote-enrichment.js";
 import type { SearchIssueSchedulerProjection } from "./search-issue-scheduler.js";
+import type { SearchAttentionProjection } from "./search-attention-outbox.js";
 import {
   buildSearchOutcomeAttribution,
   type SearchOutcomeAttributionProjection,
@@ -110,6 +111,7 @@ export function buildStudioProjection(input: {
   searchLeaseScheduler?: SearchLeaseSchedulerProjection;
   searchQuoteEnrichment?: SearchQuoteEnrichmentProjection;
   searchIssueScheduler?: SearchIssueSchedulerProjection;
+  searchAttention?: SearchAttentionProjection;
   searchOutcomeAttribution?: SearchOutcomeAttributionProjection;
   semanticReview?: SemanticReviewDeskProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
@@ -632,7 +634,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 331,
+      proofTests: 340,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -674,6 +676,56 @@ export function buildStudioProjection(input: {
         executionAuthority: false as const,
         effects: Object.freeze({
           externalWrites: false as const,
+          valueMovingActions: false as const,
+          liveExecutionEnabled: false as const,
+        }),
+      },
+      searchAttention: input.searchAttention ?? {
+        schemaVersion: "pmh.search-attention-outbox.v1" as const,
+        status: "IDLE" as const,
+        digestWindowMs: 3_600_000,
+        activationAt: new Date(0).toISOString(),
+        retentionLimit: 100,
+        messageCount: 0,
+        digestCount: 0,
+        immediateCount: 0,
+        unreadInAppCount: 0,
+        pendingDeliveryCount: 0,
+        retryWaitCount: 0,
+        deliveredWebhookCount: 0,
+        deadLetterCount: 0,
+        channels: Object.freeze({
+          inApp: Object.freeze({ configured: true as const }),
+          webhookJson: Object.freeze({
+            configured: false,
+            destinationStored: false as const,
+            destinationProjected: false as const,
+            cutoverPolicy: "PROCESS_ACTIVATION_NO_HISTORY_REPLAY" as const,
+          }),
+        }),
+        messages: Object.freeze([]),
+        deliveries: Object.freeze([]),
+        storage: Object.freeze({
+          messages: Object.freeze({
+            mode: "MEMORY" as const,
+            durable: false,
+            schemaVersion: 0,
+            idempotencyKey: "messageId" as const,
+          }),
+          deliveries: Object.freeze({
+            mode: "MEMORY" as const,
+            durable: false,
+            schemaVersion: 0,
+            idempotencyKey: "deliveryId" as const,
+          }),
+        }),
+        authority: "ATTENTION_ROUTING_ONLY" as const,
+        semanticDecisionAuthority: false as const,
+        simulationAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        effects: Object.freeze({
+          externalWrites: false,
           valueMovingActions: false as const,
           liveExecutionEnabled: false as const,
         }),

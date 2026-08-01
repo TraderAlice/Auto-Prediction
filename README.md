@@ -127,8 +127,16 @@ promotion remain active campaign work.
    hint merely permits semantic investigation. It still excludes fees and
    common executable depth. pi cannot substitute a different pair in the
    counted result. A shared word plus attractive prices is not enough.
-4. Read the resulting proposals and falsifiers in the **Finding inbox** and
-   issue funnel. Each new proposal freezes the
+4. Read the **Attention inbox** first. Routine work is grouped into closed
+   hourly digests; only a novel grounded proposal that also passes the
+   deterministic positive-gross search gate, or the third consecutive failure
+   of one issue, becomes an immediate alert. Acknowledgement updates only that
+   in-app delivery record—the underlying message and lease evidence remain
+   immutable. The **Raw finding events** panel remains available as the source
+   event log. Set `PMH_SEARCH_ATTENTION_WEBHOOK_URL` to send new post-startup
+   briefs to a generic HTTPS JSON webhook with an idempotency key, bounded
+   retries, and visible dead-letter state. Historical unread events are not
+   replayed when the channel is enabled. Each new proposal freezes the
    exact normalized listings that produced it in a bounded, content-addressed
    evidence bundle, so a later review does not silently substitute whatever the
    live catalog happens to contain then. `EQUIVALENT`, `IMPLIES`,

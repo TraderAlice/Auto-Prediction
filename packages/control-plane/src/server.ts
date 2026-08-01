@@ -109,6 +109,11 @@ import {
   SearchIssueScheduler,
   type SearchIssueRecordStore,
 } from "./search-issue-scheduler.js";
+import {
+  parseSearchAttentionWebhook,
+  SearchAttentionOutbox,
+  type SearchAttentionStore,
+} from "./search-attention-outbox.js";
 import { buildSearchOutcomeAttribution } from "./search-outcome-attribution.js";
 import {
   buildSemanticRelationGraph,
@@ -426,6 +431,21 @@ function supportsSearchQuoteObservations(
   );
 }
 
+function supportsSearchAttentionRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & SearchAttentionStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<SearchAttentionStore>;
+  return (
+    candidate.searchAttentionMessageStorage !== undefined &&
+    candidate.searchAttentionDeliveryStorage !== undefined &&
+    typeof candidate.loadSearchAttentionMessages === "function" &&
+    typeof candidate.saveSearchAttentionMessage === "function" &&
+    typeof candidate.loadSearchAttentionDeliveries === "function" &&
+    typeof candidate.saveSearchAttentionDelivery === "function"
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -445,6 +465,7 @@ export function createControlPlane(options?: {
   searchLeaseScheduler?: SearchLeaseScheduler;
   searchQuoteEnrichmentDesk?: SearchQuoteEnrichmentDesk;
   searchIssueScheduler?: SearchIssueScheduler;
+  searchAttentionOutbox?: SearchAttentionOutbox;
   semanticReviewDesk?: SemanticReviewDesk;
   semanticReviewScheduler?: SemanticReviewScheduler;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
@@ -627,6 +648,14 @@ export function createControlPlane(options?: {
       tickIntervalMs: parseSearchIssueTickInterval(process.env),
       concurrencyLimit: 3,
       ...(supportsSearchIssueRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const searchAttentionOutbox =
+    options?.searchAttentionOutbox ??
+    new SearchAttentionOutbox({
+      webhookUrl: parseSearchAttentionWebhook(process.env),
+      ...(supportsSearchAttentionRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -891,6 +920,7 @@ export function createControlPlane(options?: {
       marketArchaeologist: archaeologistProjection,
       searchLeaseScheduler: searchLeaseProjection,
       searchQuoteEnrichment: searchQuoteEnrichmentDesk.projection(),
+      searchAttention: searchAttentionOutbox.projection(),
       searchIssueScheduler: searchIssueProjection,
       searchOutcomeAttribution,
       semanticReview: semanticReviewProjection,
@@ -1024,6 +1054,7 @@ export function createControlPlane(options?: {
         marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
         marketArchaeologist: marketArchaeologistDesk.projection(),
         searchQuoteEnrichment: searchQuoteEnrichmentDesk.projection(),
+        searchAttention: searchAttentionOutbox.projection(),
         semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
         opportunityLifecycle: opportunityLifecycleDesk.projection(),
@@ -1509,6 +1540,10 @@ export function createControlPlane(options?: {
       writeJson(response, 200, searchLeaseScheduler.projection());
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/v1/search-attention") {
+      writeJson(response, 200, searchAttentionOutbox.projection());
+      return;
+    }
     if (
       request.method === "GET" &&
       url.pathname === "/api/v1/semantic-reviews"
@@ -1690,6 +1725,10 @@ export function createControlPlane(options?: {
         );
         await broadcastProjection();
         const record = await invocation.promise;
+        await searchAttentionOutbox.tick(
+          searchIssueScheduler.projection().issues,
+          searchLeaseScheduler.projection().records,
+        );
         await broadcastProjection();
         writeJson(response, record.status === "PASS" ? 200 : 422, {
           ...record,
@@ -1744,6 +1783,26 @@ export function createControlPlane(options?: {
         writeJson(response, 400, {
           ok: false,
           diagnostic: error instanceof Error ? error.message : "notification acknowledgement failed",
+        });
+      }
+      return;
+    }
+    const attentionAckMatch = url.pathname.match(
+      /^\/api\/v1\/search-attention-deliveries\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
+    );
+    if (request.method === "POST" && attentionAckMatch !== null) {
+      try {
+        const delivery = searchAttentionOutbox.acknowledgeInApp(
+          attentionAckMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, delivery);
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "attention acknowledgement failed",
         });
       }
       return;
@@ -2152,6 +2211,7 @@ export function createControlPlane(options?: {
   });
   let searchSchedulerTimer: ReturnType<typeof setInterval> | null = null;
   let searchIssueTimer: ReturnType<typeof setInterval> | null = null;
+  let searchAttentionTimer: ReturnType<typeof setInterval> | null = null;
   let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
@@ -2182,7 +2242,13 @@ export function createControlPlane(options?: {
       if (runs.length === 0) return;
       void broadcastProjection();
       for (const run of runs) {
-        void run.then(() => broadcastProjection());
+        void run.then(async () => {
+          await searchAttentionOutbox.tick(
+            searchIssueScheduler.projection().issues,
+            searchLeaseScheduler.projection().records,
+          );
+          await broadcastProjection();
+        });
       }
     } catch {
       // The next bounded tick retries due issues after capacity becomes available.
@@ -2196,6 +2262,20 @@ export function createControlPlane(options?: {
       searchIssueTimer.unref();
     });
   }
+  const tickSearchAttention = () => {
+    void searchAttentionOutbox.tick(
+      searchIssueScheduler.projection().issues,
+      searchLeaseScheduler.projection().records,
+    ).then(
+      (changed) => changed ? broadcastProjection() : undefined,
+      () => undefined,
+    );
+  };
+  void ready.then(() => {
+    tickSearchAttention();
+    searchAttentionTimer = setInterval(tickSearchAttention, 60_000);
+    searchAttentionTimer.unref();
+  });
   if (catalogRefreshScheduler.intervalMs !== null) {
     void ready.then(() => {
       const tickCatalogRefresh = () => {
@@ -2243,6 +2323,7 @@ export function createControlPlane(options?: {
   server.once("close", () => {
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
+    if (searchAttentionTimer !== null) clearInterval(searchAttentionTimer);
     if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
     discoveryLedger.close();
@@ -2263,6 +2344,7 @@ export function createControlPlane(options?: {
     searchLeaseScheduler,
     searchQuoteEnrichmentDesk,
     searchIssueScheduler,
+    searchAttentionOutbox,
     semanticReviewDesk,
     semanticReviewScheduler,
     opportunityLifecycleDesk,

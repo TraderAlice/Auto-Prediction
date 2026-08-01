@@ -1965,6 +1965,106 @@ main {
   border-top: 0;
 }
 
+.search-attention-console {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+
+.search-attention-summary {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 9px;
+  overflow: hidden;
+}
+
+.search-attention-summary > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+}
+
+.search-attention-summary > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.search-attention-summary strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.search-attention-summary span,
+.search-attention-metrics {
+  color: var(--muted-foreground);
+  font-size: 8px;
+}
+
+.search-attention-list {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.search-attention-message {
+  background: linear-gradient(145deg, rgba(15, 30, 38, 0.68), rgba(3, 8, 14, 0.52));
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.search-attention-message.is-read {
+  opacity: 0.56;
+}
+
+.search-attention-message-head,
+.search-attention-message-head > div,
+.search-attention-metrics {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.search-attention-message-head {
+  justify-content: space-between;
+}
+
+.search-attention-message time {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.search-attention-message > strong {
+  font-size: 11px;
+}
+
+.search-attention-message p {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.search-attention-metrics {
+  flex-wrap: wrap;
+  gap: 5px 12px;
+}
+
+.search-attention-message button {
+  height: 28px;
+  font-size: 9px;
+  justify-self: end;
+  padding: 0 10px;
+}
+
+.search-attention-empty {
+  grid-column: 1 / -1;
+}
+
 .search-outcome-attribution {
   border-bottom: 1px solid var(--border);
   padding: 14px 0;
@@ -6715,6 +6815,8 @@ footer span:first-child {
   .search-lease-budget,
   .search-lease-history,
   .issue-scheduler-strip,
+  .search-attention-summary,
+  .search-attention-list,
   .search-outcome-stages,
   .issue-scheduler-workbench,
   .search-issue-form,

@@ -1,6 +1,6 @@
 # Plans
 
-`plans/selected-pair-quote-enrichment.md` is the active construction plan.
+`plans/attention-aware-notification-outbox.md` is the active construction plan.
 
 ## Planning contract
 
@@ -96,17 +96,23 @@ delivery attempts, and acknowledgement need separate durable identities so
 concurrent issues can notify a human without turning the inbox into a second
 search corpus.
 
+The active campaign builds that attention layer. Raw issue outcomes remain
+immutable research evidence; a separate deterministic policy classifies them,
+groups ordinary activity into closed-window digests, emits only genuinely
+urgent conditions immediately, and owns a restart-safe delivery outbox. A
+generic JSON webhook can be configured later without changing search logic or
+replaying the existing unread backlog.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Polymarket US short-side mapping, theta fees, and fill rounding.
 - Structured operator scope for conditional and multi-listing relations.
-- External notification channels after a destination and authority decision.
+- Destination-specific notification formatting after the first external
+  channel is selected in `QUESTIONS.md`.
 - Long-horizon cost and latency measurement after provider usage evidence is
   qualified.
-- Attention-aware notification severity, aggregation, and retention after the
-  selected-pair economic funnel can produce higher-value signals.
 
 These are not blockers for the current research harness and must become focused
 plan files before implementation begins.

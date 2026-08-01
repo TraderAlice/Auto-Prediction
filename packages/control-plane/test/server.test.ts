@@ -237,6 +237,15 @@ describe("control-plane HTTP surface", () => {
           semanticDecisionAuthority: boolean;
           executionAuthority: boolean;
         };
+        searchAttention: {
+          messageCount: number;
+          unreadInAppCount: number;
+          channels: { webhookJson: { configured: boolean; destinationStored: boolean } };
+          semanticDecisionAuthority: boolean;
+          simulationAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         searchOutcomeAttribution: {
           attributionIdentity: string;
           attributedProposalCount: number;
@@ -337,6 +346,22 @@ describe("control-plane HTTP surface", () => {
       storage: { durable: false, idempotencyKey: "observationId" },
       semanticDecisionAuthority: false,
       executionAuthority: false,
+    });
+    expect(projection.ai.searchAttention).toMatchObject({
+      messageCount: 0,
+      unreadInAppCount: 0,
+      channels: { webhookJson: { configured: false, destinationStored: false } },
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const attentionResponse = await fetch(`${baseUrl}/api/v1/search-attention`);
+    expect(attentionResponse.status).toBe(200);
+    expect(await attentionResponse.json()).toMatchObject({
+      schemaVersion: "pmh.search-attention-outbox.v1",
+      authority: "ATTENTION_ROUTING_ONLY",
+      effects: { valueMovingActions: false, liveExecutionEnabled: false },
     });
     expect(projection.ai.searchOutcomeAttribution).toMatchObject({
       attributedProposalCount: 0,
@@ -1633,7 +1658,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 14,
+          schemaVersion: 15,
         },
         records: [{ investigationId: created.investigationId }],
       });
