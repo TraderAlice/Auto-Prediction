@@ -171,7 +171,7 @@ describe("issue-driven concurrent search scheduler", () => {
       kind: "NOVEL_CANDIDATE",
       status: "UNREAD",
     });
-    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 10 });
+    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 12 });
 
     const restored = new SearchIssueScheduler({
       leaseScheduler: leases,
@@ -292,7 +292,7 @@ describe("issue-driven concurrent search scheduler", () => {
       expect(restored.projection()).toMatchObject({
         issueCount: 5,
         enabledIssueCount: 4,
-        storage: { issues: { durable: true, schemaVersion: 10 } },
+        storage: { issues: { durable: true, schemaVersion: 12 } },
       });
       expect(restored.projection().issues.find((issue) => issue.issueId === created.issueId))
         .toMatchObject({ enabled: false, title: created.title });

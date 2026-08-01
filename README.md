@@ -271,6 +271,20 @@ issues, multi-issue discoveries, missing lifecycle records, and current
 bottlenecks. It is derived evidence only and cannot tune a schedule or promote a
 candidate by itself.
 
+Attributed proposals now seed one persistent semantic-review job per proposal.
+Set `PMH_SEMANTIC_REVIEW_TICK_MS` to 1000–60000 to dispatch the queue
+automatically; it is off by default in the committed example so a fresh clone
+does not silently spend provider budget. Jobs inherit the highest contributing
+issue priority, retain all contributing issue identities, lease up to three
+independent review requests concurrently, spend at most three request attempts
+per job, and retry with bounded backoff. Expired leases are recovered after
+restart, while completed reports and exhausted jobs create deduplicated in-app
+notifications. A proposal whose original listing references are absent from the
+current corpus waits in `BLOCKED_EVIDENCE` without spending an attempt and
+resumes automatically after evidence becomes available. These reports remain
+advisory: they cannot accept a proposal, simulate it, certify it, or route an
+order.
+
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 
 ```dotenv
@@ -321,8 +335,8 @@ an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 - `projects/campaigns`: immutable content-addressed qualification checkpoints.
 - `docs/design`: current architecture truth.
 - `PLANS.md`: short construction-plan index and current checkpoint.
-- `plans/search-outcome-attribution.md`: latest completed AI-search outcome
-  attribution campaign; retired plans remain recoverable from Git history.
+- `plans/persistent-semantic-review.md`: active durable, concurrent advisory
+  review campaign; retired plans remain recoverable from Git history.
 - `QUESTIONS.md`: non-blocking user decisions queued for batch support.
 - `AGENTS.md`: collaboration rules and the user-input/access ledger.
 

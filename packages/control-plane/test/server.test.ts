@@ -110,6 +110,14 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        semanticReviewScheduler: {
+          configured: boolean;
+          pendingCount: number;
+          budget: { basis: string; maxAttemptsPerJob: number };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         semanticRelationGraph: {
           graphIdentity: string;
           listingCount: number;
@@ -174,6 +182,25 @@ describe("control-plane HTTP surface", () => {
       attributionIdentity: projection.ai.searchOutcomeAttribution.attributionIdentity,
       measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
       authority: "DERIVED_RESEARCH_EVIDENCE_ONLY",
+      executionAuthority: false,
+      effects: { liveExecutionEnabled: false },
+    });
+    expect(projection.ai.semanticReviewScheduler).toMatchObject({
+      configured: false,
+      pendingCount: 0,
+      budget: { basis: "REQUEST_ATTEMPTS", maxAttemptsPerJob: 3 },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const reviewSchedulerResponse = await fetch(
+      `${baseUrl}/api/v1/semantic-review-scheduler`,
+    );
+    expect(reviewSchedulerResponse.status).toBe(200);
+    expect(await reviewSchedulerResponse.json()).toMatchObject({
+      schemaVersion: "pmh.semantic-review-scheduler.v1",
+      authority: "ADVISORY_ORCHESTRATION_ONLY",
+      budget: { basis: "REQUEST_ATTEMPTS" },
       executionAuthority: false,
       effects: { liveExecutionEnabled: false },
     });
@@ -1412,7 +1439,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 10,
+          schemaVersion: 12,
         },
         records: [{ investigationId: created.investigationId }],
       });

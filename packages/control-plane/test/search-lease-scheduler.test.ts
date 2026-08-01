@@ -250,7 +250,7 @@ describe("AI-native search lease scheduler", () => {
     const replay = restored.begin(snapshot(), "PARTITION");
     expect(replay.idempotentReplay).toBe(true);
     await expect(replay.promise).resolves.toEqual(completed);
-    expect(restored.projection().storage.schemaVersion).toBe(10);
+    expect(restored.projection().storage.schemaVersion).toBe(12);
     store.close();
   });
 

@@ -2855,7 +2855,7 @@ main {
 
 .case-summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -5362,6 +5362,177 @@ footer span:first-child {
   max-width: 780px;
 }
 
+.review-operations {
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(7, 14, 23, 0.72);
+}
+
+.review-operations-heading,
+.review-operations-heading > div {
+  align-items: center;
+  display: flex;
+}
+
+.review-operations-heading {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px;
+}
+
+.review-operations-heading > div {
+  gap: 9px;
+}
+
+.review-operations-heading svg {
+  color: var(--primary);
+}
+
+.review-operations-heading strong,
+.review-operations-heading span {
+  display: block;
+}
+
+.review-operations-heading strong {
+  font-size: 10px;
+}
+
+.review-operations-heading span {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 8px;
+}
+
+.review-operations-stats {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.review-operations-stats > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 11px 13px;
+}
+
+.review-operations-stats > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.review-operations-stats strong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.review-operations-stats span {
+  color: var(--muted-foreground);
+  font-size: 7px;
+  overflow-wrap: anywhere;
+}
+
+.review-operations-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+}
+
+.review-job-list,
+.review-notification-list {
+  min-width: 0;
+  padding: 9px;
+}
+
+.review-notification-list {
+  border-left: 1px solid var(--border);
+}
+
+.review-job-list article {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 8px;
+}
+
+.review-job-list article + article,
+.review-notification-list article + article {
+  border-top: 1px solid var(--border);
+}
+
+.review-job-list strong,
+.review-job-list span {
+  display: block;
+}
+
+.review-job-list strong,
+.review-notification-list > article > strong {
+  font-size: 8px;
+}
+
+.review-job-list span,
+.review-job-list code,
+.review-notification-list time,
+.review-notification-list p {
+  color: var(--muted-foreground);
+  font-size: 7px;
+}
+
+.review-job-list code {
+  white-space: nowrap;
+}
+
+.review-notification-list article {
+  padding: 9px;
+}
+
+.review-notification-list article.is-read {
+  opacity: 0.55;
+}
+
+.review-notification-list article > div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.review-notification-list p {
+  margin: 5px 0 0;
+  line-height: 1.5;
+}
+
+.review-notification-list button {
+  margin-top: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 7px;
+  padding: 0;
+}
+
+.review-operation-empty {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  align-content: center;
+  color: var(--muted-foreground);
+  padding: 10px;
+}
+
+.review-operation-empty strong {
+  color: var(--foreground);
+  font-size: 8px;
+}
+
+.review-operation-empty span {
+  font-size: 7px;
+}
+
 .lifecycle-flow {
   display: grid;
   gap: 1px;
@@ -6232,8 +6403,25 @@ footer span:first-child {
   .lifecycle-flow,
   .lifecycle-model-grid,
   .lifecycle-case-list,
-  .lifecycle-route-grid {
+  .lifecycle-route-grid,
+  .review-operations-body,
+  .review-operations-stats {
     grid-template-columns: 1fr;
+  }
+
+  .review-operations-stats > div + div,
+  .review-notification-list {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .review-job-list article {
+    align-items: start;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .review-job-list code {
+    grid-column: 2;
   }
 
   .lifecycle-case-topline code {

@@ -99,6 +99,24 @@ describe("Studio projection safety", () => {
         liveExecutionEnabled: false,
       },
     });
+    expect(studioProjection.ai.semanticReviewScheduler).toMatchObject({
+      pendingCount: 0,
+      leasedCount: 0,
+      exhaustedCount: 0,
+      budget: {
+        basis: "REQUEST_ATTEMPTS",
+        maxAttemptsPerJob: 3,
+        requestAttemptsStarted: 0,
+      },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
     expect(studioProjection.ai.researchDesk).toEqual({
       caseCount: 0,
       activeCount: 0,

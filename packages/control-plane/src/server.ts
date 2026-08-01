@@ -63,6 +63,12 @@ import {
   SemanticReviewNotConfiguredError,
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
+import {
+  parseSemanticReviewTickInterval,
+  SemanticReviewScheduler,
+  type SemanticReviewCandidate,
+  type SemanticReviewSchedulerStore,
+} from "./semantic-review-scheduler.js";
 import { deriveRelationPayoffProjection } from "./relation-payoff.js";
 import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
 import type { OpportunityLifecycleJournalStore } from "./opportunity-lifecycle-desk.js";
@@ -346,6 +352,21 @@ function supportsSemanticReviewRecords(
   );
 }
 
+function supportsSemanticReviewSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & SemanticReviewSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<SemanticReviewSchedulerStore>;
+  return (
+    candidate.semanticReviewJobStorage !== undefined &&
+    candidate.semanticReviewNotificationStorage !== undefined &&
+    typeof candidate.loadSemanticReviewJobRecords === "function" &&
+    typeof candidate.saveSemanticReviewJobRecord === "function" &&
+    typeof candidate.loadSemanticReviewNotificationRecords === "function" &&
+    typeof candidate.saveSemanticReviewNotificationRecord === "function"
+  );
+}
+
 function supportsOpportunityLifecycleJournals(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & OpportunityLifecycleJournalStore {
@@ -388,6 +409,7 @@ export function createControlPlane(options?: {
   searchLeaseScheduler?: SearchLeaseScheduler;
   searchIssueScheduler?: SearchIssueScheduler;
   semanticReviewDesk?: SemanticReviewDesk;
+  semanticReviewScheduler?: SemanticReviewScheduler;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
   simulationMaterializerDesk?: AnonymousSimulationMaterializerDesk;
 }) {
@@ -528,6 +550,17 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const semanticReviewScheduler =
+    options?.semanticReviewScheduler ??
+    new SemanticReviewScheduler({
+      reviewDesk: semanticReviewDesk,
+      tickIntervalMs: parseSemanticReviewTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsSemanticReviewSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const opportunityLifecycleDesk =
     options?.opportunityLifecycleDesk ??
     new OpportunityLifecycleDesk(
@@ -565,6 +598,63 @@ export function createControlPlane(options?: {
   };
   graphContextForLease = (snapshot, lens) =>
     searchSemanticGraphNeighborhood(semanticGraph(snapshot), lens);
+  const semanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
+    const issues = new Map(
+      searchIssueScheduler.projection().issues.map((issue) => [issue.issueId, issue] as const),
+    );
+    const lineage = new Map<Hash, { issueIds: Set<Hash>; priority: 1 | 2 | 3 | 4 | 5 }>();
+    for (const lease of searchLeaseScheduler.projection().records) {
+      const issueId = lease.lease.issueId;
+      if (
+        lease.status !== "PASS" || lease.deepLane.status !== "PASS" ||
+        issueId === null || issueId === undefined
+      ) continue;
+      const issue = issues.get(issueId);
+      if (issue === undefined) continue;
+      for (const proposalId of lease.deepLane.proposalIds) {
+        const key = proposalId as Hash;
+        const current = lineage.get(key) ?? { issueIds: new Set<Hash>(), priority: 1 as const };
+        current.issueIds.add(issueId);
+        if (issue.priority > current.priority) current.priority = issue.priority;
+        lineage.set(key, current);
+      }
+    }
+    for (const job of semanticReviewScheduler.projection().jobs) {
+      const current = lineage.get(job.proposalId) ?? {
+        issueIds: new Set<Hash>(),
+        priority: job.priority,
+      };
+      for (const issueId of job.issueIds) current.issueIds.add(issueId);
+      if (job.priority > current.priority) current.priority = job.priority;
+      lineage.set(job.proposalId, current);
+    }
+    const sources = new Map<Hash, {
+      proposal: SemanticReviewCandidate["proposal"];
+      proposalCorpusSnapshotIdentity: Hash;
+    }>();
+    for (const record of marketArchaeologistDesk.projection().records) {
+      if (record.status !== "PASS" || record.report === null) continue;
+      for (const proposal of record.report.result.proposals) {
+        if (!sources.has(proposal.proposalId)) {
+          sources.set(proposal.proposalId, {
+            proposal,
+            proposalCorpusSnapshotIdentity: record.corpusSnapshotIdentity,
+          });
+        }
+      }
+    }
+    return Object.freeze([...lineage.entries()].flatMap(([proposalId, item]) => {
+      const source = sources.get(proposalId);
+      return source === undefined ? [] : [Object.freeze({
+        ...source,
+        issueIds: Object.freeze([...item.issueIds].sort()),
+        priority: item.priority,
+      })];
+    }).sort((left, right) =>
+      right.priority - left.priority ||
+      left.proposal.proposalId.localeCompare(right.proposal.proposalId)
+    ));
+  };
   const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
@@ -592,6 +682,11 @@ export function createControlPlane(options?: {
     opportunityLifecycleDesk.syncMarketArchaeologist(archaeologistProjection);
     opportunityLifecycleDesk.syncRealCandidate(realCandidateDisposition);
     const semanticReviewProjection = semanticReviewDesk.projection();
+    semanticReviewScheduler.reconcile(
+      semanticReviewCandidates(),
+      semanticReviewProjection.records,
+    );
+    const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
     const lifecycleProjection = opportunityLifecycleDesk.projection();
     const searchLeaseProjection = searchLeaseScheduler.projection();
     const searchIssueProjection = searchIssueScheduler.projection();
@@ -613,6 +708,7 @@ export function createControlPlane(options?: {
     const searchOutcomeAttribution = buildSearchOutcomeAttribution({
       issues: searchIssueProjection.issues,
       searchLeases: searchLeaseProjection.records,
+      semanticReviewJobs: semanticReviewSchedulerProjection.jobs,
       semanticReviews: semanticReviewProjection.records,
       lifecycle: lifecycleProjection,
       materializations: materializerProjection.records,
@@ -632,6 +728,7 @@ export function createControlPlane(options?: {
       searchIssueScheduler: searchIssueProjection,
       searchOutcomeAttribution,
       semanticReview: semanticReviewProjection,
+      semanticReviewScheduler: semanticReviewSchedulerProjection,
       semanticRelationGraph,
       opportunityLifecycle: lifecycleProjection,
       relationPayoff,
@@ -779,6 +876,39 @@ export function createControlPlane(options?: {
     ) {
       const current = await projection();
       writeJson(response, 200, current.ai.searchOutcomeAttribution);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/semantic-review-scheduler"
+    ) {
+      await ready;
+      semanticReviewScheduler.reconcile(
+        semanticReviewCandidates(),
+        semanticReviewDesk.projection().records,
+      );
+      writeJson(response, 200, semanticReviewScheduler.projection());
+      return;
+    }
+    const reviewNotificationAckMatch = url.pathname.match(
+      /^\/api\/v1\/semantic-review-notifications\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
+    );
+    if (request.method === "POST" && reviewNotificationAckMatch !== null) {
+      try {
+        const notification = semanticReviewScheduler.acknowledge(
+          reviewNotificationAckMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, notification);
+      } catch (error) {
+        writeJson(response, 404, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "semantic review notification acknowledgement failed",
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/books") {
@@ -1847,6 +1977,7 @@ export function createControlPlane(options?: {
   });
   let searchSchedulerTimer: ReturnType<typeof setInterval> | null = null;
   let searchIssueTimer: ReturnType<typeof setInterval> | null = null;
+  let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
   if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
     void ready.then(() => {
@@ -1888,9 +2019,33 @@ export function createControlPlane(options?: {
       searchIssueTimer.unref();
     });
   }
+  const semanticReviewTickMs = semanticReviewScheduler.tickIntervalMs;
+  if (semanticReviewTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = semanticReviewScheduler.tick(
+            semanticReviewCandidates(),
+            catalogObservationDesk.corpus(),
+          );
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) {
+            void run.then(() => broadcastProjection());
+          }
+        } catch {
+          // The next bounded tick retries durable jobs when capacity is available.
+        }
+      };
+      tick();
+      semanticReviewTimer = setInterval(tick, semanticReviewTickMs);
+      semanticReviewTimer.unref();
+    });
+  }
   server.once("close", () => {
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
+    if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
     discoveryLedger.close();
   });
   return {
@@ -1908,6 +2063,7 @@ export function createControlPlane(options?: {
     searchLeaseScheduler,
     searchIssueScheduler,
     semanticReviewDesk,
+    semanticReviewScheduler,
     opportunityLifecycleDesk,
     projection,
     ready,

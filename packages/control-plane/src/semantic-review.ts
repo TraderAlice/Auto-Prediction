@@ -105,6 +105,8 @@ export type SemanticReviewDeskProjection = Readonly<{
   runCount: number;
   passCount: number;
   failedCount: number;
+  activeCount: number;
+  concurrencyLimit: number;
   retentionLimit: number;
   storage: OperationalStorageProjection<"reviewId">;
   records: readonly SemanticReviewRecord[];
@@ -341,71 +343,68 @@ export function assertSemanticReviewRecord(
   if (passed) {
     const report = record.report as SemanticReviewReport;
     const { artifactHash, ...reportBody } = report;
+    const expectedPosture =
+      record.proposalCorpusSnapshotIdentity === record.corpusSnapshotIdentity
+        ? "ORIGINAL_CORPUS"
+        : "REBASED_CURRENT_CORPUS";
     if (
       report.schemaVersion !== "pmh.semantic-review-report.v1" ||
-      report.status !== "PASS" ||
-      !HASH_PATTERN.test(artifactHash) ||
-      artifactHash !== hashCanonical(reportBody) ||
+      report.status !== "PASS" || !HASH_PATTERN.test(artifactHash) ||
+      artifactHash !== hashCanonical(reportBody)
+    ) throw new Error("stored semantic review report violates content identity");
+    if (
       report.input.opportunityId !== record.opportunityId ||
       report.input.proposalId !== record.proposalId ||
-      report.input.proposalCorpusSnapshotIdentity !==
-        record.proposalCorpusSnapshotIdentity ||
+      report.input.proposalCorpusSnapshotIdentity !== record.proposalCorpusSnapshotIdentity ||
       report.input.corpusSnapshotIdentity !== record.corpusSnapshotIdentity ||
-      report.input.evidencePosture !==
-        (record.proposalCorpusSnapshotIdentity === record.corpusSnapshotIdentity
-          ? "ORIGINAL_CORPUS"
-          : "REBASED_CURRENT_CORPUS") ||
+      report.input.evidencePosture !== expectedPosture
+    ) throw new Error("stored semantic review report violates input lineage");
+    if (
       report.engine.transport !== "VERCEL_AI_SDK" ||
       report.engine.provider !== "deepseek" ||
       report.engine.role !== "ADVERSARIAL_SEMANTIC_REVIEWER" ||
-      report.engine.independenceGrade !==
-        "SEPARATE_INVOCATION_SAME_PROVIDER" ||
-      report.engine.model !== record.model ||
-      !isIsoDate(report.startedAt) ||
-      !isIsoDate(report.completedAt) ||
-      Date.parse(report.completedAt) < Date.parse(report.startedAt) ||
+      report.engine.independenceGrade !== "SEPARATE_INVOCATION_SAME_PROVIDER" ||
+      report.engine.model !== record.model
+    ) throw new Error("stored semantic review report violates engine identity");
+    if (
+      !isIsoDate(report.startedAt) || !isIsoDate(report.completedAt) ||
+      Date.parse(report.completedAt) < Date.parse(report.startedAt)
+    ) throw new Error("stored semantic review report violates run timing");
+    if (
       report.input.listingEvidence.length < 2 ||
       new Set(report.input.listingEvidence.map((item) => item.listingRef)).size !==
-        report.input.listingEvidence.length ||
-      report.input.listingEvidence.some(
-        (item) => {
-          const hasTradingBinding =
-            item.venueId !== undefined ||
-            item.venueInstrumentId !== undefined ||
-            item.outcomes !== undefined ||
-            item.priceScale !== undefined ||
-            item.quantityScale !== undefined ||
-            item.minPriceTick !== undefined;
-          return (
-            item.listingRef.trim() === "" ||
-            !HASH_PATTERN.test(item.listingHash) ||
-            !HASH_PATTERN.test(item.sourceRawHash) ||
-            (hasTradingBinding &&
-              (typeof item.venueId !== "string" ||
-                item.venueId.trim() === "" ||
-                typeof item.venueInstrumentId !== "string" ||
-                item.venueInstrumentId.trim() === "" ||
-                !Array.isArray(item.outcomes) ||
-                item.outcomes.length !== 2 ||
-                new Set(item.outcomes.map((outcome) => outcome.venueOutcomeId))
-                  .size !== 2 ||
-                item.outcomes.some(
-                  (outcome) =>
-                    outcome.venueOutcomeId.trim() === "" ||
-                    outcome.label.trim() === "",
-                ) ||
-                typeof item.priceScale !== "string" ||
-                !/^[1-9]\d*$/u.test(item.priceScale) ||
-                typeof item.quantityScale !== "string" ||
-                !/^[1-9]\d*$/u.test(item.quantityScale) ||
-                (item.minPriceTick !== null &&
-                  (typeof item.minPriceTick !== "string" ||
-                    !/^[1-9]\d*$/u.test(item.minPriceTick)))))
-          );
-        },
-      ) ||
-      validateRawReview(report.result).recommendation !==
-        report.result.recommendation ||
+        report.input.listingEvidence.length
+    ) throw new Error("stored semantic review report violates listing scope");
+    for (const item of report.input.listingEvidence) {
+      if (
+        item.listingRef.trim() === "" || !HASH_PATTERN.test(item.listingHash) ||
+        !HASH_PATTERN.test(item.sourceRawHash)
+      ) throw new Error("stored semantic review report violates listing identity");
+      if (
+        (item.venueId !== undefined &&
+          (typeof item.venueId !== "string" || item.venueId.trim() === "")) ||
+        (item.venueInstrumentId !== undefined &&
+          (typeof item.venueInstrumentId !== "string" ||
+            item.venueInstrumentId.trim() === ""))
+      ) throw new Error("stored semantic review report violates venue binding");
+      if (item.outcomes !== undefined && (
+        !Array.isArray(item.outcomes) || item.outcomes.length < 2 ||
+        item.outcomes.length > 1_000 ||
+        item.outcomes.some((outcome) =>
+          typeof outcome.venueOutcomeId !== "string" ||
+          typeof outcome.label !== "string" || outcome.label.trim() === "")
+      )) throw new Error("stored semantic review report violates outcome binding");
+      if (
+        (item.priceScale !== undefined && !/^[1-9]\d*$/u.test(item.priceScale)) ||
+        (item.quantityScale !== undefined && !/^[1-9]\d*$/u.test(item.quantityScale)) ||
+        (item.minPriceTick !== undefined && item.minPriceTick !== null &&
+          !/^[1-9]\d*$/u.test(item.minPriceTick))
+      ) throw new Error("stored semantic review report violates numeric binding");
+    }
+    if (
+      validateRawReview(report.result).recommendation !== report.result.recommendation
+    ) throw new Error("stored semantic review report violates advisory result");
+    if (
       report.result.authority !== "ADVISORY_ONLY" ||
       report.result.productionReviewAuthority !== false ||
       report.result.simulationAuthority !== false ||
@@ -413,9 +412,7 @@ export function assertSemanticReviewRecord(
       report.effects.externalWrites !== false ||
       report.effects.valueMovingActions !== false ||
       report.effects.liveExecutionEnabled !== false
-    ) {
-      throw new Error("stored semantic review report violates its contract");
-    }
+    ) throw new Error("stored semantic review report violates authority boundary");
   }
   return record;
 }
@@ -507,16 +504,21 @@ export class SemanticReviewNotConfiguredError extends Error {}
 
 export class SemanticReviewDesk {
   readonly #records: SemanticReviewRecord[];
-  #active: Promise<SemanticReviewRecord> | null = null;
+  readonly #active = new Map<Hash, Promise<SemanticReviewRecord>>();
 
   public constructor(
     private readonly reviewer: SemanticReviewModelPort | null,
     private readonly model: string,
     private readonly retentionLimit = DEFAULT_RETENTION_LIMIT,
     private readonly store?: SemanticReviewRecordStore,
+    private readonly concurrencyLimit = 3,
   ) {
-    if (!Number.isSafeInteger(retentionLimit) || retentionLimit < 1) {
-      throw new Error("semantic review retention limit must be positive");
+    if (
+      !Number.isSafeInteger(retentionLimit) || retentionLimit < 1 ||
+      !Number.isSafeInteger(concurrencyLimit) ||
+      concurrencyLimit < 1 || concurrencyLimit > 8
+    ) {
+      throw new Error("semantic review limits must be positive and bounded");
     }
     this.#records = [
       ...(store?.loadSemanticReviewRecords(retentionLimit) ?? []).map(
@@ -563,6 +565,10 @@ export class SemanticReviewDesk {
       corpusSnapshotIdentity: snapshot.snapshotIdentity,
       model: this.model,
     });
+    const active = this.#active.get(reviewId);
+    if (active !== undefined) {
+      return Object.freeze({ promise: active, idempotentReplay: true });
+    }
     const existing = this.#records.find((record) => record.reviewId === reviewId);
     if (existing !== undefined && existing.status !== "FAILED") {
       return Object.freeze({
@@ -570,9 +576,9 @@ export class SemanticReviewDesk {
         idempotentReplay: true,
       });
     }
-    if (this.#active !== null) {
+    if (this.#active.size >= this.concurrencyLimit) {
       throw new SemanticReviewBusyError(
-        "another semantic review is already active",
+        "semantic review concurrency limit is active",
       );
     }
     const startedAt = new Date().toISOString();
@@ -590,8 +596,8 @@ export class SemanticReviewDesk {
       report: null,
     });
     this.#replace(running);
-    const promise = this.reviewer
-      .review({ proposal, listings: Object.freeze(listings) })
+    const promise = Promise.resolve()
+      .then(() => this.reviewer!.review({ proposal, listings: Object.freeze(listings) }))
       .then(
         (raw): SemanticReviewRecord => {
           const completedAt = new Date().toISOString();
@@ -684,20 +690,24 @@ export class SemanticReviewDesk {
               record,
               this.retentionLimit,
             );
-          } catch {
+          } catch (error) {
             retained = Object.freeze({
               ...running,
               status: "FAILED" as const,
               completedAt: new Date().toISOString(),
-              diagnostic: "semantic review result persistence failed",
+              diagnostic: compactDiagnostic(
+                `semantic review result persistence failed: ${
+                  error instanceof Error ? error.message : "unknown store error"
+                }`,
+              ),
             });
           }
         }
         this.#replace(retained);
-        this.#active = null;
+        this.#active.delete(reviewId);
         return retained;
       });
-    this.#active = promise;
+    this.#active.set(reviewId, promise);
     return Object.freeze({ promise, idempotentReplay: false });
   }
 
@@ -730,12 +740,14 @@ export class SemanticReviewDesk {
       status:
         this.reviewer === null
           ? "NEEDS_KEY"
-          : this.#active === null
+          : this.#active.size === 0
             ? "IDLE"
             : "RUNNING",
       runCount: records.length,
       passCount: records.filter((record) => record.status === "PASS").length,
       failedCount: records.filter((record) => record.status === "FAILED").length,
+      activeCount: this.#active.size,
+      concurrencyLimit: this.concurrencyLimit,
       retentionLimit: this.retentionLimit,
       storage:
         this.store?.semanticReviewStorage ??
@@ -763,6 +775,7 @@ export function createSemanticReviewDesk(
     fetcher?: SemanticReviewFetchLike;
     reviewer?: SemanticReviewModelPort;
     retentionLimit?: number;
+    concurrencyLimit?: number;
     store?: SemanticReviewRecordStore;
   }> = {},
 ): SemanticReviewDesk {
@@ -785,6 +798,13 @@ export function createSemanticReviewDesk(
     120_000,
     "PMH_SEMANTIC_REVIEW_TIMEOUT_MS",
   );
+  const concurrencyLimit = options.concurrencyLimit ?? boundedInteger(
+    environment.PMH_SEMANTIC_REVIEW_CONCURRENCY,
+    3,
+    1,
+    8,
+    "PMH_SEMANTIC_REVIEW_CONCURRENCY",
+  );
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";
   const reviewer =
     options.reviewer ??
@@ -802,5 +822,6 @@ export function createSemanticReviewDesk(
     model,
     options.retentionLimit ?? DEFAULT_RETENTION_LIMIT,
     options.store,
+    concurrencyLimit,
   );
 }

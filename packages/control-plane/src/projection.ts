@@ -41,6 +41,7 @@ import {
   type OpportunityLifecycleDeskProjection,
 } from "./opportunity-lifecycle-desk.js";
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
+import type { SemanticReviewSchedulerProjection } from "./semantic-review-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
 import {
@@ -105,6 +106,7 @@ export function buildStudioProjection(input: {
   searchIssueScheduler?: SearchIssueSchedulerProjection;
   searchOutcomeAttribution?: SearchOutcomeAttributionProjection;
   semanticReview?: SemanticReviewDeskProjection;
+  semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   semanticRelationGraph?: SemanticRelationGraphProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
   relationPayoff?: RelationPayoffProjection;
@@ -369,6 +371,8 @@ export function buildStudioProjection(input: {
     runCount: 0,
     passCount: 0,
     failedCount: 0,
+    activeCount: 0,
+    concurrencyLimit: 3,
     retentionLimit: 50,
     storage: {
       mode: "MEMORY" as const,
@@ -379,6 +383,54 @@ export function buildStudioProjection(input: {
     records: [],
     authority: "ADVISORY_ONLY" as const,
     independenceGrade: "SEPARATE_INVOCATION_SAME_PROVIDER" as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
+  const semanticReviewScheduler = input.semanticReviewScheduler ?? {
+    schemaVersion: "pmh.semantic-review-scheduler.v1" as const,
+    enabled: false,
+    configured: false,
+    status: "NEEDS_KEY" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 3,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    blockedEvidenceCount: 0,
+    passedCount: 0,
+    exhaustedCount: 0,
+    unreadNotificationCount: 0,
+    budget: {
+      basis: "REQUEST_ATTEMPTS" as const,
+      maxAttemptsPerJob: 3,
+      maxRequestsPerTick: 3,
+      requestAttemptsStarted: 0,
+    },
+    jobs: [],
+    notifications: [],
+    storage: {
+      jobs: {
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "jobId" as const,
+      },
+      notifications: {
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "notificationId" as const,
+      },
+    },
+    authority: "ADVISORY_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
     effects: {
       externalWrites: false as const,
       valueMovingActions: false as const,
@@ -516,7 +568,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 308,
+      proofTests: 315,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -532,6 +584,7 @@ export function buildStudioProjection(input: {
       searchIssueScheduler,
       searchOutcomeAttribution,
       semanticReview,
+      semanticReviewScheduler,
       semanticRelationGraph,
       modelProvider,
       investigator,
