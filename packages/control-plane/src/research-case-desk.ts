@@ -125,7 +125,7 @@ export type ResearchCaseProjection = Readonly<{
   candidateListingRefCount: number;
   candidateListingRefs: readonly string[];
   missingEvidence: readonly string[];
-  reviewIntake: ReviewIntakePacket | null;
+  reviewIntake?: ReviewIntakePacket | null;
   stages: readonly ResearchCaseStage[];
   authority: "PROPOSE_ONLY";
   reviewStatus: "UNREVIEWED";

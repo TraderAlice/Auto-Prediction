@@ -563,7 +563,8 @@ export function createControlPlane(options?: {
           diagnostic: "research case was not found",
           executionAuthority: false,
         });
-      } else if (researchCase.reviewIntake === null) {
+      } else if (researchCase.reviewIntake === undefined ||
+        researchCase.reviewIntake === null) {
         writeJson(response, 409, {
           ok: false,
           caseId,
