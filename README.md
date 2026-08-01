@@ -35,7 +35,15 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
 - An operator-triggered Candidate Watch that captures current Polymarket and Limitless books under one refresh identity, retains exact raw bytes plus a bounded hash-checked attempt journal in SQLite WAL schema v5, restores failures across restart, refuses mixed-time screens after partial failure, and either reuses an unchanged bound result or recomputes changed-book economics without invoking review or verification.
-- An AI-to-simulation materializer that retains catalog outcome-token and fixed-point bindings through semantic review and payoff compilation, acquires the exact public books for an accepted portfolio, preserves raw response evidence in a bounded process desk, and automatically runs bigint portfolio simulation only when every fee schedule is exactly representable. Dynamic or authenticated fee/book surfaces remain visible blockers.
+- An AI-to-simulation materializer that retains catalog outcome-token and fixed-point bindings through semantic review and payoff compilation, acquires the exact public books for an accepted portfolio, preserves raw response evidence in bounded SQLite WAL storage, and automatically runs bigint portfolio simulation only when every fee schedule is exactly representable. Dynamic or authenticated fee/book surfaces remain visible blockers.
+- A narrow first-party exact-promotion boundary that rebuilds candidates only
+  from compiler-bound relations plus durable anonymous book/fee evidence,
+  rechecks canonical payouts, ticks, quantities, identities, and expiry, and
+  persists either a certificate or an exact rejection.
+- Certificate-bound shadow replay that derives intents from the certificate,
+  uses virtual capital and the live-disabled ShadowExecutionEngine, records
+  planned versus observed fills, and makes zero venue-gateway calls. Human
+  approval authorizes only this replay.
 - An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, cross-restart task-scope idempotency, bounded hash-checked SQLite retention, SSE running/failure/completion state, and no route into review or execution.
 - A deterministic Research Case Desk that joins scout runs and pi retry history by question, venue scope, catalog-context identity, and source grade; after a passed investigation it derives a self-verifying `pmh.review-intake-packet.v1` binding the exact scout, hypothesis, context, pi artifact, candidate scope, and unresolved evidence without accepting a review decision or creating promotion authority.
 - A bounded anonymous catalog-observation desk for six venues. It preserves raw public GET bytes in SQLite WAL, binds normalized listings to their source identities, isolates protocol drift per venue, and stays `OBSERVE_ONLY`; explicit fresh-context qualification grants proposal input only.
@@ -140,8 +148,13 @@ contracts, and feeds a complete plan to the bigint simulator only when fees are
 exact. A public Polymarket zero-fee response is supported. Non-zero Polymarket
 curved fees, Limitless dynamic taker fees, authenticated-only books, and partial
 failures return retained research evidence with a blocking diagnostic. These
-generic materialization records and raw bytes are currently process-retained;
-SQLite restart durability is the next scheduling prerequisite.
+materialization records and their byte-exact public sources are stored
+atomically in SQLite WAL and revalidated on restart. A positive exactly modeled
+bundle then enters the first-party verifier automatically; generic browser POST
+simulations cannot certify. A certificate follows the configured notify,
+human-approved shadow, or auto-shadow policy. The shadow-decision endpoint can
+only start a local replay and returns literal-false production, execution, live,
+and value-moving authority.
 
 `GET /api/v1/radar` projects only fresh-source candidate pairs. A Studio action
 may send one server-bound pair to `POST /api/v1/radar/triage`; the browser
@@ -224,16 +237,21 @@ an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 - `packages/opportunity`: bounded candidate compilation and exact payoff certificates.
 - `packages/capital`: per-venue reservations and settlement-capital conservation.
 - `packages/risk`: fixed opening authority and kill conditions.
-- `packages/execution`: validated multi-leg plans and shadow-only order lifecycle.
+- `packages/execution`: validated multi-leg plans, exact simulation bundles,
+  certificate-bound replay, and shadow-only order lifecycle.
 - `packages/liquidity`: executable hedge curves and constrained shadow maker quotes.
 - `packages/cli`: versioned, machine-readable inspection commands.
-- `packages/control-plane`: long-running projection, SQLite operational state, event-stream, deterministic book replay, AI SDK scout coordination, bounded pi investigations, and reviewed-hypothesis compilation boundary.
+- `packages/control-plane`: long-running projection, SQLite operational state,
+  event-stream, deterministic book replay, AI SDK scout coordination, bounded
+  pi investigations, reviewed-hypothesis compilation, first-party exact
+  promotion, and non-value-moving lifecycle routing.
 - `apps/studio`: responsive read-only cockpit for book state, fixture replay, bounded scout and pi investigations, and qualification evidence.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.
 - `projects/campaigns`: immutable content-addressed qualification checkpoints.
 - `docs/design`: current architecture truth.
-- `plans/architecture-qualification.md`: live qualification campaign.
+- `plans/opportunity-lifecycle-simulation.md`: active AI-native discovery and
+  deterministic lifecycle campaign.
 - `AGENTS.md`: collaboration rules and the user-input/access ledger.
 
 The original design brief remains at `prediction-market-harness-design-and-codex-prompt.md`; stable implementation truth belongs in `docs/`.

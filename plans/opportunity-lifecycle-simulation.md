@@ -28,6 +28,14 @@ The lifecycle is:
 5. policy routes a certified opportunity to in-app notification, explicit human
    approval for shadow execution, or automatic shadow execution.
 
+The discovery side is intentionally a long-running search process, not a batch
+classifier. Scheduled Agent work receives an immutable catalog snapshot plus a
+bounded search lease, uses repository-like read/search/list tools to explore
+names, rules, dates, sources, exceptions, and already-known relations, and
+returns content-addressed proposals. The scheduler owns cadence, deduplication,
+retry, and cost budgets; Agents own semantic search strategy. Neither owns
+promotion authority.
+
 There is deliberately no live route. “Human approval” means approval to start a
 non-value-moving shadow run. Production authority remains a separate future
 decision and cannot be inferred from this state machine.
@@ -135,6 +143,51 @@ decision and cannot be inferred from this state machine.
 - [x] Show durable public-evidence counts and each leg's fee model/qualification
   in Studio, with compatibility fallbacks for rolling control-plane upgrades.
 
+## Phase 8 — exact promotion and certificate-bound shadow route
+
+- [x] Convert a positive anonymous-materialization bundle into the first-party
+  exact candidate shape without accepting browser-supplied identities.
+- [x] Bind each candidate leg to listing rules, raw book generation/state,
+  exact fee schedule, tick, quantity, canonical resolution states, and expiry.
+- [x] Round aggregate taker cost conservatively and require the exact
+  certificate floor to be no greater than the simulated portfolio floor.
+- [x] Persist exact verification records and terminal rejections inside the
+  append-only lifecycle journal and re-verify them on restart.
+- [x] Derive shadow intents only from a current certificate and its bound
+  simulation bundle; reserve virtual capital and record planned versus observed
+  fills through the existing shadow engine.
+- [x] Route a certificate through explicit human approval or automatic shadow,
+  with atomic state changes, zero gateway calls, and literal-false live/value
+  effects.
+- [x] Expose exact verifier evidence, shadow approval, and locked replay results
+  in Studio and through narrow HTTP routes.
+
+## Phase 9 — scheduled Agent search leases
+
+- [ ] Add a durable scheduler that issues bounded leases against immutable
+  catalog/context identities; no unbounded autonomous loop or hidden retry.
+- [ ] Give each lease a search thesis, venue/date scope, novelty target, maximum
+  tool/request budget, deadline, and deterministic idempotency identity.
+- [ ] Let cheap fast Agents search with read/grep/find/list-style catalog tools;
+  reserve pi for cross-file rule archaeology and difficult abstraction work.
+- [ ] Persist proposal lineage, query/tool trace summaries, evidence gaps,
+  duplicate links, and lease outcomes without persisting chain-of-thought.
+- [ ] Run independent skeptical review on novel relation clusters before any
+  deterministic payoff compilation.
+
+## Phase 10 — semantic relation graph and feedback
+
+- [ ] Maintain a content-addressed graph of listings, claims, time windows,
+  resolution sources, relation hypotheses, counterexamples, and exact review
+  decisions.
+- [ ] Search graph neighborhoods as well as raw catalogs so Agents can discover
+  indirect implication, partition, and mechanism-mismatch opportunities.
+- [ ] Feed lifecycle outcomes back as search evidence: duplicate, semantic
+  rejection, missing rule, no depth, fee/model block, exact rejection,
+  certificate, and shadow divergence.
+- [ ] Prioritize by empirical yield and evidence freshness, never by an opaque
+  model confidence score and never by granting an Agent more authority.
+
 ## Next slices
 
 - Calibrate AMM implementations against each venue's official contract and fee
@@ -148,10 +201,10 @@ decision and cannot be inferred from this state machine.
 - Add an operator-authored structured scope for conditional, multi-listing, or
   reviewer-reclassified relations; free-text rationale must not become a payoff
   partition implicitly.
-- Convert a positive simulation bundle into the existing exact candidate shape
-  while preserving aggregate multi-level rounding and one-time fee semantics.
-- Connect certificate-bound cases to the existing shadow engine and record
-  planned versus observed fills, hedge checkpoints, and divergence.
+- Implement Phase 9 as a small durable lease scheduler over the existing
+  Market Archaeologist and pi investigator lanes.
+- Start with operator-enabled cadence and one concurrent lease; collect useful
+  lead yield before increasing fan-out.
 - Add in-app notification acknowledgement. External channels require an explicit
   destination and authority decision.
 - Measure useful-lead yield, review rejection reasons, simulation attrition,
@@ -169,6 +222,9 @@ decision and cannot be inferred from this state machine.
 - Notification is in-app only; the projection records that no external message
   was sent.
 - Human approval authorizes shadow execution only.
+- Scheduled Agents may choose searches and propose relations, but cannot write a
+  semantic decision, compile an exact candidate, invoke a value-moving gateway,
+  or alter their own authority/budget policy.
 
 ## Findings log
 
@@ -239,3 +295,21 @@ decision and cannot be inferred from this state machine.
   Browser inspection also caught and fixed a rolling-upgrade white screen when
   an older control-plane projection omitted `ai.semanticReview`; desktop and
   430px lifecycle layouts finish without horizontal overflow.
+- 2026-08-01: Positive, zero-fee public-book portfolios can now cross a narrow
+  first-party exact-verification boundary. The verifier rebinds compiled truth
+  states, raw sources, book/fee identities, quantity, ticks, and a 15-second
+  expiry; generic browser simulations and match-rounding-sensitive fee curves
+  remain certificate-ineligible.
+- 2026-08-01: Certified cases route into a certificate-bound replay using only
+  virtual capital and the existing live-disabled ShadowExecutionEngine. Human
+  approval authorizes that replay only; the recorded run proves all intents
+  filled, lifecycle `LOCKED`, gateway calls zero, and value-moving effects false.
+- 2026-08-01: The next discovery slice adopts scheduled, durable Agent search
+  leases. The intended analogy is repository archaeology: Agents navigate a
+  content-addressed market/rules corpus heuristically, while the scheduler owns
+  budgets and deterministic components own every promotion decision.
+- 2026-08-01: Exact promotion and certificate-bound shadow routing close at 280
+  passing workspace tests, full typecheck, and production build under Node.js
+  24.14.0. Desktop and 430px lifecycle inspection show no console errors or
+  horizontal overflow; the operational dataset contains no synthetic exact case
+  created merely to exercise the new controls.

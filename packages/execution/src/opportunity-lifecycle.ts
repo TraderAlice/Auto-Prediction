@@ -14,6 +14,7 @@ export type OpportunityLifecycleState =
   | "AWAITING_MODEL_CALIBRATION"
   | "REJECTED_SIMULATION"
   | "AWAITING_EXACT_CERTIFICATE"
+  | "REJECTED_EXACT_VERIFICATION"
   | "NOTIFIED_ONLY"
   | "AWAITING_HUMAN_APPROVAL"
   | "REJECTED_BY_OPERATOR"
@@ -46,6 +47,7 @@ export type OpportunityLifecycleEvent = Readonly<{
     | "SIMULATION_REJECTED"
     | "MODEL_CALIBRATION_REQUIRED"
     | "CERTIFICATE_BOUND"
+    | "EXACT_VERIFICATION_REJECTED"
     | "IN_APP_NOTIFICATION_QUEUED"
     | "HUMAN_APPROVAL_REQUESTED"
     | "HUMAN_APPROVED_SHADOW"
@@ -251,6 +253,18 @@ export function assertOpportunityLifecycleProjection(
           throw new Error("opportunity lifecycle certificate transition is invalid");
         }
         certificateId = event.artifactHash;
+        break;
+      case "EXACT_VERIFICATION_REJECTED":
+        if (
+          state !== "AWAITING_EXACT_CERTIFICATE" ||
+          event.artifactHash === null ||
+          certificateId !== null
+        ) {
+          throw new Error(
+            "opportunity lifecycle exact-verification rejection is invalid",
+          );
+        }
+        state = "REJECTED_EXACT_VERIFICATION";
         break;
       case "IN_APP_NOTIFICATION_QUEUED":
         if (
@@ -536,7 +550,7 @@ export class OpportunityLifecycleMachine {
   ): OpportunityLifecycleProjection {
     this.#expect("AWAITING_EXACT_CERTIFICATE");
     const { id: certificateId, ...certificateBody } = certificate;
-    this.#certificateId = checkedHash(certificateId, "exact certificate");
+    checkedHash(certificateId, "exact certificate");
     if (
       certificateId !== hashCanonical(certificateBody) ||
       (certificate.classification !== "CERTIFIED_CONTRACT_ARBITRAGE" &&
@@ -546,6 +560,7 @@ export class OpportunityLifecycleMachine {
     ) {
       throw new Error("exact certificate is invalid, non-arbitrage, or expired");
     }
+    this.#certificateId = certificateId;
     this.#append(
       "CERTIFICATE_BOUND",
       certificateId,
@@ -575,6 +590,23 @@ export class OpportunityLifecycleMachine {
         "Policy permits automatic shadow execution only.",
       );
     }
+    return this.projection();
+  }
+
+  public recordExactVerificationRejection(
+    verificationArtifactHash: Hash,
+    diagnostic: string,
+  ): OpportunityLifecycleProjection {
+    this.#expect("AWAITING_EXACT_CERTIFICATE");
+    if (diagnostic.trim() === "" || diagnostic.length > 1_000) {
+      throw new Error("exact verification rejection diagnostic is invalid");
+    }
+    this.#state = "REJECTED_EXACT_VERIFICATION";
+    this.#append(
+      "EXACT_VERIFICATION_REJECTED",
+      checkedHash(verificationArtifactHash, "exact verification artifact"),
+      diagnostic.trim(),
+    );
     return this.projection();
   }
 

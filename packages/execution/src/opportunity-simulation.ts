@@ -230,9 +230,11 @@ export function assertOpportunitySimulationBundle(
   }
   const bundle = value as OpportunitySimulationBundle;
   const expected = buildBundle(bundle.plan);
+  const { artifactHash, ...body } = bundle;
   if (
     bundle.schemaVersion !== "pmh.opportunity-simulation-bundle.v1" ||
     !HASH_PATTERN.test(bundle.artifactHash) ||
+    bundle.artifactHash !== hashCanonical(body) ||
     bundle.artifactHash !== expected.artifactHash ||
     bundle.authority !== "SIMULATION_ONLY" ||
     bundle.verifierEligible !== false ||

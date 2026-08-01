@@ -5281,6 +5281,87 @@ footer span:first-child {
   font-size: 9px;
 }
 
+.lifecycle-exact-evidence,
+.lifecycle-shadow-approval,
+.lifecycle-shadow-evidence {
+  border: 1px solid rgba(189, 155, 255, 0.24);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.lifecycle-exact-evidence {
+  background: rgba(189, 155, 255, 0.035);
+}
+
+.lifecycle-exact-evidence.is-certified {
+  border-color: rgba(126, 240, 193, 0.3);
+  box-shadow: inset 2px 0 rgba(126, 240, 193, 0.48);
+}
+
+.lifecycle-exact-evidence.is-rejected {
+  border-color: rgba(255, 159, 132, 0.3);
+  box-shadow: inset 2px 0 rgba(255, 159, 132, 0.48);
+}
+
+.lifecycle-exact-evidence > div:first-child,
+.lifecycle-shadow-evidence > div,
+.lifecycle-shadow-approval > div,
+.lifecycle-shadow-approval > div:first-child > div {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lifecycle-exact-evidence > div:first-child code,
+.lifecycle-shadow-evidence code {
+  margin-left: auto;
+}
+
+.lifecycle-exact-evidence > div:nth-child(2) {
+  display: grid;
+  gap: 6px 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.lifecycle-exact-evidence span,
+.lifecycle-exact-evidence small,
+.lifecycle-shadow-approval span,
+.lifecycle-shadow-evidence span,
+.lifecycle-shadow-evidence small {
+  color: var(--muted-foreground);
+  font-size: 8px;
+  letter-spacing: 0.07em;
+  line-height: 1.5;
+}
+
+.lifecycle-exact-evidence p {
+  color: var(--warning);
+  font-size: 9px;
+}
+
+.lifecycle-shadow-approval {
+  background: linear-gradient(120deg, rgba(142, 169, 255, 0.07), transparent);
+  border-color: rgba(142, 169, 255, 0.3);
+}
+
+.lifecycle-shadow-approval > div {
+  justify-content: space-between;
+}
+
+.lifecycle-shadow-approval > div:first-child > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lifecycle-shadow-evidence {
+  background: rgba(189, 155, 255, 0.045);
+}
+
 .lifecycle-route-grid {
   display: grid;
   gap: 1px;
@@ -5609,6 +5690,25 @@ footer span:first-child {
 
   .lifecycle-simulation-evidence > div:nth-child(2) {
     grid-template-columns: auto 1fr;
+  }
+
+  .lifecycle-exact-evidence > div:nth-child(2) {
+    grid-template-columns: auto 1fr;
+  }
+
+  .lifecycle-exact-evidence > div:first-child code,
+  .lifecycle-shadow-evidence code {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .lifecycle-shadow-approval > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lifecycle-shadow-approval button {
+    width: 100%;
   }
 
   .archaeology-heading,
