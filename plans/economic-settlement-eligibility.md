@@ -1,6 +1,6 @@
 # Economic settlement eligibility
 
-Status: active
+Status: merged in PR #54
 Started: 2026-08-02
 
 ## Outcome
@@ -45,7 +45,7 @@ changing their issue-derived scheduler priority.
 - [x] Project the settlement posture and name it in Studio.
 - [x] Reproduce the retained Myriad candidate as ineligible with zero boosts.
 - [x] Run focused and full Node 24 qualification plus visual inspection.
-- [ ] Publish and serially merge the next PR.
+- [x] Publish and serially merge the next PR.
 
 ## Safety invariants
 
