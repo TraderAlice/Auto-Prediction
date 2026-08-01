@@ -90,7 +90,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -1420,7 +1420,7 @@ export class SqliteOperationalStore
             status TEXT NOT NULL CHECK (
               status IN (
                 'PENDING', 'LEASED', 'RETRY_WAIT', 'BLOCKED_EVIDENCE',
-                'PASS', 'EXHAUSTED'
+                'PASS', 'EXHAUSTED', 'RESEARCH_ONLY'
               )
             ),
             next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
@@ -1584,6 +1584,35 @@ export class SqliteOperationalStore
             ON search_attention_deliveries (message_id, channel);
           CREATE INDEX IF NOT EXISTS search_attention_deliveries_due
             ON search_attention_deliveries (status, next_attempt_at, delivery_id);
+        `);
+      }
+      if (current < 16) {
+        this.#database.exec(`
+          DROP INDEX IF EXISTS semantic_review_jobs_due;
+          ALTER TABLE semantic_review_jobs RENAME TO semantic_review_jobs_v15;
+          CREATE TABLE semantic_review_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            priority INTEGER NOT NULL CHECK (priority BETWEEN 1 AND 5),
+            status TEXT NOT NULL CHECK (
+              status IN (
+                'PENDING', 'LEASED', 'RETRY_WAIT', 'BLOCKED_EVIDENCE',
+                'PASS', 'EXHAUSTED', 'RESEARCH_ONLY'
+              )
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          INSERT INTO semantic_review_jobs
+            SELECT * FROM semantic_review_jobs_v15;
+          DROP TABLE semantic_review_jobs_v15;
+          CREATE INDEX semantic_review_jobs_due
+            ON semantic_review_jobs (status, next_attempt_at, priority DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);

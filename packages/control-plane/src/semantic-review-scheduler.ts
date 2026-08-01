@@ -14,6 +14,7 @@ import {
   type SemanticReviewRecommendation,
 } from "./semantic-review.js";
 import type { OperationalStorageProjection } from "./types.js";
+import { classifySemanticReviewAdmission } from "./semantic-review-admission.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 250;
@@ -27,6 +28,7 @@ export type SemanticReviewJobStatus =
   | "LEASED"
   | "RETRY_WAIT"
   | "BLOCKED_EVIDENCE"
+  | "RESEARCH_ONLY"
   | "PASS"
   | "EXHAUSTED";
 
@@ -104,6 +106,7 @@ export type SemanticReviewSchedulerProjection = Readonly<{
   leasedCount: number;
   retryWaitCount: number;
   blockedEvidenceCount: number;
+  researchOnlyCount: number;
   bundledJobCount: number;
   capturedOriginalJobCount: number;
   rebasedJobCount: number;
@@ -159,6 +162,17 @@ function compactDiagnostic(value: string): string {
   return value.trim().replace(/\s+/gu, " ").slice(0, 500) || "semantic review failed";
 }
 
+function researchOnlyDiagnostic(
+  candidate: SemanticReviewCandidate,
+): string {
+  const admission = classifySemanticReviewAdmission(candidate.proposal);
+  return admission.reason === "NON_COMPILABLE_RELATION"
+    ? `${candidate.proposal.relationKind} is retained for research but is not a current automatic payoff-compiler relation`
+    : admission.reason === "LISTING_ARITY_UNSUPPORTED"
+      ? `${candidate.proposal.listingRefs.length} listing refs are retained for research but the automatic payoff compiler requires exactly two`
+      : "duplicate listing refs cannot enter automatic semantic review";
+}
+
 function withJobHash(
   body: Omit<SemanticReviewJobRecord, "artifactHash">,
 ): SemanticReviewJobRecord {
@@ -176,7 +190,8 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
     throw new Error("stored semantic review job is malformed");
   }
   const record = value as SemanticReviewJobRecord;
-  const terminal = record.status === "PASS" || record.status === "EXHAUSTED";
+  const terminal = record.status === "PASS" || record.status === "EXHAUSTED" ||
+    record.status === "RESEARCH_ONLY";
   const leased = record.status === "LEASED";
   const evidenceBundle = record.evidenceBundle ?? null;
   if (
@@ -199,7 +214,8 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
     new Set(record.issueIds).size !== record.issueIds.length ||
     ![1, 2, 3, 4, 5].includes(record.priority) ||
     ![
-      "PENDING", "LEASED", "RETRY_WAIT", "BLOCKED_EVIDENCE", "PASS", "EXHAUSTED",
+      "PENDING", "LEASED", "RETRY_WAIT", "BLOCKED_EVIDENCE", "RESEARCH_ONLY",
+      "PASS", "EXHAUSTED",
     ].includes(record.status) ||
     !Number.isSafeInteger(record.attemptCount) || record.attemptCount < 0 ||
     !Number.isSafeInteger(record.maxAttempts) || record.maxAttempts < 1 ||
@@ -215,6 +231,10 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
       "REJECT", "ESCALATE", "ACCEPT_FOR_RESEARCH_SIMULATION",
     ].includes(record.recommendation)) ||
     (record.status === "PASS" && (record.lastReviewId === null || record.recommendation === null)) ||
+    (record.status === "RESEARCH_ONLY" && (
+      record.lastReviewId !== null || record.recommendation !== null ||
+      !boundedText(record.diagnostic, 500)
+    )) ||
     (record.diagnostic !== null && (!boundedText(record.diagnostic, 500))) ||
     !isIso(record.createdAt) || !isIso(record.updatedAt) ||
     !HASH_PATTERN.test(String(record.artifactHash)) ||
@@ -331,6 +351,8 @@ export class SemanticReviewScheduler {
       const existing = this.#jobs.find((job) => job.jobId === jobId);
       const issueIds = Object.freeze([...new Set(candidate.issueIds)].sort());
       const review = passedByProposal.get(proposalId);
+      const automatic = classifySemanticReviewAdmission(candidate.proposal).lane ===
+        "AUTO_ARBITRAGE_REVIEW";
       if (existing === undefined) {
         this.#saveJob(withJobHash({
           schemaVersion: "pmh.semantic-review-job.v1",
@@ -341,16 +363,18 @@ export class SemanticReviewScheduler {
           evidenceBundle: candidate.evidenceBundle,
           issueIds,
           priority: candidate.priority,
-          status: review === undefined ? "PENDING" : "PASS",
+          status: review !== undefined ? "PASS" : automatic ? "PENDING" : "RESEARCH_ONLY",
           attemptCount: 0,
           maxAttempts: this.#maxAttempts,
           nextAttemptAt: now,
           leasedAt: null,
           leaseExpiresAt: null,
-          completedAt: review?.completedAt ?? null,
+          completedAt: review?.completedAt ?? (automatic ? null : now),
           lastReviewId: review?.reviewId ?? null,
           recommendation: review?.report?.result.recommendation ?? null,
-          diagnostic: null,
+          diagnostic: review !== undefined || automatic
+            ? null
+            : researchOnlyDiagnostic(candidate),
           createdAt: now,
           updatedAt: now,
         }));
@@ -371,6 +395,23 @@ export class SemanticReviewScheduler {
       }
       if (review !== undefined && existing.status !== "PASS") {
         this.#completeFromReview(existing, review);
+        continue;
+      }
+      if (
+        !automatic && existing.status !== "PASS" &&
+        existing.status !== "LEASED" && existing.status !== "RESEARCH_ONLY"
+      ) {
+        this.#saveJob(withJobHash({
+          ...this.#withoutJobHash(existing),
+          status: "RESEARCH_ONLY",
+          completedAt: now,
+          lastReviewId: null,
+          recommendation: null,
+          diagnostic: researchOnlyDiagnostic(candidate),
+          leasedAt: null,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        }));
         continue;
       }
       if (
@@ -550,6 +591,7 @@ export class SemanticReviewScheduler {
       const bundle = job.evidenceBundle ?? null;
       if (
         bundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2" ||
+        job.status === "RESEARCH_ONLY" ||
         byProposal.has(job.proposalId)
       ) continue;
       byProposal.set(job.proposalId, Object.freeze({
@@ -766,6 +808,7 @@ export class SemanticReviewScheduler {
       leasedCount: jobs.filter((job) => job.status === "LEASED").length,
       retryWaitCount: jobs.filter((job) => job.status === "RETRY_WAIT").length,
       blockedEvidenceCount: jobs.filter((job) => job.status === "BLOCKED_EVIDENCE").length,
+      researchOnlyCount: jobs.filter((job) => job.status === "RESEARCH_ONLY").length,
       bundledJobCount: jobs.filter(
         (job) => job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2",
       ).length,

@@ -5992,6 +5992,7 @@ footer span:first-child {
   border: 1px solid rgba(142, 169, 255, 0.16);
   border-radius: 9px;
   margin-top: 14px;
+  min-width: 0;
   padding: 14px;
 }
 
@@ -6023,6 +6024,7 @@ footer span:first-child {
 .lifecycle-review-result {
   border-top: 1px solid var(--border);
   margin-top: 13px;
+  min-width: 0;
   padding-top: 13px;
 }
 
@@ -6085,11 +6087,15 @@ footer span:first-child {
 .lifecycle-counterexamples {
   display: grid;
   gap: 6px;
+  grid-template-columns: minmax(0, 1fr);
   margin-top: 13px;
+  min-width: 0;
 }
 
 .lifecycle-counterexamples p {
   border-left: 2px solid rgba(255, 159, 132, 0.45);
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding-left: 9px;
 }
 

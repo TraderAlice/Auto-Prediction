@@ -246,6 +246,7 @@ export type StudioProjection = Readonly<{
     searchIssueScheduler: import("./search-issue-scheduler.js").SearchIssueSchedulerProjection;
     searchOutcomeAttribution: import("./search-outcome-attribution.js").SearchOutcomeAttributionProjection;
     semanticReview: import("./semantic-review.js").SemanticReviewDeskProjection;
+    semanticReviewAdmission: import("./semantic-review-admission.js").SemanticReviewAdmissionProjection;
     semanticReviewScheduler: import("./semantic-review-scheduler.js").SemanticReviewSchedulerProjection;
     reviewAttention: import("./review-attention.js").ReviewAttentionProjection;
     proposalEconomicTriage: import("./proposal-economic-triage.js").ProposalEconomicTriageProjection;

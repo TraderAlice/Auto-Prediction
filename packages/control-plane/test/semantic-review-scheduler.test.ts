@@ -68,10 +68,14 @@ const snapshot = buildMarketCorpusSnapshot({
   listings,
 });
 
-function proposal(name: string): MarketRelationProposal {
+function proposal(
+  name: string,
+  relationKind: MarketRelationProposal["relationKind"] = "EQUIVALENT",
+  listingRefs: readonly string[] = ["venue-a:event", "venue-b:event"],
+): MarketRelationProposal {
   const body = {
-    relationKind: "EQUIVALENT" as const,
-    listingRefs: ["venue-a:event", "venue-b:event"],
+    relationKind,
+    listingRefs: Object.freeze([...listingRefs]),
     statement: `The two fixture listings describe the same event (${name}).`,
     rationale: "Their authority and deadline appear aligned.",
     falsifiers: ["Different void rules would break equivalence."],
@@ -261,6 +265,75 @@ describe("persistent semantic review scheduler", () => {
     expect(calls).toBe(1);
   });
 
+  it("persists non-compilable proposals as research-only without an automatic request", async () => {
+    let calls = 0;
+    const researchProposal = proposal("research-only", "RELATED");
+    const item = candidate(
+      researchProposal,
+      4,
+      undefined,
+      buildProposalEvidenceBundle(researchProposal, snapshot),
+    );
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => { calls += 1; return reviewResult("REJECT"); } } },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    expect(scheduler.tick([item], snapshot)).toHaveLength(0);
+    expect(scheduler.tick([item], snapshot)).toHaveLength(0);
+    expect(calls).toBe(0);
+    expect(scheduler.projection()).toMatchObject({
+      researchOnlyCount: 1,
+      pendingCount: 0,
+      dueCount: 0,
+      budget: { requestAttemptsStarted: 0 },
+    });
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      status: "RESEARCH_ONLY",
+      recommendation: null,
+      lastReviewId: null,
+      completedAt: "2026-08-02T00:00:00.000Z",
+      diagnostic: expect.stringContaining("not a current automatic payoff-compiler relation"),
+    });
+  });
+
+  it("allows an explicitly requested manual review to complete a research-only job", async () => {
+    let calls = 0;
+    const researchProposal = proposal("manual-research", "CONFLICTING");
+    const item = candidate(researchProposal, 3);
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => { calls += 1; return reviewResult("REJECT"); } } },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+    scheduler.reconcile([item], []);
+    expect(scheduler.projection().researchOnlyCount).toBe(1);
+
+    await desk.begin(
+      `ai:${researchProposal.proposalId}`,
+      researchProposal,
+      snapshot,
+      snapshot.snapshotIdentity,
+    ).promise;
+    scheduler.reconcile([item], desk.projection().records);
+
+    expect(calls).toBe(1);
+    expect(scheduler.projection()).toMatchObject({
+      researchOnlyCount: 0,
+      passedCount: 1,
+      budget: { requestAttemptsStarted: 0 },
+    });
+  });
+
   it("blocks stale proposal evidence without spending an attempt and resumes after rebase", async () => {
     let calls = 0;
     const item = candidate(proposal("evidence"), 4);
@@ -415,7 +488,7 @@ describe("persistent semantic review scheduler", () => {
       expect(firstScheduler.tick([item], snapshot)).toHaveLength(1);
       expect(firstScheduler.projection()).toMatchObject({
         leasedCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 15 } },
+        storage: { jobs: { durable: true, schemaVersion: 16 } },
       });
       firstStore.close();
 
@@ -458,11 +531,57 @@ describe("persistent semantic review scheduler", () => {
         bundledJobCount: 1,
         unreadNotificationCount: 1,
         storage: {
-          jobs: { durable: true, schemaVersion: 15 },
-          notifications: { durable: true, schemaVersion: 15 },
+          jobs: { durable: true, schemaVersion: 16 },
+          notifications: { durable: true, schemaVersion: 16 },
         },
       });
       thirdStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("restores a research-only disposition without rehydrating a due request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-review-admission-"));
+    const path = join(directory, "control-plane.sqlite");
+    const researchProposal = proposal(
+      "restart-research-only",
+      "EXHAUSTIVE",
+      ["venue-a:event", "venue-b:event", "venue-c:event"],
+    );
+    const item = candidate(researchProposal, 2);
+    const now = () => Date.parse("2026-08-02T00:00:00.000Z");
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const first = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store: firstStore }),
+        tickIntervalMs: 1_000,
+        store: firstStore,
+        now,
+      });
+      expect(first.tick([item], snapshot)).toHaveLength(0);
+      expect(first.projection()).toMatchObject({
+        researchOnlyCount: 1,
+        dueCount: 0,
+        storage: { jobs: { durable: true, schemaVersion: 16 } },
+      });
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const second = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store: secondStore }),
+        tickIntervalMs: 1_000,
+        store: secondStore,
+        now,
+      });
+      expect(second.tick([], snapshot)).toHaveLength(0);
+      expect(second.projection()).toMatchObject({
+        researchOnlyCount: 1,
+        pendingCount: 0,
+        dueCount: 0,
+        budget: { requestAttemptsStarted: 0 },
+      });
+      secondStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -83,6 +83,7 @@ import {
   type SemanticReviewCandidate,
   type SemanticReviewSchedulerStore,
 } from "./semantic-review-scheduler.js";
+import { buildSemanticReviewAdmissionProjection } from "./semantic-review-admission.js";
 import { deriveRelationPayoffProjection } from "./relation-payoff.js";
 import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
 import type { OpportunityLifecycleJournalStore } from "./opportunity-lifecycle-desk.js";
@@ -863,6 +864,9 @@ export function createControlPlane(options?: {
     opportunityLifecycleDesk.syncRealCandidate(realCandidateDisposition);
     const semanticReviewProjection = semanticReviewDesk.projection();
     const baseReviewCandidates = baseSemanticReviewCandidates();
+    const semanticReviewAdmission = buildSemanticReviewAdmissionProjection(
+      baseReviewCandidates.map((candidate) => candidate.proposal),
+    );
     const economicTriageProjection = buildProposalEconomicTriage({
       candidates: baseReviewCandidates,
       corpus: catalogObservationDesk.corpus(),
@@ -924,6 +928,7 @@ export function createControlPlane(options?: {
       searchIssueScheduler: searchIssueProjection,
       searchOutcomeAttribution,
       semanticReview: semanticReviewProjection,
+      semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
@@ -1057,6 +1062,9 @@ export function createControlPlane(options?: {
         searchAttention: searchAttentionOutbox.projection(),
         semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
+        semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
+          baseSemanticReviewCandidates().map((candidate) => candidate.proposal),
+        ),
         opportunityLifecycle: opportunityLifecycleDesk.projection(),
         realCandidatePreflight: realCandidatePreflightDesk.projection(),
         realCandidateDepth: realCandidatePreflightDesk.depthProjection(),
@@ -1077,6 +1085,14 @@ export function createControlPlane(options?: {
     ) {
       const current = await projection();
       writeJson(response, 200, current.ai.searchOutcomeAttribution);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/semantic-review-admission"
+    ) {
+      const current = await projection();
+      writeJson(response, 200, current.ai.semanticReviewAdmission);
       return;
     }
     if (

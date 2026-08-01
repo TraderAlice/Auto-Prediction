@@ -44,6 +44,10 @@ import {
   type OpportunityLifecycleDeskProjection,
 } from "./opportunity-lifecycle-desk.js";
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
+import {
+  buildSemanticReviewAdmissionProjection,
+  type SemanticReviewAdmissionProjection,
+} from "./semantic-review-admission.js";
 import type { SemanticReviewSchedulerProjection } from "./semantic-review-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
@@ -114,6 +118,7 @@ export function buildStudioProjection(input: {
   searchAttention?: SearchAttentionProjection;
   searchOutcomeAttribution?: SearchOutcomeAttributionProjection;
   semanticReview?: SemanticReviewDeskProjection;
+  semanticReviewAdmission?: SemanticReviewAdmissionProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
   proposalEconomicTriage?: ProposalEconomicTriageProjection;
@@ -464,6 +469,7 @@ export function buildStudioProjection(input: {
     leasedCount: 0,
     retryWaitCount: 0,
     blockedEvidenceCount: 0,
+    researchOnlyCount: 0,
     bundledJobCount: 0,
     capturedOriginalJobCount: 0,
     rebasedJobCount: 0,
@@ -733,6 +739,8 @@ export function buildStudioProjection(input: {
       searchIssueScheduler,
       searchOutcomeAttribution,
       semanticReview,
+      semanticReviewAdmission: input.semanticReviewAdmission ??
+        buildSemanticReviewAdmissionProjection([]),
       semanticReviewScheduler,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),
       proposalEconomicTriage: input.proposalEconomicTriage ?? emptyProposalEconomicTriage(),

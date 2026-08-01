@@ -124,6 +124,43 @@ const EMPTY_SEMANTIC_REVIEW: StudioProjection["ai"]["semanticReview"] = {
   },
 };
 
+const EMPTY_SEMANTIC_REVIEW_ADMISSION: StudioProjection["ai"]["semanticReviewAdmission"] = {
+  schemaVersion: "pmh.semantic-review-admission-desk.v1",
+  policy: "TWO_DISTINCT_LISTINGS_AND_COMPILABLE_RELATION_V1",
+  candidateCount: 0,
+  autoReviewCount: 0,
+  researchOnlyCount: 0,
+  autoReviewRateBps: null,
+  countsByReason: {
+    TWO_LISTING_COMPILABLE_RELATION: 0,
+    NON_COMPILABLE_RELATION: 0,
+    LISTING_ARITY_UNSUPPORTED: 0,
+    DUPLICATE_LISTING_REF: 0,
+  },
+  candidates: [],
+  supportedRelations: [
+    "EQUIVALENT",
+    "IMPLIES",
+    "SUBSET",
+    "MUTUALLY_EXCLUSIVE",
+    "EXHAUSTIVE",
+  ],
+  manualReviewAvailable: true,
+  modelConfidenceUsed: false,
+  authority: "AUTOMATIC_REVIEW_ADMISSION_ONLY",
+  semanticDecisionAuthority: false,
+  simulationAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    modelCalls: false,
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+  contentHash: `sha256:${"0".repeat(64)}`,
+};
+
 const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewScheduler"] = {
   schemaVersion: "pmh.semantic-review-scheduler.v1",
   enabled: false,
@@ -137,6 +174,7 @@ const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewSch
   leasedCount: 0,
   retryWaitCount: 0,
   blockedEvidenceCount: 0,
+  researchOnlyCount: 0,
   bundledJobCount: 0,
   capturedOriginalJobCount: 0,
   rebasedJobCount: 0,
@@ -3427,6 +3465,8 @@ function OpportunityLifecycleView() {
   const desk = studioProjection.opportunityLifecycle;
   const semanticReview =
     studioProjection.ai.semanticReview ?? EMPTY_SEMANTIC_REVIEW;
+  const reviewAdmission =
+    studioProjection.ai.semanticReviewAdmission ?? EMPTY_SEMANTIC_REVIEW_ADMISSION;
   const reviewScheduler =
     studioProjection.ai.semanticReviewScheduler ?? EMPTY_SEMANTIC_REVIEW_SCHEDULER;
   const reviewAttention =
@@ -3745,6 +3785,38 @@ function OpportunityLifecycleView() {
         </div>
       </section>
 
+      <section className="attention-queue" aria-label="Automatic semantic review admission">
+        <div className="attention-queue-heading">
+          <div>
+            <ShieldCheck size={15} />
+            <div>
+              <strong>Arbitrage-first review admission</strong>
+              <span>
+                Deterministic proposal-shape gate · research findings stay retained without spending automatic review requests
+              </span>
+            </div>
+          </div>
+          <Badge variant={reviewAdmission.autoReviewCount > 0 ? "verified" : "muted"}>
+            {formatRateBps(reviewAdmission.autoReviewRateBps)} AUTO REVIEW
+          </Badge>
+        </div>
+        <div className="attention-queue-stats">
+          <div><strong>{reviewAdmission.autoReviewCount}/{reviewAdmission.candidateCount}</strong><span>compiler-shaped</span></div>
+          <div><strong>{reviewAdmission.researchOnlyCount}</strong><span>research only</span></div>
+          <div><strong>{reviewAdmission.countsByReason.NON_COMPILABLE_RELATION}</strong><span>relation unsupported</span></div>
+          <div><strong>{reviewAdmission.countsByReason.LISTING_ARITY_UNSUPPORTED}</strong><span>arity unsupported</span></div>
+          <div><strong>{reviewAdmission.countsByReason.DUPLICATE_LISTING_REF}</strong><span>duplicate refs</span></div>
+          <div><strong>{reviewScheduler.researchOnlyCount}</strong><span>durable withheld jobs</span></div>
+        </div>
+        <div className="attention-authority-lock">
+          <CircleOff size={14} />
+          <span>
+            Auto lane: two distinct listings plus {reviewAdmission.supportedRelations.join(" / ")}. Manual advisory review remains available for every retained proposal.
+          </span>
+          <code>{reviewAdmission.contentHash.slice(0, 22)}…</code>
+        </div>
+      </section>
+
       <section className="attention-queue" aria-label="Operator review attention queue">
         <div className="attention-queue-heading">
           <div>
@@ -3835,6 +3907,7 @@ function OpportunityLifecycleView() {
           <div><strong>{reviewScheduler.leasedCount}/{reviewScheduler.concurrencyLimit}</strong><span>leased</span></div>
           <div><strong>{reviewScheduler.retryWaitCount}</strong><span>retry wait</span></div>
           <div><strong>{reviewScheduler.blockedEvidenceCount}</strong><span>evidence blocked</span></div>
+          <div><strong>{reviewScheduler.researchOnlyCount}</strong><span>research only</span></div>
           <div>
             <strong>{reviewScheduler.bundledJobCount}/{reviewScheduler.jobs.length}</strong>
             <span>evidence bundled · {reviewScheduler.legacyEvidenceDebtCount} legacy debt</span>

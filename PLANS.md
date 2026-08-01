@@ -1,7 +1,6 @@
 # Plans
 
-`plans/attention-aware-notification-outbox.md` is the latest completed
-construction plan.
+`plans/arbitrage-first-review-admission.md` is the active construction plan.
 
 ## Planning contract
 
@@ -106,6 +105,20 @@ idempotency key. Enabling an external channel starts at process activation and
 does not replay the historical backlog. Studio passed desktop and 390 px QA
 without horizontal overflow; all 376 workspace tests and the production build
 pass.
+
+The next measured bottleneck is automatic review admission. The current
+retained proposal set contains 37 unique relations, but only three are exact
+two-listing shapes supported by the deterministic payoff compiler. The other
+34 retain research value yet currently share the same automatic reviewer
+budget. The active campaign separates those lanes without deleting research
+evidence or granting semantic authority.
+
+The campaign is qualified locally. The live cumulative projection currently
+admits 10 of 97 candidates to automatic review and retains 87 as research-only
+with deterministic reasons. SQLite migrated to schema v16, historical passed
+reviews stayed intact, and repeated scheduler ticks held the request-attempt
+counter steady. All 383 workspace tests, production build, desktop QA, and
+390 px QA pass; publication is the remaining slice.
 
 ## Deferred future campaigns
 

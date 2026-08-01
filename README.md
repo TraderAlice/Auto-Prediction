@@ -75,6 +75,12 @@ This is not a trading bot and it has no live-trading authority. The repository d
   review-priority point; missing, stale, unsupported, non-positive,
   settlement-ineligible, and already-priority-five items stay at their original
   priority, and no hint can approve semantics.
+- A content-addressed arbitrage-first review admission policy. Automatic model
+  review is reserved for proposals with exactly two distinct listings and a
+  relation the current payoff compiler supports: `EQUIVALENT`, `IMPLIES`,
+  `SUBSET`, `MUTUALLY_EXCLUSIVE`, or `EXHAUSTIVE`. Other findings remain
+  durable `RESEARCH_ONLY` work with an explicit reason and a manual advisory
+  review path; they are not rejected and consume no automatic review request.
 - Certificate-bound shadow replay that derives intents from the certificate,
   uses virtual capital and the live-disabled ShadowExecutionEngine, records
   planned versus observed fills, and makes zero venue-gateway calls. Human
@@ -149,13 +155,17 @@ promotion remain active campaign work.
    other candidate keeps its original priority. Lack of a detected denial does
    not prove settlement. The hint excludes fees and depth, suppresses nothing,
    and is not evidence that the proposed relationship is true.
-6. Send a grounded proposal through independent semantic review. The reviewer
-   must bind exact listing refs, rule identities, outcome mapping, time windows,
-   and counterexamples. The **Operator attention queue** then tells you whether
-   that advisory result defines a canonical payoff partition, whether current
-   contract semantics still match the retained evidence, and whether the
-   implemented anonymous adapters can reach its legs. Its gross-price hint
-   excludes depth and fees and is never an executable quote.
+6. Check **Arbitrage-first review admission**. Exactly two distinct listings
+   with a compiler-supported relation enter the bounded automatic semantic
+   reviewer; related/conflicting/conditional and unsupported multi-listing
+   discoveries remain visible as `RESEARCH_ONLY` without spending a request.
+   You can still trigger manual advisory review for any retained proposal. The
+   reviewer must bind exact listing refs, rule identities, outcome mapping,
+   time windows, and counterexamples. The **Operator attention queue** then
+   tells you whether that advisory result defines a canonical payoff partition,
+   whether current contract semantics still match the retained evidence, and
+   whether the implemented anonymous adapters can reach its legs. Its
+   gross-price hint excludes depth and fees and is never an executable quote.
 7. Explicitly accept a compiler-ready item for research simulation, or leave it
    in research/evidence/rejection triage. The queue cannot make this decision.
 8. Materialize a portfolio. The server reacquires current public books and fee
@@ -204,7 +214,8 @@ path when a different local operational volume is required. The database is
 ignored by Git and contains bounded discovery runs plus their exact normalized
 catalog snapshots, completed investigations, and raw anonymous catalog
 observations, Candidate Watch raw books and its bounded refresh journal, and
-SQLite schema-v13 AI search-lease lineage plus deduplicated task corpora;
+SQLite schema-v16 AI search-lease lineage, deduplicated task corpora, attention
+deliveries, and durable semantic-review admission dispositions;
 it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.
 

@@ -385,6 +385,7 @@ describe("control-plane HTTP surface", () => {
     expect(projection.ai.semanticReviewScheduler).toMatchObject({
       configured: false,
       pendingCount: 0,
+      researchOnlyCount: 0,
       bundledJobCount: 0,
       legacyEvidenceDebtCount: 0,
       budget: { basis: "REQUEST_ATTEMPTS", maxAttemptsPerJob: 3 },
@@ -392,6 +393,19 @@ describe("control-plane HTTP surface", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    expect(projection.ai.semanticReviewAdmission).toMatchObject({
+      policy: "TWO_DISTINCT_LISTINGS_AND_COMPILABLE_RELATION_V1",
+      candidateCount: 0,
+      autoReviewCount: 0,
+      researchOnlyCount: 0,
+      manualReviewAvailable: true,
+      modelConfidenceUsed: false,
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.semanticReviewAdmission.contentHash).toMatch(/^sha256:/);
     expect(projection.ai.reviewAttention).toMatchObject({
       itemCount: 0,
       semanticDecisionAuthority: false,
@@ -420,6 +434,16 @@ describe("control-plane HTTP surface", () => {
       budget: { basis: "REQUEST_ATTEMPTS" },
       executionAuthority: false,
       effects: { liveExecutionEnabled: false },
+    });
+    const reviewAdmissionResponse = await fetch(
+      `${baseUrl}/api/v1/semantic-review-admission`,
+    );
+    expect(reviewAdmissionResponse.status).toBe(200);
+    expect(await reviewAdmissionResponse.json()).toMatchObject({
+      policy: "TWO_DISTINCT_LISTINGS_AND_COMPILABLE_RELATION_V1",
+      candidateCount: 0,
+      authority: "AUTOMATIC_REVIEW_ADMISSION_ONLY",
+      effects: { modelCalls: false, liveExecutionEnabled: false },
     });
     expect(projection.ai.semanticRelationGraph).toMatchObject({
       listingCount: 0,
@@ -1658,7 +1682,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 15,
+          schemaVersion: 16,
         },
         records: [{ investigationId: created.investigationId }],
       });
