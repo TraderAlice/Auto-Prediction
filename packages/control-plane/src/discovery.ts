@@ -476,14 +476,39 @@ export class DiscoveryPool {
     }
   }
 
-  public async run(task: DiscoveryTask): Promise<DiscoveryRun> {
+  public async run(
+    task: DiscoveryTask,
+    options: Readonly<{ maxModelWorkers?: number }> = {},
+  ): Promise<DiscoveryRun> {
     assertDiscoveryTask(task);
+    const maxModelWorkers = options.maxModelWorkers;
+    if (
+      maxModelWorkers !== undefined &&
+      (!Number.isSafeInteger(maxModelWorkers) ||
+        maxModelWorkers < 0 ||
+        maxModelWorkers > 4)
+    ) {
+      throw new Error("discovery model worker budget must be an integer from 0 to 4");
+    }
+    let selectedModelWorkers = 0;
+    const selectedWorkers = this.workers.filter((worker) => {
+      if (worker.kind === "HEURISTIC") return true;
+      if (
+        maxModelWorkers !== undefined &&
+        selectedModelWorkers >= maxModelWorkers
+      ) return false;
+      selectedModelWorkers += 1;
+      return true;
+    });
+    if (selectedWorkers.length === 0) {
+      throw new Error("discovery run requires at least one worker within budget");
+    }
     const startedAtMs = this.now();
     if (startedAtMs > task.deadlineEpochMs) {
       throw new Error("discovery task deadline has expired");
     }
     const results = await Promise.all(
-      this.workers.map(async (worker) => {
+      selectedWorkers.map(async (worker) => {
         const workerStartedAtMs = this.now();
         try {
           const hypotheses = await worker.discover(task);
@@ -549,13 +574,13 @@ export class DiscoveryPool {
       runId: `run:${hashCanonical({
         taskId: task.taskId,
         startedAtMs,
-        workerIds: this.workers.map((worker) => worker.workerId),
+        workerIds: selectedWorkers.map((worker) => worker.workerId),
       }).slice(7)}`,
       taskId: task.taskId,
       startedAt: new Date(startedAtMs).toISOString(),
       completedAt: new Date(completedAtMs).toISOString(),
       workerIds: Object.freeze(
-        this.workers.map((worker) => worker.workerId),
+        selectedWorkers.map((worker) => worker.workerId),
       ),
       workerReports: Object.freeze(results.map((result) => result.report)),
       hypotheses: Object.freeze(

@@ -239,6 +239,7 @@ export type StudioProjection = Readonly<{
     opportunityRadar: import("./opportunity-radar.js").OpportunityRadarProjection;
     marketCorpus: import("./market-corpus.js").MarketCorpusProjection;
     marketArchaeologist: import("./market-archaeologist.js").MarketArchaeologistProjection;
+    searchLeaseScheduler: import("./search-lease-scheduler.js").SearchLeaseSchedulerProjection;
     semanticReview: import("./semantic-review.js").SemanticReviewDeskProjection;
     modelProvider: ModelProviderProjection;
     investigator: PiInvestigatorProjection;

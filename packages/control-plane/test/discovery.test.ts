@@ -162,6 +162,27 @@ describe("AI-native discovery boundary", () => {
     expect(run.executionAuthority).toBe(false);
   });
 
+  it("runs every free worker but only the leased number of model workers", async () => {
+    let modelCalls = 0;
+    const port: AiModelPort = {
+      async completeStructured() {
+        modelCalls += 1;
+        return { hypotheses: [] };
+      },
+    };
+    const pool = new DiscoveryPool(
+      [
+        new HeuristicDiscoveryWorker("heuristic-budget"),
+        new StructuredModelDiscoveryWorker("model-budget-1", "cheap-1", port),
+        new StructuredModelDiscoveryWorker("model-budget-2", "cheap-2", port),
+      ],
+      () => 1_000,
+    );
+    const run = await pool.run(task, { maxModelWorkers: 1 });
+    expect(run.workerIds).toEqual(["heuristic-budget", "model-budget-1"]);
+    expect(modelCalls).toBe(1);
+  });
+
   it("rejects expired or unbounded discovery work", async () => {
     const pool = new DiscoveryPool(
       [new HeuristicDiscoveryWorker()],

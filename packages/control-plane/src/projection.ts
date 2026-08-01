@@ -29,6 +29,7 @@ import type { CandidateWatchProjection } from "./candidate-watch.js";
 import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import type { MarketCorpusProjection } from "./market-corpus.js";
 import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
+import type { SearchLeaseSchedulerProjection } from "./search-lease-scheduler.js";
 import {
   OpportunityLifecycleDesk,
   type OpportunityLifecycleDeskProjection,
@@ -91,6 +92,7 @@ export function buildStudioProjection(input: {
   opportunityRadar?: OpportunityRadarProjection;
   marketCorpus?: MarketCorpusProjection;
   marketArchaeologist?: MarketArchaeologistProjection;
+  searchLeaseScheduler?: SearchLeaseSchedulerProjection;
   semanticReview?: SemanticReviewDeskProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
   relationPayoff?: RelationPayoffProjection;
@@ -239,6 +241,44 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const searchLeaseScheduler = input.searchLeaseScheduler ?? {
+    schemaVersion: "pmh.search-lease-scheduler.v1" as const,
+    algorithmVersion: "pmh.ai-search-leases.v1" as const,
+    enabled: false,
+    configured: { fastLane: true, deepLane: false },
+    status: "IDLE" as const,
+    intervalMs: null,
+    retentionLimit: 40,
+    lensOrder: ["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"] as const,
+    budget: {
+      maxFastModelRequests: 1,
+      maxPiInvocations: 1 as const,
+      maxHypotheses: 8,
+      deadlineMs: 300_000,
+    },
+    runCount: 0,
+    passCount: 0,
+    failedCount: 0,
+    issuedCount: 0,
+    duplicateCount: 0,
+    piEscalationCount: 0,
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "leaseId" as const,
+    },
+    records: [],
+    authority: "PROPOSE_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const semanticReview = input.semanticReview ?? {
     schemaVersion: "pmh.semantic-review-desk.v1" as const,
     configured: false,
@@ -364,7 +404,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 280,
+      proofTests: 286,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -376,6 +416,7 @@ export function buildStudioProjection(input: {
       opportunityRadar,
       marketCorpus,
       marketArchaeologist,
+      searchLeaseScheduler,
       semanticReview,
       modelProvider,
       investigator,

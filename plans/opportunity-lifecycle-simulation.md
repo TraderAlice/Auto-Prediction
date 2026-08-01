@@ -164,16 +164,17 @@ decision and cannot be inferred from this state machine.
 
 ## Phase 9 — scheduled Agent search leases
 
-- [ ] Add a durable scheduler that issues bounded leases against immutable
+- [x] Add a durable scheduler that issues bounded leases against immutable
   catalog/context identities; no unbounded autonomous loop or hidden retry.
-- [ ] Give each lease a search thesis, venue/date scope, novelty target, maximum
+- [x] Give each lease a search thesis, venue/date scope, novelty target, maximum
   tool/request budget, deadline, and deterministic idempotency identity.
-- [ ] Let cheap fast Agents search with read/grep/find/list-style catalog tools;
-  reserve pi for cross-file rule archaeology and difficult abstraction work.
-- [ ] Persist proposal lineage, query/tool trace summaries, evidence gaps,
+- [x] Let cheap fast Agents search with bounded catalog contexts; reserve
+  read/grep/find/list-style full-MarketFS archaeology for pi and difficult
+  abstraction work.
+- [x] Persist proposal lineage, query/tool trace summaries, evidence gaps,
   duplicate links, and lease outcomes without persisting chain-of-thought.
-- [ ] Run independent skeptical review on novel relation clusters before any
-  deterministic payoff compilation.
+- [x] Route novel pi relation proposals through the existing independent
+  skeptical semantic review before any deterministic payoff compilation.
 
 ## Phase 10 — semantic relation graph and feedback
 
@@ -201,10 +202,9 @@ decision and cannot be inferred from this state machine.
 - Add an operator-authored structured scope for conditional, multi-listing, or
   reviewer-reclassified relations; free-text rationale must not become a payoff
   partition implicitly.
-- Implement Phase 9 as a small durable lease scheduler over the existing
-  Market Archaeologist and pi investigator lanes.
-- Start with operator-enabled cadence and one concurrent lease; collect useful
-  lead yield before increasing fan-out.
+- Run the opt-in lease cadence long enough to measure useful-lead yield,
+  duplicate rate, evidence gaps, and pi escalation rate before increasing
+  fan-out.
 - Add in-app notification acknowledgement. External channels require an explicit
   destination and authority decision.
 - Measure useful-lead yield, review rejection reasons, simulation attrition,
@@ -308,6 +308,20 @@ decision and cannot be inferred from this state machine.
   leases. The intended analogy is repository archaeology: Agents navigate a
   content-addressed market/rules corpus heuristically, while the scheduler owns
   budgets and deterministic components own every promotion decision.
+- 2026-08-01: SQLite schema v9 persists search leases before AI work starts and
+  permits only the exact `ISSUED` → terminal transition. Four deterministic
+  lenses cover equivalence, implication, partition, and mechanism divergence;
+  cheap scouts receive at most one model request by default, while only a novel,
+  grounded, multi-listing signature may consume one pi MarketFS run. Duplicate
+  signatures link to their predecessor without another pi call. Query summaries,
+  candidate refs, proposal IDs, evidence gaps, and outcomes are retained;
+  chain-of-thought and tool execution traces are not.
+- 2026-08-01: Phase 9 closes with 286 passing workspace tests, full typecheck,
+  and production build under Node.js 24.14.0. Desktop and 430px Studio checks
+  have no console warnings/errors or horizontal overflow. A real local partial
+  migration with `user_version=9` but no lease table is repaired by verifying
+  schema facts in addition to the version marker; the repair is covered by a
+  non-destructive regression test.
 - 2026-08-01: Exact promotion and certificate-bound shadow routing close at 280
   passing workspace tests, full typecheck, and production build under Node.js
   24.14.0. Desktop and 430px lifecycle inspection show no console errors or

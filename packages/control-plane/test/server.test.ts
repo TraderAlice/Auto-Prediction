@@ -94,6 +94,14 @@ describe("control-plane HTTP surface", () => {
           tools: string[];
           sessionPersistence: boolean;
         };
+        searchLeaseScheduler: {
+          enabled: boolean;
+          lensOrder: string[];
+          budget: { maxFastModelRequests: number; maxPiInvocations: number };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         workers: { workerId: string; status: string }[];
       };
       discoveryDesk: {
@@ -124,6 +132,14 @@ describe("control-plane HTTP surface", () => {
       model: "deepseek-v4-flash",
       tools: ["read", "grep", "find", "ls"],
       sessionPersistence: false,
+    });
+    expect(projection.ai.searchLeaseScheduler).toMatchObject({
+      enabled: false,
+      lensOrder: ["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"],
+      budget: { maxFastModelRequests: 1, maxPiInvocations: 1 },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
     });
     expect(projection.ai.workers).toContainEqual(
       expect.objectContaining({
@@ -1265,7 +1281,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 8,
+          schemaVersion: 9,
         },
         records: [{ investigationId: created.investigationId }],
       });
