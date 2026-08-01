@@ -85,6 +85,20 @@ describe("Studio projection safety", () => {
       },
       records: [],
     });
+    expect(studioProjection.ai.searchOutcomeAttribution).toMatchObject({
+      measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+      attributedProposalCount: 0,
+      attributionCoverageBps: null,
+      modelConfidenceUsed: false,
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
     expect(studioProjection.ai.researchDesk).toEqual({
       caseCount: 0,
       activeCount: 0,

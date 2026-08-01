@@ -33,6 +33,10 @@ import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
 import type { SearchLeaseSchedulerProjection } from "./search-lease-scheduler.js";
 import type { SearchIssueSchedulerProjection } from "./search-issue-scheduler.js";
 import {
+  buildSearchOutcomeAttribution,
+  type SearchOutcomeAttributionProjection,
+} from "./search-outcome-attribution.js";
+import {
   OpportunityLifecycleDesk,
   type OpportunityLifecycleDeskProjection,
 } from "./opportunity-lifecycle-desk.js";
@@ -99,6 +103,7 @@ export function buildStudioProjection(input: {
   marketArchaeologist?: MarketArchaeologistProjection;
   searchLeaseScheduler?: SearchLeaseSchedulerProjection;
   searchIssueScheduler?: SearchIssueSchedulerProjection;
+  searchOutcomeAttribution?: SearchOutcomeAttributionProjection;
   semanticReview?: SemanticReviewDeskProjection;
   semanticRelationGraph?: SemanticRelationGraphProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
@@ -342,6 +347,20 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const searchOutcomeAttribution = input.searchOutcomeAttribution ??
+    buildSearchOutcomeAttribution({
+      issues: [],
+      searchLeases: [],
+      semanticReviews: [],
+      lifecycle: {
+        cases: [],
+        semanticDecisions: [],
+        simulationBundles: [],
+        exactVerifications: [],
+        shadowObservations: [],
+      },
+      materializations: [],
+    });
   const semanticReview = input.semanticReview ?? {
     schemaVersion: "pmh.semantic-review-desk.v1" as const,
     configured: false,
@@ -497,7 +516,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 305,
+      proofTests: 308,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -511,6 +530,7 @@ export function buildStudioProjection(input: {
       marketArchaeologist,
       searchLeaseScheduler,
       searchIssueScheduler,
+      searchOutcomeAttribution,
       semanticReview,
       semanticRelationGraph,
       modelProvider,

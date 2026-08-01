@@ -13,6 +13,8 @@ This repository is a pre-alpha, research-first interoperability harness. It must
 - Read `PLANS.md` before non-trivial construction; it indexes the active plan
   under `plans/` when one exists and defines when completed plans should be retired.
 - Update `PLANS.md` and the active file under `plans/` when evidence changes a decision.
+- Put non-blocking user decisions in `QUESTIONS.md` for batch support and remove
+  each question as soon as it is answered or no longer needed.
 - Do not create placeholder packages. A package must own working source and focused tests.
 
 ## User input / access ledger

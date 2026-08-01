@@ -262,6 +262,15 @@ rates plus proposal and evidence-gap counts, both globally and per issue. These
 numbers describe search workload only: they are not model confidence, semantic
 review, an arbitrage verdict, or all-time totals.
 
+A separate content-addressed attribution projection follows distinct proposal
+IDs from passed issue leases through independent review, local research
+decisions, anonymous materialization, deterministic portfolio simulation, exact
+verification, and certificate-bound shadow observation. Studio exposes the
+funnel globally and per issue, including proposals discovered outside scheduled
+issues, multi-issue discoveries, missing lifecycle records, and current
+bottlenecks. It is derived evidence only and cannot tune a schedule or promote a
+candidate by itself.
+
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 
 ```dotenv
@@ -312,8 +321,9 @@ an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 - `projects/campaigns`: immutable content-addressed qualification checkpoints.
 - `docs/design`: current architecture truth.
 - `PLANS.md`: short construction-plan index and current checkpoint.
-- `plans/search-operations-feedback.md`: latest completed issue-scheduler
-  operations checkpoint; older completed plans live in Git history.
+- `plans/search-outcome-attribution.md`: latest completed AI-search outcome
+  attribution campaign; retired plans remain recoverable from Git history.
+- `QUESTIONS.md`: non-blocking user decisions queued for batch support.
 - `AGENTS.md`: collaboration rules and the user-input/access ledger.
 
 The original design brief remains at `prediction-market-harness-design-and-codex-prompt.md`; stable implementation truth belongs in `docs/`.

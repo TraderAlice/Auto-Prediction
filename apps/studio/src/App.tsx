@@ -248,6 +248,52 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
 };
 
+const EMPTY_SEARCH_OUTCOME_ATTRIBUTION: StudioProjection["ai"]["searchOutcomeAttribution"] = {
+  schemaVersion: "pmh.search-outcome-attribution.v1",
+  attributionIdentity: `sha256:${"0".repeat(64)}`,
+  sourceSetIdentity: `sha256:${"0".repeat(64)}`,
+  sourceArtifactCount: 0,
+  measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+  issueCount: 0,
+  attributedLeaseCount: 0,
+  attributedProposalCount: 0,
+  totalAiProposalCount: 0,
+  unattributedAiProposalCount: 0,
+  multiIssueProposalCount: 0,
+  invalidProposalReferenceCount: 0,
+  lifecycleMissingCount: 0,
+  attributionCoverageBps: null,
+  stages: [
+    "PROPOSED",
+    "REVIEWED",
+    "OPERATOR_ACCEPTED",
+    "MATERIALIZED_READY",
+    "POSITIVE_SIMULATION",
+    "CERTIFIED",
+    "SHADOW_OBSERVED",
+  ].map((stage) => ({
+    stage: stage as StudioProjection["ai"]["searchOutcomeAttribution"]["stages"][number]["stage"],
+    count: 0,
+  })),
+  bottlenecks: {
+    pendingReviewCount: 0,
+    reviewFailedCount: 0,
+    pendingOperatorDecisionCount: 0,
+    materializationBlockedCount: 0,
+    simulationBlockedCount: 0,
+    exactRejectedCount: 0,
+    shadowDivergedCount: 0,
+    missingEvidenceCount: 0,
+  },
+  byIssue: [],
+  modelConfidenceUsed: false,
+  authority: "DERIVED_RESEARCH_EVIDENCE_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+};
+
 const EMPTY_SEMANTIC_RELATION_GRAPH: StudioProjection["ai"]["semanticRelationGraph"] = {
   schemaVersion: "pmh.semantic-relation-graph.v1",
   graphIdentity: `sha256:${"0".repeat(64)}`,
@@ -2301,6 +2347,8 @@ function MarketArchaeologistView() {
     studioProjection.ai.searchIssueScheduler ?? EMPTY_SEARCH_ISSUE_SCHEDULER;
   const issuePerformance =
     issueScheduler.performance ?? EMPTY_SEARCH_ISSUE_SCHEDULER.performance;
+  const outcomeAttribution =
+    studioProjection.ai.searchOutcomeAttribution ?? EMPTY_SEARCH_OUTCOME_ATTRIBUTION;
   const graph =
     studioProjection.ai.semanticRelationGraph ?? EMPTY_SEMANTIC_RELATION_GRAPH;
   const [question, setQuestion] = useState(
@@ -2484,6 +2532,32 @@ function MarketArchaeologistView() {
             <div><strong>{formatRateBps(issuePerformance.piEscalationRateBps)}</strong><span>pi escalation · {issuePerformance.proposalCount} proposals · {issuePerformance.evidenceGapCount} gaps</span></div>
           </div>
 
+          <section className="search-outcome-attribution" aria-label="Search outcome attribution">
+            <div className="issue-column-heading">
+              <div><Waypoints size={14} /><strong>Issue-to-opportunity funnel</strong></div>
+              <span>{formatRateBps(outcomeAttribution.attributionCoverageBps)} of AI lifecycle proposals attributed · {outcomeAttribution.unattributedAiProposalCount} outside retained issue leases</span>
+            </div>
+            <div className="search-outcome-stages">
+              {outcomeAttribution.stages.map((stage) => (
+                <div key={stage.stage}>
+                  <strong>{stage.count}</strong>
+                  <span>{stage.stage.replaceAll("_", " ")}</span>
+                </div>
+              ))}
+            </div>
+            <div className="search-outcome-bottlenecks">
+              <span><b>{outcomeAttribution.bottlenecks.pendingReviewCount}</b> pending review</span>
+              <span><b>{outcomeAttribution.bottlenecks.reviewFailedCount}</b> review failed</span>
+              <span><b>{outcomeAttribution.bottlenecks.pendingOperatorDecisionCount}</b> pending operator</span>
+              <span><b>{outcomeAttribution.bottlenecks.materializationBlockedCount}</b> market evidence blocked</span>
+              <span><b>{outcomeAttribution.bottlenecks.simulationBlockedCount}</b> simulation blocked</span>
+              <span><b>{outcomeAttribution.bottlenecks.missingEvidenceCount}</b> evidence gaps</span>
+              {outcomeAttribution.multiIssueProposalCount > 0 && <span><b>{outcomeAttribution.multiIssueProposalCount}</b> multi-issue proposals</span>}
+              {outcomeAttribution.invalidProposalReferenceCount > 0 && <span className="is-warning"><b>{outcomeAttribution.invalidProposalReferenceCount}</b> invalid proposal refs</span>}
+              {outcomeAttribution.lifecycleMissingCount > 0 && <span className="is-warning"><b>{outcomeAttribution.lifecycleMissingCount}</b> lifecycle missing</span>}
+            </div>
+          </section>
+
           <div className="issue-scheduler-workbench">
             <section className="search-issue-list" aria-label="Scheduled search issues">
               <div className="issue-column-heading">
@@ -2492,6 +2566,9 @@ function MarketArchaeologistView() {
               </div>
               {issueScheduler.issues.map((issue) => {
                 const performance = issuePerformance.byIssue.find(
+                  (item) => item.issueId === issue.issueId,
+                );
+                const outcome = outcomeAttribution.byIssue.find(
                   (item) => item.issueId === issue.issueId,
                 );
                 return (
@@ -2513,6 +2590,7 @@ function MarketArchaeologistView() {
                       <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
                       <span>{issue.passCount}/{issue.runCount} passed</span>
                       <span>{performance?.novelCandidateCount ?? 0} new · {performance?.duplicateCount ?? 0} repeat · {performance?.piEscalationCount ?? 0} pi</span>
+                      <span>{outcome?.reviewedCount ?? 0}/{outcome?.proposalCount ?? 0} reviewed · {outcome?.operatorAcceptedCount ?? 0} accepted · {outcome?.certifiedCount ?? 0} certified</span>
                     </div>
                     <div className="search-issue-actions">
                       <Button

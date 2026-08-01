@@ -241,6 +241,7 @@ export type StudioProjection = Readonly<{
     marketArchaeologist: import("./market-archaeologist.js").MarketArchaeologistProjection;
     searchLeaseScheduler: import("./search-lease-scheduler.js").SearchLeaseSchedulerProjection;
     searchIssueScheduler: import("./search-issue-scheduler.js").SearchIssueSchedulerProjection;
+    searchOutcomeAttribution: import("./search-outcome-attribution.js").SearchOutcomeAttributionProjection;
     semanticReview: import("./semantic-review.js").SemanticReviewDeskProjection;
     semanticRelationGraph: import("./semantic-relation-graph.js").SemanticRelationGraphProjection;
     modelProvider: ModelProviderProjection;
