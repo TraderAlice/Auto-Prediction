@@ -424,7 +424,7 @@ export class SearchIssueScheduler {
     const due = this.#issues
       .filter((issue) =>
         issue.enabled &&
-        (Date.parse(issue.nextRunAt) <= now || this.#hasIssuedLease(issue, snapshot)) &&
+        (Date.parse(issue.nextRunAt) <= now || this.#hasIssuedLease(issue)) &&
         !this.#active.has(issue.issueId),
       )
       .sort((left, right) =>
@@ -445,11 +445,10 @@ export class SearchIssueScheduler {
     return Object.freeze(promises);
   }
 
-  #hasIssuedLease(issue: SearchIssueRecord, snapshot: MarketCorpusSnapshot): boolean {
+  #hasIssuedLease(issue: SearchIssueRecord): boolean {
     return this.#leaseScheduler.projection().records.some((record) =>
       record.status === "ISSUED" &&
-      record.lease.issueId === issue.issueId &&
-      record.lease.snapshotIdentity === snapshot.snapshotIdentity,
+      record.lease.issueId === issue.issueId,
     );
   }
 
@@ -465,16 +464,17 @@ export class SearchIssueScheduler {
     if (this.#active.size >= this.#concurrencyLimit) {
       throw new SearchLeaseBusyError("search issue concurrency limit is active");
     }
-    const invocation = this.#leaseScheduler.begin(
-      snapshot,
-      issue.lens,
-      trigger,
-      Object.freeze({
-        issueId: issue.issueId,
-        question: issue.question,
-        venueIds: issue.venueIds,
-      }),
-    );
+    const invocation = this.#leaseScheduler.resumeIssued(issue.issueId) ??
+      this.#leaseScheduler.begin(
+        snapshot,
+        issue.lens,
+        trigger,
+        Object.freeze({
+          issueId: issue.issueId,
+          question: issue.question,
+          venueIds: issue.venueIds,
+        }),
+      );
     const startedAtMs = this.#now();
     this.#saveIssue(withIssueHash({
       ...this.#withoutIssueHash(issue),

@@ -327,8 +327,13 @@ function supportsSearchLeaseRecords(
   const candidate = store as Partial<SearchLeaseRecordStore>;
   return (
     candidate.searchLeaseStorage !== undefined &&
+    candidate.searchLeaseCorpusStorage !== undefined &&
     typeof candidate.loadSearchLeaseRecords === "function" &&
-    typeof candidate.saveSearchLeaseRecord === "function"
+    typeof candidate.saveSearchLeaseRecord === "function" &&
+    typeof candidate.saveSearchLeaseCorpus === "function" &&
+    typeof candidate.loadSearchLeaseCorpus === "function" &&
+    typeof candidate.hasSearchLeaseCorpus === "function" &&
+    typeof candidate.countSearchLeaseCorpora === "function"
   );
 }
 

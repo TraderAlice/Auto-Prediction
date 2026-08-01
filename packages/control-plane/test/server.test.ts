@@ -98,6 +98,10 @@ describe("control-plane HTTP surface", () => {
           enabled: boolean;
           lensOrder: string[];
           budget: { maxFastModelRequests: number; maxPiInvocations: number };
+          retainedCorpusCount: number;
+          recoverableIssuedCount: number;
+          missingCorpusIssuedCount: number;
+          corpusStorage: { durable: boolean; idempotencyKey: string };
           semanticDecisionAuthority: boolean;
           certificateAuthority: boolean;
           executionAuthority: boolean;
@@ -180,6 +184,10 @@ describe("control-plane HTTP surface", () => {
       enabled: false,
       lensOrder: ["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"],
       budget: { maxFastModelRequests: 1, maxPiInvocations: 1 },
+      retainedCorpusCount: 0,
+      recoverableIssuedCount: 0,
+      missingCorpusIssuedCount: 0,
+      corpusStorage: { durable: false, idempotencyKey: "snapshotIdentity" },
       semanticDecisionAuthority: false,
       certificateAuthority: false,
       executionAuthority: false,
@@ -1477,7 +1485,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 12,
+          schemaVersion: 13,
         },
         records: [{ investigationId: created.investigationId }],
       });

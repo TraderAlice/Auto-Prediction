@@ -2,6 +2,7 @@ import { hashCanonical } from "@pmh/domain";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildMarketCorpusSnapshot,
@@ -171,7 +172,13 @@ describe("issue-driven concurrent search scheduler", () => {
       kind: "NOVEL_CANDIDATE",
       status: "UNREAD",
     });
-    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 12 });
+    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 13 });
+    expect(leases.projection()).toMatchObject({
+      retainedCorpusCount: 1,
+      recoverableIssuedCount: 0,
+      missingCorpusIssuedCount: 0,
+      corpusStorage: { durable: false, schemaVersion: 13 },
+    });
 
     const restored = new SearchIssueScheduler({
       leaseScheduler: leases,
@@ -292,7 +299,7 @@ describe("issue-driven concurrent search scheduler", () => {
       expect(restored.projection()).toMatchObject({
         issueCount: 5,
         enabledIssueCount: 4,
-        storage: { issues: { durable: true, schemaVersion: 12 } },
+        storage: { issues: { durable: true, schemaVersion: 13 } },
       });
       expect(restored.projection().issues.find((issue) => issue.issueId === created.issueId))
         .toMatchObject({ enabled: false, title: created.title });
@@ -353,61 +360,201 @@ describe("issue-driven concurrent search scheduler", () => {
     store.close();
   });
 
-  it("fails an unrecoverable issued snapshot visibly and immediately runs the current corpus", async () => {
-    const store = new SqliteOperationalStore(":memory:");
-    const firstLeases = new SearchLeaseScheduler({
-      context,
-      runFast: async () => await new Promise<DiscoveryRunRecord>(() => undefined),
-      maxPiInvocations: 0,
-      store,
-      now: () => nowMs,
-    });
-    const firstIssues = new SearchIssueScheduler({
-      leaseScheduler: firstLeases,
-      seedDefaults: false,
-      store,
-      now: () => nowMs,
-    });
-    const issue = firstIssues.create({
-      title: "Changing corpus",
-      question: "Search the current corpus without substituting evidence during a lease.",
-      lens: "MECHANISM",
-      cadenceMs: 3_600_000,
-    });
-    firstIssues.runNow(issue.issueId, snapshot("old-corpus"));
+  it("resumes the retained issued corpus even when the current corpus changed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-search-lease-resume-"));
+    const path = join(directory, "control-plane.sqlite");
+    try {
+      const oldSnapshot = snapshot("old-corpus");
+      const newSnapshot = snapshot("new-corpus");
+      const firstStore = new SqliteOperationalStore(path);
+      const firstLeases = new SearchLeaseScheduler({
+        context,
+        runFast: async () => await new Promise<DiscoveryRunRecord>(() => undefined),
+        maxPiInvocations: 0,
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const firstIssues = new SearchIssueScheduler({
+        leaseScheduler: firstLeases,
+        seedDefaults: false,
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const issue = firstIssues.create({
+        title: "Changing corpus",
+        question: "Search the current corpus without substituting evidence during a lease.",
+        lens: "MECHANISM",
+        cadenceMs: 3_600_000,
+      });
+      firstIssues.runNow(issue.issueId, oldSnapshot);
+      firstStore.close();
 
-    const secondLeases = new SearchLeaseScheduler({
-      context,
-      runFast: async (task) => runRecord(task),
-      maxPiInvocations: 0,
-      store,
-      now: () => nowMs + 1_000,
-    });
-    const secondIssues = new SearchIssueScheduler({
-      leaseScheduler: secondLeases,
-      tickIntervalMs: 1_000,
-      seedDefaults: false,
-      store,
-      now: () => nowMs + 1_000,
-    });
-    const runs = secondIssues.tick(snapshot("new-corpus"));
-    expect(runs).toHaveLength(1);
-    await Promise.all(runs);
-    expect(secondIssues.projection().issues[0]).toMatchObject({
-      runCount: 2,
-      passCount: 1,
-      failedCount: 1,
-    });
-    expect(secondIssues.projection().notifications.find(
-      (notification) => notification.kind === "RUN_FAILED",
-    )).toMatchObject({
-      kind: "RUN_FAILED",
-      summary: "issued search lease snapshot is no longer available after restart",
-    });
-    expect(secondLeases.projection().records).toEqual(expect.arrayContaining([
-      expect.objectContaining({ status: "FAILED" }),
-      expect.objectContaining({ status: "PASS" }),
-    ]));
-    store.close();
+      const resumedSnapshots: string[] = [];
+      const secondStore = new SqliteOperationalStore(path);
+      const secondLeases = new SearchLeaseScheduler({
+        context: (question, venueIds, _lens, retained) => {
+          resumedSnapshots.push(retained.snapshotIdentity);
+          return context(question, venueIds);
+        },
+        runFast: async (task) => runRecord(task),
+        maxPiInvocations: 0,
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      const secondIssues = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        tickIntervalMs: 1_000,
+        seedDefaults: false,
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      const runs = secondIssues.tick(newSnapshot);
+      expect(runs).toHaveLength(1);
+      await Promise.all(runs);
+      expect(secondIssues.projection().issues[0]).toMatchObject({
+        runCount: 1,
+        passCount: 1,
+        failedCount: 0,
+      });
+      expect(resumedSnapshots).toEqual([oldSnapshot.snapshotIdentity]);
+      expect(secondLeases.projection()).toMatchObject({
+        retainedCorpusCount: 1,
+        recoverableIssuedCount: 0,
+        missingCorpusIssuedCount: 0,
+      });
+      expect(secondLeases.projection().records).toHaveLength(1);
+      expect(secondLeases.projection().records[0]).toMatchObject({
+        status: "PASS",
+        lease: { snapshotIdentity: oldSnapshot.snapshotIdentity },
+      });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a tampered retained corpus before an Agent call", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-search-lease-tamper-"));
+    const path = join(directory, "control-plane.sqlite");
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstLeases = new SearchLeaseScheduler({
+        context,
+        runFast: async () => await new Promise<DiscoveryRunRecord>(() => undefined),
+        maxPiInvocations: 0,
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const firstIssues = new SearchIssueScheduler({
+        leaseScheduler: firstLeases,
+        seedDefaults: false,
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const issue = firstIssues.create({
+        title: "Tamper test",
+        question: "Never run an Agent on corrupt retained evidence.",
+        lens: "EQUIVALENCE",
+        cadenceMs: 3_600_000,
+      });
+      firstIssues.runNow(issue.issueId, snapshot("tamper"));
+      firstStore.close();
+
+      const database = new DatabaseSync(path);
+      database.prepare(
+        `UPDATE search_lease_corpora
+         SET corpus_json = json_set(corpus_json, '$.listings[0].title', 'tampered')`,
+      ).run();
+      database.close();
+
+      const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+      const secondStore = new SqliteOperationalStore(path);
+      const secondLeases = new SearchLeaseScheduler({
+        context,
+        runFast,
+        maxPiInvocations: 0,
+        store: secondStore,
+      });
+      expect(() => secondLeases.resumeIssued(issue.issueId)).toThrow(/identity mismatch/);
+      expect(runFast).not.toHaveBeenCalled();
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("fails a legacy issued lease without retained corpus and runs current evidence", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-search-lease-legacy-"));
+    const path = join(directory, "control-plane.sqlite");
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstLeases = new SearchLeaseScheduler({
+        context,
+        runFast: async () => await new Promise<DiscoveryRunRecord>(() => undefined),
+        maxPiInvocations: 0,
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const firstIssues = new SearchIssueScheduler({
+        leaseScheduler: firstLeases,
+        seedDefaults: false,
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const issue = firstIssues.create({
+        title: "Legacy corpus gap",
+        question: "Preserve visible migration debt without substituting evidence.",
+        lens: "MECHANISM",
+        cadenceMs: 3_600_000,
+      });
+      firstIssues.runNow(issue.issueId, snapshot("legacy-old"));
+      firstStore.close();
+
+      const database = new DatabaseSync(path);
+      const retainedLeaseHash = (database.prepare(
+        "SELECT record_hash FROM search_lease_records",
+      ).get() as { record_hash: string }).record_hash;
+      database.exec("DROP TABLE search_lease_corpora; PRAGMA user_version = 12");
+      database.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const migrated = new DatabaseSync(path, { readOnly: true });
+      expect((migrated.prepare(
+        "SELECT record_hash FROM search_lease_records",
+      ).get() as { record_hash: string }).record_hash).toBe(retainedLeaseHash);
+      expect((migrated.prepare("PRAGMA user_version").get() as {
+        user_version: number;
+      }).user_version).toBe(13);
+      migrated.close();
+      const secondLeases = new SearchLeaseScheduler({
+        context,
+        runFast: async (task) => runRecord(task),
+        maxPiInvocations: 0,
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      const secondIssues = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        tickIntervalMs: 1_000,
+        seedDefaults: false,
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      const runs = secondIssues.tick(snapshot("legacy-new"));
+      await Promise.all(runs);
+      expect(secondIssues.projection().issues[0]).toMatchObject({
+        runCount: 2,
+        passCount: 1,
+        failedCount: 1,
+      });
+      expect(secondIssues.projection().notifications.find(
+        (notification) => notification.kind === "RUN_FAILED",
+      )).toMatchObject({
+        summary: "issued search lease snapshot is no longer available after restart",
+      });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
