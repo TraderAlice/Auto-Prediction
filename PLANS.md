@@ -1,6 +1,6 @@
 # Plans
 
-`plans/settlement-qualified-search-issue.md` is the active construction plan.
+`plans/fresh-corpus-search-orchestration.md` is the active construction plan.
 
 ## Planning contract
 
@@ -22,22 +22,17 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-The settlement gate is now qualified: the retained trading-only Myriad pair is
-still reviewable but economically inert, leaving the live frontier with zero
-positive gross hints and zero priority boosts. The next bottleneck is upstream:
-the four broad recurring briefs produce useful semantic research, but mostly
-`RELATED` or evidence-incomplete proposals rather than two-leg candidates that
-can enter economic qualification.
+The settlement-qualified two-leg issue is merged and live. Its deterministic
+candidate policy counts only two-ref `EQUIVALENT` proposals as hits; conflicts
+remain research evidence without becoming finding notifications.
 
-The active campaign adds a fifth durable issue, `Settlement-qualified two-leg
-parity`. It instructs cheap scouts and pi to search narrowly for two current
-binary listings with explicit settlement paths and equivalent payout claims.
-Stable-ID reconciliation adds this issue to existing durable installations
-without resetting operator-modified defaults. Its deterministic candidate
-policy counts only two-ref `EQUIVALENT` proposals as hits; conflicts remain
-research evidence without becoming finding notifications. AI still proposes;
-current contract matching, independent semantic review, fixed-point economics,
-exact simulation, and first-party verification own promotion.
+The next bottleneck is temporal correctness. Durable issues poll on schedule,
+but the anonymous market catalog refreshes only at startup or on an operator
+button. Fifteen minutes after the last refresh every source becomes
+context-ineligible and scheduled Agents receive an empty corpus. The active
+campaign adds an explicit bounded catalog cadence and coordinates refresh with
+issue dispatch, so recurring AI work is always attached to a newly observed,
+content-addressed corpus rather than silently stopping or racing stale data.
 
 ## Deferred future campaigns
 
