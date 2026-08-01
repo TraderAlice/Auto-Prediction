@@ -85,20 +85,25 @@ output-token ceiling, and an 8-second timeout. These non-secret bounds are
 visible in Studio and `/health`; the key is never projected or persisted.
 DeepSeek does not expose an OpenAI-style `store:false` request control, so the
 projection reports `PROVIDER_POLICY` rather than making a retention claim.
-Both workers receive only a task-scoped catalog context selected from 12
-normalized listings in seven verified fixture artifacts across six venues. A
-context contains at most 30 listings, has its own SHA-256 identity, and is
-bound into the default `taskId` and retained run. Every non-empty hypothesis
-must reference concrete listing IDs from that exact context.
+Both workers receive only a task-scoped catalog context. Verified fixtures are
+the default; an operator may explicitly select qualified current observations.
+A context contains at most 30 listings, has its own SHA-256 identity, and is
+bound into the default `taskId` and retained run. Every listing binds source
+grade, receive time, raw-response hash, and protocol identity. Every non-empty
+hypothesis must reference concrete listing IDs from that exact context, and all
+venue titles, descriptions, and rules are treated as untrusted data rather than
+model instructions.
 
 At startup the control plane also performs an anonymous, read-only catalog
 refresh for Polymarket Global, Kalshi, Gemini, Opinion, Myriad, and Limitless.
 Each response has a 10-second timeout and 2,000,000-byte cap, is preserved
 byte-for-byte under a SHA-256 identity in bounded SQLite WAL storage, and is
-normalized by its venue adapter. Studio separates these current observations
-from the verified fixture context and labels them `OBSERVE ONLY`; they are not
-automatically supplied to either AI lane. Refresh explicitly with
-`POST /api/v1/catalog/observations/refresh`.
+normalized by its venue adapter. Studio labels the desk `OBSERVE ONLY` and
+never selects it automatically. An explicitly requested source is eligible for
+proposal-only AI context only when its latest refresh succeeded, is non-empty,
+and is at most 15 minutes old; stale, failed, or empty sources fail the request.
+This qualification grants no review, compilation, certification, or execution
+authority. Refresh explicitly with `POST /api/v1/catalog/observations/refresh`.
 Select `PMH_DISCOVERY_PROVIDER=deepseek|openai` and override the model defaults
 with `PMH_DISCOVERY_MODEL`,
 `PMH_DISCOVERY_MAX_OUTPUT_TOKENS` (128–4096), and
@@ -154,7 +159,9 @@ pnpm --silent investigation:smoke
 
 `PMH_PI_MODEL`, `PMH_PI_TIMEOUT_MS` (10000–300000), and
 `PMH_PI_MAX_OUTPUT_BYTES` (100000–10000000) tune non-secret investigator
-bounds. Do not commit a key or place it inline in a command. A DeepSeek-compatible
+bounds. The default pi timeout is 300000 ms because a real high-thinking live
+catalog investigation exceeded 120 seconds before passing within this bound.
+Do not commit a key or place it inline in a command. A DeepSeek-compatible
 proxy is not silently assumed; custom endpoint routing requires a separate,
 explicit configuration change.
 

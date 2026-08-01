@@ -13,10 +13,20 @@ import {
   normalizePolymarketCatalog,
   polymarketManifest,
 } from "@pmh/venue-polymarket";
+import {
+  buildDiscoveryCatalogContext,
+  MAX_LISTINGS_PER_TASK,
+  toDiscoveryCatalogListing,
+} from "./catalog-discovery.js";
+import type {
+  DiscoveryCatalogContext,
+  DiscoveryCatalogListing,
+} from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 2_000_000;
 const DEFAULT_RETENTION_PER_SOURCE = 5;
+const DEFAULT_CONTEXT_MAX_AGE_MS = 15 * 60 * 1_000;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const OBSERVATION_ID_PATTERN = /^catalog-observation:[0-9a-f]{64}$/;
 const BYTE_LENGTH_PATTERN = /^(?:0|[1-9]\d*)$/;
@@ -75,12 +85,23 @@ export type CatalogObservationSourceProjection = Readonly<{
   listingCount: number;
   diagnostic: string | null;
   credentialsUsed: false;
+  contextEligible: boolean;
+  freshUntil: string | null;
 }>;
 
 export type CatalogObservationProjection = Readonly<{
   mode: "ANONYMOUS_PUBLIC_GET";
   status: "IDLE" | "REFRESHING" | "READY" | "DEGRADED";
   promotion: "OBSERVE_ONLY";
+  contextQualification: Readonly<{
+    status: "ELIGIBLE" | "PARTIAL" | "INELIGIBLE";
+    eligibleSourceCount: number;
+    maxAgeMs: number;
+    maxListingsPerTask: number;
+    requiresExplicitRequest: true;
+    defaultMode: "VERIFIED_FIXTURES";
+    authority: "PROPOSE_ONLY";
+  }>;
   currentSetIdentity: Hash;
   sourceCount: number;
   healthySourceCount: number;
@@ -156,6 +177,7 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
 type SourceState = {
   source: CatalogObservationSource;
   latest: StoredCatalogObservation | null;
+  listings: readonly DiscoveryCatalogListing[];
   lastAttemptAt: string | null;
   diagnostic: string | null;
 };
@@ -314,6 +336,7 @@ export class CatalogObservationDesk {
   readonly #timeoutMs: number;
   readonly #maxResponseBytes: number;
   readonly #retentionLimit: number;
+  readonly #contextMaxAgeMs: number;
   readonly #store: CatalogObservationStore | undefined;
   readonly #states: Map<string, SourceState>;
   #refreshing: Promise<CatalogObservationProjection> | null = null;
@@ -324,6 +347,7 @@ export class CatalogObservationDesk {
     timeoutMs?: number;
     maxResponseBytes?: number;
     retentionLimit?: number;
+    contextMaxAgeMs?: number;
     store?: CatalogObservationStore;
     sources?: readonly CatalogObservationSource[];
   }> = {}) {
@@ -334,12 +358,18 @@ export class CatalogObservationDesk {
       options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
     this.#retentionLimit =
       options.retentionLimit ?? DEFAULT_RETENTION_PER_SOURCE;
+    this.#contextMaxAgeMs =
+      options.contextMaxAgeMs ?? DEFAULT_CONTEXT_MAX_AGE_MS;
     assertPositiveInteger(this.#timeoutMs, "catalog observation timeout");
     assertPositiveInteger(
       this.#maxResponseBytes,
       "catalog observation response limit",
     );
     assertPositiveInteger(this.#retentionLimit, "catalog observation retention");
+    assertPositiveInteger(
+      this.#contextMaxAgeMs,
+      "catalog observation context maximum age",
+    );
     this.#store = options.store;
     const sources = options.sources ?? catalogObservationSources;
     if (new Set(sources.map((source) => source.venueId)).size !== sources.length) {
@@ -348,7 +378,13 @@ export class CatalogObservationDesk {
     this.#states = new Map(
       sources.map((source) => [
         source.venueId,
-        { source, latest: null, lastAttemptAt: null, diagnostic: null },
+        {
+          source,
+          latest: null,
+          listings: Object.freeze([]),
+          lastAttemptAt: null,
+          diagnostic: null,
+        },
       ]),
     );
     for (const stored of this.#store?.loadCatalogObservations(
@@ -388,6 +424,14 @@ export class CatalogObservationDesk {
         throw new Error("stored catalog observation normalization mismatch");
       }
       state.latest = verified;
+      state.listings = Object.freeze(
+        listings.map((listing) =>
+          toDiscoveryCatalogListing(listing, {
+            kind: "LIVE_OBSERVATION",
+            receivedAt: verified.record.receivedAt,
+          }),
+        ),
+      );
       state.lastAttemptAt = verified.record.receivedAt;
     }
   }
@@ -465,6 +509,14 @@ export class CatalogObservationDesk {
           observation,
           this.#retentionLimit,
         ) ?? observation;
+      state.listings = Object.freeze(
+        listings.map((listing) =>
+          toDiscoveryCatalogListing(listing, {
+            kind: "LIVE_OBSERVATION",
+            receivedAt: state.latest?.record.receivedAt ?? attemptedAt,
+          }),
+        ),
+      );
       state.diagnostic = null;
     } catch (error) {
       state.diagnostic = controller.signal.aborted
@@ -477,7 +529,57 @@ export class CatalogObservationDesk {
     }
   }
 
+  public context(
+    question: string,
+    venueIds: readonly string[],
+  ): DiscoveryCatalogContext {
+    const requested = [...new Set(venueIds)];
+    const now = this.#now();
+    if (requested.length === 0 || requested.length !== venueIds.length) {
+      throw new Error("live catalog context requires unique venue IDs");
+    }
+    const states = requested.map((venueId) => {
+      const state = this.#states.get(venueId);
+      if (state === undefined) {
+        throw new Error(`live catalog source ${venueId} is not registered`);
+      }
+      const eligibility = this.#contextEligibility(state, now);
+      if (!eligibility.eligible) {
+        throw new Error(
+          `live catalog source ${venueId} is not context eligible: ${eligibility.reason}`,
+        );
+      }
+      return state;
+    });
+    return buildDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      states.flatMap((state) => state.listings),
+      question,
+      requested,
+    );
+  }
+
+  #contextEligibility(
+    state: SourceState,
+    now: number,
+  ): Readonly<{ eligible: boolean; reason: string; freshUntil: string | null }> {
+    const receivedAt = state.latest?.record.receivedAt;
+    if (receivedAt === undefined || state.listings.length === 0) {
+      return { eligible: false, reason: "no successful non-empty observation", freshUntil: null };
+    }
+    const freshUntilMs = Date.parse(receivedAt) + this.#contextMaxAgeMs;
+    const freshUntil = new Date(freshUntilMs).toISOString();
+    if (state.diagnostic !== null) {
+      return { eligible: false, reason: "latest refresh failed", freshUntil };
+    }
+    if (now > freshUntilMs) {
+      return { eligible: false, reason: "last observation is stale", freshUntil };
+    }
+    return { eligible: true, reason: "qualified", freshUntil };
+  }
+
   public projection(): CatalogObservationProjection {
+    const now = this.#now();
     const sources = Object.freeze(
       [...this.#states.values()]
         .sort((left, right) =>
@@ -485,6 +587,7 @@ export class CatalogObservationDesk {
         )
         .map((state): CatalogObservationSourceProjection => {
           const record = state.latest?.record ?? null;
+          const eligibility = this.#contextEligibility(state, now);
           return Object.freeze({
             venueId: state.source.venueId,
             protocolIdentity: state.source.protocolIdentity,
@@ -505,11 +608,16 @@ export class CatalogObservationDesk {
             listingCount: record?.listingCount ?? 0,
             diagnostic: state.diagnostic,
             credentialsUsed: false,
+            contextEligible: eligibility.eligible,
+            freshUntil: eligibility.freshUntil,
           });
         }),
     );
     const healthySourceCount = sources.filter(
       (source) => source.status === "CURRENT",
+    ).length;
+    const eligibleSourceCount = sources.filter(
+      (source) => source.contextEligible,
     ).length;
     const status =
       this.#refreshing !== null
@@ -523,6 +631,20 @@ export class CatalogObservationDesk {
       mode: "ANONYMOUS_PUBLIC_GET",
       status,
       promotion: "OBSERVE_ONLY",
+      contextQualification: Object.freeze({
+        status:
+          eligibleSourceCount === sources.length && sources.length > 0
+            ? "ELIGIBLE"
+            : eligibleSourceCount > 0
+              ? "PARTIAL"
+              : "INELIGIBLE",
+        eligibleSourceCount,
+        maxAgeMs: this.#contextMaxAgeMs,
+        maxListingsPerTask: MAX_LISTINGS_PER_TASK,
+        requiresExplicitRequest: true,
+        defaultMode: "VERIFIED_FIXTURES",
+        authority: "PROPOSE_ONLY",
+      }),
       currentSetIdentity: hashCanonical(
         sources.map((source) => ({
           venueId: source.venueId,

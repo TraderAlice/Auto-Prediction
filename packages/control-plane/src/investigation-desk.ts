@@ -1,6 +1,7 @@
 import { hashCanonical } from "@pmh/domain";
 import type { PiInvestigationReport, PiInvestigator } from "./pi-investigator.js";
 import type {
+  DiscoveryCatalogContextSource,
   DiscoveryTask,
   OperationalStorageProjection,
 } from "./types.js";
@@ -12,6 +13,7 @@ export type InvestigationRecord = Readonly<{
   venueIds: readonly string[];
   catalogContextIdentity: string;
   catalogListingCount: number;
+  catalogContextSource?: DiscoveryCatalogContextSource;
   status: "RUNNING" | "PASS" | "FAILED";
   startedAt: string;
   completedAt: string | null;
@@ -56,6 +58,7 @@ function scopeHash(task: DiscoveryTask): string {
     question: task.question,
     venueIds: task.venueIds,
     catalogContextIdentity: task.catalogContext?.contextIdentity ?? null,
+    catalogContextSource: task.catalogContext?.source ?? null,
   });
 }
 
@@ -67,7 +70,9 @@ function recordMatchesTask(
     record.question === task.question &&
     record.venueIds.length === task.venueIds.length &&
     record.venueIds.every((venueId, index) => venueId === task.venueIds[index]) &&
-    record.catalogContextIdentity === task.catalogContext?.contextIdentity
+    record.catalogContextIdentity === task.catalogContext?.contextIdentity &&
+    (record.catalogContextSource ?? "VERIFIED_FIXTURE_CATALOGS") ===
+      (task.catalogContext?.source ?? "VERIFIED_FIXTURE_CATALOGS")
   );
 }
 
@@ -121,6 +126,9 @@ function freezeReport(value: unknown): PiInvestigationReport {
     !Number.isSafeInteger(task.catalogListingCount) ||
     task.catalogListingCount < 1 ||
     task.catalogListingCount > 30 ||
+    (task.catalogContextSource !== undefined &&
+      task.catalogContextSource !== "VERIFIED_FIXTURE_CATALOGS" &&
+      task.catalogContextSource !== "QUALIFIED_LIVE_OBSERVATIONS") ||
     result === null ||
     !isNonEmptyString(result.summary) ||
     result.summary.length > 2_000 ||
@@ -189,6 +197,12 @@ function freezeReport(value: unknown): PiInvestigationReport {
       venueIds: Object.freeze([...task.venueIds]),
       catalogContextIdentity: String(task.catalogContextIdentity),
       catalogListingCount: task.catalogListingCount,
+      ...(task.catalogContextSource === undefined
+        ? {}
+        : {
+            catalogContextSource:
+              task.catalogContextSource as DiscoveryCatalogContextSource,
+          }),
     }),
     result: Object.freeze({
       summary: result.summary,
@@ -240,6 +254,9 @@ export function assertInvestigationRecord(value: unknown): InvestigationRecord {
     !Number.isSafeInteger(record.catalogListingCount) ||
     record.catalogListingCount < 1 ||
     record.catalogListingCount > 30 ||
+    (record.catalogContextSource !== undefined &&
+      record.catalogContextSource !== "VERIFIED_FIXTURE_CATALOGS" &&
+      record.catalogContextSource !== "QUALIFIED_LIVE_OBSERVATIONS") ||
     (!running && !passed && !failed) ||
     !isIsoDate(record.startedAt) ||
     (running ? record.completedAt !== null : !isIsoDate(record.completedAt)) ||
@@ -270,6 +287,8 @@ export function assertInvestigationRecord(value: unknown): InvestigationRecord {
       ) ||
       report.task.catalogContextIdentity !== record.catalogContextIdentity ||
       report.task.catalogListingCount !== record.catalogListingCount ||
+      (report.task.catalogContextSource ?? "VERIFIED_FIXTURE_CATALOGS") !==
+        (record.catalogContextSource ?? "VERIFIED_FIXTURE_CATALOGS") ||
       Date.parse(report.startedAt) < Date.parse(record.startedAt) ||
       Date.parse(report.completedAt) > Date.parse(record.completedAt as string))
   ) {
@@ -282,6 +301,12 @@ export function assertInvestigationRecord(value: unknown): InvestigationRecord {
     venueIds: Object.freeze([...venueIds]),
     catalogContextIdentity: String(record.catalogContextIdentity),
     catalogListingCount: record.catalogListingCount,
+    ...(record.catalogContextSource === undefined
+      ? {}
+      : {
+          catalogContextSource:
+            record.catalogContextSource as DiscoveryCatalogContextSource,
+        }),
     status: record.status as InvestigationRecord["status"],
     startedAt: record.startedAt,
     completedAt: running ? null : (record.completedAt as string),
@@ -373,6 +398,7 @@ export class InvestigationDesk {
       venueIds: Object.freeze([...task.venueIds]),
       catalogContextIdentity: task.catalogContext.contextIdentity,
       catalogListingCount: task.catalogContext.listings.length,
+      catalogContextSource: task.catalogContext.source,
       status: "RUNNING" as const,
       startedAt: new Date(startedAtMs).toISOString(),
       completedAt: null,

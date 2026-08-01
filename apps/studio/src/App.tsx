@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 
 type View = "overview" | "scouts" | "venues" | "books" | "evidence";
 type Opportunity = StudioProjection["opportunities"][number];
+type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 
 const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
   mode: "VERIFIED_FIXTURE_CATALOGS",
@@ -100,11 +101,12 @@ function Metric({
 async function requestDiscoveryRun(
   question: string,
   venueIds: readonly string[],
+  catalogMode: CatalogMode = "VERIFIED_FIXTURES",
 ): Promise<boolean> {
   const response = await fetch("/api/v1/discovery/runs", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ question, venueIds }),
+    body: JSON.stringify({ question, venueIds, catalogMode }),
   });
   if (!response.ok) throw new Error("scout request failed");
   const result = (await response.json()) as {
@@ -131,11 +133,12 @@ async function requestDiscoveryRun(
 async function requestInvestigation(
   question: string,
   venueIds: readonly string[],
+  catalogMode: CatalogMode = "VERIFIED_FIXTURES",
 ): Promise<boolean> {
   const response = await fetch("/api/v1/investigations", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ question, venueIds }),
+    body: JSON.stringify({ question, venueIds, catalogMode }),
   });
   const result = (await response.json()) as {
     diagnostic?: string;
@@ -779,6 +782,9 @@ function ScoutInboxView() {
   const [selectedVenueIds, setSelectedVenueIds] = useState<readonly string[]>([
     "gemini-predictions",
   ]);
+  const [catalogMode, setCatalogMode] = useState<CatalogMode>(
+    "VERIFIED_FIXTURES",
+  );
   const [runStatus, setRunStatus] = useState<
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
@@ -788,6 +794,13 @@ function ScoutInboxView() {
   const [investigationDiagnostic, setInvestigationDiagnostic] = useState<
     string | null
   >(null);
+  const liveContextEligible =
+    catalogMode === "VERIFIED_FIXTURES" ||
+    selectedVenueIds.every(
+      (venueId) =>
+        catalogObservation.sources.find((source) => source.venueId === venueId)
+          ?.contextEligible === true,
+    );
 
   function toggleVenue(venueId: string): void {
     setSelectedVenueIds((current) =>
@@ -803,6 +816,7 @@ function ScoutInboxView() {
       const restored = await requestDiscoveryRun(
         question.trim(),
         selectedVenueIds,
+        catalogMode,
       );
       setRunStatus(restored ? "RESTORED" : "DONE");
     } catch {
@@ -817,6 +831,7 @@ function ScoutInboxView() {
       const restored = await requestInvestigation(
         question.trim(),
         selectedVenueIds,
+        catalogMode,
       );
       setInvestigationStatus(restored ? "RESTORED" : "DONE");
     } catch (error) {
@@ -863,7 +878,7 @@ function ScoutInboxView() {
         <Metric
           label="Live observed"
           value={`${catalogObservation.listingCount}`}
-          detail={`${catalogObservation.healthySourceCount}/${catalogObservation.sourceCount} sources · not promoted`}
+          detail={`${catalogObservation.contextQualification.eligibleSourceCount}/${catalogObservation.sourceCount} context eligible · explicit only`}
         />
         <Metric
           label="State store"
@@ -944,6 +959,31 @@ function ScoutInboxView() {
               />
               <small>{question.length} / 500</small>
             </label>
+            <fieldset className="venue-selector evidence-selector">
+              <legend>Catalog evidence source</legend>
+              <div>
+                <button
+                  type="button"
+                  className={cn(
+                    catalogMode === "VERIFIED_FIXTURES" && "is-selected",
+                  )}
+                  onClick={() => setCatalogMode("VERIFIED_FIXTURES")}
+                >
+                  <FileCheck2 size={12} />
+                  Verified fixtures · default
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    catalogMode === "CURRENT_OBSERVATIONS" && "is-selected",
+                  )}
+                  onClick={() => setCatalogMode("CURRENT_OBSERVATIONS")}
+                >
+                  <Radio size={12} />
+                  Current observations · explicit
+                </button>
+              </div>
+            </fieldset>
             <fieldset className="venue-selector">
               <legend>Search venue catalogs</legend>
               <div>
@@ -968,7 +1008,8 @@ function ScoutInboxView() {
                 disabled={
                   runStatus === "RUNNING" ||
                   question.trim() === "" ||
-                  selectedVenueIds.length === 0
+                  selectedVenueIds.length === 0 ||
+                  !liveContextEligible
                 }
                 onClick={() => void submitScout()}
               >
@@ -990,7 +1031,8 @@ function ScoutInboxView() {
                   studioProjection.ai.investigationDesk.activeCount > 0 ||
                   investigationStatus === "RUNNING" ||
                   question.trim() === "" ||
-                  selectedVenueIds.length === 0
+                  selectedVenueIds.length === 0 ||
+                  !liveContextEligible
                 }
                 onClick={() => void submitInvestigation()}
               >
@@ -1017,12 +1059,20 @@ function ScoutInboxView() {
             <div className="investigation-note">
               <SquareTerminal size={14} />
               <span>
-                One read-only pi task at a time · may take about two minutes ·
-                completed reports are {studioProjection.ai.investigationDesk.storage.durable
+                One read-only pi task at a time · allow up to five minutes ·
+                completed reports are{" "}
+                {studioProjection.ai.investigationDesk.storage.durable
                   ? "hash-checked and retained in SQLite WAL"
-                  : "retained in process memory only"}.
+                  : "retained in process memory only"}
+                .
                 {investigationDiagnostic !== null && (
                   <strong>{investigationDiagnostic}</strong>
+                )}
+                {!liveContextEligible && (
+                  <strong>
+                    Selected live source is stale, empty, or failed; refresh it
+                    before running AI.
+                  </strong>
                 )}
               </span>
             </div>
@@ -1082,6 +1132,10 @@ function ScoutInboxView() {
                       </Badge>
                       <Badge variant="muted">{record.authority}</Badge>
                       <Badge variant="muted">{record.reviewStatus}</Badge>
+                      <Badge variant="muted">
+                        {record.catalogContextSource ??
+                          "VERIFIED_FIXTURE_CATALOGS"}
+                      </Badge>
                     </div>
                     <time>{new Date(record.startedAt).toLocaleString()}</time>
                   </div>
@@ -1169,6 +1223,11 @@ function ScoutInboxView() {
                     <Badge variant="muted">
                       {run.catalogListingCount} listings ·{" "}
                       {run.catalogContextIdentity.slice(7, 14)}
+                    </Badge>
+                  )}
+                  {run.catalogContextSource !== undefined && (
+                    <Badge variant="muted">
+                      {run.catalogContextSource.replaceAll("_", " ")}
                     </Badge>
                   )}
                 </div>

@@ -68,15 +68,18 @@ sequencing guarantee: Gemini ranges may produce deltas, while Polymarket and
 Limitless public full-book images produce explicit rebuild snapshots.
 
 Current catalog discovery has two deliberately separate evidence grades. The
-verified fixture corpus is the only catalog input supplied to AI tasks. A live
+verified fixture corpus is the default catalog input supplied to AI tasks. A live
 observation desk performs bounded anonymous GETs against six venue catalogs,
 preserves each raw response byte-for-byte in SQLite WAL, and binds its
 normalized listing identity to source URL, receive time, protocol identity,
 headers, raw hash, and byte length. Per-source timeout, response-size, HTTP, or
 codec failure degrades only that source and retains its last successful
-snapshot. Live observations are `OBSERVE_ONLY` and cannot enter scout context,
-review, compilation, certification, or execution without a separate promotion
-decision.
+snapshot. An operator may explicitly select current observations for proposal-
+only AI context when every requested source is successful, non-empty, and at
+most 15 minutes old. The context binds source grade, receive time, raw hash,
+protocol identity, and an untrusted-venue-text policy. This does not promote
+the observation desk: live data still cannot enter review, compilation,
+certification, or execution by this path.
 
 The long-running control plane owns `ReplayBookDesk`. It verifies stream
 artifacts, applies normalized events to deterministic books, and publishes

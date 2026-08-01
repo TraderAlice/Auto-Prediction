@@ -42,6 +42,7 @@ describe("Studio projection safety", () => {
       mode: "TEXT_ONE_SHOT",
       tools: ["read", "grep", "find", "ls"],
       sessionPersistence: false,
+      timeoutMs: 300_000,
       authority: "PROPOSE_ONLY",
     });
     expect(studioProjection.ai.investigationDesk).toMatchObject({
@@ -58,6 +59,27 @@ describe("Studio projection safety", () => {
       records: [],
     });
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
+  });
+
+  it("keeps live observations explicit and ineligible until refreshed", () => {
+    expect(studioProjection.ai.catalogObservation).toMatchObject({
+      status: "IDLE",
+      promotion: "OBSERVE_ONLY",
+      contextQualification: {
+        status: "INELIGIBLE",
+        eligibleSourceCount: 0,
+        maxAgeMs: 900_000,
+        maxListingsPerTask: 30,
+        requiresExplicitRequest: true,
+        defaultMode: "VERIFIED_FIXTURES",
+        authority: "PROPOSE_ONLY",
+      },
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
   });
 
   it("exposes demo and sandbox order shapes as inert posture only", () => {

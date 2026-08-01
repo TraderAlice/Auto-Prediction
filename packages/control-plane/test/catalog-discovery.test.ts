@@ -30,12 +30,20 @@ describe("verified catalog discovery context", () => {
       "Highest temperature in Boston on July 31, 2026?",
       ["gemini-predictions"],
     );
+    expect(context).toMatchObject({
+      schemaVersion: "pmh.discovery-catalog-context.v2",
+      source: "VERIFIED_FIXTURE_CATALOGS",
+      contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
+    });
     expect(context.contextIdentity).toMatch(/^sha256:/);
     expect(context.listings).toHaveLength(6);
     expect(
       context.listings.every(
         (listing) =>
           listing.venueId === "gemini-predictions" &&
+          listing.sourceKind === "VERIFIED_FIXTURE" &&
+          listing.sourceReceivedAt.startsWith("2026-07-31T") &&
+          listing.sourceRawHash.startsWith("sha256:") &&
           listing.listingRef.startsWith("gemini-predictions:GEMI-WXHIGH"),
       ),
     ).toBe(true);
@@ -89,6 +97,7 @@ describe("verified catalog discovery context", () => {
     const body = {
       schemaVersion: context.schemaVersion,
       source: context.source,
+      contentPolicy: context.contentPolicy,
       listings: context.listings.map((listing, index) =>
         index === 0 ? { ...listing, description: "x".repeat(801) } : listing,
       ),

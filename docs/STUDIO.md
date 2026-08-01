@@ -112,10 +112,14 @@ context identity, and concrete listing references used by each hypothesis;
 zero hypotheses is a valid grounded result rather than a transport failure.
 
 The adjacent Live Catalog Observation row is a separate authority surface. It
-shows the current listing count, healthy/total source count, refresh state, and
-an operator-triggered refresh action. These records come from anonymous public
-GETs, are content-addressed and durably retained, and remain `OBSERVE ONLY`.
-They do not silently replace the verified fixture corpus supplied to scouts.
+shows the current listing count, healthy/total and context-eligible source
+counts, refresh state, and an operator-triggered refresh action. These records
+come from anonymous public GETs, are content-addressed and durably retained,
+and remain `OBSERVE ONLY`. The Scout form defaults to verified fixtures and
+requires an explicit operator choice for current observations. Every requested
+live source must have a successful, non-empty observation no older than 15
+minutes or both AI actions fail closed. The resulting context is proposal-only;
+it cannot enter equivalence review, compilation, certification, or execution.
 
 AI output cannot:
 

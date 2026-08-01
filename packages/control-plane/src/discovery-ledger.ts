@@ -101,6 +101,14 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
   ) {
     throw new Error("stored discovery run has an invalid catalog context");
   }
+  if (
+    record.catalogContextSource !== undefined &&
+    (record.catalogContextIdentity === undefined ||
+      (record.catalogContextSource !== "VERIFIED_FIXTURE_CATALOGS" &&
+        record.catalogContextSource !== "QUALIFIED_LIVE_OBSERVATIONS"))
+  ) {
+    throw new Error("stored discovery run has an invalid catalog source");
+  }
   return Object.freeze({
     runId: record.runId,
     taskId: record.taskId,
@@ -117,6 +125,13 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
       : {
           catalogContextIdentity: String(record.catalogContextIdentity),
           catalogListingCount: record.catalogListingCount as number,
+          ...(record.catalogContextSource === undefined
+            ? {}
+            : {
+                catalogContextSource: record.catalogContextSource as
+                  | "VERIFIED_FIXTURE_CATALOGS"
+                  | "QUALIFIED_LIVE_OBSERVATIONS",
+              }),
         }),
   });
 }
@@ -166,6 +181,7 @@ export class DiscoveryLedger {
         : {
             catalogContextIdentity: task.catalogContext.contextIdentity,
             catalogListingCount: task.catalogContext.listings.length,
+            catalogContextSource: task.catalogContext.source,
           }),
     });
     const stored = this.#store?.save(record, this.#retentionLimit) ?? record;
@@ -174,7 +190,9 @@ export class DiscoveryLedger {
       stored.venueIds.length !== record.venueIds.length ||
       stored.venueIds.some((item, index) => item !== record.venueIds[index]) ||
       stored.catalogContextIdentity !== record.catalogContextIdentity ||
-      stored.catalogListingCount !== record.catalogListingCount
+      stored.catalogListingCount !== record.catalogListingCount ||
+      (stored.catalogContextSource ?? "VERIFIED_FIXTURE_CATALOGS") !==
+        (record.catalogContextSource ?? "VERIFIED_FIXTURE_CATALOGS")
     ) {
       throw new Error("taskId is already bound to another discovery scope");
     }

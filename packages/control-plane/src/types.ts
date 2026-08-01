@@ -1,3 +1,11 @@
+export type DiscoveryCatalogContextSource =
+  | "VERIFIED_FIXTURE_CATALOGS"
+  | "QUALIFIED_LIVE_OBSERVATIONS";
+
+export type DiscoveryCatalogMode =
+  | "VERIFIED_FIXTURES"
+  | "CURRENT_OBSERVATIONS";
+
 export type DiscoveryCatalogListing = Readonly<{
   listingRef: string;
   venueId: string;
@@ -12,13 +20,16 @@ export type DiscoveryCatalogListing = Readonly<{
     label: string;
     indicativePrice: string | null;
   }>[];
-  sourceFixtureHash: string;
+  sourceKind: "VERIFIED_FIXTURE" | "LIVE_OBSERVATION";
+  sourceReceivedAt: string;
+  sourceRawHash: string;
   protocolIdentity: string;
 }>;
 
 export type DiscoveryCatalogContext = Readonly<{
-  schemaVersion: "pmh.discovery-catalog-context.v1";
-  source: "VERIFIED_FIXTURE_CATALOGS";
+  schemaVersion: "pmh.discovery-catalog-context.v2";
+  source: DiscoveryCatalogContextSource;
+  contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY";
   contextIdentity: string;
   listings: readonly DiscoveryCatalogListing[];
 }>;
@@ -74,6 +85,7 @@ export type DiscoveryRunRecord = DiscoveryRun &
     venueIds: readonly string[];
     catalogContextIdentity?: string;
     catalogListingCount?: number;
+    catalogContextSource?: DiscoveryCatalogContextSource;
   }>;
 
 export type DiscoveryDeskProjection = Readonly<{

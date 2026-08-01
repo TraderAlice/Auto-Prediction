@@ -45,7 +45,12 @@ function hasBoundedCatalogListing(
     listing.mechanism.length <= 100 &&
     (listing.closesAt === null || listing.closesAt.length <= 64) &&
     (listing.rulesText === null || listing.rulesText.length <= 1_200) &&
-    /^sha256:[0-9a-f]{64}$/.test(listing.sourceFixtureHash) &&
+    (listing.sourceKind === "VERIFIED_FIXTURE" ||
+      listing.sourceKind === "LIVE_OBSERVATION") &&
+    !Number.isNaN(Date.parse(listing.sourceReceivedAt)) &&
+    new Date(listing.sourceReceivedAt).toISOString() ===
+      listing.sourceReceivedAt &&
+    /^sha256:[0-9a-f]{64}$/.test(listing.sourceRawHash) &&
     listing.protocolIdentity.trim() !== "" &&
     listing.protocolIdentity.length <= 512 &&
     listing.outcomes.length >= 1 &&
@@ -85,11 +90,14 @@ function assertTask(task: DiscoveryTask): void {
     const body = {
       schemaVersion: context.schemaVersion,
       source: context.source,
+      contentPolicy: context.contentPolicy,
       listings: context.listings,
     };
     if (
-      context.schemaVersion !== "pmh.discovery-catalog-context.v1" ||
-      context.source !== "VERIFIED_FIXTURE_CATALOGS" ||
+      context.schemaVersion !== "pmh.discovery-catalog-context.v2" ||
+      (context.source !== "VERIFIED_FIXTURE_CATALOGS" &&
+        context.source !== "QUALIFIED_LIVE_OBSERVATIONS") ||
+      context.contentPolicy !== "UNTRUSTED_VENUE_TEXT_DATA_ONLY" ||
       !/^sha256:[0-9a-f]{64}$/.test(context.contextIdentity) ||
       context.contextIdentity !== hashCanonical(body) ||
       context.listings.length > 30 ||
@@ -98,6 +106,11 @@ function assertTask(task: DiscoveryTask): void {
         context.listings.length ||
       context.listings.some(
         (listing) => !hasBoundedCatalogListing(listing, allowedVenueIds),
+      ) ||
+      context.listings.some((listing) =>
+        context.source === "VERIFIED_FIXTURE_CATALOGS"
+          ? listing.sourceKind !== "VERIFIED_FIXTURE"
+          : listing.sourceKind !== "LIVE_OBSERVATION",
       )
     ) {
       throw new Error("discovery catalog context is invalid or unbounded");
@@ -241,7 +254,7 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
           listingRefs.length === 0
             ? `Search ${venueIds.join(", ")} for listings that may resolve ` +
               `to the same canonical claim: ${normalizedQuestion}`
-            : `Review ${listingRefs.length} verified catalog listings from ` +
+            : `Review ${listingRefs.length} bounded catalog listings from ` +
               `${venueIds.join(", ")} as a possible ${strategyKind.toLowerCase().replaceAll("_", " ")} candidate for: ${normalizedQuestion}`,
         strategyKind,
         venueIds: Object.freeze(venueIds),

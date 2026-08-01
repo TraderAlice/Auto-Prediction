@@ -148,12 +148,14 @@ describe("control-plane HTTP surface", () => {
       hypotheses: { authority: string }[];
       catalogContextIdentity: string;
       catalogListingCount: number;
+      catalogContextSource: string;
     };
     expect(run.executionAuthority).toBe(false);
     expect(run.taskId).toMatch(/^task:[a-f0-9]{64}$/);
     expect(run.hypotheses[0]?.authority).toBe("PROPOSE_ONLY");
     expect(run.catalogContextIdentity).toMatch(/^sha256:/);
     expect(run.catalogListingCount).toBe(6);
+    expect(run.catalogContextSource).toBe("VERIFIED_FIXTURE_CATALOGS");
     expect(run.idempotentReplay).toBe(false);
     const replay = (await fetch(`${baseUrl}/api/v1/discovery/runs`, {
       method: "POST",
@@ -250,10 +252,82 @@ describe("control-plane HTTP surface", () => {
       credentialsUsed: false,
       rawHash: expect.stringMatching(/^sha256:/),
     });
+    const discoveryResponse = await fetch(
+      `${baseUrl}/api/v1/discovery/runs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          question: "New Rihanna Album before GTA VI?",
+          venueIds: ["polymarket-global"],
+          catalogMode: "CURRENT_OBSERVATIONS",
+        }),
+      },
+    );
+    const discovery = (await discoveryResponse.json()) as {
+      catalogContextSource: string;
+      catalogListingCount: number;
+      executionAuthority: boolean;
+      hypotheses: { authority: string; reviewStatus: string }[];
+    };
+    expect(discoveryResponse.status).toBe(200);
+    expect(discovery).toMatchObject({
+      catalogContextSource: "QUALIFIED_LIVE_OBSERVATIONS",
+      catalogListingCount: 1,
+      executionAuthority: false,
+      hypotheses: [
+        { authority: "PROPOSE_ONLY", reviewStatus: "UNREVIEWED" },
+      ],
+    });
     const current = await fetch(
       `${baseUrl}/api/v1/catalog/observations`,
     ).then((result) => result.json());
     expect(current).toEqual(projection);
+  });
+
+  it("rejects explicitly requested live context after its freshness window", async () => {
+    const source = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "polymarket-global",
+    );
+    if (source === undefined) throw new Error("missing Polymarket source");
+    const bytes = await readFile(
+      join(
+        import.meta.dirname,
+        "../../../projects/fixtures/polymarket-global/2026-07-31/polymarket-catalog.json",
+      ),
+    );
+    let nowMs = Date.parse("2026-08-01T03:25:00.000Z");
+    const { baseUrl } = await listenControlPlane({
+      catalogObservationDesk: new CatalogObservationDesk({
+        sources: [source],
+        now: () => nowMs,
+        contextMaxAgeMs: 1_000,
+        fetcher: async () =>
+          new Response(new Uint8Array(bytes).buffer, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      }),
+    });
+    await fetch(`${baseUrl}/api/v1/catalog/observations/refresh`, {
+      method: "POST",
+    });
+    nowMs += 1_001;
+    const response = await fetch(`${baseUrl}/api/v1/discovery/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "New Rihanna Album before GTA VI?",
+        venueIds: ["polymarket-global"],
+        catalogMode: "CURRENT_OBSERVATIONS",
+      }),
+    });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: expect.stringContaining("last observation is stale"),
+      executionAuthority: false,
+    });
   });
 
   it("fails closed when an investigation is requested without pi configuration", async () => {
