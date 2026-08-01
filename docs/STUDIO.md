@@ -10,8 +10,10 @@ Harmony Studio is the read-only visual surface for architecture qualification. I
 - `GET /api/v1/events`
 - `GET /api/v1/books`
 - `GET /api/v1/qualification`
+- `GET /api/v1/investigations`
 - `POST /api/v1/books/replay`
 - `POST /api/v1/discovery/runs`
+- `POST /api/v1/investigations`
 
 If the process is unavailable, Studio shows an explicit offline state. It does not silently fall back to a build-time snapshot.
 
@@ -85,9 +87,20 @@ a diagnostic rather than granting or widening authority.
 
 Studio also shows the separate pi investigator posture: model, one-shot text
 mode, read-only tool list, and whether its process credential was present at
-startup. The browser cannot start pi. The initial investigator is invoked only
-through `pnpm --silent investigation:smoke`, and its report remains outside the
-review and compilation path.
+startup. A deliberate operator action can start the current bounded question
+through `POST /api/v1/investigations`; nothing schedules this lane
+automatically. The server permits one active investigation, coalesces an
+identical in-flight task, rejects competing work, and returns an already-passed
+report for the same task scope. Studio receives RUNNING, FAILED, and PASS state
+over the same SSE projection and renders summary, candidate listing references,
+findings, missing evidence, and artifact identity.
+
+The Investigation Desk retains at most ten records in process memory. This is
+intentionally distinct from the durable Scout Inbox ledger and is labeled
+`MEMORY` in the projection; restart clears it. Every record and report is
+`PROPOSE_ONLY`, `UNREVIEWED`, and `executionAuthority: false`, and it remains
+outside review and compilation. `pnpm --silent investigation:smoke` remains
+the independent one-shot qualification path.
 
 The Catalog Facts panel reflects the verified discovery corpus: 11 normalized
 listings from six fixture artifacts across five venues. Each task receives at

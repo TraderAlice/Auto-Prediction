@@ -44,6 +44,18 @@ describe("Studio projection safety", () => {
       sessionPersistence: false,
       authority: "PROPOSE_ONLY",
     });
+    expect(studioProjection.ai.investigationDesk).toMatchObject({
+      activeCount: 0,
+      runCount: 0,
+      passCount: 0,
+      failedCount: 0,
+      storage: {
+        mode: "MEMORY",
+        durable: false,
+        idempotencyKey: "taskId+catalogContextIdentity",
+      },
+      records: [],
+    });
     expect(JSON.stringify(studioProjection)).not.toContain("apiKey");
   });
 

@@ -128,6 +128,37 @@ async function requestDiscoveryRun(
   return result.idempotentReplay === true;
 }
 
+async function requestInvestigation(
+  question: string,
+  venueIds: readonly string[],
+): Promise<boolean> {
+  const response = await fetch("/api/v1/investigations", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question, venueIds }),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    executionAuthority?: boolean;
+    authority?: string;
+    reviewStatus?: string;
+    idempotentReplay?: boolean;
+    report?: { result?: { executionAuthority?: boolean } };
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "pi investigation failed");
+  }
+  if (
+    result.executionAuthority !== false ||
+    result.authority !== "PROPOSE_ONLY" ||
+    result.reviewStatus !== "UNREVIEWED" ||
+    result.report?.result?.executionAuthority !== false
+  ) {
+    throw new Error("pi investigator crossed its authority boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
 function VenuePulse() {
   const studioProjection = useStudioProjection();
   return (
@@ -682,6 +713,12 @@ function ScoutInboxView() {
   const [runStatus, setRunStatus] = useState<
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
+  const [investigationStatus, setInvestigationStatus] = useState<
+    "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
+  >("IDLE");
+  const [investigationDiagnostic, setInvestigationDiagnostic] = useState<
+    string | null
+  >(null);
 
   function toggleVenue(venueId: string): void {
     setSelectedVenueIds((current) =>
@@ -701,6 +738,23 @@ function ScoutInboxView() {
       setRunStatus(restored ? "RESTORED" : "DONE");
     } catch {
       setRunStatus("FAILED");
+    }
+  }
+
+  async function submitInvestigation(): Promise<void> {
+    setInvestigationStatus("RUNNING");
+    setInvestigationDiagnostic(null);
+    try {
+      const restored = await requestInvestigation(
+        question.trim(),
+        selectedVenueIds,
+      );
+      setInvestigationStatus(restored ? "RESTORED" : "DONE");
+    } catch (error) {
+      setInvestigationStatus("FAILED");
+      setInvestigationDiagnostic(
+        error instanceof Error ? error.message : "pi investigation failed",
+      );
     }
   }
 
@@ -745,6 +799,11 @@ function ScoutInboxView() {
               ? `schema v${studioProjection.discoveryDesk.storage.schemaVersion} · taskId idempotency`
               : "ephemeral test process"
           }
+        />
+        <Metric
+          label="Deep reports"
+          value={`${studioProjection.ai.investigationDesk.passCount}`}
+          detail={`${studioProjection.ai.investigationDesk.activeCount} running · memory only`}
         />
       </div>
 
@@ -829,26 +888,68 @@ function ScoutInboxView() {
                 ))}
               </div>
             </fieldset>
-            <Button
-              className="scout-submit"
-              disabled={
-                runStatus === "RUNNING" ||
-                question.trim() === "" ||
-                selectedVenueIds.length === 0
-              }
-              onClick={() => void submitScout()}
-            >
-              <Send size={14} />
-              {runStatus === "RUNNING"
-                ? "Scouts running…"
-                : runStatus === "DONE"
-                  ? "Run another scout"
-                  : runStatus === "RESTORED"
-                    ? "Restored existing run"
-                  : runStatus === "FAILED"
-                    ? "Retry scout"
-                    : "Run bounded scout"}
-            </Button>
+            <div className="scout-action-stack">
+              <Button
+                className="scout-submit"
+                disabled={
+                  runStatus === "RUNNING" ||
+                  question.trim() === "" ||
+                  selectedVenueIds.length === 0
+                }
+                onClick={() => void submitScout()}
+              >
+                <Send size={14} />
+                {runStatus === "RUNNING"
+                  ? "Scouts running…"
+                  : runStatus === "DONE"
+                    ? "Run another scout"
+                    : runStatus === "RESTORED"
+                      ? "Restored existing run"
+                      : runStatus === "FAILED"
+                        ? "Retry scout"
+                        : "Run bounded scout"}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={
+                  !studioProjection.ai.investigator.configured ||
+                  studioProjection.ai.investigationDesk.activeCount > 0 ||
+                  investigationStatus === "RUNNING" ||
+                  question.trim() === "" ||
+                  selectedVenueIds.length === 0
+                }
+                onClick={() => void submitInvestigation()}
+              >
+                {investigationStatus === "RUNNING" ||
+                studioProjection.ai.investigationDesk.activeCount > 0 ? (
+                  <RefreshCw className="is-spinning" size={14} />
+                ) : (
+                  <SquareTerminal size={14} />
+                )}
+                {!studioProjection.ai.investigator.configured
+                  ? "Deep investigator needs key"
+                  : investigationStatus === "RUNNING" ||
+                      studioProjection.ai.investigationDesk.activeCount > 0
+                    ? "pi investigating…"
+                    : investigationStatus === "DONE"
+                      ? "Run another investigation"
+                      : investigationStatus === "RESTORED"
+                        ? "Restored existing report"
+                        : investigationStatus === "FAILED"
+                          ? "Retry investigation"
+                          : "Run deep investigation"}
+              </Button>
+            </div>
+            <div className="investigation-note">
+              <SquareTerminal size={14} />
+              <span>
+                One read-only pi task at a time · may take about two minutes ·
+                reports are retained in process memory only.
+                {investigationDiagnostic !== null && (
+                  <strong>{investigationDiagnostic}</strong>
+                )}
+              </span>
+            </div>
             <div className="scout-guardrail">
               <ShieldCheck size={15} />
               <span>{studioProjection.ai.promotionBoundary}</span>
@@ -856,16 +957,116 @@ function ScoutInboxView() {
           </CardContent>
         </Card>
 
-        <div className="scout-run-list">
-          <div className="scout-run-heading">
-            <div>
-              <span className="eyebrow">Proposal queue</span>
-              <h2>Unreviewed hypotheses</h2>
+        <div className="scout-results-stack">
+          <div className="investigation-desk">
+            <div className="scout-run-heading">
+              <div>
+                <span className="eyebrow">Read-only agent lane</span>
+                <h2>pi investigation desk</h2>
+              </div>
+              <Badge
+                variant={
+                  studioProjection.ai.investigationDesk.activeCount > 0
+                    ? "shadow"
+                    : "muted"
+                }
+              >
+                {studioProjection.ai.investigationDesk.activeCount > 0
+                  ? "RUNNING"
+                  : `${studioProjection.ai.investigationDesk.passCount} PASS`}
+              </Badge>
             </div>
-            <Badge variant="muted">
-              {studioProjection.discoveryDesk.unreviewedCount} waiting
-            </Badge>
+            {studioProjection.ai.investigationDesk.records.length === 0 ? (
+              <div className="investigation-empty">
+                No deep reports yet. This lane can read the bounded catalog and
+                repository context, but cannot review or execute anything.
+              </div>
+            ) : (
+              studioProjection.ai.investigationDesk.records.map((record) => (
+                <article
+                  className={cn(
+                    "investigation-record",
+                    `is-${record.status.toLowerCase()}`,
+                  )}
+                  key={record.investigationId}
+                >
+                  <div className="investigation-record-head">
+                    <div>
+                      <Badge
+                        variant={record.status === "PASS" ? "verified" : "shadow"}
+                      >
+                        {record.status}
+                      </Badge>
+                      <Badge variant="muted">{record.authority}</Badge>
+                      <Badge variant="muted">{record.reviewStatus}</Badge>
+                    </div>
+                    <time>{new Date(record.startedAt).toLocaleString()}</time>
+                  </div>
+                  <h3>{record.question}</h3>
+                  {record.status === "RUNNING" && (
+                    <p className="investigation-progress">
+                      <RefreshCw className="is-spinning" size={13} />
+                      pi is reading bounded evidence and composing a final report…
+                    </p>
+                  )}
+                  {record.status === "FAILED" && (
+                    <p className="investigation-diagnostic">
+                      {record.diagnostic ?? "pi investigator failed"}
+                    </p>
+                  )}
+                  {record.report !== null && (
+                    <>
+                      <p className="investigation-summary">
+                        {record.report.result.summary}
+                      </p>
+                      <dl className="investigation-findings">
+                        <div>
+                          <dt>Candidate listings</dt>
+                          <dd>
+                            {record.report.result.candidateListingRefs.join(" · ") ||
+                              "none"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Missing evidence</dt>
+                          <dd>
+                            {record.report.result.missingEvidence.join(" · ") ||
+                              "none"}
+                          </dd>
+                        </div>
+                      </dl>
+                      {record.report.result.findings.map((finding, index) => (
+                        <div
+                          className="investigation-finding"
+                          key={`${record.investigationId}:${index}`}
+                        >
+                          <Badge variant="muted">{finding.severity}</Badge>
+                          <span>{finding.statement}</span>
+                          <code>
+                            {finding.listingRefs.join(" · ") || "scope-wide"}
+                          </code>
+                        </div>
+                      ))}
+                      <code className="investigation-artifact">
+                        {record.report.artifactHash}
+                      </code>
+                    </>
+                  )}
+                </article>
+              ))
+            )}
           </div>
+
+          <div className="scout-run-list">
+            <div className="scout-run-heading">
+              <div>
+                <span className="eyebrow">Proposal queue</span>
+                <h2>Unreviewed hypotheses</h2>
+              </div>
+              <Badge variant="muted">
+                {studioProjection.discoveryDesk.unreviewedCount} waiting
+              </Badge>
+            </div>
           {studioProjection.discoveryDesk.runs.length === 0 ? (
             <div className="scout-empty">
               <Inbox size={24} />
@@ -927,6 +1128,7 @@ function ScoutInboxView() {
               </article>
             ))
           )}
+          </div>
         </div>
       </div>
     </section>

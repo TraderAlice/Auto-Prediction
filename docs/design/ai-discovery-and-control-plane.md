@@ -64,15 +64,15 @@ shapes:
   It is a pinned CLI subprocess, not an SDK abstraction hidden behind the same
   interface.
 
-The first pi integration is an explicit one-shot qualification command rather
-than a web route or scheduler. Each invocation creates an empty temporary pi
-home, disables user extensions, skills, prompt templates, themes, version
-checks, telemetry, and session persistence, and enables only repository
-`read`, `grep`, `find`, and `ls`. The child receives a minimal environment
-allowlist containing `PATH`, its temporary home, and `DEEPSEEK_API_KEY`; no
-shell or write tool is available. Process time and combined output bytes are
-hard bounded, stderr is not surfaced, and the temporary home is removed after
-the run.
+pi is available through both an independent one-shot qualification command and
+an explicitly operator-triggered control-plane route; it is never a scheduler.
+Each invocation creates an empty temporary pi home, disables user extensions,
+skills, prompt templates, themes, version checks, telemetry, and session
+persistence, and enables only repository `read`, `grep`, `find`, and `ls`. The
+child receives a minimal environment allowlist containing `PATH`, its temporary
+home, and `DEEPSEEK_API_KEY`; no shell or write tool is available. Process time
+and combined output bytes are hard bounded, stderr is not surfaced, and the
+temporary home is removed after the run.
 
 pi emits only its final text because JSON event mode repeats the growing
 assistant snapshot on every streaming delta and can amplify a normal long-
@@ -84,6 +84,15 @@ reference outside the supplied catalog context. It then reconstructs
 `PROPOSE_ONLY`, `UNREVIEWED`, and literal-false effects locally and hashes the
 complete `pmh.pi-investigation-report.v1`. The report does not enter candidate
 compilation or the Discovery Ledger automatically.
+
+The long-running `InvestigationDesk` serializes this expensive lane to one
+active task. A duplicate active request shares its promise, a passed task scope
+is replayed idempotently, a competing task is rejected, and a failed task may
+be retried. It keeps at most ten RUNNING/PASS/FAILED records in process memory
+and publishes them through the Studio projection and SSE. This operational
+memory is deliberately not the durable SQLite Discovery Ledger. Diagnostics
+are sanitized, and every record reconstructs proposal-only, unreviewed, and
+literal-false execution authority locally.
 
 The first real DeepSeek V4 Flash qualification passed both paths on 2026-08-01.
 The AI SDK path emitted three fixture-grounded proposals under artifact

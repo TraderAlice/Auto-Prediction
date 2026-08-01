@@ -56,6 +56,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Ground every non-empty scout hypothesis in a bounded, content-addressed catalog context.
 - [x] Add a one-request, secret-free, content-hashed provider qualification command.
 - [x] Add a bounded, read-only pi investigator qualification command for repository-aware work.
+- [x] Expose pi as an explicitly triggered, one-at-a-time Investigation Desk with SSE state and bounded in-memory retention.
 - [x] Qualify real AI SDK and pi responses with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -107,6 +108,8 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: Local environment loading and bounded pi stream handling expand the Node.js 24.14.0 checkpoint to 147 passing tests plus full typecheck and production build.
 - 2026-08-01: Real pi qualification rejected JSON event mode after its repeated full streaming snapshots crossed the 64 MiB wire cap. Final-text mode avoids transport amplification; the report records the configured read-only allowlist and honestly marks per-tool trace data unavailable.
 - 2026-08-01: Real DeepSeek V4 Flash qualification passes both production paths: Vercel AI SDK emits a grounded three-proposal report (`sha256:93e5612e…273735`), and pi emits a scope-validated investigator report (`sha256:41cd6d74…10b2d1`). Both retain literal-false external-write, value-moving, and live-execution effects.
+- 2026-08-01: The control plane and Studio expose pi only through an explicit operator action. The Investigation Desk serializes work to one active task, coalesces identical scope, rejects competing work, permits retry after failure, retains ten sanitized records in memory, and streams state without granting review or execution authority.
+- 2026-08-01: The Investigation Desk checkpoint passes the full 153-test workspace suite, typecheck, and production build under Node.js 24.14.0.
 
 ## Blockers
 

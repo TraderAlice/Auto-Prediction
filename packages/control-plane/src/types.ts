@@ -196,6 +196,7 @@ export type StudioProjection = Readonly<{
     catalogContext: DiscoveryCatalogProjection;
     modelProvider: ModelProviderProjection;
     investigator: PiInvestigatorProjection;
+    investigationDesk: import("./investigation-desk.js").InvestigationDeskProjection;
     workers: readonly Readonly<{
       workerId: string;
       kind: "HEURISTIC" | "MODEL";

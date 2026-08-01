@@ -31,6 +31,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - SQLite WAL operational state with bounded retention, content-hash verification, cross-restart `taskId` idempotency, and in-process concurrent-request coalescing.
 - An AI-native discovery pool where cheap parallel scouts inspect bounded, content-addressed fixture catalogs and may propose hypotheses but can never certify or execute them; its default DeepSeek V4 Flash worker runs through Vercel AI SDK with timeout, token, schema, and application-side scope bounds, while direct OpenAI Responses remains an optional backend.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
+- An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, task-scope idempotency, bounded in-memory retention, SSE running/failure/completion state, and no route into review or execution.
 - A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
 - A Books desk that replays verified public frames into generation-bound order books, broadcasts them over SSE, and exposes venue-native sequence posture.
@@ -41,7 +42,8 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Current official-source census for eight venue families.
 - Focused unit and property tests.
 
-One real model-provider smoke run, production equivalence-review workflow, dense long-run evidence storage, and real-fixture candidate promotion remain active campaign work.
+Production equivalence-review workflow, dense long-run evidence storage, and
+real-fixture candidate promotion remain active campaign work.
 
 ## Safety boundary
 
@@ -115,8 +117,13 @@ catalog, starts with an isolated config directory, persists no session, disables
 extensions/skills/templates/themes, and exposes only `read`, `grep`, `find`, and
 `ls`. Its final-text output is bounded, scope-validated, and rebuilt into a
 content-hashed `pmh.pi-investigation-report.v1` with proposal-only authority.
-It is not scheduled from the HTTP server and cannot write files, run a shell,
-trade, or promote its own findings.
+It is never scheduled automatically. A user may start it from Studio or
+`POST /api/v1/investigations`; the control plane permits only one active task,
+coalesces identical in-flight requests, retains at most ten reports in process
+memory, and streams its state over SSE. It cannot write files, run a shell,
+trade, review equivalence, or promote its own findings. Restarting the control
+plane clears this desk; the durable SQLite Discovery Ledger remains a separate
+fast-scout store.
 
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 
@@ -156,7 +163,7 @@ an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 - `packages/liquidity`: executable hedge curves and constrained shadow maker quotes.
 - `packages/cli`: versioned, machine-readable inspection commands.
 - `packages/control-plane`: long-running projection, SQLite operational state, event-stream, deterministic book replay, AI SDK scout coordination, bounded pi investigations, and reviewed-hypothesis compilation boundary.
-- `apps/studio`: responsive read-only cockpit for book state, fixture replay, and qualification evidence.
+- `apps/studio`: responsive read-only cockpit for book state, fixture replay, bounded scout and pi investigations, and qualification evidence.
 - `packages/venue-*`: venue-local codecs, manifests, and normalized adapters.
 - `projects/venue-research`: dated official-source research.
 - `projects/campaigns`: immutable content-addressed qualification checkpoints.
