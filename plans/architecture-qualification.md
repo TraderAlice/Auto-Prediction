@@ -153,6 +153,7 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: A retained-context pi run on the six Gemini Boston temperature fixtures passes under `sha256:73aaa742…fad0ad` but reports five evidence gaps: whole-degree precision, rounding, boundary/tail semantics, measurement source, completeness, and quote consistency remain unverified. The apparent exhaustive partition therefore stays proposal-only.
 - 2026-08-01: `pmh.review-intake-packet.v1` becomes the deterministic handoff between Research Case and a future independent reviewer. It binds exact scout, hypothesis, context, pi, candidate-scope, assessment, and evidence-gap identities; packet verification fails on tamper or authority widening, while decision ingestion, promotion, verification, and execution remain unavailable.
 - 2026-08-01: Review-intake handoff closes at 217 passing tests with full typecheck and production build. Real SQLite restart derives `sha256:f89ffe56…4e638c` for the Gemini case, reports `BLOCKED_EVIDENCE` with five gaps, and keeps decision ingestion and execution literal false.
+- 2026-08-01: Interactive Browser inspection catches and closes a rolling-projection compatibility defect that typecheck/build missed: a hot-reloaded Studio could receive an older case without `reviewIntake` and crash the Research Cases view. Optional-field fail-closed handling plus a regression test expands the checkpoint to 218 tests; desktop and 430px layouts render without horizontal overflow.
 
 ## Blockers
 

@@ -9,6 +9,14 @@ import type { StudioProjection } from "@pmh/control-plane";
 
 const ProjectionContext = createContext<StudioProjection | null>(null);
 
+type ResearchCase = StudioProjection["ai"]["researchDesk"]["cases"][number];
+
+export function resolveReviewIntake(
+  researchCase: ResearchCase | undefined,
+): NonNullable<ResearchCase["reviewIntake"]> | null {
+  return researchCase?.reviewIntake ?? null;
+}
+
 export function StudioProjectionProvider({
   projection,
   children,

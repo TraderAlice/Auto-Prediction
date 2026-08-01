@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   StudioProjectionProvider,
+  resolveReviewIntake,
   useControlPlaneProjection,
   useStudioProjection,
   type StudioProjection,
@@ -2492,6 +2493,7 @@ function ResearchCaseDeskView() {
   const selectedCase =
     researchDesk.cases.find((item) => item.caseId === selectedCaseId) ??
     researchDesk.cases[0];
+  const selectedReviewIntake = resolveReviewIntake(selectedCase);
 
   useEffect(() => {
     if (
@@ -2866,7 +2868,7 @@ function ResearchCaseDeskView() {
               </section>
             </div>
 
-            {selectedCase.reviewIntake !== null && (
+            {selectedReviewIntake !== null && (
               <section className="case-review-intake">
                 <div className="case-section-heading">
                   <div>
@@ -2875,27 +2877,27 @@ function ResearchCaseDeskView() {
                   </div>
                   <Badge
                     variant={
-                      selectedCase.reviewIntake.readiness ===
+                      selectedReviewIntake.readiness ===
                       "READY_FOR_INDEPENDENT_REVIEW"
                         ? "verified"
                         : "warning"
                     }
                   >
-                    {selectedCase.reviewIntake.readiness.replaceAll("_", " ")}
+                    {selectedReviewIntake.readiness.replaceAll("_", " ")}
                   </Badge>
                 </div>
                 <div className="case-review-intake-grid">
                   <div>
                     <span>Self-verifying packet</span>
-                    <code>{selectedCase.reviewIntake.packetHash}</code>
+                    <code>{selectedReviewIntake.packetHash}</code>
                     <small>
                       Binds{" "}
                       {
-                        selectedCase.reviewIntake.sourceBindings.hypothesisHashes
+                        selectedReviewIntake.sourceBindings.hypothesisHashes
                           .length
                       }{" "}
                       hypothesis hash
-                      {selectedCase.reviewIntake.sourceBindings.hypothesisHashes
+                      {selectedReviewIntake.sourceBindings.hypothesisHashes
                         .length === 1
                         ? ""
                         : "es"}
@@ -2906,7 +2908,7 @@ function ResearchCaseDeskView() {
                   <div>
                     <span>Required reviewer assessments</span>
                     <div className="case-review-assessments">
-                      {selectedCase.reviewIntake.requiredAssessments.map(
+                      {selectedReviewIntake.requiredAssessments.map(
                         (assessment) => (
                           <span key={assessment}>
                             {assessment.replaceAll("_", " ").toLowerCase()}
@@ -2916,14 +2918,14 @@ function ResearchCaseDeskView() {
                     </div>
                   </div>
                 </div>
-                {selectedCase.reviewIntake.blockers.length > 0 && (
+                {selectedReviewIntake.blockers.length > 0 && (
                   <p>
                     {countLabel(
-                      selectedCase.reviewIntake.blockers.length,
+                      selectedReviewIntake.blockers.length,
                       "blocker",
                     )}
                     {" · "}
-                    {selectedCase.reviewIntake.blockers[0]}
+                    {selectedReviewIntake.blockers[0]}
                   </p>
                 )}
                 <div className="case-review-intake-lock">

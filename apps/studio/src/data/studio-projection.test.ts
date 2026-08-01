@@ -5,6 +5,7 @@ import {
   RealCandidatePreflightDesk,
   ReplayBookDesk,
 } from "@pmh/control-plane";
+import { resolveReviewIntake } from "./studio-projection.js";
 
 describe("Studio projection safety", () => {
   const studioProjection = buildStudioProjection({
@@ -15,6 +16,13 @@ describe("Studio projection safety", () => {
   it("keeps live execution disabled", () => {
     expect(studioProjection.system.liveExecutionEnabled).toBe(false);
     expect(studioProjection.identity.mode).toBe("CONTROL_PLANE");
+  });
+
+  it("fails closed across a rolling projection without review intake", () => {
+    const legacyCase = {
+      caseId: "research-case:legacy-before-review-intake",
+    } as (typeof studioProjection.ai.researchDesk.cases)[number];
+    expect(resolveReviewIntake(legacyCase)).toBeNull();
   });
 
   it("shows the fail-closed model budget without exposing credentials", () => {
