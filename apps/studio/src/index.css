@@ -1922,6 +1922,265 @@ main {
   overflow: hidden;
 }
 
+.issue-scheduler-console {
+  margin-top: 18px;
+  overflow: hidden;
+}
+
+.issue-scheduler-console [data-slot="card-header"] {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.issue-scheduler-console h2 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 500;
+  margin: 4px 0 0;
+}
+
+.issue-scheduler-badges,
+.issue-scheduler-badges > span {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.issue-scheduler-strip {
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.issue-scheduler-strip > div {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+}
+
+.issue-scheduler-strip > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.issue-scheduler-strip strong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.issue-scheduler-strip span,
+.issue-column-heading > span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.issue-scheduler-workbench {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
+  margin-top: 14px;
+}
+
+.search-issue-list,
+.search-notification-inbox {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.issue-column-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-height: 24px;
+}
+
+.issue-column-heading > div {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.issue-column-heading svg {
+  color: var(--primary);
+}
+
+.issue-column-heading strong {
+  font-size: 11px;
+}
+
+.search-issue,
+.search-notification,
+.search-notification-empty {
+  background: rgba(3, 8, 14, 0.48);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 12px;
+}
+
+.search-issue.is-paused,
+.search-notification.is-read {
+  opacity: 0.56;
+}
+
+.search-issue-head,
+.search-issue-head > div,
+.search-notification > div,
+.search-issue-actions {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.search-issue-head {
+  justify-content: space-between;
+}
+
+.search-issue-head code,
+.search-notification time {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.search-issue h3 {
+  font-size: 12px;
+  margin: 10px 0 5px;
+}
+
+.search-issue p,
+.search-notification p {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.search-issue-meta {
+  color: var(--muted-foreground);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  gap: 6px 14px;
+  margin-top: 9px;
+}
+
+.search-issue-actions {
+  justify-content: flex-end;
+  margin-top: 9px;
+}
+
+.search-issue-actions button,
+.search-notification button {
+  height: 28px;
+  font-size: 9px;
+  padding: 0 10px;
+}
+
+.search-notification {
+  display: grid;
+  gap: 8px;
+}
+
+.search-notification > div {
+  justify-content: space-between;
+}
+
+.search-notification > strong,
+.search-notification-empty strong {
+  font-size: 11px;
+}
+
+.search-notification button {
+  justify-self: end;
+}
+
+.search-notification-empty {
+  align-items: center;
+  color: var(--muted-foreground);
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  min-height: 126px;
+  text-align: center;
+}
+
+.search-notification-empty span {
+  font-size: 9px;
+}
+
+.search-issue-form {
+  align-items: end;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 150px 130px auto;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.search-issue-form > div {
+  display: grid;
+  gap: 7px;
+}
+
+.search-issue-form .eyebrow {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.search-issue-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.search-issue-form label > span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.search-issue-form input,
+.search-issue-form textarea,
+.search-issue-form select {
+  background: rgba(3, 8, 14, 0.62);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--foreground);
+  font: inherit;
+  outline: none;
+  padding: 8px 10px;
+}
+
+.search-issue-form input,
+.search-issue-form select {
+  height: 36px;
+}
+
+.search-issue-form textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.search-issue-form input:focus,
+.search-issue-form textarea:focus,
+.search-issue-form select:focus {
+  border-color: rgba(126, 240, 193, 0.42);
+}
+
+.issue-scheduler-hint {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  margin: 12px 0 0;
+}
+
+.issue-scheduler-hint code {
+  color: var(--primary);
+  font-family: var(--font-mono);
+}
+
 .search-lease-console [data-slot="card-header"] {
   align-items: flex-start;
   display: flex;
@@ -5993,8 +6252,27 @@ footer span:first-child {
   .search-lease-lenses,
   .search-lease-budget,
   .search-lease-history,
+  .issue-scheduler-strip,
+  .issue-scheduler-workbench,
+  .search-issue-form,
   .semantic-graph-stats {
     grid-template-columns: 1fr;
+  }
+
+  .issue-scheduler-console [data-slot="card-header"],
+  .issue-column-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .issue-scheduler-strip > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .issue-scheduler-badges {
+    flex-wrap: wrap;
   }
 
   .semantic-graph-stats > div {

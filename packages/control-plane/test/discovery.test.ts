@@ -193,4 +193,15 @@ describe("AI-native discovery boundary", () => {
       pool.run({ ...task, deadlineEpochMs: 4_000, maxHypotheses: 51 }),
     ).rejects.toThrow(/invalid or unbounded/);
   });
+
+  it("bounds heuristic prose derived from a maximum-length issue question", async () => {
+    const pool = new DiscoveryPool([new HeuristicDiscoveryWorker()], () => 1_000);
+    const run = await pool.run({
+      ...task,
+      taskId: "task:bounded-long-question",
+      question: `Find related markets ${"and falsify semantic similarity ".repeat(14)}`.slice(0, 500),
+    });
+    expect(run.hypotheses[0]?.thesis.length).toBeLessThanOrEqual(500);
+    expect(run.workerReports[0]).toMatchObject({ status: "PASS" });
+  });
 });

@@ -6,6 +6,7 @@ import type {
   DiscoveryWorker,
   OpportunityHypothesis,
 } from "./types.js";
+import { MAX_CATALOG_CONTEXT_CHARACTERS } from "./catalog-discovery.js";
 
 const SEARCH_STOPWORDS = new Set([
   "and",
@@ -24,7 +25,6 @@ const SEARCH_STOPWORDS = new Set([
   "will",
   "with",
 ]);
-const MAX_CATALOG_CONTEXT_CHARACTERS = 50_000;
 
 function compactWorkerDiagnostic(error: unknown): string {
   const value =
@@ -249,6 +249,15 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
           ? ("EXHAUSTIVE_RANGE" as const)
           : ("COMPLETE_SET" as const);
     const listingRefs = selectedListings.map((listing) => listing.listingRef);
+    const unboundedThesis =
+      listingRefs.length === 0
+        ? `Search ${venueIds.join(", ")} for listings that may resolve ` +
+          `to the same canonical claim: ${normalizedQuestion}`
+        : `Review ${listingRefs.length} bounded catalog listings from ` +
+          `${venueIds.join(", ")} as a possible ${strategyKind.toLowerCase().replaceAll("_", " ")} candidate for: ${normalizedQuestion}`;
+    const thesis = unboundedThesis.length <= 500
+      ? unboundedThesis
+      : `${unboundedThesis.slice(0, 499).trimEnd()}…`;
     const identity = hashCanonical({
       workerId: this.workerId,
       normalizedQuestion,
@@ -260,12 +269,7 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
       Object.freeze({
         hypothesisId: `hypothesis:${identity.slice(7, 23)}`,
         workerId: this.workerId,
-        thesis:
-          listingRefs.length === 0
-            ? `Search ${venueIds.join(", ")} for listings that may resolve ` +
-              `to the same canonical claim: ${normalizedQuestion}`
-            : `Review ${listingRefs.length} bounded catalog listings from ` +
-              `${venueIds.join(", ")} as a possible ${strategyKind.toLowerCase().replaceAll("_", " ")} candidate for: ${normalizedQuestion}`,
+        thesis,
         strategyKind,
         venueIds: Object.freeze(venueIds),
         claimSearchTerms: Object.freeze(claimSearchTerms),

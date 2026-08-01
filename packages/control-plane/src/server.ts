@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
-import { hashCanonical } from "@pmh/domain";
+import { hashCanonical, type Hash } from "@pmh/domain";
 import { runOpportunitySimulation } from "@pmh/execution";
 import { ReplayBookDesk } from "./book-desk.js";
 import { FixtureCatalogDiscoveryDesk } from "./catalog-discovery.js";
@@ -80,6 +80,11 @@ import {
   type SearchLeaseRecordStore,
   type SearchLens,
 } from "./search-lease-scheduler.js";
+import {
+  parseSearchIssueTickInterval,
+  SearchIssueScheduler,
+  type SearchIssueRecordStore,
+} from "./search-issue-scheduler.js";
 import {
   buildSemanticRelationGraph,
   searchSemanticGraphNeighborhood,
@@ -313,6 +318,21 @@ function supportsSearchLeaseRecords(
   );
 }
 
+function supportsSearchIssueRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & SearchIssueRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<SearchIssueRecordStore>;
+  return (
+    candidate.searchIssueStorage !== undefined &&
+    candidate.searchNotificationStorage !== undefined &&
+    typeof candidate.loadSearchIssueRecords === "function" &&
+    typeof candidate.saveSearchIssueRecord === "function" &&
+    typeof candidate.loadSearchNotificationRecords === "function" &&
+    typeof candidate.saveSearchNotificationRecord === "function"
+  );
+}
+
 function supportsSemanticReviewRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & SemanticReviewRecordStore {
@@ -365,6 +385,7 @@ export function createControlPlane(options?: {
   candidateWatchDesk?: CandidateWatchDesk;
   marketArchaeologistDesk?: MarketArchaeologistDesk;
   searchLeaseScheduler?: SearchLeaseScheduler;
+  searchIssueScheduler?: SearchIssueScheduler;
   semanticReviewDesk?: SemanticReviewDesk;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
   simulationMaterializerDesk?: AnonymousSimulationMaterializerDesk;
@@ -438,6 +459,7 @@ export function createControlPlane(options?: {
     options?.searchLeaseScheduler ??
     new SearchLeaseScheduler({
       intervalMs: parseSearchLeaseInterval(process.env),
+      concurrencyLimit: 3,
       context: (question, venueIds, lens) => {
         const radarLead = lens === "EQUIVALENCE"
           ? catalogObservationDesk.radar().candidates[0]
@@ -485,6 +507,16 @@ export function createControlPlane(options?: {
           }
         : {}),
       ...(supportsSearchLeaseRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const searchIssueScheduler =
+    options?.searchIssueScheduler ??
+    new SearchIssueScheduler({
+      leaseScheduler: searchLeaseScheduler,
+      tickIntervalMs: parseSearchIssueTickInterval(process.env),
+      concurrencyLimit: 3,
+      ...(supportsSearchIssueRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -586,6 +618,7 @@ export function createControlPlane(options?: {
       marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
       marketArchaeologist: archaeologistProjection,
       searchLeaseScheduler: searchLeaseScheduler.projection(),
+      searchIssueScheduler: searchIssueScheduler.projection(),
       semanticReview: semanticReviewProjection,
       semanticRelationGraph,
       opportunityLifecycle: lifecycleProjection,
@@ -1265,6 +1298,133 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "POST" &&
+      url.pathname === "/api/v1/search-issues"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body)) {
+          throw new Error("search issue request must be an object");
+        }
+        const input = body as {
+          title?: unknown;
+          question?: unknown;
+          lens?: unknown;
+          venueIds?: unknown;
+          cadenceMs?: unknown;
+          priority?: unknown;
+          enabled?: unknown;
+        };
+        const allowed = new Set([
+          "title", "question", "lens", "venueIds", "cadenceMs", "priority", "enabled",
+        ]);
+        if (
+          Object.keys(input).some((key) => !allowed.has(key)) ||
+          typeof input.title !== "string" ||
+          typeof input.question !== "string" ||
+          typeof input.lens !== "string" ||
+          !SEARCH_LENSES.includes(input.lens as SearchLens) ||
+          typeof input.cadenceMs !== "number" ||
+          (input.venueIds !== undefined &&
+            (!Array.isArray(input.venueIds) ||
+              input.venueIds.some((item) => typeof item !== "string"))) ||
+          (input.priority !== undefined &&
+            (typeof input.priority !== "number" || ![1, 2, 3, 4, 5].includes(input.priority))) ||
+          (input.enabled !== undefined && typeof input.enabled !== "boolean")
+        ) {
+          throw new Error("search issue fields are invalid or unbounded");
+        }
+        const issue = searchIssueScheduler.create({
+          title: input.title,
+          question: input.question,
+          lens: input.lens as SearchLens,
+          cadenceMs: input.cadenceMs,
+          venueIds: (input.venueIds as readonly string[] | undefined) ?? [],
+          priority: (input.priority as 1 | 2 | 3 | 4 | 5 | undefined) ?? 3,
+          ...(input.enabled === undefined ? {} : { enabled: input.enabled as boolean }),
+        });
+        await broadcastProjection();
+        writeJson(response, 201, issue);
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "search issue creation failed",
+        });
+      }
+      return;
+    }
+    const searchIssueRunMatch = url.pathname.match(
+      /^\/api\/v1\/search-issues\/(sha256:[0-9a-f]{64})\/runs$/u,
+    );
+    if (request.method === "POST" && searchIssueRunMatch !== null) {
+      try {
+        await ready;
+        const invocation = searchIssueScheduler.runNow(
+          searchIssueRunMatch[1] as Hash,
+          catalogObservationDesk.corpus(),
+        );
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" ? 200 : 422, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        writeJson(response, error instanceof SearchLeaseBusyError ? 409 : 400, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "search issue run failed",
+        });
+      }
+      return;
+    }
+    const searchIssueEnabledMatch = url.pathname.match(
+      /^\/api\/v1\/search-issues\/(sha256:[0-9a-f]{64})\/enabled$/u,
+    );
+    if (request.method === "POST" && searchIssueEnabledMatch !== null) {
+      try {
+        const body = await readJson(request);
+        if (
+          body === null || typeof body !== "object" || Array.isArray(body) ||
+          typeof (body as { enabled?: unknown }).enabled !== "boolean" ||
+          Object.keys(body).length !== 1
+        ) {
+          throw new Error("search issue enabled update requires exactly one boolean");
+        }
+        const issue = searchIssueScheduler.setEnabled(
+          searchIssueEnabledMatch[1] as Hash,
+          (body as { enabled: boolean }).enabled,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, issue);
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "search issue update failed",
+        });
+      }
+      return;
+    }
+    const notificationAckMatch = url.pathname.match(
+      /^\/api\/v1\/search-notifications\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
+    );
+    if (request.method === "POST" && notificationAckMatch !== null) {
+      try {
+        const notification = searchIssueScheduler.acknowledge(
+          notificationAckMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, notification);
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "notification acknowledgement failed",
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
       url.pathname === "/api/v1/search-leases/runs"
     ) {
       try {
@@ -1666,8 +1826,9 @@ export function createControlPlane(options?: {
     });
   });
   let searchSchedulerTimer: ReturnType<typeof setInterval> | null = null;
+  let searchIssueTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
-  if (searchIntervalMs !== null) {
+  if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
     void ready.then(() => {
       searchSchedulerTimer = setInterval(() => {
         const snapshot = catalogObservationDesk.corpus();
@@ -1687,8 +1848,29 @@ export function createControlPlane(options?: {
       searchSchedulerTimer.unref();
     });
   }
+  const searchIssueTickMs = searchIssueScheduler.tickIntervalMs;
+  if (searchIssueTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = searchIssueScheduler.tick(catalogObservationDesk.corpus());
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) {
+            void run.then(() => broadcastProjection());
+          }
+        } catch {
+          // The next bounded tick retries due issues after capacity becomes available.
+        }
+      };
+      tick();
+      searchIssueTimer = setInterval(tick, searchIssueTickMs);
+      searchIssueTimer.unref();
+    });
+  }
   server.once("close", () => {
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
+    if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
     discoveryLedger.close();
   });
   return {
@@ -1704,6 +1886,7 @@ export function createControlPlane(options?: {
     candidateWatchDesk,
     marketArchaeologistDesk,
     searchLeaseScheduler,
+    searchIssueScheduler,
     semanticReviewDesk,
     opportunityLifecycleDesk,
     projection,

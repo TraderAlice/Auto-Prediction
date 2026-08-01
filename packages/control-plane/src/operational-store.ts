@@ -47,6 +47,13 @@ import {
   type SearchLeaseRecordStore,
 } from "./search-lease-scheduler.js";
 import {
+  assertSearchIssueRecord,
+  assertSearchNotificationRecord,
+  type SearchIssueRecord,
+  type SearchIssueRecordStore,
+  type SearchNotificationRecord,
+} from "./search-issue-scheduler.js";
+import {
   assertAnonymousSimulationMaterializationRecord,
   verifyStoredAnonymousMaterializationSource,
   verifyStoredAnonymousSimulationMaterialization,
@@ -59,7 +66,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -107,6 +114,18 @@ type SearchLeaseRow = Readonly<{
   snapshot_identity: string;
   lens: string;
   status: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type SearchIssueRow = Readonly<{
+  issue_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type SearchNotificationRow = Readonly<{
+  notification_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -393,6 +412,59 @@ function parseSearchLeaseRecord(value: unknown): SearchLeaseRecord {
   return record;
 }
 
+function parseSearchIssueRecord(value: unknown): SearchIssueRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite search issue row is malformed");
+  }
+  const row = value as Partial<SearchIssueRow>;
+  if (
+    typeof row.issue_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error("SQLite search issue row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite search issue contains invalid JSON");
+  }
+  const record = assertSearchIssueRecord(decoded);
+  if (record.issueId !== row.issue_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite search issue identity mismatch");
+  }
+  return record;
+}
+
+function parseSearchNotificationRecord(value: unknown): SearchNotificationRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite search notification row is malformed");
+  }
+  const row = value as Partial<SearchNotificationRow>;
+  if (
+    typeof row.notification_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error("SQLite search notification row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite search notification contains invalid JSON");
+  }
+  const record = assertSearchNotificationRecord(decoded);
+  if (
+    record.notificationId !== row.notification_id ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite search notification identity mismatch");
+  }
+  return record;
+}
+
 function parseSemanticReviewRecord(value: unknown): SemanticReviewRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite semantic review row is malformed");
@@ -560,6 +632,7 @@ export class SqliteOperationalStore
     CandidateWatchRefreshStore,
     MarketArchaeologistRecordStore,
     SearchLeaseRecordStore,
+    SearchIssueRecordStore,
     SemanticReviewRecordStore,
     OpportunityLifecycleJournalStore,
     AnonymousSimulationMaterializationStore
@@ -588,6 +661,8 @@ export class SqliteOperationalStore
   }>;
   public readonly marketArchaeologistStorage: OperationalStorageProjection<"runId">;
   public readonly searchLeaseStorage: OperationalStorageProjection<"leaseId">;
+  public readonly searchIssueStorage: OperationalStorageProjection<"issueId">;
+  public readonly searchNotificationStorage: OperationalStorageProjection<"notificationId">;
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
   public readonly opportunityLifecycleStorage: OperationalStorageProjection<"opportunityId">;
   public readonly anonymousSimulationMaterializationStorage: Readonly<{
@@ -668,6 +743,18 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "leaseId",
     });
+    this.searchIssueStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "issueId",
+    });
+    this.searchNotificationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "notificationId",
+    });
     this.semanticReviewStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -701,7 +788,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'search_lease_records'`,
       )
       .get() !== undefined;
-    if (current === SCHEMA_VERSION && searchLeaseTableExists) return;
+    const searchIssueTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_issue_records'`,
+      )
+      .get() !== undefined;
+    const searchNotificationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_notification_records'`,
+      )
+      .get() !== undefined;
+    if (
+      current === SCHEMA_VERSION &&
+      searchLeaseTableExists &&
+      searchIssueTableExists &&
+      searchNotificationTableExists
+    ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
       if (current < 1) {
@@ -931,6 +1035,48 @@ export class SqliteOperationalStore
             ON search_lease_records (snapshot_identity, lens);
           CREATE INDEX search_lease_records_updated
             ON search_lease_records (updated_at DESC, lease_id DESC);
+        `);
+      }
+      if (current < 10 || !searchIssueTableExists || !searchNotificationTableExists) {
+        this.#database.exec(`
+          DROP INDEX IF EXISTS search_lease_snapshot_lens;
+          CREATE INDEX IF NOT EXISTS search_lease_snapshot_lens
+            ON search_lease_records (snapshot_identity, lens);
+
+          CREATE TABLE IF NOT EXISTS search_issue_records (
+            issue_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(issue_id) = 71 AND issue_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            priority INTEGER NOT NULL CHECK (priority BETWEEN 1 AND 5),
+            enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+            next_run_at TEXT NOT NULL CHECK (length(next_run_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS search_issue_due
+            ON search_issue_records (enabled DESC, next_run_at, priority DESC);
+
+          CREATE TABLE IF NOT EXISTS search_notification_records (
+            notification_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(notification_id) = 71 AND
+              notification_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            dedupe_identity TEXT NOT NULL UNIQUE CHECK (
+              length(dedupe_identity) = 71 AND
+              dedupe_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('UNREAD', 'READ')),
+            created_at TEXT NOT NULL CHECK (length(created_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS search_notifications_status_created
+            ON search_notification_records (status, created_at DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -1525,6 +1671,139 @@ export class SqliteOperationalStore
       const stored = parseSearchLeaseRecord(row);
       if (hashCanonical(stored) !== recordHash) {
         throw new Error("leaseId is already bound to another search lease record");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSearchIssueRecords(limit: number): readonly SearchIssueRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT issue_id, record_json, record_hash
+         FROM search_issue_records
+         ORDER BY priority DESC, next_run_at, issue_id
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseSearchIssueRecord));
+  }
+
+  public saveSearchIssueRecord(record: SearchIssueRecord): SearchIssueRecord {
+    this.#assertOpen();
+    const validated = assertSearchIssueRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database
+      .prepare(
+        `INSERT INTO search_issue_records (
+           issue_id, priority, enabled, next_run_at, updated_at,
+           record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(issue_id) DO UPDATE SET
+           priority = excluded.priority,
+           enabled = excluded.enabled,
+           next_run_at = excluded.next_run_at,
+           updated_at = excluded.updated_at,
+           record_json = excluded.record_json,
+           record_hash = excluded.record_hash`,
+      )
+      .run(
+        validated.issueId,
+        validated.priority,
+        validated.enabled ? 1 : 0,
+        validated.nextRunAt,
+        validated.updatedAt,
+        recordJson,
+        recordHash,
+      );
+    const row = this.#database
+      .prepare(
+        `SELECT issue_id, record_json, record_hash
+         FROM search_issue_records WHERE issue_id = ?`,
+      )
+      .get(validated.issueId);
+    if (row === undefined) throw new Error("SQLite failed to retain the search issue");
+    const stored = parseSearchIssueRecord(row);
+    if (hashCanonical(stored) !== recordHash) {
+      throw new Error("issueId is already bound to another search issue");
+    }
+    return stored;
+  }
+
+  public loadSearchNotificationRecords(
+    limit: number,
+  ): readonly SearchNotificationRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT notification_id, record_json, record_hash
+         FROM search_notification_records
+         ORDER BY created_at DESC, notification_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseSearchNotificationRecord));
+  }
+
+  public saveSearchNotificationRecord(
+    record: SearchNotificationRecord,
+    retentionLimit: number,
+  ): SearchNotificationRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertSearchNotificationRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO search_notification_records (
+             notification_id, dedupe_identity, status, created_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(notification_id) DO UPDATE SET
+             status = excluded.status,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          validated.notificationId,
+          validated.dedupeIdentity,
+          validated.status,
+          validated.createdAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM search_notification_records
+           WHERE notification_id IN (
+             SELECT notification_id FROM search_notification_records
+             ORDER BY created_at DESC, notification_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT notification_id, record_json, record_hash
+           FROM search_notification_records WHERE notification_id = ?`,
+        )
+        .get(validated.notificationId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the search notification");
+      }
+      const stored = parseSearchNotificationRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("notificationId is already bound to another notification");
       }
       this.#database.exec("COMMIT");
       return stored;

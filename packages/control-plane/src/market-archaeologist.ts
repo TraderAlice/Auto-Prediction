@@ -103,6 +103,8 @@ export type MarketArchaeologistProjection = Readonly<{
   configured: boolean;
   model: string;
   status: "IDLE" | "RUNNING" | "NEEDS_KEY";
+  activeCount: number;
+  concurrencyLimit: number;
   runCount: number;
   passCount: number;
   failedCount: number;
@@ -656,7 +658,7 @@ export class MarketArchaeologistNotConfiguredError extends Error {}
 
 export class MarketArchaeologistDesk {
   readonly #records: MarketArchaeologistRecord[];
-  #active: Promise<MarketArchaeologistRecord> | null = null;
+  readonly #active = new Map<Hash, Promise<MarketArchaeologistRecord>>();
   #lastAttemptedSnapshotIdentity: Hash | null = null;
 
   public constructor(
@@ -665,9 +667,13 @@ export class MarketArchaeologistDesk {
     private readonly retentionLimit = DEFAULT_RETENTION_LIMIT,
     public readonly schedulerIntervalMs: number | null = null,
     private readonly store?: MarketArchaeologistRecordStore,
+    private readonly concurrencyLimit = 1,
   ) {
     if (!Number.isSafeInteger(retentionLimit) || retentionLimit < 1) {
       throw new Error("Market Archaeologist retention limit must be positive");
+    }
+    if (!Number.isSafeInteger(concurrencyLimit) || concurrencyLimit < 1 || concurrencyLimit > 8) {
+      throw new Error("Market Archaeologist concurrency limit must be from 1 to 8");
     }
     this.#records = [
       ...(store?.loadMarketArchaeologistRecords(retentionLimit) ?? []).map(
@@ -704,9 +710,13 @@ export class MarketArchaeologistDesk {
         idempotentReplay: true,
       });
     }
-    if (this.#active !== null) {
+    const active = this.#active.get(runId);
+    if (active !== undefined) {
+      return Object.freeze({ promise: active, idempotentReplay: true });
+    }
+    if (this.#active.size >= this.concurrencyLimit) {
       throw new MarketArchaeologistBusyError(
-        "another Market Archaeologist run is already active",
+        "Market Archaeologist concurrency limit is active",
       );
     }
     this.#lastAttemptedSnapshotIdentity = snapshot.snapshotIdentity;
@@ -761,10 +771,10 @@ export class MarketArchaeologistDesk {
           }
         }
         this.#replace(retained);
-        this.#active = null;
+        this.#active.delete(runId);
         return retained;
       });
-    this.#active = promise;
+    this.#active.set(runId, promise);
     return Object.freeze({ promise, idempotentReplay: false });
   }
 
@@ -772,7 +782,7 @@ export class MarketArchaeologistDesk {
     return (
       this.archaeologist !== null &&
       this.schedulerIntervalMs !== null &&
-      this.#active === null &&
+      this.#active.size < this.concurrencyLimit &&
       snapshot.listingCount > 0 &&
       snapshot.snapshotIdentity !== this.#lastAttemptedSnapshotIdentity
     );
@@ -796,9 +806,11 @@ export class MarketArchaeologistDesk {
       status:
         this.archaeologist === null
           ? "NEEDS_KEY"
-          : this.#active === null
+          : this.#active.size === 0
             ? "IDLE"
             : "RUNNING",
+      activeCount: this.#active.size,
+      concurrencyLimit: this.concurrencyLimit,
       runCount: records.length,
       passCount: records.filter((record) => record.status === "PASS").length,
       failedCount: records.filter((record) => record.status === "FAILED").length,
@@ -835,6 +847,7 @@ export function createMarketArchaeologistDesk(
     runner?: PiProcessRunner;
     retentionLimit?: number;
     store?: MarketArchaeologistRecordStore;
+    concurrencyLimit?: number;
   }> = {},
 ): MarketArchaeologistDesk {
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";
@@ -887,5 +900,12 @@ export function createMarketArchaeologistDesk(
     options.retentionLimit ?? DEFAULT_RETENTION_LIMIT,
     intervalMs,
     options.store,
+    options.concurrencyLimit ?? boundedInteger(
+      environment.PMH_ARCHAEOLOGIST_CONCURRENCY,
+      3,
+      1,
+      8,
+      "PMH_ARCHAEOLOGIST_CONCURRENCY",
+    ),
   );
 }

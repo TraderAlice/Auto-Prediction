@@ -2,6 +2,8 @@
 
 `plans/opportunity-lifecycle-simulation.md` is the active execution plan.
 `plans/ai-native-market-archaeologist.md` is the completed discovery baseline.
+`plans/issue-driven-scheduled-search.md` is the completed recurring-search and
+operator-notification slice.
 `plans/architecture-qualification.md` remains the completed qualification
 ledger and supplies the safety/evidence baseline for the new campaign.
 
@@ -19,6 +21,13 @@ immutable catalog/rule snapshot to cheap fast Agents and escalates only novel,
 grounded, multi-listing candidates to pi. Search remains subjective and adaptive;
 authority, budgets, durable recovery, deduplication, verification, and all
 shadow/live boundaries remain deterministic.
+
+The scheduler now works from durable search issues rather than one global lens
+cursor. Four default briefs and operator-authored issues carry cadence and
+priority, three different issues may run concurrently, and each issue/corpus
+pair remains an idempotent immutable lease. A quiet Finding Inbox deduplicates
+novel candidate signatures across concurrent lenses and separately surfaces
+failures; pause, resume, run-now, and acknowledgement state survive restart.
 
 The current slice adds a content-addressed semantic relation graph over the
 same durable artifacts. Search leases now bind a bounded graph neighborhood as
@@ -54,6 +63,25 @@ fee rounding remain unqualified rather than being inferred from complements.
 
 ## Findings log
 
+- 2026-08-01: SQLite schema v10 adds durable search issues and a deduplicated
+  operator notification inbox. Four default semantic briefs run through three
+  bounded concurrent lease/pi slots; issue/corpus identity, priority, cadence,
+  pause state, run counters, terminal evidence, and acknowledgement state
+  survive restart. The preferred issue tick supersedes the legacy global lens
+  timer when explicitly enabled.
+- 2026-08-01: The first real 460-listing concurrent qualification filled all
+  three slots and rejected a fourth request at the hard capacity boundary.
+  Equivalence produced two fast candidates, five grounded pi proposals, and
+  seven evidence gaps; implication produced one candidate, four proposals, and
+  five gaps. A partition run cited an out-of-scope listing and was rejected into
+  the Finding Inbox instead of entering evidence. Real concurrency also exposed
+  and fixed bounded-context and heuristic-prose construction bugs without
+  widening their 50 KB / 500-character safety limits.
+- 2026-08-01: The issue-scheduler checkpoint passes 305 workspace tests, full
+  typecheck, production build, SQLite restart/partial-migration repair, and
+  desktop/415px Studio inspection with no horizontal overflow. The local
+  control plane polls the durable queue every five seconds while each default
+  issue retains its own 15–30 minute cadence.
 - 2026-08-01: The Clash-routed Polymarket US gateway returned anonymous JSON
   for catalog, full book, and BBO. Three byte-exact fixtures bind 20 open
   contracts plus a live MLB book/BBO; an independent `polymarket-us` adapter

@@ -31,6 +31,7 @@ import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import type { MarketCorpusProjection } from "./market-corpus.js";
 import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
 import type { SearchLeaseSchedulerProjection } from "./search-lease-scheduler.js";
+import type { SearchIssueSchedulerProjection } from "./search-issue-scheduler.js";
 import {
   OpportunityLifecycleDesk,
   type OpportunityLifecycleDeskProjection,
@@ -97,6 +98,7 @@ export function buildStudioProjection(input: {
   marketCorpus?: MarketCorpusProjection;
   marketArchaeologist?: MarketArchaeologistProjection;
   searchLeaseScheduler?: SearchLeaseSchedulerProjection;
+  searchIssueScheduler?: SearchIssueSchedulerProjection;
   semanticReview?: SemanticReviewDeskProjection;
   semanticRelationGraph?: SemanticRelationGraphProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
@@ -222,6 +224,8 @@ export function buildStudioProjection(input: {
     configured: false,
     model: "deepseek-v4-flash",
     status: "NEEDS_KEY" as const,
+    activeCount: 0,
+    concurrencyLimit: 1,
     runCount: 0,
     passCount: 0,
     failedCount: 0,
@@ -252,6 +256,8 @@ export function buildStudioProjection(input: {
     enabled: false,
     configured: { fastLane: true, deepLane: false },
     status: "IDLE" as const,
+    activeCount: 0,
+    concurrencyLimit: 1,
     intervalMs: null,
     retentionLimit: 40,
     lensOrder: ["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"] as const,
@@ -274,6 +280,43 @@ export function buildStudioProjection(input: {
       idempotencyKey: "leaseId" as const,
     },
     records: [],
+    authority: "PROPOSE_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
+  const searchIssueScheduler = input.searchIssueScheduler ?? {
+    schemaVersion: "pmh.search-issue-scheduler.v1" as const,
+    enabled: false,
+    status: "IDLE" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 3,
+    activeCount: 0,
+    issueCount: 0,
+    enabledIssueCount: 0,
+    dueIssueCount: 0,
+    unreadNotificationCount: 0,
+    issues: [],
+    notifications: [],
+    storage: {
+      issues: {
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "issueId" as const,
+      },
+      notifications: {
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "notificationId" as const,
+      },
+    },
     authority: "PROPOSE_ONLY" as const,
     semanticDecisionAuthority: false as const,
     certificateAuthority: false as const,
@@ -439,7 +482,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 296,
+      proofTests: 305,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -452,6 +495,7 @@ export function buildStudioProjection(input: {
       marketCorpus,
       marketArchaeologist,
       searchLeaseScheduler,
+      searchIssueScheduler,
       semanticReview,
       semanticRelationGraph,
       modelProvider,
