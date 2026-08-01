@@ -46,7 +46,11 @@ deadline, and a combined output cap. Extensions and user-level pi resources
 are disabled. The resulting report is task-scoped, application-validated,
 self-hashed, proposal-only, and never routed into execution or automatic
 promotion. This heavier lane is explicit rather than part of every discovery
-request.
+request. The control plane exposes it only as an operator-triggered
+Investigation Desk: at most one task runs at a time, identical active or passed
+task scopes are idempotent, competing work fails closed, and the last ten
+records live only in process memory. RUNNING, FAILED, and PASS state is part of
+the SSE projection; no state transition grants review or execution authority.
 
 The hypothesis remains `PROPOSE_ONLY` and `UNREVIEWED`; approval is a separate
 content-addressed artifact. Compilation derives its claim-graph and resolution

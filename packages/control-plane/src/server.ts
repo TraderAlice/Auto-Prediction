@@ -13,6 +13,12 @@ import {
   type PiInvestigatorRuntime,
 } from "./pi-investigator.js";
 import {
+  InvestigationBusyError,
+  InvestigationDesk,
+  InvestigationNotConfiguredError,
+  InvestigationScopeConflictError,
+} from "./investigation-desk.js";
+import {
   DiscoveryLedger,
   type DiscoveryRunStore,
 } from "./discovery-ledger.js";
@@ -52,6 +58,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 function parseDiscoveryTask(
   value: unknown,
   catalogDesk: FixtureCatalogDiscoveryDesk,
+  deadlineMs = 10_000,
 ): DiscoveryTask {
   if (
     value === null ||
@@ -108,7 +115,7 @@ function parseDiscoveryTask(
     question,
     venueIds,
     maxHypotheses: 10,
-    deadlineEpochMs: now + 10_000,
+    deadlineEpochMs: now + deadlineMs,
     catalogContext,
   };
 }
@@ -143,6 +150,7 @@ export function createControlPlane(options?: {
   discoveryPool?: DiscoveryPool;
   modelRuntime?: DiscoveryModelRuntime;
   piRuntime?: PiInvestigatorRuntime;
+  investigationDesk?: InvestigationDesk;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -164,6 +172,8 @@ export function createControlPlane(options?: {
   const catalogDesk = options?.catalogDesk ?? new FixtureCatalogDiscoveryDesk();
   const discoveryLedger =
     options?.discoveryLedger ?? new DiscoveryLedger(25, options?.discoveryStore);
+  const investigationDesk =
+    options?.investigationDesk ?? new InvestigationDesk(piRuntime.investigator);
   const ready = Promise.all([bookDesk.replay(), catalogDesk.load()]).then(
     () => undefined,
   );
@@ -183,6 +193,7 @@ export function createControlPlane(options?: {
       activeRuns,
       modelProvider: modelRuntime.projection,
       investigator: piRuntime.projection,
+      investigationDesk: investigationDesk.projection(),
       catalogContext: catalogDesk.projection(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
@@ -223,6 +234,7 @@ export function createControlPlane(options?: {
         operationalStorage: discoveryDesk.storage,
         modelProvider: modelRuntime.projection,
         investigator: piRuntime.projection,
+        investigationDesk: investigationDesk.projection(),
         catalogContext: catalogDesk.projection(),
       });
       return;
@@ -249,6 +261,13 @@ export function createControlPlane(options?: {
       url.pathname === "/api/v1/discovery/runs"
     ) {
       writeJson(response, 200, discoveryLedger.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/investigations"
+    ) {
+      writeJson(response, 200, investigationDesk.projection());
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/events") {
@@ -393,6 +412,54 @@ export function createControlPlane(options?: {
       }
       return;
     }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/investigations"
+    ) {
+      let task: DiscoveryTask;
+      try {
+        await ready;
+        task = parseDiscoveryTask(
+          await readJson(request),
+          catalogDesk,
+          piRuntime.projection.timeoutMs + 2_000,
+        );
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic:
+            error instanceof Error ? error.message : "investigation failed",
+          executionAuthority: false,
+        });
+        return;
+      }
+
+      try {
+        const invocation = investigationDesk.begin(task);
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" ? 200 : 422, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        const status =
+          error instanceof InvestigationNotConfiguredError
+            ? 503
+            : error instanceof InvestigationBusyError ||
+                error instanceof InvestigationScopeConflictError
+              ? 409
+              : 500;
+        writeJson(response, status, {
+          ok: false,
+          diagnostic:
+            error instanceof Error ? error.message : "investigation failed",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
     writeJson(response, 404, {
       ok: false,
       diagnostic: "route not found",
@@ -405,6 +472,7 @@ export function createControlPlane(options?: {
     bookDesk,
     catalogDesk,
     discoveryLedger,
+    investigationDesk,
     piRuntime,
     projection,
     ready,

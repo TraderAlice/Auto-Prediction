@@ -3,6 +3,7 @@ export * from "./catalog-discovery.js";
 export * from "./discovery.js";
 export * from "./discovery-ledger.js";
 export * from "./deepseek-model.js";
+export * from "./investigation-desk.js";
 export * from "./local-environment.js";
 export * from "./model-runtime.js";
 export * from "./openai-model.js";

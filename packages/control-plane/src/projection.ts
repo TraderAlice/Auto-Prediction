@@ -16,6 +16,7 @@ import type {
   PiInvestigatorProjection,
   StudioProjection,
 } from "./types.js";
+import type { InvestigationDeskProjection } from "./investigation-desk.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
 
@@ -65,6 +66,7 @@ export function buildStudioProjection(input: {
   catalogContext?: DiscoveryCatalogProjection;
   modelProvider?: ModelProviderProjection;
   investigator?: PiInvestigatorProjection;
+  investigationDesk?: InvestigationDeskProjection;
   bookDesk?: BookDeskProjection;
   discoveryDesk?: DiscoveryDeskProjection;
 }): StudioProjection {
@@ -155,6 +157,19 @@ export function buildStudioProjection(input: {
       catalogContext,
       modelProvider,
       investigator,
+      investigationDesk: input.investigationDesk ?? {
+        retentionLimit: 10,
+        activeCount: 0,
+        runCount: 0,
+        passCount: 0,
+        failedCount: 0,
+        storage: {
+          mode: "MEMORY" as const,
+          durable: false as const,
+          idempotencyKey: "taskId+catalogContextIdentity" as const,
+        },
+        records: [],
+      },
       workers: [
         ...input.workers.map((worker) => ({
           workerId: worker.workerId,

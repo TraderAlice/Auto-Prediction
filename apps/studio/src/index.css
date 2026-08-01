@@ -1122,7 +1122,7 @@ main {
 
 .scout-summary-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1324,7 +1324,38 @@ main {
 
 .scout-submit {
   width: 100%;
+}
+
+.scout-action-stack {
+  display: grid;
+  gap: 8px;
   margin-top: 18px;
+}
+
+.scout-action-stack [data-slot="button"] {
+  width: 100%;
+}
+
+.investigation-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  color: #69736e;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.investigation-note svg {
+  flex: 0 0 auto;
+  color: var(--mint);
+}
+
+.investigation-note strong {
+  display: block;
+  margin-top: 5px;
+  color: #bc7b7b;
+  font-weight: 600;
 }
 
 .scout-guardrail {
@@ -1351,6 +1382,155 @@ main {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: #0d1012;
+}
+
+.scout-results-stack {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.investigation-desk {
+  overflow: hidden;
+  border: 1px solid rgba(126, 240, 193, 0.17);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(126, 240, 193, 0.055), transparent 32%),
+    #0d1012;
+}
+
+.investigation-empty {
+  color: #59635e;
+  font-size: 9px;
+  line-height: 1.65;
+  padding: 22px 17px;
+}
+
+.investigation-record {
+  border-bottom: 1px solid var(--border);
+  padding: 17px;
+}
+
+.investigation-record:last-child {
+  border-bottom: 0;
+}
+
+.investigation-record.is-running {
+  background: rgba(126, 240, 193, 0.025);
+}
+
+.investigation-record.is-failed {
+  background: rgba(188, 123, 123, 0.025);
+}
+
+.investigation-record-head,
+.investigation-record-head > div,
+.investigation-progress {
+  display: flex;
+  align-items: center;
+}
+
+.investigation-record-head {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.investigation-record-head > div {
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.investigation-record-head time {
+  color: #414a46;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+}
+
+.investigation-record h3 {
+  margin: 13px 0 0;
+  color: #d8dfdb;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.investigation-progress,
+.investigation-diagnostic,
+.investigation-summary {
+  margin: 12px 0 0;
+  font-size: 9px;
+  line-height: 1.65;
+}
+
+.investigation-progress {
+  gap: 7px;
+  color: #76978a;
+}
+
+.investigation-diagnostic {
+  color: #bc7b7b;
+}
+
+.investigation-summary {
+  color: #9da7a2;
+}
+
+.investigation-findings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 13px 0 0;
+}
+
+.investigation-findings > div {
+  min-width: 0;
+  border: 1px solid #20272a;
+  border-radius: 8px;
+  background: #0b0e10;
+  padding: 9px 10px;
+}
+
+.investigation-findings dt {
+  color: #525c57;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.investigation-findings dd {
+  overflow-wrap: anywhere;
+  margin: 5px 0 0;
+  color: #89938e;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.investigation-finding {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 8px;
+  margin-top: 9px;
+  border-left: 2px solid rgba(126, 240, 193, 0.2);
+  color: #87918c;
+  font-size: 8px;
+  line-height: 1.55;
+  padding-left: 9px;
+}
+
+.investigation-finding code {
+  grid-column: 2;
+  overflow-wrap: anywhere;
+  color: #505a55;
+  font-size: 7px;
+}
+
+.investigation-artifact {
+  display: block;
+  overflow: hidden;
+  margin-top: 13px;
+  color: #47514c;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scout-run-heading {
@@ -2359,6 +2539,14 @@ footer span:first-child {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .scout-summary-grid .metric:nth-child(even) {
+    border-right: 0;
+  }
+
+  .scout-summary-grid .metric:nth-child(-n + 4) {
+    border-bottom: 1px solid var(--border);
+  }
+
   .metric:nth-child(2) {
     border-right: 0;
   }
@@ -2486,6 +2674,15 @@ footer span:first-child {
   .scout-run-meta {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .investigation-record-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .investigation-findings {
+    grid-template-columns: 1fr;
   }
 
   .hypothesis-topline > span:last-child {

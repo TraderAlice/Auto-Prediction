@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createControlPlane,
   createOpenAiDiscoveryRuntime,
+  createPiInvestigatorRuntime,
   DiscoveryPool,
   type DiscoveryWorker,
 } from "../src/index.js";
@@ -191,6 +192,93 @@ describe("control-plane HTTP surface", () => {
       }),
     });
     expect(malformed.status).toBe(400);
+  });
+
+  it("fails closed when an investigation is requested without pi configuration", async () => {
+    const baseUrl = await listen();
+    const response = await fetch(`${baseUrl}/api/v1/investigations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "Investigate the Boston temperature partition",
+        venueIds: ["gemini-predictions"],
+      }),
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "pi investigator is not configured",
+      executionAuthority: false,
+    });
+  });
+
+  it("runs and retains an explicitly requested pi investigation", async () => {
+    const piRuntime = createPiInvestigatorRuntime(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        runner: async () => ({
+          exitCode: 0,
+          stdout: JSON.stringify({
+            summary: "The fixture partition needs independent rule evidence.",
+            candidateListingRefs: [],
+            findings: [],
+            missingEvidence: ["Official resolution rules"],
+          }),
+          stderr: "",
+          timedOut: false,
+          outputLimitExceeded: false,
+        }),
+      },
+    );
+    const { baseUrl } = await listenControlPlane({ piRuntime });
+    const response = await fetch(`${baseUrl}/api/v1/investigations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "Investigate the Boston temperature partition",
+        venueIds: ["gemini-predictions"],
+      }),
+    });
+    const record = (await response.json()) as {
+      investigationId: string;
+      status: string;
+      report: { artifactHash: string; result: { executionAuthority: boolean } };
+      authority: string;
+      reviewStatus: string;
+      executionAuthority: boolean;
+      idempotentReplay: boolean;
+    };
+    expect(response.status).toBe(200);
+    expect(record).toMatchObject({
+      status: "PASS",
+      authority: "PROPOSE_ONLY",
+      reviewStatus: "UNREVIEWED",
+      executionAuthority: false,
+      idempotentReplay: false,
+      report: { result: { executionAuthority: false } },
+    });
+    expect(record.investigationId).toMatch(/^investigation:[0-9a-f]{64}$/);
+    expect(record.report.artifactHash).toMatch(/^sha256:/);
+
+    const desk = (await fetch(`${baseUrl}/api/v1/investigations`).then(
+      (deskResponse) => deskResponse.json(),
+    )) as { activeCount: number; passCount: number; records: unknown[] };
+    expect(desk).toMatchObject({ activeCount: 0, passCount: 1 });
+    expect(desk.records).toHaveLength(1);
+
+    const replay = await fetch(`${baseUrl}/api/v1/investigations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "  Investigate the Boston temperature partition  ",
+        venueIds: ["gemini-predictions", "gemini-predictions"],
+      }),
+    });
+    await expect(replay.json()).resolves.toMatchObject({
+      investigationId: record.investigationId,
+      idempotentReplay: true,
+      executionAuthority: false,
+    });
   });
 
   it("retains a grounded run with no matching hypothesis", async () => {
