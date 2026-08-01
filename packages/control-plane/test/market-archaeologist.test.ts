@@ -100,6 +100,9 @@ describe("Market Archaeologist", () => {
     expect(indexText).toContain("venue-b:august-pizza-youtube");
     expect(captured?.args).toContain("read,grep,find,ls");
     expect(captured?.args.at(-1)).toContain("Generate your own aliases");
+    expect(captured?.args.at(-1)).toContain(
+      "listingRefs must be a JSON array of 2–8 unique exact listingRef strings",
+    );
     expect(captured?.environment.DEEPSEEK_API_KEY).toBe(secret);
     await expect(access(captured?.cwd ?? "")).rejects.toThrow();
     expect(record).toMatchObject({

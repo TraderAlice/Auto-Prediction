@@ -6,6 +6,7 @@ import {
   SearchLeaseScheduler,
   type SearchLeaseRecord,
   type SearchLens,
+  type SearchCandidatePolicy,
 } from "./search-lease-scheduler.js";
 import type { OperationalStorageProjection } from "./types.js";
 
@@ -15,6 +16,7 @@ const DEFAULT_RETENTION_LIMIT = 100;
 export type SearchIssueRecord = Readonly<{
   schemaVersion: "pmh.search-issue.v1";
   issueId: Hash;
+  candidatePolicy?: SearchCandidatePolicy | null;
   title: string;
   question: string;
   lens: SearchLens;
@@ -189,11 +191,26 @@ export function assertSearchIssueRecord(value: unknown): SearchIssueRecord {
     throw new Error("stored search issue is malformed");
   }
   const record = value as SearchIssueRecord;
+  const candidatePolicy = record.candidatePolicy;
+  const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null || (
+    Array.isArray(candidatePolicy.allowedRelationKinds) &&
+    candidatePolicy.allowedRelationKinds.length > 0 &&
+    candidatePolicy.allowedRelationKinds.length <= 8 &&
+    new Set(candidatePolicy.allowedRelationKinds).size === candidatePolicy.allowedRelationKinds.length &&
+    candidatePolicy.allowedRelationKinds.every((kind) => [
+      "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
+      "CONDITIONAL", "RELATED", "CONFLICTING",
+    ].includes(kind)) &&
+    Number.isSafeInteger(candidatePolicy.exactListingRefCount) &&
+    candidatePolicy.exactListingRefCount >= 2 &&
+    candidatePolicy.exactListingRefCount <= 8
+  );
   if (
     record.schemaVersion !== "pmh.search-issue.v1" ||
     !HASH_PATTERN.test(String(record.issueId)) ||
     !boundedText(record.title, 120) ||
     !boundedText(record.question, 1_000) ||
+    !candidatePolicyValid ||
     !SEARCH_LENSES.includes(record.lens) ||
     !Array.isArray(record.venueIds) || record.venueIds.length > 25 ||
     record.venueIds.some((item) => !boundedText(item, 100)) ||
@@ -246,6 +263,18 @@ export function assertSearchNotificationRecord(
 }
 
 const DEFAULT_ISSUES = Object.freeze([
+  Object.freeze({
+    key: "settlement-qualified-two-leg-parity",
+    title: "Settlement-qualified two-leg parity",
+    lens: "EQUIVALENCE" as const,
+    cadenceMs: 15 * 60_000,
+    priority: 5 as const,
+    question: "Find exactly two current OPEN/ACTIVE binary listings encoding the same payout claim, each with an explicit settlement path. Require exact refs, compatible mappings, close windows, resolution sources, void rules, and indicative prices. Reject RELATED matches, trading-only/non-settlement clauses, or more than two refs. Rough pricing only prioritizes search; fees, depth, fillability, latency, and executable profit remain unproven. Return no hypothesis unless current contracts ground the pair.",
+    candidatePolicy: Object.freeze({
+      allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
+      exactListingRefCount: 2,
+    }),
+  }),
   Object.freeze({
     key: "cross-venue-equivalence",
     title: "Cross-venue same claim",
@@ -314,10 +343,24 @@ export class SearchIssueScheduler {
     this.#notifications = [
       ...(this.#store?.loadSearchNotificationRecords(this.#retentionLimit) ?? []),
     ].map(assertSearchNotificationRecord);
-    if (this.#issues.length === 0 && options.seedDefaults !== false) {
+    if (options.seedDefaults !== false) {
       const now = this.#now();
       for (const template of DEFAULT_ISSUES) {
-        this.#saveIssue(this.#defaultIssue(template, now));
+        const defaultIssue = this.#defaultIssue(template, now);
+        if (!this.#issues.some((issue) => issue.issueId === defaultIssue.issueId)) {
+          this.#saveIssue(defaultIssue);
+        } else if (
+          defaultIssue.candidatePolicy !== undefined &&
+          this.#issues.find((issue) => issue.issueId === defaultIssue.issueId)
+            ?.candidatePolicy === undefined
+        ) {
+          const existing = this.#issues.find((issue) => issue.issueId === defaultIssue.issueId)!;
+          this.#saveIssue(withIssueHash({
+            ...this.#withoutIssueHash(existing),
+            candidatePolicy: defaultIssue.candidatePolicy,
+            updatedAt: new Date(now).toISOString(),
+          }));
+        }
       }
     }
   }
@@ -334,6 +377,9 @@ export class SearchIssueScheduler {
     return withIssueHash({
       schemaVersion: "pmh.search-issue.v1",
       issueId,
+      ...("candidatePolicy" in template
+        ? { candidatePolicy: template.candidatePolicy }
+        : {}),
       title: template.title,
       question: template.question,
       lens: template.lens,
@@ -473,6 +519,9 @@ export class SearchIssueScheduler {
           issueId: issue.issueId,
           question: issue.question,
           venueIds: issue.venueIds,
+          ...(issue.candidatePolicy === undefined
+            ? {}
+            : { candidatePolicy: issue.candidatePolicy }),
         }),
       );
     const startedAtMs = this.#now();

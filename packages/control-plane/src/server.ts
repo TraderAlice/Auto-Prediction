@@ -533,6 +533,13 @@ export function createControlPlane(options?: {
                 proposalIds: Object.freeze(
                   record.report?.result.proposals.map((item) => item.proposalId) ?? [],
                 ),
+                proposalDetails: Object.freeze(
+                  record.report?.result.proposals.map((item) => Object.freeze({
+                    proposalId: item.proposalId,
+                    relationKind: item.relationKind,
+                    listingRefs: Object.freeze([...item.listingRefs]),
+                  })) ?? [],
+                ),
                 evidenceGaps: Object.freeze(
                   record.report?.result.missingEvidence ?? [],
                 ),

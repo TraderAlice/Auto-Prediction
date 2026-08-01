@@ -2125,6 +2125,11 @@ main {
   margin-top: 9px;
 }
 
+.search-issue-meta .is-policy {
+  color: var(--primary);
+  flex-basis: 100%;
+}
+
 .search-issue-actions {
   justify-content: flex-end;
   margin-top: 9px;

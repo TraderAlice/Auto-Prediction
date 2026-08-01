@@ -1,6 +1,6 @@
 # Plans
 
-`plans/economic-settlement-eligibility.md` is the active construction plan.
+`plans/settlement-qualified-search-issue.md` is the active construction plan.
 
 ## Planning contract
 
@@ -22,18 +22,22 @@ AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.
 
-The live pre-review frontier now contains one nominal positive gross hint:
-`+2441 bps` for two Myriad social-sentiment markets. One matched contract says
-explicitly that it is trading-only and will never resolve toward either option.
-Cheap prices without a realizable payout are not an arbitrage opportunity, yet
-the current arithmetic grants this proposal the frontier's only priority boost.
+The settlement gate is now qualified: the retained trading-only Myriad pair is
+still reviewable but economically inert, leaving the live frontier with zero
+positive gross hints and zero priority boosts. The next bottleneck is upstream:
+the four broad recurring briefs produce useful semantic research, but mostly
+`RELATED` or evidence-incomplete proposals rather than two-leg candidates that
+can enter economic qualification.
 
-The active campaign adds a deterministic settlement-eligibility gate before
-economic classification. Exact current contract text that explicitly denies
-resolution disqualifies the candidate from positive-gross scheduling. The item
-remains retained and reviewable with named evidence; absence of a denial is not
-treated as proof of settlement. AI still proposes semantics and independent
-review still owns the recommendation.
+The active campaign adds a fifth durable issue, `Settlement-qualified two-leg
+parity`. It instructs cheap scouts and pi to search narrowly for two current
+binary listings with explicit settlement paths and equivalent payout claims.
+Stable-ID reconciliation adds this issue to existing durable installations
+without resetting operator-modified defaults. Its deterministic candidate
+policy counts only two-ref `EQUIVALENT` proposals as hits; conflicts remain
+research evidence without becoming finding notifications. AI still proposes;
+current contract matching, independent semantic review, fixed-point economics,
+exact simulation, and first-party verification own promotion.
 
 ## Deferred future campaigns
 

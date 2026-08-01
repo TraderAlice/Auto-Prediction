@@ -186,6 +186,9 @@ describe("AI-native search lease scheduler", () => {
     expect(record.certificateAuthority).toBe(false);
     expect(record.executionAuthority).toBe(false);
     expect(runDeep).toHaveBeenCalledTimes(1);
+    expect(runDeep.mock.calls[0]?.[1]).toContain("Search assignment:");
+    expect(runDeep.mock.calls[0]?.[1]).toContain(record.trace.querySummary);
+    expect(runDeep.mock.calls[0]?.[1]).toContain("Obey any exact candidate arity");
 
     const replay = scheduler.begin(snapshot(), "EQUIVALENCE");
     expect(replay.idempotentReplay).toBe(true);
@@ -215,6 +218,56 @@ describe("AI-native search lease scheduler", () => {
     expect(duplicate.lineage.duplicateOfLeaseId).toBe(first.lease.leaseId);
     expect(duplicate.outcome.novelCandidate).toBe(false);
     expect(runDeep).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains deep falsification evidence without calling it an issue-policy hit", async () => {
+    const conflictingProposalId = hashCanonical({ proposal: "conflicting" });
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => runRecord(task),
+      runDeep: async () => Object.freeze({
+        runId: hashCanonical({ deep: "policy" }),
+        status: "PASS" as const,
+        proposalIds: Object.freeze([conflictingProposalId]),
+        proposalDetails: Object.freeze([Object.freeze({
+          proposalId: conflictingProposalId,
+          relationKind: "CONFLICTING" as const,
+          listingRefs: Object.freeze(["venue-a:pizza-a", "venue-b:pizza-b"]),
+        })]),
+        evidenceGaps: Object.freeze(["Oracle rules diverge."]),
+        diagnostic: null,
+      }),
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+    const record = await scheduler.begin(
+      snapshot(),
+      "EQUIVALENCE",
+      "SCHEDULE",
+      {
+        issueId: hashCanonical({ issue: "exact-pair" }),
+        question: "Find one exact settleable pair.",
+        venueIds: [],
+        candidatePolicy: Object.freeze({
+          allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
+          exactListingRefCount: 2,
+        }),
+      },
+    ).promise;
+
+    expect(record).toMatchObject({
+      status: "PASS",
+      deepLane: {
+        status: "PASS",
+        reason: "NO_POLICY_MATCH",
+        proposalIds: [],
+        evidenceGaps: ["Oracle rules diverge."],
+      },
+      outcome: { novelCandidate: false, proposalCount: 0 },
+    });
+    expect(record.deepLane.diagnostic).toContain(
+      "retained as research evidence; none matched the issue candidate policy",
+    );
+    expect(record.lineage.noveltySignature).not.toBeNull();
   });
 
   it("persists issued-to-terminal records and restores idempotent results", async () => {

@@ -2729,6 +2729,11 @@ function MarketArchaeologistView() {
                     <h3>{issue.title}</h3>
                     <p>{issue.question}</p>
                     <div className="search-issue-meta">
+                      {issue.candidatePolicy !== undefined && issue.candidatePolicy !== null && (
+                        <span className="is-policy">
+                          target {issue.candidatePolicy.allowedRelationKinds.join("/")} · exactly {issue.candidatePolicy.exactListingRefCount} refs
+                        </span>
+                      )}
                       <span>every {issue.cadenceMs / 60_000}m</span>
                       <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
                       <span>{issue.passCount}/{issue.runCount} passed</span>
