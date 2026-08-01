@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
@@ -10,6 +10,7 @@ import {
   candidateWatchSources,
   createControlPlane,
   CatalogObservationDesk,
+  CatalogRefreshScheduler,
   catalogObservationSources,
   createMarketArchaeologistDesk,
   type CatalogObservationSource,
@@ -18,6 +19,11 @@ import {
   createSemanticReviewDesk,
   DiscoveryPool,
   RealCandidatePreflightDesk,
+  SearchIssueScheduler,
+  SearchLeaseScheduler,
+  type DiscoveryCatalogContext,
+  type DiscoveryRunRecord,
+  type DiscoveryTask,
   type DiscoveryWorker,
   type StudioProjection,
 } from "../src/index.js";
@@ -69,6 +75,116 @@ async function closeTracked(
 }
 
 describe("control-plane HTTP surface", () => {
+  it("holds due issues during refresh and dispatches them on the new corpus", async () => {
+    const source = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "polymarket-global",
+    );
+    if (source === undefined) throw new Error("missing Polymarket source");
+    const bytes = await readFile(
+      resolve(
+        import.meta.dirname,
+        "../../../projects/fixtures/polymarket-global/2026-07-31/polymarket-catalog.json",
+      ),
+    );
+    let releaseFetch: (() => void) | undefined;
+    let announceFetch: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolveStarted) => {
+      announceFetch = resolveStarted;
+    });
+    const fetchGate = new Promise<void>((resolveGate) => {
+      releaseFetch = resolveGate;
+    });
+    const catalogDesk = new CatalogObservationDesk({
+      sources: [source],
+      fetcher: async () => {
+        announceFetch?.();
+        await fetchGate;
+        return new Response(new Uint8Array(bytes).buffer, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const catalogRefreshScheduler = new CatalogRefreshScheduler({
+      desk: catalogDesk,
+      intervalMs: 200,
+    });
+    const leaseScheduler = new SearchLeaseScheduler({
+      concurrencyLimit: 3,
+      context: (question, venueIds, _lens, snapshot): DiscoveryCatalogContext => {
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+          source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+          listings: Object.freeze(
+            snapshot.listings.filter((listing) => venueIds.includes(listing.venueId)),
+          ),
+        });
+        expect(question).not.toHaveLength(0);
+        return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+      },
+      runFast: async (task: DiscoveryTask): Promise<DiscoveryRunRecord> =>
+        Object.freeze({
+          runId: hashCanonical({ taskId: task.taskId }),
+          taskId: task.taskId,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          workerIds: Object.freeze(["test-fast-lane"]),
+          workerReports: Object.freeze([]),
+          hypotheses: Object.freeze([]),
+          diagnostics: Object.freeze([]),
+          executionAuthority: false,
+          question: task.question,
+          venueIds: task.venueIds,
+          catalogContext: task.catalogContext,
+          catalogContextIdentity: task.catalogContext?.contextIdentity,
+          catalogListingCount: task.catalogContext?.listings.length,
+          catalogContextSource: task.catalogContext?.source,
+        }),
+    });
+    const issueScheduler = new SearchIssueScheduler({
+      leaseScheduler,
+      tickIntervalMs: 1_000,
+      concurrencyLimit: 3,
+    });
+    const { controlPlane } = await listenControlPlane({
+      catalogObservationDesk: catalogDesk,
+      catalogRefreshScheduler,
+      searchLeaseScheduler: leaseScheduler,
+      searchIssueScheduler: issueScheduler,
+    });
+
+    await fetchStarted;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+    expect(catalogRefreshScheduler.projection().status).toBe("REFRESHING");
+    expect(leaseScheduler.projection().records).toHaveLength(0);
+
+    releaseFetch?.();
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (leaseScheduler.projection().runCount > 0) break;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 5));
+    }
+    const refresh = catalogRefreshScheduler.projection();
+    const leases = leaseScheduler.projection().records;
+    expect(refresh).toMatchObject({
+      status: "IDLE",
+      lastResult: "READY",
+      runCount: 1,
+    });
+    expect(leases).toHaveLength(3);
+    expect(
+      leases.every(
+        (record) =>
+          record.status === "PASS" &&
+          record.lease.snapshotIdentity === refresh.latestSnapshotIdentity,
+      ),
+    ).toBe(true);
+    expect(controlPlane.searchIssueScheduler.projection()).toMatchObject({
+      activeCount: 0,
+      concurrencyLimit: 3,
+    });
+  });
+
   it("serves a live-disabled projection from a process", async () => {
     const baseUrl = await listen();
     const response = await fetch(`${baseUrl}/api/v1/projection`);
@@ -82,6 +198,13 @@ describe("control-plane HTTP surface", () => {
           venueCount: number;
           sourceFixtureCount: number;
           corpusIdentity: string;
+        };
+        catalogRefreshScheduler: {
+          enabled: boolean;
+          status: string;
+          intervalMs: number | null;
+          runCount: number;
+          effects: { anonymousPublicGets: boolean; modelCalls: boolean };
         };
         modelProvider: {
           configured: boolean;
@@ -169,6 +292,13 @@ describe("control-plane HTTP surface", () => {
       sourceFixtureCount: 8,
     });
     expect(projection.ai.catalogContext.corpusIdentity).toMatch(/^sha256:/);
+    expect(projection.ai.catalogRefreshScheduler).toMatchObject({
+      enabled: false,
+      status: "DISABLED",
+      intervalMs: null,
+      runCount: 0,
+      effects: { anonymousPublicGets: true, modelCalls: false },
+    });
     expect(projection.ai.modelProvider).toMatchObject({
       configured: false,
       model: "gpt-5.6-luna",

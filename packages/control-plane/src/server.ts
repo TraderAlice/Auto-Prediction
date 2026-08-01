@@ -10,6 +10,10 @@ import {
   type CatalogObservationStore,
 } from "./catalog-observation.js";
 import {
+  CatalogRefreshScheduler,
+  parseCatalogRefreshInterval,
+} from "./catalog-refresh-scheduler.js";
+import {
   CandidateWatchDesk,
   type CandidateWatchStore,
 } from "./candidate-watch.js";
@@ -407,6 +411,7 @@ export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
   catalogObservationDesk?: CatalogObservationDesk;
+  catalogRefreshScheduler?: CatalogRefreshScheduler;
   refreshCatalogOnReady?: boolean;
   discoveryLedger?: DiscoveryLedger;
   discoveryStore?: DiscoveryRunStore;
@@ -457,6 +462,12 @@ export function createControlPlane(options?: {
       ...(supportsCatalogObservations(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
+    });
+  const catalogRefreshScheduler =
+    options?.catalogRefreshScheduler ??
+    new CatalogRefreshScheduler({
+      desk: catalogObservationDesk,
+      intervalMs: parseCatalogRefreshInterval(process.env),
     });
   const discoveryLedger =
     options?.discoveryLedger ?? new DiscoveryLedger(25, options?.discoveryStore);
@@ -745,7 +756,7 @@ export function createControlPlane(options?: {
     realCandidateReady,
     realCandidateReady.then(() => candidateWatchDesk.load()),
     ...(options?.refreshCatalogOnReady === true
-      ? [catalogObservationDesk.refresh()]
+      ? [catalogRefreshScheduler.runNow("STARTUP").promise]
       : []),
   ]).then(() => undefined);
   const subscribers = new Set<ServerResponse>();
@@ -816,6 +827,7 @@ export function createControlPlane(options?: {
       investigationDesk: investigationDesk.projection(),
       catalogContext: catalogDesk.projection(),
       catalogObservation: catalogObservationDesk.projection(),
+      catalogRefreshScheduler: catalogRefreshScheduler.projection(),
       opportunityRadar: catalogObservationDesk.radar(),
       marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
       marketArchaeologist: archaeologistProjection,
@@ -948,6 +960,7 @@ export function createControlPlane(options?: {
         investigationDesk: investigationDesk.projection(),
         catalogContext: catalogDesk.projection(),
         catalogObservation: catalogObservationDesk.projection(),
+        catalogRefreshScheduler: catalogRefreshScheduler.projection(),
         opportunityRadar: catalogObservationDesk.radar(),
         marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
         marketArchaeologist: marketArchaeologistDesk.projection(),
@@ -1368,11 +1381,16 @@ export function createControlPlane(options?: {
       request.method === "POST" &&
       url.pathname === "/api/v1/catalog/observations/refresh"
     ) {
-      const pending = catalogObservationDesk.refresh();
+      const pending = catalogRefreshScheduler.runNow("OPERATOR").promise;
       await broadcastProjection();
       const result = await pending;
       await broadcastProjection();
-      writeJson(response, result.status === "READY" ? 200 : 207, result);
+      tickSearchIssues();
+      writeJson(
+        response,
+        result.catalog.status === "READY" ? 200 : 207,
+        result.catalog,
+      );
       return;
     }
     if (
@@ -2075,6 +2093,7 @@ export function createControlPlane(options?: {
   let searchSchedulerTimer: ReturnType<typeof setInterval> | null = null;
   let searchIssueTimer: ReturnType<typeof setInterval> | null = null;
   let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
+  let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
   if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
     void ready.then(() => {
@@ -2096,24 +2115,46 @@ export function createControlPlane(options?: {
       searchSchedulerTimer.unref();
     });
   }
+  const tickSearchIssues = () => {
+    if (catalogRefreshScheduler.refreshing) return;
+    try {
+      const runs = searchIssueScheduler.tick(catalogObservationDesk.corpus());
+      if (runs.length === 0) return;
+      void broadcastProjection();
+      for (const run of runs) {
+        void run.then(() => broadcastProjection());
+      }
+    } catch {
+      // The next bounded tick retries due issues after capacity becomes available.
+    }
+  };
   const searchIssueTickMs = searchIssueScheduler.tickIntervalMs;
   if (searchIssueTickMs !== null) {
     void ready.then(() => {
-      const tick = () => {
-        try {
-          const runs = searchIssueScheduler.tick(catalogObservationDesk.corpus());
-          if (runs.length === 0) return;
-          void broadcastProjection();
-          for (const run of runs) {
-            void run.then(() => broadcastProjection());
-          }
-        } catch {
-          // The next bounded tick retries due issues after capacity becomes available.
-        }
-      };
-      tick();
-      searchIssueTimer = setInterval(tick, searchIssueTickMs);
+      tickSearchIssues();
+      searchIssueTimer = setInterval(tickSearchIssues, searchIssueTickMs);
       searchIssueTimer.unref();
+    });
+  }
+  if (catalogRefreshScheduler.intervalMs !== null) {
+    void ready.then(() => {
+      const tickCatalogRefresh = () => {
+        const invocation = catalogRefreshScheduler.tick();
+        if (invocation === null) return;
+        void broadcastProjection();
+        void invocation.promise.then(
+          () => {
+            void broadcastProjection();
+            tickSearchIssues();
+          },
+          () => broadcastProjection(),
+        );
+      };
+      catalogRefreshTimer = setInterval(
+        tickCatalogRefresh,
+        Math.min(catalogRefreshScheduler.intervalMs ?? 5_000, 5_000),
+      );
+      catalogRefreshTimer.unref();
     });
   }
   const semanticReviewTickMs = semanticReviewScheduler.tickIntervalMs;
@@ -2143,6 +2184,7 @@ export function createControlPlane(options?: {
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
     if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
+    if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
     discoveryLedger.close();
   });
   return {
@@ -2151,6 +2193,7 @@ export function createControlPlane(options?: {
     bookDesk,
     catalogDesk,
     catalogObservationDesk,
+    catalogRefreshScheduler,
     discoveryLedger,
     investigationDesk,
     piRuntime,

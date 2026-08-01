@@ -47,15 +47,36 @@ it never calls a model directly and grants no semantic or execution authority.
 
 ## Construction slices
 
-- [ ] Add the bounded refresh scheduler and configuration parser.
-- [ ] Route startup, manual, and periodic refreshes through one coalesced path.
-- [ ] Gate issue ticks during refresh and dispatch immediately on fresh corpus.
-- [ ] Expose scheduler health and timing in the control-plane projection.
-- [ ] Show current-corpus automation state on the Market archaeologist desk.
-- [ ] Prove bounds, coalescing, degraded recovery, and fresh-corpus ordering.
-- [ ] Exercise repeated refresh and issue dispatch against all seven sources.
-- [ ] Run full Node 24 qualification and responsive visual inspection.
+- [x] Add the bounded refresh scheduler and configuration parser.
+- [x] Route startup, manual, and periodic refreshes through one coalesced path.
+- [x] Gate issue ticks during refresh and dispatch immediately on fresh corpus.
+- [x] Expose scheduler health and timing in the control-plane projection.
+- [x] Show current-corpus automation state on the Market archaeologist desk.
+- [x] Prove bounds, coalescing, degraded recovery, and fresh-corpus ordering.
+- [x] Exercise repeated refresh and issue dispatch against all seven sources.
+- [x] Run full Node 24 qualification and responsive visual inspection.
 - [ ] Publish and serially merge the next PR.
+
+## Runtime observation
+
+The live control plane started with the five-minute production interval and
+completed an all-source STARTUP refresh at 2026-08-01T20:11:41Z. Its first
+unassisted SCHEDULE refresh began at 20:16:42Z and completed at 20:16:44Z with
+all seven sources current, 467 public listings, no degraded or failed source,
+and a new immutable snapshot identity
+`sha256:545a0a36c511933b9da8ea4aca19bc95b33ec0b69ab50fc987296e35fe97493e`.
+
+The issue scheduler continued within its three-slot bound. The concurrent
+`Cross-venue same claim` lease completed PASS at 20:19:16Z, returned active
+count to zero, and recorded one fast-lane candidate, five grounded deep-lane
+proposals, and six evidence gaps. This is a research finding only: it has no
+semantic-decision, certificate, execution, or value-moving authority.
+
+Node 24 qualification passed after the responsive fix: repository type checks,
+191 control-plane tests, 10 Studio tests, every other workspace test, and the
+production build all completed successfully. Browser inspection at the normal
+1148px viewport and a temporary 390px viewport found no horizontal overflow;
+the scheduler badges wrap without clipping.
 
 ## Safety invariants
 

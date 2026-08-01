@@ -26,13 +26,13 @@ The settlement-qualified two-leg issue is merged and live. Its deterministic
 candidate policy counts only two-ref `EQUIVALENT` proposals as hits; conflicts
 remain research evidence without becoming finding notifications.
 
-The next bottleneck is temporal correctness. Durable issues poll on schedule,
-but the anonymous market catalog refreshes only at startup or on an operator
-button. Fifteen minutes after the last refresh every source becomes
-context-ineligible and scheduled Agents receive an empty corpus. The active
-campaign adds an explicit bounded catalog cadence and coordinates refresh with
-issue dispatch, so recurring AI work is always attached to a newly observed,
-content-addressed corpus rather than silently stopping or racing stale data.
+The active temporal-correctness campaign now refreshes the anonymous catalog
+on an explicit bounded cadence and coordinates refresh with issue dispatch.
+Its first live five-minute timer run captured all seven sources, 467 listings,
+and a new immutable corpus before the issue queue returned to idle. Studio
+shows refresh health, next run, source coverage, and corpus identity. Full
+Node 24 qualification and responsive browser checks passed; only serial
+publication remains.
 
 ## Deferred future campaigns
 

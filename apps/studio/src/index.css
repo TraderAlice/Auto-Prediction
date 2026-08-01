@@ -1930,6 +1930,7 @@ main {
 .issue-scheduler-console [data-slot="card-header"] {
   align-items: flex-start;
   display: flex;
+  gap: 12px;
   justify-content: space-between;
 }
 
@@ -1945,6 +1946,12 @@ main {
   align-items: center;
   display: flex;
   gap: 7px;
+}
+
+.issue-scheduler-badges {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .issue-scheduler-strip {

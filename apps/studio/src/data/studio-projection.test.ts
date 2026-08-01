@@ -243,6 +243,20 @@ describe("Studio projection safety", () => {
         liveExecutionEnabled: false,
       },
     });
+    expect(studioProjection.ai.catalogRefreshScheduler).toMatchObject({
+      enabled: false,
+      status: "DISABLED",
+      intervalMs: null,
+      nextRefreshAt: null,
+      runCount: 0,
+      effects: {
+        anonymousPublicGets: true,
+        modelCalls: false,
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
   });
 
   it("exposes demo and sandbox order shapes as inert posture only", () => {
