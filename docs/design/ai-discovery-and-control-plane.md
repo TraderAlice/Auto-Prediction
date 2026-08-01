@@ -30,14 +30,14 @@ Workers do not search from the question alone. The control plane first loads
 verified raw catalog fixtures, applies the venue adapters, and builds a
 relevance-ranked context of at most 30 concrete listings. Titles, compact rules,
 outcomes, indicative prices, source hashes, and protocol identities are
-content-addressed as `pmh.discovery-catalog-context.v1`. The context identity is
+content-addressed as `pmh.discovery-catalog-context.v2`. The context identity is
 part of task idempotency and durable run scope. A worker may return no lead, but
 every returned lead must name at least one listing from that exact context.
 
 ## Live catalog observation
 
 Fresh public catalog data enters a separate `OBSERVE_ONLY` desk rather than
-silently replacing the fixture-grounded AI context. The desk issues anonymous
+silently replacing the fixture-grounded default context. The desk issues anonymous
 GET requests only, sends no authorization material, follows no redirects, and
 caps each source at 10 seconds and 2,000,000 response bytes. Polymarket Global,
 Kalshi, Gemini, Opinion, Myriad, and Limitless refresh independently.
@@ -48,8 +48,17 @@ metadata, byte length, raw SHA-256, normalized listing count, and a second hash
 over the normalized listings. Hydration re-runs the venue codec and rejects a
 raw or normalized mismatch. Failure is source-local: the projection becomes
 degraded, records a compact diagnostic, and retains the last successful
-content-addressed snapshot for that venue. The desk has no route into task
-context, hypothesis review, compilation, certification, or execution.
+content-addressed snapshot for that venue.
+
+An operator may explicitly request `CURRENT_OBSERVATIONS` for either AI lane.
+Each requested source must have a successful, non-empty latest refresh no older
+than 15 minutes; a stale, failed, empty, or unknown source rejects the task.
+`pmh.discovery-catalog-context.v2` binds its fixture/live source grade, receive
+time, raw response hash, protocol identity, and an untrusted-venue-text policy.
+Prompts reinforce that titles, descriptions, and rules are data, never
+instructions. Qualification permits only bounded `PROPOSE_ONLY` search input;
+it creates no path into hypothesis review, compilation, certification, or
+execution.
 
 The default adapter binds that port to `deepseek-v4-flash` through Vercel AI
 SDK. It requests validated `pmh.discovery-output.v1` object output, disables

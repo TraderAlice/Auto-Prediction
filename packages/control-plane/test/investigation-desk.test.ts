@@ -18,8 +18,9 @@ function task(taskId = "task:investigation:test", question = "Investigate A"): D
     maxHypotheses: 3,
     deadlineEpochMs: Date.now() + 30_000,
     catalogContext: {
-      schemaVersion: "pmh.discovery-catalog-context.v1",
+      schemaVersion: "pmh.discovery-catalog-context.v2",
       source: "VERIFIED_FIXTURE_CATALOGS",
+      contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
       contextIdentity: hashCanonical({ taskId, question }),
       listings: [
         {
@@ -33,7 +34,9 @@ function task(taskId = "task:investigation:test", question = "Investigate A"): D
           closesAt: null,
           rulesText: null,
           outcomes: [{ label: "Yes", indicativePrice: "0.5" }],
-          sourceFixtureHash: hashCanonical({ source: "fixture-a" }),
+          sourceKind: "VERIFIED_FIXTURE",
+          sourceReceivedAt: "2026-07-31T00:00:00.000Z",
+          sourceRawHash: hashCanonical({ source: "fixture-a" }),
           protocolIdentity: "prediction-markets-v1:test",
         },
       ],

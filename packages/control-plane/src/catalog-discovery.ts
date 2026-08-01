@@ -11,10 +11,11 @@ import { normalizePolymarketCatalog } from "@pmh/venue-polymarket";
 import type {
   DiscoveryCatalogContext,
   DiscoveryCatalogListing,
+  DiscoveryCatalogContextSource,
   DiscoveryCatalogProjection,
 } from "./types.js";
 
-const MAX_LISTINGS_PER_TASK = 30;
+export const MAX_LISTINGS_PER_TASK = 30;
 const MAX_DESCRIPTION_CHARACTERS = 800;
 const MAX_RULE_CHARACTERS = 1_200;
 
@@ -64,8 +65,22 @@ const sources: readonly CatalogSource[] = [
   },
 ];
 
+function textOnly(value: string): string {
+  return value
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/giu, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/giu, " ")
+    .replace(/<\/?(?:p|div|li|br|h[1-6])\b[^>]*>/giu, " ")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/&nbsp;|&#160;/giu, " ")
+    .replace(/&amp;/giu, "&")
+    .replace(/&quot;|&#34;/giu, '"')
+    .replace(/&#39;|&apos;/giu, "'")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">");
+}
+
 function compactText(value: string, limit: number): string {
-  const normalized = value.trim().replace(/\s+/gu, " ");
+  const normalized = textOnly(value).trim().replace(/\s+/gu, " ");
   return normalized.length <= limit
     ? normalized
     : `${normalized.slice(0, limit - 1).trimEnd()}…`;
@@ -80,7 +95,13 @@ function searchTerms(value: string): ReadonlySet<string> {
   );
 }
 
-function displayListing(listing: NormalizedCatalogListing): DiscoveryCatalogListing {
+export function toDiscoveryCatalogListing(
+  listing: NormalizedCatalogListing,
+  source: Readonly<{
+    kind: DiscoveryCatalogListing["sourceKind"];
+    receivedAt: string;
+  }>,
+): DiscoveryCatalogListing {
   return Object.freeze({
     listingRef: `${listing.venueId}:${listing.venueInstrumentId}`,
     venueId: listing.venueId,
@@ -105,9 +126,55 @@ function displayListing(listing: NormalizedCatalogListing): DiscoveryCatalogList
         }),
       ),
     ),
-    sourceFixtureHash: listing.sourceFixtureHash,
+    sourceKind: source.kind,
+    sourceReceivedAt: source.receivedAt,
+    sourceRawHash: listing.sourceFixtureHash,
     protocolIdentity: listing.protocolIdentity,
   });
+}
+
+export function buildDiscoveryCatalogContext(
+  source: DiscoveryCatalogContextSource,
+  listingsInput: readonly DiscoveryCatalogListing[],
+  question: string,
+  venueIds: readonly string[],
+): DiscoveryCatalogContext {
+  const allowedVenues = new Set(venueIds);
+  const queryTerms = searchTerms(question);
+  const ranked = listingsInput
+    .filter((listing) => allowedVenues.has(listing.venueId))
+    .map((listing) => {
+      const listingTerms = searchTerms(
+        `${listing.title} ${listing.description} ${listing.rulesText ?? ""}`,
+      );
+      const score = [...queryTerms].filter((term) => listingTerms.has(term)).length;
+      return { listing, score };
+    })
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.listing.listingRef.localeCompare(right.listing.listingRef),
+    );
+  const positive = ranked.filter((item) => item.score > 0);
+  const strongestScore = positive[0]?.score ?? 0;
+  const relevant = positive.filter(
+    (item) => item.score >= Math.max(1, strongestScore - 1),
+  );
+  const listings = Object.freeze(
+    (relevant.length > 0 ? relevant : ranked)
+      .slice(0, MAX_LISTINGS_PER_TASK)
+      .map((item) => item.listing),
+  );
+  if (new Set(listings.map((listing) => listing.listingRef)).size !== listings.length) {
+    throw new Error("catalog context has duplicate listing references");
+  }
+  const body = {
+    schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+    source,
+    contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+    listings,
+  };
+  return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
 }
 
 export class FixtureCatalogDiscoveryDesk {
@@ -146,7 +213,12 @@ export class FixtureCatalogDiscoveryDesk {
         const fixture = await loadRawFixture(`${base}.json`, `${base}.meta.json`);
         return {
           sourceFixtureHash: fixture.rawHash,
-          listings: source.decode(fixture).map(displayListing),
+          listings: source.decode(fixture).map((listing) =>
+            toDiscoveryCatalogListing(listing, {
+              kind: "VERIFIED_FIXTURE",
+              receivedAt: fixture.metadata.fetchedAt,
+            }),
+          ),
         };
       }),
     );
@@ -186,37 +258,11 @@ export class FixtureCatalogDiscoveryDesk {
     if (!this.#loaded) {
       throw new Error("catalog discovery corpus is not loaded");
     }
-    const allowedVenues = new Set(venueIds);
-    const queryTerms = searchTerms(question);
-    const ranked = this.#listings
-      .filter((listing) => allowedVenues.has(listing.venueId))
-      .map((listing) => {
-        const listingTerms = searchTerms(
-          `${listing.title} ${listing.description} ${listing.rulesText ?? ""}`,
-        );
-        const score = [...queryTerms].filter((term) => listingTerms.has(term)).length;
-        return { listing, score };
-      })
-      .sort(
-        (left, right) =>
-          right.score - left.score ||
-          left.listing.listingRef.localeCompare(right.listing.listingRef),
-      );
-    const positive = ranked.filter((item) => item.score > 0);
-    const strongestScore = positive[0]?.score ?? 0;
-    const relevant = positive.filter(
-      (item) => item.score >= Math.max(1, strongestScore - 1),
+    return buildDiscoveryCatalogContext(
+      "VERIFIED_FIXTURE_CATALOGS",
+      this.#listings,
+      question,
+      venueIds,
     );
-    const listings = Object.freeze(
-      (relevant.length > 0 ? relevant : ranked)
-        .slice(0, MAX_LISTINGS_PER_TASK)
-        .map((item) => item.listing),
-    );
-    const body = {
-      schemaVersion: "pmh.discovery-catalog-context.v1" as const,
-      source: "VERIFIED_FIXTURE_CATALOGS" as const,
-      listings,
-    };
-    return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
   }
 }

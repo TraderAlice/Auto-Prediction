@@ -28,7 +28,11 @@ import {
   type DiscoveryRunStore,
 } from "./discovery-ledger.js";
 import { buildStudioProjection } from "./projection.js";
-import type { DiscoveryRunRecord, DiscoveryTask } from "./types.js";
+import type {
+  DiscoveryCatalogMode,
+  DiscoveryRunRecord,
+  DiscoveryTask,
+} from "./types.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -63,6 +67,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 function parseDiscoveryTask(
   value: unknown,
   catalogDesk: FixtureCatalogDiscoveryDesk,
+  catalogObservationDesk: CatalogObservationDesk,
   deadlineMs = 10_000,
 ): DiscoveryTask {
   if (
@@ -75,11 +80,13 @@ function parseDiscoveryTask(
   }
   const rawVenueIds = (value as { venueIds: unknown[] }).venueIds;
   const rawTaskId = (value as { taskId?: unknown }).taskId;
+  const rawCatalogMode = (value as { catalogMode?: unknown }).catalogMode;
   if (
     rawVenueIds.some((item) => typeof item !== "string") ||
-    (rawTaskId !== undefined && typeof rawTaskId !== "string")
+    (rawTaskId !== undefined && typeof rawTaskId !== "string") ||
+    (rawCatalogMode !== undefined && typeof rawCatalogMode !== "string")
   ) {
-    throw new Error("discovery taskId and venueIds must be strings");
+    throw new Error("discovery taskId, catalogMode, and venueIds must be strings");
   }
   const question = (value as { question: string }).question
     .trim()
@@ -97,6 +104,8 @@ function parseDiscoveryTask(
     typeof rawTaskId === "string"
       ? rawTaskId.trim()
       : undefined;
+  const catalogMode =
+    (rawCatalogMode ?? "VERIFIED_FIXTURES") as DiscoveryCatalogMode;
   if (
     question === "" ||
     question.length > 500 ||
@@ -104,11 +113,16 @@ function parseDiscoveryTask(
     venueIds.length > 25 ||
     venueIds.some((item) => item.length > 256) ||
     suppliedTaskId === "" ||
-    (suppliedTaskId?.length ?? 0) > 256
+    (suppliedTaskId?.length ?? 0) > 256 ||
+    (catalogMode !== "VERIFIED_FIXTURES" &&
+      catalogMode !== "CURRENT_OBSERVATIONS")
   ) {
     throw new Error("discovery request is empty or exceeds bounded input limits");
   }
-  const catalogContext = catalogDesk.context(question, venueIds);
+  const catalogContext =
+    catalogMode === "CURRENT_OBSERVATIONS"
+      ? catalogObservationDesk.context(question, venueIds)
+      : catalogDesk.context(question, venueIds);
   return {
     taskId:
       suppliedTaskId ??
@@ -131,6 +145,7 @@ function taskScopeHash(task: DiscoveryTask): string {
     venueIds: task.venueIds,
     maxHypotheses: task.maxHypotheses,
     catalogContextIdentity: task.catalogContext?.contextIdentity ?? null,
+    catalogContextSource: task.catalogContext?.source ?? null,
   });
 }
 
@@ -143,7 +158,9 @@ function recordMatchesTask(
     record.venueIds.length === task.venueIds.length &&
     record.venueIds.every((item, index) => item === task.venueIds[index]) &&
     (record.catalogContextIdentity ?? null) ===
-      (task.catalogContext?.contextIdentity ?? null)
+      (task.catalogContext?.contextIdentity ?? null) &&
+    (record.catalogContextSource ?? "VERIFIED_FIXTURE_CATALOGS") ===
+      (task.catalogContext?.source ?? "VERIFIED_FIXTURE_CATALOGS")
   );
 }
 
@@ -406,7 +423,11 @@ export function createControlPlane(options?: {
       let task: DiscoveryTask;
       try {
         await ready;
-        task = parseDiscoveryTask(await readJson(request), catalogDesk);
+        task = parseDiscoveryTask(
+          await readJson(request),
+          catalogDesk,
+          catalogObservationDesk,
+        );
       } catch (error) {
         writeJson(response, 400, {
           ok: false,
@@ -501,6 +522,7 @@ export function createControlPlane(options?: {
         task = parseDiscoveryTask(
           await readJson(request),
           catalogDesk,
+          catalogObservationDesk,
           piRuntime.projection.timeoutMs + 2_000,
         );
       } catch (error) {

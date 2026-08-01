@@ -62,6 +62,15 @@ describe("anonymous catalog observation desk", () => {
       promotion: "OBSERVE_ONLY",
       sourceCount: 6,
       healthySourceCount: 6,
+      contextQualification: {
+        status: "ELIGIBLE",
+        eligibleSourceCount: 6,
+        maxAgeMs: 900_000,
+        maxListingsPerTask: 30,
+        requiresExplicitRequest: true,
+        defaultMode: "VERIFIED_FIXTURES",
+        authority: "PROPOSE_ONLY",
+      },
       storage: { mode: "MEMORY", durable: false },
       effects: {
         externalWrites: false,
@@ -78,6 +87,23 @@ describe("anonymous catalog observation desk", () => {
           source.rawHash?.startsWith("sha256:") === true &&
           source.credentialsUsed === false &&
           source.receivedAt === "2026-08-01T03:15:00.000Z",
+      ),
+    ).toBe(true);
+    const context = desk.context("Rihanna album", ["polymarket-global"]);
+    expect(context).toMatchObject({
+      schemaVersion: "pmh.discovery-catalog-context.v2",
+      source: "QUALIFIED_LIVE_OBSERVATIONS",
+      contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
+    });
+    expect(context.listings.length).toBeGreaterThan(0);
+    expect(context.listings.length).toBeLessThanOrEqual(30);
+    expect(
+      context.listings.every(
+        (listing) =>
+          listing.venueId === "polymarket-global" &&
+          listing.sourceKind === "LIVE_OBSERVATION" &&
+          listing.sourceReceivedAt === "2026-08-01T03:15:00.000Z" &&
+          listing.sourceRawHash.startsWith("sha256:"),
       ),
     ).toBe(true);
   });
@@ -109,6 +135,47 @@ describe("anonymous catalog observation desk", () => {
       diagnostic: "anonymous catalog GET returned HTTP 503",
     });
     expect(degraded.healthySourceCount).toBe(5);
+    expect(degraded.contextQualification).toMatchObject({
+      status: "PARTIAL",
+      eligibleSourceCount: 5,
+    });
+    expect(() => desk.context("rates", ["kalshi"])).toThrow(
+      /latest refresh failed/,
+    );
+  });
+
+  it("expires live context qualification without discarding the observation", async () => {
+    let nowMs = Date.parse("2026-08-01T03:15:00.000Z");
+    const source = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "polymarket-global",
+    );
+    if (source === undefined) throw new Error("missing Polymarket source");
+    const desk = new CatalogObservationDesk({
+      sources: [source],
+      fetcher: fixtureFetcher(),
+      contextMaxAgeMs: 1_000,
+      now: () => nowMs,
+    });
+    await desk.refresh();
+    expect(desk.projection().sources[0]).toMatchObject({
+      status: "CURRENT",
+      contextEligible: true,
+      freshUntil: "2026-08-01T03:15:01.000Z",
+    });
+
+    nowMs += 1_001;
+    expect(desk.projection()).toMatchObject({
+      status: "READY",
+      listingCount: expect.any(Number),
+      contextQualification: {
+        status: "INELIGIBLE",
+        eligibleSourceCount: 0,
+      },
+      sources: [{ status: "CURRENT", contextEligible: false }],
+    });
+    expect(() => desk.context("Rihanna album", [source.venueId])).toThrow(
+      /last observation is stale/,
+    );
   });
 
   it("rejects a response before decoding when it crosses the byte cap", async () => {

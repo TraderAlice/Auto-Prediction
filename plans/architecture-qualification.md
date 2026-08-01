@@ -54,7 +54,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Persist discovery runs and task idempotency across control-plane restarts.
 - [x] Connect a fail-closed, budgeted external model provider adapter.
 - [x] Ground every non-empty scout hypothesis in a bounded, content-addressed catalog context.
-- [x] Capture bounded anonymous live catalog observations without promoting them into scout context.
+- [x] Capture bounded anonymous live catalog observations and admit them to proposal-only scout context through an explicit freshness gate.
 - [x] Add a one-request, secret-free, content-hashed provider qualification command.
 - [x] Add a bounded, read-only pi investigator qualification command for repository-aware work.
 - [x] Expose pi as an explicitly triggered, one-at-a-time Investigation Desk with SSE state and bounded durable completion retention.
@@ -117,6 +117,9 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: Six anonymous public GET sources now refresh independently under a 10-second and 2,000,000-byte per-source cap. They are projected as `OBSERVE_ONLY`; no observation can enter AI context, equivalence review, compilation, certification, or execution by this path.
 - 2026-08-01: The real refresh returns 314 current listings from Polymarket Global, Kalshi, Gemini, Opinion, Myriad, and Limitless with no credential. Gemini's missing indicative-price fields are represented as absent optional facts rather than zero values or a whole-source failure.
 - 2026-08-01: The live-observation checkpoint passes 168 tests, full typecheck, production build, durable restart/tamper coverage, per-venue retention, bounded-response failure coverage, partial-source degradation, and the HTTP refresh authority check under Node.js 24.14.0.
+- 2026-08-01: `pmh.discovery-catalog-context.v2` keeps verified fixtures as the default and permits explicitly selected live observations only when every requested source is successful, non-empty, and at most 15 minutes old. Venue text is untrusted data; context admission grants proposal authority only.
+- 2026-08-01: A real Polymarket live-context run grounded both DeepSeek/Vercel AI SDK and pi in two hash-bound listings. pi exposed a structured-close/rules-time conflict and missing rule evidence under durable artifact `sha256:d3a42fde…8e599d`; its successful high-thinking run required a 300-second process budget and retained no review or execution authority.
+- 2026-08-01: Qualified live AI context expands the Node.js 24.14.0 checkpoint to 171 passing tests plus full typecheck and production build, including stale/failed-source rejection, explicit HTTP source selection, prompt-injection posture, and Studio default-state proofs.
 
 ## Blockers
 

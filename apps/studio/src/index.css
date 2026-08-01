@@ -1316,6 +1316,11 @@ main {
   color: var(--primary);
 }
 
+.evidence-selector button {
+  flex: 1 1 180px;
+  justify-content: center;
+}
+
 .venue-selector button i {
   width: 5px;
   height: 5px;
