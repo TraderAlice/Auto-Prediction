@@ -5454,6 +5454,24 @@ footer span:first-child {
   line-height: 1.5;
 }
 
+.lifecycle-shadow-observation-action {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-top: 5px;
+  padding-top: 8px;
+}
+
+.lifecycle-shadow-observation-action > div {
+  align-items: center;
+  color: var(--muted-foreground);
+  display: flex;
+  font-size: 8px;
+  gap: 6px;
+}
+
 .lifecycle-materialization-fees {
   display: flex;
   flex-wrap: wrap;
@@ -5511,7 +5529,8 @@ footer span:first-child {
 
 .lifecycle-exact-evidence,
 .lifecycle-shadow-approval,
-.lifecycle-shadow-evidence {
+.lifecycle-shadow-evidence,
+.lifecycle-shadow-observation {
   border: 1px solid rgba(189, 155, 255, 0.24);
   border-radius: 8px;
   display: grid;
@@ -5536,6 +5555,7 @@ footer span:first-child {
 
 .lifecycle-exact-evidence > div:first-child,
 .lifecycle-shadow-evidence > div,
+.lifecycle-shadow-observation > div,
 .lifecycle-shadow-approval > div,
 .lifecycle-shadow-approval > div:first-child > div {
   align-items: center;
@@ -5545,7 +5565,8 @@ footer span:first-child {
 }
 
 .lifecycle-exact-evidence > div:first-child code,
-.lifecycle-shadow-evidence code {
+.lifecycle-shadow-evidence code,
+.lifecycle-shadow-observation code {
   margin-left: auto;
 }
 
@@ -5559,7 +5580,9 @@ footer span:first-child {
 .lifecycle-exact-evidence small,
 .lifecycle-shadow-approval span,
 .lifecycle-shadow-evidence span,
-.lifecycle-shadow-evidence small {
+.lifecycle-shadow-evidence small,
+.lifecycle-shadow-observation span,
+.lifecycle-shadow-observation small {
   color: var(--muted-foreground);
   font-size: 8px;
   letter-spacing: 0.07em;
@@ -5588,6 +5611,17 @@ footer span:first-child {
 
 .lifecycle-shadow-evidence {
   background: rgba(189, 155, 255, 0.045);
+}
+
+.lifecycle-shadow-observation {
+  background: rgba(126, 240, 193, 0.035);
+  border-color: rgba(126, 240, 193, 0.25);
+}
+
+.lifecycle-shadow-observation.is-diverged {
+  background: rgba(255, 159, 132, 0.035);
+  border-color: rgba(255, 159, 132, 0.3);
+  box-shadow: inset 2px 0 rgba(255, 159, 132, 0.48);
 }
 
 .lifecycle-route-grid {
@@ -5925,7 +5959,8 @@ footer span:first-child {
   }
 
   .lifecycle-exact-evidence > div:first-child code,
-  .lifecycle-shadow-evidence code {
+  .lifecycle-shadow-evidence code,
+  .lifecycle-shadow-observation code {
     margin-left: 0;
     width: 100%;
   }
@@ -5936,6 +5971,15 @@ footer span:first-child {
   }
 
   .lifecycle-shadow-approval button {
+    width: 100%;
+  }
+
+  .lifecycle-shadow-observation-action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lifecycle-shadow-observation-action button {
     width: 100%;
   }
 

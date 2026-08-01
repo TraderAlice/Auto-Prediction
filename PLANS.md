@@ -27,6 +27,15 @@ simulation blocks, verifier outcomes, and shadow observations become explicit
 falsification evidence. Ranking uses empirical outcome count and evidence
 freshness; model confidence still has no promotion authority.
 
+The lifecycle now also reacquires anonymous public market evidence after a
+certificate-bound shadow replay, reruns the first-party exchange simulator, and
+compares the fresh plan against the certificate's quantity and maximum-debit
+bounds. The observation records either `MATCHED_BOUNDS` or explicit divergence
+reasons and feeds that empirical result back to semantic search. It never
+observes an actual order or fill, reuses the prior simulation as new evidence,
+or grants execution authority; every observation still requires exact
+certificate reverification before any later promotion.
+
 ## Stable decisions
 
 - TypeScript strict monorepo with pnpm.
@@ -37,6 +46,21 @@ freshness; model confidence still has no promotion authority.
 - Live execution remains disabled.
 
 ## Findings log
+
+- 2026-08-01: Certificate-bound shadow observation is now a first-party,
+  content-addressed lifecycle artifact. It reacquires anonymous public books
+  and fees, reruns simulation, persists the full observed bundle, and compares
+  quantity, cost, model exactness, portfolio floor, and plan scope against the
+  certified shadow intent. `MATCHED_BOUNDS` means only that the fresh public
+  market model remains inside those bounds; actual-order observation is
+  literal false and certificate reverification is always required.
+- 2026-08-01: Semantic feedback no longer infers a shadow match from the
+  baseline certificate replay. `SHADOW_MATCHED` and `SHADOW_DIVERGENCE` are
+  emitted only from a separately timestamped fresh-market observation. Studio
+  exposes the observation source, changed-state count, divergence reasons,
+  reverification requirement, and zero gateway calls.
+- 2026-08-01: The observed-shadow checkpoint passes 291 workspace tests, full
+  typecheck, and production build under the bundled Node.js 24.14.0 runtime.
 
 - 2026-08-01: A deterministic semantic relation graph now binds listing-level
   claim evidence, close windows, resolution-rule/source identities, pi relation

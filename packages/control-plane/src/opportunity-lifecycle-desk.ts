@@ -3,9 +3,12 @@ import {
   assertOpportunityLifecycleProjection,
   assertOpportunitySimulationBundle,
   assertCertificateBoundShadowRun,
+  assertCertificateBoundShadowMarketObservation,
+  observeCertificateBoundShadowMarket,
   OpportunityLifecycleMachine,
   runCertificateBoundShadow,
   type CertificateBoundShadowRun,
+  type CertificateBoundShadowMarketObservation,
   type OpportunitySimulationBundle,
   type OpportunityLifecyclePolicy,
   type OpportunityLifecycleProjection,
@@ -100,6 +103,21 @@ export type OpportunityLifecycleDeskProjection = Readonly<{
     authority: "SHADOW_REPLAY_ONLY";
     executionAuthority: false;
   }>[];
+  shadowObservations: readonly Readonly<{
+    artifactHash: Hash;
+    opportunityId: string;
+    baselineShadowArtifactHash: Hash;
+    sourceMaterializationId: Hash;
+    observedSimulationBundleHash: Hash;
+    observedAtEpochMs: string;
+    status: "MATCHED_BOUNDS" | "DIVERGED";
+    reasons: readonly string[];
+    changedStateCount: number;
+    gatewayCalls: 0;
+    actualOrderObserved: false;
+    authority: "FIRST_PARTY_SHADOW_OBSERVER";
+    executionAuthority: false;
+  }>[];
   effects: Readonly<{
     externalMessagesSent: false;
     liveOrdersPlaced: false;
@@ -138,6 +156,7 @@ export type OpportunityLifecycleJournal = Readonly<{
   simulationBundles?: readonly OpportunitySimulationBundle[];
   exactVerifications?: readonly ExactOpportunityVerificationRecord[];
   shadowRuns?: readonly CertificateBoundShadowRun[];
+  shadowObservations?: readonly CertificateBoundShadowMarketObservation[];
 }>;
 
 export interface OpportunityLifecycleJournalStore {
@@ -316,6 +335,39 @@ export function assertOpportunityLifecycleJournal(
       throw new Error("lifecycle journal does not bind its shadow run");
     }
   }
+  const shadowObservations = journal.shadowObservations ?? [];
+  if (
+    !Array.isArray(shadowObservations) ||
+    shadowObservations.length > 100 ||
+    new Set(shadowObservations.map((item) => item.artifactHash)).size !==
+      shadowObservations.length
+  ) {
+    throw new Error("lifecycle journal shadow observation history is malformed");
+  }
+  for (const observation of shadowObservations) {
+    assertCertificateBoundShadowMarketObservation(observation);
+    const baselineShadow = shadowRuns.find(
+      (shadow) => shadow.artifactHash === observation.baselineShadowArtifactHash,
+    );
+    const baselineBundle = simulationBundles.find(
+      (bundle) =>
+        bundle.artifactHash === observation.baselineSimulationBundleHash,
+    );
+    if (
+      observation.opportunityId !== journal.opportunityId ||
+      baselineShadow === undefined ||
+      baselineBundle === undefined ||
+      baselineShadow.certificateId !== observation.certificateId ||
+      observeCertificateBoundShadowMarket({
+        baselineShadow,
+        baselineSimulationBundle: baselineBundle,
+        observedSimulationBundle: observation.observedSimulationBundle,
+        sourceMaterializationId: observation.sourceMaterializationId,
+      }).artifactHash !== observation.artifactHash
+    ) {
+      throw new Error("lifecycle journal does not bind its shadow observation");
+    }
+  }
   const { artifactHash, ...body } = journal;
   if (artifactHash !== hashCanonical(body)) {
     throw new Error("opportunity lifecycle journal identity mismatch");
@@ -329,6 +381,7 @@ type LifecycleEntry = {
   simulationBundles: OpportunitySimulationBundle[];
   exactVerifications: ExactOpportunityVerificationRecord[];
   shadowRuns: CertificateBoundShadowRun[];
+  shadowObservations: CertificateBoundShadowMarketObservation[];
 };
 
 export class OpportunityLifecycleDesk {
@@ -360,6 +413,7 @@ export class OpportunityLifecycleDesk {
         simulationBundles: [...(validated.simulationBundles ?? [])],
         exactVerifications: [...(validated.exactVerifications ?? [])],
         shadowRuns: [...(validated.shadowRuns ?? [])],
+        shadowObservations: [...(validated.shadowObservations ?? [])],
       });
     }
   }
@@ -392,6 +446,7 @@ export class OpportunityLifecycleDesk {
           simulationBundles: [],
           exactVerifications: [],
           shadowRuns: [],
+          shadowObservations: [],
         };
         this.#entries.set(opportunityId, entry);
         this.#persist(entry);
@@ -422,6 +477,7 @@ export class OpportunityLifecycleDesk {
       simulationBundles: [],
       exactVerifications: [],
       shadowRuns: [],
+      shadowObservations: [],
     };
     this.#entries.set(opportunityId, entry);
     this.#persist(entry);
@@ -496,6 +552,43 @@ export class OpportunityLifecycleDesk {
     }
     this.#persist(entry);
     return entry.machine.projection();
+  }
+
+  public recordShadowMarketObservation(
+    opportunityId: string,
+    observedSimulationBundle: OpportunitySimulationBundle,
+    sourceMaterializationId: Hash,
+  ): CertificateBoundShadowMarketObservation {
+    const entry = this.#entries.get(opportunityId);
+    const baselineShadow = entry?.shadowRuns.at(-1);
+    const baselineBundle = entry?.simulationBundles.find(
+      (bundle) => bundle.artifactHash === baselineShadow?.simulationBundleHash,
+    );
+    if (
+      entry === undefined ||
+      entry.machine.projection().state !== "SHADOW_COMPLETE" ||
+      baselineShadow === undefined ||
+      baselineBundle === undefined ||
+      observedSimulationBundle.opportunityId !== opportunityId
+    ) {
+      throw new Error("shadow market observation requires a completed bound shadow");
+    }
+    const observation = observeCertificateBoundShadowMarket({
+      baselineShadow,
+      baselineSimulationBundle: baselineBundle,
+      observedSimulationBundle,
+      sourceMaterializationId,
+    });
+    if (
+      entry.shadowObservations.some(
+        (item) => item.artifactHash === observation.artifactHash,
+      )
+    ) {
+      return observation;
+    }
+    entry.shadowObservations.push(observation);
+    this.#persist(entry);
+    return observation;
   }
 
   public recordOpportunitySimulation(
@@ -592,6 +685,7 @@ export class OpportunityLifecycleDesk {
       simulationBundles: Object.freeze([...entry.simulationBundles]),
       exactVerifications: Object.freeze([...entry.exactVerifications]),
       shadowRuns: Object.freeze([...entry.shadowRuns]),
+      shadowObservations: Object.freeze([...entry.shadowObservations]),
     });
     return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
   }
@@ -746,6 +840,34 @@ export class OpportunityLifecycleDesk {
               executionAuthority: false as const,
             }),
           ),
+      ),
+      shadowObservations: Object.freeze(
+        [...this.#entries.values()]
+          .flatMap((entry) => entry.shadowObservations)
+          .sort((left, right) =>
+            left.observedAtEpochMs === right.observedAtEpochMs
+              ? left.artifactHash.localeCompare(right.artifactHash)
+              : left.observedAtEpochMs > right.observedAtEpochMs ? -1 : 1,
+          )
+          .map((observation) => Object.freeze({
+            artifactHash: observation.artifactHash,
+            opportunityId: observation.opportunityId,
+            baselineShadowArtifactHash:
+              observation.baselineShadowArtifactHash,
+            sourceMaterializationId: observation.sourceMaterializationId,
+            observedSimulationBundleHash:
+              observation.observedSimulationBundle.artifactHash,
+            observedAtEpochMs: observation.observedAtEpochMs.toString(),
+            status: observation.status,
+            reasons: observation.reasons,
+            changedStateCount: observation.legs.filter(
+              (leg) => leg.inputStateChanged || leg.feeScheduleChanged,
+            ).length,
+            gatewayCalls: 0 as const,
+            actualOrderObserved: false as const,
+            authority: "FIRST_PARTY_SHADOW_OBSERVER" as const,
+            executionAuthority: false as const,
+          })),
       ),
       effects: Object.freeze({
         externalMessagesSent: false as const,

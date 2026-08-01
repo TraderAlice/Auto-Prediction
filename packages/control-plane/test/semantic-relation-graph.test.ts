@@ -154,6 +154,14 @@ function fixture() {
         cases: [],
         exactVerifications: [],
         shadowRuns: [],
+        shadowObservations: [{
+          artifactHash: hashCanonical({ shadowObservation: "diverged" }),
+          opportunityId,
+          observedAtEpochMs: String(Date.parse("2026-08-01T00:00:03.000Z")),
+          status: "DIVERGED",
+          reasons: ["COST_EXCEEDS_CERTIFICATE_BOUND"],
+          changedStateCount: 2,
+        }],
       },
       relationPayoff: { qualifications: [] },
       materializations: { records: [] },
@@ -179,6 +187,7 @@ describe("content-addressed semantic relation graph", () => {
       "DUPLICATE",
       "MISSING_RULE",
       "SEMANTIC_REJECTED",
+      "SHADOW_DIVERGENCE",
     ]);
     expect(first.modelConfidenceUsed).toBe(false);
     expect(first.executionAuthority).toBe(false);
@@ -190,7 +199,11 @@ describe("content-addressed semantic relation graph", () => {
 
     expect(context.graphIdentity).toBe(graph.graphIdentity);
     expect(context.items[0]?.listingRefs).toEqual(["venue-a:pizza", "venue-b:pizza"]);
-    expect(context.items[0]?.outcomeCodes).toEqual(["MISSING_RULE", "SEMANTIC_REJECTED"]);
+    expect(context.items[0]?.outcomeCodes).toEqual([
+      "MISSING_RULE",
+      "SEMANTIC_REJECTED",
+      "SHADOW_DIVERGENCE",
+    ]);
     expect(context.searchBrief).toContain("falsification evidence");
     expect(context.priorityBasis).toBe("EMPIRICAL_OUTCOMES_THEN_EVIDENCE_FRESHNESS");
     expect(context.semanticDecisionAuthority).toBe(false);

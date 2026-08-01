@@ -63,7 +63,7 @@ export type SemanticRelationGraphFeedback = Readonly<{
     | "ANONYMOUS_MATERIALIZATION"
     | "LIFECYCLE_EVENT"
     | "EXACT_VERIFICATION"
-    | "SHADOW_REPLAY";
+    | "SHADOW_MARKET_OBSERVATION";
   opportunityId: string | null;
   proposalId: Hash | null;
   listingRefs: readonly string[];
@@ -352,20 +352,20 @@ export function buildSemanticRelationGraph(input: GraphInput): SemanticRelationG
       detail: exact.diagnostic ?? (exact.status === "CERTIFIED" ? "First-party exact verification issued a certificate." : "First-party exact verification rejected the candidate."),
     }));
   }
-  for (const shadow of input.lifecycle.shadowRuns) {
+  for (const shadow of input.lifecycle.shadowObservations) {
     const relation = relations.find((item) => item.opportunityId === shadow.opportunityId);
-    const diverged = shadow.filledIntentCount !== shadow.plannedIntentCount;
+    const diverged = shadow.status === "DIVERGED";
     feedbackItems.push(feedback({
       code: diverged ? "SHADOW_DIVERGENCE" : "SHADOW_MATCHED",
       sourceArtifactHash: shadow.artifactHash,
-      sourceKind: "SHADOW_REPLAY",
+      sourceKind: "SHADOW_MARKET_OBSERVATION",
       opportunityId: shadow.opportunityId,
       proposalId: relation?.proposalId ?? null,
       listingRefs: relation?.listingRefs ?? [],
-      observedAt: input.lifecycle.cases.find((item) => item.opportunityId === shadow.opportunityId)?.events.at(-1)?.occurredAt ?? "1970-01-01T00:00:00.000Z",
+      observedAt: new Date(Number(BigInt(shadow.observedAtEpochMs))).toISOString(),
       detail: diverged
-        ? `Shadow filled ${shadow.filledIntentCount}/${shadow.plannedIntentCount} bound intents.`
-        : `Shadow matched all ${shadow.plannedIntentCount} bound intents with zero gateway calls.`,
+        ? `Fresh public-market shadow evidence diverged: ${shadow.reasons.join(", ")}.`
+        : `Fresh public-market evidence remained inside certificate intent bounds across ${shadow.changedStateCount} changed state bindings.`,
     }));
   }
 

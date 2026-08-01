@@ -740,6 +740,66 @@ async function requestShadowDecision(
   }
 }
 
+async function requestShadowObservation(
+  opportunityId: string,
+  portfolioId: string,
+  requestedQuantity: string,
+): Promise<void> {
+  const response = await fetch(
+    "/api/v1/opportunity-lifecycle/shadow-observations",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ opportunityId, portfolioId, requestedQuantity }),
+    },
+  );
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    source?: string;
+    actualOrderObserved?: boolean;
+    gatewayCalls?: number;
+    executionAuthority?: boolean;
+    liveExecutionEnabled?: boolean;
+    observation?: {
+      authority?: string;
+      executionAuthority?: boolean;
+      gatewayCalls?: number;
+      comparison?: {
+        publicMarketEvidenceOnly?: boolean;
+        actualOrderObserved?: boolean;
+        certificateReverificationRequired?: boolean;
+      };
+      effects?: {
+        externalWrites?: boolean;
+        valueMovingActions?: boolean;
+        liveExecutionEnabled?: boolean;
+      };
+    } | null;
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "shadow market observation failed");
+  }
+  if (
+    result.source !== "ANONYMOUS_PUBLIC_MARKET_EVIDENCE" ||
+    result.actualOrderObserved !== false ||
+    result.gatewayCalls !== 0 ||
+    result.executionAuthority !== false ||
+    result.liveExecutionEnabled !== false ||
+    (result.observation !== null &&
+      (result.observation?.authority !== "FIRST_PARTY_SHADOW_OBSERVER" ||
+        result.observation.executionAuthority !== false ||
+        result.observation.gatewayCalls !== 0 ||
+        result.observation.comparison?.publicMarketEvidenceOnly !== true ||
+        result.observation.comparison.actualOrderObserved !== false ||
+        result.observation.comparison.certificateReverificationRequired !== true ||
+        result.observation.effects?.externalWrites !== false ||
+        result.observation.effects.valueMovingActions !== false ||
+        result.observation.effects.liveExecutionEnabled !== false))
+  ) {
+    throw new Error("shadow observer crossed its public-evidence boundary");
+  }
+}
+
 async function requestRadarInvestigation(
   candidateId: string,
 ): Promise<boolean> {
@@ -2508,6 +2568,7 @@ function OpportunityLifecycleView() {
   const simulationBundles = desk.simulationBundles ?? [];
   const exactVerifications = desk.exactVerifications ?? [];
   const shadowRuns = desk.shadowRuns ?? [];
+  const shadowObservations = desk.shadowObservations ?? [];
   const [reviewStates, setReviewStates] = useState<
     Readonly<Record<string, "RUNNING" | "DONE" | "RESTORED" | "FAILED">>
   >({});
@@ -2518,6 +2579,9 @@ function OpportunityLifecycleView() {
     Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
   >({});
   const [shadowDecisionStates, setShadowDecisionStates] = useState<
+    Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
+  >({});
+  const [shadowObservationStates, setShadowObservationStates] = useState<
     Readonly<Record<string, "RUNNING" | "DONE" | "FAILED">>
   >({});
   const [rationales, setRationales] = useState<Readonly<Record<string, string>>>(
@@ -2653,6 +2717,39 @@ function OpportunityLifecycleView() {
     }
   }
 
+  async function observeShadow(
+    opportunityId: string,
+    portfolioId: string,
+    requestedQuantity: string,
+  ): Promise<void> {
+    setShadowObservationStates((current) => ({
+      ...current,
+      [portfolioId]: "RUNNING",
+    }));
+    setDiagnostics((current) => ({ ...current, [opportunityId]: "" }));
+    try {
+      await requestShadowObservation(
+        opportunityId,
+        portfolioId,
+        requestedQuantity,
+      );
+      setShadowObservationStates((current) => ({
+        ...current,
+        [portfolioId]: "DONE",
+      }));
+    } catch (error) {
+      setShadowObservationStates((current) => ({
+        ...current,
+        [portfolioId]: "FAILED",
+      }));
+      setDiagnostics((current) => ({
+        ...current,
+        [opportunityId]:
+          error instanceof Error ? error.message : "shadow observation failed",
+      }));
+    }
+  }
+
   return (
     <section className="page-section lifecycle-page">
       <div className="page-heading lifecycle-heading">
@@ -2784,6 +2881,10 @@ function OpportunityLifecycleView() {
             );
             const shadowRun = shadowRuns.find(
               (run) => run.opportunityId === item.opportunityId,
+            );
+            const latestShadowObservation = shadowObservations.find(
+              (observation) =>
+                observation.opportunityId === item.opportunityId,
             );
             const reviewRunning =
               reviewStates[item.opportunityId] === "RUNNING" ||
@@ -3036,6 +3137,9 @@ function OpportunityLifecycleView() {
                           const materializationRunning =
                             materializationStates[portfolio.portfolioId] ===
                             "RUNNING";
+                          const shadowObservationRunning =
+                            shadowObservationStates[portfolio.portfolioId] ===
+                            "RUNNING";
                           return (
                             <div
                               className="lifecycle-payoff-portfolio"
@@ -3097,6 +3201,34 @@ function OpportunityLifecycleView() {
                                   </div>
                                 )}
                               </div>
+                              {shadowRun !== undefined && (
+                                <div className="lifecycle-shadow-observation-action">
+                                  <div>
+                                    <Radio size={13} />
+                                    <span>Fresh public-market comparison</span>
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    disabled={shadowObservationRunning}
+                                    onClick={() =>
+                                      void observeShadow(
+                                        item.opportunityId,
+                                        portfolio.portfolioId,
+                                        requestedQuantity,
+                                      )
+                                    }
+                                  >
+                                    {shadowObservationRunning ? (
+                                      <RefreshCw className="is-spinning" size={13} />
+                                    ) : (
+                                      <Activity size={13} />
+                                    )}
+                                    {shadowObservationRunning
+                                      ? "Observing…"
+                                      : "Observe shadow now"}
+                                  </Button>
+                                </div>
+                              )}
                               {latestMaterialization !== undefined && (
                                 <div className="lifecycle-materialization-fees">
                                   {latestMaterialization.legs.map((leg) => (
@@ -3260,6 +3392,41 @@ function OpportunityLifecycleView() {
                         <small>
                           SHADOW REPLAY ONLY · NO VALUE MOVEMENT · LIVE ROUTE
                           ABSENT
+                        </small>
+                      </div>
+                    )}
+                    {latestShadowObservation !== undefined && (
+                      <div
+                        className={`lifecycle-shadow-observation ${
+                          latestShadowObservation.status === "DIVERGED"
+                            ? "is-diverged"
+                            : "is-matched"
+                        }`}
+                      >
+                        <div>
+                          <Badge
+                            variant={
+                              latestShadowObservation.status === "DIVERGED"
+                                ? "warning"
+                                : "verified"
+                            }
+                          >
+                            {latestShadowObservation.status.replaceAll("_", " ")}
+                          </Badge>
+                          <strong>Fresh public-market shadow observation</strong>
+                          <code>
+                            {latestShadowObservation.artifactHash.slice(0, 23)}…
+                          </code>
+                        </div>
+                        <span>
+                          {latestShadowObservation.changedStateCount} changed
+                          {" "}state bindings · {latestShadowObservation.reasons.length === 0
+                            ? "still inside planned bounds"
+                            : latestShadowObservation.reasons.join(" · ").replaceAll("_", " ")}
+                        </span>
+                        <small>
+                          PUBLIC MARKET EVIDENCE ONLY · ACTUAL ORDER OBSERVED FALSE
+                          {" · "}REVERIFICATION REQUIRED · 0 GATEWAY CALLS
                         </small>
                       </div>
                     )}

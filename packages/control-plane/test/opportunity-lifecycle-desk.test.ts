@@ -372,6 +372,44 @@ describe("opportunity lifecycle desk", () => {
         valueMovingActions: false,
       },
     });
+    const observedSimulation = runOpportunitySimulation({
+      ...simulation.plan,
+      legs: simulation.plan.legs.map((leg, index) => ({
+        ...leg,
+        request: leg.request.model === "CLOB_TAKER_V1"
+          ? {
+              ...leg.request,
+              levels: index === 0
+                ? [{
+                    price: 600n,
+                    quantity: 1_000n,
+                    levelIdentity: hashCanonical({ observed: "more-expensive" }),
+                  }]
+                : leg.request.levels,
+              bookStateHash: hashCanonical({ observed: true, index }),
+              observedAtEpochMs: 1_785_523_201_000n,
+            }
+          : leg.request,
+      })),
+    });
+    const shadowObservation = first.recordShadowMarketObservation(
+      opportunityId,
+      observedSimulation,
+      hashCanonical({ materialization: "shadow-observed" }),
+    );
+    expect(shadowObservation).toMatchObject({
+      status: "DIVERGED",
+      reasons: [
+        "COST_EXCEEDS_CERTIFICATE_BOUND",
+        "NON_POSITIVE_PORTFOLIO_FLOOR",
+      ],
+      gatewayCalls: 0,
+      comparison: {
+        publicMarketEvidenceOnly: true,
+        actualOrderObserved: false,
+        certificateReverificationRequired: true,
+      },
+    });
     expect(first.projection()).toMatchObject({
       exactVerifications: [
         {
@@ -385,6 +423,16 @@ describe("opportunity lifecycle desk", () => {
           certificateId: certificate.id,
           status: "LOCKED",
           gatewayCalls: 0,
+          executionAuthority: false,
+        },
+      ],
+      shadowObservations: [
+        {
+          artifactHash: shadowObservation.artifactHash,
+          status: "DIVERGED",
+          actualOrderObserved: false,
+          gatewayCalls: 0,
+          authority: "FIRST_PARTY_SHADOW_OBSERVER",
           executionAuthority: false,
         },
       ],
