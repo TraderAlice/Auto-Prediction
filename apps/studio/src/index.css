@@ -5226,6 +5226,20 @@ footer span:first-child {
   line-height: 1.5;
 }
 
+.lifecycle-materialization-fees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.lifecycle-materialization-fees small {
+  border: 1px solid rgba(126, 240, 193, 0.16);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 7px;
+  padding: 2px 5px;
+}
+
 .lifecycle-materialization-diagnostic {
   color: var(--warning);
   margin: 2px 0 0;

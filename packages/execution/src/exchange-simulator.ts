@@ -5,12 +5,26 @@ import {
   type Hash,
 } from "@pmh/domain";
 
-export type SimulationFee = Readonly<{
+export type CollateralRateSimulationFee = Readonly<{
+  model?: "COLLATERAL_RATE_V1";
   rate: bigint;
   rateScale: bigint;
   flat: bigint;
   scheduleHash: Hash;
 }>;
+
+export type BinaryPriceCurveSimulationFee = Readonly<{
+  model: "BINARY_PRICE_CURVE_V1";
+  rate: bigint;
+  rateScale: bigint;
+  exponent: 1;
+  roundingQuantum: bigint;
+  scheduleHash: Hash;
+}>;
+
+export type SimulationFee =
+  | CollateralRateSimulationFee
+  | BinaryPriceCurveSimulationFee;
 
 export type ClobLevel = Readonly<{
   price: bigint;
@@ -84,6 +98,7 @@ export type ExchangeSimulationEvidence = Readonly<{
   observedAtEpochMs: bigint;
   modelQualification:
     | "BOOK_EXACT_TAKER_WALK"
+    | "BOOK_PRICE_CURVE_AGGREGATE_LEVELS_REQUIRES_MATCH_CALIBRATION"
     | "GENERIC_CONSTANT_PRODUCT_NOT_VENUE_CALIBRATED";
   assumptions: readonly string[];
   authority: "SIMULATION_ONLY";
@@ -101,12 +116,13 @@ function assertHash(value: string, name: string): asserts value is Hash {
 }
 
 function assertFee(fee: SimulationFee): void {
-  if (
-    fee.rate < 0n ||
-    fee.rateScale <= 0n ||
-    fee.rate >= fee.rateScale ||
-    fee.flat < 0n
-  ) {
+  const commonInvalid =
+    fee.rate < 0n || fee.rateScale <= 0n || fee.rate >= fee.rateScale;
+  const modelInvalid =
+    fee.model === "BINARY_PRICE_CURVE_V1"
+      ? fee.exponent !== 1 || fee.roundingQuantum <= 0n
+      : fee.flat < 0n;
+  if (commonInvalid || modelInvalid) {
     throw new Error("simulation fee must be non-negative and below its scale");
   }
   assertHash(fee.scheduleHash, "fee schedule identity");
@@ -126,7 +142,50 @@ function commonValidation(input: ExchangeSimulationRequest): void {
 }
 
 function feeOnCollateral(collateral: bigint, fee: SimulationFee): bigint {
+  if (fee.model === "BINARY_PRICE_CURVE_V1") {
+    throw new Error("binary price-curve fees require fill price and quantity");
+  }
   return divideCeil(collateral * fee.rate, fee.rateScale) + fee.flat;
+}
+
+function feeOnBinaryPriceCurveFill(
+  fill: SimulationFill,
+  input: ClobTakerSimulationRequest,
+  fee: BinaryPriceCurveSimulationFee,
+): bigint {
+  if (fill.price < 0n || fill.price > input.collateralScale) {
+    throw new Error("binary price-curve fee requires price inside [0, 1]");
+  }
+  const complement = input.collateralScale - fill.price;
+  const numerator =
+    fill.quantity *
+    fee.rate *
+    fill.price *
+    complement *
+    input.collateralScale;
+  const denominator =
+    input.quantityScale *
+    fee.rateScale *
+    input.collateralScale *
+    input.collateralScale *
+    fee.roundingQuantum;
+  return divideCeil(numerator, denominator) * fee.roundingQuantum;
+}
+
+function feeOnClobFills(
+  fills: readonly SimulationFill[],
+  grossCollateral: bigint,
+  input: ClobTakerSimulationRequest,
+): bigint {
+  if (input.fee.model !== "BINARY_PRICE_CURVE_V1") {
+    return feeOnCollateral(grossCollateral, input.fee);
+  }
+  const curveFee = input.fee;
+  return fills.reduce(
+    (total, fill) =>
+      total + feeOnBinaryPriceCurveFill(fill, input, curveFee),
+    0n,
+  );
 }
 
 function averagePrice(
@@ -221,7 +280,9 @@ export function simulateClobTaker(
   }
   const filledQuantity = target - remaining;
   const feeCollateral =
-    filledQuantity === 0n ? 0n : feeOnCollateral(grossCollateral, input.fee);
+    filledQuantity === 0n
+      ? 0n
+      : feeOnClobFills(fills, grossCollateral, input);
   if (input.side === "SELL" && feeCollateral > grossCollateral) {
     throw new Error("CLOB sell fee exceeds simulated proceeds");
   }
@@ -238,7 +299,8 @@ export function simulateClobTaker(
           input.quantityScale,
           input.side === "BUY" ? "UP" : "DOWN",
         );
-  const referenceUnitPrice = filledQuantity === 0n ? null : sorted[0]?.price ?? null;
+  const referenceUnitPrice =
+    filledQuantity === 0n ? null : sorted[0]?.price ?? null;
   const status =
     filledQuantity === 0n
       ? "REJECTED"
@@ -270,12 +332,22 @@ export function simulateClobTaker(
     inputStateHash: input.bookStateHash,
     feeScheduleHash: input.fee.scheduleHash,
     observedAtEpochMs: input.observedAtEpochMs,
-    modelQualification: "BOOK_EXACT_TAKER_WALK",
+    modelQualification:
+      input.fee.model === "BINARY_PRICE_CURVE_V1"
+        ? "BOOK_PRICE_CURVE_AGGREGATE_LEVELS_REQUIRES_MATCH_CALIBRATION"
+        : "BOOK_EXACT_TAKER_WALK",
     assumptions: Object.freeze([
       "VISIBLE_LEVELS_ONLY",
       "TAKER_ONLY",
       "NO_QUEUE_POSITION",
       "NO_LATENCY_OR_ADVERSE_SELECTION",
+      ...(input.fee.model === "BINARY_PRICE_CURVE_V1"
+        ? [
+            "BINARY_FEE_CURVE_PER_AGGREGATED_PRICE_LEVEL",
+            "FEE_ROUNDED_UP_TO_VENUE_QUANTUM",
+            "UNDERLYING_MATCH_COUNT_UNAVAILABLE",
+          ]
+        : []),
     ]),
     authority: "SIMULATION_ONLY",
     effects: Object.freeze({
@@ -290,6 +362,9 @@ export function simulateConstantProductAmm(
   input: ConstantProductSimulationRequest,
 ): ExchangeSimulationEvidence {
   commonValidation(input);
+  if (input.fee.model === "BINARY_PRICE_CURVE_V1") {
+    throw new Error("binary price-curve fees are not calibrated for AMM simulation");
+  }
   assertHash(input.poolStateHash, "pool state identity");
   if (
     input.outcomeQuantity <= 0n ||

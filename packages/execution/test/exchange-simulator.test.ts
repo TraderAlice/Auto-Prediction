@@ -116,6 +116,92 @@ describe("exchange microstructure simulation", () => {
     });
   });
 
+  it.each([
+    [1_000_000n, 6_930_000n],
+    [10_000_000n, 63_000_000n],
+    [30_000_000n, 147_000_000n],
+    [50_000_000n, 175_000_000n],
+    [70_000_000n, 147_000_000n],
+    [99_000_000n, 6_930_000n],
+  ])(
+    "matches the documented Polymarket crypto fee formula at price %s",
+    (price, expectedFee) => {
+      const report = simulateClobTaker({
+        model: "CLOB_TAKER_V1",
+        venueId: "polymarket-global",
+        instrumentId: "crypto-outcome",
+        side: "BUY",
+        fillPolicy: "FILL_OR_KILL",
+        requestedQuantity: 100n * SCALE,
+        quantityScale: SCALE,
+        collateralScale: SCALE,
+        levels: [
+          {
+            price,
+            quantity: 100n * SCALE,
+            levelIdentity: hashCanonical({ price }),
+          },
+        ],
+        fee: {
+          model: "BINARY_PRICE_CURVE_V1",
+          rate: 7_000_000n,
+          rateScale: SCALE,
+          exponent: 1,
+          roundingQuantum: 1_000n,
+          scheduleHash: hashCanonical({ curve: "polymarket-crypto" }),
+        },
+        bookStateHash: BOOK,
+        observedAtEpochMs: 1_000n,
+      });
+      expect(report.feeCollateral).toBe(expectedFee);
+      expect(report).toMatchObject({
+        modelQualification:
+          "BOOK_PRICE_CURVE_AGGREGATE_LEVELS_REQUIRES_MATCH_CALIBRATION",
+        assumptions: expect.arrayContaining([
+          "BINARY_FEE_CURVE_PER_AGGREGATED_PRICE_LEVEL",
+          "FEE_ROUNDED_UP_TO_VENUE_QUANTUM",
+          "UNDERLYING_MATCH_COUNT_UNAVAILABLE",
+        ]),
+      });
+    },
+  );
+
+  it("rounds each aggregated price level up to the venue fee quantum", () => {
+    const report = simulateClobTaker({
+      model: "CLOB_TAKER_V1",
+      venueId: "polymarket-global",
+      instrumentId: "small-outcome",
+      side: "BUY",
+      fillPolicy: "FILL_OR_KILL",
+      requestedQuantity: 2n * SCALE,
+      quantityScale: SCALE,
+      collateralScale: SCALE,
+      levels: [
+        {
+          price: 1_000_000n,
+          quantity: SCALE,
+          levelIdentity: hashCanonical({ level: "one" }),
+        },
+        {
+          price: 2_000_000n,
+          quantity: SCALE,
+          levelIdentity: hashCanonical({ level: "two" }),
+        },
+      ],
+      fee: {
+        model: "BINARY_PRICE_CURVE_V1",
+        rate: 4_000_000n,
+        rateScale: SCALE,
+        exponent: 1,
+        roundingQuantum: 1_000n,
+        scheduleHash: hashCanonical({ curve: "polymarket-politics" }),
+      },
+      bookStateHash: BOOK,
+      observedAtEpochMs: 1_000n,
+    });
+    expect(report.feeCollateral).toBe(119_000n);
+  });
+
   it("simulates constant-product buy and sell while preserving x*y >= k", () => {
     const poolStateHash = hashCanonical({ pool: "generic" });
     const buy = simulateConstantProductAmm({
@@ -200,5 +286,28 @@ describe("exchange microstructure simulation", () => {
         observedAtEpochMs: 0n,
       }),
     ).toThrow(/fee/);
+    expect(() =>
+      simulateConstantProductAmm({
+        model: "CONSTANT_PRODUCT_AMM_V1",
+        venueId: "venue",
+        instrumentId: "outcome",
+        action: "BUY_EXACT_OUT",
+        outcomeQuantity: 1n,
+        quantityScale: 100n,
+        collateralScale: 100n,
+        collateralReserve: 1_000n,
+        outcomeReserve: 1_000n,
+        fee: {
+          model: "BINARY_PRICE_CURVE_V1",
+          rate: 4n,
+          rateScale: 100n,
+          exponent: 1,
+          roundingQuantum: 1n,
+          scheduleHash: FEE_SCHEDULE,
+        },
+        poolStateHash: BOOK,
+        observedAtEpochMs: 0n,
+      }),
+    ).toThrow(/not calibrated/);
   });
 });

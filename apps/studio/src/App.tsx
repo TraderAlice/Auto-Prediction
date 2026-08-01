@@ -85,6 +85,31 @@ const EMPTY_OPPORTUNITY_RADAR: StudioProjection["ai"]["opportunityRadar"] = {
   },
 };
 
+const EMPTY_SEMANTIC_REVIEW: StudioProjection["ai"]["semanticReview"] = {
+  schemaVersion: "pmh.semantic-review-desk.v1",
+  configured: false,
+  model: "unavailable",
+  status: "NEEDS_KEY",
+  runCount: 0,
+  passCount: 0,
+  failedCount: 0,
+  retentionLimit: 10,
+  storage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "reviewId",
+  },
+  records: [],
+  authority: "ADVISORY_ONLY",
+  independenceGrade: "SEPARATE_INVOCATION_SAME_PROVIDER",
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_MARKET_CORPUS: StudioProjection["ai"]["marketCorpus"] = {
   schemaVersion: "pmh.market-corpus.v1",
   contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
@@ -170,6 +195,12 @@ const EMPTY_SIMULATION_MATERIALIZER: StudioProjection["simulationMaterializer"] 
   maxResponseBytes: 1_000_000,
   maxSnapshotSkewMs: 5_000,
   retainedRawSourceCount: 0,
+  storage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "materializationId",
+  },
   records: [],
   authority: "ANONYMOUS_RESEARCH_MATERIALIZER",
   certificateAuthority: false,
@@ -2132,7 +2163,8 @@ function MarketArchaeologistView() {
 function OpportunityLifecycleView() {
   const studioProjection = useStudioProjection();
   const desk = studioProjection.opportunityLifecycle;
-  const semanticReview = studioProjection.ai.semanticReview;
+  const semanticReview =
+    studioProjection.ai.semanticReview ?? EMPTY_SEMANTIC_REVIEW;
   const relationPayoff =
     studioProjection.relationPayoff ?? EMPTY_RELATION_PAYOFF;
   const simulationMaterializer =
@@ -2283,6 +2315,11 @@ function OpportunityLifecycleView() {
           label="Review journal"
           value={`${semanticReview.passCount}/${semanticDecisions.length}`}
           detail={`${semanticReview.storage.durable ? "SQLite" : "memory"} · advisory / decided`}
+        />
+        <Metric
+          label="Public evidence"
+          value={`${simulationMaterializer.retainedRawSourceCount}`}
+          detail={`${simulationMaterializer.storage.durable ? "SQLite WAL" : "memory"} · content addressed`}
         />
       </div>
 
@@ -2684,6 +2721,17 @@ function OpportunityLifecycleView() {
                                   </div>
                                 )}
                               </div>
+                              {latestMaterialization !== undefined && (
+                                <div className="lifecycle-materialization-fees">
+                                  {latestMaterialization.legs.map((leg) => (
+                                    <small key={leg.legId}>
+                                      {leg.venueId} · {leg.feeModel ?? "NO FEE MODEL"}
+                                      {" · "}
+                                      {leg.feeQualification ?? "BLOCKED"}
+                                    </small>
+                                  ))}
+                                </div>
+                              )}
                               {latestMaterialization?.diagnostic !== null &&
                                 latestMaterialization?.diagnostic !== undefined && (
                                   <p className="lifecycle-materialization-diagnostic">

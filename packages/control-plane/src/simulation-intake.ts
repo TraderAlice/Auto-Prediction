@@ -46,8 +46,48 @@ function bigint(value: unknown, name: string): bigint {
 
 function fee(value: unknown, name: string) {
   const raw = object(value, name);
-  exactKeys(raw, ["rate", "rateScale", "flat", "scheduleHash"], name);
+  if (raw.model === "BINARY_PRICE_CURVE_V1") {
+    exactKeys(
+      raw,
+      [
+        "model",
+        "rate",
+        "rateScale",
+        "exponent",
+        "roundingQuantum",
+        "scheduleHash",
+      ],
+      name,
+    );
+    if (raw.exponent !== "1") {
+      throw new Error(`${name}.exponent must be the supported decimal string 1`);
+    }
+    return Object.freeze({
+      model: "BINARY_PRICE_CURVE_V1" as const,
+      rate: bigint(raw.rate, `${name}.rate`),
+      rateScale: bigint(raw.rateScale, `${name}.rateScale`),
+      exponent: 1 as const,
+      roundingQuantum: bigint(
+        raw.roundingQuantum,
+        `${name}.roundingQuantum`,
+      ),
+      scheduleHash: text(
+        raw.scheduleHash,
+        `${name}.scheduleHash`,
+        80,
+      ) as `sha256:${string}`,
+    });
+  }
+  const linearKeys = ["rate", "rateScale", "flat", "scheduleHash"];
+  if (raw.model === "COLLATERAL_RATE_V1") linearKeys.push("model");
+  exactKeys(raw, linearKeys, name);
+  if (raw.model !== undefined && raw.model !== "COLLATERAL_RATE_V1") {
+    throw new Error(`${name}.model is unsupported`);
+  }
   return Object.freeze({
+    ...(raw.model === "COLLATERAL_RATE_V1"
+      ? { model: "COLLATERAL_RATE_V1" as const }
+      : {}),
     rate: bigint(raw.rate, `${name}.rate`),
     rateScale: bigint(raw.rateScale, `${name}.rateScale`),
     flat: bigint(raw.flat, `${name}.flat`),

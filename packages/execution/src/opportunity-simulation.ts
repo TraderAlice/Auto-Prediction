@@ -177,9 +177,7 @@ function buildBundle(planValue: OpportunitySimulationPlan): OpportunitySimulatio
   const status = reports.some((report) => report.status !== "FULL")
     ? ("INCOMPLETE_LEG_SIMULATION" as const)
     : reports.some(
-          (report) =>
-            report.modelQualification ===
-            "GENERIC_CONSTANT_PRODUCT_NOT_VENUE_CALIBRATED",
+          (report) => report.modelQualification !== "BOOK_EXACT_TAKER_WALK",
         )
       ? ("MODEL_CALIBRATION_REQUIRED" as const)
       : floorAfterSimulatedFees > 0n

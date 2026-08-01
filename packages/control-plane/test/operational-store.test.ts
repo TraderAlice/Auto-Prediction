@@ -6,6 +6,7 @@ import { hashBytes, hashCanonical } from "@pmh/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   candidateWatchSources,
+  AnonymousSimulationMaterializerDesk,
   createPiInvestigatorRuntime,
   DiscoveryLedger,
   DiscoveryPool,
@@ -14,6 +15,7 @@ import {
   type DiscoveryTask,
   type CandidateWatchRefreshRecord,
   type PiProcessResult,
+  type StoredAnonymousSimulationMaterialization,
   type StoredCandidateBookObservation,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
@@ -216,6 +218,78 @@ function candidateWatchRefresh(
   };
 }
 
+function anonymousSimulationMaterialization(
+  completedAt = "2026-08-01T08:00:00.000Z",
+): StoredAnonymousSimulationMaterialization {
+  const bytes = new TextEncoder().encode(
+    JSON.stringify({ book: completedAt, asks: [] }),
+  );
+  const sourceBody = {
+    kind: "BOOK" as const,
+    venueId: "fixture-venue",
+    instrumentId: `instrument:${completedAt}`,
+    protocolIdentity: "fixture-book-rest:v1",
+    sourceUrl: `https://example.test/books/${encodeURIComponent(completedAt)}`,
+    receivedAt: completedAt,
+    httpStatus: 200 as const,
+    contentType: "application/json",
+    rawHash: hashBytes(bytes),
+    byteLength: bytes.byteLength.toString(),
+    nativeGeneration: null,
+    acquisition: {
+      method: "GET" as const,
+      credentialsUsed: false as const,
+      valueMovingOperation: false as const,
+    },
+  };
+  const source = {
+    ...sourceBody,
+    sourceId: hashCanonical(sourceBody),
+  };
+  const recordBody = {
+    schemaVersion: "pmh.anonymous-simulation-materialization.v1" as const,
+    opportunityId: `opportunity:${completedAt}`,
+    relationConstraintHash: hashCanonical({ relation: completedAt }),
+    semanticDecisionId: hashCanonical({ decision: completedAt }),
+    portfolioId: hashCanonical({ portfolio: completedAt }),
+    requestedQuantity: "1",
+    attemptedAt: completedAt,
+    completedAt,
+    status: "BLOCKED" as const,
+    diagnostic: "fixture evidence is intentionally non-simulatable",
+    legs: ["left", "right"].map((legId) => ({
+      legId,
+      venueId: "fixture-venue",
+      instrumentId: source.instrumentId,
+      outcome: legId === "left" ? ("TRUE" as const) : ("FALSE" as const),
+      status: "BLOCKED" as const,
+      blocker: "BOOK_SCHEMA_INVALID" as const,
+      diagnostic: "fixture book has no levels",
+      bookSourceId: source.sourceId,
+      feeSourceId: null,
+      askLevelCount: 0,
+      feeModel: null,
+      feeQualification: null,
+    })),
+    sources: [source],
+    authority: "ANONYMOUS_RESEARCH_MATERIALIZER" as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
+  return {
+    record: {
+      ...recordBody,
+      materializationId: hashCanonical(recordBody),
+    },
+    rawSources: [{ record: source, bytes }],
+  };
+}
+
 function durableDesk(
   store: SqliteOperationalStore,
   onRun: () => void = () => undefined,
@@ -259,7 +333,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 7,
+        schemaVersion: 8,
         idempotencyKey: "taskId",
       },
     });
@@ -421,11 +495,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(7);
+    expect(migrated.storage.schemaVersion).toBe(8);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 7,
+      schemaVersion: 8,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -441,6 +515,8 @@ describe("SQLite operational store", () => {
       user_version: number;
     };
     expect(tables).toEqual([
+      "anonymous_materialization_sources",
+      "anonymous_simulation_materializations",
       "candidate_book_observations",
       "candidate_watch_refreshes",
       "catalog_observations",
@@ -450,7 +526,7 @@ describe("SQLite operational store", () => {
       "opportunity_lifecycle_journals",
       "semantic_review_records",
     ]);
-    expect(version.user_version).toBe(7);
+    expect(version.user_version).toBe(8);
     inspected.close();
   });
 
@@ -465,7 +541,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 7,
+      schemaVersion: 8,
     });
     firstStore.close();
 
@@ -575,7 +651,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 7,
+      schemaVersion: 8,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -630,7 +706,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 7,
+      schemaVersion: 8,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -677,7 +753,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateWatchRefreshStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 7,
+      schemaVersion: 8,
       idempotencyKey: "refreshId",
     });
     first.close();
@@ -707,5 +783,87 @@ describe("SQLite operational store", () => {
       /record state is inconsistent|identity mismatch/,
     );
     reopened.close();
+  });
+
+  it("restores anonymous simulation evidence byte-for-byte across store lifetimes", async () => {
+    const path = await databasePath();
+    const materialization = anonymousSimulationMaterialization();
+    const first = new SqliteOperationalStore(path);
+    expect(
+      first.saveAnonymousSimulationMaterialization(materialization, 3),
+    ).toEqual(materialization);
+    expect(first.anonymousSimulationMaterializationStorage).toEqual({
+      mode: "SQLITE_WAL",
+      durable: true,
+      schemaVersion: 8,
+      idempotencyKey: "materializationId",
+    });
+    first.close();
+
+    const second = new SqliteOperationalStore(path);
+    expect(second.loadAnonymousSimulationMaterializations(3)).toEqual([
+      materialization,
+    ]);
+    const restoredDesk = new AnonymousSimulationMaterializerDesk({
+      store: second,
+    });
+    expect(restoredDesk.projection()).toMatchObject({
+      runCount: 1,
+      blockedCount: 1,
+      retainedRawSourceCount: 1,
+      storage: {
+        mode: "SQLITE_WAL",
+        durable: true,
+        schemaVersion: 8,
+      },
+    });
+    expect(
+      restoredDesk.rawSource(materialization.rawSources[0]!.record.sourceId),
+    ).toEqual(materialization.rawSources[0]);
+    second.close();
+  });
+
+  it("fails closed when anonymous simulation raw evidence is tampered", async () => {
+    const path = await databasePath();
+    const first = new SqliteOperationalStore(path);
+    first.saveAnonymousSimulationMaterialization(
+      anonymousSimulationMaterialization(),
+      3,
+    );
+    first.close();
+
+    const database = new DatabaseSync(path);
+    database
+      .prepare("UPDATE anonymous_materialization_sources SET raw_bytes = X'00'")
+      .run();
+    database.close();
+
+    const reopened = new SqliteOperationalStore(path);
+    expect(() => reopened.loadAnonymousSimulationMaterializations(3)).toThrow(
+      /source is malformed/,
+    );
+    reopened.close();
+  });
+
+  it("removes orphaned anonymous evidence with bounded materialization retention", async () => {
+    const path = await databasePath();
+    const oldest = anonymousSimulationMaterialization(
+      "2026-08-01T08:00:00.000Z",
+    );
+    const latest = anonymousSimulationMaterialization(
+      "2026-08-01T08:01:00.000Z",
+    );
+    const store = new SqliteOperationalStore(path);
+    store.saveAnonymousSimulationMaterialization(oldest, 1);
+    store.saveAnonymousSimulationMaterialization(latest, 1);
+    expect(store.loadAnonymousSimulationMaterializations(10)).toEqual([latest]);
+    store.close();
+
+    const database = new DatabaseSync(path);
+    const row = database
+      .prepare("SELECT count(*) AS count FROM anonymous_materialization_sources")
+      .get() as { count: number };
+    expect(row.count).toBe(1);
+    database.close();
   });
 });

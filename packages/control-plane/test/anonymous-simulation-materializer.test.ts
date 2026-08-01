@@ -1,5 +1,6 @@
 import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it } from "vitest";
+import { runOpportunitySimulation } from "@pmh/execution";
 import {
   AnonymousSimulationMaterializerDesk,
   type AnonymousMaterializerFetchLike,
@@ -49,9 +50,9 @@ function qualification(
         listingHash: hashCanonical({ listing: "left" }),
         venueId,
         venueInstrumentId: "left-market",
-        priceScale: "1000",
-        quantityScale: "1000",
-        minPriceTick: "1",
+        priceScale: "100000000",
+        quantityScale: "100000000",
+        minPriceTick: "1000000",
         trueOutcome: { venueOutcomeId: "left-yes", label: "Yes" },
         falseOutcome: { venueOutcomeId: "left-no", label: "No" },
       },
@@ -61,9 +62,9 @@ function qualification(
         listingHash: hashCanonical({ listing: "right" }),
         venueId,
         venueInstrumentId: "right-market",
-        priceScale: "1000",
-        quantityScale: "1000",
-        minPriceTick: "1",
+        priceScale: "100000000",
+        quantityScale: "100000000",
+        minPriceTick: "1000000",
         trueOutcome: { venueOutcomeId: "right-yes", label: "Yes" },
         falseOutcome: { venueOutcomeId: "right-no", label: "No" },
       },
@@ -99,8 +100,16 @@ describe("anonymous simulation materializer", () => {
     const calls: Array<Readonly<{ url: string; init: Parameters<AnonymousMaterializerFetchLike>[1] }>> = [];
     const fetcher: AnonymousMaterializerFetchLike = async (url, init) => {
       calls.push({ url, init });
+      if (url.includes("/clob-markets/")) {
+        const condition = new URL(url).pathname.split("/").at(-1)!;
+        const token = condition.replace(/-condition$/u, "");
+        return jsonResponse({
+          t: [{ t: token, o: "bound" }, { t: `${token}-other`, o: "other" }],
+          mts: 0.01,
+          fd: null,
+        });
+      }
       const token = new URL(url).searchParams.get("token_id")!;
-      if (url.includes("/fee-rate")) return jsonResponse({ base_fee: 0 });
       return jsonResponse({
         market: `${token}-condition`,
         asset_id: token,
@@ -122,14 +131,14 @@ describe("anonymous simulation materializer", () => {
     const result = await desk.materialize({
       qualification: qualified,
       portfolioId,
-      requestedQuantity: "1000",
+      requestedQuantity: "100000000",
     });
 
     expect(result.record).toMatchObject({
       status: "READY",
       opportunityId: qualified.opportunityId,
       portfolioId,
-      requestedQuantity: "1000",
+      requestedQuantity: "100000000",
       certificateAuthority: false,
       executionAuthority: false,
       effects: {
@@ -151,7 +160,12 @@ describe("anonymous simulation materializer", () => {
           ? leg.request.levels[0]?.price
           : null,
       ),
-    ).toEqual([400n, 500n]);
+    ).toEqual([40_000_000n, 50_000_000n]);
+    expect(result.record.legs.every(
+      (leg) =>
+        leg.feeModel === "COLLATERAL_RATE_V1" &&
+        leg.feeQualification === "EXACT",
+    )).toBe(true);
     expect(calls).toHaveLength(4);
     expect(
       calls.every(
@@ -188,7 +202,7 @@ describe("anonymous simulation materializer", () => {
     const result = await desk.materialize({
       qualification: qualified,
       portfolioId: qualified.portfolios[0]!.portfolioId,
-      requestedQuantity: "1000",
+      requestedQuantity: "100000000",
     });
 
     expect(result.plan).toBeNull();
@@ -218,7 +232,7 @@ describe("anonymous simulation materializer", () => {
     const result = await desk.materialize({
       qualification: qualified,
       portfolioId: qualified.portfolios[0]!.portfolioId,
-      requestedQuantity: "1000",
+      requestedQuantity: "100000000",
     });
 
     expect(result.record.status).toBe("BLOCKED");
@@ -229,16 +243,26 @@ describe("anonymous simulation materializer", () => {
     expect(result.record.legs[1]?.blocker).toBe("DYNAMIC_FEE_MODEL_UNSUPPORTED");
   });
 
-  it("blocks non-zero Polymarket fees instead of treating the base rate as linear", async () => {
+  it("materializes non-zero Polymarket fees as a calibrated price curve", async () => {
     const fetcher: AnonymousMaterializerFetchLike = async (url) => {
+      if (url.includes("/clob-markets/")) {
+        const condition = new URL(url).pathname.split("/").at(-1)!;
+        const token = condition.replace(/-condition$/u, "");
+        return jsonResponse({
+          t: [{ t: token, o: "bound" }, { t: `${token}-other`, o: "other" }],
+          mts: 0.01,
+          mbf: 1000,
+          tbf: 1000,
+          fd: { r: 0.05, e: 1, to: true },
+        });
+      }
       const token = new URL(url).searchParams.get("token_id")!;
-      return url.includes("/fee-rate")
-        ? jsonResponse({ base_fee: 30 })
-        : jsonResponse({
-            asset_id: token,
-            hash: `generation:${token}`,
-            asks: [{ price: "0.5", size: "2" }],
-          });
+      return jsonResponse({
+        market: `${token}-condition`,
+        asset_id: token,
+        hash: `generation:${token}`,
+        asks: [{ price: "0.5", size: "2" }],
+      });
     };
     const qualified = qualification();
     const result = await new AnonymousSimulationMaterializerDesk({
@@ -246,13 +270,19 @@ describe("anonymous simulation materializer", () => {
     }).materialize({
       qualification: qualified,
       portfolioId: qualified.portfolios[0]!.portfolioId,
-      requestedQuantity: "1000",
+      requestedQuantity: "100000000",
     });
 
-    expect(result.plan).toBeNull();
+    expect(result.plan).not.toBeNull();
+    expect(result.record.status).toBe("READY");
     expect(result.record.legs.every(
-      (leg) => leg.blocker === "NON_ZERO_CURVED_FEE_UNSUPPORTED",
+      (leg) =>
+        leg.feeModel === "BINARY_PRICE_CURVE_V1" &&
+        leg.feeQualification === "REQUIRES_MATCH_CALIBRATION",
     )).toBe(true);
+    expect(runOpportunitySimulation(result.plan!).status).toBe(
+      "MODEL_CALIBRATION_REQUIRED",
+    );
   });
 
   it("does not perform network calls for venues without anonymous book authority", async () => {
@@ -266,7 +296,7 @@ describe("anonymous simulation materializer", () => {
     }).materialize({
       qualification: qualified,
       portfolioId: qualified.portfolios[0]!.portfolioId,
-      requestedQuantity: "1000",
+      requestedQuantity: "100000000",
     });
 
     expect(callCount).toBe(0);
@@ -280,7 +310,12 @@ describe("anonymous simulation materializer", () => {
     const mismatchedBindings = original.listingBindings.map((binding, index) =>
       index === 0
         ? binding
-        : { ...binding, quantityScale: "100", priceScale: "100" },
+        : {
+            ...binding,
+            quantityScale: "1000000",
+            priceScale: "1000000",
+            minPriceTick: "10000",
+          },
     );
     const { artifactHash: _artifactHash, ...body } = original;
     const qualified = Object.freeze({
@@ -289,14 +324,23 @@ describe("anonymous simulation materializer", () => {
       artifactHash: hashCanonical({ ...body, listingBindings: mismatchedBindings }),
     });
     const fetcher: AnonymousMaterializerFetchLike = async (url) => {
+      if (url.includes("/clob-markets/")) {
+        const condition = new URL(url).pathname.split("/").at(-1)!;
+        const token = condition.replace(/-condition$/u, "");
+        const second = token === "right-yes";
+        return jsonResponse({
+          t: [{ t: token, o: "bound" }, { t: `${token}-other`, o: "other" }],
+          mts: second ? 0.01 : 0.01,
+          fd: null,
+        });
+      }
       const token = new URL(url).searchParams.get("token_id")!;
-      return url.includes("/fee-rate")
-        ? jsonResponse({ base_fee: 0 })
-        : jsonResponse({
-            asset_id: token,
-            hash: `generation:${token}`,
-            asks: [{ price: "0.5", size: "20" }],
-          });
+      return jsonResponse({
+        market: `${token}-condition`,
+        asset_id: token,
+        hash: `generation:${token}`,
+        asks: [{ price: "0.5", size: "20" }],
+      });
     };
     const result = await new AnonymousSimulationMaterializerDesk({
       fetcher,
@@ -304,7 +348,7 @@ describe("anonymous simulation materializer", () => {
     }).materialize({
       qualification: qualified,
       portfolioId: qualified.portfolios[0]!.portfolioId,
-      requestedQuantity: "1000",
+      requestedQuantity: "100000000",
     });
 
     expect(result.plan).toBeNull();

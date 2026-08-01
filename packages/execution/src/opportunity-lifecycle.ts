@@ -475,9 +475,7 @@ export class OpportunityLifecycleMachine {
       );
     } else if (
       reports.some(
-        (report) =>
-          report.modelQualification ===
-          "GENERIC_CONSTANT_PRODUCT_NOT_VENUE_CALIBRATED",
+        (report) => report.modelQualification !== "BOOK_EXACT_TAKER_WALK",
       )
     ) {
       this.#state = "AWAITING_MODEL_CALIBRATION";
