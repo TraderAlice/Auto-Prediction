@@ -32,6 +32,7 @@ import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import type { MarketCorpusProjection } from "./market-corpus.js";
 import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
 import type { SearchLeaseSchedulerProjection } from "./search-lease-scheduler.js";
+import type { SearchQuoteEnrichmentProjection } from "./search-quote-enrichment.js";
 import type { SearchIssueSchedulerProjection } from "./search-issue-scheduler.js";
 import {
   buildSearchOutcomeAttribution,
@@ -107,6 +108,7 @@ export function buildStudioProjection(input: {
   marketCorpus?: MarketCorpusProjection;
   marketArchaeologist?: MarketArchaeologistProjection;
   searchLeaseScheduler?: SearchLeaseSchedulerProjection;
+  searchQuoteEnrichment?: SearchQuoteEnrichmentProjection;
   searchIssueScheduler?: SearchIssueSchedulerProjection;
   searchOutcomeAttribution?: SearchOutcomeAttributionProjection;
   semanticReview?: SemanticReviewDeskProjection;
@@ -360,6 +362,12 @@ export function buildStudioProjection(input: {
       modelSelectionRequiredCount: 0,
       modelSelectedCandidateCount: 0,
       modelSelectionMissCount: 0,
+      quoteEnrichmentAttemptCount: 0,
+      quoteEnrichmentReadyCount: 0,
+      quoteEnrichmentPartialCount: 0,
+      quoteEnrichmentFailedCount: 0,
+      quoteEnrichmentRescuedGateCount: 0,
+      quoteObservationCount: 0,
       exactSemanticScopeCount: 0,
       semanticScopeRevisitCount: 0,
       noLeadSemanticScopeCount: 0,
@@ -638,6 +646,38 @@ export function buildStudioProjection(input: {
       marketCorpus,
       marketArchaeologist,
       searchLeaseScheduler,
+      searchQuoteEnrichment: input.searchQuoteEnrichment ?? {
+        schemaVersion: "pmh.search-quote-enrichment-desk.v1" as const,
+        mode: "ANONYMOUS_PUBLIC_GET" as const,
+        status: "IDLE" as const,
+        runCount: 0,
+        readyCount: 0,
+        partialCount: 0,
+        failedCount: 0,
+        unsupportedCount: 0,
+        retainedObservationCount: 0,
+        timeoutMs: 10_000,
+        maxResponseBytes: 1_000_000,
+        retentionLimit: 100,
+        supportedVenues: Object.freeze(["opinion"] as const),
+        storage: Object.freeze({
+          mode: "MEMORY" as const,
+          durable: false as const,
+          schemaVersion: 0,
+          idempotencyKey: "observationId" as const,
+        }),
+        observations: Object.freeze([]),
+        authority: "SEARCH_PRICE_EVIDENCE_ONLY" as const,
+        semanticDecisionAuthority: false as const,
+        simulationAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        effects: Object.freeze({
+          externalWrites: false as const,
+          valueMovingActions: false as const,
+          liveExecutionEnabled: false as const,
+        }),
+      },
       searchIssueScheduler,
       searchOutcomeAttribution,
       semanticReview,

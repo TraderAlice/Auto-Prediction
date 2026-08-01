@@ -24,6 +24,7 @@ import {
   buildSearchScopeIdentity,
   type SearchScopeIdentity,
 } from "./search-scope-identity.js";
+import type { SearchQuoteEnrichmentResult } from "./search-quote-enrichment.js";
 
 const ALGORITHM_VERSION = "pmh.ai-search-leases.v1";
 const DEFAULT_RETENTION_LIMIT = 40;
@@ -64,6 +65,22 @@ export type SearchLeaseEconomicGate = Readonly<{
   indicativeCostBpsCeil: string | null;
   grossEdgeBpsFloor: string | null;
   diagnostic: string | null;
+  quoteEnrichment?: Readonly<{
+    status:
+      | "NOT_RUN"
+      | "NOT_REQUIRED"
+      | SearchQuoteEnrichmentResult["status"];
+    attemptedOutcomeCount: number;
+    enrichedOutcomeCount: number;
+    observationIds: readonly Hash[];
+    diagnostic: string | null;
+    source: "CATALOG_ONLY" | "CATALOG_PLUS_ANONYMOUS_PUBLIC_BOOKS";
+    authority: "SEARCH_PRICE_EVIDENCE_ONLY";
+    semanticDecisionAuthority: false;
+    simulationAuthority: false;
+    certificateAuthority: false;
+    executionAuthority: false;
+  }>;
   feesIncluded: false;
   depthIncluded: false;
   executable: false;
@@ -272,6 +289,9 @@ type SearchLeaseOptions = Readonly<{
     snapshot: MarketCorpusSnapshot,
     question: string,
   ) => Promise<SearchLeaseDeepResult>;
+  enrichPrices?: (
+    listings: DiscoveryCatalogContext["listings"],
+  ) => Promise<SearchQuoteEnrichmentResult>;
   now?: () => number;
 }>;
 
@@ -340,6 +360,8 @@ function completedEconomicGate(input: Readonly<{
   policy: SearchCandidatePolicy | null | undefined;
   listingRefs: readonly string[];
   context: DiscoveryCatalogContext;
+  currentListings?: DiscoveryCatalogContext["listings"];
+  enrichment?: SearchQuoteEnrichmentResult;
 }>): SearchLeaseEconomicGate {
   const base = pendingEconomicGate(input.policy);
   const listingRefs = Object.freeze([...new Set(input.listingRefs)].sort());
@@ -371,9 +393,31 @@ function completedEconomicGate(input: Readonly<{
       listingRefs,
       relation: relation as CompilableRelation,
       currentListings: new Map(
-        input.context.listings.map((listing) => [listing.listingRef, listing] as const),
+        (input.currentListings ?? input.context.listings).map((listing) =>
+          [listing.listingRef, listing] as const
+        ),
       ),
     });
+  const enrichment = input.enrichment;
+  const quoteEnrichment = Object.freeze({
+    status: enrichment?.status ?? (
+      economics.status === "PRICE_UNAVAILABLE" ? "NOT_RUN" : "NOT_REQUIRED"
+    ),
+    attemptedOutcomeCount: enrichment?.attemptedOutcomeCount ?? 0,
+    enrichedOutcomeCount: enrichment?.enrichedOutcomeCount ?? 0,
+    observationIds: Object.freeze([...(enrichment?.observationIds ?? [])]),
+    diagnostic: enrichment === undefined || enrichment.diagnostics.length === 0
+      ? null
+      : compactDiagnostic(enrichment.diagnostics.join("; ")),
+    source: enrichment === undefined
+      ? "CATALOG_ONLY" as const
+      : "CATALOG_PLUS_ANONYMOUS_PUBLIC_BOOKS" as const,
+    authority: "SEARCH_PRICE_EVIDENCE_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    simulationAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
   return Object.freeze({
     ...base,
     status: economics.status,
@@ -382,10 +426,18 @@ function completedEconomicGate(input: Readonly<{
     indicativeCostBpsCeil: economics.indicativeCostBpsCeil,
     grossEdgeBpsFloor: economics.grossEdgeBpsFloor,
     diagnostic: economics.status === "POSITIVE_GROSS_HINT"
-      ? "Current catalog indications leave a positive gross search hint before fees and depth."
+      ? enrichment === undefined
+        ? "Current catalog indications leave a positive gross search hint before fees and depth."
+        : "Catalog prices plus retained anonymous public best asks leave a positive gross search hint before fees and common depth."
       : economics.status === "NON_POSITIVE_GROSS_HINT"
-        ? "Current catalog indications leave no positive gross search hint before fees and depth."
-        : "Canonical current catalog prices are unavailable or malformed.",
+        ? enrichment === undefined
+          ? "Current catalog indications leave no positive gross search hint before fees and depth."
+          : "Catalog prices plus retained anonymous public best asks leave no positive gross search hint before fees and common depth."
+        : enrichment === undefined
+          ? "Canonical current catalog prices are unavailable or malformed."
+          : quoteEnrichment.diagnostic ??
+            "Anonymous public quote enrichment did not produce a complete canonical price pair.",
+    quoteEnrichment,
   });
 }
 
@@ -394,7 +446,38 @@ function economicGateValid(
   policy: SearchCandidatePolicy | null | undefined,
 ): boolean {
   if (gate === undefined) return true;
+  const enrichment = gate.quoteEnrichment;
+  const enrichmentValid = enrichment === undefined || (
+    [
+      "NOT_RUN", "NOT_REQUIRED", "READY", "PARTIAL", "UNSUPPORTED", "FAILED",
+    ].includes(enrichment.status) &&
+    Number.isSafeInteger(enrichment.attemptedOutcomeCount) &&
+    enrichment.attemptedOutcomeCount >= 0 && enrichment.attemptedOutcomeCount <= 4 &&
+    Number.isSafeInteger(enrichment.enrichedOutcomeCount) &&
+    enrichment.enrichedOutcomeCount >= 0 &&
+    enrichment.enrichedOutcomeCount <= enrichment.attemptedOutcomeCount &&
+    Array.isArray(enrichment.observationIds) &&
+    enrichment.observationIds.length === enrichment.enrichedOutcomeCount &&
+    new Set(enrichment.observationIds).size === enrichment.observationIds.length &&
+    enrichment.observationIds.every((item) => HASH_PATTERN.test(String(item))) &&
+    (enrichment.diagnostic === null ||
+      (typeof enrichment.diagnostic === "string" && enrichment.diagnostic.length <= 500)) &&
+    (enrichment.source === "CATALOG_ONLY" ||
+      enrichment.source === "CATALOG_PLUS_ANONYMOUS_PUBLIC_BOOKS") &&
+    enrichment.authority === "SEARCH_PRICE_EVIDENCE_ONLY" &&
+    enrichment.semanticDecisionAuthority === false &&
+    enrichment.simulationAuthority === false &&
+    enrichment.certificateAuthority === false &&
+    enrichment.executionAuthority === false &&
+    (enrichment.status === "NOT_RUN" || enrichment.status === "NOT_REQUIRED"
+      ? enrichment.attemptedOutcomeCount === 0 &&
+        enrichment.enrichedOutcomeCount === 0 &&
+        enrichment.observationIds.length === 0 &&
+        enrichment.source === "CATALOG_ONLY"
+      : enrichment.source === "CATALOG_PLUS_ANONYMOUS_PUBLIC_BOOKS")
+  );
   return (
+    enrichmentValid &&
     gate.required === (policy?.requirePositiveGrossHint === true) &&
     [
       "NOT_RUN", "NOT_REQUIRED", "POSITIVE_GROSS_HINT",
@@ -721,6 +804,7 @@ export class SearchLeaseScheduler {
   readonly #context: SearchLeaseOptions["context"];
   readonly #runFast: SearchLeaseOptions["runFast"];
   readonly #runDeep: SearchLeaseOptions["runDeep"] | undefined;
+  readonly #enrichPrices: SearchLeaseOptions["enrichPrices"] | undefined;
   readonly #graphContext: SearchLeaseOptions["graphContext"] | undefined;
   readonly #now: () => number;
   readonly #active = new Map<Hash, Promise<SearchLeaseRecord>>();
@@ -736,6 +820,7 @@ export class SearchLeaseScheduler {
     this.#context = options.context;
     this.#runFast = options.runFast;
     this.#runDeep = options.runDeep;
+    this.#enrichPrices = options.enrichPrices;
     this.#graphContext = options.graphContext;
     this.#now = options.now ?? Date.now;
     this.#concurrencyLimit = options.concurrencyLimit ?? 1;
@@ -1068,6 +1153,34 @@ export class SearchLeaseScheduler {
         ? undefined
         : this.#activeNovelty.get(signature);
       const duplicateLeaseId = duplicate?.lease.leaseId ?? activeDuplicateLeaseId ?? null;
+      let economicGate = listingRefs.length === 0
+        ? pendingEconomicGate(issued.lease.candidatePolicy)
+        : completedEconomicGate({
+            policy: issued.lease.candidatePolicy,
+            listingRefs,
+            context,
+          });
+      if (
+        economicGate.required &&
+        economicGate.status === "PRICE_UNAVAILABLE" &&
+        this.#enrichPrices !== undefined &&
+        listingRefs.length === 2
+      ) {
+        const selectedListings = listingRefs.flatMap((listingRef) => {
+          const listing = context.listings.find((item) => item.listingRef === listingRef);
+          return listing === undefined ? [] : [listing];
+        });
+        if (selectedListings.length === 2) {
+          const enrichment = await this.#enrichPrices(selectedListings);
+          economicGate = completedEconomicGate({
+            policy: issued.lease.candidatePolicy,
+            listingRefs,
+            context,
+            currentListings: enrichment.listings,
+            enrichment,
+          });
+        }
+      }
       const fastLane: SearchLeaseFastLane = Object.freeze({
         status: "PASS",
         taskId: task.taskId,
@@ -1077,13 +1190,7 @@ export class SearchLeaseScheduler {
         hypothesisIds: Object.freeze(run.hypotheses.map((item) => item.hypothesisId)),
         candidateListingRefs: listingRefs,
         semanticScope,
-        economicGate: listingRefs.length === 0
-          ? pendingEconomicGate(issued.lease.candidatePolicy)
-          : completedEconomicGate({
-              policy: issued.lease.candidatePolicy,
-              listingRefs,
-              context,
-            }),
+        economicGate,
         diagnostic: run.diagnostics.length === 0 ? null : compactDiagnostic(run.diagnostics.join("; ")),
       });
       let deepLane: SearchLeaseDeepLane;

@@ -311,7 +311,7 @@ describe("Market Archaeologist", () => {
       expect(firstDesk.projection().storage).toMatchObject({
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 13,
+        schemaVersion: 14,
         idempotencyKey: "runId",
       });
       firstStore.close();

@@ -7204,7 +7204,7 @@ footer span:first-child {
   }
 
   .page-heading h1 {
-    font-size: 43px;
+    font-size: clamp(34px, 10vw, 43px);
   }
 
   .depth-ladder,

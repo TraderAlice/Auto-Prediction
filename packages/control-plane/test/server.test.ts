@@ -229,6 +229,14 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        searchQuoteEnrichment: {
+          mode: string;
+          retainedObservationCount: number;
+          supportedVenues: string[];
+          storage: { durable: boolean; idempotencyKey: string };
+          semanticDecisionAuthority: boolean;
+          executionAuthority: boolean;
+        };
         searchOutcomeAttribution: {
           attributionIdentity: string;
           attributedProposalCount: number;
@@ -320,6 +328,14 @@ describe("control-plane HTTP surface", () => {
       corpusStorage: { durable: false, idempotencyKey: "snapshotIdentity" },
       semanticDecisionAuthority: false,
       certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.searchQuoteEnrichment).toMatchObject({
+      mode: "ANONYMOUS_PUBLIC_GET",
+      retainedObservationCount: 0,
+      supportedVenues: ["opinion"],
+      storage: { durable: false, idempotencyKey: "observationId" },
+      semanticDecisionAuthority: false,
       executionAuthority: false,
     });
     expect(projection.ai.searchOutcomeAttribution).toMatchObject({
@@ -1617,7 +1633,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 13,
+          schemaVersion: 14,
         },
         records: [{ investigationId: created.investigationId }],
       });

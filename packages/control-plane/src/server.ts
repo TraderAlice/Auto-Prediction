@@ -101,6 +101,10 @@ import {
   type SearchLens,
 } from "./search-lease-scheduler.js";
 import {
+  SearchQuoteEnrichmentDesk,
+  type SearchQuoteObservationStore,
+} from "./search-quote-enrichment.js";
+import {
   parseSearchIssueTickInterval,
   SearchIssueScheduler,
   type SearchIssueRecordStore,
@@ -410,6 +414,18 @@ function supportsAnonymousSimulationMaterializations(
   );
 }
 
+function supportsSearchQuoteObservations(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & SearchQuoteObservationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<SearchQuoteObservationStore>;
+  return (
+    candidate.searchQuoteObservationStorage !== undefined &&
+    typeof candidate.loadSearchQuoteObservations === "function" &&
+    typeof candidate.saveSearchQuoteObservation === "function"
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -427,6 +443,7 @@ export function createControlPlane(options?: {
   candidateWatchDesk?: CandidateWatchDesk;
   marketArchaeologistDesk?: MarketArchaeologistDesk;
   searchLeaseScheduler?: SearchLeaseScheduler;
+  searchQuoteEnrichmentDesk?: SearchQuoteEnrichmentDesk;
   searchIssueScheduler?: SearchIssueScheduler;
   semanticReviewDesk?: SemanticReviewDesk;
   semanticReviewScheduler?: SemanticReviewScheduler;
@@ -501,6 +518,13 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const searchQuoteEnrichmentDesk =
+    options?.searchQuoteEnrichmentDesk ??
+    new SearchQuoteEnrichmentDesk({
+      ...(supportsSearchQuoteObservations(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   let graphContextForLease:
     | ((snapshot: MarketCorpusSnapshot, lens: SearchLens) => SemanticGraphSearchContext)
     | undefined;
@@ -562,6 +586,7 @@ export function createControlPlane(options?: {
           await pool.run(task, { maxModelWorkers: maxModelRequests }),
         );
       },
+      enrichPrices: (listings) => searchQuoteEnrichmentDesk.enrich(listings),
       ...(marketArchaeologistDesk.projection().configured
         ? {
             runDeep: async (snapshot, question) => {
@@ -865,6 +890,7 @@ export function createControlPlane(options?: {
       marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
       marketArchaeologist: archaeologistProjection,
       searchLeaseScheduler: searchLeaseProjection,
+      searchQuoteEnrichment: searchQuoteEnrichmentDesk.projection(),
       searchIssueScheduler: searchIssueProjection,
       searchOutcomeAttribution,
       semanticReview: semanticReviewProjection,
@@ -997,6 +1023,7 @@ export function createControlPlane(options?: {
         opportunityRadar: catalogObservationDesk.radar(),
         marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
         marketArchaeologist: marketArchaeologistDesk.projection(),
+        searchQuoteEnrichment: searchQuoteEnrichmentDesk.projection(),
         semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
         opportunityLifecycle: opportunityLifecycleDesk.projection(),
@@ -2234,6 +2261,7 @@ export function createControlPlane(options?: {
     candidateWatchDesk,
     marketArchaeologistDesk,
     searchLeaseScheduler,
+    searchQuoteEnrichmentDesk,
     searchIssueScheduler,
     semanticReviewDesk,
     semanticReviewScheduler,

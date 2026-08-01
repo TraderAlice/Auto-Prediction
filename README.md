@@ -15,7 +15,9 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - Deterministic snapshot/delta book replay with gap, duplicate, out-of-order, tick, stale, and rebuild handling.
 - Content-hash verification for immutable HTTP and stream fixtures, including subscription identity, frame boundaries, per-frame hashes, and anonymous acquisition metadata.
 - Fixture-backed catalog adapters for Polymarket Global, Polymarket US, Kalshi, Gemini Prediction Markets, Opinion, Myriad, and Limitless.
-- Public book adapters for Polymarket Global, Polymarket US, Gemini, and Limitless with venue-specific snapshot, sequence, and rebuild semantics.
+- Public book adapters for Polymarket Global, Polymarket US, Gemini, Limitless,
+  and bounded on-demand Opinion token snapshots with venue-specific evidence
+  semantics.
 - Transport-free Kalshi demo and Gemini sandbox order-shape gateways whose submit, cancel, and reconcile methods always return hash-bound `REJECTED_INERT` receipts.
 - Lexical JSON-number decoding so venue number tokens never pass through IEEE-754 before fixed-point conversion.
 - Depth-, tick-, fee-, and per-venue-capital-aware complete-set candidate compilation.
@@ -41,14 +43,17 @@ This is not a trading bot and it has no live-trading authority. The repository d
   leases in flight, and emits deduplicated in-app findings for new signatures
   and failures. Focused parity work presents deterministic batches of radar
   leads and requires the cheap model to select one exact cross-venue pair before
-  bigint economics can permit pi. General bounded neighborhoods carry the same
+  bigint economics can permit pi. When that selected pair lacks catalog prices,
+  the control plane fetches only its missing anonymous Opinion outcome books,
+  retains the response bytes and token binding, and recomputes a non-executable
+  best-ask hint. General bounded neighborhoods carry the same
   price-independent semantic identities plus routing identities. Each issue
   feeds retained terminal scopes back into the next assignment: radar batches
   and title-anchor neighborhoods rotate past completed search territory. A
   changed economic posture can still reactivate an economically blocked pair,
   while raw price motion inside the same posture does not restart semantic work.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
-- A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection. It prices both canonical equivalent-claim portfolios with `bigint`, ranks positive gross search hints first, and still treats every pair as an unreviewed semantic lead rather than an opportunity. The focused two-leg issue requires a positive current hint before pi; fees, depth, fillability, and executability remain absent.
+- A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection. It prices both canonical equivalent-claim portfolios with `bigint`, ranks positive gross search hints first, and still treats every pair as an unreviewed semantic lead rather than an opportunity. The focused two-leg issue requires a positive current hint before pi; for an AI-selected pair only, missing Opinion catalog prices can be enriched from bounded anonymous token books whose raw bytes are retained. Fees, common depth, fillability, and executability remain absent.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
 - An operator-triggered Candidate Watch that captures current Polymarket and Limitless books under one refresh identity, retains exact raw bytes plus a bounded hash-checked attempt journal in SQLite WAL schema v5, restores failures across restart, refuses mixed-time screens after partial failure, and either reuses an unchanged bound result or recomputes changed-book economics without invoking review or verification.
@@ -114,11 +119,14 @@ promotion remain active campaign work.
    consume Agent budget.
 3. For the focused parity issue, lexical radar only supplies a replayable batch.
    A model worker must choose exactly two in-context listings from distinct
-   venues. The server then prices only that chosen pair before pi. Missing
-   prices and non-positive gross hints stop there and record why; a positive
-   hint merely permits semantic investigation. pi cannot substitute a different
-   pair in the counted result. A shared word plus attractive prices is not
-   enough.
+   venues. The server then prices only that chosen pair before pi. It first uses
+   catalog prices; if the selected Opinion leg is still missing prices, it
+   anonymously fetches only those outcome-token books, stores the exact bytes,
+   and recomputes the hint from fixed-point best asks. Unsupported, partial,
+   malformed, and non-positive results stop there and record why; a positive
+   hint merely permits semantic investigation. It still excludes fees and
+   common executable depth. pi cannot substitute a different pair in the
+   counted result. A shared word plus attractive prices is not enough.
 4. Read the resulting proposals and falsifiers in the **Finding inbox** and
    issue funnel. Each new proposal freezes the
    exact normalized listings that produced it in a bounded, content-addressed

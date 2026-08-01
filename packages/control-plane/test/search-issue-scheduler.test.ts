@@ -175,6 +175,12 @@ describe("issue-driven concurrent search scheduler", () => {
       modelSelectionRequiredCount: 1,
       modelSelectedCandidateCount: 1,
       modelSelectionMissCount: 0,
+      quoteEnrichmentAttemptCount: 0,
+      quoteEnrichmentReadyCount: 0,
+      quoteEnrichmentPartialCount: 0,
+      quoteEnrichmentFailedCount: 0,
+      quoteEnrichmentRescuedGateCount: 0,
+      quoteObservationCount: 0,
       exactSemanticScopeCount: 3,
       semanticScopeRevisitCount: 0,
       noLeadSemanticScopeCount: 0,
@@ -209,12 +215,12 @@ describe("issue-driven concurrent search scheduler", () => {
       candidateSelection: "MODEL_HYPOTHESIS",
       requireDistinctVenues: true,
     });
-    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 13 });
+    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 14 });
     expect(leases.projection()).toMatchObject({
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      corpusStorage: { durable: false, schemaVersion: 13 },
+      corpusStorage: { durable: false, schemaVersion: 14 },
     });
 
     const restored = new SearchIssueScheduler({
@@ -232,6 +238,130 @@ describe("issue-driven concurrent search scheduler", () => {
     restored.acknowledge(notification.notificationId);
     expect(restored.projection().unreadNotificationCount).toBe(0);
     store.close();
+  });
+
+  it("attributes selected-pair quote acquisition and a rescued gate to its issue", async () => {
+    const priced = Object.freeze({
+      ...listings[0]!,
+      listingRef: "limitless:hourly",
+      venueId: "limitless",
+      venueInstrumentId: "hourly",
+      outcomes: Object.freeze([
+        Object.freeze({ venueOutcomeId: "201", label: "Up", indicativePrice: "0.4" }),
+        Object.freeze({ venueOutcomeId: "202", label: "Down", indicativePrice: "0.6" }),
+      ]),
+    });
+    const unpriced = Object.freeze({
+      ...listings[1]!,
+      listingRef: "opinion:hourly",
+      venueId: "opinion",
+      venueInstrumentId: "hourly",
+      outcomes: Object.freeze([
+        Object.freeze({ venueOutcomeId: "101", label: "Up", indicativePrice: null }),
+        Object.freeze({ venueOutcomeId: "102", label: "Down", indicativePrice: null }),
+      ]),
+    });
+    const pair = Object.freeze([priced, unpriced]);
+    const current = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "issue-quote-enrichment" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: pair,
+    });
+    const selectedRefs = Object.freeze(pair.map((item) => item.listingRef).sort());
+    const quoteIds = Object.freeze([
+      hashCanonical({ quote: "issue-up" }),
+      hashCanonical({ quote: "issue-down" }),
+    ]);
+    const leases = new SearchLeaseScheduler({
+      context: (question) => {
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+          source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+          listings: pair,
+        });
+        expect(question).not.toHaveLength(0);
+        return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+      },
+      runFast: async (task) => {
+        const base = runRecord(task);
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([Object.freeze({
+            ...base.hypotheses[0]!,
+            venueIds: Object.freeze(["limitless", "opinion"]),
+            listingRefs: selectedRefs,
+          })]),
+        });
+      },
+      enrichPrices: async (selected) => Object.freeze({
+        status: "READY" as const,
+        requestedListingCount: 2,
+        attemptedOutcomeCount: 2,
+        enrichedOutcomeCount: 2,
+        listings: Object.freeze(selected.map((item) => item.venueId !== "opinion"
+          ? item
+          : Object.freeze({
+              ...item,
+              outcomes: Object.freeze([
+                Object.freeze({ ...item.outcomes[0]!, indicativePrice: "0.5" }),
+                Object.freeze({ ...item.outcomes[1]!, indicativePrice: "0.4" }),
+              ]),
+            })
+        )),
+        observationIds: quoteIds,
+        diagnostics: Object.freeze([]),
+        authority: "SEARCH_PRICE_EVIDENCE_ONLY" as const,
+        semanticDecisionAuthority: false as const,
+        simulationAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        effects: Object.freeze({
+          anonymousPublicGets: true,
+          credentialsUsed: false as const,
+          externalWrites: false as const,
+          valueMovingActions: false as const,
+          liveExecutionEnabled: false as const,
+        }),
+      }),
+      runDeep: async () => Object.freeze({
+        runId: hashCanonical({ deep: "issue-quote-enrichment" }),
+        status: "PASS" as const,
+        proposalIds: Object.freeze([hashCanonical({ proposal: "issue-quote" })]),
+        proposalDetails: Object.freeze([Object.freeze({
+          proposalId: hashCanonical({ proposal: "issue-quote" }),
+          relationKind: "EQUIVALENT" as const,
+          listingRefs: selectedRefs,
+        })]),
+        evidenceGaps: Object.freeze([]),
+        diagnostic: null,
+      }),
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({ leaseScheduler: leases, now: () => nowMs });
+    const issue = issues.projection().issues.find((item) =>
+      item.title === "Settlement-qualified two-leg parity"
+    )!;
+
+    await issues.runNow(issue.issueId, current).promise;
+
+    expect(issues.projection().performance).toMatchObject({
+      quoteEnrichmentAttemptCount: 1,
+      quoteEnrichmentReadyCount: 1,
+      quoteEnrichmentPartialCount: 0,
+      quoteEnrichmentFailedCount: 0,
+      quoteEnrichmentRescuedGateCount: 1,
+      quoteObservationCount: 2,
+    });
+    expect(issues.projection().performance.byIssue.find((item) =>
+      item.issueId === issue.issueId
+    )).toMatchObject({
+      quoteEnrichmentAttemptCount: 1,
+      quoteEnrichmentReadyCount: 1,
+      quoteEnrichmentRescuedGateCount: 1,
+      quoteObservationCount: 2,
+    });
   });
 
   it("coalesces one issue on one snapshot and does not double-count a retained lease", async () => {
@@ -430,7 +560,7 @@ describe("issue-driven concurrent search scheduler", () => {
       expect(restored.projection()).toMatchObject({
         issueCount: 6,
         enabledIssueCount: 5,
-        storage: { issues: { durable: true, schemaVersion: 13 } },
+        storage: { issues: { durable: true, schemaVersion: 14 } },
       });
       expect(restored.projection().issues.find((issue) => issue.issueId === created.issueId))
         .toMatchObject({ enabled: false, title: created.title });
@@ -689,7 +819,7 @@ describe("issue-driven concurrent search scheduler", () => {
       ).get() as { record_hash: string }).record_hash).toBe(retainedLeaseHash);
       expect((migrated.prepare("PRAGMA user_version").get() as {
         user_version: number;
-      }).user_version).toBe(13);
+      }).user_version).toBe(14);
       migrated.close();
       const secondLeases = new SearchLeaseScheduler({
         context,

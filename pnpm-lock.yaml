@@ -315,6 +315,9 @@ importers:
 
   packages/venue-opinion:
     dependencies:
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@pmh/evidence':
         specifier: workspace:*
         version: link:../evidence

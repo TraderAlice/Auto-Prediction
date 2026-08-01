@@ -88,6 +88,12 @@ export type SearchIssueSchedulerProjection = Readonly<{
     modelSelectionRequiredCount: number;
     modelSelectedCandidateCount: number;
     modelSelectionMissCount: number;
+    quoteEnrichmentAttemptCount: number;
+    quoteEnrichmentReadyCount: number;
+    quoteEnrichmentPartialCount: number;
+    quoteEnrichmentFailedCount: number;
+    quoteEnrichmentRescuedGateCount: number;
+    quoteObservationCount: number;
     exactSemanticScopeCount: number;
     semanticScopeRevisitCount: number;
     noLeadSemanticScopeCount: number;
@@ -114,6 +120,12 @@ export type SearchIssueSchedulerProjection = Readonly<{
       modelSelectionRequiredCount: number;
       modelSelectedCandidateCount: number;
       modelSelectionMissCount: number;
+      quoteEnrichmentAttemptCount: number;
+      quoteEnrichmentReadyCount: number;
+      quoteEnrichmentPartialCount: number;
+      quoteEnrichmentFailedCount: number;
+      quoteEnrichmentRescuedGateCount: number;
+      quoteObservationCount: number;
       exactSemanticScopeCount: number;
       semanticScopeRevisitCount: number;
       noLeadSemanticScopeCount: number;
@@ -188,6 +200,12 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   modelSelectionRequiredCount: number;
   modelSelectedCandidateCount: number;
   modelSelectionMissCount: number;
+  quoteEnrichmentAttemptCount: number;
+  quoteEnrichmentReadyCount: number;
+  quoteEnrichmentPartialCount: number;
+  quoteEnrichmentFailedCount: number;
+  quoteEnrichmentRescuedGateCount: number;
+  quoteObservationCount: number;
   exactSemanticScopeCount: number;
   semanticScopeRevisitCount: number;
   noLeadSemanticScopeCount: number;
@@ -231,6 +249,10 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     record.fastLane.candidateListingRefs.length ===
       record.lease.candidatePolicy?.exactListingRefCount
   );
+  const quoteEnrichmentRecords = records.filter((record) => {
+    const status = record.fastLane.economicGate?.quoteEnrichment?.status;
+    return status !== undefined && status !== "NOT_RUN" && status !== "NOT_REQUIRED";
+  });
   return Object.freeze({
     terminalLeaseCount: records.length,
     novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
@@ -255,6 +277,26 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     modelSelectedCandidateCount: modelSelectedRecords.length,
     modelSelectionMissCount:
       modelSelectionRecords.length - modelSelectedRecords.length,
+    quoteEnrichmentAttemptCount: quoteEnrichmentRecords.length,
+    quoteEnrichmentReadyCount: quoteEnrichmentRecords.filter((record) =>
+      record.fastLane.economicGate?.quoteEnrichment?.status === "READY"
+    ).length,
+    quoteEnrichmentPartialCount: quoteEnrichmentRecords.filter((record) =>
+      record.fastLane.economicGate?.quoteEnrichment?.status === "PARTIAL"
+    ).length,
+    quoteEnrichmentFailedCount: quoteEnrichmentRecords.filter((record) => {
+      const status = record.fastLane.economicGate?.quoteEnrichment?.status;
+      return status === "FAILED" || status === "UNSUPPORTED";
+    }).length,
+    quoteEnrichmentRescuedGateCount: quoteEnrichmentRecords.filter((record) =>
+      record.fastLane.economicGate?.status === "POSITIVE_GROSS_HINT" ||
+      record.fastLane.economicGate?.status === "NON_POSITIVE_GROSS_HINT"
+    ).length,
+    quoteObservationCount: quoteEnrichmentRecords.reduce(
+      (sum, record) => sum +
+        (record.fastLane.economicGate?.quoteEnrichment?.observationIds.length ?? 0),
+      0,
+    ),
     exactSemanticScopeCount: uniqueSemanticScopes.size,
     semanticScopeRevisitCount: exactScopes.length - uniqueSemanticScopes.size,
     noLeadSemanticScopeCount: exactScopes.filter((record) =>

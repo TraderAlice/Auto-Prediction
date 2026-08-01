@@ -1,6 +1,6 @@
 # Plans
 
-`plans/ai-selected-radar-batches.md` is the active construction plan.
+`plans/selected-pair-quote-enrichment.md` is the active construction plan.
 
 ## Planning contract
 
@@ -59,8 +59,8 @@ three for the implication issue. Both rotated runs honestly ended with
 `NO_CANDIDATES`: the product expanded its search frontier without manufacturing
 a relationship. Full checks, tests, build, desktop QA, and 390 px QA passed.
 
-The AI-selected radar-batch campaign is implemented and qualified for serial
-merge. The focused parity issue now gives the cheap model a bounded batch of
+The AI-selected radar-batch campaign is merged and live. The focused parity
+issue now gives the cheap model a bounded batch of
 radar leads, requires it to choose one exact cross-venue pair, and only then
 applies bigint economics and optional pi escalation. Pi cannot substitute a
 different pair. Legacy exact-context policies and general semantic searches
@@ -77,6 +77,25 @@ and 390 px QA pass. Studio has no horizontal overflow or browser warnings and
 shows `3/4` AI-selected exact pairs, one honest no-pair batch, an `11.76%`
 positive-gate rate after selection, and twelve pi calls avoided.
 
+Selected-pair quote enrichment is qualified live. On a fresh 467-listing,
+seven-source corpus, DeepSeek selected the aligned BTC hourly
+Limitless/Opinion pair. The control plane fetched exactly the two missing
+Opinion outcome books without credentials, retained 308 and 309 raw bytes in
+SQLite WAL schema v14, and recomputed the gate from token-bound fixed-point
+best asks. The result changed from `PRICE_UNAVAILABLE` to a -4,185 bps
+non-positive gross hint and correctly avoided pi. No fee, common-depth,
+semantic, simulation, certificate, or execution authority was introduced.
+
+Full Node 24 checks, all workspace tests, the production build, desktop QA, and
+390 px QA pass. Browser QA also caught and fixed a clipped mobile Market
+Archaeologist title; the page now has no horizontal overflow or console errors.
+
+The scheduler now retains 97 unread in-app notifications. The next measured
+bottleneck is attention, not raw event emission: severity, digest aggregation,
+delivery attempts, and acknowledgement need separate durable identities so
+concurrent issues can notify a human without turning the inbox into a second
+search corpus.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.
@@ -86,6 +105,8 @@ positive-gate rate after selection, and twelve pi calls avoided.
 - External notification channels after a destination and authority decision.
 - Long-horizon cost and latency measurement after provider usage evidence is
   qualified.
+- Attention-aware notification severity, aggregation, and retention after the
+  selected-pair economic funnel can produce higher-value signals.
 
 These are not blockers for the current research harness and must become focused
 plan files before implementation begins.

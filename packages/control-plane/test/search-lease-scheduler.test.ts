@@ -763,6 +763,138 @@ describe("AI-native search lease scheduler", () => {
     expect(runDeep).not.toHaveBeenCalled();
   });
 
+  it("enriches only an exact selected pair after the catalog gate is price-unavailable", async () => {
+    const priced = Object.freeze({
+      ...listing("limitless", "hourly"),
+      outcomes: Object.freeze([
+        Object.freeze({ venueOutcomeId: "201", label: "Up", indicativePrice: "0.4" }),
+        Object.freeze({ venueOutcomeId: "202", label: "Down", indicativePrice: "0.6" }),
+      ]),
+    });
+    const unpriced = Object.freeze({
+      ...listing("opinion", "hourly"),
+      outcomes: Object.freeze([
+        Object.freeze({ venueOutcomeId: "101", label: "Up", indicativePrice: null }),
+        Object.freeze({ venueOutcomeId: "102", label: "Down", indicativePrice: null }),
+      ]),
+    });
+    const pair = Object.freeze([priced, unpriced]);
+    const current = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "quote-enriched-pair" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: pair,
+    });
+    const selectedRefs = Object.freeze(pair.map((item) => item.listingRef).sort());
+    const proposalId = hashCanonical({ proposal: "quote-enriched" });
+    const enrichPrices = vi.fn(async (selected: typeof pair) => Object.freeze({
+      status: "READY" as const,
+      requestedListingCount: 2,
+      attemptedOutcomeCount: 2,
+      enrichedOutcomeCount: 2,
+      listings: Object.freeze(selected.map((item) => item.venueId !== "opinion"
+        ? item
+        : Object.freeze({
+            ...item,
+            outcomes: Object.freeze([
+              Object.freeze({ ...item.outcomes[0]!, indicativePrice: "0.5" }),
+              Object.freeze({ ...item.outcomes[1]!, indicativePrice: "0.4" }),
+            ]),
+          })
+      )),
+      observationIds: Object.freeze([
+        hashCanonical({ quote: "yes" }),
+        hashCanonical({ quote: "no" }),
+      ]),
+      diagnostics: Object.freeze([]),
+      authority: "SEARCH_PRICE_EVIDENCE_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      simulationAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      effects: Object.freeze({
+        anonymousPublicGets: true,
+        credentialsUsed: false as const,
+        externalWrites: false as const,
+        valueMovingActions: false as const,
+        liveExecutionEnabled: false as const,
+      }),
+    }));
+    const runDeep = vi.fn(async () => Object.freeze({
+      runId: hashCanonical({ deep: "quote-enriched" }),
+      status: "PASS" as const,
+      proposalIds: Object.freeze([proposalId]),
+      proposalDetails: Object.freeze([Object.freeze({
+        proposalId,
+        relationKind: "EQUIVALENT" as const,
+        listingRefs: selectedRefs,
+      })]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    }));
+    const scheduler = new SearchLeaseScheduler({
+      context: () => {
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+          source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+          listings: pair,
+        });
+        return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+      },
+      runFast: async (task) => {
+        const base = runRecord(task);
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([Object.freeze({
+            ...hypothesis(task),
+            venueIds: Object.freeze(["limitless", "opinion"]),
+            listingRefs: selectedRefs,
+          })]),
+        });
+      },
+      enrichPrices,
+      runDeep,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+    const record = await scheduler.begin(current, "EQUIVALENCE", "SCHEDULE", {
+      issueId: hashCanonical({ issue: "quote-enriched" }),
+      question: "Select and price one exact pair.",
+      venueIds: [],
+      candidatePolicy: Object.freeze({
+        allowedRelationKinds: Object.freeze(["EQUIVALENT"] as const),
+        exactListingRefCount: 2,
+        requirePositiveGrossHint: true,
+        candidateSelection: "MODEL_HYPOTHESIS" as const,
+        requireDistinctVenues: true,
+      }),
+    }).promise;
+
+    expect(enrichPrices).toHaveBeenCalledTimes(1);
+    expect(enrichPrices.mock.calls[0]?.[0].map((item) => item.listingRef).sort())
+      .toEqual(selectedRefs);
+    expect(record.fastLane.economicGate).toMatchObject({
+      status: "POSITIVE_GROSS_HINT",
+      grossEdgeBpsFloor: "2000",
+      feesIncluded: false,
+      depthIncluded: false,
+      executable: false,
+      quoteEnrichment: {
+        status: "READY",
+        attemptedOutcomeCount: 2,
+        enrichedOutcomeCount: 2,
+        source: "CATALOG_PLUS_ANONYMOUS_PUBLIC_BOOKS",
+        authority: "SEARCH_PRICE_EVIDENCE_ONLY",
+        semanticDecisionAuthority: false,
+        simulationAuthority: false,
+        certificateAuthority: false,
+        executionAuthority: false,
+      },
+    });
+    expect(record.deepLane.reason).toBe("NOVEL_MULTI_LISTING");
+    expect(runDeep).toHaveBeenCalledTimes(1);
+  });
+
   it("persists issued-to-terminal records and restores idempotent results", async () => {
     const store = new SqliteOperationalStore(":memory:");
     const scheduler = new SearchLeaseScheduler({
@@ -800,8 +932,8 @@ describe("AI-native search lease scheduler", () => {
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      storage: { schemaVersion: 13 },
-      corpusStorage: { schemaVersion: 13, idempotencyKey: "snapshotIdentity" },
+      storage: { schemaVersion: 14 },
+      corpusStorage: { schemaVersion: 14, idempotencyKey: "snapshotIdentity" },
     });
     store.close();
   });

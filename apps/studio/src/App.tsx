@@ -382,6 +382,12 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     modelSelectionRequiredCount: 0,
     modelSelectedCandidateCount: 0,
     modelSelectionMissCount: 0,
+    quoteEnrichmentAttemptCount: 0,
+    quoteEnrichmentReadyCount: 0,
+    quoteEnrichmentPartialCount: 0,
+    quoteEnrichmentFailedCount: 0,
+    quoteEnrichmentRescuedGateCount: 0,
+    quoteObservationCount: 0,
     exactSemanticScopeCount: 0,
     semanticScopeRevisitCount: 0,
     noLeadSemanticScopeCount: 0,
@@ -405,6 +411,30 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   },
   authority: "PROPOSE_ONLY",
   semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+};
+
+const EMPTY_SEARCH_QUOTE_ENRICHMENT: StudioProjection["ai"]["searchQuoteEnrichment"] = {
+  schemaVersion: "pmh.search-quote-enrichment-desk.v1",
+  mode: "ANONYMOUS_PUBLIC_GET",
+  status: "IDLE",
+  runCount: 0,
+  readyCount: 0,
+  partialCount: 0,
+  failedCount: 0,
+  unsupportedCount: 0,
+  retainedObservationCount: 0,
+  timeoutMs: 10_000,
+  maxResponseBytes: 1_000_000,
+  retentionLimit: 100,
+  supportedVenues: ["opinion"],
+  storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "observationId" },
+  observations: [],
+  authority: "SEARCH_PRICE_EVIDENCE_ONLY",
+  semanticDecisionAuthority: false,
+  simulationAuthority: false,
   certificateAuthority: false,
   executionAuthority: false,
   effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
@@ -2531,6 +2561,8 @@ function MarketArchaeologistView() {
     ...EMPTY_SEARCH_ISSUE_SCHEDULER.performance,
     ...(issueScheduler.performance ?? {}),
   };
+  const quoteEnrichment =
+    studioProjection.ai.searchQuoteEnrichment ?? EMPTY_SEARCH_QUOTE_ENRICHMENT;
   const outcomeAttribution =
     studioProjection.ai.searchOutcomeAttribution ?? EMPTY_SEARCH_OUTCOME_ATTRIBUTION;
   const outcomeEconomics =
@@ -2787,9 +2819,12 @@ function MarketArchaeologistView() {
           <div className="issue-scheduler-strip issue-performance-strip" aria-label="Economic-first search yield">
             <div>
               <strong>{issuePerformance.modelSelectedCandidateCount}/{issuePerformance.modelSelectionRequiredCount}</strong>
-              <span>AI-selected exact pairs</span>
+              <span>AI-selected exact pairs · {issuePerformance.modelSelectionMissCount} batches had no pair</span>
             </div>
-            <div><strong>{issuePerformance.modelSelectionMissCount}</strong><span>bounded batches with no model pair</span></div>
+            <div>
+              <strong>{issuePerformance.quoteEnrichmentRescuedGateCount}/{issuePerformance.quoteEnrichmentAttemptCount}</strong>
+              <span>missing-price gates rescued · {issuePerformance.quoteObservationCount} raw books · {quoteEnrichment.retainedObservationCount} retained</span>
+            </div>
             <div><strong>{formatRateBps(issuePerformance.economicGatePositiveRateBps)}</strong><span>positive gates after AI selection</span></div>
             <div>
               <strong>{issuePerformance.piAvoidedCount}</strong>
@@ -2870,6 +2905,9 @@ function MarketArchaeologistView() {
                         <span>
                           {issue.candidatePolicy.candidateSelection === "MODEL_HYPOTHESIS"
                             ? `${performance?.modelSelectedCandidateCount ?? 0}/${performance?.modelSelectionRequiredCount ?? 0} AI pairs · `
+                            : ""}
+                          {(performance?.quoteEnrichmentAttemptCount ?? 0) > 0
+                            ? `${performance?.quoteEnrichmentRescuedGateCount ?? 0}/${performance?.quoteEnrichmentAttemptCount ?? 0} quote-rescued · `
                             : ""}
                           {performance?.economicGatePositiveCount ?? 0}/{performance?.economicGateRequiredCount ?? 0} gross-positive · {performance?.piAvoidedCount ?? 0} pi saved
                         </span>

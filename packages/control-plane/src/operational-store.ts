@@ -54,6 +54,12 @@ import {
   type SearchLeaseRecordStore,
 } from "./search-lease-scheduler.js";
 import {
+  verifyStoredSearchQuoteObservation,
+  type SearchQuoteObservationRecord,
+  type SearchQuoteObservationStore,
+  type StoredSearchQuoteObservation,
+} from "./search-quote-enrichment.js";
+import {
   assertMarketCorpusSnapshot,
   type MarketCorpusSnapshot,
 } from "./market-corpus.js";
@@ -77,7 +83,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -102,6 +108,13 @@ type StoredCatalogObservationRow = Readonly<{
 }>;
 
 type StoredCandidateBookObservationRow = Readonly<{
+  observation_id: string;
+  record_json: string;
+  record_hash: string;
+  raw_bytes: Uint8Array;
+}>;
+
+type StoredSearchQuoteObservationRow = Readonly<{
   observation_id: string;
   record_json: string;
   record_hash: string;
@@ -341,6 +354,40 @@ function parseStoredCandidateBookObservation(
     record,
     bytes: row.raw_bytes,
   });
+}
+
+function parseStoredSearchQuoteObservation(
+  value: unknown,
+): StoredSearchQuoteObservation {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite search quote observation row is malformed");
+  }
+  const row = value as Partial<StoredSearchQuoteObservationRow>;
+  if (
+    typeof row.observation_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string" ||
+    !(row.raw_bytes instanceof Uint8Array)
+  ) {
+    throw new Error("SQLite search quote observation row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite search quote observation contains invalid JSON");
+  }
+  if (decoded === null || typeof decoded !== "object") {
+    throw new Error("SQLite search quote observation record is malformed");
+  }
+  const record = decoded as SearchQuoteObservationRecord;
+  if (
+    record.observationId !== row.observation_id ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite search quote observation identity mismatch");
+  }
+  return verifyStoredSearchQuoteObservation({ record, bytes: row.raw_bytes });
 }
 
 function parseCandidateWatchRefresh(
@@ -752,6 +799,7 @@ export class SqliteOperationalStore
     CandidateWatchRefreshStore,
     MarketArchaeologistRecordStore,
     SearchLeaseRecordStore,
+    SearchQuoteObservationStore,
     SearchIssueRecordStore,
     SemanticReviewRecordStore,
     SemanticReviewSchedulerStore,
@@ -783,6 +831,12 @@ export class SqliteOperationalStore
   public readonly marketArchaeologistStorage: OperationalStorageProjection<"runId">;
   public readonly searchLeaseStorage: OperationalStorageProjection<"leaseId">;
   public readonly searchLeaseCorpusStorage: OperationalStorageProjection<"snapshotIdentity">;
+  public readonly searchQuoteObservationStorage: Readonly<{
+    mode: "MEMORY" | "SQLITE_WAL";
+    durable: boolean;
+    schemaVersion: number;
+    idempotencyKey: "observationId";
+  }>;
   public readonly searchIssueStorage: OperationalStorageProjection<"issueId">;
   public readonly searchNotificationStorage: OperationalStorageProjection<"notificationId">;
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
@@ -874,6 +928,12 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "snapshotIdentity",
     });
+    this.searchQuoteObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
+    });
     this.searchIssueStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -961,6 +1021,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'semantic_review_notifications'`,
       )
       .get() !== undefined;
+    const searchQuoteObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_quote_observations'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -968,7 +1034,8 @@ export class SqliteOperationalStore
       searchIssueTableExists &&
       searchNotificationTableExists &&
       semanticReviewJobTableExists &&
-      semanticReviewNotificationTableExists
+      semanticReviewNotificationTableExists &&
+      searchQuoteObservationTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -1343,6 +1410,28 @@ export class SqliteOperationalStore
             ON search_lease_corpora (created_at DESC, snapshot_identity DESC);
         `);
       }
+      if (current < 14 || !searchQuoteObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS search_quote_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND
+              observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL CHECK (length(listing_ref) > 0),
+            venue_id TEXT NOT NULL CHECK (venue_id = 'opinion'),
+            received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            raw_bytes BLOB NOT NULL
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS search_quote_observations_received
+            ON search_quote_observations (received_at DESC, observation_id DESC);
+          CREATE INDEX IF NOT EXISTS search_quote_observations_listing
+            ON search_quote_observations (listing_ref, received_at DESC);
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -1678,6 +1767,83 @@ export class SqliteOperationalStore
         throw new Error(
           "candidate observationId is already bound to another record",
         );
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSearchQuoteObservations(
+    limit: number,
+  ): readonly StoredSearchQuoteObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT observation_id, record_json, record_hash, raw_bytes
+         FROM search_quote_observations
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseStoredSearchQuoteObservation));
+  }
+
+  public saveSearchQuoteObservation(
+    observation: StoredSearchQuoteObservation,
+    retentionLimit: number,
+  ): StoredSearchQuoteObservation {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = verifyStoredSearchQuoteObservation(observation);
+    const recordJson = canonicalJson(validated.record);
+    const recordHash = hashCanonical(validated.record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO search_quote_observations (
+             observation_id, listing_ref, venue_id, received_at,
+             record_json, record_hash, raw_bytes
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+        )
+        .run(
+          validated.record.observationId,
+          validated.record.listingRef,
+          validated.record.venueId,
+          validated.record.receivedAt,
+          recordJson,
+          recordHash,
+          validated.bytes,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM search_quote_observations
+           WHERE observation_id IN (
+             SELECT observation_id
+             FROM search_quote_observations
+             ORDER BY rowid DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT observation_id, record_json, record_hash, raw_bytes
+           FROM search_quote_observations
+           WHERE observation_id = ?`,
+        )
+        .get(validated.record.observationId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the search quote observation");
+      }
+      const stored = parseStoredSearchQuoteObservation(row);
+      if (hashCanonical(stored.record) !== recordHash) {
+        throw new Error("observationId is already bound to other search quote evidence");
       }
       this.#database.exec("COMMIT");
       return stored;
