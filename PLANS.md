@@ -1,6 +1,6 @@
 # Plans
 
-`plans/semantic-scope-rotation.md` is the active construction plan.
+`plans/bounded-context-rotation.md` is the active construction plan.
 
 ## Planning contract
 
@@ -42,15 +42,20 @@ the new gate has one positive result, two blocked results, and one recorded pi
 call avoided. Studio exposes those pre-pi results alongside downstream economic
 yield by durable issue.
 
-The semantic-coverage campaign is qualified and ready to publish. Exact radar
-scopes now carry a price-independent semantic identity and an
-economic-posture-sensitive routing identity. Each issue uses its own retained
-terminal evidence to prefer unseen scopes, so a lexical false positive cannot
-monopolize recurring search. A seven-source, 467-listing smoke run preserved
-both identities for an unchanged top pair across catalog refresh and then
-assigned the next pair. Studio reports seven unique exact semantic scopes, two
-revisits, one semantic no-lead scope, and nine exact-pair assignments in the
-current retained window. Desktop and 390 px QA have no horizontal overflow.
+Exact-pair semantic rotation is merged and live. A seven-source, 467-listing
+smoke run preserved both identities for an unchanged top pair across catalog
+refresh and then assigned the next pair.
+
+The next bottleneck is bounded-context starvation. General implication,
+partition, and mechanism issues rank the same generic question against the
+same corpus on every refresh. The current implication issue has seven terminal
+leases and no candidate; after scope identities shipped, its only observable
+bounded context contains the same 18 listings. The current mechanism issue
+similarly exposes one 23-listing context. Search feedback currently filters to
+`EXACT_PAIR`, so none of these completed scopes can influence the next
+assignment. The active campaign builds deterministic anchor-related market
+neighborhoods and rotates each issue across unseen bounded contexts before
+falling back to repeats.
 
 ## Deferred future campaigns
 
