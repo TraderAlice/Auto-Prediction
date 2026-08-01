@@ -175,6 +175,10 @@ const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewSch
   retryWaitCount: 0,
   blockedEvidenceCount: 0,
   researchOnlyCount: 0,
+  duplicateScopeCount: 0,
+  scopedJobCount: 0,
+  uniqueReviewScopeCount: 0,
+  historicalRedundantPassCount: 0,
   bundledJobCount: 0,
   capturedOriginalJobCount: 0,
   rebasedJobCount: 0,
@@ -3909,6 +3913,12 @@ function OpportunityLifecycleView() {
           <div><strong>{reviewScheduler.blockedEvidenceCount}</strong><span>evidence blocked</span></div>
           <div><strong>{reviewScheduler.researchOnlyCount}</strong><span>research only</span></div>
           <div>
+            <strong>{reviewScheduler.uniqueReviewScopeCount}/{reviewScheduler.scopedJobCount}</strong>
+            <span>unique semantic scopes / scoped jobs</span>
+          </div>
+          <div><strong>{reviewScheduler.duplicateScopeCount}</strong><span>duplicate calls withheld</span></div>
+          <div><strong>{reviewScheduler.historicalRedundantPassCount}</strong><span>historical redundant passes</span></div>
+          <div>
             <strong>{reviewScheduler.bundledJobCount}/{reviewScheduler.jobs.length}</strong>
             <span>evidence bundled · {reviewScheduler.legacyEvidenceDebtCount} legacy debt</span>
           </div>
@@ -3935,6 +3945,8 @@ function OpportunityLifecycleView() {
                   <strong>{proposals.get(job.proposalId)?.statement ?? job.opportunityId}</strong>
                   <span>
                     P{job.priority} · {job.issueIds.length} issue{job.issueIds.length === 1 ? "" : "s"} · attempt {job.attemptCount}/{job.maxAttempts} · {job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" ? job.evidenceBundle.captureKind.replaceAll("_", " ") : "LEGACY REFS"}
+                    {job.reviewScopeIdentity ? ` · scope ${job.reviewScopeIdentity.slice(7, 14)}` : " · unscoped"}
+                    {job.duplicateOfJobId ? ` · reuses ${job.duplicateOfJobId.slice(7, 14)}` : ""}
                   </span>
                 </div>
                 <code>{job.proposalId.slice(0, 19)}…</code>

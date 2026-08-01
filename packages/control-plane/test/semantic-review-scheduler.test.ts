@@ -265,6 +265,207 @@ describe("persistent semantic review scheduler", () => {
     expect(calls).toBe(1);
   });
 
+  it("reviews one canonical job for an unchanged symmetric semantic scope", async () => {
+    let calls = 0;
+    const firstProposal = proposal("scope-first", "EQUIVALENT");
+    const reversedProposal = proposal(
+      "scope-reversed",
+      "EQUIVALENT",
+      ["venue-b:event", "venue-a:event"],
+    );
+    const first = candidate(
+      firstProposal,
+      4,
+      undefined,
+      buildProposalEvidenceBundle(firstProposal, snapshot),
+    );
+    const reversed = candidate(
+      reversedProposal,
+      4,
+      undefined,
+      buildProposalEvidenceBundle(reversedProposal, snapshot),
+    );
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => { calls += 1; return reviewResult("REJECT"); } } },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    await Promise.all(scheduler.tick([first, reversed], snapshot));
+
+    expect(calls).toBe(1);
+    expect(scheduler.projection()).toMatchObject({
+      passedCount: 1,
+      duplicateScopeCount: 1,
+      scopedJobCount: 2,
+      uniqueReviewScopeCount: 1,
+      historicalRedundantPassCount: 0,
+      budget: { requestAttemptsStarted: 1 },
+    });
+    const duplicate = scheduler.projection().jobs.find(
+      (job) => job.status === "DUPLICATE_SCOPE",
+    );
+    const canonical = scheduler.projection().jobs.find((job) => job.status === "PASS");
+    expect(duplicate).toMatchObject({
+      reviewScopeIdentity: canonical?.reviewScopeIdentity,
+      duplicateOfJobId: canonical?.jobId,
+      completedAt: "2026-08-02T00:00:00.000Z",
+      recommendation: null,
+      lastReviewId: null,
+    });
+    expect(scheduler.tick([first, reversed], snapshot)).toHaveLength(0);
+  });
+
+  it("does not deduplicate reversed directional relations or unscoped evidence", async () => {
+    let calls = 0;
+    const forwardProposal = proposal("forward", "IMPLIES");
+    const reverseProposal = proposal(
+      "reverse",
+      "IMPLIES",
+      ["venue-b:event", "venue-a:event"],
+    );
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => { calls += 1; return reviewResult("REJECT"); } } },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    await Promise.all(scheduler.tick([
+      candidate(
+        forwardProposal,
+        3,
+        undefined,
+        buildProposalEvidenceBundle(forwardProposal, snapshot),
+      ),
+      candidate(
+        reverseProposal,
+        3,
+        undefined,
+        buildProposalEvidenceBundle(reverseProposal, snapshot),
+      ),
+      candidate(proposal("unscoped-one"), 2),
+      candidate(proposal("unscoped-two"), 2),
+    ], snapshot));
+
+    expect(calls).toBe(3);
+    expect(scheduler.projection()).toMatchObject({
+      passedCount: 3,
+      duplicateScopeCount: 0,
+      scopedJobCount: 2,
+      uniqueReviewScopeCount: 2,
+      budget: { requestAttemptsStarted: 3 },
+    });
+    expect(scheduler.projection().pendingCount).toBe(1);
+  });
+
+  it("allows an explicit manual review to override a duplicate disposition", async () => {
+    let calls = 0;
+    const firstProposal = proposal("manual-scope-first");
+    const secondProposal = proposal("manual-scope-second");
+    const candidates = [firstProposal, secondProposal].map((item) => candidate(
+      item,
+      4,
+      undefined,
+      buildProposalEvidenceBundle(item, snapshot),
+    ));
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => { calls += 1; return reviewResult("REJECT"); } } },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+    await Promise.all(scheduler.tick(candidates, snapshot));
+    const duplicate = scheduler.projection().jobs.find(
+      (job) => job.status === "DUPLICATE_SCOPE",
+    )!;
+
+    await desk.begin(
+      duplicate.opportunityId,
+      candidates.find((item) => item.proposal.proposalId === duplicate.proposalId)!.proposal,
+      snapshot,
+      snapshot.snapshotIdentity,
+    ).promise;
+    scheduler.reconcile(candidates, desk.projection().records);
+
+    expect(calls).toBe(2);
+    expect(scheduler.projection()).toMatchObject({
+      passedCount: 2,
+      duplicateScopeCount: 0,
+      historicalRedundantPassCount: 1,
+      budget: { requestAttemptsStarted: 1 },
+    });
+  });
+
+  it("keeps an in-flight canonical review when a matching scope arrives", async () => {
+    const pendingReview = deferred<ReturnType<typeof reviewResult>>();
+    let calls = 0;
+    const firstProposal = proposal("leased-scope-first");
+    const secondProposal = proposal("leased-scope-second");
+    const first = candidate(
+      firstProposal,
+      4,
+      undefined,
+      buildProposalEvidenceBundle(firstProposal, snapshot),
+    );
+    const second = candidate(
+      secondProposal,
+      5,
+      undefined,
+      buildProposalEvidenceBundle(secondProposal, snapshot),
+    );
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      {
+        reviewer: {
+          review: async () => {
+            calls += 1;
+            return pendingReview.promise;
+          },
+        },
+      },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    const runs = scheduler.tick([first], snapshot);
+    await Promise.resolve();
+    scheduler.reconcile([first, second], desk.projection().records);
+
+    expect(calls).toBe(1);
+    expect(scheduler.projection()).toMatchObject({
+      leasedCount: 1,
+      duplicateScopeCount: 1,
+      uniqueReviewScopeCount: 1,
+      budget: { requestAttemptsStarted: 1 },
+    });
+    const leased = scheduler.projection().jobs.find((job) => job.status === "LEASED")!;
+    const duplicate = scheduler.projection().jobs.find(
+      (job) => job.status === "DUPLICATE_SCOPE",
+    )!;
+    expect(duplicate.duplicateOfJobId).toBe(leased.jobId);
+
+    pendingReview.resolve(reviewResult("REJECT"));
+    await Promise.all(runs);
+    expect(scheduler.projection()).toMatchObject({
+      passedCount: 1,
+      duplicateScopeCount: 1,
+    });
+  });
+
   it("persists non-compilable proposals as research-only without an automatic request", async () => {
     let calls = 0;
     const researchProposal = proposal("research-only", "RELATED");
@@ -488,7 +689,7 @@ describe("persistent semantic review scheduler", () => {
       expect(firstScheduler.tick([item], snapshot)).toHaveLength(1);
       expect(firstScheduler.projection()).toMatchObject({
         leasedCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 16 } },
+        storage: { jobs: { durable: true, schemaVersion: 17 } },
       });
       firstStore.close();
 
@@ -531,8 +732,8 @@ describe("persistent semantic review scheduler", () => {
         bundledJobCount: 1,
         unreadNotificationCount: 1,
         storage: {
-          jobs: { durable: true, schemaVersion: 16 },
-          notifications: { durable: true, schemaVersion: 16 },
+          jobs: { durable: true, schemaVersion: 17 },
+          notifications: { durable: true, schemaVersion: 17 },
         },
       });
       thirdStore.close();
@@ -563,7 +764,7 @@ describe("persistent semantic review scheduler", () => {
       expect(first.projection()).toMatchObject({
         researchOnlyCount: 1,
         dueCount: 0,
-        storage: { jobs: { durable: true, schemaVersion: 16 } },
+        storage: { jobs: { durable: true, schemaVersion: 17 } },
       });
       firstStore.close();
 
@@ -581,6 +782,69 @@ describe("persistent semantic review scheduler", () => {
         dueCount: 0,
         budget: { requestAttemptsStarted: 0 },
       });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("restores duplicate-scope lineage without rehydrating a due request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-review-scope-"));
+    const path = join(directory, "control-plane.sqlite");
+    const firstProposal = proposal("restart-scope-first");
+    const secondProposal = proposal("restart-scope-second");
+    const items = [firstProposal, secondProposal].map((item) => candidate(
+      item,
+      4,
+      undefined,
+      buildProposalEvidenceBundle(item, snapshot),
+    ));
+    const now = () => Date.parse("2026-08-02T00:00:00.000Z");
+    let calls = 0;
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const first = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk(
+          { DEEPSEEK_API_KEY: "test-only" },
+          {
+            store: firstStore,
+            reviewer: {
+              review: async () => {
+                calls += 1;
+                return reviewResult("REJECT");
+              },
+            },
+          },
+        ),
+        tickIntervalMs: 1_000,
+        store: firstStore,
+        now,
+      });
+      await Promise.all(first.tick(items, snapshot));
+      expect(first.projection()).toMatchObject({
+        passedCount: 1,
+        duplicateScopeCount: 1,
+        uniqueReviewScopeCount: 1,
+        storage: { jobs: { durable: true, schemaVersion: 17 } },
+      });
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const second = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store: secondStore }),
+        tickIntervalMs: 1_000,
+        store: secondStore,
+        now,
+      });
+      expect(second.tick([], snapshot)).toHaveLength(0);
+      expect(second.projection()).toMatchObject({
+        passedCount: 1,
+        duplicateScopeCount: 1,
+        dueCount: 0,
+        pendingCount: 0,
+        budget: { requestAttemptsStarted: 1 },
+      });
+      expect(calls).toBe(1);
       secondStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });

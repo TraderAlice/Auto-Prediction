@@ -81,6 +81,14 @@ This is not a trading bot and it has no live-trading authority. The repository d
   `SUBSET`, `MUTUALLY_EXCLUSIVE`, or `EXHAUSTIVE`. Other findings remain
   durable `RESEARCH_ONLY` work with an explicit reason and a manual advisory
   review path; they are not rejected and consume no automatic review request.
+- A price-independent semantic-review scope ledger that makes recurring scans
+  accumulate knowledge. Model wording, proposal IDs, receive times, raw catalog
+  hashes, status, ticks, and prices cannot force another automatic review when
+  the relation direction and exact contract semantics are unchanged. Symmetric
+  relations canonicalize listing order; `IMPLIES` and `SUBSET` preserve it.
+  Changed rules, outcomes, timing, mechanism, scales, or protocol identity form
+  a new scope. Historical reviews remain immutable, while new repeats persist
+  as `DUPLICATE_SCOPE` with canonical-job lineage and zero model requests.
 - Certificate-bound shadow replay that derives intents from the certificate,
   uses virtual capital and the live-disabled ShadowExecutionEngine, records
   planned versus observed fills, and makes zero venue-gateway calls. Human
@@ -159,9 +167,12 @@ promotion remain active campaign work.
    with a compiler-supported relation enter the bounded automatic semantic
    reviewer; related/conflicting/conditional and unsupported multi-listing
    discoveries remain visible as `RESEARCH_ONLY` without spending a request.
-   You can still trigger manual advisory review for any retained proposal. The
-   reviewer must bind exact listing refs, rule identities, outcome mapping,
-   time windows, and counterexamples. The **Operator attention queue** then
+   You can still trigger manual advisory review for any retained proposal.
+   Before dispatch, the persistent queue compares the price-independent
+   semantic-review scope with prior jobs. An unchanged scope reuses its
+   canonical job; changed contract semantics or directional order get a fresh
+   review. The reviewer must bind exact listing refs, rule identities, outcome
+   mapping, time windows, and counterexamples. The **Operator attention queue** then
    tells you whether that advisory result defines a canonical payoff partition,
    whether current contract semantics still match the retained evidence, and
    whether the implemented anonymous adapters can reach its legs. Its
@@ -214,7 +225,7 @@ path when a different local operational volume is required. The database is
 ignored by Git and contains bounded discovery runs plus their exact normalized
 catalog snapshots, completed investigations, and raw anonymous catalog
 observations, Candidate Watch raw books and its bounded refresh journal, and
-SQLite schema-v16 AI search-lease lineage, deduplicated task corpora, attention
+SQLite schema-v17 AI search-lease lineage, deduplicated task corpora, attention
 deliveries, and durable semantic-review admission dispositions;
 it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.

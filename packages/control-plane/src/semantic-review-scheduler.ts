@@ -15,6 +15,7 @@ import {
 } from "./semantic-review.js";
 import type { OperationalStorageProjection } from "./types.js";
 import { classifySemanticReviewAdmission } from "./semantic-review-admission.js";
+import { deriveSemanticReviewScope } from "./semantic-review-scope.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 250;
@@ -29,6 +30,7 @@ export type SemanticReviewJobStatus =
   | "RETRY_WAIT"
   | "BLOCKED_EVIDENCE"
   | "RESEARCH_ONLY"
+  | "DUPLICATE_SCOPE"
   | "PASS"
   | "EXHAUSTED";
 
@@ -39,6 +41,8 @@ export type SemanticReviewJobRecord = Readonly<{
   proposalId: Hash;
   proposalCorpusSnapshotIdentity: Hash;
   evidenceBundle?: ProposalEvidenceBundle | null;
+  reviewScopeIdentity?: Hash | null;
+  duplicateOfJobId?: Hash | null;
   issueIds: readonly Hash[];
   priority: 1 | 2 | 3 | 4 | 5;
   status: SemanticReviewJobStatus;
@@ -107,6 +111,10 @@ export type SemanticReviewSchedulerProjection = Readonly<{
   retryWaitCount: number;
   blockedEvidenceCount: number;
   researchOnlyCount: number;
+  duplicateScopeCount: number;
+  scopedJobCount: number;
+  uniqueReviewScopeCount: number;
+  historicalRedundantPassCount: number;
   bundledJobCount: number;
   capturedOriginalJobCount: number;
   rebasedJobCount: number;
@@ -173,6 +181,17 @@ function researchOnlyDiagnostic(
       : "duplicate listing refs cannot enter automatic semantic review";
 }
 
+function semanticReviewJobId(proposalId: Hash): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.semantic-review-job-id.v1",
+    proposalId,
+  });
+}
+
+function duplicateScopeDiagnostic(canonicalJobId: Hash): string {
+  return `Unchanged contract-semantic review scope is owned by ${canonicalJobId}; automatic reviewer request withheld`;
+}
+
 function withJobHash(
   body: Omit<SemanticReviewJobRecord, "artifactHash">,
 ): SemanticReviewJobRecord {
@@ -191,16 +210,15 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
   }
   const record = value as SemanticReviewJobRecord;
   const terminal = record.status === "PASS" || record.status === "EXHAUSTED" ||
-    record.status === "RESEARCH_ONLY";
+    record.status === "RESEARCH_ONLY" || record.status === "DUPLICATE_SCOPE";
   const leased = record.status === "LEASED";
   const evidenceBundle = record.evidenceBundle ?? null;
+  const reviewScopeIdentity = record.reviewScopeIdentity ?? null;
+  const duplicateOfJobId = record.duplicateOfJobId ?? null;
   if (
     record.schemaVersion !== "pmh.semantic-review-job.v1" ||
     !HASH_PATTERN.test(String(record.jobId)) ||
-    record.jobId !== hashCanonical({
-      schemaVersion: "pmh.semantic-review-job-id.v1",
-      proposalId: record.proposalId,
-    }) ||
+    record.jobId !== semanticReviewJobId(record.proposalId) ||
     record.opportunityId !== `ai:${record.proposalId}` ||
     !HASH_PATTERN.test(String(record.proposalId)) ||
     !HASH_PATTERN.test(String(record.proposalCorpusSnapshotIdentity)) ||
@@ -208,6 +226,16 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
       assertProposalEvidenceBundle(evidenceBundle).proposalId !== record.proposalId ||
       evidenceBundle.proposalCorpusSnapshotIdentity !== record.proposalCorpusSnapshotIdentity
     )) ||
+    (record.reviewScopeIdentity !== undefined &&
+      evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" &&
+      reviewScopeIdentity !== deriveSemanticReviewScope(
+        evidenceBundle.proposal,
+        evidenceBundle,
+      ).scopeIdentity) ||
+    (reviewScopeIdentity !== null &&
+      !HASH_PATTERN.test(String(reviewScopeIdentity))) ||
+    (duplicateOfJobId !== null &&
+      (!HASH_PATTERN.test(String(duplicateOfJobId)) || duplicateOfJobId === record.jobId)) ||
     !Array.isArray(record.issueIds) || record.issueIds.length === 0 ||
     record.issueIds.length > 20 ||
     record.issueIds.some((item) => !HASH_PATTERN.test(String(item))) ||
@@ -215,7 +243,7 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
     ![1, 2, 3, 4, 5].includes(record.priority) ||
     ![
       "PENDING", "LEASED", "RETRY_WAIT", "BLOCKED_EVIDENCE", "RESEARCH_ONLY",
-      "PASS", "EXHAUSTED",
+      "DUPLICATE_SCOPE", "PASS", "EXHAUSTED",
     ].includes(record.status) ||
     !Number.isSafeInteger(record.attemptCount) || record.attemptCount < 0 ||
     !Number.isSafeInteger(record.maxAttempts) || record.maxAttempts < 1 ||
@@ -235,6 +263,12 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
       record.lastReviewId !== null || record.recommendation !== null ||
       !boundedText(record.diagnostic, 500)
     )) ||
+    (record.status === "DUPLICATE_SCOPE" && (
+      reviewScopeIdentity === null || duplicateOfJobId === null ||
+      record.lastReviewId !== null || record.recommendation !== null ||
+      !boundedText(record.diagnostic, 500)
+    )) ||
+    (record.status !== "DUPLICATE_SCOPE" && duplicateOfJobId !== null) ||
     (record.diagnostic !== null && (!boundedText(record.diagnostic, 500))) ||
     !isIso(record.createdAt) || !isIso(record.updatedAt) ||
     !HASH_PATTERN.test(String(record.artifactHash)) ||
@@ -334,25 +368,64 @@ export class SemanticReviewScheduler {
       reviews.filter((review) => review.status === "PASS" && review.report !== null)
         .map((review) => [review.proposalId, review] as const),
     );
+    const existingByProposal = new Map(
+      this.#jobs.map((job) => [job.proposalId, job] as const),
+    );
     for (const job of [...this.#jobs]) {
       const review = passedByProposal.get(job.proposalId);
       if (review !== undefined && job.status !== "PASS") {
         this.#completeFromReview(job, review);
       }
     }
-    for (const candidate of [...candidates].sort((left, right) =>
+    const sortedCandidates = [...candidates].sort((left, right) =>
       left.proposal.proposalId.localeCompare(right.proposal.proposalId)
-    )) {
+    );
+    const scopesByProposal = new Map(sortedCandidates.map((candidate) => [
+      candidate.proposal.proposalId,
+      deriveSemanticReviewScope(candidate.proposal, candidate.evidenceBundle),
+    ] as const));
+    const canonicalProposalByScope = new Map<Hash, Hash>();
+    const scopedGroups = new Map<Hash, SemanticReviewCandidate[]>();
+    for (const candidate of sortedCandidates) {
+      const scopeIdentity = scopesByProposal.get(candidate.proposal.proposalId)?.scopeIdentity;
+      if (scopeIdentity === null || scopeIdentity === undefined) continue;
+      const group = scopedGroups.get(scopeIdentity) ?? [];
+      group.push(candidate);
+      scopedGroups.set(scopeIdentity, group);
+    }
+    for (const [scopeIdentity, group] of scopedGroups) {
+      const canonical = [...group].sort((left, right) => {
+        const leftJob = existingByProposal.get(left.proposal.proposalId);
+        const rightJob = existingByProposal.get(right.proposal.proposalId);
+        const rank = (candidate: SemanticReviewCandidate, job?: SemanticReviewJobRecord) =>
+          passedByProposal.has(candidate.proposal.proposalId) || job?.status === "PASS" ? 0
+            : job?.status === "LEASED" ? 1
+              : job !== undefined && job.status !== "DUPLICATE_SCOPE" ? 2
+                : 3;
+        return rank(left, leftJob) - rank(right, rightJob) ||
+          (leftJob?.createdAt ?? "9999").localeCompare(rightJob?.createdAt ?? "9999") ||
+          left.proposal.proposalId.localeCompare(right.proposal.proposalId);
+      })[0];
+      if (canonical !== undefined) {
+        canonicalProposalByScope.set(scopeIdentity, canonical.proposal.proposalId);
+      }
+    }
+    for (const candidate of sortedCandidates) {
       const proposalId = candidate.proposal.proposalId;
-      const jobId = hashCanonical({
-        schemaVersion: "pmh.semantic-review-job-id.v1",
-        proposalId,
-      });
+      const jobId = semanticReviewJobId(proposalId);
       const existing = this.#jobs.find((job) => job.jobId === jobId);
       const issueIds = Object.freeze([...new Set(candidate.issueIds)].sort());
       const review = passedByProposal.get(proposalId);
       const automatic = classifySemanticReviewAdmission(candidate.proposal).lane ===
         "AUTO_ARBITRAGE_REVIEW";
+      const reviewScopeIdentity = scopesByProposal.get(proposalId)?.scopeIdentity ?? null;
+      const canonicalProposalId = reviewScopeIdentity === null
+        ? proposalId
+        : canonicalProposalByScope.get(reviewScopeIdentity) ?? proposalId;
+      const duplicateOfJobId = automatic && canonicalProposalId !== proposalId &&
+        review === undefined && existing?.status !== "PASS"
+        ? semanticReviewJobId(canonicalProposalId)
+        : null;
       if (existing === undefined) {
         this.#saveJob(withJobHash({
           schemaVersion: "pmh.semantic-review-job.v1",
@@ -361,20 +434,33 @@ export class SemanticReviewScheduler {
           proposalId,
           proposalCorpusSnapshotIdentity: candidate.proposalCorpusSnapshotIdentity,
           evidenceBundle: candidate.evidenceBundle,
+          reviewScopeIdentity,
+          duplicateOfJobId,
           issueIds,
           priority: candidate.priority,
-          status: review !== undefined ? "PASS" : automatic ? "PENDING" : "RESEARCH_ONLY",
+          status: review !== undefined
+            ? "PASS"
+            : !automatic
+              ? "RESEARCH_ONLY"
+              : duplicateOfJobId !== null
+                ? "DUPLICATE_SCOPE"
+                : "PENDING",
           attemptCount: 0,
           maxAttempts: this.#maxAttempts,
           nextAttemptAt: now,
           leasedAt: null,
           leaseExpiresAt: null,
-          completedAt: review?.completedAt ?? (automatic ? null : now),
+          completedAt: review?.completedAt ??
+            (!automatic || duplicateOfJobId !== null ? now : null),
           lastReviewId: review?.reviewId ?? null,
           recommendation: review?.report?.result.recommendation ?? null,
-          diagnostic: review !== undefined || automatic
+          diagnostic: review !== undefined
             ? null
-            : researchOnlyDiagnostic(candidate),
+            : !automatic
+              ? researchOnlyDiagnostic(candidate)
+              : duplicateOfJobId !== null
+                ? duplicateScopeDiagnostic(duplicateOfJobId)
+                : null,
           createdAt: now,
           updatedAt: now,
         }));
@@ -403,6 +489,8 @@ export class SemanticReviewScheduler {
       ) {
         this.#saveJob(withJobHash({
           ...this.#withoutJobHash(existing),
+          reviewScopeIdentity,
+          duplicateOfJobId: null,
           status: "RESEARCH_ONLY",
           completedAt: now,
           lastReviewId: null,
@@ -415,16 +503,57 @@ export class SemanticReviewScheduler {
         continue;
       }
       if (
+        automatic && duplicateOfJobId === null &&
+        existing.status === "DUPLICATE_SCOPE"
+      ) {
+        this.#saveJob(withJobHash({
+          ...this.#withoutJobHash(existing),
+          reviewScopeIdentity,
+          duplicateOfJobId: null,
+          status: "PENDING",
+          completedAt: null,
+          lastReviewId: null,
+          recommendation: null,
+          diagnostic: null,
+          nextAttemptAt: now,
+          updatedAt: now,
+        }));
+        continue;
+      }
+      if (
+        duplicateOfJobId !== null && existing.status !== "PASS" &&
+        existing.status !== "LEASED" && existing.status !== "DUPLICATE_SCOPE"
+      ) {
+        this.#saveJob(withJobHash({
+          ...this.#withoutJobHash(existing),
+          reviewScopeIdentity,
+          duplicateOfJobId,
+          status: "DUPLICATE_SCOPE",
+          completedAt: now,
+          lastReviewId: null,
+          recommendation: null,
+          diagnostic: duplicateScopeDiagnostic(duplicateOfJobId),
+          leasedAt: null,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        }));
+        continue;
+      }
+      if (
         existing.issueIds.join("\n") !== issueIds.join("\n") ||
         existing.priority !== candidate.priority ||
         (candidate.evidenceBundle !== null &&
-          (existing.evidenceBundle?.bundleId ?? null) !== candidate.evidenceBundle.bundleId)
+          (existing.evidenceBundle?.bundleId ?? null) !== candidate.evidenceBundle.bundleId) ||
+        (existing.reviewScopeIdentity ?? null) !== reviewScopeIdentity ||
+        (existing.duplicateOfJobId ?? null) !== duplicateOfJobId
       ) {
         this.#saveJob(withJobHash({
           ...this.#withoutJobHash(existing),
           issueIds,
           priority: candidate.priority,
           evidenceBundle: candidate.evidenceBundle ?? existing.evidenceBundle ?? null,
+          reviewScopeIdentity,
+          duplicateOfJobId,
           updatedAt: now,
         }));
       }
@@ -591,7 +720,7 @@ export class SemanticReviewScheduler {
       const bundle = job.evidenceBundle ?? null;
       if (
         bundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2" ||
-        job.status === "RESEARCH_ONLY" ||
+        job.status === "RESEARCH_ONLY" || job.status === "DUPLICATE_SCOPE" ||
         byProposal.has(job.proposalId)
       ) continue;
       byProposal.set(job.proposalId, Object.freeze({
@@ -664,6 +793,7 @@ export class SemanticReviewScheduler {
     }
     const completed = this.#saveJob(withJobHash({
       ...this.#withoutJobHash(job),
+      duplicateOfJobId: null,
       status: "PASS",
       leasedAt: null,
       leaseExpiresAt: null,
@@ -792,6 +922,14 @@ export class SemanticReviewScheduler {
     const notifications = Object.freeze([...this.#notifications]);
     const now = this.#now();
     const configured = this.#reviewDesk.projection().configured;
+    const scopedJobs = jobs.filter((job) =>
+      (job.reviewScopeIdentity ?? null) !== null
+    );
+    const passedByScope = new Map<Hash, number>();
+    for (const job of scopedJobs.filter((item) => item.status === "PASS")) {
+      const scopeIdentity = job.reviewScopeIdentity as Hash;
+      passedByScope.set(scopeIdentity, (passedByScope.get(scopeIdentity) ?? 0) + 1);
+    }
     return Object.freeze({
       schemaVersion: "pmh.semantic-review-scheduler.v1",
       enabled: this.tickIntervalMs !== null,
@@ -809,6 +947,15 @@ export class SemanticReviewScheduler {
       retryWaitCount: jobs.filter((job) => job.status === "RETRY_WAIT").length,
       blockedEvidenceCount: jobs.filter((job) => job.status === "BLOCKED_EVIDENCE").length,
       researchOnlyCount: jobs.filter((job) => job.status === "RESEARCH_ONLY").length,
+      duplicateScopeCount: jobs.filter((job) => job.status === "DUPLICATE_SCOPE").length,
+      scopedJobCount: scopedJobs.length,
+      uniqueReviewScopeCount: new Set(
+        scopedJobs.map((job) => job.reviewScopeIdentity as Hash),
+      ).size,
+      historicalRedundantPassCount: [...passedByScope.values()].reduce(
+        (sum, count) => sum + Math.max(0, count - 1),
+        0,
+      ),
       bundledJobCount: jobs.filter(
         (job) => job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2",
       ).length,

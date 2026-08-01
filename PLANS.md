@@ -1,8 +1,6 @@
 # Plans
 
-No construction campaign is active after the arbitrage-first review-admission
-merge. The next campaign should be selected from measured live funnel evidence
-and recorded in a fresh file under `plans/`.
+`plans/semantic-review-scope-deduplication.md` is the active construction plan.
 
 ## Planning contract
 
@@ -115,6 +113,22 @@ current payoff compiler cannot consume and 25 have unsupported listing arity.
 SQLite migrated to schema v16, historical passed reviews stayed intact, and
 repeated scheduler ticks held the request-attempt counter at 113. All 383
 workspace tests, production build, desktop QA, and 390 px QA pass.
+
+The next measured waste is recurring semantic-review duplication. The current
+automatic lane contains 11 proposal artifacts but only eight distinct
+relation-and-listing scopes before contract-evidence identity is considered.
+Three Atlanta implication artifacts repeat one directional pair and two Myriad
+equivalence artifacts repeat one symmetric pair in reverse order. The active
+campaign gives review work a price-independent semantic scope so unchanged
+contracts can reuse prior advisory work without conflating changed rules or
+directional relations.
+
+The v17 live backfill sharpens that estimate: 102 scoped jobs collapse to 81
+unique contract-semantic scopes, with 17 historical redundant passes. Repeated
+ticks keep the request counter at 114. Historical results remain untouched;
+future same-scope proposals are durably linked to a canonical job and consume
+zero automatic review requests. Full checks, workspace tests, production build,
+desktop QA, and 390 px QA pass.
 
 ## Deferred future campaigns
 

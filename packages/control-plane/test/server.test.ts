@@ -386,6 +386,10 @@ describe("control-plane HTTP surface", () => {
       configured: false,
       pendingCount: 0,
       researchOnlyCount: 0,
+      duplicateScopeCount: 0,
+      scopedJobCount: 0,
+      uniqueReviewScopeCount: 0,
+      historicalRedundantPassCount: 0,
       bundledJobCount: 0,
       legacyEvidenceDebtCount: 0,
       budget: { basis: "REQUEST_ATTEMPTS", maxAttemptsPerJob: 3 },
@@ -431,6 +435,8 @@ describe("control-plane HTTP surface", () => {
     expect(await reviewSchedulerResponse.json()).toMatchObject({
       schemaVersion: "pmh.semantic-review-scheduler.v1",
       authority: "ADVISORY_ORCHESTRATION_ONLY",
+      uniqueReviewScopeCount: 0,
+      duplicateScopeCount: 0,
       budget: { basis: "REQUEST_ATTEMPTS" },
       executionAuthority: false,
       effects: { liveExecutionEnabled: false },
@@ -1682,7 +1688,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 16,
+          schemaVersion: 17,
         },
         records: [{ investigationId: created.investigationId }],
       });
