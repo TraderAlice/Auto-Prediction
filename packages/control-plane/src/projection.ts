@@ -20,6 +20,7 @@ import type { InvestigationDeskProjection } from "./investigation-desk.js";
 import type { CatalogObservationProjection } from "./catalog-observation.js";
 import { buildCampaignEvidence } from "./qualification.js";
 import { buildReviewedCompilationEvidence } from "./reviewed-compilation.js";
+import { buildResearchCaseDesk } from "./research-case-desk.js";
 
 const presentation = {
   "polymarket-global": ["CLOB · CTF", 98, "#7ef0c1"],
@@ -144,6 +145,34 @@ export function buildStudioProjection(input: {
     maxOutputBytes: 2_000_000,
     authority: "PROPOSE_ONLY" as const,
   };
+  const investigationDesk = input.investigationDesk ?? {
+    retentionLimit: 10,
+    activeCount: 0 as const,
+    runCount: 0,
+    passCount: 0,
+    failedCount: 0,
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false as const,
+      schemaVersion: 0,
+      idempotencyKey: "taskId+catalogContextIdentity" as const,
+    },
+    records: [],
+  };
+  const discoveryDesk = input.discoveryDesk ?? {
+    retentionLimit: 25,
+    runCount: 0,
+    hypothesisCount: 0,
+    unreviewedCount: 0,
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "taskId" as const,
+    },
+    runs: [],
+  };
+  const researchDesk = buildResearchCaseDesk(discoveryDesk, investigationDesk);
   const reviewedCompilation = buildReviewedCompilationEvidence();
   const compiledCapital = Object.entries(
     reviewedCompilation.certificate.capitalRequiredByVenue,
@@ -181,7 +210,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 171,
+      proofTests: 175,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -192,20 +221,8 @@ export function buildStudioProjection(input: {
       catalogObservation,
       modelProvider,
       investigator,
-      investigationDesk: input.investigationDesk ?? {
-        retentionLimit: 10,
-        activeCount: 0,
-        runCount: 0,
-        passCount: 0,
-        failedCount: 0,
-        storage: {
-          mode: "MEMORY" as const,
-          durable: false as const,
-          schemaVersion: 0,
-          idempotencyKey: "taskId+catalogContextIdentity" as const,
-        },
-        records: [],
-      },
+      investigationDesk,
+      researchDesk,
       workers: [
         ...input.workers.map((worker) => ({
           workerId: worker.workerId,
@@ -235,19 +252,7 @@ export function buildStudioProjection(input: {
       campaignEvidence: buildCampaignEvidence(bookDesk, replayChaos),
       reviewedCompilation,
     },
-    discoveryDesk: input.discoveryDesk ?? {
-      retentionLimit: 25,
-      runCount: 0,
-      hypothesisCount: 0,
-      unreviewedCount: 0,
-      storage: {
-        mode: "MEMORY" as const,
-        durable: false,
-        schemaVersion: 0,
-        idempotencyKey: "taskId" as const,
-      },
-      runs: [],
-    },
+    discoveryDesk,
     venues: manifests
       .map((manifest) => {
         const details =

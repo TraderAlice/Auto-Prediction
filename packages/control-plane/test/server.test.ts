@@ -186,6 +186,32 @@ describe("control-plane HTTP surface", () => {
       question: "Highest temperature in Boston on July 31, 2026?",
       executionAuthority: false,
     });
+    const caseDesk = (await fetch(`${baseUrl}/api/v1/projection`).then(
+      (projectionResponse) => projectionResponse.json(),
+    )) as {
+      ai: {
+        researchDesk: {
+          caseCount: number;
+          needsInvestigationCount: number;
+          cases: {
+            status: string;
+            promotionEligible: boolean;
+            executionAuthority: boolean;
+          }[];
+        };
+      };
+    };
+    expect(caseDesk.ai.researchDesk).toMatchObject({
+      caseCount: 1,
+      needsInvestigationCount: 1,
+      cases: [
+        {
+          status: "NEEDS_INVESTIGATION",
+          promotionEligible: false,
+          executionAuthority: false,
+        },
+      ],
+    });
     const malformed = await fetch(`${baseUrl}/api/v1/discovery/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },

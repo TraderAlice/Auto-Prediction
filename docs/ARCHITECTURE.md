@@ -55,6 +55,16 @@ because an interrupted child cannot be resumed. RUNNING, FAILED, and PASS state
 is part of the SSE projection; no state transition grants review or execution
 authority.
 
+`ResearchCaseDesk` is a read-only coordination projection above the discovery
+and investigation ledgers. It groups only identical question, venue,
+catalog-context, and source-grade scopes; different live observation hashes
+remain different cases even when the question text matches. It detects
+conflicting listing counts for one context identity, bounds displayed listing
+references, and preserves failed pi attempts beside the latest passed report.
+Its `BOUND` / `PRESENT` stages describe retained research input, never semantic
+approval. Review, compilation, exact verification, promotion, and execution
+remain unavailable through this layer.
+
 The hypothesis remains `PROPOSE_ONLY` and `UNREVIEWED`; approval is a separate
 content-addressed artifact. Compilation derives its claim-graph and resolution
 partition identities from the hypothesis and complete reviewed-link set. A

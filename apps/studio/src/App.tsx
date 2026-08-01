@@ -43,8 +43,15 @@ import {
 } from "@/data/studio-projection";
 import { cn } from "@/lib/utils";
 
-type View = "overview" | "scouts" | "venues" | "books" | "evidence";
+type View =
+  | "overview"
+  | "scouts"
+  | "cases"
+  | "venues"
+  | "books"
+  | "evidence";
 type Opportunity = StudioProjection["opportunities"][number];
+type ResearchCase = StudioProjection["ai"]["researchDesk"]["cases"][number];
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 
 const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
@@ -59,6 +66,7 @@ const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "scouts", label: "Scout inbox", icon: Inbox },
+  { id: "cases", label: "Research cases", icon: Waypoints },
   { id: "venues", label: "Venue matrix", icon: Network },
   { id: "books", label: "Book desk", icon: BookOpenCheck },
   { id: "evidence", label: "Evidence", icon: Fingerprint },
@@ -768,6 +776,10 @@ function confidenceLabel(confidenceBps: number): string {
   return `${whole}.${fraction}%`;
 }
 
+function countLabel(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
 function ScoutInboxView() {
   const studioProjection = useStudioProjection();
   const catalogContext =
@@ -1273,6 +1285,294 @@ function ScoutInboxView() {
           </div>
         </div>
       </div>
+    </section>
+  );
+}
+
+function caseBadgeVariant(status: ResearchCase["status"]) {
+  if (status === "EVIDENCE_GAPS") return "warning" as const;
+  if (status === "INVESTIGATING" || status === "AWAITING_REVIEW") {
+    return "shadow" as const;
+  }
+  return "muted" as const;
+}
+
+function ResearchCaseDeskView() {
+  const studioProjection = useStudioProjection();
+  const researchDesk = studioProjection.ai.researchDesk;
+  const [selectedCaseId, setSelectedCaseId] = useState(
+    researchDesk.cases[0]?.caseId ?? "",
+  );
+  const selectedCase =
+    researchDesk.cases.find((item) => item.caseId === selectedCaseId) ??
+    researchDesk.cases[0];
+
+  useEffect(() => {
+    if (
+      researchDesk.cases.length > 0 &&
+      !researchDesk.cases.some((item) => item.caseId === selectedCaseId)
+    ) {
+      setSelectedCaseId(researchDesk.cases[0]?.caseId ?? "");
+    }
+  }, [researchDesk.cases, selectedCaseId]);
+
+  return (
+    <section className="page-section">
+      <div className="page-heading case-heading">
+        <span className="eyebrow">Joined research state · no promotion</span>
+        <h1>Research case desk</h1>
+        <p>
+          One deterministic dossier joins scout proposals, read-only pi retries,
+          candidate listings, and unresolved evidence for the same bounded
+          catalog context. Presence is not approval: independent review,
+          compilation, and exact verification remain blocked.
+        </p>
+      </div>
+
+      <div className="case-summary-grid">
+        <Metric
+          label="Open cases"
+          value={`${researchDesk.caseCount}`}
+          detail="bounded operational dossiers"
+        />
+        <Metric
+          label="Investigating"
+          value={`${researchDesk.activeCount}`}
+          detail="read-only pi currently running"
+        />
+        <Metric
+          label="Evidence gaps"
+          value={`${researchDesk.evidenceGapCount}`}
+          detail="passed intake · facts still missing"
+        />
+        <Metric
+          label="Needs context"
+          value={`${researchDesk.needsContextCount}`}
+          detail="legacy or ungrounded scout runs"
+        />
+        <Metric
+          label="Needs pi"
+          value={`${researchDesk.needsInvestigationCount}`}
+          detail="scout leads without deep intake"
+        />
+        <Metric
+          label="Awaiting review"
+          value={`${researchDesk.awaitingReviewCount}`}
+          detail="review authority remains absent"
+        />
+      </div>
+
+      {selectedCase === undefined ? (
+        <div className="case-empty">
+          <Waypoints size={26} />
+          <strong>No research cases retained</strong>
+          <span>Run a bounded scout or pi investigation to open a dossier.</span>
+        </div>
+      ) : (
+        <div className="case-workbench">
+          <div className="case-list" aria-label="Research case queue">
+            <div className="case-list-heading">
+              <span className="eyebrow">Case queue</span>
+              <Badge variant="muted">{researchDesk.caseCount} retained</Badge>
+            </div>
+            {researchDesk.cases.map((item) => (
+              <button
+                type="button"
+                className={cn(
+                  "case-list-item",
+                  item.caseId === selectedCase.caseId && "is-selected",
+                )}
+                key={item.caseId}
+                onClick={() => setSelectedCaseId(item.caseId)}
+              >
+                <div>
+                  <Badge variant={caseBadgeVariant(item.status)}>
+                    {item.status.replaceAll("_", " ")}
+                  </Badge>
+                  <time>{new Date(item.updatedAt).toLocaleString()}</time>
+                </div>
+                <strong>{item.question}</strong>
+                <span>
+                  {countLabel(item.scout.hypothesisCount, "lead")} ·{" "}
+                  {countLabel(item.investigation.attemptCount, "pi attempt")} ·{" "}
+                  {countLabel(item.missingEvidence.length, "gap")}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <article className="case-dossier">
+            <div className="case-dossier-head">
+              <div>
+                <span className="eyebrow">Bounded research dossier</span>
+                <h2>{selectedCase.question}</h2>
+              </div>
+              <div>
+                <Badge variant={caseBadgeVariant(selectedCase.status)}>
+                  {selectedCase.status.replaceAll("_", " ")}
+                </Badge>
+                <Badge variant="shadow">{selectedCase.authority}</Badge>
+                <Badge variant="muted">{selectedCase.reviewStatus}</Badge>
+              </div>
+            </div>
+
+            <div className="case-scope-strip">
+              <div>
+                <Database size={13} />
+                <span>
+                  {selectedCase.catalogListingCount} listings ·{" "}
+                  {selectedCase.catalogContextSource
+                    .replaceAll("_", " ")
+                    .toLowerCase()}
+                </span>
+              </div>
+              <div>
+                <Network size={13} />
+                <span>{selectedCase.venueIds.join(" · ")}</span>
+              </div>
+              <code>
+                {selectedCase.catalogContextIdentity?.slice(0, 24) ??
+                  "context unavailable"}
+                …
+              </code>
+            </div>
+
+            <div className="case-stage-flow">
+              {selectedCase.stages.map((stage, index) => (
+                <div
+                  className={cn(
+                    "case-stage",
+                    `is-${stage.status.toLowerCase()}`,
+                  )}
+                  key={stage.stage}
+                >
+                  <span>{String(index + 1).padStart(2, "0")}</span>
+                  <div>
+                    <strong>{stage.stage.replaceAll("_", " ")}</strong>
+                    <small>{stage.detail}</small>
+                  </div>
+                  <Badge
+                    variant={
+                      stage.status === "BOUND" || stage.status === "PRESENT"
+                        ? "verified"
+                        : stage.status === "FAILED"
+                          ? "warning"
+                          : stage.status === "RUNNING"
+                            ? "shadow"
+                            : "muted"
+                    }
+                  >
+                    {stage.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+
+            <div className="case-evidence-grid">
+              <section>
+                <div className="case-section-heading">
+                  <div>
+                    <GitBranch size={14} />
+                    <strong>Candidate listing scope</strong>
+                  </div>
+                  <Badge variant="muted">
+                    {selectedCase.candidateListingRefCount}
+                  </Badge>
+                </div>
+                {selectedCase.candidateListingRefs.length === 0 ? (
+                  <p>No grounded candidate listing survived intake.</p>
+                ) : (
+                  <ul className="case-listing-refs">
+                    {selectedCase.candidateListingRefs.map((listingRef) => (
+                      <li key={listingRef}>
+                        <Fingerprint size={11} />
+                        <code>{listingRef}</code>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {selectedCase.candidateListingRefCount >
+                  selectedCase.candidateListingRefs.length && (
+                  <small className="case-more-gaps">
+                    +
+                    {selectedCase.candidateListingRefCount -
+                      selectedCase.candidateListingRefs.length}{" "}
+                    more retained outside the bounded display slice
+                  </small>
+                )}
+              </section>
+              <section>
+                <div className="case-section-heading">
+                  <div>
+                    <CircleOff size={14} />
+                    <strong>Missing evidence intake</strong>
+                  </div>
+                  <Badge
+                    variant={
+                      selectedCase.missingEvidence.length > 0
+                        ? "warning"
+                        : "muted"
+                    }
+                  >
+                    {selectedCase.missingEvidence.length}
+                  </Badge>
+                </div>
+                {selectedCase.missingEvidence.length === 0 ? (
+                  <p>
+                    pi reported no explicit gaps; this is not an independent
+                    completeness finding.
+                  </p>
+                ) : (
+                  <ol className="case-gap-list">
+                    {selectedCase.missingEvidence
+                      .slice(0, 6)
+                      .map((gap, index) => (
+                        <li key={`${selectedCase.caseId}:gap:${index}`}>
+                          <span>{String(index + 1).padStart(2, "0")}</span>
+                          <p>{gap}</p>
+                        </li>
+                      ))}
+                  </ol>
+                )}
+                {selectedCase.missingEvidence.length > 6 && (
+                  <small className="case-more-gaps">
+                    +{selectedCase.missingEvidence.length - 6} more retained in
+                    the case projection
+                  </small>
+                )}
+              </section>
+            </div>
+
+            <div className="case-footer-strip">
+              <div>
+                <SquareTerminal size={13} />
+                <span>
+                  pi {selectedCase.investigation.status.toLowerCase()} ·{" "}
+                  {selectedCase.investigation.failedAttemptCount} failed of{" "}
+                  {countLabel(
+                    selectedCase.investigation.attemptCount,
+                    "attempt",
+                  )}{" "}
+                  · {countLabel(selectedCase.investigation.warningCount, "warning")}
+                </span>
+              </div>
+              <code>
+                {selectedCase.investigation.artifactHash ??
+                  "no passed investigation artifact"}
+              </code>
+            </div>
+
+            <div className="case-authority-lock">
+              <ShieldCheck size={15} />
+              <span>
+                Case aggregation is read-only operational context. It cannot
+                accept a hypothesis, publish a market link, compile a candidate,
+                certify arbitrage, or grant execution authority.
+              </span>
+            </div>
+          </article>
+        </div>
+      )}
     </section>
   );
 }
@@ -1882,6 +2182,7 @@ function StudioShell() {
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
           {view === "scouts" && <ScoutInboxView />}
+          {view === "cases" && <ResearchCaseDeskView />}
           {view === "venues" && <VenueMatrix />}
           {view === "books" && <BookDeskView />}
           {view === "evidence" && <EvidenceView />}

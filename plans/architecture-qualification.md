@@ -58,6 +58,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Add a one-request, secret-free, content-hashed provider qualification command.
 - [x] Add a bounded, read-only pi investigator qualification command for repository-aware work.
 - [x] Expose pi as an explicitly triggered, one-at-a-time Investigation Desk with SSE state and bounded durable completion retention.
+- [x] Join scout and pi history into deterministic, context-versioned research cases without granting promotion authority.
 - [x] Qualify real AI SDK and pi responses with a user-supplied `DEEPSEEK_API_KEY`.
 - [x] Feed reviewed hypotheses into deterministic candidate compilation.
 - [x] Stream real replay book state into Studio.
@@ -120,6 +121,9 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: `pmh.discovery-catalog-context.v2` keeps verified fixtures as the default and permits explicitly selected live observations only when every requested source is successful, non-empty, and at most 15 minutes old. Venue text is untrusted data; context admission grants proposal authority only.
 - 2026-08-01: A real Polymarket live-context run grounded both DeepSeek/Vercel AI SDK and pi in two hash-bound listings. pi exposed a structured-close/rules-time conflict and missing rule evidence under durable artifact `sha256:d3a42fde…8e599d`; its successful high-thinking run required a 300-second process budget and retained no review or execution authority.
 - 2026-08-01: Qualified live AI context expands the Node.js 24.14.0 checkpoint to 171 passing tests plus full typecheck and production build, including stale/failed-source rejection, explicit HTTP source selection, prompt-injection posture, and Studio default-state proofs.
+- 2026-08-01: The Research Case Desk groups discovery and investigation records only when question, venues, catalog-context identity, and source grade match. It distinguishes missing context, missing investigation, evidence gaps, and absent review authority while retaining literal-false promotion and execution effects.
+- 2026-08-01: Real SQLite state projects five context-versioned cases: one passed live Polymarket intake with seven evidence gaps, one earlier live revision needing a pi retry after two failed attempts, one grounded Boston fixture case needing investigation, and two legacy records folded into the `NEEDS_CONTEXT` count. Desktop and 430px Studio inspection show no horizontal overflow.
+- 2026-08-01: Research case coordination expands the Node.js 24.14.0 checkpoint to 175 passing tests plus full typecheck and production build, including cross-task scope joining, retry retention, upstream-authority rejection, and conflicting-context-count rejection.
 
 ## Blockers
 

@@ -14,5 +14,6 @@ export * from "./projection.js";
 export * from "./provider-smoke.js";
 export * from "./qualification.js";
 export * from "./reviewed-compilation.js";
+export * from "./research-case-desk.js";
 export * from "./server.js";
 export * from "./types.js";

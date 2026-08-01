@@ -212,6 +212,7 @@ export type StudioProjection = Readonly<{
     modelProvider: ModelProviderProjection;
     investigator: PiInvestigatorProjection;
     investigationDesk: import("./investigation-desk.js").InvestigationDeskProjection;
+    researchDesk: import("./research-case-desk.js").ResearchCaseDeskProjection;
     workers: readonly Readonly<{
       workerId: string;
       kind: "HEURISTIC" | "MODEL";
