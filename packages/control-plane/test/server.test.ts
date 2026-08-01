@@ -302,8 +302,8 @@ describe("control-plane HTTP surface", () => {
     const initial = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
       response.json())) as StudioProjection;
     expect(initial.ai.searchIssueScheduler).toMatchObject({
-      issueCount: 4,
-      enabledIssueCount: 4,
+      issueCount: 5,
+      enabledIssueCount: 5,
       activeCount: 0,
       concurrencyLimit: 3,
       semanticDecisionAuthority: false,
@@ -351,8 +351,8 @@ describe("control-plane HTTP surface", () => {
     const finalProjection = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
       response.json())) as StudioProjection;
     expect(finalProjection.ai.searchIssueScheduler).toMatchObject({
-      issueCount: 5,
-      enabledIssueCount: 4,
+      issueCount: 6,
+      enabledIssueCount: 5,
     });
     expect(finalProjection.ai.searchIssueScheduler.issues.find(
       (issue) => issue.issueId === created.issueId,

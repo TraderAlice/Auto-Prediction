@@ -10,6 +10,7 @@ import type {
   OperationalStorageProjection,
   OpportunityHypothesis,
 } from "./types.js";
+import type { MarketRelationKind } from "./market-archaeologist.js";
 import type { SemanticGraphSearchContext } from "./semantic-relation-graph.js";
 
 const ALGORITHM_VERSION = "pmh.ai-search-leases.v1";
@@ -27,6 +28,11 @@ export const SEARCH_LENSES = Object.freeze([
 
 export type SearchLens = (typeof SEARCH_LENSES)[number];
 
+export type SearchCandidatePolicy = Readonly<{
+  allowedRelationKinds: readonly MarketRelationKind[];
+  exactListingRefCount: number;
+}>;
+
 export type SearchLease = Readonly<{
   schemaVersion: "pmh.search-lease.v1";
   leaseId: Hash;
@@ -34,6 +40,7 @@ export type SearchLease = Readonly<{
   snapshotIdentity: Hash;
   sourceSetIdentity: Hash;
   issueId?: Hash | null;
+  candidatePolicy?: SearchCandidatePolicy | null;
   lens: SearchLens;
   thesis: string;
   noveltyTargets: readonly string[];
@@ -81,6 +88,7 @@ export type SearchLeaseDeepLane = Readonly<{
     | "NOT_MULTI_LISTING"
     | "DUPLICATE"
     | "PI_DISABLED"
+    | "NO_POLICY_MATCH"
     | "NOVEL_MULTI_LISTING"
     | "NOVEL_MULTI_VENUE";
   runId: string | null;
@@ -144,6 +152,11 @@ export type SearchLeaseDeepResult = Readonly<{
   runId: string;
   status: "PASS" | "FAILED";
   proposalIds: readonly string[];
+  proposalDetails?: readonly Readonly<{
+    proposalId: string;
+    relationKind: MarketRelationKind;
+    listingRefs: readonly string[];
+  }>[];
   evidenceGaps: readonly string[];
   diagnostic: string | null;
 }>;
@@ -213,6 +226,7 @@ export type SearchLeaseIssueInput = Readonly<{
   issueId: Hash;
   question: string;
   venueIds: readonly string[];
+  candidatePolicy?: SearchCandidatePolicy | null;
 }>;
 
 const LENS_SPEC: Readonly<Record<SearchLens, Readonly<{
@@ -343,6 +357,20 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     graphContext.semanticDecisionAuthority === false &&
     graphContext.executionAuthority === false
   );
+  const candidatePolicy = lease.candidatePolicy;
+  const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null || (
+    Array.isArray(candidatePolicy.allowedRelationKinds) &&
+    candidatePolicy.allowedRelationKinds.length > 0 &&
+    candidatePolicy.allowedRelationKinds.length <= 8 &&
+    new Set(candidatePolicy.allowedRelationKinds).size === candidatePolicy.allowedRelationKinds.length &&
+    candidatePolicy.allowedRelationKinds.every((kind) => [
+      "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
+      "CONDITIONAL", "RELATED", "CONFLICTING",
+    ].includes(kind)) &&
+    Number.isSafeInteger(candidatePolicy.exactListingRefCount) &&
+    candidatePolicy.exactListingRefCount >= 2 &&
+    candidatePolicy.exactListingRefCount <= 8
+  );
   if (
     record.schemaVersion !== "pmh.search-lease-record.v1" ||
     lease?.schemaVersion !== "pmh.search-lease.v1" ||
@@ -367,6 +395,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     lease.certificateAuthority !== false ||
     lease.executionAuthority !== false ||
     !graphContextValid ||
+    !candidatePolicyValid ||
     !Number.isSafeInteger(lease.budget.maxFastModelRequests) ||
     lease.budget.maxFastModelRequests < 0 ||
     lease.budget.maxFastModelRequests > 4 ||
@@ -393,6 +422,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
       "NOT_MULTI_LISTING",
       "DUPLICATE",
       "PI_DISABLED",
+      "NO_POLICY_MATCH",
       "NOVEL_MULTI_LISTING",
       "NOVEL_MULTI_VENUE",
     ] as const).includes(record.deepLane.reason) ||
@@ -642,9 +672,11 @@ export class SearchLeaseScheduler {
       const scope = scopeFor(snapshot, issue?.venueIds);
       const graphContext = this.#graphContext?.(snapshot, selectedLens) ?? null;
       const baseQuestion = issue?.question ?? spec.question;
-      const querySummary = graphContext === null
-        ? baseQuestion
-        : `${baseQuestion} Graph neighborhood: ${graphContext.searchBrief}`.slice(0, 500);
+      const querySummary = (
+        graphContext === null
+          ? baseQuestion
+          : `${baseQuestion} Graph neighborhood: ${graphContext.searchBrief}`
+      ).slice(0, 500);
       const lease: SearchLease = deepFreeze({
         schemaVersion: "pmh.search-lease.v1" as const,
         leaseId,
@@ -652,6 +684,9 @@ export class SearchLeaseScheduler {
         snapshotIdentity: snapshot.snapshotIdentity,
         sourceSetIdentity: snapshot.sourceSetIdentity,
         issueId: issue?.issueId ?? null,
+        ...(issue?.candidatePolicy === undefined
+          ? {}
+          : { candidatePolicy: issue.candidatePolicy }),
         lens: selectedLens,
         thesis: spec.thesis,
         noveltyTargets: spec.noveltyTargets,
@@ -797,22 +832,37 @@ export class SearchLeaseScheduler {
       } else {
         const deepQuestion = [
           issued.lease.thesis,
+          `Search assignment: ${issued.trace.querySummary}`,
           `Inspect these fast-lane candidates: ${listingRefs.join(", ")}.`,
+          "Use the whole immutable MarketFS snapshot to find corroborating or falsifying rule evidence. Obey any exact candidate arity and relation exclusions in the search assignment. Return proposals only; do not make a semantic approval or trading decision.",
           ...(issued.lease.graphContext === null || issued.lease.graphContext === undefined
             ? []
             : [`Prior content-addressed graph evidence: ${issued.lease.graphContext.searchBrief}`]),
-          "Use the whole immutable MarketFS snapshot to find corroborating or falsifying rule evidence. Return proposals only; do not make a semantic approval or trading decision.",
         ].join(" ").slice(0, 1_000);
         this.#activeNovelty.set(signature, issued.lease.leaseId);
         try {
           const result = await this.#runDeep(snapshot, deepQuestion);
+          const policy = issued.lease.candidatePolicy;
+          const proposalIds = policy === undefined || policy === null
+            ? [...result.proposalIds].slice(0, 5)
+            : (result.proposalDetails ?? [])
+              .filter((proposal) =>
+                policy.allowedRelationKinds.includes(proposal.relationKind) &&
+                proposal.listingRefs.length === policy.exactListingRefCount
+              )
+              .map((proposal) => proposal.proposalId)
+              .filter((proposalId, index, values) => values.indexOf(proposalId) === index)
+              .slice(0, 5);
+          const policyDiagnostic = policy !== undefined && policy !== null && proposalIds.length === 0
+            ? `${result.proposalIds.length} deep proposal${result.proposalIds.length === 1 ? "" : "s"} retained as research evidence; none matched the issue candidate policy.`
+            : null;
           deepLane = Object.freeze({
             status: result.status,
-            reason: "NOVEL_MULTI_LISTING",
+            reason: policyDiagnostic === null ? "NOVEL_MULTI_LISTING" : "NO_POLICY_MATCH",
             runId: result.runId,
-            proposalIds: Object.freeze([...result.proposalIds].slice(0, 5)),
+            proposalIds: Object.freeze(proposalIds),
             evidenceGaps: Object.freeze([...result.evidenceGaps].slice(0, 20)),
-            diagnostic: result.diagnostic,
+            diagnostic: result.diagnostic ?? policyDiagnostic,
             permittedTools: READ_ONLY_TOOLS,
             toolExecutionTraceStored: false,
           });
@@ -836,7 +886,10 @@ export class SearchLeaseScheduler {
           noveltySignature: signature,
         }),
         outcome: Object.freeze({
-          novelCandidate: signature !== null && duplicateLeaseId === null,
+          novelCandidate: signature !== null && duplicateLeaseId === null &&
+            (issued.lease.candidatePolicy === undefined ||
+              issued.lease.candidatePolicy === null ||
+              deepLane.proposalIds.length > 0),
           hypothesisCount: run.hypotheses.length,
           proposalCount: deepLane.proposalIds.length,
           evidenceGapCount: deepLane.evidenceGaps.length,

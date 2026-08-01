@@ -112,6 +112,11 @@ describe("issue-driven concurrent search scheduler", () => {
       runId: hashCanonical({ deep: 1 }),
       status: "PASS" as const,
       proposalIds: Object.freeze([hashCanonical({ proposal: 1 })]),
+      proposalDetails: Object.freeze([Object.freeze({
+        proposalId: hashCanonical({ proposal: 1 }),
+        relationKind: "EQUIVALENT" as const,
+        listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
+      })]),
       evidenceGaps: Object.freeze([]),
       diagnostic: null,
     }));
@@ -135,12 +140,19 @@ describe("issue-driven concurrent search scheduler", () => {
     const runs = issues.tick(snapshot());
     expect(runs).toHaveLength(3);
     expect(issues.projection()).toMatchObject({
-      issueCount: 4,
-      enabledIssueCount: 4,
+      issueCount: 5,
+      enabledIssueCount: 5,
       activeCount: 3,
       concurrencyLimit: 3,
     });
     expect(pending).toHaveLength(3);
+    const focusedTask = pending.find((item) =>
+      item.task.question.includes("exactly two current OPEN/ACTIVE binary listings")
+    )?.task;
+    expect(focusedTask?.question).toContain("explicit settlement path");
+    expect(focusedTask?.question).toContain("indicative prices");
+    expect(focusedTask?.question).toContain("executable profit remain unproven");
+    expect(focusedTask?.question).toContain("Return no hypothesis unless");
     for (const item of pending) item.resolve(runRecord(item.task));
     await Promise.all(runs);
 
@@ -163,7 +175,7 @@ describe("issue-driven concurrent search scheduler", () => {
       duplicateRateBps: 6_666,
       piEscalationRateBps: 3_333,
     });
-    expect(completed.performance.byIssue).toHaveLength(4);
+    expect(completed.performance.byIssue).toHaveLength(5);
     expect(completed.performance.byIssue.reduce(
       (sum, item) => sum + item.terminalLeaseCount,
       0,
@@ -171,6 +183,14 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(completed.notifications[0]).toMatchObject({
       kind: "NOVEL_CANDIDATE",
       status: "UNREAD",
+    });
+    expect(leases.projection().records.find((record) =>
+      record.lease.issueId === completed.issues.find((issue) =>
+        issue.title === "Settlement-qualified two-leg parity"
+      )?.issueId
+    )?.lease.candidatePolicy).toEqual({
+      allowedRelationKinds: ["EQUIVALENT"],
+      exactListingRefCount: 2,
     });
     expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 13 });
     expect(leases.projection()).toMatchObject({
@@ -187,7 +207,7 @@ describe("issue-driven concurrent search scheduler", () => {
       now: () => nowMs + 1_000,
     });
     expect(restored.projection()).toMatchObject({
-      issueCount: 4,
+      issueCount: 5,
       unreadNotificationCount: 1,
       performance: { terminalLeaseCount: 3, duplicateCount: 2 },
     });
@@ -230,6 +250,35 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(issues.projection().issues.find((item) => item.issueId === issue.issueId)?.runCount).toBe(1);
   });
 
+  it("bounds a long operator brief to the durable lease audit contract", async () => {
+    let dispatched: DiscoveryTask | undefined;
+    const leases = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => {
+        dispatched = task;
+        return runRecord(task);
+      },
+      maxPiInvocations: 0,
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      seedDefaults: false,
+      now: () => nowMs,
+    });
+    const issue = issues.create({
+      title: "Bounded long brief",
+      question: `Find a grounded pair. ${"x".repeat(700)}`,
+      lens: "EQUIVALENCE",
+      cadenceMs: 300_000,
+    });
+
+    await issues.runNow(issue.issueId, snapshot()).promise;
+
+    expect(dispatched?.question).toHaveLength(500);
+    expect(dispatched?.question).toMatch(/^Find a grounded pair\./u);
+  });
+
   it("pauses schedules and creates a durable failure notification", async () => {
     const store = new SqliteOperationalStore(":memory:");
     const leases = new SearchLeaseScheduler({
@@ -257,7 +306,7 @@ describe("issue-driven concurrent search scheduler", () => {
     store.close();
   });
 
-  it("restores issue intent and pause state across SQLite process lifetimes", async () => {
+  it("reconciles missing defaults without overwriting durable operator issue state", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-search-issues-"));
     const path = join(directory, "control-plane.sqlite");
     try {
@@ -271,6 +320,7 @@ describe("issue-driven concurrent search scheduler", () => {
       const first = new SearchIssueScheduler({
         leaseScheduler: firstLeases,
         store: firstStore,
+        seedDefaults: false,
         now: () => nowMs,
       });
       const created = first.create({
@@ -294,15 +344,35 @@ describe("issue-driven concurrent search scheduler", () => {
       const restored = new SearchIssueScheduler({
         leaseScheduler: secondLeases,
         store: secondStore,
-        seedDefaults: false,
       });
       expect(restored.projection()).toMatchObject({
-        issueCount: 5,
-        enabledIssueCount: 4,
+        issueCount: 6,
+        enabledIssueCount: 5,
         storage: { issues: { durable: true, schemaVersion: 13 } },
       });
       expect(restored.projection().issues.find((issue) => issue.issueId === created.issueId))
         .toMatchObject({ enabled: false, title: created.title });
+      const focusedDefault = restored.projection().issues.find((issue) =>
+        issue.title === "Settlement-qualified two-leg parity"
+      )!;
+      const disabledDefault = restored.setEnabled(focusedDefault.issueId, false);
+      const restarted = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        store: secondStore,
+      });
+      expect(restarted.projection()).toMatchObject({
+        issueCount: 6,
+        enabledIssueCount: 4,
+      });
+      expect(restarted.projection().issues.find((issue) => issue.issueId === focusedDefault.issueId))
+        .toMatchObject({
+          enabled: false,
+          updatedAt: disabledDefault.updatedAt,
+          candidatePolicy: {
+            allowedRelationKinds: ["EQUIVALENT"],
+            exactListingRefCount: 2,
+          },
+        });
       secondStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
