@@ -548,6 +548,34 @@ export function createControlPlane(options?: {
       writeJson(response, 200, investigationDesk.projection());
       return;
     }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/research-cases/review-intake"
+    ) {
+      const caseId = url.searchParams.get("caseId")?.trim() ?? "";
+      const current = await projection();
+      const researchCase = current.ai.researchDesk.cases.find(
+        (item) => item.caseId === caseId,
+      );
+      if (researchCase === undefined) {
+        writeJson(response, 404, {
+          ok: false,
+          diagnostic: "research case was not found",
+          executionAuthority: false,
+        });
+      } else if (researchCase.reviewIntake === null) {
+        writeJson(response, 409, {
+          ok: false,
+          caseId,
+          diagnostic:
+            "research case lacks the retained scout and passed investigation bindings required for a review intake packet",
+          executionAuthority: false,
+        });
+      } else {
+        writeJson(response, 200, researchCase.reviewIntake);
+      }
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/v1/events") {
       response.writeHead(200, {
         "content-type": "text/event-stream",

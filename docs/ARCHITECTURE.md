@@ -22,6 +22,7 @@ fresh anonymous catalogs
   -> durable exact-context research case
   -> explicit read-only pi investigation
   -> proposal-only scout / investigator findings
+  -> hash-bound independent-review intake packet
   -> independent hypothesis review artifact
   -> accepted EXACT market-link review graph
   -> deterministic capital-bounded compiler
@@ -77,6 +78,16 @@ references, and preserves failed pi attempts beside the latest passed report.
 Its `BOUND` / `PRESENT` stages describe retained research input, never semantic
 approval. Review, compilation, exact verification, promotion, and execution
 remain unavailable through this layer.
+
+Once a case has both an exact retained scout snapshot and a passed pi artifact,
+the desk derives `pmh.review-intake-packet.v1`. The packet self-hash binds the
+case scope, catalog identity, discovery run and task, every latest hypothesis
+hash and proposer identity, the pi artifact, complete bounded candidate refs,
+reported evidence gaps, and the assessments required from a future independent
+reviewer. A clean packet may say `READY_FOR_INDEPENDENT_REVIEW`, but its
+decision-ingestion, promotion, execution, and value-moving fields remain
+literal false. Cases missing source bindings do not get a packet; reported
+gaps produce `BLOCKED_EVIDENCE` rather than a completeness inference.
 
 New Discovery Ledger records also retain the complete bounded normalized
 catalog context used by their workers. This snapshot is hash-checked in SQLite

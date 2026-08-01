@@ -1,4 +1,4 @@
-import { hashCanonical } from "@pmh/domain";
+import { hashCanonical, type Hash } from "@pmh/domain";
 import type { InvestigationDeskProjection } from "./investigation-desk.js";
 import type {
   DiscoveryCatalogContextSource,
@@ -7,6 +7,61 @@ import type {
 } from "./types.js";
 
 const MAX_CASE_LISTING_REFS = 60;
+
+const REVIEW_ASSESSMENTS = Object.freeze([
+  "COMPLETE_RULE_IDENTITIES",
+  "OUTCOME_MAPPING",
+  "TIMING_AND_CLOSE_SEMANTICS",
+  "VOID_AND_CANCELLATION",
+  "RESOLUTION_SOURCES",
+  "INDEPENDENT_REVIEWER_AUTHORITY",
+] as const);
+
+export type ReviewIntakePacket = Readonly<{
+  schemaVersion: "pmh.review-intake-packet.v1";
+  packetHash: Hash;
+  caseId: string;
+  sourceUpdatedAt: string;
+  scope: Readonly<{
+    question: string;
+    venueIds: readonly string[];
+    catalogContextIdentity: string;
+    catalogContextSource: DiscoveryCatalogContextSource;
+  }>;
+  sourceBindings: Readonly<{
+    discoveryRunId: string;
+    discoveryTaskId: string;
+    hypothesisHashes: readonly Hash[];
+    proposerIdentities: readonly string[];
+    investigationArtifactHash: Hash;
+  }>;
+  readiness:
+    | "READY_FOR_INDEPENDENT_REVIEW"
+    | "BLOCKED_CONTEXT"
+    | "BLOCKED_CONTEXT_SNAPSHOT"
+    | "BLOCKED_HYPOTHESIS"
+    | "BLOCKED_EVIDENCE";
+  blockers: readonly string[];
+  candidateListingRefs: readonly string[];
+  missingEvidence: readonly string[];
+  requiredAssessments: typeof REVIEW_ASSESSMENTS;
+  expectedArtifacts: readonly [
+    "pmh.hypothesis-review.v1",
+    "MARKET_LINK_REVIEW",
+  ];
+  authority: Readonly<{
+    posture: "REVIEW_INTAKE_ONLY";
+    reviewStatus: "UNREVIEWED";
+    decisionIngestionEnabled: false;
+    promotionEligible: false;
+    executionAuthority: false;
+  }>;
+  effects: Readonly<{
+    externalWrites: false;
+    valueMovingActions: false;
+    liveExecutionEnabled: false;
+  }>;
+}>;
 
 export type ResearchCaseStage = Readonly<{
   stage:
@@ -70,6 +125,7 @@ export type ResearchCaseProjection = Readonly<{
   candidateListingRefCount: number;
   candidateListingRefs: readonly string[];
   missingEvidence: readonly string[];
+  reviewIntake: ReviewIntakePacket | null;
   stages: readonly ResearchCaseStage[];
   authority: "PROPOSE_ONLY";
   reviewStatus: "UNREVIEWED";
@@ -159,6 +215,167 @@ function assertAuthority(
   ) {
     throw new Error("research case input crossed its authority boundary");
   }
+}
+
+function reviewIntakePacketBody(
+  packet: Omit<ReviewIntakePacket, "packetHash">,
+): Omit<ReviewIntakePacket, "packetHash"> {
+  return packet;
+}
+
+export function verifyReviewIntakePacket(packet: ReviewIntakePacket): void {
+  const { packetHash, ...body } = packet;
+  if (packetHash !== hashCanonical(reviewIntakePacketBody(body))) {
+    throw new Error("review intake packet hash mismatch");
+  }
+  const validHash = (value: string): boolean =>
+    /^sha256:[a-f0-9]{64}$/.test(value);
+  if (
+    packet.schemaVersion !== "pmh.review-intake-packet.v1" ||
+    !validHash(packet.packetHash) ||
+    packet.caseId.trim() === "" ||
+    Number.isNaN(Date.parse(packet.sourceUpdatedAt)) ||
+    packet.scope.question.trim() === "" ||
+    packet.scope.venueIds.length === 0 ||
+    new Set(packet.scope.venueIds).size !== packet.scope.venueIds.length ||
+    !validHash(packet.scope.catalogContextIdentity) ||
+    packet.sourceBindings.discoveryRunId.trim() === "" ||
+    packet.sourceBindings.discoveryTaskId.trim() === "" ||
+    packet.sourceBindings.hypothesisHashes.length === 0 ||
+    packet.sourceBindings.hypothesisHashes.some((item) => !validHash(item)) ||
+    new Set(packet.sourceBindings.hypothesisHashes).size !==
+      packet.sourceBindings.hypothesisHashes.length ||
+    packet.sourceBindings.proposerIdentities.length === 0 ||
+    new Set(packet.sourceBindings.proposerIdentities).size !==
+      packet.sourceBindings.proposerIdentities.length ||
+    !validHash(packet.sourceBindings.investigationArtifactHash) ||
+    new Set(packet.candidateListingRefs).size !==
+      packet.candidateListingRefs.length ||
+    packet.requiredAssessments.join("\u0000") !==
+      REVIEW_ASSESSMENTS.join("\u0000") ||
+    packet.expectedArtifacts[0] !== "pmh.hypothesis-review.v1" ||
+    packet.expectedArtifacts[1] !== "MARKET_LINK_REVIEW" ||
+    (packet.readiness === "READY_FOR_INDEPENDENT_REVIEW" &&
+      (packet.blockers.length > 0 || packet.missingEvidence.length > 0)) ||
+    (packet.readiness === "BLOCKED_EVIDENCE" &&
+      packet.missingEvidence.length === 0)
+  ) {
+    throw new Error("review intake packet is malformed");
+  }
+  if (
+    packet.authority.posture !== "REVIEW_INTAKE_ONLY" ||
+    packet.authority.reviewStatus !== "UNREVIEWED" ||
+    packet.authority.decisionIngestionEnabled !== false ||
+    packet.authority.promotionEligible !== false ||
+    packet.authority.executionAuthority !== false ||
+    packet.effects.externalWrites !== false ||
+    packet.effects.valueMovingActions !== false ||
+    packet.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("review intake packet crossed its authority boundary");
+  }
+}
+
+function buildReviewIntakePacket(input: {
+  caseId: string;
+  scope: ReturnType<typeof scopeOf>;
+  sourceUpdatedAt: string;
+  contextBound: boolean;
+  latestRun: DiscoveryRunRecord | undefined;
+  investigationArtifactHash: string | null;
+  candidateListingRefs: readonly string[];
+  missingEvidence: readonly string[];
+}): ReviewIntakePacket | null {
+  const hypothesisHashes = Object.freeze(
+    [...(input.latestRun?.hypotheses ?? [])]
+      .map((hypothesis) => hashCanonical(hypothesis))
+      .sort(),
+  );
+  const proposerIdentities = Object.freeze(
+    [
+      ...new Set(
+        (input.latestRun?.hypotheses ?? []).map((item) => item.workerId),
+      ),
+    ].sort(),
+  );
+  const contextIdentity = input.scope.catalogContextIdentity;
+  const latestRun = input.latestRun;
+  const investigationArtifactHash = input.investigationArtifactHash;
+  const blockers = [
+    ...(!input.contextBound ? ["bounded catalog context is missing"] : []),
+    ...(input.contextBound && input.latestRun?.catalogContextRetained !== true
+      ? ["exact catalog context snapshot is not retained"]
+      : []),
+    ...(hypothesisHashes.length === 0
+      ? ["no proposal-only hypothesis is bound"]
+      : []),
+    ...(input.investigationArtifactHash === null
+      ? ["no passed investigation artifact is bound"]
+      : []),
+    ...input.missingEvidence.map((item) => `missing evidence: ${item}`),
+  ];
+  if (
+    contextIdentity === null ||
+    latestRun === undefined ||
+    investigationArtifactHash === null ||
+    !/^sha256:[a-f0-9]{64}$/.test(investigationArtifactHash)
+  ) {
+    return null;
+  }
+  const readiness = !input.contextBound
+    ? ("BLOCKED_CONTEXT" as const)
+    : latestRun.catalogContextRetained !== true
+      ? ("BLOCKED_CONTEXT_SNAPSHOT" as const)
+      : hypothesisHashes.length === 0
+        ? ("BLOCKED_HYPOTHESIS" as const)
+        : input.missingEvidence.length > 0
+          ? ("BLOCKED_EVIDENCE" as const)
+          : ("READY_FOR_INDEPENDENT_REVIEW" as const);
+  const body = Object.freeze({
+    schemaVersion: "pmh.review-intake-packet.v1" as const,
+    caseId: input.caseId,
+    sourceUpdatedAt: input.sourceUpdatedAt,
+    scope: Object.freeze({
+      question: input.scope.question,
+      venueIds: Object.freeze([...input.scope.venueIds]),
+      catalogContextIdentity: contextIdentity,
+      catalogContextSource: input.scope.catalogContextSource,
+    }),
+    sourceBindings: Object.freeze({
+      discoveryRunId: latestRun.runId,
+      discoveryTaskId: latestRun.taskId,
+      hypothesisHashes,
+      proposerIdentities,
+      investigationArtifactHash: investigationArtifactHash as Hash,
+    }),
+    readiness,
+    blockers: Object.freeze(blockers),
+    candidateListingRefs: Object.freeze([...input.candidateListingRefs]),
+    missingEvidence: Object.freeze([...input.missingEvidence]),
+    requiredAssessments: REVIEW_ASSESSMENTS,
+    expectedArtifacts: Object.freeze([
+      "pmh.hypothesis-review.v1",
+      "MARKET_LINK_REVIEW",
+    ] as const),
+    authority: Object.freeze({
+      posture: "REVIEW_INTAKE_ONLY" as const,
+      reviewStatus: "UNREVIEWED" as const,
+      decisionIngestionEnabled: false as const,
+      promotionEligible: false as const,
+      executionAuthority: false as const,
+    }),
+    effects: Object.freeze({
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    }),
+  });
+  const packet = Object.freeze({
+    ...body,
+    packetHash: hashCanonical(reviewIntakePacketBody(body)),
+  });
+  verifyReviewIntakePacket(packet);
+  return packet;
 }
 
 function buildCase(group: MutableCase): ResearchCaseProjection {
@@ -276,8 +493,28 @@ function buildCase(group: MutableCase): ResearchCaseProjection {
   const body = {
     scope: group.scope,
   };
+  const caseId = `research-case:${hashCanonical(body).slice(7)}`;
+  const updatedAt = timestamps.at(-1) ?? new Date(0).toISOString();
+  const reviewSourceUpdatedAt = [
+    latestRun?.completedAt,
+    passedInvestigation?.report?.completedAt,
+  ]
+    .filter((item): item is string => item !== undefined)
+    .sort()
+    .at(-1) ?? new Date(0).toISOString();
+  const reviewIntake = buildReviewIntakePacket({
+    caseId,
+    scope: group.scope,
+    sourceUpdatedAt: reviewSourceUpdatedAt,
+    contextBound,
+    latestRun,
+    investigationArtifactHash:
+      passedInvestigation?.report?.artifactHash ?? null,
+    candidateListingRefs: allCandidateListingRefs,
+    missingEvidence,
+  });
   return Object.freeze({
-    caseId: `research-case:${hashCanonical(body).slice(7)}`,
+    caseId,
     taskIds: Object.freeze(
       [
         ...group.runs.map((run) => run.taskId),
@@ -289,7 +526,7 @@ function buildCase(group: MutableCase): ResearchCaseProjection {
     ...group.scope,
     catalogListingCount,
     openedAt: timestamps[0] ?? new Date(0).toISOString(),
-    updatedAt: timestamps.at(-1) ?? new Date(0).toISOString(),
+    updatedAt,
     status,
     scout: Object.freeze({
       status:
@@ -334,6 +571,7 @@ function buildCase(group: MutableCase): ResearchCaseProjection {
     candidateListingRefCount: allCandidateListingRefs.length,
     candidateListingRefs,
     missingEvidence,
+    reviewIntake,
     stages,
     authority: "PROPOSE_ONLY" as const,
     reviewStatus: "UNREVIEWED" as const,

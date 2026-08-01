@@ -60,6 +60,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Add a bounded, read-only pi investigator qualification command for repository-aware work.
 - [x] Expose pi as an explicitly triggered, one-at-a-time Investigation Desk with SSE state and bounded durable completion retention.
 - [x] Join scout and pi history into deterministic, context-versioned research cases without granting promotion authority.
+- [x] Derive a hash-bound independent-review intake packet from retained scout and passed pi evidence without enabling review decisions.
 - [x] Reduce fresh live catalogs into deterministic cross-venue Radar pairs and preserve exact scout-to-pi context across refresh and restart.
 - [x] Screen the real three-venue exact-claim fixtures with lexical `bigint` quotes and fail closed before verification when reported buy economics or prerequisite evidence is insufficient.
 - [x] Bind the real candidate to anonymous Polymarket and Limitless book depth at a common quantity without invoking the simulated complete-set route.
@@ -149,6 +150,9 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: Model scouting now defaults to one equivalence lens and permits an explicit maximum-four fan-out adding partition, mechanism, and skeptical lenses. No model request is automatic. Hash-checked Discovery Ledger records retain per-worker status, timing, lead count, and failure diagnostics while leaving cost/usage claims absent when unavailable.
 - 2026-08-01: AI scout fan-out and telemetry close at 216 passing tests with full typecheck and production build, including bounded environment configuration, concurrent specialized requests, partial-worker failure, durable telemetry integrity, and legacy records without reports.
 - 2026-08-01: Real default configuration remains one model scout and hydrates five pre-telemetry runs. A new durable run records heuristic PASS (2 ms, one lead) beside an isolated DeepSeek failure (6,401 ms, zero leads); a separate one-request provider smoke then passes with three grounded proposals under `sha256:e421c1fe…e76aa`. The telemetry therefore distinguishes worker failure without mislabeling the key or widening authority.
+- 2026-08-01: A retained-context pi run on the six Gemini Boston temperature fixtures passes under `sha256:73aaa742…fad0ad` but reports five evidence gaps: whole-degree precision, rounding, boundary/tail semantics, measurement source, completeness, and quote consistency remain unverified. The apparent exhaustive partition therefore stays proposal-only.
+- 2026-08-01: `pmh.review-intake-packet.v1` becomes the deterministic handoff between Research Case and a future independent reviewer. It binds exact scout, hypothesis, context, pi, candidate-scope, assessment, and evidence-gap identities; packet verification fails on tamper or authority widening, while decision ingestion, promotion, verification, and execution remain unavailable.
+- 2026-08-01: Review-intake handoff closes at 217 passing tests with full typecheck and production build. Real SQLite restart derives `sha256:f89ffe56…4e638c` for the Gemini case, reports `BLOCKED_EVIDENCE` with five gaps, and keeps decision ingestion and execution literal false.
 
 ## Blockers
 
