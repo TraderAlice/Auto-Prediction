@@ -1,4 +1,9 @@
 import { StructuredModelDiscoveryWorker } from "./discovery.js";
+import {
+  configuredModelScoutRoles,
+  modelScoutLens,
+  modelScoutWorkerId,
+} from "./model-scout.js";
 import type {
   AiModelPort,
   DiscoveryTask,
@@ -266,6 +271,7 @@ export class OpenAiResponsesModelPort implements AiModelPort {
 export type OpenAiDiscoveryRuntime = Readonly<{
   projection: ModelProviderProjection;
   worker: StructuredModelDiscoveryWorker | null;
+  workers: readonly StructuredModelDiscoveryWorker[];
 }>;
 
 export function createOpenAiDiscoveryRuntime(
@@ -291,6 +297,9 @@ export function createOpenAiDiscoveryRuntime(
     "PMH_DISCOVERY_TIMEOUT_MS",
   );
   const apiKey = environment.OPENAI_API_KEY?.trim() ?? "";
+  const workerRoles = configuredModelScoutRoles(
+    environment.PMH_DISCOVERY_FANOUT,
+  );
   const projection: ModelProviderProjection = Object.freeze({
     provider: "OPENAI_RESPONSES",
     transport: "DIRECT_HTTP",
@@ -299,26 +308,39 @@ export function createOpenAiDiscoveryRuntime(
     model,
     maxOutputTokens,
     timeoutMs,
+    fanout: workerRoles.length,
+    workerRoles,
     reasoningEffort: "minimal",
     responseStorage: false,
     authority: "PROPOSE_ONLY",
   });
+  const modelPort =
+    apiKey === ""
+      ? null
+      : new OpenAiResponsesModelPort({
+          apiKey,
+          maxOutputTokens,
+          timeoutMs,
+          ...(options.fetcher === undefined
+            ? {}
+            : { fetcher: options.fetcher }),
+        });
+  const workers = Object.freeze(
+    modelPort === null
+      ? []
+      : workerRoles.map(
+          (role) =>
+            new StructuredModelDiscoveryWorker(
+              modelScoutWorkerId(role, workerRoles.length),
+              model,
+              modelPort,
+              modelScoutLens(role),
+            ),
+        ),
+  );
   return Object.freeze({
     projection,
-    worker:
-      apiKey === ""
-        ? null
-        : new StructuredModelDiscoveryWorker(
-            "model-fast-lane",
-            model,
-            new OpenAiResponsesModelPort({
-              apiKey,
-              maxOutputTokens,
-              timeoutMs,
-              ...(options.fetcher === undefined
-                ? {}
-                : { fetcher: options.fetcher }),
-            }),
-          ),
+    worker: workers[0] ?? null,
+    workers,
   });
 }

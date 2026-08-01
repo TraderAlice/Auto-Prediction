@@ -858,6 +858,8 @@ function Overview({
             {studioProjection.ai.modelProvider.model} · max{" "}
             {studioProjection.ai.modelProvider.maxOutputTokens} output tokens ·{" "}
             {studioProjection.ai.modelProvider.timeoutMs / 1_000}s · {" "}
+            {studioProjection.ai.modelProvider.fanout} model scout
+            {studioProjection.ai.modelProvider.fanout === 1 ? "" : "s"} ·{" "}
             {studioProjection.ai.modelProvider.transport.replaceAll("_", " ")}
             {" · "}
             {studioProjection.ai.modelProvider.responseStorage === false
@@ -2410,6 +2412,24 @@ function ScoutInboxView() {
                     <span key={venueId}>{venueId}</span>
                   ))}
                 </div>
+                {(run.workerReports ?? []).length > 0 && (
+                  <div className="scout-worker-reports">
+                    {(run.workerReports ?? []).map((report) => (
+                      <div key={`${run.runId}:${report.workerId}`}>
+                        <i className={report.status === "PASS" ? "is-pass" : ""} />
+                        <span>{report.workerId}</span>
+                        <strong>
+                          {report.status} · {report.hypothesisCount} lead
+                          {report.hypothesisCount === 1 ? "" : "s"} ·{" "}
+                          {report.durationMs} ms
+                        </strong>
+                        {report.diagnostic !== null && (
+                          <small>{report.diagnostic}</small>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {run.hypotheses.map((hypothesis) => (
                   <div className="hypothesis-card" key={hypothesis.hypothesisId}>
                     <div className="hypothesis-topline">

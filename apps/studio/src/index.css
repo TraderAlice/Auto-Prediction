@@ -1634,6 +1634,61 @@ main {
   padding: 4px 6px;
 }
 
+.scout-worker-reports {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.scout-worker-reports > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #20272a;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.008);
+  padding: 7px 8px;
+}
+
+.scout-worker-reports i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #a66e65;
+}
+
+.scout-worker-reports i.is-pass {
+  background: var(--primary);
+  box-shadow: 0 0 7px rgba(126, 240, 193, 0.28);
+}
+
+.scout-worker-reports span,
+.scout-worker-reports strong,
+.scout-worker-reports small {
+  overflow: hidden;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-worker-reports span {
+  color: #78847e;
+}
+
+.scout-worker-reports strong {
+  color: #53605a;
+  font-weight: 500;
+}
+
+.scout-worker-reports small {
+  grid-column: 2 / -1;
+  color: #9a6f67;
+}
+
 .hypothesis-card {
   margin-top: 14px;
   border: 1px solid rgba(189, 155, 255, 0.14);
@@ -5006,6 +5061,10 @@ footer span:first-child {
   }
 
   .hypothesis-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .scout-worker-reports {
     grid-template-columns: 1fr;
   }
 

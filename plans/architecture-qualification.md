@@ -49,6 +49,7 @@ Qualify a prediction-market interoperability architecture against current offici
 
 - [x] Run a long-lived control-plane process behind Studio.
 - [x] Define parallel heuristic/model discovery-worker ports.
+- [x] Bound model scouting to an explicit 1–4 role fan-out and retain per-worker outcome telemetry.
 - [x] Enforce proposal-only, unreviewed, no-execution AI output.
 - [x] Retain bounded discovery runs and stream the Scout Inbox projection.
 - [x] Persist discovery runs and task idempotency across control-plane restarts.
@@ -145,6 +146,9 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: Candidate Watch closes the checkpoint at 209 passing tests with full typecheck, production build, and clean desktop/430px Studio layouts. Refresh IDs include a per-operation nonce, and the no-stitch test deliberately repeats the same clock instant across a successful and partial refresh.
 - 2026-08-01: Operational schema v5 adds a bounded canonical Candidate Watch attempt journal. On restart, the newest journal entry restores per-source success/failure state and diagnostics; successful outcomes must reference an exact retained raw observation, and the recomputed decision must match the journal hash.
 - 2026-08-01: Durable Candidate Watch recovery closes at 214 passing tests with full typecheck and production build. Tests cover source-failure and screen-failure restart hydration, rollback/ignore behavior for raw observations orphaned by journal persistence failure, journal retention, canonical tamper rejection, and HTTP history; Studio renders the latest three attempts without granting review or execution authority.
+- 2026-08-01: Model scouting now defaults to one equivalence lens and permits an explicit maximum-four fan-out adding partition, mechanism, and skeptical lenses. No model request is automatic. Hash-checked Discovery Ledger records retain per-worker status, timing, lead count, and failure diagnostics while leaving cost/usage claims absent when unavailable.
+- 2026-08-01: AI scout fan-out and telemetry close at 216 passing tests with full typecheck and production build, including bounded environment configuration, concurrent specialized requests, partial-worker failure, durable telemetry integrity, and legacy records without reports.
+- 2026-08-01: Real default configuration remains one model scout and hydrates five pre-telemetry runs. A new durable run records heuristic PASS (2 ms, one lead) beside an isolated DeepSeek failure (6,401 ms, zero leads); a separate one-request provider smoke then passes with three grounded proposals under `sha256:e421c1fe…e76aa`. The telemetry therefore distinguishes worker failure without mislabeling the key or widening authority.
 
 ## Blockers
 

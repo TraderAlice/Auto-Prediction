@@ -87,13 +87,16 @@ it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.
 
 The model scout is opt-in. Set `DEEPSEEK_API_KEY` in the control-plane process
-to add a `deepseek-v4-flash` worker beside the free heuristic worker. It uses
+to add `deepseek-v4-flash` beside the free heuristic worker. It uses
 Vercel AI SDK 7 with validated object output, thinking disabled, an 800
 output-token ceiling, and an 8-second timeout. These non-secret bounds are
 visible in Studio and `/health`; the key is never projected or persisted.
 DeepSeek does not expose an OpenAI-style `store:false` request control, so the
 projection reports `PROVIDER_POLICY` rather than making a retention claim.
-Both workers receive only a task-scoped catalog context. Verified fixtures are
+The default fan-out is one model scout. `PMH_DISCOVERY_FANOUT=2..4` explicitly
+adds partition, mechanism, and skeptical search lenses; requests still run only
+after an operator starts a scout. Every worker receives only a task-scoped
+catalog context. Verified fixtures are
 the default; an operator may explicitly select qualified current observations.
 A context contains at most 30 listings, has its own SHA-256 identity, and is
 bound into the default `taskId` and retained run. Every listing binds source
@@ -134,7 +137,9 @@ score, never confidence, semantic equivalence, profit, or a verifier verdict.
 Select `PMH_DISCOVERY_PROVIDER=deepseek|openai` and override the model defaults
 with `PMH_DISCOVERY_MODEL`,
 `PMH_DISCOVERY_MAX_OUTPUT_TOKENS` (128–4096), and
-`PMH_DISCOVERY_TIMEOUT_MS` (1000–30000). Without a key, the process fails
+`PMH_DISCOVERY_TIMEOUT_MS` (1000–30000). `PMH_DISCOVERY_FANOUT` accepts 1–4
+and defaults to 1, so merely adding a key does not multiply request volume.
+Without a key, the process fails
 closed to heuristic-only mode and Studio shows `NEEDS KEY`.
 
 To qualify the production adapter independently of the long-running process,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertDiscoveryRunRecord,
   DiscoveryLedger,
   DiscoveryPool,
   HeuristicDiscoveryWorker,
@@ -48,5 +49,28 @@ describe("discovery ledger", () => {
 
   it("rejects an invalid retention boundary", () => {
     expect(() => new DiscoveryLedger(0)).toThrow(/retention limit/);
+  });
+
+  it("rejects substituted or internally inconsistent worker telemetry", async () => {
+    const pool = new DiscoveryPool(
+      [new HeuristicDiscoveryWorker()],
+      () => 1_000,
+    );
+    const run = await pool.run(baseTask);
+    const record = new DiscoveryLedger(1).record(baseTask, run);
+    const { workerReports: _workerReports, ...legacyRecord } = record;
+    expect(assertDiscoveryRunRecord(legacyRecord).workerReports).toBeUndefined();
+    const tampered = JSON.parse(JSON.stringify(record)) as Record<
+      string,
+      unknown
+    >;
+    const reports = tampered.workerReports as Record<string, unknown>[];
+    reports[0] = { ...reports[0], durationMs: 1 };
+    expect(() => assertDiscoveryRunRecord(tampered)).toThrow(
+      /worker report violates/,
+    );
+    expect(() =>
+      assertDiscoveryRunRecord({ ...tampered, workerReports: [] }),
+    ).toThrow(/do not bind/);
   });
 });

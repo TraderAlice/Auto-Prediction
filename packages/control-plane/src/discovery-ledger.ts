@@ -4,6 +4,7 @@ import type {
   DiscoveryRun,
   DiscoveryRunRecord,
   DiscoveryTask,
+  DiscoveryWorkerReport,
   OperationalStorageProjection,
   OpportunityHypothesis,
 } from "./types.js";
@@ -23,6 +24,52 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every(isNonEmptyString);
+}
+
+function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
+  if (value === null || typeof value !== "object") {
+    throw new Error("stored discovery worker report is malformed");
+  }
+  const report = value as Record<string, unknown>;
+  if (
+    !isNonEmptyString(report.workerId) ||
+    (report.kind !== "HEURISTIC" && report.kind !== "MODEL") ||
+    (report.costTier !== "FREE" && report.costTier !== "LOW") ||
+    (report.status !== "PASS" && report.status !== "FAILED") ||
+    !isNonEmptyString(report.startedAt) ||
+    !isNonEmptyString(report.completedAt) ||
+    Number.isNaN(Date.parse(report.startedAt)) ||
+    Number.isNaN(Date.parse(report.completedAt)) ||
+    Date.parse(report.completedAt) < Date.parse(report.startedAt) ||
+    typeof report.durationMs !== "number" ||
+    !Number.isSafeInteger(report.durationMs) ||
+    report.durationMs < 0 ||
+    report.durationMs !==
+      Date.parse(String(report.completedAt)) -
+        Date.parse(String(report.startedAt)) ||
+    typeof report.hypothesisCount !== "number" ||
+    !Number.isSafeInteger(report.hypothesisCount) ||
+    report.hypothesisCount < 0 ||
+    report.hypothesisCount > 50 ||
+    (report.diagnostic !== null &&
+      (!isNonEmptyString(report.diagnostic) || report.diagnostic.length > 500)) ||
+    (report.status === "PASS" && report.diagnostic !== null) ||
+    (report.status === "FAILED" &&
+      (report.diagnostic === null || report.hypothesisCount !== 0))
+  ) {
+    throw new Error("stored discovery worker report violates its contract");
+  }
+  return Object.freeze({
+    workerId: report.workerId,
+    kind: report.kind,
+    costTier: report.costTier,
+    status: report.status,
+    startedAt: report.startedAt,
+    completedAt: report.completedAt,
+    durationMs: report.durationMs,
+    hypothesisCount: report.hypothesisCount,
+    diagnostic: report.diagnostic,
+  }) as DiscoveryWorkerReport;
 }
 
 function freezeHypothesis(value: unknown): OpportunityHypothesis {
@@ -153,12 +200,28 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
       throw new Error("stored discovery run context summary does not match snapshot");
     }
   }
+  let workerReports: readonly DiscoveryWorkerReport[] | undefined;
+  if (record.workerReports !== undefined) {
+    if (!Array.isArray(record.workerReports)) {
+      throw new Error("stored discovery worker reports are malformed");
+    }
+    workerReports = Object.freeze(record.workerReports.map(freezeWorkerReport));
+    const reportIds = workerReports.map((report) => report.workerId);
+    if (
+      reportIds.length !== record.workerIds.length ||
+      new Set(reportIds).size !== reportIds.length ||
+      record.workerIds.some((workerId) => !reportIds.includes(workerId))
+    ) {
+      throw new Error("stored discovery worker reports do not bind the run");
+    }
+  }
   return Object.freeze({
     runId: record.runId,
     taskId: record.taskId,
     startedAt: record.startedAt,
     completedAt: record.completedAt,
     workerIds: Object.freeze([...record.workerIds]),
+    ...(workerReports === undefined ? {} : { workerReports }),
     hypotheses: Object.freeze(record.hypotheses.map(freezeHypothesis)),
     diagnostics: Object.freeze([...record.diagnostics]),
     executionAuthority: false,

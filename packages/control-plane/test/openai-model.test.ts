@@ -80,6 +80,8 @@ describe("budgeted OpenAI Responses model port", () => {
       model: "gpt-5.6-luna",
       maxOutputTokens: 800,
       timeoutMs: 8_000,
+      fanout: 1,
+      workerRoles: ["EQUIVALENCE"],
       reasoningEffort: "minimal",
       responseStorage: false,
       authority: "PROPOSE_ONLY",

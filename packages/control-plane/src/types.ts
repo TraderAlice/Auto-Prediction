@@ -68,12 +68,25 @@ export type OpportunityHypothesis = Readonly<{
   reviewStatus: "UNREVIEWED";
 }>;
 
+export type DiscoveryWorkerReport = Readonly<{
+  workerId: string;
+  kind: "HEURISTIC" | "MODEL";
+  costTier: "FREE" | "LOW";
+  status: "PASS" | "FAILED";
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  hypothesisCount: number;
+  diagnostic: string | null;
+}>;
+
 export type DiscoveryRun = Readonly<{
   runId: string;
   taskId: string;
   startedAt: string;
   completedAt: string;
   workerIds: readonly string[];
+  workerReports?: readonly DiscoveryWorkerReport[];
   hypotheses: readonly OpportunityHypothesis[];
   diagnostics: readonly string[];
   executionAuthority: false;
@@ -132,10 +145,18 @@ export type ModelProviderProjection = Readonly<{
   model: string;
   maxOutputTokens: number;
   timeoutMs: number;
+  fanout: number;
+  workerRoles: readonly ModelScoutRole[];
   reasoningEffort: "minimal" | "disabled";
   responseStorage: false | "PROVIDER_POLICY";
   authority: "PROPOSE_ONLY";
 }>;
+
+export type ModelScoutRole =
+  | "EQUIVALENCE"
+  | "PARTITION"
+  | "MECHANISM"
+  | "SKEPTIC";
 
 export type PiInvestigatorProjection = Readonly<{
   engine: "PI_CLI";

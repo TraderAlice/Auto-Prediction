@@ -193,11 +193,14 @@ Discovery workers may be cheap heuristics or external models. They can propose s
 
 The worker rack reflects actual control-plane configuration. Its model card
 publishes only the provider and transport names, model ID, output-token ceiling,
-timeout, reasoning posture, and provider-retention posture. `NEEDS KEY` means
+timeout, configured fan-out, reasoning posture, and provider-retention posture.
+`NEEDS KEY` means
 the selected provider key was absent at process start and no model request can
 be made; the browser never receives that credential. When configured, the external
-worker runs in parallel with the free heuristic and its failure is retained as
-a diagnostic rather than granting or widening authority.
+workers run in parallel with the free heuristic and a failure is retained as
+a diagnostic rather than granting or widening authority. Each Scout Inbox run
+shows per-worker PASS/FAILED state, duration, lead count, and compact diagnostic.
+These are operational facts, not model quality scores or cost estimates.
 
 Studio also shows the separate pi investigator posture: model, one-shot text
 mode, read-only tool list, and whether its process credential was present at

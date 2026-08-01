@@ -282,7 +282,7 @@ export function createControlPlane(options?: {
     options?.discoveryPool ??
     new DiscoveryPool([
       worker,
-      ...(modelRuntime.worker === null ? [] : [modelRuntime.worker]),
+      ...modelRuntime.workers,
     ]);
   const bookDesk = options?.bookDesk ?? new ReplayBookDesk();
   const catalogDesk = options?.catalogDesk ?? new FixtureCatalogDiscoveryDesk();
