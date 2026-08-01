@@ -47,6 +47,7 @@ import {
 import {
   projectMarketCorpus,
   searchMarketCorpus,
+  type MarketCorpusSnapshot,
   type MarketCorpusSearchQuery,
 } from "./market-corpus.js";
 import type {
@@ -79,6 +80,11 @@ import {
   type SearchLeaseRecordStore,
   type SearchLens,
 } from "./search-lease-scheduler.js";
+import {
+  buildSemanticRelationGraph,
+  searchSemanticGraphNeighborhood,
+  type SemanticGraphSearchContext,
+} from "./semantic-relation-graph.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -425,6 +431,9 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  let graphContextForLease:
+    | ((snapshot: MarketCorpusSnapshot, lens: SearchLens) => SemanticGraphSearchContext)
+    | undefined;
   const searchLeaseScheduler =
     options?.searchLeaseScheduler ??
     new SearchLeaseScheduler({
@@ -438,6 +447,12 @@ export function createControlPlane(options?: {
           : catalogObservationDesk.radarTriageScope(
               radarLead.candidateId,
             ).catalogContext;
+      },
+      graphContext: (snapshot, lens) => {
+        if (graphContextForLease === undefined) {
+          throw new Error("semantic relation graph is not initialized");
+        }
+        return graphContextForLease(snapshot, lens);
       },
       runFast: async (task, maxModelRequests) => {
         const existing = discoveryLedger.findByTaskId(task.taskId);
@@ -495,6 +510,28 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const semanticGraph = (snapshot: MarketCorpusSnapshot) => {
+    const archaeologist = marketArchaeologistDesk.projection();
+    opportunityLifecycleDesk.syncMarketArchaeologist(archaeologist);
+    const lifecycle = opportunityLifecycleDesk.projection();
+    const semanticReviews = semanticReviewDesk.projection();
+    const relationPayoff = deriveRelationPayoffProjection({
+      archaeologist,
+      semanticReviews: semanticReviews.records,
+      semanticDecisions: lifecycle.semanticDecisions,
+    });
+    return buildSemanticRelationGraph({
+      corpus: snapshot,
+      archaeologist,
+      searchLeases: searchLeaseScheduler.projection(),
+      semanticReviews,
+      lifecycle,
+      relationPayoff,
+      materializations: simulationMaterializerDesk.projection(),
+    });
+  };
+  graphContextForLease = (snapshot, lens) =>
+    searchSemanticGraphNeighborhood(semanticGraph(snapshot), lens);
   const realCandidateReady = realCandidatePreflightDesk.load();
   const ready = Promise.all([
     bookDesk.replay(),
@@ -528,6 +565,15 @@ export function createControlPlane(options?: {
       semanticReviews: semanticReviewProjection.records,
       semanticDecisions: lifecycleProjection.semanticDecisions,
     });
+    const semanticRelationGraph = buildSemanticRelationGraph({
+      corpus: catalogObservationDesk.corpus(),
+      archaeologist: archaeologistProjection,
+      searchLeases: searchLeaseScheduler.projection(),
+      semanticReviews: semanticReviewProjection,
+      lifecycle: lifecycleProjection,
+      relationPayoff,
+      materializations: simulationMaterializerDesk.projection(),
+    });
     return buildStudioProjection({
       workers: pool.workers,
       activeRuns,
@@ -541,6 +587,7 @@ export function createControlPlane(options?: {
       marketArchaeologist: archaeologistProjection,
       searchLeaseScheduler: searchLeaseScheduler.projection(),
       semanticReview: semanticReviewProjection,
+      semanticRelationGraph,
       opportunityLifecycle: lifecycleProjection,
       relationPayoff,
       simulationMaterializer: simulationMaterializerDesk.projection(),
@@ -665,6 +712,7 @@ export function createControlPlane(options?: {
         opportunityRadar: catalogObservationDesk.radar(),
         marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
         marketArchaeologist: marketArchaeologistDesk.projection(),
+        semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
         opportunityLifecycle: opportunityLifecycleDesk.projection(),
         realCandidatePreflight: realCandidatePreflightDesk.projection(),
@@ -704,6 +752,14 @@ export function createControlPlane(options?: {
         200,
         projectMarketCorpus(catalogObservationDesk.corpus()),
       );
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/semantic-relation-graph"
+    ) {
+      await ready;
+      writeJson(response, 200, semanticGraph(catalogObservationDesk.corpus()));
       return;
     }
     if (

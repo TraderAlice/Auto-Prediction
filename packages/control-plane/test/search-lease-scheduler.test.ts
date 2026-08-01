@@ -141,6 +141,31 @@ describe("AI-native search lease scheduler", () => {
     }));
     const scheduler = new SearchLeaseScheduler({
       context,
+      graphContext: (_snapshot, lens) => {
+        const graphIdentity = hashCanonical({ graph: 1 });
+        const items = Object.freeze([Object.freeze({
+          proposalId: hashCanonical({ proposal: "prior" }),
+          relationKind: "EQUIVALENT" as const,
+          listingRefs: Object.freeze(["venue-a:pizza-a", "venue-b:pizza-b"]),
+          outcomeCodes: Object.freeze(["MISSING_RULE" as const]),
+          summary: "A prior relation is missing authoritative void rules.",
+        })]);
+        return Object.freeze({
+          schemaVersion: "pmh.semantic-graph-search-context.v1" as const,
+          graphIdentity,
+          neighborhoodIdentity: hashCanonical({ graphIdentity, lens, items }),
+          lens,
+          relationCount: 1,
+          feedbackCount: 1,
+          items,
+          searchBrief: "Revisit the pizza pair; use MISSING_RULE as falsification evidence.",
+          priorityBasis: "EMPIRICAL_OUTCOMES_THEN_EVIDENCE_FRESHNESS" as const,
+          modelConfidenceUsed: false as const,
+          authority: "SEARCH_EVIDENCE_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          executionAuthority: false as const,
+        });
+      },
       runFast,
       runDeep,
       now: () => Date.parse("2026-08-01T00:00:00.000Z"),
@@ -154,6 +179,9 @@ describe("AI-native search lease scheduler", () => {
     expect(record.deepLane.reason).toBe("NOVEL_MULTI_LISTING");
     expect(record.deepLane.permittedTools).toEqual(["read", "grep", "find", "ls"]);
     expect(record.trace.chainOfThoughtStored).toBe(false);
+    expect(record.lease.graphContext?.feedbackCount).toBe(1);
+    expect(record.trace.querySummary).toContain("Graph neighborhood:");
+    expect(runFast.mock.calls[0]?.[0].question).toContain("MISSING_RULE");
     expect(record.semanticDecisionAuthority).toBe(false);
     expect(record.certificateAuthority).toBe(false);
     expect(record.executionAuthority).toBe(false);

@@ -102,6 +102,15 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        semanticRelationGraph: {
+          graphIdentity: string;
+          listingCount: number;
+          relationCount: number;
+          feedbackCount: number;
+          modelConfidenceUsed: boolean;
+          semanticDecisionAuthority: boolean;
+          executionAuthority: boolean;
+        };
         workers: { workerId: string; status: string }[];
       };
       discoveryDesk: {
@@ -140,6 +149,24 @@ describe("control-plane HTTP surface", () => {
       semanticDecisionAuthority: false,
       certificateAuthority: false,
       executionAuthority: false,
+    });
+    expect(projection.ai.semanticRelationGraph).toMatchObject({
+      listingCount: 0,
+      relationCount: 0,
+      feedbackCount: 0,
+      modelConfidenceUsed: false,
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.semanticRelationGraph.graphIdentity).toMatch(/^sha256:/);
+    const graphResponse = await fetch(`${baseUrl}/api/v1/semantic-relation-graph`);
+    expect(graphResponse.status).toBe(200);
+    expect(await graphResponse.json()).toMatchObject({
+      graphIdentity: projection.ai.semanticRelationGraph.graphIdentity,
+      priorityBasis: "EMPIRICAL_OUTCOMES_THEN_EVIDENCE_FRESHNESS",
+      modelConfidenceUsed: false,
+      executionAuthority: false,
+      effects: { liveExecutionEnabled: false },
     });
     expect(projection.ai.workers).toContainEqual(
       expect.objectContaining({

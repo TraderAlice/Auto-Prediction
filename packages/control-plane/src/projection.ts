@@ -35,6 +35,7 @@ import {
   type OpportunityLifecycleDeskProjection,
 } from "./opportunity-lifecycle-desk.js";
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
+import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
 import {
   buildRelationPayoffProjection,
@@ -94,6 +95,7 @@ export function buildStudioProjection(input: {
   marketArchaeologist?: MarketArchaeologistProjection;
   searchLeaseScheduler?: SearchLeaseSchedulerProjection;
   semanticReview?: SemanticReviewDeskProjection;
+  semanticRelationGraph?: SemanticRelationGraphProjection;
   opportunityLifecycle?: OpportunityLifecycleDeskProjection;
   relationPayoff?: RelationPayoffProjection;
   simulationMaterializer?: AnonymousSimulationMaterializerProjection;
@@ -303,6 +305,36 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const semanticRelationGraph = input.semanticRelationGraph ?? buildSemanticRelationGraph({
+    corpus: {
+      ...marketCorpus,
+      listings: [],
+    },
+    archaeologist: marketArchaeologist,
+    searchLeases: searchLeaseScheduler,
+    semanticReviews: semanticReview,
+    lifecycle: input.opportunityLifecycle ?? new OpportunityLifecycleDesk().projection(),
+    relationPayoff: input.relationPayoff ?? buildRelationPayoffProjection([]),
+    materializations: input.simulationMaterializer ?? {
+      schemaVersion: "pmh.anonymous-simulation-materializer-desk.v1",
+      mode: "ANONYMOUS_PUBLIC_GET",
+      status: "IDLE",
+      runCount: 0,
+      readyCount: 0,
+      blockedCount: 0,
+      retentionLimit: 25,
+      timeoutMs: 10_000,
+      maxResponseBytes: 1_000_000,
+      maxSnapshotSkewMs: 5_000,
+      retainedRawSourceCount: 0,
+      storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "materializationId" },
+      records: [],
+      authority: "ANONYMOUS_RESEARCH_MATERIALIZER",
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+    },
+  });
   const investigationDesk = input.investigationDesk ?? {
     retentionLimit: 10,
     activeCount: 0 as const,
@@ -404,7 +436,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 286,
+      proofTests: 288,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -418,6 +450,7 @@ export function buildStudioProjection(input: {
       marketArchaeologist,
       searchLeaseScheduler,
       semanticReview,
+      semanticRelationGraph,
       modelProvider,
       investigator,
       investigationDesk,

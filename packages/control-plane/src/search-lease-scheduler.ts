@@ -7,6 +7,7 @@ import type {
   OperationalStorageProjection,
   OpportunityHypothesis,
 } from "./types.js";
+import type { SemanticGraphSearchContext } from "./semantic-relation-graph.js";
 
 const ALGORITHM_VERSION = "pmh.ai-search-leases.v1";
 const DEFAULT_RETENTION_LIMIT = 40;
@@ -45,6 +46,7 @@ export type SearchLease = Readonly<{
   }>;
   issuedAt: string;
   deadlineAt: string;
+  graphContext?: SemanticGraphSearchContext | null;
   authority: "PROPOSE_ONLY";
   semanticDecisionAuthority: false;
   certificateAuthority: false;
@@ -176,6 +178,10 @@ type SearchLeaseOptions = Readonly<{
     lens: SearchLens,
     snapshot: MarketCorpusSnapshot,
   ) => DiscoveryCatalogContext;
+  graphContext?: (
+    snapshot: MarketCorpusSnapshot,
+    lens: SearchLens,
+  ) => SemanticGraphSearchContext;
   runFast: (
     task: DiscoveryTask,
     maxModelRequests: number,
@@ -266,6 +272,45 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
   const nonEmptyStrings = (items: unknown, limit: number) =>
     Array.isArray(items) && items.length <= limit &&
     items.every((item) => typeof item === "string" && item.trim() !== "");
+  const graphContext = lease?.graphContext;
+  const graphItemsValid = graphContext === undefined || graphContext === null ||
+    graphContext.items.every((item) =>
+      (item.proposalId === null || HASH_PATTERN.test(String(item.proposalId))) &&
+      (item.relationKind === null || [
+        "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE",
+        "EXHAUSTIVE", "CONDITIONAL", "RELATED", "CONFLICTING",
+      ].includes(item.relationKind)) &&
+      nonEmptyStrings(item.listingRefs, 20) &&
+      new Set(item.listingRefs).size === item.listingRefs.length &&
+      Array.isArray(item.outcomeCodes) && item.outcomeCodes.length <= 9 &&
+      item.outcomeCodes.every((code) => [
+        "DUPLICATE", "SEMANTIC_REJECTED", "MISSING_RULE", "NO_DEPTH",
+        "FEE_OR_MODEL_BLOCK", "EXACT_REJECTED", "CERTIFIED",
+        "SHADOW_DIVERGENCE", "SHADOW_MATCHED",
+      ].includes(code)) &&
+      item.summary.trim() !== "" && item.summary.length <= 300
+    );
+  const graphContextValid = graphContext === undefined || graphContext === null || (
+    graphContext.schemaVersion === "pmh.semantic-graph-search-context.v1" &&
+    HASH_PATTERN.test(String(graphContext.graphIdentity)) &&
+    HASH_PATTERN.test(String(graphContext.neighborhoodIdentity)) &&
+    graphContext.lens === lease.lens &&
+    Number.isSafeInteger(graphContext.relationCount) && graphContext.relationCount >= 0 &&
+    Number.isSafeInteger(graphContext.feedbackCount) && graphContext.feedbackCount >= 0 &&
+    Array.isArray(graphContext.items) && graphContext.items.length <= 12 &&
+    graphItemsValid &&
+    graphContext.neighborhoodIdentity === hashCanonical({
+      graphIdentity: graphContext.graphIdentity,
+      lens: graphContext.lens,
+      items: graphContext.items,
+    }) &&
+    graphContext.searchBrief.trim() !== "" && graphContext.searchBrief.length <= 300 &&
+    graphContext.priorityBasis === "EMPIRICAL_OUTCOMES_THEN_EVIDENCE_FRESHNESS" &&
+    graphContext.modelConfidenceUsed === false &&
+    graphContext.authority === "SEARCH_EVIDENCE_ONLY" &&
+    graphContext.semanticDecisionAuthority === false &&
+    graphContext.executionAuthority === false
+  );
   if (
     record.schemaVersion !== "pmh.search-lease-record.v1" ||
     lease?.schemaVersion !== "pmh.search-lease.v1" ||
@@ -287,6 +332,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     lease.semanticDecisionAuthority !== false ||
     lease.certificateAuthority !== false ||
     lease.executionAuthority !== false ||
+    !graphContextValid ||
     !Number.isSafeInteger(lease.budget.maxFastModelRequests) ||
     lease.budget.maxFastModelRequests < 0 ||
     lease.budget.maxFastModelRequests > 4 ||
@@ -402,6 +448,7 @@ export class SearchLeaseScheduler {
   readonly #context: SearchLeaseOptions["context"];
   readonly #runFast: SearchLeaseOptions["runFast"];
   readonly #runDeep: SearchLeaseOptions["runDeep"] | undefined;
+  readonly #graphContext: SearchLeaseOptions["graphContext"] | undefined;
   readonly #now: () => number;
   #active: Promise<SearchLeaseRecord> | null = null;
 
@@ -414,6 +461,7 @@ export class SearchLeaseScheduler {
     this.#context = options.context;
     this.#runFast = options.runFast;
     this.#runDeep = options.runDeep;
+    this.#graphContext = options.graphContext;
     this.#now = options.now ?? Date.now;
     this.#budget = Object.freeze({
       maxFastModelRequests: options.maxFastModelRequests ?? 1,
@@ -481,6 +529,10 @@ export class SearchLeaseScheduler {
         (record) => record.lease.snapshotIdentity === snapshot.snapshotIdentity,
       )?.lease.leaseId ?? null;
       const scope = scopeFor(snapshot);
+      const graphContext = this.#graphContext?.(snapshot, selectedLens) ?? null;
+      const querySummary = graphContext === null
+        ? spec.question
+        : `${spec.question} Graph neighborhood: ${graphContext.searchBrief}`.slice(0, 500);
       const lease: SearchLease = deepFreeze({
         schemaVersion: "pmh.search-lease.v1" as const,
         leaseId,
@@ -494,6 +546,7 @@ export class SearchLeaseScheduler {
         budget: this.#budget,
         issuedAt: new Date(issuedAtMs).toISOString(),
         deadlineAt: new Date(issuedAtMs + this.#budget.deadlineMs).toISOString(),
+        graphContext,
         authority: "PROPOSE_ONLY" as const,
         semanticDecisionAuthority: false as const,
         certificateAuthority: false as const,
@@ -533,7 +586,7 @@ export class SearchLeaseScheduler {
         }),
         lineage: Object.freeze({ predecessorLeaseId, duplicateOfLeaseId: null, noveltySignature: null }),
         outcome: Object.freeze({ novelCandidate: false, hypothesisCount: 0, proposalCount: 0, evidenceGapCount: 0 }),
-        trace: Object.freeze({ querySummary: spec.question, chainOfThoughtStored: false }),
+        trace: Object.freeze({ querySummary, chainOfThoughtStored: false }),
         semanticDecisionAuthority: false,
         certificateAuthority: false,
         executionAuthority: false,
@@ -606,6 +659,9 @@ export class SearchLeaseScheduler {
         const deepQuestion = [
           issued.lease.thesis,
           `Inspect these fast-lane candidates: ${listingRefs.join(", ")}.`,
+          ...(issued.lease.graphContext === null || issued.lease.graphContext === undefined
+            ? []
+            : [`Prior content-addressed graph evidence: ${issued.lease.graphContext.searchBrief}`]),
           "Use the whole immutable MarketFS snapshot to find corroborating or falsifying rule evidence. Return proposals only; do not make a semantic approval or trading decision.",
         ].join(" ").slice(0, 1_000);
         const result = await this.#runDeep(snapshot, deepQuestion);

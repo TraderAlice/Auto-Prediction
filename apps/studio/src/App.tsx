@@ -195,6 +195,48 @@ const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler
   },
 };
 
+const EMPTY_SEMANTIC_RELATION_GRAPH: StudioProjection["ai"]["semanticRelationGraph"] = {
+  schemaVersion: "pmh.semantic-relation-graph.v1",
+  graphIdentity: `sha256:${"0".repeat(64)}`,
+  sourceSnapshotIdentity: `sha256:${"0".repeat(64)}`,
+  sourceArtifactHashes: [],
+  listingCount: 0,
+  claimNodeCount: 0,
+  timeWindowNodeCount: 0,
+  resolutionBindingNodeCount: 0,
+  relationCount: 0,
+  feedbackCount: 0,
+  listings: [],
+  relations: [],
+  feedback: [],
+  empiricalOutcomes: [
+    "DUPLICATE",
+    "SEMANTIC_REJECTED",
+    "MISSING_RULE",
+    "NO_DEPTH",
+    "FEE_OR_MODEL_BLOCK",
+    "EXACT_REJECTED",
+    "CERTIFIED",
+    "SHADOW_DIVERGENCE",
+    "SHADOW_MATCHED",
+  ].map((code) => ({
+    code: code as StudioProjection["ai"]["semanticRelationGraph"]["empiricalOutcomes"][number]["code"],
+    count: 0,
+    latestObservedAt: null,
+  })),
+  priorityBasis: "EMPIRICAL_OUTCOMES_THEN_EVIDENCE_FRESHNESS",
+  modelConfidenceUsed: false,
+  authority: "DERIVED_RESEARCH_EVIDENCE_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_RELATION_PAYOFF: StudioProjection["relationPayoff"] = {
   schemaVersion: "pmh.relation-payoff-desk.v1",
   qualificationCount: 0,
@@ -2077,6 +2119,8 @@ function MarketArchaeologistView() {
     studioProjection.ai.marketArchaeologist ?? EMPTY_MARKET_ARCHAEOLOGIST;
   const scheduler =
     studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
+  const graph =
+    studioProjection.ai.semanticRelationGraph ?? EMPTY_SEMANTIC_RELATION_GRAPH;
   const [question, setQuestion] = useState(
     "Search the full corpus for semantically related events across venues. Prefer implication, subset, mutual-exclusion, and exhaustive structures; try to falsify every relationship.",
   );
@@ -2088,10 +2132,6 @@ function MarketArchaeologistView() {
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
   const [leaseDiagnostic, setLeaseDiagnostic] = useState<string | null>(null);
-  const proposalCount = desk.records.reduce(
-    (total, record) => total + (record.report?.result.proposals.length ?? 0),
-    0,
-  );
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
@@ -2164,11 +2204,46 @@ function MarketArchaeologistView() {
           detail={`${scheduler.duplicateCount} duplicates linked`}
         />
         <Metric
-          label="pi escalations"
-          value={`${scheduler.piEscalationCount}`}
-          detail={`${proposalCount} relation proposals · unreviewed`}
+          label="Semantic graph"
+          value={`${graph.relationCount}`}
+          detail={`${graph.feedbackCount} empirical outcomes`}
         />
       </div>
+
+      <Card className="semantic-graph-console">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Content-addressed memory · deterministic feedback</span>
+            <h2>Search what the system has learned</h2>
+          </div>
+          <Badge variant="verified">NO MODEL CONFIDENCE</Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="semantic-graph-stats">
+            <div><Network size={15} /><span>listings</span><strong>{graph.listingCount}</strong></div>
+            <div><Waypoints size={15} /><span>relations</span><strong>{graph.relationCount}</strong></div>
+            <div><ShieldCheck size={15} /><span>feedback</span><strong>{graph.feedbackCount}</strong></div>
+            <div><Fingerprint size={15} /><span>graph</span><code>{graph.graphIdentity.slice(0, 19)}…</code></div>
+          </div>
+          <div className="semantic-feedback-strip">
+            {graph.empiricalOutcomes.filter((item) => item.count > 0).length === 0 ? (
+              <span>No terminal outcomes yet. New leases still bind this empty graph identity.</span>
+            ) : graph.empiricalOutcomes.filter((item) => item.count > 0).map((item) => (
+              <div key={item.code}>
+                <Badge variant={item.code === "CERTIFIED" || item.code === "SHADOW_MATCHED" ? "verified" : "muted"}>
+                  {item.count}
+                </Badge>
+                <span>{item.code.replaceAll("_", " ")}</span>
+              </div>
+            ))}
+          </div>
+          <p>
+            Each lease receives a bounded graph neighborhood alongside raw MarketFS.
+            Duplicate, missing-rule, simulation, verifier, and shadow outcomes guide
+            falsification order; they never become semantic approval or execution authority.
+          </p>
+        </CardContent>
+      </Card>
 
       <Card className="search-lease-console">
         <CardHeader>
@@ -2329,6 +2404,7 @@ function MarketArchaeologistView() {
                 <code>{record.outcome.hypothesisCount} candidates</code>
                 <code>{record.deepLane.runId === null ? record.deepLane.reason : "PI ESCALATED"}</code>
                 <code>{record.outcome.evidenceGapCount} gaps</code>
+                {record.lease.graphContext != null && <code>GRAPH BOUND</code>}
                 {record.lineage.duplicateOfLeaseId !== null && <code>DUPLICATE LINK</code>}
               </div>
             </article>

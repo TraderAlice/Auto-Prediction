@@ -178,15 +178,17 @@ decision and cannot be inferred from this state machine.
 
 ## Phase 10 — semantic relation graph and feedback
 
-- [ ] Maintain a content-addressed graph of listings, claims, time windows,
+- [x] Maintain a content-addressed graph of listings, claims, time windows,
   resolution sources, relation hypotheses, counterexamples, and exact review
   decisions.
-- [ ] Search graph neighborhoods as well as raw catalogs so Agents can discover
+- [x] Search graph neighborhoods as well as raw catalogs so Agents can discover
   indirect implication, partition, and mechanism-mismatch opportunities.
 - [ ] Feed lifecycle outcomes back as search evidence: duplicate, semantic
   rejection, missing rule, no depth, fee/model block, exact rejection,
-  certificate, and shadow divergence.
-- [ ] Prioritize by empirical yield and evidence freshness, never by an opaque
+  certificate, and shadow divergence. The graph now ingests every available
+  source and records matched shadow replay; a genuinely divergent observed
+  shadow artifact still needs a first-party contract instead of being inferred.
+- [x] Prioritize by empirical yield and evidence freshness, never by an opaque
   model confidence score and never by granting an Agent more authority.
 
 ## Next slices
@@ -329,6 +331,16 @@ decision and cannot be inferred from this state machine.
   proposals plus five evidence gaps. Terminal artifact
   `sha256:90e17fbe…a8d04` records literal-false authority/effects and no
   chain-of-thought or per-tool trace.
+- 2026-08-01: Phase 10 now derives a canonical semantic graph from existing
+  corpus, lease, pi, review, research-decision, simulation, exact-verifier, and
+  shadow artifacts. New leases retain the graph and neighborhood identities and
+  receive a bounded falsification summary. The Studio exposes node/relation/
+  feedback counts and empirical feedback classes without presenting any model
+  confidence. The real graph binds 440 listings, four relations, and five
+  missing-rule outcomes at `sha256:1e2a0fe6…406a81`; the checkpoint passes 288
+  workspace tests, full typecheck, and production build under Node.js 24.14.0.
+  Desktop and 430px Studio checks have no console warnings/errors or horizontal
+  overflow, including an explicit empty-graph fallback during reconnects.
 - 2026-08-01: Exact promotion and certificate-bound shadow routing close at 280
   passing workspace tests, full typecheck, and production build under Node.js
   24.14.0. Desktop and 430px lifecycle inspection show no console errors or
