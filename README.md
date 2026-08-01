@@ -32,6 +32,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - An AI-native discovery pool where cheap parallel scouts inspect bounded, content-addressed fixture catalogs and may propose hypotheses but can never certify or execute them; its default DeepSeek V4 Flash worker runs through Vercel AI SDK with timeout, token, schema, and application-side scope bounds, while direct OpenAI Responses remains an optional backend.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - An explicitly triggered pi Investigation Desk with one-at-a-time concurrency, cross-restart task-scope idempotency, bounded hash-checked SQLite retention, SSE running/failure/completion state, and no route into review or execution.
+- A bounded anonymous catalog-observation desk for six venues. It preserves raw public GET bytes in SQLite WAL, binds normalized listings to their source identities, isolates protocol drift per venue, and stays `OBSERVE_ONLY` until a separate promotion qualification exists.
 - A hash-bound reviewed-hypothesis pipeline that requires independent hypothesis and exact market-link reviews before deterministic compilation can invoke the exact verifier.
 - Harmony Studio, a Vite + React + shadcn/ui cockpit connected to the control plane.
 - A Books desk that replays verified public frames into generation-bound order books, broadcasts them over SSE, and exposes venue-native sequence posture.
@@ -73,8 +74,9 @@ pnpm studio
 `pnpm studio` stores bounded Scout Inbox state in
 `.data/control-plane.sqlite` using WAL mode. Set `PMH_STATE_DB` to an alternate
 path when a different local operational volume is required. The database is
-ignored by Git and contains bounded discovery and completed investigation
-records, not credentials or immutable campaign evidence.
+ignored by Git and contains bounded discovery runs, completed investigations,
+and raw anonymous catalog observations, not credentials or immutable campaign
+evidence.
 
 The model scout is opt-in. Set `DEEPSEEK_API_KEY` in the control-plane process
 to add a `deepseek-v4-flash` worker beside the free heuristic worker. It uses
@@ -83,11 +85,20 @@ output-token ceiling, and an 8-second timeout. These non-secret bounds are
 visible in Studio and `/health`; the key is never projected or persisted.
 DeepSeek does not expose an OpenAI-style `store:false` request control, so the
 projection reports `PROVIDER_POLICY` rather than making a retention claim.
-Both workers receive only a task-scoped catalog context selected from 11
-normalized listings in six verified fixture artifacts across five venues. A
+Both workers receive only a task-scoped catalog context selected from 12
+normalized listings in seven verified fixture artifacts across six venues. A
 context contains at most 30 listings, has its own SHA-256 identity, and is
 bound into the default `taskId` and retained run. Every non-empty hypothesis
 must reference concrete listing IDs from that exact context.
+
+At startup the control plane also performs an anonymous, read-only catalog
+refresh for Polymarket Global, Kalshi, Gemini, Opinion, Myriad, and Limitless.
+Each response has a 10-second timeout and 2,000,000-byte cap, is preserved
+byte-for-byte under a SHA-256 identity in bounded SQLite WAL storage, and is
+normalized by its venue adapter. Studio separates these current observations
+from the verified fixture context and labels them `OBSERVE ONLY`; they are not
+automatically supplied to either AI lane. Refresh explicitly with
+`POST /api/v1/catalog/observations/refresh`.
 Select `PMH_DISCOVERY_PROVIDER=deepseek|openai` and override the model defaults
 with `PMH_DISCOVERY_MODEL`,
 `PMH_DISCOVERY_MAX_OUTPUT_TOKENS` (128–4096), and

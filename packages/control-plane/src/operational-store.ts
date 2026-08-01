@@ -11,12 +11,18 @@ import {
   type InvestigationRecord,
   type InvestigationRecordStore,
 } from "./investigation-desk.js";
+import {
+  verifyStoredCatalogObservation,
+  type CatalogObservationRecord,
+  type CatalogObservationStore,
+  type StoredCatalogObservation,
+} from "./catalog-observation.js";
 import type {
   DiscoveryRunRecord,
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -30,6 +36,13 @@ type StoredInvestigationRow = Readonly<{
   task_id: string;
   record_json: string;
   record_hash: string;
+}>;
+
+type StoredCatalogObservationRow = Readonly<{
+  observation_id: string;
+  record_json: string;
+  record_hash: string;
+  raw_bytes: Uint8Array;
 }>;
 
 function assertLimit(limit: number): void {
@@ -99,6 +112,40 @@ function parseStoredRun(value: unknown): DiscoveryRunRecord {
   return record;
 }
 
+function parseStoredCatalogObservation(
+  value: unknown,
+): StoredCatalogObservation {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite catalog observation row is malformed");
+  }
+  const row = value as Partial<StoredCatalogObservationRow>;
+  if (
+    typeof row.observation_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string" ||
+    !(row.raw_bytes instanceof Uint8Array)
+  ) {
+    throw new Error("SQLite catalog observation row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite catalog observation contains invalid JSON");
+  }
+  if (decoded === null || typeof decoded !== "object") {
+    throw new Error("SQLite catalog observation record is malformed");
+  }
+  const record = decoded as CatalogObservationRecord;
+  if (
+    record.observationId !== row.observation_id ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite catalog observation record identity mismatch");
+  }
+  return verifyStoredCatalogObservation({ record, bytes: row.raw_bytes });
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -124,12 +171,18 @@ function readJournalMode(database: DatabaseSync): string {
 }
 
 export class SqliteOperationalStore
-  implements DiscoveryRunStore, InvestigationRecordStore
+  implements DiscoveryRunStore, InvestigationRecordStore, CatalogObservationStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
   public readonly storage: OperationalStorageProjection;
   public readonly investigationStorage: OperationalStorageProjection<"taskId+catalogContextIdentity">;
+  public readonly catalogObservationStorage: Readonly<{
+    mode: "MEMORY" | "SQLITE_WAL";
+    durable: boolean;
+    schemaVersion: number;
+    idempotencyKey: "observationId";
+  }>;
 
   public constructor(databasePath: string) {
     if (databasePath.trim() === "") {
@@ -171,6 +224,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "taskId+catalogContextIdentity",
+    });
+    this.catalogObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
     });
   }
 
@@ -218,6 +277,27 @@ export class SqliteOperationalStore
             ON investigation_records (task_id) WHERE status = 'PASS';
           CREATE INDEX investigations_completed
             ON investigation_records (completed_at DESC, investigation_id DESC);
+        `);
+      }
+      if (current < 3) {
+        this.#database.exec(`
+          CREATE TABLE catalog_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 84 AND
+              observation_id GLOB 'catalog-observation:[0-9a-f]*'
+            ),
+            venue_id TEXT NOT NULL CHECK (length(venue_id) > 0),
+            received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            raw_bytes BLOB NOT NULL
+          ) STRICT;
+          CREATE INDEX catalog_observations_received
+            ON catalog_observations (received_at DESC, observation_id DESC);
+          CREATE INDEX catalog_observations_venue
+            ON catalog_observations (venue_id, received_at DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -375,6 +455,87 @@ export class SqliteOperationalStore
       const stored = parseStoredInvestigation(row);
       if (hashCanonical(stored) !== recordHash) {
         throw new Error("investigationId is already bound to another record");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadCatalogObservations(
+    limit: number,
+  ): readonly StoredCatalogObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT observation_id, record_json, record_hash, raw_bytes
+         FROM catalog_observations
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseStoredCatalogObservation));
+  }
+
+  public saveCatalogObservation(
+    observation: StoredCatalogObservation,
+    retentionLimit: number,
+  ): StoredCatalogObservation {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = verifyStoredCatalogObservation(observation);
+    const recordJson = canonicalJson(validated.record);
+    const recordHash = hashCanonical(validated.record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO catalog_observations (
+             observation_id, venue_id, received_at, record_json,
+             record_hash, raw_bytes
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+        )
+        .run(
+          validated.record.observationId,
+          validated.record.venueId,
+          validated.record.receivedAt,
+          recordJson,
+          recordHash,
+          validated.bytes,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM catalog_observations
+           WHERE venue_id = ? AND observation_id IN (
+             SELECT observation_id
+             FROM catalog_observations
+             WHERE venue_id = ?
+             ORDER BY rowid DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(
+          validated.record.venueId,
+          validated.record.venueId,
+          retentionLimit,
+        );
+      const row = this.#database
+        .prepare(
+          `SELECT observation_id, record_json, record_hash, raw_bytes
+           FROM catalog_observations
+           WHERE observation_id = ?`,
+        )
+        .get(validated.record.observationId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the catalog observation");
+      }
+      const stored = parseStoredCatalogObservation(row);
+      if (hashCanonical(stored.record) !== recordHash) {
+        throw new Error("observationId is already bound to another record");
       }
       this.#database.exec("COMMIT");
       return stored;

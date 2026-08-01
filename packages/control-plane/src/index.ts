@@ -1,5 +1,6 @@
 export * from "./book-desk.js";
 export * from "./catalog-discovery.js";
+export * from "./catalog-observation.js";
 export * from "./discovery.js";
 export * from "./discovery-ledger.js";
 export * from "./deepseek-model.js";

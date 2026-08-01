@@ -15,9 +15,9 @@ describe("verified catalog discovery context", () => {
     expect(projection).toEqual({
       mode: "VERIFIED_FIXTURE_CATALOGS",
       corpusIdentity: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-      listingCount: 11,
-      venueCount: 5,
-      sourceFixtureCount: 6,
+      listingCount: 12,
+      venueCount: 6,
+      sourceFixtureCount: 7,
       maxListingsPerTask: 30,
     });
     expect(await desk.load()).toEqual(projection);

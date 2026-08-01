@@ -3,6 +3,10 @@ import { resolve } from "node:path";
 import { hashCanonical } from "@pmh/domain";
 import { ReplayBookDesk } from "./book-desk.js";
 import { FixtureCatalogDiscoveryDesk } from "./catalog-discovery.js";
+import {
+  CatalogObservationDesk,
+  type CatalogObservationStore,
+} from "./catalog-observation.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
 import {
   createDiscoveryModelRuntime,
@@ -155,9 +159,23 @@ function supportsInvestigationRecords(
   );
 }
 
+function supportsCatalogObservations(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & CatalogObservationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<CatalogObservationStore>;
+  return (
+    candidate.catalogObservationStorage !== undefined &&
+    typeof candidate.loadCatalogObservations === "function" &&
+    typeof candidate.saveCatalogObservation === "function"
+  );
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
+  catalogObservationDesk?: CatalogObservationDesk;
+  refreshCatalogOnReady?: boolean;
   discoveryLedger?: DiscoveryLedger;
   discoveryStore?: DiscoveryRunStore;
   discoveryPool?: DiscoveryPool;
@@ -192,6 +210,13 @@ export function createControlPlane(options?: {
     ]);
   const bookDesk = options?.bookDesk ?? new ReplayBookDesk();
   const catalogDesk = options?.catalogDesk ?? new FixtureCatalogDiscoveryDesk();
+  const catalogObservationDesk =
+    options?.catalogObservationDesk ??
+    new CatalogObservationDesk({
+      ...(supportsCatalogObservations(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const discoveryLedger =
     options?.discoveryLedger ?? new DiscoveryLedger(25, options?.discoveryStore);
   const investigationDesk =
@@ -204,9 +229,13 @@ export function createControlPlane(options?: {
           ? options.discoveryStore
           : undefined),
     );
-  const ready = Promise.all([bookDesk.replay(), catalogDesk.load()]).then(
-    () => undefined,
-  );
+  const ready = Promise.all([
+    bookDesk.replay(),
+    catalogDesk.load(),
+    ...(options?.refreshCatalogOnReady === true
+      ? [catalogObservationDesk.refresh()]
+      : []),
+  ]).then(() => undefined);
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
     string,
@@ -225,6 +254,7 @@ export function createControlPlane(options?: {
       investigator: piRuntime.projection,
       investigationDesk: investigationDesk.projection(),
       catalogContext: catalogDesk.projection(),
+      catalogObservation: catalogObservationDesk.projection(),
       bookDesk: bookDesk.projection(),
       discoveryDesk: discoveryLedger.projection(),
     });
@@ -266,6 +296,7 @@ export function createControlPlane(options?: {
         investigator: piRuntime.projection,
         investigationDesk: investigationDesk.projection(),
         catalogContext: catalogDesk.projection(),
+        catalogObservation: catalogObservationDesk.projection(),
       });
       return;
     }
@@ -276,6 +307,24 @@ export function createControlPlane(options?: {
     if (request.method === "GET" && url.pathname === "/api/v1/books") {
       await ready;
       writeJson(response, 200, bookDesk.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/catalog/observations"
+    ) {
+      writeJson(response, 200, catalogObservationDesk.projection());
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/catalog/observations/refresh"
+    ) {
+      const pending = catalogObservationDesk.refresh();
+      await broadcastProjection();
+      const result = await pending;
+      await broadcastProjection();
+      writeJson(response, result.status === "READY" ? 200 : 207, result);
       return;
     }
     if (
@@ -501,6 +550,7 @@ export function createControlPlane(options?: {
     pool,
     bookDesk,
     catalogDesk,
+    catalogObservationDesk,
     discoveryLedger,
     investigationDesk,
     piRuntime,
@@ -521,6 +571,7 @@ export async function startControlPlane(
   const { server, ready } = createControlPlane({
     discoveryStore,
     investigationStore: discoveryStore,
+    refreshCatalogOnReady: true,
   });
   await ready;
   try {

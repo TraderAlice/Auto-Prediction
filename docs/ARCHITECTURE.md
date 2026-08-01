@@ -67,16 +67,28 @@ evidence boundary. Realtime codecs then preserve each venue's native
 sequencing guarantee: Gemini ranges may produce deltas, while Polymarket and
 Limitless public full-book images produce explicit rebuild snapshots.
 
+Current catalog discovery has two deliberately separate evidence grades. The
+verified fixture corpus is the only catalog input supplied to AI tasks. A live
+observation desk performs bounded anonymous GETs against six venue catalogs,
+preserves each raw response byte-for-byte in SQLite WAL, and binds its
+normalized listing identity to source URL, receive time, protocol identity,
+headers, raw hash, and byte length. Per-source timeout, response-size, HTTP, or
+codec failure degrades only that source and retains its last successful
+snapshot. Live observations are `OBSERVE_ONLY` and cannot enter scout context,
+review, compilation, certification, or execution without a separate promotion
+decision.
+
 The long-running control plane owns `ReplayBookDesk`. It verifies stream
 artifacts, applies normalized events to deterministic books, and publishes
 JSON/SSE projections. Studio is a read-only view of those projections and may
 request an in-memory replay, but it never applies book events itself.
 
-The same process owns a bounded discovery and investigation operational store. In development it
+The same process owns bounded discovery, investigation, and catalog-observation operational state. In development it
 opens `.data/control-plane.sqlite`, selects WAL journal mode with full
 synchronous durability, applies an explicit schema migration, and hydrates the
-Scout Inbox before publishing the first projection. Every row carries canonical
-JSON plus a SHA-256 identity; malformed, tampered, or newer-schema state fails
+Scout Inbox and latest catalog observations before publishing the first
+projection. Canonical records carry SHA-256 identities; catalog rows also keep
+the exact raw response BLOB. Malformed, tampered, or newer-schema state fails
 closed at startup/read time.
 
 Normalized question, venue scope, and catalog-context identity produce a stable

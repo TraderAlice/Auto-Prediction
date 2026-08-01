@@ -4,6 +4,7 @@ import { loadRawFixture } from "@pmh/evidence";
 import type { NormalizedCatalogListing } from "@pmh/protocol";
 import { normalizeGeminiCatalog } from "@pmh/venue-gemini";
 import { normalizeKalshiCatalog } from "@pmh/venue-kalshi";
+import { normalizeLimitlessCatalog } from "@pmh/venue-limitless";
 import { normalizeMyriadCatalog } from "@pmh/venue-myriad";
 import { normalizeOpinionCatalog } from "@pmh/venue-opinion";
 import { normalizePolymarketCatalog } from "@pmh/venue-polymarket";
@@ -55,6 +56,11 @@ const sources: readonly CatalogSource[] = [
     venueId: "myriad",
     fixtureName: "myriad-amm-catalog",
     decode: normalizeMyriadCatalog,
+  },
+  {
+    venueId: "limitless",
+    fixtureName: "limitless-catalog",
+    decode: normalizeLimitlessCatalog,
   },
 ];
 

@@ -159,6 +159,36 @@ async function requestInvestigation(
   return result.idempotentReplay === true;
 }
 
+async function requestCatalogRefresh(): Promise<"READY" | "DEGRADED"> {
+  const response = await fetch("/api/v1/catalog/observations/refresh", {
+    method: "POST",
+  });
+  const result = (await response.json()) as {
+    status?: string;
+    promotion?: string;
+    effects?: {
+      externalWrites?: boolean;
+      valueMovingActions?: boolean;
+      liveExecutionEnabled?: boolean;
+    };
+  };
+  if (
+    (response.status !== 200 && response.status !== 207) ||
+    (result.status !== "READY" && result.status !== "DEGRADED")
+  ) {
+    throw new Error("catalog observation refresh failed");
+  }
+  if (
+    result.promotion !== "OBSERVE_ONLY" ||
+    result.effects?.externalWrites !== false ||
+    result.effects.valueMovingActions !== false ||
+    result.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("catalog observation crossed its authority boundary");
+  }
+  return result.status;
+}
+
 function VenuePulse() {
   const studioProjection = useStudioProjection();
   return (
@@ -511,8 +541,12 @@ function Overview({
   const studioProjection = useStudioProjection();
   const catalogContext =
     studioProjection.ai.catalogContext ?? EMPTY_CATALOG_CONTEXT;
+  const catalogObservation = studioProjection.ai.catalogObservation;
   const [scoutStatus, setScoutStatus] = useState<
     "IDLE" | "RUNNING" | "PROPOSED" | "FAILED"
+  >("IDLE");
+  const [refreshStatus, setRefreshStatus] = useState<
+    "IDLE" | "RUNNING" | "READY" | "DEGRADED" | "FAILED"
   >("IDLE");
 
   async function runScout(): Promise<void> {
@@ -525,6 +559,15 @@ function Overview({
       setScoutStatus("PROPOSED");
     } catch {
       setScoutStatus("FAILED");
+    }
+  }
+
+  async function refreshCatalog(): Promise<void> {
+    setRefreshStatus("RUNNING");
+    try {
+      setRefreshStatus(await requestCatalogRefresh());
+    } catch {
+      setRefreshStatus("FAILED");
     }
   }
 
@@ -646,6 +689,31 @@ function Overview({
           </span>
         </div>
         <div className="ai-boundary">
+          <Radio size={14} />
+          <span>
+            live catalog observation · {catalogObservation.listingCount} listings
+            · {catalogObservation.healthySourceCount}/{catalogObservation.sourceCount}{" "}
+            sources · {catalogObservation.status} · {catalogObservation.storage.mode}
+            {catalogObservation.storage.durable
+              ? ` v${catalogObservation.storage.schemaVersion}`
+              : ""}{" "}
+            · OBSERVE ONLY
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={refreshStatus === "RUNNING"}
+            onClick={() => void refreshCatalog()}
+          >
+            <RefreshCw size={11} />
+            {refreshStatus === "RUNNING"
+              ? "Refreshing…"
+              : refreshStatus === "FAILED"
+                ? "Retry refresh"
+                : "Refresh catalogs"}
+          </Button>
+        </div>
+        <div className="ai-boundary">
           <ShieldCheck size={14} />
           <span>{studioProjection.ai.promotionBoundary}</span>
         </div>
@@ -701,6 +769,7 @@ function ScoutInboxView() {
   const studioProjection = useStudioProjection();
   const catalogContext =
     studioProjection.ai.catalogContext ?? EMPTY_CATALOG_CONTEXT;
+  const catalogObservation = studioProjection.ai.catalogObservation;
   const eligibleVenues = studioProjection.venues.filter((venue) =>
     venue.capabilities.includes("MARKET_CATALOG"),
   );
@@ -790,6 +859,11 @@ function ScoutInboxView() {
           label="Catalog facts"
           value={`${catalogContext.listingCount}`}
           detail={`${catalogContext.venueCount} venues · verified fixtures`}
+        />
+        <Metric
+          label="Live observed"
+          value={`${catalogObservation.listingCount}`}
+          detail={`${catalogObservation.healthySourceCount}/${catalogObservation.sourceCount} sources · not promoted`}
         />
         <Metric
           label="State store"

@@ -1,10 +1,12 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createControlPlane,
+  CatalogObservationDesk,
+  catalogObservationSources,
   createOpenAiDiscoveryRuntime,
   createPiInvestigatorRuntime,
   DiscoveryPool,
@@ -98,9 +100,9 @@ describe("control-plane HTTP surface", () => {
     });
     expect(projection.ai.architecture).toBe("SCOUT_THEN_VERIFY");
     expect(projection.ai.catalogContext).toMatchObject({
-      listingCount: 11,
-      venueCount: 5,
-      sourceFixtureCount: 6,
+      listingCount: 12,
+      venueCount: 6,
+      sourceFixtureCount: 7,
     });
     expect(projection.ai.catalogContext.corpusIdentity).toMatch(/^sha256:/);
     expect(projection.ai.modelProvider).toMatchObject({
@@ -192,6 +194,66 @@ describe("control-plane HTTP surface", () => {
       }),
     });
     expect(malformed.status).toBe(400);
+  });
+
+  it("refreshes an anonymous catalog observation without promoting it", async () => {
+    const source = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "polymarket-global",
+    );
+    if (source === undefined) throw new Error("missing Polymarket source");
+    const bytes = await readFile(
+      join(
+        import.meta.dirname,
+        "../../../projects/fixtures/polymarket-global/2026-07-31/polymarket-catalog.json",
+      ),
+    );
+    const { baseUrl } = await listenControlPlane({
+      catalogObservationDesk: new CatalogObservationDesk({
+        sources: [source],
+        now: () => Date.parse("2026-08-01T03:25:00.000Z"),
+        fetcher: async (_input, init) => {
+          expect(init).toMatchObject({ method: "GET", credentials: "omit" });
+          return new Response(new Uint8Array(bytes).buffer, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        },
+      }),
+    });
+    const response = await fetch(
+      `${baseUrl}/api/v1/catalog/observations/refresh`,
+      { method: "POST" },
+    );
+    const projection = (await response.json()) as {
+      status: string;
+      promotion: string;
+      listingCount: number;
+      sources: { credentialsUsed: boolean; rawHash: string }[];
+      effects: {
+        externalWrites: boolean;
+        valueMovingActions: boolean;
+        liveExecutionEnabled: boolean;
+      };
+    };
+    expect(response.status).toBe(200);
+    expect(projection).toMatchObject({
+      status: "READY",
+      promotion: "OBSERVE_ONLY",
+      listingCount: 1,
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    expect(projection.sources[0]).toMatchObject({
+      credentialsUsed: false,
+      rawHash: expect.stringMatching(/^sha256:/),
+    });
+    const current = await fetch(
+      `${baseUrl}/api/v1/catalog/observations`,
+    ).then((result) => result.json());
+    expect(current).toEqual(projection);
   });
 
   it("fails closed when an investigation is requested without pi configuration", async () => {
@@ -347,7 +409,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 2,
+          schemaVersion: 3,
         },
         records: [{ investigationId: created.investigationId }],
       });

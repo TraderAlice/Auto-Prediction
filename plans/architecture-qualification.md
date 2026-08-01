@@ -54,6 +54,7 @@ Qualify a prediction-market interoperability architecture against current offici
 - [x] Persist discovery runs and task idempotency across control-plane restarts.
 - [x] Connect a fail-closed, budgeted external model provider adapter.
 - [x] Ground every non-empty scout hypothesis in a bounded, content-addressed catalog context.
+- [x] Capture bounded anonymous live catalog observations without promoting them into scout context.
 - [x] Add a one-request, secret-free, content-hashed provider qualification command.
 - [x] Add a bounded, read-only pi investigator qualification command for repository-aware work.
 - [x] Expose pi as an explicitly triggered, one-at-a-time Investigation Desk with SSE state and bounded durable completion retention.
@@ -97,9 +98,9 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-07-31: The replay-integrity campaign artifact binds three verified stream/state identities, six chaos-case evidence hashes, literal-false effects, and a self identity. A golden test locks the checked-in JSON to the runtime projection.
 - 2026-07-31: A hypothesis never mutates into an approved fact. A separate `pmh.hypothesis-review.v1` artifact must bind it and the complete exact market-link evidence set before compilation; proposer self-review, substituted links, non-exact grades, unreviewed venues, stale books, and non-positive floors all fail closed.
 - 2026-07-31: `reviewed-compilation.v1.json` qualifies the synthetic compilation handoff but grants no runtime review or execution authority. The separate `three-venue-claim.v1.json` artifact binds identical real resolution rules across Polymarket Global, Opinion, and Limitless without treating different listing windows as claim semantics.
-- 2026-07-31: SQLite WAL owns bounded operational state; Git remains the authority for immutable fixtures and campaign artifacts. Records are stored as canonical JSON with SHA-256 identities, schema version 2 fails closed on incompatible future databases, and normalized task content produces a stable default `taskId`.
+- 2026-07-31: SQLite WAL owns bounded operational state; Git remains the authority for immutable fixtures and campaign artifacts. Records are stored as canonical JSON with SHA-256 identities, newer incompatible schemas fail closed, and normalized task content produces a stable default `taskId`.
 - 2026-07-31: External model discovery is an optional control-plane capability, never a browser capability. The projection exposes non-secret budget posture only, and model output is schema-checked plus task-scope-checked before the process reconstructs `PROPOSE_ONLY` / `UNREVIEWED` authority fields.
-- 2026-07-31: A discovery task is grounded in at most 30 listings selected from 11 normalized listings in six verified fixture artifacts across five venues. Context identity participates in default `taskId` and durable scope; every non-empty hypothesis cites in-scope listing references, while an empty grounded result remains valid.
+- 2026-07-31: A discovery task is grounded in at most 30 listings selected from normalized verified fixture catalogs. Context identity participates in default `taskId` and durable scope; every non-empty hypothesis cites in-scope listing references, while an empty grounded result remains valid.
 - 2026-08-01: DeepSeek V4 Flash through Vercel AI SDK is the default lightweight discovery route; direct OpenAI Responses remains an explicit fallback. DeepSeek fast-lane thinking is disabled, output is SDK-validated and then scope-validated, and retention is labeled as provider policy rather than an unsupported `store:false` claim.
 - 2026-08-01: The Vercel AI SDK / DeepSeek checkpoint passes the full 140-test workspace suite, typecheck, and production build under Node.js 24.14.0.
 - 2026-08-01: Repository-aware investigations use pinned pi 0.83.0 as an explicit second lane. Its isolated one-shot process disables sessions and extensibility, exposes only read/search/list tools, validates bounded final-text output against task scope, and reconstructs non-executable proposal authority locally.
@@ -112,6 +113,10 @@ Record evidence-driven changes here before promoting them into stable design doc
 - 2026-08-01: The Investigation Desk checkpoint passes the full 153-test workspace suite, typecheck, and production build under Node.js 24.14.0.
 - 2026-08-01: Operational schema v2 adds a separate bounded investigation table. Only completed PASS/FAILED records persist; canonical record and nested report hashes are validated during hydration, while non-resumable RUNNING state remains process-local.
 - 2026-08-01: Durable investigation recovery expands the Node.js 24.14.0 checkpoint to 159 passing tests plus full typecheck, production build, v1→v2 migration, tamper rejection, retention, failed-task retry, scope-conflict, and HTTP restart coverage.
+- 2026-08-01: Operational schema v3 adds bounded raw catalog observations beside discovery and investigation records. Each record binds source URL, receive time, protocol identity, headers, byte length, raw SHA-256, normalized listing count, and normalized listing identity; hydration rejects raw or normalized tampering.
+- 2026-08-01: Six anonymous public GET sources now refresh independently under a 10-second and 2,000,000-byte per-source cap. They are projected as `OBSERVE_ONLY`; no observation can enter AI context, equivalence review, compilation, certification, or execution by this path.
+- 2026-08-01: The real refresh returns 314 current listings from Polymarket Global, Kalshi, Gemini, Opinion, Myriad, and Limitless with no credential. Gemini's missing indicative-price fields are represented as absent optional facts rather than zero values or a whole-source failure.
+- 2026-08-01: The live-observation checkpoint passes 168 tests, full typecheck, production build, durable restart/tamper coverage, per-venue retention, bounded-response failure coverage, partial-source degradation, and the HTTP refresh authority check under Node.js 24.14.0.
 
 ## Blockers
 
