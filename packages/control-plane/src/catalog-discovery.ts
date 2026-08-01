@@ -8,6 +8,7 @@ import { normalizeLimitlessCatalog } from "@pmh/venue-limitless";
 import { normalizeMyriadCatalog } from "@pmh/venue-myriad";
 import { normalizeOpinionCatalog } from "@pmh/venue-opinion";
 import { normalizePolymarketCatalog } from "@pmh/venue-polymarket";
+import { normalizePolymarketUsCatalog } from "@pmh/venue-polymarket-us";
 import type {
   DiscoveryCatalogContext,
   DiscoveryCatalogListing,
@@ -21,6 +22,7 @@ const MAX_RULE_CHARACTERS = 1_200;
 
 type CatalogSource = Readonly<{
   venueId: string;
+  fixtureDate?: string;
   fixtureName: string;
   decode: (
     fixture: Awaited<ReturnType<typeof loadRawFixture>>,
@@ -32,6 +34,12 @@ const sources: readonly CatalogSource[] = [
     venueId: "polymarket-global",
     fixtureName: "polymarket-catalog",
     decode: normalizePolymarketCatalog,
+  },
+  {
+    venueId: "polymarket-us",
+    fixtureDate: "2026-08-01",
+    fixtureName: "polymarket-us-catalog",
+    decode: normalizePolymarketUsCatalog,
   },
   {
     venueId: "kalshi",
@@ -211,7 +219,7 @@ export class FixtureCatalogDiscoveryDesk {
         const base = resolve(
           this.#fixtureRoot,
           source.venueId,
-          "2026-07-31",
+          source.fixtureDate ?? "2026-07-31",
           source.fixtureName,
         );
         const fixture = await loadRawFixture(`${base}.json`, `${base}.meta.json`);

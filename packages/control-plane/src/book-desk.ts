@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { formatFixed, type Hash } from "@pmh/domain";
-import { loadStreamFixture } from "@pmh/evidence";
+import { loadRawFixture, loadStreamFixture } from "@pmh/evidence";
 import {
   DeterministicBook,
   type BookProjection,
@@ -9,26 +9,34 @@ import {
 import { decodeGeminiBookStream } from "@pmh/venue-gemini";
 import { decodeLimitlessBookStream } from "@pmh/venue-limitless";
 import { decodePolymarketBookStream } from "@pmh/venue-polymarket";
+import {
+  decodePolymarketUsBookSnapshot,
+  POLYMARKET_US_PRICE_SCALE,
+  POLYMARKET_US_QUANTITY_SCALE,
+} from "@pmh/venue-polymarket-us";
 import type {
   BookDeskProjection,
   StudioBookProjection,
 } from "./types.js";
 
-type ReplaySource = Readonly<{
+type BookDisplaySource = Readonly<{
   venueId: string;
   venueName: string;
-  payloadPath: string;
-  metadataPath: string;
   priceScale: bigint;
   quantityScale: bigint;
   sequencePolicy: StudioBookProjection["sequencePolicy"];
+}>;
+
+type ReplaySource = BookDisplaySource & Readonly<{
+  payloadPath: string;
+  metadataPath: string;
   decode: (
     fixture: Awaited<ReturnType<typeof loadStreamFixture>>,
   ) => readonly NormalizedBookUpdate[];
 }>;
 
 function displayBook(
-  source: ReplaySource,
+  source: BookDisplaySource,
   projection: BookProjection,
   evidenceHash: Hash,
   capturedAt: string,
@@ -180,8 +188,52 @@ export class ReplayBookDesk {
         );
       }),
     );
-    this.#books = books
-      .flat()
+    const [polymarketUsCatalog, polymarketUsBook] = await Promise.all([
+      loadRawFixture(
+        resolve(
+          this.#fixtureRoot,
+          "polymarket-us/2026-08-01/polymarket-us-catalog.json",
+        ),
+        resolve(
+          this.#fixtureRoot,
+          "polymarket-us/2026-08-01/polymarket-us-catalog.meta.json",
+        ),
+      ),
+      loadRawFixture(
+        resolve(
+          this.#fixtureRoot,
+          "polymarket-us/2026-08-01/polymarket-us-market-book.json",
+        ),
+        resolve(
+          this.#fixtureRoot,
+          "polymarket-us/2026-08-01/polymarket-us-market-book.meta.json",
+        ),
+      ),
+    ]);
+    const polymarketUsUpdate = decodePolymarketUsBookSnapshot(
+      polymarketUsBook,
+      polymarketUsCatalog,
+    );
+    if (polymarketUsUpdate.event.kind !== "SNAPSHOT") {
+      throw new Error("Polymarket US verified book is not a snapshot");
+    }
+    const polymarketUsState = new DeterministicBook(
+      polymarketUsUpdate.instrumentId,
+    );
+    polymarketUsState.apply(polymarketUsUpdate.event);
+    const polymarketUsDisplay = displayBook(
+      {
+        venueId: "polymarket-us",
+        venueName: "Polymarket US",
+        priceScale: POLYMARKET_US_PRICE_SCALE,
+        quantityScale: POLYMARKET_US_QUANTITY_SCALE,
+        sequencePolicy: "FULL_SNAPSHOT_REBUILD",
+      },
+      polymarketUsState.projection(),
+      polymarketUsUpdate.event.sourceHash,
+      polymarketUsBook.metadata.fetchedAt,
+    );
+    this.#books = [...books.flat(), polymarketUsDisplay]
       .sort((left, right) => left.venueId.localeCompare(right.venueId));
     this.#replayCount += 1;
     return this.projection();

@@ -18,6 +18,24 @@ const fixtures = Object.freeze({
     sourceUrl:
       "https://combos-rfq-api.polymarket.com/v1/rfq/combo-markets?limit=1",
   },
+  "polymarket-us-catalog": {
+    venue: "polymarket-us",
+    protocolVersion: "gateway-rest-v1:2026-08-01",
+    sourceUrl:
+      "https://gateway.polymarket.us/v1/markets?active=true&closed=false&archived=false&limit=20",
+  },
+  "polymarket-us-market-book": {
+    venue: "polymarket-us",
+    protocolVersion: "gateway-market-book-v1:2026-08-01",
+    sourceUrl:
+      "https://gateway.polymarket.us/v1/markets/tec-mlb-nlchamp-2026-09-27-nym/book",
+  },
+  "polymarket-us-market-bbo": {
+    venue: "polymarket-us",
+    protocolVersion: "gateway-market-bbo-v1:2026-08-01",
+    sourceUrl:
+      "https://gateway.polymarket.us/v1/markets/tec-mlb-nlchamp-2026-09-27-nym/bbo",
+  },
   "polymarket-trump-out-2027": {
     venue: "polymarket-global",
     protocolVersion: "gamma-rest:2026-07-31",

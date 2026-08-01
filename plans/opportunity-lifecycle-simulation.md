@@ -192,13 +192,33 @@ decision and cannot be inferred from this state machine.
 - [x] Prioritize by empirical yield and evidence freshness, never by an opaque
   model confidence score and never by granting an Agent more authority.
 
+## Phase 11 — Polymarket US public-data qualification
+
+- [x] Capture byte-exact anonymous catalog, long-contract book, and BBO
+  fixtures through the configured US route.
+- [x] Keep Polymarket US in an independent adapter/package and protocol identity;
+  never reuse Polymarket Global Gamma, CLOB-token, or conditional-token types.
+- [x] Add the seventh catalog source to durable live observation, verified
+  MarketFS discovery, venue projection, and deterministic book replay.
+- [x] Preserve missing side quotes as missing and keep public long-book/BBO
+  evidence observation-only until short-side semantics and fee rounding are
+  independently qualified.
+- [x] Run real Agent archaeology from a US market trailhead and retain both the
+  grounded relations and the negative cross-venue result.
+- [x] Bound oversized model prose by visible truncation without weakening
+  corpus-reference, proposal-count, relation-kind, or authority validation.
+
 ## Next slices
 
 - Calibrate AMM implementations against each venue's official contract and fee
   semantics instead of treating `x*y=k` as a venue fact.
-- Determine whether Polymarket exposes enough match-level public evidence to
+- Determine whether Polymarket Global exposes enough match-level public evidence to
   reproduce per-match fee rounding. Until then the public aggregated-book
   curve remains simulation evidence, not verifier-eligible evidence.
+- Qualify Polymarket US's documented theta fee formula, actual per-fill rounding,
+  and BUY_SHORT book mapping before converting its REST observation into an
+  executable simulator request. Its authenticated market WebSocket can follow
+  when account access is deliberately introduced.
 - Qualify Limitless's buy/sell dynamic fee curves only if an official exact
   function or executable contract becomes available; do not interpolate its
   published table.

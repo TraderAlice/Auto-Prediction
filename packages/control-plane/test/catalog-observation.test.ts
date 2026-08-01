@@ -9,6 +9,7 @@ import {
 
 const fixtureNames: Readonly<Record<string, string>> = {
   "polymarket-global": "polymarket-catalog",
+  "polymarket-us": "polymarket-us-catalog",
   kalshi: "kalshi-catalog",
   "gemini-predictions": "gemini-binary-catalog",
   opinion: "opinion-catalog",
@@ -31,10 +32,13 @@ function fixtureFetcher(options: Readonly<{ failVenue?: string }> = {}):
     }
     const fixtureName = fixtureNames[source.venueId];
     if (fixtureName === undefined) return new Response(null, { status: 404 });
+    const fixtureDate = source.venueId === "polymarket-us"
+      ? "2026-08-01"
+      : "2026-07-31";
     const bytes = await readFile(
       resolve(
         import.meta.dirname,
-        `../../../projects/fixtures/${source.venueId}/2026-07-31/${fixtureName}.json`,
+        `../../../projects/fixtures/${source.venueId}/${fixtureDate}/${fixtureName}.json`,
       ),
     );
     return new Response(new Uint8Array(bytes).buffer, {
@@ -60,11 +64,11 @@ describe("anonymous catalog observation desk", () => {
       mode: "ANONYMOUS_PUBLIC_GET",
       status: "READY",
       promotion: "OBSERVE_ONLY",
-      sourceCount: 6,
-      healthySourceCount: 6,
+      sourceCount: 7,
+      healthySourceCount: 7,
       contextQualification: {
         status: "ELIGIBLE",
-        eligibleSourceCount: 6,
+        eligibleSourceCount: 7,
         maxAgeMs: 900_000,
         maxListingsPerTask: 30,
         requiresExplicitRequest: true,
@@ -134,10 +138,10 @@ describe("anonymous catalog observation desk", () => {
       listingCount: prior?.listingCount,
       diagnostic: "anonymous catalog GET returned HTTP 503",
     });
-    expect(degraded.healthySourceCount).toBe(5);
+    expect(degraded.healthySourceCount).toBe(6);
     expect(degraded.contextQualification).toMatchObject({
       status: "PARTIAL",
-      eligibleSourceCount: 5,
+      eligibleSourceCount: 6,
     });
     expect(() => desk.context("rates", ["kalshi"])).toThrow(
       /latest refresh failed/,

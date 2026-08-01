@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "polymarket-us-catalog",
+  "venue": "polymarket-us",
+  "protocolVersion": "gateway-rest-v1:2026-08-01",
+  "sourceUrl": "https://gateway.polymarket.us/v1/markets?active=true&closed=false&archived=false&limit=20",
+  "fetchedAt": "2026-08-01T14:11:53.769Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": "Sat, 01 Aug 2026 14:11:54 GMT",
+  "rawHash": "sha256:41dcd0593f0734939f1cfa5c85023870b3433919eba8508d4fae34fc88fa655a",
+  "byteLength": "84692",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}

@@ -27,7 +27,7 @@ async function metadataFiles(directory: string): Promise<readonly string[]> {
 describe("checked-in fixture corpus", () => {
   it("binds every raw payload to anonymous read-only evidence", async () => {
     const paths = await metadataFiles(fixtureRoot);
-    expect(paths).toHaveLength(17);
+    expect(paths).toHaveLength(20);
     for (const metadataPath of paths) {
       const payloadPath = metadataPath.replace(/\.meta\.json$/, ".json");
       const fixture = await loadRawFixture(payloadPath, metadataPath);

@@ -113,6 +113,9 @@ importers:
       '@pmh/venue-polymarket':
         specifier: workspace:*
         version: link:../venue-polymarket
+      '@pmh/venue-polymarket-us':
+        specifier: workspace:*
+        version: link:../venue-polymarket-us
 
   packages/control-plane:
     dependencies:
@@ -158,6 +161,9 @@ importers:
       '@pmh/venue-polymarket':
         specifier: workspace:*
         version: link:../venue-polymarket
+      '@pmh/venue-polymarket-us':
+        specifier: workspace:*
+        version: link:../venue-polymarket-us
       ai:
         specifier: 7.0.44
         version: 7.0.44(zod@4.4.3)
@@ -320,6 +326,24 @@ importers:
         version: 4.4.3
 
   packages/venue-polymarket:
+    dependencies:
+      '@pmh/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@pmh/evidence':
+        specifier: workspace:*
+        version: link:../evidence
+      '@pmh/market-state':
+        specifier: workspace:*
+        version: link:../market-state
+      '@pmh/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  packages/venue-polymarket-us:
     dependencies:
       '@pmh/domain':
         specifier: workspace:*

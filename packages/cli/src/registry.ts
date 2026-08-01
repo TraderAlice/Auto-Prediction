@@ -4,10 +4,12 @@ import { limitlessManifest } from "@pmh/venue-limitless";
 import { myriadManifest } from "@pmh/venue-myriad";
 import { opinionManifest } from "@pmh/venue-opinion";
 import { polymarketManifest } from "@pmh/venue-polymarket";
+import { polymarketUsManifest } from "@pmh/venue-polymarket-us";
 import { assertManifest, type VenueManifest } from "@pmh/protocol";
 
 const manifests = [
   polymarketManifest,
+  polymarketUsManifest,
   kalshiManifest,
   geminiManifest,
   limitlessManifest,

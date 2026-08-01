@@ -15,12 +15,35 @@ describe("verified catalog discovery context", () => {
     expect(projection).toEqual({
       mode: "VERIFIED_FIXTURE_CATALOGS",
       corpusIdentity: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-      listingCount: 12,
-      venueCount: 6,
-      sourceFixtureCount: 7,
+      listingCount: 32,
+      venueCount: 7,
+      sourceFixtureCount: 8,
       maxListingsPerTask: 30,
     });
     expect(await desk.load()).toEqual(projection);
+  });
+
+  it("grounds Polymarket US separately from the Global protocol", async () => {
+    const desk = new FixtureCatalogDiscoveryDesk();
+    await desk.load();
+    const context = desk.context("New York Mets National League champion", [
+      "polymarket-us",
+    ]);
+
+    expect(context.listings[0]).toMatchObject({
+      listingRef:
+        "polymarket-us:tec-mlb-nlchamp-2026-09-27-nym",
+      venueId: "polymarket-us",
+      mechanism: "CENTRALIZED_ORDER_BOOK",
+      rulesText: expect.stringContaining("settle"),
+      sourceKind: "VERIFIED_FIXTURE",
+      protocolIdentity: "gateway-rest-v1:2026-08-01",
+    });
+    expect(
+      context.listings.every((listing) =>
+        listing.listingRef.startsWith("polymarket-us:")
+      ),
+    ).toBe(true);
   });
 
   it("grounds a range hypothesis in six concrete Gemini listings", async () => {

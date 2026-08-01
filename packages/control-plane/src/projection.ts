@@ -12,6 +12,7 @@ import { limitlessManifest } from "@pmh/venue-limitless";
 import { myriadManifest } from "@pmh/venue-myriad";
 import { opinionManifest } from "@pmh/venue-opinion";
 import { polymarketManifest } from "@pmh/venue-polymarket";
+import { polymarketUsManifest } from "@pmh/venue-polymarket-us";
 import { assertManifest } from "@pmh/protocol";
 import type {
   BookDeskProjection,
@@ -47,6 +48,7 @@ import { buildResearchCaseDesk } from "./research-case-desk.js";
 
 const presentation = {
   "polymarket-global": ["CLOB · CTF", 98, "#7ef0c1"],
+  "polymarket-us": ["CLOB · US DCM", 95, "#58d5ff"],
   kalshi: ["CLOB · Centralized", 96, "#8ea9ff"],
   "gemini-predictions": ["CLOB · Combo", 99, "#84c8ff"],
   opinion: ["CLOB · Outcome token", 92, "#d4a8ff"],
@@ -61,6 +63,7 @@ const gatewayPostures = {
 
 const manifests = [
   polymarketManifest,
+  polymarketUsManifest,
   kalshiManifest,
   geminiManifest,
   limitlessManifest,
@@ -436,7 +439,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 291,
+      proofTests: 296,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },

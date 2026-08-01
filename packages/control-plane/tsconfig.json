@@ -18,6 +18,7 @@
     { "path": "../venue-limitless" },
     { "path": "../venue-myriad" },
     { "path": "../venue-opinion" },
-    { "path": "../venue-polymarket" }
+    { "path": "../venue-polymarket" },
+    { "path": "../venue-polymarket-us" }
   ]
 }

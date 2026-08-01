@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "pmh.raw-fixture.v1",
+  "name": "polymarket-us-market-bbo",
+  "venue": "polymarket-us",
+  "protocolVersion": "gateway-market-bbo-v1:2026-08-01",
+  "sourceUrl": "https://gateway.polymarket.us/v1/markets/tec-mlb-nlchamp-2026-09-27-nym/bbo",
+  "fetchedAt": "2026-08-01T14:11:55.035Z",
+  "httpStatus": 200,
+  "contentType": "application/json",
+  "etag": null,
+  "lastModified": "Sat, 01 Aug 2026 14:11:55 GMT",
+  "rawHash": "sha256:e98104068072f8330d07f7dfc98835dca7bfdcdb9482f1940c7e61f7ff15502e",
+  "byteLength": "653",
+  "acquisition": {
+    "method": "GET",
+    "credentialsUsed": false,
+    "valueMovingOperation": false
+  }
+}
