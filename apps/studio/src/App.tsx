@@ -156,6 +156,45 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
   },
 };
 
+const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler"] = {
+  schemaVersion: "pmh.search-lease-scheduler.v1",
+  algorithmVersion: "pmh.ai-search-leases.v1",
+  enabled: false,
+  configured: { fastLane: true, deepLane: false },
+  status: "IDLE",
+  intervalMs: null,
+  retentionLimit: 40,
+  lensOrder: ["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"],
+  budget: {
+    maxFastModelRequests: 1,
+    maxPiInvocations: 1,
+    maxHypotheses: 8,
+    deadlineMs: 300_000,
+  },
+  runCount: 0,
+  passCount: 0,
+  failedCount: 0,
+  issuedCount: 0,
+  duplicateCount: 0,
+  piEscalationCount: 0,
+  storage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "leaseId",
+  },
+  records: [],
+  authority: "PROPOSE_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_RELATION_PAYOFF: StudioProjection["relationPayoff"] = {
   schemaVersion: "pmh.relation-payoff-desk.v1",
   qualificationCount: 0,
@@ -427,6 +466,40 @@ async function requestMarketArchaeologist(question: string): Promise<boolean> {
     result.report.effects.liveExecutionEnabled !== false
   ) {
     throw new Error("Market Archaeologist crossed its authority boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
+async function requestSearchLease(): Promise<boolean> {
+  const response = await fetch("/api/v1/search-leases/runs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    status?: string;
+    idempotentReplay?: boolean;
+    semanticDecisionAuthority?: boolean;
+    certificateAuthority?: boolean;
+    executionAuthority?: boolean;
+    effects?: {
+      valueMovingActions?: boolean;
+      liveExecutionEnabled?: boolean;
+    };
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "search lease failed");
+  }
+  if (
+    result.status !== "PASS" ||
+    result.semanticDecisionAuthority !== false ||
+    result.certificateAuthority !== false ||
+    result.executionAuthority !== false ||
+    result.effects?.valueMovingActions !== false ||
+    result.effects.liveExecutionEnabled !== false
+  ) {
+    throw new Error("search lease crossed its authority boundary");
   }
   return result.idempotentReplay === true;
 }
@@ -2002,6 +2075,8 @@ function MarketArchaeologistView() {
     studioProjection.ai.marketCorpus ?? EMPTY_MARKET_CORPUS;
   const desk =
     studioProjection.ai.marketArchaeologist ?? EMPTY_MARKET_ARCHAEOLOGIST;
+  const scheduler =
+    studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
   const [question, setQuestion] = useState(
     "Search the full corpus for semantically related events across venues. Prefer implication, subset, mutual-exclusion, and exhaustive structures; try to falsify every relationship.",
   );
@@ -2009,9 +2084,19 @@ function MarketArchaeologistView() {
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const [leaseStatus, setLeaseStatus] = useState<
+    "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
+  >("IDLE");
+  const [leaseDiagnostic, setLeaseDiagnostic] = useState<string | null>(null);
   const proposalCount = desk.records.reduce(
     (total, record) => total + (record.report?.result.proposals.length ?? 0),
     0,
+  );
+  const currentLensRecords = scheduler.records.filter(
+    (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
+  );
+  const nextLens = scheduler.lensOrder.find(
+    (lens) => !currentLensRecords.some((record) => record.lease.lens === lens),
   );
 
   async function run(): Promise<void> {
@@ -2024,6 +2109,20 @@ function MarketArchaeologistView() {
       setLocalStatus("FAILED");
       setDiagnostic(
         error instanceof Error ? error.message : "Market Archaeologist run failed",
+      );
+    }
+  }
+
+  async function runLease(): Promise<void> {
+    setLeaseStatus("RUNNING");
+    setLeaseDiagnostic(null);
+    try {
+      const restored = await requestSearchLease();
+      setLeaseStatus(restored ? "RESTORED" : "DONE");
+    } catch (error) {
+      setLeaseStatus("FAILED");
+      setLeaseDiagnostic(
+        error instanceof Error ? error.message : "search lease failed",
       );
     }
   }
@@ -2060,16 +2159,92 @@ function MarketArchaeologistView() {
           detail={`${corpus.excludedSourceCount} excluded by freshness`}
         />
         <Metric
-          label="Agent runs"
-          value={`${desk.runCount}`}
-          detail={`${desk.passCount} passed · ${desk.failedCount} failed`}
+          label="Search leases"
+          value={`${scheduler.runCount}`}
+          detail={`${scheduler.duplicateCount} duplicates linked`}
         />
         <Metric
-          label="Relation proposals"
-          value={`${proposalCount}`}
-          detail="all unreviewed"
+          label="pi escalations"
+          value={`${scheduler.piEscalationCount}`}
+          detail={`${proposalCount} relation proposals · unreviewed`}
         />
       </div>
+
+      <Card className="search-lease-console">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Scheduled semantic search · bounded spend</span>
+            <h2>Issue the next AI search lease</h2>
+          </div>
+          <Badge variant={scheduler.enabled ? "shadow" : "muted"}>
+            TIMER {scheduler.enabled ? "ON" : "OFF"}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="search-lease-lenses">
+            {scheduler.lensOrder.map((lens) => {
+              const record = currentLensRecords.find(
+                (item) => item.lease.lens === lens,
+              );
+              return (
+                <div className={record === undefined ? "is-next" : ""} key={lens}>
+                  <span>{lens}</span>
+                  <Badge
+                    variant={
+                      record?.status === "PASS"
+                        ? "verified"
+                        : record?.status === "FAILED"
+                          ? "warning"
+                          : record?.status === "ISSUED"
+                            ? "shadow"
+                            : "muted"
+                    }
+                  >
+                    {record?.status ?? (lens === nextLens ? "NEXT" : "QUEUED")}
+                  </Badge>
+                </div>
+              );
+            })}
+          </div>
+          <div className="search-lease-budget">
+            <div><Sparkles size={14} /><span>cheap model</span><strong>≤ {scheduler.budget.maxFastModelRequests} request</strong></div>
+            <div><SquareTerminal size={14} /><span>pi deep search</span><strong>≤ {scheduler.budget.maxPiInvocations} invocation</strong></div>
+            <div><Gauge size={14} /><span>deadline</span><strong>{scheduler.budget.deadlineMs / 1000}s</strong></div>
+            <div><Database size={14} /><span>ledger</span><strong>{scheduler.storage.durable ? "SQLite WAL" : "memory"}</strong></div>
+          </div>
+          <div className="search-lease-action">
+            <p>
+              Fast scouts inspect a bounded live context. pi receives the whole
+              immutable MarketFS only for a new grounded multi-listing candidate;
+              duplicate signatures are linked without another deep run.
+            </p>
+            <Button
+              disabled={
+                corpus.listingCount === 0 ||
+                nextLens === undefined ||
+                scheduler.status === "RUNNING" ||
+                leaseStatus === "RUNNING"
+              }
+              onClick={() => void runLease()}
+            >
+              {scheduler.status === "RUNNING" || leaseStatus === "RUNNING" ? (
+                <RefreshCw className="is-spinning" size={14} />
+              ) : (
+                <Radar size={14} />
+              )}
+              {nextLens === undefined
+                ? "Snapshot search complete"
+                : `Run ${nextLens.toLowerCase()} lens`}
+            </Button>
+          </div>
+          {leaseDiagnostic !== null && (
+            <div className="radar-diagnostic" role="status">
+              <CircleOff size={14} />
+              <span>{leaseDiagnostic}</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="archaeology-pipeline" aria-label="Discovery authority flow">
         <div><Database size={15} /><strong>Freeze</strong><span>public catalogs</span></div>
@@ -2088,7 +2263,7 @@ function MarketArchaeologistView() {
             <h2>Give the agent a trailhead</h2>
           </div>
           <Badge variant={desk.scheduler.enabled ? "shadow" : "muted"}>
-            SCHEDULE {desk.scheduler.enabled ? "ON" : "OFF"}
+            MANUAL PI
           </Badge>
         </CardHeader>
         <CardContent>
@@ -2135,6 +2310,29 @@ function MarketArchaeologistView() {
         <div className="radar-diagnostic" role="status">
           <CircleOff size={14} />
           <span>{diagnostic}</span>
+        </div>
+      )}
+
+      {scheduler.records.length > 0 && (
+        <div className="search-lease-history">
+          {scheduler.records.slice(0, 8).map((record) => (
+            <article key={record.lease.leaseId}>
+              <div>
+                <Badge variant={record.status === "PASS" ? "verified" : record.status === "ISSUED" ? "shadow" : "warning"}>
+                  {record.status}
+                </Badge>
+                <strong>{record.lease.lens}</strong>
+                <span>{record.trigger}</span>
+              </div>
+              <p>{record.lease.thesis}</p>
+              <div>
+                <code>{record.outcome.hypothesisCount} candidates</code>
+                <code>{record.deepLane.runId === null ? record.deepLane.reason : "PI ESCALATED"}</code>
+                <code>{record.outcome.evidenceGapCount} gaps</code>
+                {record.lineage.duplicateOfLeaseId !== null && <code>DUPLICATE LINK</code>}
+              </div>
+            </article>
+          ))}
         </div>
       )}
 

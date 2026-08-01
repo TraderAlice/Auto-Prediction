@@ -42,6 +42,11 @@ import {
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
 import {
+  assertSearchLeaseRecord,
+  type SearchLeaseRecord,
+  type SearchLeaseRecordStore,
+} from "./search-lease-scheduler.js";
+import {
   assertAnonymousSimulationMaterializationRecord,
   verifyStoredAnonymousMaterializationSource,
   verifyStoredAnonymousSimulationMaterialization,
@@ -54,7 +59,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -93,6 +98,15 @@ type CandidateWatchRefreshRow = Readonly<{
 type MarketArchaeologistRow = Readonly<{
   run_id: string;
   corpus_snapshot_identity: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type SearchLeaseRow = Readonly<{
+  lease_id: string;
+  snapshot_identity: string;
+  lens: string;
+  status: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -345,6 +359,40 @@ function parseMarketArchaeologistRecord(
   return record;
 }
 
+function parseSearchLeaseRecord(value: unknown): SearchLeaseRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite search lease row is malformed");
+  }
+  const row = value as Partial<SearchLeaseRow>;
+  if (
+    typeof row.lease_id !== "string" ||
+    typeof row.snapshot_identity !== "string" ||
+    typeof row.lens !== "string" ||
+    typeof row.status !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error("SQLite search lease row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite search lease record contains invalid JSON");
+  }
+  const record = assertSearchLeaseRecord(decoded);
+  if (
+    record.lease.leaseId !== row.lease_id ||
+    record.lease.snapshotIdentity !== row.snapshot_identity ||
+    record.lease.lens !== row.lens ||
+    record.status !== row.status ||
+    hashCanonical(record) !== row.record_hash
+  ) {
+    throw new Error("SQLite search lease record identity mismatch");
+  }
+  return record;
+}
+
 function parseSemanticReviewRecord(value: unknown): SemanticReviewRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite semantic review row is malformed");
@@ -511,6 +559,7 @@ export class SqliteOperationalStore
     CandidateBookObservationStore,
     CandidateWatchRefreshStore,
     MarketArchaeologistRecordStore,
+    SearchLeaseRecordStore,
     SemanticReviewRecordStore,
     OpportunityLifecycleJournalStore,
     AnonymousSimulationMaterializationStore
@@ -538,6 +587,7 @@ export class SqliteOperationalStore
     idempotencyKey: "refreshId";
   }>;
   public readonly marketArchaeologistStorage: OperationalStorageProjection<"runId">;
+  public readonly searchLeaseStorage: OperationalStorageProjection<"leaseId">;
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
   public readonly opportunityLifecycleStorage: OperationalStorageProjection<"opportunityId">;
   public readonly anonymousSimulationMaterializationStorage: Readonly<{
@@ -612,6 +662,12 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "runId",
     });
+    this.searchLeaseStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "leaseId",
+    });
     this.semanticReviewStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -639,7 +695,13 @@ export class SqliteOperationalStore
         `operational database schema ${current} is newer than supported ${SCHEMA_VERSION}`,
       );
     }
-    if (current === SCHEMA_VERSION) return;
+    const searchLeaseTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_lease_records'`,
+      )
+      .get() !== undefined;
+    if (current === SCHEMA_VERSION && searchLeaseTableExists) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
       if (current < 1) {
@@ -843,6 +905,32 @@ export class SqliteOperationalStore
             ON anonymous_simulation_materializations (
               completed_at DESC, materialization_id DESC
             );
+        `);
+      }
+      if (current < 9 || !searchLeaseTableExists) {
+        this.#database.exec(`
+          CREATE TABLE search_lease_records (
+            lease_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(lease_id) = 71 AND lease_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            snapshot_identity TEXT NOT NULL CHECK (
+              length(snapshot_identity) = 71 AND
+              snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            lens TEXT NOT NULL CHECK (
+              lens IN ('EQUIVALENCE', 'IMPLICATION', 'PARTITION', 'MECHANISM')
+            ),
+            status TEXT NOT NULL CHECK (status IN ('ISSUED', 'PASS', 'FAILED')),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE UNIQUE INDEX search_lease_snapshot_lens
+            ON search_lease_records (snapshot_identity, lens);
+          CREATE INDEX search_lease_records_updated
+            ON search_lease_records (updated_at DESC, lease_id DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -1335,6 +1423,108 @@ export class SqliteOperationalStore
           hashCanonical(stored) !== recordHash)
       ) {
         throw new Error("runId is already bound to another archaeologist record");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSearchLeaseRecords(
+    limit: number,
+  ): readonly SearchLeaseRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT lease_id, snapshot_identity, lens, status,
+                record_json, record_hash
+         FROM search_lease_records
+         ORDER BY rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseSearchLeaseRecord));
+  }
+
+  public saveSearchLeaseRecord(
+    record: SearchLeaseRecord,
+    retentionLimit: number,
+  ): SearchLeaseRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertSearchLeaseRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const priorRow = this.#database
+        .prepare(
+          `SELECT lease_id, snapshot_identity, lens, status,
+                  record_json, record_hash
+           FROM search_lease_records WHERE lease_id = ?`,
+        )
+        .get(validated.lease.leaseId);
+      if (priorRow !== undefined) {
+        const prior = parseSearchLeaseRecord(priorRow);
+        const exactReplay = hashCanonical(prior) === recordHash;
+        if (
+          (!exactReplay && prior.status !== "ISSUED") ||
+          (!exactReplay && validated.status === "ISSUED") ||
+          prior.lease.snapshotIdentity !== validated.lease.snapshotIdentity ||
+          prior.lease.lens !== validated.lease.lens ||
+          hashCanonical(prior.lease) !== hashCanonical(validated.lease)
+        ) {
+          throw new Error("search lease record cannot rewrite issued scope or a terminal result");
+        }
+      }
+      this.#database
+        .prepare(
+          `INSERT INTO search_lease_records (
+             lease_id, snapshot_identity, lens, status, updated_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(lease_id) DO UPDATE SET
+             status = excluded.status,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash
+           WHERE search_lease_records.status = 'ISSUED'`,
+        )
+        .run(
+          validated.lease.leaseId,
+          validated.lease.snapshotIdentity,
+          validated.lease.lens,
+          validated.status,
+          validated.completedAt ?? validated.lease.issuedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM search_lease_records
+           WHERE lease_id IN (
+             SELECT lease_id FROM search_lease_records
+             WHERE status IN ('PASS', 'FAILED')
+             ORDER BY rowid DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT lease_id, snapshot_identity, lens, status,
+                  record_json, record_hash
+           FROM search_lease_records WHERE lease_id = ?`,
+        )
+        .get(validated.lease.leaseId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the search lease record");
+      }
+      const stored = parseSearchLeaseRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("leaseId is already bound to another search lease record");
       }
       this.#database.exec("COMMIT");
       return stored;

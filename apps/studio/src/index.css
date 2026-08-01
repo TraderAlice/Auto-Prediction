@@ -1835,6 +1835,152 @@ main {
   color: var(--border);
 }
 
+.search-lease-console {
+  margin-top: 18px;
+  overflow: hidden;
+}
+
+.search-lease-console [data-slot="card-header"] {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+
+.search-lease-console h2 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 500;
+  margin: 4px 0 0;
+}
+
+.search-lease-lenses {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.search-lease-lenses > div {
+  align-items: center;
+  background: rgba(3, 8, 14, 0.48);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 10px;
+}
+
+.search-lease-lenses > div.is-next {
+  border-color: rgba(126, 240, 193, 0.32);
+}
+
+.search-lease-lenses span {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-lease-budget {
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 14px;
+  padding: 13px 0;
+}
+
+.search-lease-budget > div {
+  align-items: center;
+  display: grid;
+  gap: 2px 8px;
+  grid-template-columns: auto 1fr;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.search-lease-budget > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.search-lease-budget svg {
+  color: var(--primary);
+  grid-row: 1 / 3;
+}
+
+.search-lease-budget span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+
+.search-lease-budget strong {
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.search-lease-action {
+  align-items: center;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.search-lease-action p {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 720px;
+}
+
+.search-lease-action button {
+  flex: 0 0 auto;
+}
+
+.search-lease-history {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.search-lease-history article {
+  background: rgba(7, 14, 23, 0.7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.search-lease-history article > div {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.search-lease-history strong {
+  font-size: 11px;
+}
+
+.search-lease-history span,
+.search-lease-history code {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.search-lease-history p {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .archaeology-console {
   margin-top: 18px;
 }
@@ -5712,9 +5858,29 @@ footer span:first-child {
   }
 
   .archaeology-heading,
-  .archaeology-console-footer {
+  .archaeology-console-footer,
+  .search-lease-action {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .search-lease-lenses,
+  .search-lease-budget,
+  .search-lease-history {
+    grid-template-columns: 1fr;
+  }
+
+  .search-lease-budget > div {
+    padding: 9px 4px;
+  }
+
+  .search-lease-budget > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .search-lease-action button {
+    width: 100%;
   }
 
   .archaeology-heading-badges {

@@ -13,11 +13,12 @@ The current checkpoint connects AI-native discovery to a deterministic product
 lifecycle. AI owns semantic search; exact exchange models, independent review,
 the verifier, routing policy, and shadow execution own every promotion step.
 
-The next checkpoint turns discovery into scheduled repository-style market
-archaeology. A durable scheduler will issue bounded search leases over immutable
-catalog/rule snapshots to cheap fast Agents, escalating difficult abstraction
-work to pi. Search remains subjective and adaptive; authority, budgets,
-deduplication, verification, and all shadow/live boundaries remain deterministic.
+The current checkpoint turns discovery into scheduled repository-style market
+archaeology. A durable scheduler issues four bounded search lenses over each
+immutable catalog/rule snapshot to cheap fast Agents and escalates only novel,
+grounded, multi-listing candidates to pi. Search remains subjective and adaptive;
+authority, budgets, durable recovery, deduplication, verification, and all
+shadow/live boundaries remain deterministic.
 
 ## Stable decisions
 
@@ -42,6 +43,23 @@ deduplication, verification, and all shadow/live boundaries remain deterministic
   system rather than a periodic classifier. Agents choose search paths over
   immutable market/rules corpora; deterministic leases constrain cost and time,
   and lifecycle outcomes provide feedback without widening Agent authority.
+- 2026-08-01: SQLite schema v9 adds durable AI search leases. The scheduler
+  saves `ISSUED` before model work, resumes exact leases after restart, bounds
+  the fast lane to one model request by default, and allows at most one pi
+  escalation only for a new grounded multi-listing signature. It stores compact
+  lineage and evidence summaries, never chain-of-thought or execution authority.
+- 2026-08-01: The scheduled-search checkpoint passes 286 workspace tests,
+  full typecheck, and production build under Node.js 24.14.0. Desktop and 430px
+  Studio inspection show no console warnings/errors or horizontal overflow.
+  The real local database also exposed a v9-version/missing-table partial
+  migration; startup now repairs that exact non-destructive schema gap and a
+  regression test preserves the behavior.
+- 2026-08-01: The first real equivalence lease over 440 fresh listings passed
+  end to end. One budgeted DeepSeek fast request grounded a Limitless–Opinion
+  pair; one pi MarketFS escalation returned three proposal-only relations and
+  five explicit evidence gaps in about 129 seconds. Lease artifact
+  `sha256:90e17fbe…a8d04` retains no chain-of-thought and grants no semantic,
+  certificate, execution, external-write, live, or value-moving authority.
 - 2026-08-01: The exact-promotion and certificate-bound shadow checkpoint passes
   280 workspace tests, full typecheck, production build, SQLite restart replay,
   and desktop/430px Studio inspection under Node.js 24.14.0.

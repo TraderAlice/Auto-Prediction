@@ -24,7 +24,7 @@ Workers implement one narrow interface and declare:
 - free or low cost tier;
 - structured output schema.
 
-The pool may run workers concurrently, tolerate individual failures, deduplicate equivalent theses, and cap hypotheses per task. The model fan-out is explicit and bounded from one to four; its ordered lenses are equivalence, partition, mechanism, and skeptic. The default remains one, and no request is scheduled without an operator action. A model provider is an adapter behind `AiModelPort`; model names and credentials never enter Core domain types.
+The pool may run workers concurrently, tolerate individual failures, deduplicate equivalent theses, and cap hypotheses per task. The model fan-out is explicit and bounded from one to four; its ordered lenses are equivalence, partition, mechanism, and skeptic. The default remains one. Generic pool requests require an operator action; the separate search-lease scheduler may invoke a leased subset. A model provider is an adapter behind `AiModelPort`; model names and credentials never enter Core domain types.
 
 Workers do not search from the question alone. The control plane first loads
 verified raw catalog fixtures, applies the venue adapters, and builds a
@@ -98,7 +98,9 @@ shapes:
   interface.
 
 pi is available through both an independent one-shot qualification command and
-an explicitly operator-triggered control-plane route; it is never a scheduler.
+an explicitly operator-triggered control-plane route. It remains an execution
+engine, never the scheduler or budget authority; the search-lease scheduler may
+invoke the separate full-corpus Market Archaeologist adapter.
 Each invocation creates an empty temporary pi home, disables user extensions,
 skills, prompt templates, themes, version checks, telemetry, and session
 persistence, and enables only repository `read`, `grep`, `find`, and `ls`. The
@@ -129,6 +131,55 @@ idempotency therefore survives restart. RUNNING state remains process-local
 because an interrupted isolated subprocess cannot be resumed. Diagnostics are
 sanitized, and every record reconstructs proposal-only, unreviewed, and
 literal-false execution authority locally.
+
+## Scheduled search leases
+
+`SearchLeaseScheduler` turns the two lanes into one durable AI-native search
+process without giving either model operational authority. For each immutable
+`pmh.market-corpus.v1` snapshot it advances four deterministic lenses in order:
+equivalence, one-way implication/subset, mutually-exclusive or exhaustive
+partition, and mechanism/oracle/void/timing divergence. An operator may issue
+the next lease manually. A timer is opt-in through
+`PMH_SEARCH_LEASE_INTERVAL_MS`; it permits one active lease and one lens per
+interval.
+
+The equivalence lens starts from the current top content-bound Opportunity Radar
+pair when one exists, so the cheap model receives an actual cross-venue lexical
+trailhead rather than an arbitrary slice of a large corpus. The other lenses
+use bounded relevance-ranked contexts. This deterministic selection is workload
+reduction only; it neither decides semantics nor prevents pi from searching the
+entire immutable MarketFS after a grounded lead exists.
+
+The deterministic lease ID binds algorithm version, corpus snapshot identity,
+and lens. Its immutable body also binds source-set identity, venue and close-date
+scope, thesis, novelty targets, issue/deadline time, and budgets. The default
+budget permits one cheap model worker, eight hypotheses, a 300-second deadline,
+and at most one pi escalation. Every free heuristic still runs. The pool itself
+selects only the leased number of ordered model workers, so a caller cannot
+describe a budget while silently fanning out beyond it.
+
+SQLite WAL schema v9 stores `ISSUED` before either AI lane runs. A restart
+resumes that exact lease before creating another lens. The only mutable record
+transition is from the exact issued scope to one terminal PASS/FAILED result;
+terminal records cannot be rewritten. The cheap Discovery Ledger and deep
+Market Archaeologist run IDs remain independently idempotent, so a crash between
+their completion and the enclosing lease commit safely reuses their result.
+
+pi escalation is structural, not confidence-score based. At least one fast
+hypothesis must cite at least two listings, and its canonical signature
+of strategy kind plus sorted listing references must be new. A prior signature
+creates a duplicate link and consumes no pi call. The durable record keeps the
+query summary, worker/model request count, hypothesis IDs, candidate listing
+refs, novelty signature, duplicate/predecessor links, proposal IDs, evidence
+gaps, and outcome counts. It explicitly records that chain-of-thought and
+per-tool execution traces are not stored.
+
+All lease surfaces reconstruct `PROPOSE_ONLY`, false semantic-decision,
+certificate, and execution authority, and literal-false external-write,
+value-moving, and live-execution effects. Novel deep proposals enter the
+existing Market Archaeologist desk and therefore still require a separate
+skeptical semantic review and operator research decision before deterministic
+payoff compilation.
 
 ## Research case coordination
 

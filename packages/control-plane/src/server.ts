@@ -70,6 +70,15 @@ import {
   type AnonymousSimulationMaterializationStore,
 } from "./anonymous-simulation-materializer.js";
 import { verifyMaterializedOpportunity } from "./exact-promotion.js";
+import {
+  parseSearchLeaseInterval,
+  SEARCH_LENSES,
+  SearchLeaseBusyError,
+  SearchLeaseScheduler,
+  SearchLeaseUnavailableError,
+  type SearchLeaseRecordStore,
+  type SearchLens,
+} from "./search-lease-scheduler.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -286,6 +295,18 @@ function supportsMarketArchaeologistRecords(
   );
 }
 
+function supportsSearchLeaseRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & SearchLeaseRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<SearchLeaseRecordStore>;
+  return (
+    candidate.searchLeaseStorage !== undefined &&
+    typeof candidate.loadSearchLeaseRecords === "function" &&
+    typeof candidate.saveSearchLeaseRecord === "function"
+  );
+}
+
 function supportsSemanticReviewRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & SemanticReviewRecordStore {
@@ -337,6 +358,7 @@ export function createControlPlane(options?: {
   realCandidatePreflightDesk?: RealCandidatePreflightDesk;
   candidateWatchDesk?: CandidateWatchDesk;
   marketArchaeologistDesk?: MarketArchaeologistDesk;
+  searchLeaseScheduler?: SearchLeaseScheduler;
   semanticReviewDesk?: SemanticReviewDesk;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
   simulationMaterializerDesk?: AnonymousSimulationMaterializerDesk;
@@ -400,6 +422,54 @@ export function createControlPlane(options?: {
     options?.marketArchaeologistDesk ??
     createMarketArchaeologistDesk(process.env, {
       ...(supportsMarketArchaeologistRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const searchLeaseScheduler =
+    options?.searchLeaseScheduler ??
+    new SearchLeaseScheduler({
+      intervalMs: parseSearchLeaseInterval(process.env),
+      context: (question, venueIds, lens) => {
+        const radarLead = lens === "EQUIVALENCE"
+          ? catalogObservationDesk.radar().candidates[0]
+          : undefined;
+        return radarLead === undefined
+          ? catalogObservationDesk.context(question, venueIds)
+          : catalogObservationDesk.radarTriageScope(
+              radarLead.candidateId,
+            ).catalogContext;
+      },
+      runFast: async (task, maxModelRequests) => {
+        const existing = discoveryLedger.findByTaskId(task.taskId);
+        if (existing !== undefined) return existing;
+        return discoveryLedger.record(
+          task,
+          await pool.run(task, { maxModelWorkers: maxModelRequests }),
+        );
+      },
+      ...(marketArchaeologistDesk.projection().configured
+        ? {
+            runDeep: async (snapshot, question) => {
+              const record = await marketArchaeologistDesk.begin(
+                snapshot,
+                question,
+                "SCHEDULE",
+              ).promise;
+              return Object.freeze({
+                runId: record.runId,
+                status: record.status === "PASS" ? "PASS" as const : "FAILED" as const,
+                proposalIds: Object.freeze(
+                  record.report?.result.proposals.map((item) => item.proposalId) ?? [],
+                ),
+                evidenceGaps: Object.freeze(
+                  record.report?.result.missingEvidence ?? [],
+                ),
+                diagnostic: record.diagnostic,
+              });
+            },
+          }
+        : {}),
+      ...(supportsSearchLeaseRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -469,6 +539,7 @@ export function createControlPlane(options?: {
       opportunityRadar: catalogObservationDesk.radar(),
       marketCorpus: projectMarketCorpus(catalogObservationDesk.corpus()),
       marketArchaeologist: archaeologistProjection,
+      searchLeaseScheduler: searchLeaseScheduler.projection(),
       semanticReview: semanticReviewProjection,
       opportunityLifecycle: lifecycleProjection,
       relationPayoff,
@@ -940,6 +1011,13 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/search-leases"
+    ) {
+      writeJson(response, 200, searchLeaseScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/semantic-reviews"
     ) {
       writeJson(response, 200, semanticReviewDesk.projection());
@@ -1047,6 +1125,56 @@ export function createControlPlane(options?: {
             error instanceof Error ? error.message : "discovery run failed",
           executionAuthority: false,
         });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/search-leases/runs"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body)) {
+          throw new Error("search lease request must be an object");
+        }
+        const keys = Object.keys(body);
+        const rawLens = (body as { lens?: unknown }).lens;
+        if (
+          keys.some((key) => key !== "lens") ||
+          keys.length > 1 ||
+          (rawLens !== undefined &&
+            (typeof rawLens !== "string" ||
+              !SEARCH_LENSES.includes(rawLens as SearchLens)))
+        ) {
+          throw new Error("search lease request accepts only an optional valid lens");
+        }
+        const invocation = searchLeaseScheduler.begin(
+          catalogObservationDesk.corpus(),
+          rawLens as SearchLens | undefined,
+          "OPERATOR",
+        );
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" ? 200 : 422, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        writeJson(
+          response,
+          error instanceof SearchLeaseBusyError ? 409
+            : error instanceof SearchLeaseUnavailableError ? 409
+              : 400,
+          {
+            ok: false,
+            diagnostic: error instanceof Error ? error.message : "search lease failed",
+            semanticDecisionAuthority: false,
+            certificateAuthority: false,
+            executionAuthority: false,
+          },
+        );
       }
       return;
     }
@@ -1402,17 +1530,17 @@ export function createControlPlane(options?: {
       diagnostic: "route not found",
     });
   });
-  let archaeologyScheduler: ReturnType<typeof setInterval> | null = null;
-  const archaeologyIntervalMs = marketArchaeologistDesk.schedulerIntervalMs;
-  if (archaeologyIntervalMs !== null) {
+  let searchSchedulerTimer: ReturnType<typeof setInterval> | null = null;
+  const searchIntervalMs = searchLeaseScheduler.intervalMs;
+  if (searchIntervalMs !== null) {
     void ready.then(() => {
-      archaeologyScheduler = setInterval(() => {
+      searchSchedulerTimer = setInterval(() => {
         const snapshot = catalogObservationDesk.corpus();
-        if (!marketArchaeologistDesk.shouldSchedule(snapshot)) return;
+        if (!searchLeaseScheduler.shouldSchedule(snapshot)) return;
         try {
-          const invocation = marketArchaeologistDesk.begin(
+          const invocation = searchLeaseScheduler.begin(
             snapshot,
-            "Search the changed market corpus for cross-venue semantic relationships that could create exact payoff constraints. Prefer non-obvious implication, subset, exclusion, and exhaustive structures; identify falsifiers and missing rule evidence.",
+            undefined,
             "SCHEDULE",
           );
           void broadcastProjection();
@@ -1420,12 +1548,12 @@ export function createControlPlane(options?: {
         } catch {
           // A later interval retries only when the desk can make progress.
         }
-      }, archaeologyIntervalMs);
-      archaeologyScheduler.unref();
+      }, searchIntervalMs);
+      searchSchedulerTimer.unref();
     });
   }
   server.once("close", () => {
-    if (archaeologyScheduler !== null) clearInterval(archaeologyScheduler);
+    if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
     discoveryLedger.close();
   });
   return {
@@ -1440,6 +1568,7 @@ export function createControlPlane(options?: {
     realCandidatePreflightDesk,
     candidateWatchDesk,
     marketArchaeologistDesk,
+    searchLeaseScheduler,
     semanticReviewDesk,
     opportunityLifecycleDesk,
     projection,

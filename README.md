@@ -30,6 +30,11 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
 - SQLite WAL operational state with bounded retention, content-hash verification, cross-restart `taskId` idempotency, and in-process concurrent-request coalescing.
 - An AI-native discovery pool where cheap parallel scouts inspect bounded, content-addressed fixture catalogs and may propose hypotheses but can never certify or execute them; its default DeepSeek V4 Flash worker runs through Vercel AI SDK with timeout, token, schema, and application-side scope bounds, while direct OpenAI Responses remains an optional backend.
+- A durable AI search-lease scheduler that advances equivalence, implication,
+  partition, and mechanism-divergence lenses over each immutable live corpus.
+  Cheap discovery is model-request-budgeted; only novel grounded multi-listing
+  signatures may escalate once to pi, and duplicate lineage is retained without
+  storing chain-of-thought.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection; each pair can be sent to the cheap scout pool only by an explicit operator action.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
@@ -91,7 +96,8 @@ pnpm studio
 path when a different local operational volume is required. The database is
 ignored by Git and contains bounded discovery runs plus their exact normalized
 catalog snapshots, completed investigations, and raw anonymous catalog
-observations, plus Candidate Watch raw books and its bounded refresh journal;
+observations, Candidate Watch raw books and its bounded refresh journal, and
+SQLite schema-v9 AI search-lease lineage;
 it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.
 
@@ -191,15 +197,24 @@ catalog, starts with an isolated config directory, persists no session, disables
 extensions/skills/templates/themes, and exposes only `read`, `grep`, `find`, and
 `ls`. Its final-text output is bounded, scope-validated, and rebuilt into a
 content-hashed `pmh.pi-investigation-report.v1` with proposal-only authority.
-It is never scheduled automatically. A user may start it from Studio,
-`POST /api/v1/investigations`, or a retained Research Case; the control plane
-permits only one active task,
+The task-scoped Investigation Desk is never scheduled automatically. A user may
+start it from Studio, `POST /api/v1/investigations`, or a retained Research
+Case; the control plane permits only one active task,
 coalesces identical in-flight requests, retains at most ten completed reports
 in the hash-checked SQLite WAL, and streams its state over SSE. RUNNING state is
 deliberately process-local because a terminated subprocess cannot be resumed;
 completed PASS/FAILED records and passed-task idempotency survive restart. It
 cannot write files, run a shell, trade, review equivalence, or promote its own
 findings.
+
+The separate Market Archaeologist pi lane can be reached by the AI search-lease
+scheduler. Scheduling remains off by default. Set
+`PMH_SEARCH_LEASE_INTERVAL_MS` to 60000–86400000 to enable one concurrent lease
+per interval. Each immutable snapshot advances through four deterministic
+lenses, and a restart resumes a previously issued lease before creating another.
+The default budget is one cheap model request, one optional pi escalation, eight
+hypotheses, and a 300-second deadline. Manual “next lease” runs remain available
+from Studio while the timer is off.
 
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 
