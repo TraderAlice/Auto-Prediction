@@ -1,4 +1,5 @@
 import { StructuredModelDiscoveryWorker } from "./discovery.js";
+import { ModelRequestFailure } from "./model-failure.js";
 import {
   configuredModelScoutRoles,
   modelScoutLens,
@@ -179,11 +180,11 @@ export class OpenAiResponsesModelPort implements AiModelPort {
     task: DiscoveryTask;
   }): Promise<unknown> {
     if (!MODEL_ID_PATTERN.test(input.model)) {
-      throw new Error("OpenAI model ID is invalid");
+      throw new ModelRequestFailure("OPENAI", "INVALID_MODEL_OUTPUT", 0);
     }
     const remainingMs = input.task.deadlineEpochMs - Date.now();
     if (remainingMs <= 0) {
-      throw new Error("OpenAI Responses task deadline has expired");
+      throw new ModelRequestFailure("OPENAI", "TASK_DEADLINE", 0);
     }
     const controller = new AbortController();
     const timeout = setTimeout(
@@ -191,7 +192,9 @@ export class OpenAiResponsesModelPort implements AiModelPort {
       Math.min(this.timeoutMs, remainingMs),
     );
     let response: Response;
+    let requestAttemptCount = 0;
     try {
+      requestAttemptCount += 1;
       response = await this.fetcher(RESPONSES_ENDPOINT, {
         method: "POST",
         signal: controller.signal,
@@ -240,30 +243,58 @@ export class OpenAiResponsesModelPort implements AiModelPort {
       });
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error("OpenAI Responses request timed out");
+        throw new ModelRequestFailure(
+          "OPENAI",
+          "TIMEOUT",
+          requestAttemptCount,
+          { cause: error },
+        );
       }
-      throw new Error("OpenAI Responses request was unavailable", {
-        cause: error,
-      });
+      throw new ModelRequestFailure(
+        "OPENAI",
+        "NETWORK_OR_UNKNOWN",
+        requestAttemptCount,
+        { cause: error },
+      );
     } finally {
       clearTimeout(timeout);
     }
     if (!response.ok) {
-      throw new Error(`OpenAI Responses request failed (HTTP ${response.status})`);
+      const retryable = response.status === 408 || response.status === 409 ||
+        response.status === 429 || response.status >= 500;
+      throw new ModelRequestFailure(
+        "OPENAI",
+        retryable ? "RETRYABLE_PROVIDER" : "REJECTED_PROVIDER",
+        requestAttemptCount,
+      );
     }
     let value: unknown;
     try {
       value = await response.json();
     } catch {
-      throw new Error("OpenAI Responses returned invalid JSON");
+      throw new ModelRequestFailure(
+        "OPENAI",
+        "INVALID_PROVIDER_OUTPUT",
+        requestAttemptCount,
+      );
     }
     try {
       return JSON.parse(outputText(value));
     } catch (error) {
       if (error instanceof SyntaxError) {
-        throw new Error("OpenAI Responses structured output was invalid JSON");
+        throw new ModelRequestFailure(
+          "OPENAI",
+          "INVALID_PROVIDER_OUTPUT",
+          requestAttemptCount,
+          { cause: error },
+        );
       }
-      throw error;
+      throw new ModelRequestFailure(
+        "OPENAI",
+        "INVALID_PROVIDER_OUTPUT",
+        requestAttemptCount,
+        { cause: error },
+      );
     }
   }
 }

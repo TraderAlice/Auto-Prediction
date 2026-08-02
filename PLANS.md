@@ -1,8 +1,6 @@
 # Plans
 
-There is no active construction plan. The next measured bottleneck should be
-promoted from the deferred list only after fresh runtime evidence defines a
-bounded campaign.
+`plans/provider-attempt-telemetry.md` is the active construction plan.
 
 ## Planning contract
 
@@ -19,6 +17,16 @@ The product is an AI-native prediction-market search system. Durable issues
 define bounded recurring semantic briefs; a priority scheduler leases immutable
 market corpora to concurrent cheap scouts and escalates only novel grounded
 candidate signatures to pi. Findings enter a deduplicated in-app inbox.
+
+Provider-attempt telemetry is the active campaign. DeepSeek and OpenAI now emit
+safe bounded failures with exact request-attempt counts; worker and lease
+records retain those enums without bodies, prompts, headers, stacks, URLs, or
+credentials. Historical leases remain immutable and project as explicit legacy
+derivations. The current live 40-lease window contains 39 attempts, 17
+provider-attributable failures (43.58%), and 3 native versus 37 legacy leases.
+Three historical invalid-model-output failures remain visible but correctly do
+not count against the provider. No retry, fallback, budget, timeout, or
+authority changed.
 
 AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
@@ -181,6 +189,15 @@ Node 24 checks, 405 workspace tests, and the production build pass. During
 browser QA one scheduled lease was active, so Studio honestly showed 7 grounded
 signatures across 39 terminal scans (17.94%). Desktop and 390 px layouts have no
 horizontal overflow or browser warnings.
+
+The next measured bottleneck is cheap-provider reliability. In the current 40
+terminal leases, 38 invoked a model worker and 16 retained a DeepSeek failure:
+5 timeouts and 11 generic failures, a 42.11% failure rate. Model-selected parity
+work chose a pair in only 5 of 11 retained batches. The current
+`modelRequestCount` counts model workers, not HTTP attempts, and `maxRetries=0`
+is the only reason those numbers happen to match. The active campaign makes
+provider attempts and safe failure categories durable before any retry policy
+can change request supply.
 
 ## Deferred future campaigns
 

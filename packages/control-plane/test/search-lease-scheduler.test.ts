@@ -177,6 +177,11 @@ describe("AI-native search lease scheduler", () => {
 
     expect(record.status).toBe("PASS");
     expect(record.fastLane.modelRequestCount).toBe(1);
+    expect(record.fastLane.providerTelemetry).toEqual({
+      schemaVersion: "pmh.provider-attempt-telemetry.v1",
+      requestAttemptCount: 1,
+      failureCategories: [],
+    });
     expect(record.deepLane.reason).toBe("NOVEL_MULTI_LISTING");
     expect(record.deepLane.permittedTools).toEqual(["read", "grep", "find", "ls"]);
     expect(record.trace.chainOfThoughtStored).toBe(false);
@@ -194,6 +199,7 @@ describe("AI-native search lease scheduler", () => {
     const {
       economicGate: _economicGate,
       semanticScope: _semanticScope,
+      providerTelemetry: _providerTelemetry,
       ...legacyFastLane
     } = record.fastLane;
     const { artifactHash: _recordHash, ...recordBody } = record;
@@ -1063,6 +1069,43 @@ describe("AI-native search lease scheduler", () => {
     expect(store.countSearchLeaseCorpora()).toBe(4);
     expect(store.loadSearchLeaseCorpus(firstSnapshot.snapshotIdentity)).toBeNull();
     store.close();
+  });
+
+  it("retains a pre-dispatch task deadline as a zero-attempt classified failure", async () => {
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      maxPiInvocations: 0,
+      runFast: async (task) => {
+        const run = runRecord(task);
+        return Object.freeze({
+          ...run,
+          hypotheses: Object.freeze([]),
+          diagnostics: Object.freeze([
+            "MODEL model request failed [TASK_DEADLINE]",
+          ]),
+          workerReports: Object.freeze([
+            Object.freeze({
+              ...run.workerReports![0]!,
+              hypothesisCount: 0,
+            }),
+            Object.freeze({
+              ...run.workerReports![1]!,
+              status: "FAILED" as const,
+              hypothesisCount: 0,
+              diagnostic: "MODEL model request failed [TASK_DEADLINE]",
+              providerRequestAttemptCount: 0,
+              providerFailureCategory: "TASK_DEADLINE" as const,
+            }),
+          ]),
+        });
+      },
+    });
+    const record = await scheduler.begin(snapshot("task-deadline"), "IMPLICATION").promise;
+    expect(record.fastLane.providerTelemetry).toEqual({
+      schemaVersion: "pmh.provider-attempt-telemetry.v1",
+      requestAttemptCount: 0,
+      failureCategories: ["TASK_DEADLINE"],
+    });
   });
 
   it("finishes each lens once per immutable snapshot and remains opt-in", async () => {

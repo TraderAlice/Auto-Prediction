@@ -1,6 +1,13 @@
 import { createDeepSeek, type DeepSeekProviderSettings } from "@ai-sdk/deepseek";
-import { generateText, jsonSchema, Output } from "ai";
+import {
+  APICallError,
+  generateText,
+  jsonSchema,
+  NoObjectGeneratedError,
+  Output,
+} from "ai";
 import { StructuredModelDiscoveryWorker } from "./discovery.js";
+import { ModelRequestFailure } from "./model-failure.js";
 import {
   configuredModelScoutRoles,
   modelScoutLens,
@@ -58,7 +65,7 @@ function boundedInteger(
 
 export class DeepSeekAiSdkModelPort implements AiModelPort {
   readonly #apiKey: string;
-  readonly #fetcher: DeepSeekFetchLike | undefined;
+  readonly #fetcher: DeepSeekFetchLike;
   public readonly maxOutputTokens: number;
   public readonly timeoutMs: number;
 
@@ -83,7 +90,7 @@ export class DeepSeekAiSdkModelPort implements AiModelPort {
     ) {
       throw new Error("DeepSeek request timeout must be from 1000 to 30000 ms");
     }
-    this.#fetcher = options.fetcher;
+    this.#fetcher = options.fetcher ?? fetch;
   }
 
   public async completeStructured(input: {
@@ -93,21 +100,25 @@ export class DeepSeekAiSdkModelPort implements AiModelPort {
     task: DiscoveryTask;
   }): Promise<unknown> {
     if (!MODEL_ID_PATTERN.test(input.model)) {
-      throw new Error("DeepSeek model ID is invalid");
+      throw new ModelRequestFailure("DEEPSEEK", "INVALID_MODEL_OUTPUT", 0);
     }
     const remainingMs = input.task.deadlineEpochMs - Date.now();
     if (remainingMs <= 0) {
-      throw new Error("DeepSeek AI SDK task deadline has expired");
+      throw new ModelRequestFailure("DEEPSEEK", "TASK_DEADLINE", 0);
     }
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
       Math.min(this.timeoutMs, remainingMs),
     );
+    let requestAttemptCount = 0;
     try {
       const provider = createDeepSeek({
         apiKey: this.#apiKey,
-        ...(this.#fetcher === undefined ? {} : { fetch: this.#fetcher }),
+        fetch: async (request, init) => {
+          requestAttemptCount += 1;
+          return this.#fetcher(request, init);
+        },
       });
       const result = await generateText({
         model: provider(input.model),
@@ -143,9 +154,35 @@ export class DeepSeekAiSdkModelPort implements AiModelPort {
       return result.output;
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error("DeepSeek AI SDK request timed out");
+        throw new ModelRequestFailure(
+          "DEEPSEEK",
+          "TIMEOUT",
+          requestAttemptCount,
+          { cause: error },
+        );
       }
-      throw new Error("DeepSeek AI SDK request failed", { cause: error });
+      if (NoObjectGeneratedError.isInstance(error)) {
+        throw new ModelRequestFailure(
+          "DEEPSEEK",
+          "INVALID_PROVIDER_OUTPUT",
+          requestAttemptCount,
+          { cause: error },
+        );
+      }
+      if (APICallError.isInstance(error)) {
+        throw new ModelRequestFailure(
+          "DEEPSEEK",
+          error.isRetryable ? "RETRYABLE_PROVIDER" : "REJECTED_PROVIDER",
+          requestAttemptCount,
+          { cause: error },
+        );
+      }
+      throw new ModelRequestFailure(
+        "DEEPSEEK",
+        "NETWORK_OR_UNKNOWN",
+        requestAttemptCount,
+        { cause: error },
+      );
     } finally {
       clearTimeout(timeout);
     }

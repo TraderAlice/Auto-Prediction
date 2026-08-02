@@ -9,6 +9,7 @@ import type {
   OpportunityHypothesis,
 } from "./types.js";
 import { assertDiscoveryTask } from "./discovery.js";
+import { MODEL_FAILURE_CATEGORIES } from "./model-failure.js";
 
 export interface DiscoveryRunStore {
   readonly storage: OperationalStorageProjection;
@@ -31,6 +32,21 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
     throw new Error("stored discovery worker report is malformed");
   }
   const report = value as Record<string, unknown>;
+  const telemetryAbsent = report.providerRequestAttemptCount === undefined &&
+    report.providerFailureCategory === undefined;
+  const telemetryPresent = Number.isSafeInteger(report.providerRequestAttemptCount) &&
+    Number(report.providerRequestAttemptCount) >= 0 &&
+    Number(report.providerRequestAttemptCount) <= 16 &&
+    (report.providerFailureCategory === null ||
+      MODEL_FAILURE_CATEGORIES.includes(
+        report.providerFailureCategory as (typeof MODEL_FAILURE_CATEGORIES)[number],
+      )) &&
+    (report.kind !== "HEURISTIC" ||
+      (report.providerRequestAttemptCount === 0 &&
+        report.providerFailureCategory === null)) &&
+    (report.status !== "PASS" || report.providerFailureCategory === null) &&
+    (report.status !== "FAILED" || report.kind !== "MODEL" ||
+      report.providerFailureCategory !== null);
   if (
     !isNonEmptyString(report.workerId) ||
     (report.kind !== "HEURISTIC" && report.kind !== "MODEL") ||
@@ -55,7 +71,8 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
       (!isNonEmptyString(report.diagnostic) || report.diagnostic.length > 500)) ||
     (report.status === "PASS" && report.diagnostic !== null) ||
     (report.status === "FAILED" &&
-      (report.diagnostic === null || report.hypothesisCount !== 0))
+      (report.diagnostic === null || report.hypothesisCount !== 0)) ||
+    (!telemetryAbsent && !telemetryPresent)
   ) {
     throw new Error("stored discovery worker report violates its contract");
   }
@@ -69,6 +86,12 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
     durationMs: report.durationMs,
     hypothesisCount: report.hypothesisCount,
     diagnostic: report.diagnostic,
+    ...(telemetryPresent
+      ? {
+          providerRequestAttemptCount: report.providerRequestAttemptCount,
+          providerFailureCategory: report.providerFailureCategory,
+        }
+      : {}),
   }) as DiscoveryWorkerReport;
 }
 

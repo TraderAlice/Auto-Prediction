@@ -15,6 +15,7 @@ export * from "./market-archaeologist.js";
 export * from "./opportunity-lifecycle-desk.js";
 export * from "./market-corpus.js";
 export * from "./model-runtime.js";
+export * from "./model-failure.js";
 export * from "./model-scout.js";
 export * from "./openai-model.js";
 export * from "./opportunity-radar.js";

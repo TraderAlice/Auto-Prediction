@@ -440,6 +440,12 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     hypothesisCount: 0,
     proposalCount: 0,
     evidenceGapCount: 0,
+    providerRequestAttemptCount: 0,
+    providerFailureCount: 0,
+    providerFailureRateBps: null,
+    providerNativeTelemetryLeaseCount: 0,
+    providerLegacyDerivedLeaseCount: 0,
+    providerFailuresByCategory: [],
     novelCandidateRateBps: null,
     duplicateRateBps: null,
     piEscalationRateBps: null,
@@ -2652,6 +2658,10 @@ function MarketArchaeologistView() {
     ...EMPTY_SEARCH_ISSUE_SCHEDULER.performance,
     ...(issueScheduler.performance ?? {}),
   };
+  const providerFailureCount = (category: string) =>
+    issuePerformance.providerFailuresByCategory.find(
+      (item) => item.category === category,
+    )?.count ?? 0;
   const quoteEnrichment =
     studioProjection.ai.searchQuoteEnrichment ?? EMPTY_SEARCH_QUOTE_ENRICHMENT;
   const outcomeAttribution =
@@ -2910,6 +2920,25 @@ function MarketArchaeologistView() {
             <div><strong>{formatRateBps(issuePerformance.novelCandidateRateBps)}</strong><span>new candidate signatures</span></div>
             <div><strong>{formatRateBps(issuePerformance.duplicateRateBps)}</strong><span>duplicate scans</span></div>
             <div><strong>{formatRateBps(issuePerformance.piEscalationRateBps)}</strong><span>pi escalation · {issuePerformance.proposalCount} proposals · {issuePerformance.evidenceGapCount} gaps</span></div>
+          </div>
+
+          <div className="issue-scheduler-strip issue-performance-strip" aria-label="AI provider reliability">
+            <div>
+              <strong>{issuePerformance.providerRequestAttemptCount}</strong>
+              <span>provider request attempts · worker reports are not retries</span>
+            </div>
+            <div>
+              <strong>{formatRateBps(issuePerformance.providerFailureRateBps)}</strong>
+              <span>provider failures · {issuePerformance.providerFailureCount} classified</span>
+            </div>
+            <div>
+              <strong>{providerFailureCount("TIMEOUT")}/{providerFailureCount("RETRYABLE_PROVIDER")}</strong>
+              <span>timeout / retryable provider</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.providerNativeTelemetryLeaseCount}/{issuePerformance.providerLegacyDerivedLeaseCount}</strong>
+              <span>native / legacy leases · {providerFailureCount("UNTYPED")} untyped</span>
+            </div>
           </div>
 
           <div className="issue-scheduler-strip issue-performance-strip" aria-label="Semantic search coverage">

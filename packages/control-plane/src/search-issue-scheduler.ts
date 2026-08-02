@@ -8,6 +8,8 @@ import {
   type SearchLeaseRecord,
   type SearchLens,
   type SearchCandidatePolicy,
+  type ProviderFailureCategory,
+  providerTelemetryFor,
 } from "./search-lease-scheduler.js";
 import type { OperationalStorageProjection } from "./types.js";
 
@@ -104,6 +106,15 @@ export type SearchIssueSchedulerProjection = Readonly<{
     hypothesisCount: number;
     proposalCount: number;
     evidenceGapCount: number;
+    providerRequestAttemptCount: number;
+    providerFailureCount: number;
+    providerFailureRateBps: number | null;
+    providerNativeTelemetryLeaseCount: number;
+    providerLegacyDerivedLeaseCount: number;
+    providerFailuresByCategory: readonly Readonly<{
+      category: ProviderFailureCategory;
+      count: number;
+    }>[];
     novelCandidateRateBps: number | null;
     duplicateRateBps: number | null;
     piEscalationRateBps: number | null;
@@ -136,6 +147,15 @@ export type SearchIssueSchedulerProjection = Readonly<{
       hypothesisCount: number;
       proposalCount: number;
       evidenceGapCount: number;
+      providerRequestAttemptCount: number;
+      providerFailureCount: number;
+      providerFailureRateBps: number | null;
+      providerNativeTelemetryLeaseCount: number;
+      providerLegacyDerivedLeaseCount: number;
+      providerFailuresByCategory: readonly Readonly<{
+        category: ProviderFailureCategory;
+        count: number;
+      }>[];
     }>[];
   }>;
   issues: readonly SearchIssueRecord[];
@@ -216,7 +236,45 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   hypothesisCount: number;
   proposalCount: number;
   evidenceGapCount: number;
+  providerRequestAttemptCount: number;
+  providerFailureCount: number;
+  providerFailureRateBps: number | null;
+  providerNativeTelemetryLeaseCount: number;
+  providerLegacyDerivedLeaseCount: number;
+  providerFailuresByCategory: readonly Readonly<{
+    category: ProviderFailureCategory;
+    count: number;
+  }>[];
 }> {
+  const providerTelemetry = records.map(providerTelemetryFor);
+  const providerRequestAttemptCount = providerTelemetry.reduce(
+    (sum, telemetry) => sum + telemetry.requestAttemptCount,
+    0,
+  );
+  const providerFailures = providerTelemetry.flatMap(
+    (telemetry) => telemetry.failureCategories,
+  );
+  const providerFailureCategoriesForRate = new Set<ProviderFailureCategory>([
+    "TIMEOUT",
+    "RETRYABLE_PROVIDER",
+    "REJECTED_PROVIDER",
+    "INVALID_PROVIDER_OUTPUT",
+    "NETWORK_OR_UNKNOWN",
+    "UNTYPED",
+  ]);
+  const attributableProviderFailures = providerFailures.filter((category) =>
+    providerFailureCategoriesForRate.has(category)
+  );
+  const providerFailureCategories = [
+    "TIMEOUT",
+    "TASK_DEADLINE",
+    "RETRYABLE_PROVIDER",
+    "REJECTED_PROVIDER",
+    "INVALID_PROVIDER_OUTPUT",
+    "INVALID_MODEL_OUTPUT",
+    "NETWORK_OR_UNKNOWN",
+    "UNTYPED",
+  ] as const satisfies readonly ProviderFailureCategory[];
   const exactScopes = records.filter(
     (record) => record.fastLane.semanticScope?.kind === "EXACT_PAIR",
   );
@@ -311,6 +369,24 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     hypothesisCount: records.reduce((sum, record) => sum + record.outcome.hypothesisCount, 0),
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     evidenceGapCount: records.reduce((sum, record) => sum + record.outcome.evidenceGapCount, 0),
+    providerRequestAttemptCount,
+    providerFailureCount: attributableProviderFailures.length,
+    providerFailureRateBps: ratioBps(
+      attributableProviderFailures.length,
+      providerRequestAttemptCount,
+    ),
+    providerNativeTelemetryLeaseCount: providerTelemetry.filter(
+      (telemetry) => telemetry.evidenceSource === "NATIVE_WORKER_REPORTS",
+    ).length,
+    providerLegacyDerivedLeaseCount: providerTelemetry.filter(
+      (telemetry) => telemetry.evidenceSource === "LEGACY_DERIVED",
+    ).length,
+    providerFailuresByCategory: Object.freeze(providerFailureCategories.map(
+      (category) => Object.freeze({
+        category,
+        count: providerFailures.filter((failure) => failure === category).length,
+      }),
+    )),
   });
 }
 

@@ -1,4 +1,5 @@
 import { hashCanonical } from "@pmh/domain";
+import { modelFailureTelemetry } from "./model-failure.js";
 import type {
   AiModelPort,
   DiscoveryRun,
@@ -530,11 +531,14 @@ export class DiscoveryPool {
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: hypotheses.length,
               diagnostic: null,
+              providerRequestAttemptCount: worker.kind === "MODEL" ? 1 : 0,
+              providerFailureCategory: null,
             }),
           };
         } catch (error) {
           const workerCompletedAtMs = Math.max(this.now(), workerStartedAtMs);
           const diagnostic = compactWorkerDiagnostic(error);
+          const providerTelemetry = modelFailureTelemetry(error, worker.kind);
           return {
             worker,
             hypotheses: Object.freeze([]),
@@ -548,6 +552,9 @@ export class DiscoveryPool {
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: 0,
               diagnostic,
+              providerRequestAttemptCount:
+                providerTelemetry.requestAttemptCount,
+              providerFailureCategory: providerTelemetry.category,
             }),
           };
         }

@@ -25,6 +25,10 @@ import {
   type SearchScopeIdentity,
 } from "./search-scope-identity.js";
 import type { SearchQuoteEnrichmentResult } from "./search-quote-enrichment.js";
+import {
+  MODEL_FAILURE_CATEGORIES,
+  type ModelFailureCategory,
+} from "./model-failure.js";
 
 const ALGORITHM_VERSION = "pmh.ai-search-leases.v1";
 const DEFAULT_RETENTION_LIMIT = 40;
@@ -133,12 +137,26 @@ export type SearchLeaseFastLane = Readonly<{
   runId: string | null;
   workerIds: readonly string[];
   modelRequestCount: number;
+  providerTelemetry?: SearchLeaseProviderTelemetry;
   hypothesisIds: readonly string[];
   candidateListingRefs: readonly string[];
   semanticScope?: SearchScopeIdentity;
   economicGate?: SearchLeaseEconomicGate;
   diagnostic: string | null;
 }>;
+
+export type ProviderFailureCategory = ModelFailureCategory | "UNTYPED";
+
+export type SearchLeaseProviderTelemetry = Readonly<{
+  schemaVersion: "pmh.provider-attempt-telemetry.v1";
+  requestAttemptCount: number;
+  failureCategories: readonly ProviderFailureCategory[];
+}>;
+
+export type SearchLeaseProviderTelemetryProjection =
+  SearchLeaseProviderTelemetry & Readonly<{
+    evidenceSource: "NATIVE_WORKER_REPORTS" | "LEGACY_DERIVED";
+  }>;
 
 export type SearchLeaseDeepLane = Readonly<{
   status: "NOT_RUN" | "PASS" | "FAILED";
@@ -555,6 +573,44 @@ function withoutArtifactHash(
   return body;
 }
 
+function inferLegacyFailureCategory(
+  diagnostic: string | null,
+): ProviderFailureCategory | null {
+  const value = diagnostic?.toLowerCase() ?? "";
+  if (value === "") return null;
+  if (value.includes("timed out") || value.includes("timeout")) return "TIMEOUT";
+  if (
+    value.includes("model hypothesis") || value.includes("out-of-scope") ||
+    value.includes("structured output") || value.includes("model output")
+  ) return "INVALID_MODEL_OUTPUT";
+  if (
+    value.includes("deepseek") || value.includes("openai") ||
+    value.includes("model request") || value.includes("model worker")
+  ) return "UNTYPED";
+  return null;
+}
+
+export function providerTelemetryFor(
+  record: SearchLeaseRecord,
+): SearchLeaseProviderTelemetryProjection {
+  const telemetry = record.fastLane.providerTelemetry;
+  if (telemetry !== undefined) {
+    return Object.freeze({
+      ...telemetry,
+      evidenceSource: "NATIVE_WORKER_REPORTS",
+    });
+  }
+  const failure = record.fastLane.status === "PASS"
+    ? inferLegacyFailureCategory(record.fastLane.diagnostic)
+    : null;
+  return Object.freeze({
+    schemaVersion: "pmh.provider-attempt-telemetry.v1",
+    requestAttemptCount: record.fastLane.modelRequestCount,
+    failureCategories: Object.freeze(failure === null ? [] : [failure]),
+    evidenceSource: "LEGACY_DERIVED",
+  });
+}
+
 export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("stored search lease record is malformed");
@@ -623,6 +679,19 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     graphContext.executionAuthority === false
   );
   const candidatePolicy = lease.candidatePolicy;
+  const providerTelemetry = record.fastLane?.providerTelemetry;
+  const providerTelemetryValid = providerTelemetry === undefined || (
+    providerTelemetry.schemaVersion === "pmh.provider-attempt-telemetry.v1" &&
+    Number.isSafeInteger(providerTelemetry.requestAttemptCount) &&
+    providerTelemetry.requestAttemptCount >= 0 &&
+    providerTelemetry.requestAttemptCount <= 16 &&
+    Array.isArray(providerTelemetry.failureCategories) &&
+    providerTelemetry.failureCategories.length <= 4 &&
+    providerTelemetry.failureCategories.every((category) =>
+      category === "UNTYPED" ||
+      MODEL_FAILURE_CATEGORIES.includes(category as ModelFailureCategory)
+    )
+  );
   const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null || (
     Array.isArray(candidatePolicy.allowedRelationKinds) &&
     candidatePolicy.allowedRelationKinds.length > 0 &&
@@ -674,6 +743,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     lease.executionAuthority !== false ||
     !graphContextValid ||
     !candidatePolicyValid ||
+    !providerTelemetryValid ||
     !semanticScopeValid(record.fastLane.semanticScope) ||
     !economicGateValid(record.fastLane.economicGate, candidatePolicy) ||
     !Number.isSafeInteger(lease.budget.maxFastModelRequests) ||
@@ -1016,6 +1086,11 @@ export class SearchLeaseScheduler {
           runId: null,
           workerIds: Object.freeze([]),
           modelRequestCount: 0,
+          providerTelemetry: Object.freeze({
+            schemaVersion: "pmh.provider-attempt-telemetry.v1" as const,
+            requestAttemptCount: 0,
+            failureCategories: Object.freeze([]),
+          }),
           hypothesisIds: Object.freeze([]),
           candidateListingRefs: Object.freeze([]),
           economicGate: pendingEconomicGate(issue?.candidatePolicy),
@@ -1094,10 +1169,27 @@ export class SearchLeaseScheduler {
         catalogContext: context,
       });
       const run = await this.#runFast(task, issued.lease.budget.maxFastModelRequests);
-      const modelRequestCount = run.workerReports?.filter((report) => report.kind === "MODEL").length ?? 0;
+      const modelReports = run.workerReports?.filter((report) => report.kind === "MODEL") ?? [];
+      const modelRequestCount = modelReports.length;
       if (modelRequestCount > issued.lease.budget.maxFastModelRequests) {
         throw new Error("fast lane exceeded its model request budget");
       }
+      const providerTelemetry: SearchLeaseProviderTelemetry = Object.freeze({
+        schemaVersion: "pmh.provider-attempt-telemetry.v1",
+        requestAttemptCount: modelReports.reduce(
+          (sum, report) => sum + (report.providerRequestAttemptCount ?? 1),
+          0,
+        ),
+        failureCategories: Object.freeze(modelReports.reduce<ProviderFailureCategory[]>(
+          (failures, report) => {
+            if (report.status === "FAILED") {
+              failures.push(report.providerFailureCategory ?? "UNTYPED");
+            }
+            return failures;
+          },
+          [],
+        )),
+      });
       const hypothesisSignature = candidateSignature(run.hypotheses);
       const groundedCandidateHypotheses = run.hypotheses.filter((hypothesis) =>
         hasGroundedMultiListingRefs(hypothesis.listingRefs ?? [])
@@ -1213,6 +1305,7 @@ export class SearchLeaseScheduler {
         runId: run.runId,
         workerIds: Object.freeze([...run.workerIds]),
         modelRequestCount,
+        providerTelemetry,
         hypothesisIds: Object.freeze(run.hypotheses.map((item) => item.hypothesisId)),
         candidateListingRefs: listingRefs,
         semanticScope,

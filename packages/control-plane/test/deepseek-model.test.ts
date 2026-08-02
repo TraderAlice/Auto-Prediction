@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createDeepSeekDiscoveryRuntime,
   createDiscoveryModelRuntime,
+  DeepSeekAiSdkModelPort,
   runModelProviderSmoke,
   type DiscoveryTask,
 } from "../src/index.js";
@@ -192,6 +193,32 @@ describe("Vercel AI SDK DeepSeek discovery adapter", () => {
     expect(() =>
       createDiscoveryModelRuntime({ PMH_DISCOVERY_PROVIDER: "invented" }),
     ).toThrow(/must be deepseek or openai/);
+  });
+
+  it("classifies a retryable provider response without retaining its body", async () => {
+    const port = new DeepSeekAiSdkModelPort({
+      apiKey: "test-only-deepseek-key",
+      async fetcher() {
+        return new Response("sensitive upstream detail", { status: 503 });
+      },
+    });
+    let failure: unknown;
+    try {
+      await port.completeStructured({
+        model: "deepseek-v4-flash",
+        schemaVersion: "pmh.discovery-output.v1",
+        system: "Propose only.",
+        task,
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({
+      category: "RETRYABLE_PROVIDER",
+      requestAttemptCount: 1,
+    });
+    expect(failure instanceof Error ? failure.message : String(failure))
+      .not.toContain("sensitive upstream detail");
   });
 
   it("qualifies DeepSeek through the provider-neutral smoke command", async () => {

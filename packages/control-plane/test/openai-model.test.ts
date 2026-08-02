@@ -255,7 +255,10 @@ describe("budgeted OpenAI Responses model port", () => {
         system: "Propose only.",
         task: { ...task, deadlineEpochMs: Date.now() - 1 },
       }),
-    ).rejects.toThrow(/deadline has expired/);
+    ).rejects.toMatchObject({
+      category: "TASK_DEADLINE",
+      requestAttemptCount: 0,
+    });
     expect(expiredRequestSent).toBe(false);
 
     const refusalPort = new OpenAiResponsesModelPort({
@@ -279,7 +282,10 @@ describe("budgeted OpenAI Responses model port", () => {
         system: "Propose only.",
         task,
       }),
-    ).rejects.toThrow(/refused/);
+    ).rejects.toMatchObject({
+      category: "INVALID_PROVIDER_OUTPUT",
+      requestAttemptCount: 1,
+    });
 
     const incompletePort = new OpenAiResponsesModelPort({
       apiKey: "test-only-key",
@@ -294,7 +300,10 @@ describe("budgeted OpenAI Responses model port", () => {
         system: "Propose only.",
         task,
       }),
-    ).rejects.toThrow(/incomplete/);
+    ).rejects.toMatchObject({
+      category: "INVALID_PROVIDER_OUTPUT",
+      requestAttemptCount: 1,
+    });
 
     const failingPort = new OpenAiResponsesModelPort({
       apiKey: "do-not-leak-this-key",
@@ -313,9 +322,26 @@ describe("budgeted OpenAI Responses model port", () => {
     } catch (error) {
       diagnostic = error instanceof Error ? error.message : String(error);
     }
-    expect(diagnostic).toBe("OpenAI Responses request failed (HTTP 401)");
+    expect(diagnostic).toBe("OPENAI model request failed [REJECTED_PROVIDER]");
     expect(diagnostic).not.toContain("do-not-leak-this-key");
     expect(diagnostic).not.toContain("upstream detail");
+
+    await expect(
+      new OpenAiResponsesModelPort({
+        apiKey: "test-only-key",
+        async fetcher() {
+          return new Response("temporary detail", { status: 503 });
+        },
+      }).completeStructured({
+        model: "gpt-5.6-luna",
+        schemaVersion: "pmh.discovery-output.v1",
+        system: "Propose only.",
+        task,
+      }),
+    ).rejects.toMatchObject({
+      category: "RETRYABLE_PROVIDER",
+      requestAttemptCount: 1,
+    });
   });
 
   it("validates environment budgets before creating a worker", () => {

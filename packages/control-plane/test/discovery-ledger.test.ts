@@ -65,6 +65,15 @@ describe("discovery ledger", () => {
       unknown
     >;
     const reports = tampered.workerReports as Record<string, unknown>[];
+    const legacyWorkerReports = JSON.parse(JSON.stringify(record)) as Record<
+      string,
+      unknown
+    >;
+    const legacyReport = (legacyWorkerReports.workerReports as Record<string, unknown>[])[0]!;
+    delete legacyReport.providerRequestAttemptCount;
+    delete legacyReport.providerFailureCategory;
+    expect(assertDiscoveryRunRecord(legacyWorkerReports).workerReports?.[0])
+      .not.toHaveProperty("providerRequestAttemptCount");
     reports[0] = { ...reports[0], durationMs: 1 };
     expect(() => assertDiscoveryRunRecord(tampered)).toThrow(
       /worker report violates/,
@@ -72,5 +81,16 @@ describe("discovery ledger", () => {
     expect(() =>
       assertDiscoveryRunRecord({ ...tampered, workerReports: [] }),
     ).toThrow(/do not bind/);
+    const invalidTelemetry = JSON.parse(JSON.stringify(record)) as Record<
+      string,
+      unknown
+    >;
+    (invalidTelemetry.workerReports as Record<string, unknown>[])[0] = {
+      ...(invalidTelemetry.workerReports as Record<string, unknown>[])[0],
+      providerFailureCategory: "SECRET_PROVIDER_BODY",
+    };
+    expect(() => assertDiscoveryRunRecord(invalidTelemetry)).toThrow(
+      /worker report violates/,
+    );
   });
 });

@@ -82,6 +82,8 @@ export type DiscoveryWorkerReport = Readonly<{
   durationMs: number;
   hypothesisCount: number;
   diagnostic: string | null;
+  providerRequestAttemptCount?: number;
+  providerFailureCategory?: import("./model-failure.js").ModelFailureCategory | null;
 }>;
 
 export type DiscoveryRun = Readonly<{

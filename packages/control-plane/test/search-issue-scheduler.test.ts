@@ -156,8 +156,10 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(runDeep).not.toHaveBeenCalled();
 
     const { artifactHash: _artifactHash, ...recordBody } = record;
+    const { providerTelemetry: _providerTelemetry, ...legacyFastLane } = record.fastLane;
     const legacyBody = Object.freeze({
       ...recordBody,
+      fastLane: Object.freeze(legacyFastLane),
       lineage: Object.freeze({
         ...record.lineage,
         noveltySignature: hashCanonical({ legacy: record.lease.leaseId }),
@@ -194,6 +196,11 @@ describe("issue-driven concurrent search scheduler", () => {
       terminalLeaseCount: 1,
       novelCandidateCount: 0,
       noLeadSemanticScopeCount: 1,
+      providerRequestAttemptCount: 1,
+      providerFailureCount: 1,
+      providerFailureRateBps: 10_000,
+      providerNativeTelemetryLeaseCount: 0,
+      providerLegacyDerivedLeaseCount: 1,
     });
     legacyStore.close();
     store.close();
@@ -286,6 +293,11 @@ describe("issue-driven concurrent search scheduler", () => {
       hypothesisCount: 3,
       proposalCount: 1,
       evidenceGapCount: 0,
+      providerRequestAttemptCount: 3,
+      providerFailureCount: 0,
+      providerFailureRateBps: 0,
+      providerNativeTelemetryLeaseCount: 3,
+      providerLegacyDerivedLeaseCount: 0,
       novelCandidateRateBps: 3_333,
       duplicateRateBps: 3_333,
       piEscalationRateBps: 3_333,

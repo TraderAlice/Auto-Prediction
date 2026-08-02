@@ -37,6 +37,8 @@ describe("AI-native discovery boundary", () => {
         durationMs: 0,
         hypothesisCount: 1,
         diagnostic: null,
+        providerRequestAttemptCount: 0,
+        providerFailureCategory: null,
       },
       {
         workerId: "heuristic-b",
@@ -48,6 +50,8 @@ describe("AI-native discovery boundary", () => {
         durationMs: 0,
         hypothesisCount: 1,
         diagnostic: null,
+        providerRequestAttemptCount: 0,
+        providerFailureCategory: null,
       },
     ]);
     expect(run.hypotheses).toHaveLength(1);
@@ -157,6 +161,8 @@ describe("AI-native discovery boundary", () => {
         status: "FAILED",
         hypothesisCount: 0,
         diagnostic: "model fixture unavailable",
+        providerRequestAttemptCount: 1,
+        providerFailureCategory: "INVALID_MODEL_OUTPUT",
       }),
     ]);
     expect(run.executionAuthority).toBe(false);
