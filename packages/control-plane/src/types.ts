@@ -84,6 +84,83 @@ export type DiscoveryWorkerReport = Readonly<{
   diagnostic: string | null;
   providerRequestAttemptCount?: number;
   providerFailureCategory?: import("./model-failure.js").ModelFailureCategory | null;
+  agentTrace?: DiscoveryAgentTrace;
+}>;
+
+export type DiscoveryAgentToolName =
+  | "search_catalog"
+  | "inspect_listings"
+  | "record_hypothesis"
+  | "complete_search"
+  | "unknown_tool";
+
+export type DiscoveryAgentEffectStatus =
+  | "ACCEPTED"
+  | "REJECTED"
+  | "IDEMPOTENT_REPLAY";
+
+export type DiscoveryAgentEffectReason =
+  | "CATALOG_RESULTS"
+  | "LISTINGS_INSPECTED"
+  | "HYPOTHESIS_RECORDED"
+  | "SEARCH_COMPLETED"
+  | "INVALID_INPUT"
+  | "INPUT_TOO_LARGE"
+  | "OUT_OF_SCOPE"
+  | "UNKNOWN_LISTING"
+  | "INSPECTION_REQUIRED"
+  | "SEARCH_REQUIRED"
+  | "PROTOCOL_INVALID"
+  | "DUPLICATE"
+  | "PROPOSAL_LIMIT"
+  | "TOOL_CALL_LIMIT"
+  | "ALREADY_COMPLETED";
+
+export type DiscoveryAgentEffect = Readonly<{
+  ordinal: number;
+  toolName: DiscoveryAgentToolName;
+  status: DiscoveryAgentEffectStatus;
+  reason: DiscoveryAgentEffectReason;
+  inputIdentity: string;
+  outputIdentity: string;
+  listingRefs: readonly string[];
+  hypothesisId: string | null;
+}>;
+
+export type DiscoveryAgentTerminationReason =
+  | "EXPLICIT_COMPLETION"
+  | "PROPOSAL_LIMIT"
+  | "STEP_LIMIT"
+  | "TOOL_CALL_LIMIT"
+  | "MODEL_FINISHED"
+  | "TIMEOUT"
+  | "TASK_DEADLINE"
+  | "PROVIDER_FAILURE"
+  | "PROTOCOL_FAILURE";
+
+export type DiscoveryAgentTrace = Readonly<{
+  schemaVersion:
+    | "pmh.discovery-agent-trace.v1"
+    | "pmh.discovery-agent-trace.v2";
+  protocol: "PMH_BOUNDED_TOOL_LOOP_V1";
+  stepCount: number;
+  providerRequestAttemptCount: number;
+  toolCallCount: number;
+  catalogReadCount: number;
+  acceptedProposalCount: number;
+  rejectedProposalCount: number;
+  terminationReason: DiscoveryAgentTerminationReason;
+  effects: readonly DiscoveryAgentEffect[];
+  semanticDecisionAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type DiscoveryAgentRunResult = Readonly<{
+  hypotheses: readonly OpportunityHypothesis[];
+  trace: DiscoveryAgentTrace;
 }>;
 
 export type DiscoveryRun = Readonly<{
@@ -132,25 +209,29 @@ export interface DiscoveryWorker {
   readonly kind: "HEURISTIC" | "MODEL";
   readonly costTier: "FREE" | "LOW";
   discover(task: DiscoveryTask): Promise<readonly OpportunityHypothesis[]>;
+  runWithTrace?(task: DiscoveryTask): Promise<DiscoveryAgentRunResult>;
 }
 
-export interface AiModelPort {
-  completeStructured(input: {
+export interface DiscoveryAgentPort {
+  run(input: {
+    workerId: string;
     model: string;
-    schemaVersion: "pmh.discovery-output.v1";
     system: string;
+    searchLens?: string;
     task: DiscoveryTask;
-  }): Promise<unknown>;
+  }): Promise<DiscoveryAgentRunResult>;
 }
 
 export type ModelProviderProjection = Readonly<{
   provider: "OPENAI_RESPONSES" | "DEEPSEEK_CHAT_COMPLETIONS";
-  transport: "DIRECT_HTTP" | "VERCEL_AI_SDK";
+  transport: "VERCEL_AI_SDK";
   configured: boolean;
   credentialEnv: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY";
   model: string;
   maxOutputTokens: number;
   timeoutMs: number;
+  maxSteps: number;
+  maxToolCalls: number;
   fanout: number;
   workerRoles: readonly ModelScoutRole[];
   reasoningEffort: "minimal" | "disabled";

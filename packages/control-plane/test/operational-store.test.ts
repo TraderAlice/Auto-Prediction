@@ -5,10 +5,12 @@ import { DatabaseSync } from "node:sqlite";
 import { hashBytes, hashCanonical } from "@pmh/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  AgenticModelDiscoveryWorker,
   candidateWatchSources,
   AnonymousSimulationMaterializerDesk,
   createPiInvestigatorRuntime,
   DiscoveryLedger,
+  DiscoveryAgentSession,
   DiscoveryPool,
   HeuristicDiscoveryWorker,
   InvestigationDesk,
@@ -18,6 +20,7 @@ import {
   type StoredAnonymousSimulationMaterialization,
   type StoredCandidateBookObservation,
 } from "../src/index.js";
+import { agentTask, proposalInput, TEST_LISTING_REF } from "./model-agent-fixtures.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
 const tempDirectories: string[] = [];
@@ -352,6 +355,33 @@ describe("SQLite operational store", () => {
       secondLedger.findByTaskId("task:persistent")?.catalogContext,
     ).toBeUndefined();
     secondLedger.close();
+  });
+
+  it("restores the exact discovery-agent effect journal across restart", async () => {
+    const path = await databasePath();
+    const session = new DiscoveryAgentSession("model:durable-agent", agentTask, 24);
+    session.inspectListings({ listingRefs: [TEST_LISTING_REF] });
+    session.recordHypothesis(proposalInput());
+    session.completeSearch({ reason: "Persist the qualified tool loop." });
+    const result = session.finish({
+      stepCount: 3,
+      providerRequestAttemptCount: 3,
+      toolCallCount: 3,
+      terminationReason: "EXPLICIT_COMPLETION",
+    });
+    const worker = new AgenticModelDiscoveryWorker(
+      "model:durable-agent",
+      "provider/cheap",
+      { async run() { return result; } },
+    );
+    const first = new DiscoveryLedger(25, new SqliteOperationalStore(path));
+    first.record(agentTask, await new DiscoveryPool([worker]).run(agentTask));
+    first.close();
+
+    const restored = new DiscoveryLedger(25, new SqliteOperationalStore(path));
+    expect(restored.findByTaskId(agentTask.taskId)?.workerReports?.[0]?.agentTrace)
+      .toEqual(result.trace);
+    restored.close();
   });
 
   it("retains an exact catalog snapshot for server-side handoff without projecting it", async () => {

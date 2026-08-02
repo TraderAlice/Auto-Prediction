@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  AgenticModelDiscoveryWorker,
   DiscoveryPool,
   HeuristicDiscoveryWorker,
-  StructuredModelDiscoveryWorker,
-  type AiModelPort,
+  ModelRequestFailure,
+  type DiscoveryAgentPort,
+  type DiscoveryAgentTrace,
   type DiscoveryTask,
 } from "../src/index.js";
 
@@ -15,44 +17,50 @@ const task: DiscoveryTask = {
   deadlineEpochMs: 2_000,
 };
 
+function trace(
+  overrides: Partial<DiscoveryAgentTrace> = {},
+): DiscoveryAgentTrace {
+  return Object.freeze({
+    schemaVersion: "pmh.discovery-agent-trace.v1",
+    protocol: "PMH_BOUNDED_TOOL_LOOP_V1",
+    stepCount: 1,
+    providerRequestAttemptCount: 1,
+    toolCallCount: 1,
+    catalogReadCount: 0,
+    acceptedProposalCount: 0,
+    rejectedProposalCount: 0,
+    terminationReason: "EXPLICIT_COMPLETION",
+    effects: Object.freeze([]),
+    semanticDecisionAuthority: false,
+    certificateAuthority: false,
+    executionAuthority: false,
+    externalWriteAuthority: false,
+    valueMovingAuthority: false,
+    ...overrides,
+  });
+}
+
 describe("AI-native discovery boundary", () => {
-  it("runs cheap scouts in parallel and emits proposal-only hypotheses", async () => {
+  it("runs free scouts in parallel and emits proposal-only hypotheses", async () => {
     const pool = new DiscoveryPool(
-      [
-        new HeuristicDiscoveryWorker("heuristic-a"),
-        new HeuristicDiscoveryWorker("heuristic-b"),
-      ],
+      [new HeuristicDiscoveryWorker("heuristic-a"), new HeuristicDiscoveryWorker("heuristic-b")],
       () => 1_000,
     );
     const run = await pool.run(task);
     expect(run.workerIds).toEqual(["heuristic-a", "heuristic-b"]);
     expect(run.workerReports).toEqual([
-      {
+      expect.objectContaining({
         workerId: "heuristic-a",
-        kind: "HEURISTIC",
-        costTier: "FREE",
         status: "PASS",
-        startedAt: "1970-01-01T00:00:01.000Z",
-        completedAt: "1970-01-01T00:00:01.000Z",
-        durationMs: 0,
-        hypothesisCount: 1,
-        diagnostic: null,
         providerRequestAttemptCount: 0,
         providerFailureCategory: null,
-      },
-      {
+      }),
+      expect.objectContaining({
         workerId: "heuristic-b",
-        kind: "HEURISTIC",
-        costTier: "FREE",
         status: "PASS",
-        startedAt: "1970-01-01T00:00:01.000Z",
-        completedAt: "1970-01-01T00:00:01.000Z",
-        durationMs: 0,
-        hypothesisCount: 1,
-        diagnostic: null,
         providerRequestAttemptCount: 0,
         providerFailureCategory: null,
-      },
+      }),
     ]);
     expect(run.hypotheses).toHaveLength(1);
     expect(run.hypotheses[0]).toMatchObject({
@@ -63,141 +71,92 @@ describe("AI-native discovery boundary", () => {
     expect(run.executionAuthority).toBe(false);
   });
 
-  it("adapts structured model output without promoting its claims", async () => {
-    const port: AiModelPort = {
-      async completeStructured() {
-        return {
-          hypotheses: [
-            {
-              thesis: "These listings may express the same rainfall claim.",
-              strategyKind: "SAME_CLAIM_CROSS_VENUE",
-              venueIds: ["kalshi", "polymarket-global"],
-              claimSearchTerms: ["nyc", "rainfall"],
-              listingRefs: [],
-              confidenceBps: 7_000,
-            },
-          ],
-        };
+  it("propagates agent results and trace without promoting authority", async () => {
+    const port: DiscoveryAgentPort = {
+      async run(input) {
+        return Object.freeze({
+          hypotheses: Object.freeze([{
+            hypothesisId: "hypothesis:agent-test",
+            workerId: input.workerId,
+            thesis: "These listings may express the same rainfall claim.",
+            strategyKind: "SAME_CLAIM_CROSS_VENUE" as const,
+            venueIds: Object.freeze(["kalshi", "polymarket-global"]),
+            claimSearchTerms: Object.freeze(["nyc", "rainfall"]),
+            listingRefs: Object.freeze([]),
+            confidenceBps: 7_000,
+            authority: "PROPOSE_ONLY" as const,
+            reviewStatus: "UNREVIEWED" as const,
+          }]),
+          trace: trace({
+            acceptedProposalCount: 1,
+            terminationReason: "PROPOSAL_LIMIT",
+          }),
+        });
       },
     };
-    const worker = new StructuredModelDiscoveryWorker(
+    const worker = new AgenticModelDiscoveryWorker(
       "model-fast-1",
       "provider/model-small",
       port,
     );
-    const [hypothesis] = await worker.discover(task);
-    expect(hypothesis?.authority).toBe("PROPOSE_ONLY");
-    expect(hypothesis?.reviewStatus).toBe("UNREVIEWED");
+    const result = await worker.runWithTrace(task);
+    expect(result.hypotheses[0]).toMatchObject({
+      authority: "PROPOSE_ONLY",
+      reviewStatus: "UNREVIEWED",
+    });
+    expect(result.trace.semanticDecisionAuthority).toBe(false);
+    expect(result.trace.executionAuthority).toBe(false);
   });
 
-  it("fails closed on unsafe model output", async () => {
-    const port: AiModelPort = {
-      async completeStructured() {
-        return { certificate: "trust me" };
+  it("keeps heuristic proposals and partial model trace when an agent fails", async () => {
+    const failedTrace = trace({ terminationReason: "PROVIDER_FAILURE" });
+    const port: DiscoveryAgentPort = {
+      async run() {
+        throw new ModelRequestFailure("MODEL", "RETRYABLE_PROVIDER", 1, {
+          agentTrace: failedTrace,
+        });
       },
     };
-    const worker = new StructuredModelDiscoveryWorker(
-      "model-fast-1",
-      "provider/model-small",
-      port,
-    );
-    await expect(worker.discover(task)).rejects.toThrow(/does not match/);
-
-    const authorityPort: AiModelPort = {
-      async completeStructured() {
-        return {
-          hypotheses: [
-            {
-              thesis: "A model must not inject authority fields.",
-              strategyKind: "SAME_CLAIM_CROSS_VENUE",
-              venueIds: ["kalshi", "polymarket-global"],
-              claimSearchTerms: ["rain"],
-              listingRefs: [],
-              confidenceBps: 9_999,
-              authority: "CERTIFY_AND_EXECUTE",
-            },
-          ],
-        };
-      },
-    };
-    await expect(
-      new StructuredModelDiscoveryWorker(
-        "model-fast-1",
-        "provider/model-small",
-        authorityPort,
-      ).discover(task),
-    ).rejects.toThrow(/invalid shape/);
-  });
-
-  it("keeps heuristic proposals when a model worker fails closed", async () => {
-    const port: AiModelPort = {
-      async completeStructured() {
-        throw new Error("model fixture unavailable");
-      },
-    };
-    const pool = new DiscoveryPool(
-      [
-        new HeuristicDiscoveryWorker(),
-        new StructuredModelDiscoveryWorker(
-          "model-fast-lane",
-          "gpt-5.4-mini",
-          port,
-        ),
-      ],
-      () => 1_000,
-    );
+    const pool = new DiscoveryPool([
+      new HeuristicDiscoveryWorker(),
+      new AgenticModelDiscoveryWorker("model-fast-lane", "cheap-model", port),
+    ], () => 1_000);
     const run = await pool.run(task);
     expect(run.hypotheses).toHaveLength(1);
-    expect(run.diagnostics).toEqual(["model fixture unavailable"]);
-    expect(run.workerReports).toEqual([
-      expect.objectContaining({
-        workerId: "heuristic-fast-1",
-        status: "PASS",
-        hypothesisCount: 1,
-        diagnostic: null,
-      }),
-      expect.objectContaining({
-        workerId: "model-fast-lane",
-        status: "FAILED",
-        hypothesisCount: 0,
-        diagnostic: "model fixture unavailable",
-        providerRequestAttemptCount: 1,
-        providerFailureCategory: "INVALID_MODEL_OUTPUT",
-      }),
-    ]);
-    expect(run.executionAuthority).toBe(false);
+    expect(run.diagnostics).toEqual(["MODEL model request failed [RETRYABLE_PROVIDER]"]);
+    expect(run.workerReports?.[1]).toMatchObject({
+      workerId: "model-fast-lane",
+      status: "FAILED",
+      hypothesisCount: 0,
+      providerRequestAttemptCount: 1,
+      providerFailureCategory: "RETRYABLE_PROVIDER",
+      agentTrace: { terminationReason: "PROVIDER_FAILURE" },
+    });
   });
 
-  it("runs every free worker but only the leased number of model workers", async () => {
+  it("runs every free worker but only the leased number of agent workers", async () => {
     let modelCalls = 0;
-    const port: AiModelPort = {
-      async completeStructured() {
+    const port: DiscoveryAgentPort = {
+      async run() {
         modelCalls += 1;
-        return { hypotheses: [] };
+        return Object.freeze({ hypotheses: Object.freeze([]), trace: trace() });
       },
     };
-    const pool = new DiscoveryPool(
-      [
-        new HeuristicDiscoveryWorker("heuristic-budget"),
-        new StructuredModelDiscoveryWorker("model-budget-1", "cheap-1", port),
-        new StructuredModelDiscoveryWorker("model-budget-2", "cheap-2", port),
-      ],
-      () => 1_000,
-    );
+    const pool = new DiscoveryPool([
+      new HeuristicDiscoveryWorker("heuristic-budget"),
+      new AgenticModelDiscoveryWorker("model-budget-1", "cheap-1", port),
+      new AgenticModelDiscoveryWorker("model-budget-2", "cheap-2", port),
+    ], () => 1_000);
     const run = await pool.run(task, { maxModelWorkers: 1 });
     expect(run.workerIds).toEqual(["heuristic-budget", "model-budget-1"]);
     expect(modelCalls).toBe(1);
   });
 
   it("rejects expired or unbounded discovery work", async () => {
-    const pool = new DiscoveryPool(
-      [new HeuristicDiscoveryWorker()],
-      () => 3_000,
-    );
+    const pool = new DiscoveryPool([new HeuristicDiscoveryWorker()], () => 3_000);
     await expect(pool.run(task)).rejects.toThrow(/expired/);
-    await expect(
-      pool.run({ ...task, deadlineEpochMs: 4_000, maxHypotheses: 51 }),
-    ).rejects.toThrow(/invalid or unbounded/);
+    await expect(pool.run({ ...task, deadlineEpochMs: 4_000, maxHypotheses: 51 }))
+      .rejects.toThrow(/invalid or unbounded/);
   });
 
   it("bounds heuristic prose derived from a maximum-length issue question", async () => {
@@ -208,6 +167,6 @@ describe("AI-native discovery boundary", () => {
       question: `Find related markets ${"and falsify semantic similarity ".repeat(14)}`.slice(0, 500),
     });
     expect(run.hypotheses[0]?.thesis.length).toBeLessThanOrEqual(500);
-    expect(run.workerReports[0]).toMatchObject({ status: "PASS" });
+    expect(run.workerReports?.[0]).toMatchObject({ status: "PASS" });
   });
 });

@@ -1,5 +1,7 @@
 import type {
   DiscoveryCatalogContext,
+  DiscoveryAgentEffect,
+  DiscoveryAgentTrace,
   DiscoveryDeskProjection,
   DiscoveryRun,
   DiscoveryRunRecord,
@@ -27,6 +29,155 @@ function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every(isNonEmptyString);
 }
 
+const AGENT_TOOL_NAMES = Object.freeze([
+  "search_catalog",
+  "inspect_listings",
+  "record_hypothesis",
+  "complete_search",
+  "unknown_tool",
+] as const);
+const AGENT_EFFECT_STATUSES = Object.freeze([
+  "ACCEPTED",
+  "REJECTED",
+  "IDEMPOTENT_REPLAY",
+] as const);
+const AGENT_EFFECT_REASONS = Object.freeze([
+  "CATALOG_RESULTS",
+  "LISTINGS_INSPECTED",
+  "HYPOTHESIS_RECORDED",
+  "SEARCH_COMPLETED",
+  "INVALID_INPUT",
+  "INPUT_TOO_LARGE",
+  "OUT_OF_SCOPE",
+  "UNKNOWN_LISTING",
+  "INSPECTION_REQUIRED",
+  "SEARCH_REQUIRED",
+  "PROTOCOL_INVALID",
+  "DUPLICATE",
+  "PROPOSAL_LIMIT",
+  "TOOL_CALL_LIMIT",
+  "ALREADY_COMPLETED",
+] as const);
+const AGENT_TERMINATION_REASONS = Object.freeze([
+  "EXPLICIT_COMPLETION",
+  "PROPOSAL_LIMIT",
+  "STEP_LIMIT",
+  "TOOL_CALL_LIMIT",
+  "MODEL_FINISHED",
+  "TIMEOUT",
+  "TASK_DEADLINE",
+  "PROVIDER_FAILURE",
+  "PROTOCOL_FAILURE",
+] as const);
+
+function freezeAgentEffect(value: unknown, ordinal: number): DiscoveryAgentEffect {
+  if (value === null || typeof value !== "object") {
+    throw new Error("stored discovery agent effect is malformed");
+  }
+  const effect = value as Record<string, unknown>;
+  const successfulReason = effect.reason === "CATALOG_RESULTS" ||
+    effect.reason === "LISTINGS_INSPECTED" ||
+    effect.reason === "HYPOTHESIS_RECORDED" ||
+    effect.reason === "SEARCH_COMPLETED";
+  if (
+    effect.ordinal !== ordinal ||
+    !AGENT_TOOL_NAMES.includes(effect.toolName as never) ||
+    !AGENT_EFFECT_STATUSES.includes(effect.status as never) ||
+    !AGENT_EFFECT_REASONS.includes(effect.reason as never) ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(effect.inputIdentity)) ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(effect.outputIdentity)) ||
+    !isStringArray(effect.listingRefs) || effect.listingRefs.length > 20 ||
+    effect.listingRefs.some((item) => item.length > 512) ||
+    (effect.hypothesisId !== null && !isNonEmptyString(effect.hypothesisId)) ||
+    (effect.status === "ACCEPTED") !== successfulReason ||
+    (effect.status === "IDEMPOTENT_REPLAY" && effect.reason !== "DUPLICATE") ||
+    (effect.status === "REJECTED" && successfulReason) ||
+    (effect.hypothesisId !== null && effect.toolName !== "record_hypothesis")
+  ) {
+    throw new Error("stored discovery agent effect violates its contract");
+  }
+  return Object.freeze({
+    ordinal,
+    toolName: effect.toolName,
+    status: effect.status,
+    reason: effect.reason,
+    inputIdentity: effect.inputIdentity,
+    outputIdentity: effect.outputIdentity,
+    listingRefs: Object.freeze([...effect.listingRefs]),
+    hypothesisId: effect.hypothesisId,
+  }) as DiscoveryAgentEffect;
+}
+
+function freezeAgentTrace(value: unknown): DiscoveryAgentTrace {
+  if (value === null || typeof value !== "object") {
+    throw new Error("stored discovery agent trace is malformed");
+  }
+  const trace = value as Record<string, unknown>;
+  if (!Array.isArray(trace.effects) || trace.effects.length > 64) {
+    throw new Error("stored discovery agent trace has invalid effects");
+  }
+  const effects = Object.freeze(
+    trace.effects.map((effect, index) => freezeAgentEffect(effect, index + 1)),
+  );
+  const acceptedCatalogReadCount = effects.filter((effect) =>
+    (effect.toolName === "search_catalog" || effect.toolName === "inspect_listings") &&
+    effect.status === "ACCEPTED"
+  ).length;
+  // v1 counted every read-tool effect, including a rejected call. v2 tightened
+  // the metric to successful reads while retaining exact replay of old ledgers.
+  const catalogReadCount = trace.schemaVersion === "pmh.discovery-agent-trace.v1"
+    ? effects.filter((effect) =>
+      effect.toolName === "search_catalog" || effect.toolName === "inspect_listings"
+    ).length
+    : acceptedCatalogReadCount;
+  const acceptedProposalCount = effects.filter((effect) =>
+    effect.toolName === "record_hypothesis" && effect.status === "ACCEPTED"
+  ).length;
+  const rejectedProposalCount = effects.filter((effect) =>
+    effect.toolName === "record_hypothesis" && effect.status === "REJECTED"
+  ).length;
+  if (
+    (trace.schemaVersion !== "pmh.discovery-agent-trace.v1" &&
+      trace.schemaVersion !== "pmh.discovery-agent-trace.v2") ||
+    trace.protocol !== "PMH_BOUNDED_TOOL_LOOP_V1" ||
+    !Number.isSafeInteger(trace.stepCount) || Number(trace.stepCount) < 0 ||
+    Number(trace.stepCount) > 20 ||
+    !Number.isSafeInteger(trace.providerRequestAttemptCount) ||
+    Number(trace.providerRequestAttemptCount) < 0 ||
+    Number(trace.providerRequestAttemptCount) > 20 ||
+    !Number.isSafeInteger(trace.toolCallCount) || Number(trace.toolCallCount) < 0 ||
+    Number(trace.toolCallCount) > 64 || Number(trace.toolCallCount) < effects.length ||
+    trace.catalogReadCount !== catalogReadCount ||
+    trace.acceptedProposalCount !== acceptedProposalCount ||
+    trace.rejectedProposalCount !== rejectedProposalCount ||
+    !AGENT_TERMINATION_REASONS.includes(trace.terminationReason as never) ||
+    trace.semanticDecisionAuthority !== false ||
+    trace.certificateAuthority !== false ||
+    trace.executionAuthority !== false ||
+    trace.externalWriteAuthority !== false ||
+    trace.valueMovingAuthority !== false
+  ) {
+    throw new Error("stored discovery agent trace violates its contract");
+  }
+  return Object.freeze({
+    schemaVersion: trace.schemaVersion,
+    protocol: "PMH_BOUNDED_TOOL_LOOP_V1",
+    stepCount: trace.stepCount,
+    providerRequestAttemptCount: trace.providerRequestAttemptCount,
+    toolCallCount: trace.toolCallCount,
+    catalogReadCount,
+    acceptedProposalCount,
+    rejectedProposalCount,
+    terminationReason: trace.terminationReason,
+    effects,
+    semanticDecisionAuthority: false,
+    certificateAuthority: false,
+    executionAuthority: false,
+    externalWriteAuthority: false,
+    valueMovingAuthority: false,
+  }) as DiscoveryAgentTrace;
+}
+
 function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
   if (value === null || typeof value !== "object") {
     throw new Error("stored discovery worker report is malformed");
@@ -36,7 +187,7 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
     report.providerFailureCategory === undefined;
   const telemetryPresent = Number.isSafeInteger(report.providerRequestAttemptCount) &&
     Number(report.providerRequestAttemptCount) >= 0 &&
-    Number(report.providerRequestAttemptCount) <= 16 &&
+    Number(report.providerRequestAttemptCount) <= 20 &&
     (report.providerFailureCategory === null ||
       MODEL_FAILURE_CATEGORIES.includes(
         report.providerFailureCategory as (typeof MODEL_FAILURE_CATEGORIES)[number],
@@ -76,6 +227,19 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
   ) {
     throw new Error("stored discovery worker report violates its contract");
   }
+  const agentTrace = report.agentTrace === undefined
+    ? undefined
+    : freezeAgentTrace(report.agentTrace);
+  if (
+    agentTrace !== undefined &&
+    (report.kind !== "MODEL" || !telemetryPresent ||
+      report.providerRequestAttemptCount !==
+        agentTrace.providerRequestAttemptCount ||
+      (report.status === "PASS" &&
+        report.hypothesisCount !== agentTrace.acceptedProposalCount))
+  ) {
+    throw new Error("stored discovery worker report does not bind its agent trace");
+  }
   return Object.freeze({
     workerId: report.workerId,
     kind: report.kind,
@@ -92,6 +256,7 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
           providerFailureCategory: report.providerFailureCategory,
         }
       : {}),
+    ...(agentTrace === undefined ? {} : { agentTrace }),
   }) as DiscoveryWorkerReport;
 }
 

@@ -1,7 +1,8 @@
 import { hashCanonical } from "@pmh/domain";
-import { modelFailureTelemetry } from "./model-failure.js";
+import { ModelRequestFailure, modelFailureTelemetry } from "./model-failure.js";
 import type {
-  AiModelPort,
+  DiscoveryAgentPort,
+  DiscoveryAgentRunResult,
   DiscoveryRun,
   DiscoveryTask,
   DiscoveryWorker,
@@ -283,191 +284,33 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
   }
 }
 
-type ModelPayload = Readonly<{
-  hypotheses: readonly Readonly<{
-    thesis: string;
-    strategyKind: OpportunityHypothesis["strategyKind"];
-    venueIds: readonly string[];
-    claimSearchTerms: readonly string[];
-    listingRefs: readonly string[];
-    confidenceBps: number;
-  }>[];
-}>;
-
-function parseModelPayload(value: unknown): ModelPayload {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    !Array.isArray((value as { hypotheses?: unknown }).hypotheses) ||
-    Object.keys(value).length !== 1 ||
-    (value as { hypotheses: unknown[] }).hypotheses.length > 50
-  ) {
-    throw new Error("model output does not match pmh.discovery-output.v1");
-  }
-  const hypotheses = (value as { hypotheses: unknown[] }).hypotheses.map(
-    (item) => {
-      if (
-        item === null ||
-        typeof item !== "object" ||
-        typeof (item as { thesis?: unknown }).thesis !== "string" ||
-        !Array.isArray((item as { venueIds?: unknown }).venueIds) ||
-        !Array.isArray((item as { claimSearchTerms?: unknown }).claimSearchTerms) ||
-        !Array.isArray((item as { listingRefs?: unknown }).listingRefs) ||
-        typeof (item as { confidenceBps?: unknown }).confidenceBps !== "number" ||
-        (item as { thesis: string }).thesis.trim() === "" ||
-        (item as { thesis: string }).thesis.length > 500 ||
-        Object.keys(item).length !== 6 ||
-        ![
-          "thesis",
-          "strategyKind",
-          "venueIds",
-          "claimSearchTerms",
-          "listingRefs",
-          "confidenceBps",
-        ].every((key) => Object.hasOwn(item, key))
-      ) {
-        throw new Error("model hypothesis has an invalid shape");
-      }
-      const strategyKind = (item as { strategyKind?: unknown }).strategyKind;
-      if (
-        strategyKind !== "COMPLETE_SET" &&
-        strategyKind !== "EXHAUSTIVE_RANGE" &&
-        strategyKind !== "SAME_CLAIM_CROSS_VENUE"
-      ) {
-        throw new Error("model hypothesis has an invalid strategy kind");
-      }
-      const normalizedStrategyKind: OpportunityHypothesis["strategyKind"] =
-        strategyKind;
-      const venueIds = (item as { venueIds: unknown[] }).venueIds;
-      const claimSearchTerms = (item as { claimSearchTerms: unknown[] })
-        .claimSearchTerms;
-      const confidenceBps = (item as { confidenceBps: number }).confidenceBps;
-      const listingRefs = (item as { listingRefs: unknown[] }).listingRefs;
-      if (
-        venueIds.length === 0 ||
-        venueIds.length > 25 ||
-        venueIds.some(
-          (venueId) =>
-            typeof venueId !== "string" ||
-            venueId.trim() === "" ||
-            venueId.length > 256,
-        ) ||
-        claimSearchTerms.length > 12 ||
-        claimSearchTerms.some(
-          (term) =>
-            typeof term !== "string" || term.trim() === "" || term.length > 80,
-        ) ||
-        listingRefs.length > 20 ||
-        listingRefs.some(
-          (listingRef) =>
-            typeof listingRef !== "string" ||
-            listingRef.trim() === "" ||
-            listingRef.length > 512,
-        ) ||
-        !Number.isSafeInteger(confidenceBps) ||
-        confidenceBps < 0 ||
-        confidenceBps > 10_000
-      ) {
-        throw new Error("model hypothesis exceeds its bounded contract");
-      }
-      return {
-        thesis: (item as { thesis: string }).thesis.trim(),
-        strategyKind: normalizedStrategyKind,
-        venueIds: venueIds as string[],
-        claimSearchTerms: claimSearchTerms as string[],
-        listingRefs: listingRefs as string[],
-        confidenceBps,
-      };
-    },
-  );
-  return { hypotheses };
-}
-
-export class StructuredModelDiscoveryWorker implements DiscoveryWorker {
+export class AgenticModelDiscoveryWorker implements DiscoveryWorker {
   public readonly kind = "MODEL" as const;
   public readonly costTier = "LOW" as const;
 
   public constructor(
     public readonly workerId: string,
     private readonly model: string,
-    private readonly modelPort: AiModelPort,
+    private readonly agentPort: DiscoveryAgentPort,
     private readonly searchLens?: string,
   ) {}
+
+  public async runWithTrace(task: DiscoveryTask): Promise<DiscoveryAgentRunResult> {
+    return this.agentPort.run({
+      workerId: this.workerId,
+      model: this.model,
+      system:
+        "Propose market-search hypotheses only. Never claim a verified " +
+        "arbitrage, certificate, semantic equivalence, or execution authority.",
+      ...(this.searchLens === undefined ? {} : { searchLens: this.searchLens }),
+      task,
+    });
+  }
 
   public async discover(
     task: DiscoveryTask,
   ): Promise<readonly OpportunityHypothesis[]> {
-    const payload = parseModelPayload(
-      await this.modelPort.completeStructured({
-        model: this.model,
-        schemaVersion: "pmh.discovery-output.v1",
-        system:
-          "Propose market-search hypotheses only. Never claim a verified " +
-          "arbitrage, certificate, semantic equivalence, or execution authority." +
-          (this.searchLens === undefined
-            ? ""
-            : ` Search lens: ${this.searchLens}`),
-        task,
-      }),
-    );
-    const allowedVenueIds = new Set(task.venueIds);
-    const allowedListingRefs = new Set(
-      task.catalogContext?.listings.map((listing) => listing.listingRef) ?? [],
-    );
-    const catalogVenueByListingRef = new Map(
-      task.catalogContext?.listings.map((listing) => [
-        listing.listingRef,
-        listing.venueId,
-      ]) ?? [],
-    );
-    return payload.hypotheses.slice(0, task.maxHypotheses).map((item, index) => {
-      if (task.catalogContext !== undefined && item.listingRefs.length === 0) {
-        throw new Error("model hypothesis is not grounded in a catalog listing");
-      }
-      const venueIds = [...new Set(item.venueIds)].sort().map((venueId) => {
-        if (!allowedVenueIds.has(venueId)) {
-          throw new Error("model hypothesis references an out-of-scope venue");
-        }
-        return venueId;
-      });
-      const listingRefs = [...new Set(item.listingRefs)]
-        .sort()
-        .map((listingRef) => {
-          if (!allowedListingRefs.has(listingRef)) {
-            throw new Error("model hypothesis references an out-of-scope listing");
-          }
-          return listingRef;
-        });
-      const referencedVenueIds = new Set(
-        listingRefs.map((listingRef) =>
-          catalogVenueByListingRef.get(listingRef),
-        ),
-      );
-      if (
-        task.catalogContext !== undefined &&
-        (referencedVenueIds.size !== venueIds.length ||
-          venueIds.some((venueId) => !referencedVenueIds.has(venueId)))
-      ) {
-        throw new Error("model hypothesis venue scope does not match its listings");
-      }
-      return {
-        hypothesisId: `hypothesis:${hashCanonical({
-          workerId: this.workerId,
-          taskId: task.taskId,
-          index,
-          item,
-        }).slice(7, 23)}`,
-        workerId: this.workerId,
-        thesis: item.thesis,
-        strategyKind: item.strategyKind,
-        venueIds: Object.freeze(venueIds),
-        claimSearchTerms: Object.freeze(item.claimSearchTerms),
-        listingRefs: Object.freeze(listingRefs),
-        confidenceBps: item.confidenceBps,
-        authority: "PROPOSE_ONLY",
-        reviewStatus: "UNREVIEWED",
-      };
-    });
+    return (await this.runWithTrace(task)).hypotheses;
   }
 }
 
@@ -516,7 +359,13 @@ export class DiscoveryPool {
       selectedWorkers.map(async (worker) => {
         const workerStartedAtMs = this.now();
         try {
-          const hypotheses = await worker.discover(task);
+          const execution = worker.runWithTrace === undefined
+            ? Object.freeze({
+                hypotheses: await worker.discover(task),
+                trace: undefined,
+              })
+            : await worker.runWithTrace(task);
+          const hypotheses = execution.hypotheses;
           const workerCompletedAtMs = Math.max(this.now(), workerStartedAtMs);
           return {
             worker,
@@ -531,14 +380,22 @@ export class DiscoveryPool {
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: hypotheses.length,
               diagnostic: null,
-              providerRequestAttemptCount: worker.kind === "MODEL" ? 1 : 0,
+              providerRequestAttemptCount:
+                execution.trace?.providerRequestAttemptCount ??
+                (worker.kind === "MODEL" ? 1 : 0),
               providerFailureCategory: null,
+              ...(execution.trace === undefined
+                ? {}
+                : { agentTrace: execution.trace }),
             }),
           };
         } catch (error) {
           const workerCompletedAtMs = Math.max(this.now(), workerStartedAtMs);
           const diagnostic = compactWorkerDiagnostic(error);
           const providerTelemetry = modelFailureTelemetry(error, worker.kind);
+          const agentTrace = ModelRequestFailure.isInstance(error)
+            ? error.agentTrace
+            : undefined;
           return {
             worker,
             hypotheses: Object.freeze([]),
@@ -555,6 +412,7 @@ export class DiscoveryPool {
               providerRequestAttemptCount:
                 providerTelemetry.requestAttemptCount,
               providerFailureCategory: providerTelemetry.category,
+              ...(agentTrace === undefined ? {} : { agentTrace }),
             }),
           };
         }

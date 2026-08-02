@@ -106,6 +106,16 @@ export type SearchIssueSchedulerProjection = Readonly<{
     hypothesisCount: number;
     proposalCount: number;
     evidenceGapCount: number;
+    agentTraceLeaseCount: number;
+    agentRunCount: number;
+    agentStepCount: number;
+    agentToolCallCount: number;
+    agentCatalogReadCount: number;
+    agentAcceptedProposalEffectCount: number;
+    agentRejectedProposalEffectCount: number;
+    agentExplicitCompletionCount: number;
+    agentBudgetTerminationCount: number;
+    agentFailureTerminationCount: number;
     providerRequestAttemptCount: number;
     providerFailureCount: number;
     providerFailureRateBps: number | null;
@@ -147,6 +157,16 @@ export type SearchIssueSchedulerProjection = Readonly<{
       hypothesisCount: number;
       proposalCount: number;
       evidenceGapCount: number;
+      agentTraceLeaseCount: number;
+      agentRunCount: number;
+      agentStepCount: number;
+      agentToolCallCount: number;
+      agentCatalogReadCount: number;
+      agentAcceptedProposalEffectCount: number;
+      agentRejectedProposalEffectCount: number;
+      agentExplicitCompletionCount: number;
+      agentBudgetTerminationCount: number;
+      agentFailureTerminationCount: number;
       providerRequestAttemptCount: number;
       providerFailureCount: number;
       providerFailureRateBps: number | null;
@@ -236,6 +256,16 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   hypothesisCount: number;
   proposalCount: number;
   evidenceGapCount: number;
+  agentTraceLeaseCount: number;
+  agentRunCount: number;
+  agentStepCount: number;
+  agentToolCallCount: number;
+  agentCatalogReadCount: number;
+  agentAcceptedProposalEffectCount: number;
+  agentRejectedProposalEffectCount: number;
+  agentExplicitCompletionCount: number;
+  agentBudgetTerminationCount: number;
+  agentFailureTerminationCount: number;
   providerRequestAttemptCount: number;
   providerFailureCount: number;
   providerFailureRateBps: number | null;
@@ -246,6 +276,19 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     count: number;
   }>[];
 }> {
+  const agentTelemetry = records.flatMap((record) =>
+    record.fastLane.agentTelemetry === undefined
+      ? []
+      : [record.fastLane.agentTelemetry]
+  );
+  const terminationCount = (reasons: readonly string[]) =>
+    agentTelemetry.reduce(
+      (sum, telemetry) => sum + telemetry.terminationReasons.reduce(
+        (reasonSum, item) => reasonSum + (reasons.includes(item.reason) ? item.count : 0),
+        0,
+      ),
+      0,
+    );
   const providerTelemetry = records.map(providerTelemetryFor);
   const providerRequestAttemptCount = providerTelemetry.reduce(
     (sum, telemetry) => sum + telemetry.requestAttemptCount,
@@ -369,6 +412,26 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     hypothesisCount: records.reduce((sum, record) => sum + record.outcome.hypothesisCount, 0),
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     evidenceGapCount: records.reduce((sum, record) => sum + record.outcome.evidenceGapCount, 0),
+    agentTraceLeaseCount: agentTelemetry.length,
+    agentRunCount: agentTelemetry.reduce((sum, item) => sum + item.agentRunCount, 0),
+    agentStepCount: agentTelemetry.reduce((sum, item) => sum + item.stepCount, 0),
+    agentToolCallCount: agentTelemetry.reduce((sum, item) => sum + item.toolCallCount, 0),
+    agentCatalogReadCount: agentTelemetry.reduce((sum, item) => sum + item.catalogReadCount, 0),
+    agentAcceptedProposalEffectCount: agentTelemetry.reduce(
+      (sum, item) => sum + item.acceptedProposalEffectCount,
+      0,
+    ),
+    agentRejectedProposalEffectCount: agentTelemetry.reduce(
+      (sum, item) => sum + item.rejectedProposalEffectCount,
+      0,
+    ),
+    agentExplicitCompletionCount: terminationCount(["EXPLICIT_COMPLETION"]),
+    agentBudgetTerminationCount: terminationCount([
+      "PROPOSAL_LIMIT", "STEP_LIMIT", "TOOL_CALL_LIMIT",
+    ]),
+    agentFailureTerminationCount: terminationCount([
+      "TIMEOUT", "TASK_DEADLINE", "PROVIDER_FAILURE", "PROTOCOL_FAILURE",
+    ]),
     providerRequestAttemptCount,
     providerFailureCount: attributableProviderFailures.length,
     providerFailureRateBps: ratioBps(

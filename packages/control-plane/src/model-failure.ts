@@ -1,3 +1,5 @@
+import type { DiscoveryAgentTrace } from "./types.js";
+
 export const MODEL_FAILURE_CATEGORIES = Object.freeze([
   "TIMEOUT",
   "TASK_DEADLINE",
@@ -22,20 +24,26 @@ export class ModelRequestFailure extends Error {
     public readonly provider: "DEEPSEEK" | "OPENAI" | "MODEL",
     public readonly category: ModelFailureCategory,
     public readonly requestAttemptCount: number,
-    options: Readonly<{ cause?: unknown }> = {},
+    options: Readonly<{
+      cause?: unknown;
+      agentTrace?: DiscoveryAgentTrace;
+    }> = {},
   ) {
     super(`${provider} model request failed [${category}]`, {
       ...(options.cause === undefined ? {} : { cause: options.cause }),
     });
     this.name = "ModelRequestFailure";
+    this.agentTrace = options.agentTrace;
     if (
       !Number.isSafeInteger(requestAttemptCount) ||
       requestAttemptCount < 0 ||
-      requestAttemptCount > 16
+      requestAttemptCount > 20
     ) {
       throw new Error("model request attempt count is invalid or unbounded");
     }
   }
+
+  public readonly agentTrace: DiscoveryAgentTrace | undefined;
 
   public static isInstance(error: unknown): error is ModelRequestFailure {
     return error !== null && typeof error === "object" &&

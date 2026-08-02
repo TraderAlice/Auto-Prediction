@@ -138,6 +138,7 @@ export type SearchLeaseFastLane = Readonly<{
   workerIds: readonly string[];
   modelRequestCount: number;
   providerTelemetry?: SearchLeaseProviderTelemetry;
+  agentTelemetry?: SearchLeaseAgentTelemetry;
   hypothesisIds: readonly string[];
   candidateListingRefs: readonly string[];
   semanticScope?: SearchScopeIdentity;
@@ -157,6 +158,20 @@ export type SearchLeaseProviderTelemetryProjection =
   SearchLeaseProviderTelemetry & Readonly<{
     evidenceSource: "NATIVE_WORKER_REPORTS" | "LEGACY_DERIVED";
   }>;
+
+export type SearchLeaseAgentTelemetry = Readonly<{
+  schemaVersion: "pmh.discovery-agent-telemetry.v1";
+  agentRunCount: number;
+  stepCount: number;
+  toolCallCount: number;
+  catalogReadCount: number;
+  acceptedProposalEffectCount: number;
+  rejectedProposalEffectCount: number;
+  terminationReasons: readonly Readonly<{
+    reason: import("./types.js").DiscoveryAgentTerminationReason;
+    count: number;
+  }>[];
+}>;
 
 export type SearchLeaseDeepLane = Readonly<{
   status: "NOT_RUN" | "PASS" | "FAILED";
@@ -684,13 +699,46 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     providerTelemetry.schemaVersion === "pmh.provider-attempt-telemetry.v1" &&
     Number.isSafeInteger(providerTelemetry.requestAttemptCount) &&
     providerTelemetry.requestAttemptCount >= 0 &&
-    providerTelemetry.requestAttemptCount <= 16 &&
+    providerTelemetry.requestAttemptCount <= 80 &&
     Array.isArray(providerTelemetry.failureCategories) &&
     providerTelemetry.failureCategories.length <= 4 &&
     providerTelemetry.failureCategories.every((category) =>
       category === "UNTYPED" ||
       MODEL_FAILURE_CATEGORIES.includes(category as ModelFailureCategory)
     )
+  );
+  const agentTelemetry = record.fastLane?.agentTelemetry;
+  const agentTelemetryValid = agentTelemetry === undefined || (
+    agentTelemetry.schemaVersion === "pmh.discovery-agent-telemetry.v1" &&
+    Number.isSafeInteger(agentTelemetry.agentRunCount) &&
+    agentTelemetry.agentRunCount >= 0 && agentTelemetry.agentRunCount <= 4 &&
+    Number.isSafeInteger(agentTelemetry.stepCount) &&
+    agentTelemetry.stepCount >= 0 && agentTelemetry.stepCount <= 80 &&
+    Number.isSafeInteger(agentTelemetry.toolCallCount) &&
+    agentTelemetry.toolCallCount >= 0 && agentTelemetry.toolCallCount <= 256 &&
+    Number.isSafeInteger(agentTelemetry.catalogReadCount) &&
+    agentTelemetry.catalogReadCount >= 0 &&
+    agentTelemetry.catalogReadCount <= agentTelemetry.toolCallCount &&
+    Number.isSafeInteger(agentTelemetry.acceptedProposalEffectCount) &&
+    agentTelemetry.acceptedProposalEffectCount >= 0 &&
+    agentTelemetry.acceptedProposalEffectCount <= 80 &&
+    Number.isSafeInteger(agentTelemetry.rejectedProposalEffectCount) &&
+    agentTelemetry.rejectedProposalEffectCount >= 0 &&
+    agentTelemetry.rejectedProposalEffectCount <= 256 &&
+    Array.isArray(agentTelemetry.terminationReasons) &&
+    agentTelemetry.terminationReasons.length <= 9 &&
+    new Set(agentTelemetry.terminationReasons.map((item) => item.reason)).size ===
+      agentTelemetry.terminationReasons.length &&
+    agentTelemetry.terminationReasons.every((item) =>
+      [
+        "EXPLICIT_COMPLETION", "PROPOSAL_LIMIT", "STEP_LIMIT",
+        "TOOL_CALL_LIMIT", "MODEL_FINISHED", "TIMEOUT", "TASK_DEADLINE",
+        "PROVIDER_FAILURE", "PROTOCOL_FAILURE",
+      ].includes(item.reason) && Number.isSafeInteger(item.count) &&
+      item.count > 0 && item.count <= 4
+    ) &&
+    agentTelemetry.terminationReasons.reduce((sum, item) => sum + item.count, 0) ===
+      agentTelemetry.agentRunCount
   );
   const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null || (
     Array.isArray(candidatePolicy.allowedRelationKinds) &&
@@ -744,6 +792,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     !graphContextValid ||
     !candidatePolicyValid ||
     !providerTelemetryValid ||
+    !agentTelemetryValid ||
     !semanticScopeValid(record.fastLane.semanticScope) ||
     !economicGateValid(record.fastLane.economicGate, candidatePolicy) ||
     !Number.isSafeInteger(lease.budget.maxFastModelRequests) ||
@@ -1190,6 +1239,33 @@ export class SearchLeaseScheduler {
           [],
         )),
       });
+      const agentTraces = modelReports.flatMap((report) =>
+        report.agentTrace === undefined ? [] : [report.agentTrace]
+      );
+      const terminationReasons = [
+        "EXPLICIT_COMPLETION", "PROPOSAL_LIMIT", "STEP_LIMIT",
+        "TOOL_CALL_LIMIT", "MODEL_FINISHED", "TIMEOUT", "TASK_DEADLINE",
+        "PROVIDER_FAILURE", "PROTOCOL_FAILURE",
+      ] as const;
+      const agentTelemetry: SearchLeaseAgentTelemetry = Object.freeze({
+        schemaVersion: "pmh.discovery-agent-telemetry.v1",
+        agentRunCount: agentTraces.length,
+        stepCount: agentTraces.reduce((sum, trace) => sum + trace.stepCount, 0),
+        toolCallCount: agentTraces.reduce((sum, trace) => sum + trace.toolCallCount, 0),
+        catalogReadCount: agentTraces.reduce((sum, trace) => sum + trace.catalogReadCount, 0),
+        acceptedProposalEffectCount: agentTraces.reduce(
+          (sum, trace) => sum + trace.acceptedProposalCount,
+          0,
+        ),
+        rejectedProposalEffectCount: agentTraces.reduce(
+          (sum, trace) => sum + trace.rejectedProposalCount,
+          0,
+        ),
+        terminationReasons: Object.freeze(terminationReasons.flatMap((reason) => {
+          const count = agentTraces.filter((trace) => trace.terminationReason === reason).length;
+          return count === 0 ? [] : [Object.freeze({ reason, count })];
+        })),
+      });
       const hypothesisSignature = candidateSignature(run.hypotheses);
       const groundedCandidateHypotheses = run.hypotheses.filter((hypothesis) =>
         hasGroundedMultiListingRefs(hypothesis.listingRefs ?? [])
@@ -1306,6 +1382,7 @@ export class SearchLeaseScheduler {
         workerIds: Object.freeze([...run.workerIds]),
         modelRequestCount,
         providerTelemetry,
+        agentTelemetry,
         hypothesisIds: Object.freeze(run.hypotheses.map((item) => item.hypothesisId)),
         candidateListingRefs: listingRefs,
         semanticScope,

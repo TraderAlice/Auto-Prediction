@@ -440,6 +440,16 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     hypothesisCount: 0,
     proposalCount: 0,
     evidenceGapCount: 0,
+    agentTraceLeaseCount: 0,
+    agentRunCount: 0,
+    agentStepCount: 0,
+    agentToolCallCount: 0,
+    agentCatalogReadCount: 0,
+    agentAcceptedProposalEffectCount: 0,
+    agentRejectedProposalEffectCount: 0,
+    agentExplicitCompletionCount: 0,
+    agentBudgetTerminationCount: 0,
+    agentFailureTerminationCount: 0,
     providerRequestAttemptCount: 0,
     providerFailureCount: 0,
     providerFailureRateBps: null,
@@ -1864,9 +1874,11 @@ function Overview({
           <Gauge size={14} />
           <span>
             {studioProjection.ai.modelProvider.model} · max{" "}
-            {studioProjection.ai.modelProvider.maxOutputTokens} output tokens ·{" "}
-            {studioProjection.ai.modelProvider.timeoutMs / 1_000}s · {" "}
-            {studioProjection.ai.modelProvider.fanout} model scout
+            {studioProjection.ai.modelProvider.maxOutputTokens} tokens/step ·{" "}
+            {studioProjection.ai.modelProvider.maxSteps} steps ·{" "}
+            {studioProjection.ai.modelProvider.maxToolCalls} tools ·{" "}
+            {studioProjection.ai.modelProvider.timeoutMs / 1_000}s total · {" "}
+            {studioProjection.ai.modelProvider.fanout} agent scout
             {studioProjection.ai.modelProvider.fanout === 1 ? "" : "s"} ·{" "}
             {studioProjection.ai.modelProvider.transport.replaceAll("_", " ")}
             {" · "}
@@ -2938,6 +2950,25 @@ function MarketArchaeologistView() {
             <div>
               <strong>{issuePerformance.providerNativeTelemetryLeaseCount}/{issuePerformance.providerLegacyDerivedLeaseCount}</strong>
               <span>native / legacy leases · {providerFailureCount("UNTYPED")} untyped</span>
+            </div>
+          </div>
+
+          <div className="issue-scheduler-strip issue-performance-strip" aria-label="Discovery agent activity">
+            <div>
+              <strong>{issuePerformance.agentRunCount}</strong>
+              <span>agent runs · {issuePerformance.agentTraceLeaseCount} traced leases</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.agentStepCount}/{issuePerformance.agentToolCallCount}</strong>
+              <span>model steps / tool calls · {issuePerformance.agentCatalogReadCount} catalog reads</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.agentAcceptedProposalEffectCount}/{issuePerformance.agentRejectedProposalEffectCount}</strong>
+              <span>accepted / rejected proposal effects</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.agentExplicitCompletionCount}</strong>
+              <span>explicit completions · {issuePerformance.agentBudgetTerminationCount} budget · {issuePerformance.agentFailureTerminationCount} failure</span>
             </div>
           </div>
 

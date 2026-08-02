@@ -1,0 +1,147 @@
+import { hashCanonical } from "@pmh/domain";
+import type { DiscoveryTask } from "../src/index.js";
+
+export const TEST_LISTING_REF = "gemini-predictions:GEMI-WEATHER";
+
+const contextBody = {
+  schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+  source: "VERIFIED_FIXTURE_CATALOGS" as const,
+  contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+  listings: [
+    {
+      listingRef: TEST_LISTING_REF,
+      venueId: "gemini-predictions",
+      venueInstrumentId: "GEMI-WEATHER",
+      title: "Highest temperature in Boston? — 80°F to 81°F",
+      description: "A verified fixture listing.",
+      status: "OPEN",
+      mechanism: "CENTRALIZED_ORDER_BOOK",
+      closesAt: "2026-08-01T03:59:00.000Z",
+      rulesText: "Resolves yes when the official maximum is 80°F or 81°F.",
+      outcomes: [
+        { venueOutcomeId: "YES", label: "Yes", indicativePrice: "0.42" },
+        { venueOutcomeId: "NO", label: "No", indicativePrice: "0.58" },
+      ],
+      priceScale: "1000000",
+      quantityScale: "1000000",
+      minPriceTick: "0.01",
+      sourceKind: "VERIFIED_FIXTURE" as const,
+      sourceReceivedAt: "2026-07-31T00:00:00.000Z",
+      sourceRawHash: `sha256:${"a".repeat(64)}`,
+      protocolIdentity: "fixture:test",
+    },
+  ],
+};
+
+export const agentTask: DiscoveryTask = Object.freeze({
+  taskId: "task:model-agent",
+  question: "Could this listing encode one temperature interval?",
+  venueIds: Object.freeze(["gemini-predictions"]),
+  maxHypotheses: 3,
+  deadlineEpochMs: Date.now() + 60_000,
+  catalogContext: Object.freeze({
+    ...contextBody,
+    contextIdentity: hashCanonical(contextBody),
+  }),
+});
+
+export function proposalInput(listingRef = TEST_LISTING_REF) {
+  return {
+    thesis: "The verified listing may encode one bounded interval.",
+    strategyKind: "COMPLETE_SET",
+    listingRefs: [listingRef],
+    claimSearchTerms: ["temperature", "boston"],
+    confidenceBps: 6_000,
+  };
+}
+
+export function deepSeekToolResponse(
+  name: string,
+  argumentsValue: unknown,
+  ordinal: number,
+): Response {
+  return deepSeekRawToolResponse(
+    name,
+    JSON.stringify(argumentsValue),
+    ordinal,
+  );
+}
+
+export function deepSeekRawToolResponse(
+  name: string,
+  argumentsText: string,
+  ordinal: number,
+): Response {
+  return Response.json({
+    id: `chatcmpl-${ordinal}`,
+    object: "chat.completion",
+    created: 1_785_523_200 + ordinal,
+    model: "deepseek-v4-flash",
+    choices: [{
+      index: 0,
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: `call-${ordinal}`,
+          type: "function",
+          function: { name, arguments: argumentsText },
+        }],
+      },
+      finish_reason: "tool_calls",
+    }],
+    usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+  });
+}
+
+export function openAiToolResponse(
+  name: string,
+  argumentsValue: unknown,
+  ordinal: number,
+): Response {
+  return openAiRawToolResponse(name, JSON.stringify(argumentsValue), ordinal);
+}
+
+export function openAiRawToolResponse(
+  name: string,
+  argumentsText: string,
+  ordinal: number,
+): Response {
+  return Response.json({
+    id: `resp-${ordinal}`,
+    created_at: 1_785_523_200 + ordinal,
+    model: "gpt-5.6-luna",
+    output: [{
+      type: "function_call",
+      id: `fc-${ordinal}`,
+      call_id: `call-${ordinal}`,
+      name,
+      arguments: argumentsText,
+    }],
+    usage: {
+      input_tokens: 100,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens: 20,
+      output_tokens_details: { reasoning_tokens: 0 },
+    },
+  });
+}
+
+export function scriptedToolCall(ordinal: number): Readonly<{
+  name: string;
+  input: unknown;
+}> {
+  if (ordinal === 1) {
+    return Object.freeze({
+      name: "inspect_listings",
+      input: { listingRefs: [TEST_LISTING_REF] },
+    });
+  }
+  if (ordinal === 2) {
+    return Object.freeze({ name: "record_hypothesis", input: proposalInput() });
+  }
+  return Object.freeze({
+    name: "complete_search",
+    input: { reason: "Grounded lead recorded; bounded search complete." },
+  });
+}

@@ -31,10 +31,10 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A bundled `pmh` CLI with a versioned JSON envelope, content-hashed state snapshots, explicit effects, diagnostics, and allowed next actions.
 - A Node control-plane process exposing read-only HTTP/SSE projections, discovery runs, and health state.
 - SQLite WAL operational state with bounded retention, content-hash verification, cross-restart `taskId` idempotency, and in-process concurrent-request coalescing.
-- An AI-native discovery pool where cheap parallel scouts inspect bounded, content-addressed fixture catalogs and may propose hypotheses but can never certify or execute them; its default DeepSeek V4 Flash worker runs through Vercel AI SDK with timeout, token, schema, and application-side scope bounds, while direct OpenAI Responses remains an optional backend.
+- An AI-native discovery pool where cheap parallel agents search and inspect bounded, content-addressed catalogs through first-party tools, record grounded hypotheses as durable effects, and may never certify or execute them. DeepSeek V4 Flash is the default and OpenAI Responses is an optional parity backend; both use the same Vercel AI SDK tool-loop protocol.
 - A durable AI search-lease scheduler that advances equivalence, implication,
   partition, and mechanism-divergence lenses over each immutable live corpus.
-  Cheap discovery is model-request-budgeted; only novel grounded multi-listing
+  Cheap discovery is agent-run-budgeted; only novel grounded multi-listing
   signatures may escalate once to pi, and duplicate lineage is retained without
   storing chain-of-thought. Every issued lease first retains its exact normalized
   corpus by content hash, so a restart resumes the original task evidence rather
@@ -237,9 +237,17 @@ remain server-side and are omitted from the Studio/SSE projection.
 
 The model scout is opt-in. Set `DEEPSEEK_API_KEY` in the control-plane process
 to add `deepseek-v4-flash` beside the free heuristic worker. It uses
-Vercel AI SDK 7 with validated object output, thinking disabled, an 800
-output-token ceiling, and an 8-second timeout. These non-secret bounds are
-visible in Studio and `/health`; the key is never projected or persisted.
+Vercel AI SDK 7 with native tool calls, thinking disabled, an 800-token
+per-step ceiling, an eight-step/24-tool default loop, and one five-minute total
+timeout. The model never submits a whole-response result object. It calls
+`search_catalog`, `inspect_listings`, `record_hypothesis`, and
+`complete_search`; first-party code validates scope and records accepted,
+rejected, or idempotent effects so a bad proposal can be corrected on a later
+step without losing prior work. Each tool publishes a small descriptive input
+schema; deterministic JSON repair turns malformed syntax into an ordinary
+tool-validation result instead of aborting the whole run. These non-secret bounds and aggregate agent
+activity are visible in Studio and `/health`; prompts, free-form reasoning,
+provider bodies, and the key are never projected or persisted.
 DeepSeek does not expose an OpenAI-style `store:false` request control, so the
 projection reports `PROVIDER_POLICY` rather than making a retention claim.
 The default fan-out is one model scout. `PMH_DISCOVERY_FANOUT=2..4` explicitly
@@ -313,7 +321,10 @@ score, never confidence, semantic equivalence, profit, or a verifier verdict.
 Select `PMH_DISCOVERY_PROVIDER=deepseek|openai` and override the model defaults
 with `PMH_DISCOVERY_MODEL`,
 `PMH_DISCOVERY_MAX_OUTPUT_TOKENS` (128–4096), and
-`PMH_DISCOVERY_TIMEOUT_MS` (1000–300000, default 300000). The enclosing manual
+`PMH_DISCOVERY_TIMEOUT_MS` (1000–300000, default 300000).
+`PMH_DISCOVERY_MAX_STEPS` (1–20, default 8) and
+`PMH_DISCOVERY_MAX_TOOL_CALLS` (1–64, default 24) bound the loop; the timeout is
+one total run budget rather than a per-step allowance. The enclosing manual
 task and scheduled lease deadlines are never shorter than this provider budget.
 `PMH_DISCOVERY_FANOUT` accepts 1–4
 and defaults to 1, so merely adding a key does not multiply request volume.
@@ -328,10 +339,11 @@ current process environment and run:
 pnpm --silent discovery:smoke
 ```
 
-This bounded command loads the verified Gemini fixture catalog, sends exactly
-one request through the selected production adapter, and prints a
-content-hashed `pmh.model-provider-smoke.v2` report. A valid zero-hypothesis
-response still passes. The report contains no credential and the command
+This bounded command loads the verified Gemini fixture catalog, requires a
+native multi-step run with at least one catalog read, and prints a
+content-hashed `pmh.model-provider-smoke.v3` report with safe step, request,
+tool, proposal-effect, and termination telemetry. An explicit no-candidate
+completion can pass without fabricating a hypothesis. The report contains no credential and the command
 writes no file, changes no operational state, and has no execution authority.
 OpenAI requests use `store:false`; DeepSeek retention follows provider policy.
 Avoid putting a key directly on the command line or in shell history, and unset

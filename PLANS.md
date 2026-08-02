@@ -1,8 +1,10 @@
 # Plans
 
-There is no active construction plan. The next measured bottleneck should be
-promoted from the deferred list only after fresh runtime evidence defines a
-bounded campaign.
+The latest completed construction plan is
+[`plans/agent-first-discovery-runtime.md`](plans/agent-first-discovery-runtime.md).
+It replaces one-shot whole-response JSON parsing with a bounded multi-step
+agent whose read-only catalog tools and proposal tools produce an immutable,
+operator-visible effect journal.
 
 ## Planning contract
 
@@ -39,6 +41,20 @@ rejections, and malformed successful responses project safe distinct failure
 categories. A real configured DeepSeek smoke completed in 746 ms with one
 provider request, and the live Studio projection shows `300s` without browser
 warnings. Full workspace checks, 407 tests, and the production build pass.
+
+The agent-first campaign is qualified. It removed the fast lane's one-shot output
+object and old structured worker. DeepSeek Chat Completions and OpenAI Responses
+now share a native Vercel AI SDK tool loop with four corpus-bound first-party
+tools, descriptive tool schemas, deterministic malformed-JSON repair,
+recoverable validation results, explicit completion, one total timeout, and
+configurable step/tool budgets. Discovery records persist a bounded safe v2
+effect journal while retained v1 traces replay under their original metric
+semantics. Search leases and issue metrics aggregate agent runs, steps, tool
+calls, catalog reads, proposal acceptance/rejection, and termination classes.
+A real DeepSeek v3 smoke completed in two model steps and two tool calls with an
+accepted catalog inspection and explicit completion in 3.554 seconds. Node
+24.14.0 checks, 416 tests, production build, SQLite restart, desktop QA, and
+390 px QA pass. Pi remains the separate deep investigation lane.
 
 AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party

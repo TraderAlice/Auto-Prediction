@@ -8,13 +8,17 @@ import {
 import {
   type OpenAiFetchLike,
 } from "./openai-model.js";
-import type { ModelProviderProjection, OpportunityHypothesis } from "./types.js";
+import type {
+  DiscoveryAgentTrace,
+  ModelProviderProjection,
+  OpportunityHypothesis,
+} from "./types.js";
 
 const SMOKE_QUESTION = "Highest temperature in Boston on July 31, 2026?";
 const SMOKE_VENUES = Object.freeze(["gemini-predictions"]);
 
 export type ModelProviderSmokeReport = Readonly<{
-  schemaVersion: "pmh.model-provider-smoke.v2";
+  schemaVersion: "pmh.model-provider-smoke.v3";
   status: "PASS";
   startedAt: string;
   completedAt: string;
@@ -41,10 +45,14 @@ export type ModelProviderSmokeReport = Readonly<{
       | "reviewStatus"
     >[];
     diagnostics: readonly string[];
+    agentTrace: DiscoveryAgentTrace;
     executionAuthority: false;
   }>;
   effects: Readonly<{
-    providerRequests: 1;
+    providerRequests: number;
+    modelSteps: number;
+    toolCalls: number;
+    catalogReads: number;
     responseStorage: ModelProviderProjection["responseStorage"];
     externalWrites: false;
     valueMovingActions: false;
@@ -100,9 +108,27 @@ export async function runModelProviderSmoke(
   if (run.diagnostics.length > 0) {
     throw new Error(`provider smoke failed: ${run.diagnostics.join("; ")}`);
   }
+  const agentTrace = run.workerReports?.[0]?.agentTrace;
+  if (
+    agentTrace === undefined || agentTrace.stepCount < 2 ||
+    agentTrace.providerRequestAttemptCount < 2 || agentTrace.catalogReadCount < 1 ||
+    (agentTrace.acceptedProposalCount < 1 &&
+      agentTrace.terminationReason !== "EXPLICIT_COMPLETION")
+  ) {
+    throw new Error(
+      "provider smoke failed: native agent loop did not complete the multi-step qualification " +
+        `(steps=${agentTrace?.stepCount ?? 0}, requests=${agentTrace?.providerRequestAttemptCount ?? 0}, ` +
+        `tools=${agentTrace?.toolCallCount ?? 0}, reads=${agentTrace?.catalogReadCount ?? 0}, ` +
+        `accepted=${agentTrace?.acceptedProposalCount ?? 0}, ` +
+        `termination=${agentTrace?.terminationReason ?? "MISSING_TRACE"}, ` +
+        `effects=${agentTrace?.effects.map((effect) =>
+          `${effect.toolName}:${effect.status}:${effect.reason}`
+        ).join(",") ?? "none"})`,
+    );
+  }
 
   const body = Object.freeze({
-    schemaVersion: "pmh.model-provider-smoke.v2" as const,
+    schemaVersion: "pmh.model-provider-smoke.v3" as const,
     status: "PASS" as const,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
@@ -132,10 +158,14 @@ export async function runModelProviderSmoke(
         ),
       ),
       diagnostics: run.diagnostics,
+      agentTrace,
       executionAuthority: false as const,
     }),
     effects: Object.freeze({
-      providerRequests: 1 as const,
+      providerRequests: agentTrace.providerRequestAttemptCount,
+      modelSteps: agentTrace.stepCount,
+      toolCalls: agentTrace.toolCallCount,
+      catalogReads: agentTrace.catalogReadCount,
       responseStorage: runtime.projection.responseStorage,
       externalWrites: false as const,
       valueMovingActions: false as const,
