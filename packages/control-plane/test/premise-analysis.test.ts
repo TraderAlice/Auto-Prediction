@@ -6,15 +6,18 @@ import { hashCanonical } from "@pmh/domain";
 import {
   assertPremiseAnalysisArtifact,
   assertResearchRelationPayoff,
+  buildProposalEvidenceBundle,
   buildPremiseBearingRelationArtifact,
   buildMarketCorpusSnapshot,
   buildSemanticPremiseArtifact,
   createPremiseAnalysisDesk,
   createSemanticReviewDesk,
   compileResearchRelationPayoff,
+  classifySemanticReviewAdmission,
   DeepSeekPremiseAnalysisModelPort,
   PremiseAnalysisDesk,
   PremiseAnalysisScheduler,
+  SemanticReviewScheduler,
   parsePremiseAnalysisTickInterval,
   type MarketRelationProposal,
   type PremiseAnalysisModelPort,
@@ -182,7 +185,157 @@ function analysisResult(review: Awaited<ReturnType<typeof reviewed>>) {
   });
 }
 
+function attributedPremiseCandidate(review: Awaited<ReturnType<typeof reviewed>>) {
+  return Object.freeze({
+    proposal,
+    review,
+    semanticReviewJobId: hashCanonical({
+      schemaVersion: "pmh.semantic-review-job-id.v1",
+      proposalId: proposal.proposalId,
+    }),
+    issueIds: Object.freeze([hashCanonical({ issue: "premise-analysis" })]),
+    admissionLane: "AUTO_PREMISE_REVIEW" as const,
+  });
+}
+
 describe("Agent-native hidden premise analysis", () => {
+  it("carries a three-market conditional proposal through review, premise audit, and exact payoff replay", async () => {
+    expect(classifySemanticReviewAdmission(proposal)).toMatchObject({
+      lane: "AUTO_PREMISE_REVIEW",
+      reason: "PREMISE_AUDIT_REQUIRED",
+    });
+    let reviewCalls = 0;
+    const reviewDesk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-review-key" },
+      {
+        reviewer: {
+          async review() {
+            reviewCalls += 1;
+            return {
+              recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION" as const,
+              relationConclusion: "CONDITIONAL" as const,
+              assessments: {
+                outcomeMapping: "Three explicit binary listing truths.",
+                timingAndClose: "Fatality precedes the later appearance window.",
+                voidAndCancellation: "Fixture rules retain the scoped outcomes.",
+                resolutionSources: "Each truth is independently settlement-bound.",
+              },
+              counterexamples: [],
+              missingEvidence: [],
+              rationale: "The fatality listing turns the hidden condition into a traded variable.",
+              constraintDraft: {
+                relationKind: "CONDITIONAL" as const,
+                classification: "HARD_SETTLEMENT_CONSTRAINT" as const,
+                assumptions: [],
+                truthTable: truthTable(),
+                unresolvedEvidence: [],
+                counterexampleAttempt: {
+                  attempted: true as const,
+                  result: "NOT_FOUND" as const,
+                  narrative: "No fatal-and-later-livestream state survives.",
+                  truths: [true, true, true],
+                },
+              },
+              evidenceRequirementDrafts: [],
+            };
+          },
+        },
+      },
+    );
+    let now = Date.parse("2026-08-02T08:00:00.000Z");
+    const reviewScheduler = new SemanticReviewScheduler({
+      reviewDesk,
+      tickIntervalMs: 1_000,
+      now: () => now,
+    });
+    const evidenceBundle = buildProposalEvidenceBundle(proposal, snapshot);
+    const reviewCandidate = Object.freeze({
+      proposal,
+      proposalCorpusSnapshotIdentity: snapshot.snapshotIdentity,
+      evidenceBundle,
+      issueIds: Object.freeze([hashCanonical({ issue: "three-market-conditional" })]),
+      priority: 5 as const,
+    });
+    await Promise.all(reviewScheduler.tick([reviewCandidate], snapshot));
+    expect(reviewCalls).toBe(1);
+    expect(reviewScheduler.projection()).toMatchObject({
+      passedCount: 1,
+      researchOnlyCount: 0,
+      budget: { requestAttemptsStarted: 1 },
+    });
+    const review = reviewDesk.projection().records[0]!;
+    expect(review.report?.result.semanticConstraint).toMatchObject({
+      listingRefs: refs,
+      exactCompilerAdmission: "ELIGIBLE",
+    });
+
+    let premiseCalls = 0;
+    const premiseDesk = new PremiseAnalysisDesk({
+      async analyze() {
+        premiseCalls += 1;
+        return analysisResult(review);
+      },
+    }, "deepseek-v4-flash", 20, undefined, 2);
+    const premiseScheduler = new PremiseAnalysisScheduler({
+      desk: premiseDesk,
+      tickIntervalMs: 1_000,
+      now: () => now,
+    });
+    const reviewJob = reviewScheduler.projection().jobs[0]!;
+    const premiseCandidates = [Object.freeze({
+      proposal,
+      review,
+      semanticReviewJobId: reviewJob.jobId,
+      issueIds: reviewJob.issueIds,
+      admissionLane: "AUTO_PREMISE_REVIEW" as const,
+    })] as const;
+    await Promise.all(premiseScheduler.tick(premiseCandidates));
+    expect(premiseCalls).toBe(1);
+    expect(premiseScheduler.projection()).toMatchObject({
+      passedCount: 1,
+      exactEligibleCount: 1,
+      unreadNotificationCount: 1,
+      notifications: [{ kind: "EXACT_RELATION_READY", status: "UNREAD" }],
+    });
+    const premiseAnalysis = premiseDesk.projection().records[0]!.analysis!;
+    const decisionBody = Object.freeze({
+      schemaVersion: "pmh.research-semantic-decision.v1" as const,
+      opportunityId: `ai:${proposal.proposalId}`,
+      semanticReviewArtifactHash: review.report!.artifactHash,
+      reviewRecommendation: "ACCEPT_FOR_RESEARCH_SIMULATION" as const,
+      decision: "ACCEPT_FOR_SIMULATION" as const,
+      rationale: "Exercise the fully audited three-market path.",
+      decidedAt: "2026-08-02T08:00:01.000Z",
+      authority: "LOCAL_OPERATOR_RESEARCH_ONLY" as const,
+      productionReviewAuthority: false as const,
+      productionPromotionEligible: false as const,
+      executionAuthority: false as const,
+      effects: Object.freeze({
+        externalWrites: false as const,
+        valueMovingActions: false as const,
+        liveExecutionEnabled: false as const,
+      }),
+    });
+    const payoff = compileResearchRelationPayoff({
+      opportunityId: `ai:${proposal.proposalId}`,
+      proposal,
+      review,
+      decision: Object.freeze({
+        ...decisionBody,
+        decisionId: hashCanonical(decisionBody),
+      }),
+      premiseAnalysis,
+    });
+    expect(payoff).toMatchObject({
+      schemaVersion: "pmh.research-relation-payoff.v3",
+      status: "SIMULATION_TEMPLATE_READY",
+      premiseBearingRelationArtifactHash: premiseAnalysis.relation.artifactHash,
+    });
+    expect(payoff.canonicalStates).toHaveLength(6);
+    expect(payoff.portfolios).toHaveLength(1);
+    now += 1_000;
+  });
+
   it("uses repairable tool effects and emits a self-verifying traded-premise relation", async () => {
     const review = await reviewed();
     const bodies: Record<string, unknown>[] = [];
@@ -288,7 +441,7 @@ describe("Agent-native hidden premise analysis", () => {
     expect(restartedDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 22,
+      schemaVersion: 23,
       idempotencyKey: "analysisId",
     });
     expect(restartedDesk.projection().records).toEqual([record]);
@@ -357,7 +510,7 @@ describe("Agent-native hidden premise analysis", () => {
       maxAttempts: 2,
       now: () => now,
     });
-    const candidates = [{ proposal, review }] as const;
+    const candidates = [attributedPremiseCandidate(review)] as const;
 
     scheduler.reconcile(candidates);
     expect(scheduler.projection()).toMatchObject({
@@ -365,7 +518,7 @@ describe("Agent-native hidden premise analysis", () => {
       configured: true,
       pendingCount: 1,
       dueCount: 1,
-      storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 22 },
+      storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 23 },
     });
     await Promise.all(scheduler.tick(candidates));
     expect(scheduler.projection()).toMatchObject({
@@ -378,6 +531,7 @@ describe("Agent-native hidden premise analysis", () => {
     expect(scheduler.projection()).toMatchObject({
       passedCount: 1,
       exactEligibleCount: 1,
+      unreadNotificationCount: 1,
       retryWaitCount: 0,
       budget: { providerAttemptsStarted: 2 },
       authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
@@ -385,6 +539,19 @@ describe("Agent-native hidden premise analysis", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    expect(scheduler.projection().notifications).toHaveLength(1);
+    expect(scheduler.projection().notifications[0]).toMatchObject({
+      kind: "EXACT_RELATION_READY",
+      status: "UNREAD",
+      proposalId: proposal.proposalId,
+    });
+    const notificationId = scheduler.projection().notifications[0]!.notificationId;
+    expect(scheduler.acknowledge(notificationId)).toMatchObject({
+      notificationId,
+      status: "READ",
+      readAt: "2026-08-02T08:00:01.000Z",
+    });
+    expect(scheduler.acknowledge(notificationId).status).toBe("READ");
     const completedAnalysis = desk.projection().records.find((record) =>
       record.status === "PASS"
     )?.analysis;
@@ -471,9 +638,14 @@ describe("Agent-native hidden premise analysis", () => {
     expect(restarted.projection()).toMatchObject({
       passedCount: 1,
       exactEligibleCount: 1,
+      unreadNotificationCount: 0,
       activeCount: 0,
       dueCount: 0,
+      notificationStorage: { durable: true, schemaVersion: 23 },
     });
+    expect(restarted.projection().notifications).toEqual(
+      scheduler.projection().notifications,
+    );
     expect(restarted.tick(candidates)).toEqual([]);
     expect(attempts).toBe(2);
     restartedStore.close();

@@ -125,14 +125,16 @@ const EMPTY_SEMANTIC_REVIEW: StudioProjection["ai"]["semanticReview"] = {
 };
 
 const EMPTY_SEMANTIC_REVIEW_ADMISSION: StudioProjection["ai"]["semanticReviewAdmission"] = {
-  schemaVersion: "pmh.semantic-review-admission-desk.v1",
-  policy: "TWO_DISTINCT_LISTINGS_AND_COMPILABLE_RELATION_V1",
+  schemaVersion: "pmh.semantic-review-admission-desk.v2",
+  policy: "TWO_TO_FOUR_DISTINCT_LISTINGS_WITH_PREMISE_LANE_V2",
   candidateCount: 0,
   autoReviewCount: 0,
+  premiseReviewCount: 0,
   researchOnlyCount: 0,
   autoReviewRateBps: null,
   countsByReason: {
     TWO_LISTING_COMPILABLE_RELATION: 0,
+    PREMISE_AUDIT_REQUIRED: 0,
     NON_COMPILABLE_RELATION: 0,
     LISTING_ARITY_UNSUPPORTED: 0,
     DUPLICATE_LISTING_REF: 0,
@@ -144,6 +146,9 @@ const EMPTY_SEMANTIC_REVIEW_ADMISSION: StudioProjection["ai"]["semanticReviewAdm
     "SUBSET",
     "MUTUALLY_EXCLUSIVE",
     "EXHAUSTIVE",
+    "CONDITIONAL",
+    "RELATED",
+    "CONFLICTING",
   ],
   manualReviewAvailable: true,
   modelConfidenceUsed: false,
@@ -232,7 +237,7 @@ const EMPTY_PREMISE_ANALYSIS: StudioProjection["ai"]["premiseAnalysis"] = {
 };
 
 const EMPTY_PREMISE_ANALYSIS_SCHEDULER: StudioProjection["ai"]["premiseAnalysisScheduler"] = {
-  schemaVersion: "pmh.premise-analysis-scheduler.v1",
+  schemaVersion: "pmh.premise-analysis-scheduler.v2",
   enabled: false,
   configured: false,
   status: "NEEDS_KEY",
@@ -247,6 +252,9 @@ const EMPTY_PREMISE_ANALYSIS_SCHEDULER: StudioProjection["ai"]["premiseAnalysisS
   exhaustedCount: 0,
   exactEligibleCount: 0,
   researchOnlyCount: 0,
+  attributedJobCount: 0,
+  legacyAttributionDebtCount: 0,
+  unreadNotificationCount: 0,
   budget: {
     basis: "PROVIDER_ATTEMPTS",
     maxAttemptsPerJob: 3,
@@ -254,7 +262,11 @@ const EMPTY_PREMISE_ANALYSIS_SCHEDULER: StudioProjection["ai"]["premiseAnalysisS
     providerAttemptsStarted: 0,
   },
   jobs: [],
+  notifications: [],
   storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "jobId" },
+  notificationStorage: {
+    mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "notificationId",
+  },
   authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
   semanticDecisionAuthority: false,
   certificateAuthority: false,
@@ -1168,6 +1180,19 @@ async function requestReviewNotificationAcknowledgement(
   const result = (await response.json()) as { diagnostic?: string };
   if (!response.ok) {
     throw new Error(result.diagnostic ?? "review notification acknowledgement failed");
+  }
+}
+
+async function requestPremiseNotificationAcknowledgement(
+  notificationId: string,
+): Promise<void> {
+  const response = await fetch(
+    `/api/v1/premise-analysis-notifications/${notificationId}/acknowledgements`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+  );
+  const result = (await response.json()) as { diagnostic?: string };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "premise notification acknowledgement failed");
   }
 }
 
@@ -3810,6 +3835,7 @@ function OpportunityLifecycleView() {
     Readonly<Record<string, string>>
   >({});
   const [reviewNotificationAction, setReviewNotificationAction] = useState<string | null>(null);
+  const [premiseNotificationAction, setPremiseNotificationAction] = useState<string | null>(null);
   const proposals = new Map(
     studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
       (record.report?.result.proposals ?? []).map((proposal) => [
@@ -3837,6 +3863,15 @@ function OpportunityLifecycleView() {
       await requestReviewNotificationAcknowledgement(notificationId);
     } finally {
       setReviewNotificationAction(null);
+    }
+  }
+
+  async function acknowledgePremiseNotification(notificationId: string): Promise<void> {
+    setPremiseNotificationAction(notificationId);
+    try {
+      await requestPremiseNotificationAcknowledgement(notificationId);
+    } finally {
+      setPremiseNotificationAction(null);
     }
   }
 
@@ -4358,7 +4393,7 @@ function OpportunityLifecycleView() {
             </div>
           </div>
           <Badge variant={premiseScheduler.exactEligibleCount > 0 ? "verified" : "muted"}>
-            {premiseScheduler.exactEligibleCount} EXACT
+            {premiseScheduler.exactEligibleCount} EXACT · {premiseScheduler.unreadNotificationCount} UNREAD
           </Badge>
         </div>
         <div className="review-operations-stats">
@@ -4368,44 +4403,77 @@ function OpportunityLifecycleView() {
           <div><strong>{premiseScheduler.passedCount}</strong><span>audited</span></div>
           <div><strong>{premiseScheduler.exactEligibleCount}</strong><span>closed logic</span></div>
           <div><strong>{premiseScheduler.researchOnlyCount}</strong><span>premise-dependent</span></div>
+          <div><strong>{premiseScheduler.attributedJobCount}</strong><span>review-attributed</span></div>
+          <div><strong>{premiseScheduler.legacyAttributionDebtCount}</strong><span>legacy debt</span></div>
           <div><strong>{premiseScheduler.exhaustedCount}</strong><span>exhausted</span></div>
           <div>
             <strong>{premiseScheduler.budget.providerAttemptsStarted}</strong>
             <span>provider attempts · {premiseScheduler.budget.maxAttemptsPerJob}/job</span>
           </div>
         </div>
-        <div className="review-job-list">
-          {premiseScheduler.jobs.length === 0 ? (
-            <div className="review-operation-empty">
-              <strong>No premise-audit jobs retained</strong>
-              <span>Passed 2–4 market semantic constraints seed one scope-bound Agent audit.</span>
-            </div>
-          ) : premiseScheduler.jobs.slice(0, 8).map((job) => {
-            const record = premiseAnalysis.records.find((item) => item.analysisId === job.analysisId);
-            const relation = record?.analysis?.relation;
-            return (
-              <article key={job.jobId}>
-                <Badge variant={job.exactCompilerAdmission === "ELIGIBLE" ? "verified" : job.status === "EXHAUSTED" ? "warning" : "muted"}>
-                  {job.status.replaceAll("_", " ")}
-                </Badge>
-                <div>
-                  <strong>
-                    {relation === undefined
-                      ? proposals.get(job.proposalId)?.statement ?? "Scoped hidden-premise audit"
-                      : `${relation.classification.replaceAll("_", " ")} · ${relation.exactCompilerAdmission}`}
-                  </strong>
-                  <span>
-                    {record?.analysis?.premises.length ?? 0} premise artifact
-                    {(record?.analysis?.premises.length ?? 0) === 1 ? "" : "s"}
-                    {relation ? ` · ${relation.evaluatedStates.length} states replayed` : ""}
-                    {relation?.blocker ? ` · ${relation.blocker.replaceAll("_", " ")}` : ""}
+        <div className="review-operations-body">
+          <div className="review-job-list">
+            {premiseScheduler.jobs.length === 0 ? (
+              <div className="review-operation-empty">
+                <strong>No premise-audit jobs retained</strong>
+                <span>Passed 2–4 market semantic constraints seed one scope-bound Agent audit.</span>
+              </div>
+            ) : premiseScheduler.jobs.slice(0, 8).map((job) => {
+              const record = premiseAnalysis.records.find((item) => item.analysisId === job.analysisId);
+              const relation = record?.analysis?.relation;
+              return (
+                <article key={job.jobId}>
+                  <Badge variant={job.exactCompilerAdmission === "ELIGIBLE" ? "verified" : job.status === "EXHAUSTED" ? "warning" : "muted"}>
+                    {job.status.replaceAll("_", " ")}
+                  </Badge>
+                  <div>
+                    <strong>
+                      {relation === undefined
+                        ? proposals.get(job.proposalId)?.statement ?? "Scoped hidden-premise audit"
+                        : `${relation.classification.replaceAll("_", " ")} · ${relation.exactCompilerAdmission}`}
+                    </strong>
+                    <span>
+                      {record?.analysis?.premises.length ?? 0} premise artifact
+                      {(record?.analysis?.premises.length ?? 0) === 1 ? "" : "s"}
+                      {relation ? ` · ${relation.evaluatedStates.length} states replayed` : ""}
+                      {relation?.blocker ? ` · ${relation.blocker.replaceAll("_", " ")}` : ""}
                     {` · attempt ${job.attemptCount}/${job.maxAttempts}`}
-                  </span>
+                    {job.schemaVersion === "pmh.premise-analysis-job.v2"
+                      ? ` · ${job.admissionLane!.replaceAll("_", " ")} · ${job.issueIds!.length} issue${job.issueIds!.length === 1 ? "" : "s"}`
+                      : " · LEGACY UNATTRIBUTED"}
+                    </span>
+                  </div>
+                  <code>{job.evidenceScopeIdentity.slice(7, 19)}…</code>
+                </article>
+              );
+            })}
+          </div>
+          <div className="review-notification-list">
+            {premiseScheduler.notifications.length === 0 ? (
+              <div className="review-operation-empty">
+                <strong>Premise inbox is quiet</strong>
+                <span>Exact-ready, research-retained, and exhausted Agent audits notify here.</span>
+              </div>
+            ) : premiseScheduler.notifications.slice(0, 6).map((notification) => (
+              <article className={notification.status === "READ" ? "is-read" : undefined} key={notification.notificationId}>
+                <div>
+                  <Badge variant={notification.kind === "EXACT_RELATION_READY" ? "verified" : notification.kind === "JOB_EXHAUSTED" ? "warning" : "shadow"}>
+                    {notification.kind.replaceAll("_", " ")}
+                  </Badge>
+                  <time>{new Date(notification.createdAt).toLocaleString()}</time>
                 </div>
-                <code>{job.evidenceScopeIdentity.slice(7, 19)}…</code>
+                <strong>{notification.title}</strong>
+                <p>{notification.summary}</p>
+                {notification.status === "UNREAD" && (
+                  <button
+                    type="button"
+                    disabled={premiseNotificationAction === notification.notificationId}
+                    onClick={() => void acknowledgePremiseNotification(notification.notificationId)}
+                  >Acknowledge</button>
+                )}
               </article>
-            );
-          })}
+            ))}
+          </div>
         </div>
         <div className="attention-authority-lock">
           <CircleOff size={14} />

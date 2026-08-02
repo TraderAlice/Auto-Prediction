@@ -16,13 +16,21 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_REQUESTS_PER_TICK = 3;
 const DEFAULT_LEASE_TIMEOUT_MS = 330_000;
 const DEFAULT_RETRY_DELAY_MS = 30_000;
-const JOB_KEYS = Object.freeze([
+const JOB_KEYS_V1 = Object.freeze([
   "analysisId", "artifactHash", "attemptCount", "authority", "certificateAuthority",
   "completedAt", "createdAt", "diagnostic", "evidenceScopeIdentity", "executionAuthority",
   "exactCompilerAdmission", "interpreterIdentity", "jobId", "lastAnalysisArtifactHash",
   "leasedAt", "leaseExpiresAt", "maxAttempts", "nextAttemptAt", "proposalId",
   "providerRequestAuthority", "schemaVersion", "semanticDecisionAuthority",
   "semanticReviewArtifactHash", "status", "updatedAt",
+]);
+const JOB_KEYS_V2 = Object.freeze([
+  ...JOB_KEYS_V1,
+  "admissionLane", "issueIds", "semanticReviewJobId",
+]);
+const NOTIFICATION_KEYS = Object.freeze([
+  "artifactHash", "createdAt", "dedupeIdentity", "jobId", "kind", "notificationId",
+  "proposalId", "readAt", "schemaVersion", "status", "summary", "title",
 ]);
 
 export type PremiseAnalysisJobStatus =
@@ -35,16 +43,22 @@ export type PremiseAnalysisJobStatus =
 export type PremiseAnalysisCandidate = Readonly<{
   proposal: MarketRelationProposal;
   review: SemanticReviewRecord;
+  semanticReviewJobId: Hash;
+  issueIds: readonly Hash[];
+  admissionLane: "AUTO_ARBITRAGE_REVIEW" | "AUTO_PREMISE_REVIEW";
 }>;
 
 export type PremiseAnalysisJobRecord = Readonly<{
-  schemaVersion: "pmh.premise-analysis-job.v1";
+  schemaVersion: "pmh.premise-analysis-job.v1" | "pmh.premise-analysis-job.v2";
   jobId: Hash;
   analysisId: Hash;
   proposalId: Hash;
   semanticReviewArtifactHash: Hash;
   evidenceScopeIdentity: Hash;
   interpreterIdentity: Hash;
+  semanticReviewJobId?: Hash;
+  issueIds?: readonly Hash[];
+  admissionLane?: "AUTO_ARBITRAGE_REVIEW" | "AUTO_PREMISE_REVIEW";
   status: PremiseAnalysisJobStatus;
   attemptCount: number;
   maxAttempts: number;
@@ -65,17 +79,40 @@ export type PremiseAnalysisJobRecord = Readonly<{
   artifactHash: Hash;
 }>;
 
+export type PremiseAnalysisNotificationRecord = Readonly<{
+  schemaVersion: "pmh.premise-analysis-notification.v1";
+  notificationId: Hash;
+  dedupeIdentity: Hash;
+  jobId: Hash;
+  proposalId: Hash;
+  kind: "EXACT_RELATION_READY" | "RESEARCH_RELATION_RETAINED" | "JOB_EXHAUSTED";
+  status: "UNREAD" | "READ";
+  title: string;
+  summary: string;
+  createdAt: string;
+  readAt: string | null;
+  artifactHash: Hash;
+}>;
+
 export interface PremiseAnalysisSchedulerStore {
   readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
+  readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
   loadPremiseAnalysisJobRecords(limit: number): readonly PremiseAnalysisJobRecord[];
   savePremiseAnalysisJobRecord(
     record: PremiseAnalysisJobRecord,
     retentionLimit: number,
   ): PremiseAnalysisJobRecord;
+  loadPremiseAnalysisNotificationRecords(
+    limit: number,
+  ): readonly PremiseAnalysisNotificationRecord[];
+  savePremiseAnalysisNotificationRecord(
+    record: PremiseAnalysisNotificationRecord,
+    retentionLimit: number,
+  ): PremiseAnalysisNotificationRecord;
 }
 
 export type PremiseAnalysisSchedulerProjection = Readonly<{
-  schemaVersion: "pmh.premise-analysis-scheduler.v1";
+  schemaVersion: "pmh.premise-analysis-scheduler.v2";
   enabled: boolean;
   configured: boolean;
   status: "IDLE" | "RUNNING" | "NEEDS_KEY";
@@ -90,6 +127,9 @@ export type PremiseAnalysisSchedulerProjection = Readonly<{
   exhaustedCount: number;
   exactEligibleCount: number;
   researchOnlyCount: number;
+  attributedJobCount: number;
+  legacyAttributionDebtCount: number;
+  unreadNotificationCount: number;
   budget: Readonly<{
     basis: "PROVIDER_ATTEMPTS";
     maxAttemptsPerJob: number;
@@ -97,7 +137,9 @@ export type PremiseAnalysisSchedulerProjection = Readonly<{
     providerAttemptsStarted: number;
   }>;
   jobs: readonly PremiseAnalysisJobRecord[];
+  notifications: readonly PremiseAnalysisNotificationRecord[];
   storage: OperationalStorageProjection<"jobId">;
+  notificationStorage: OperationalStorageProjection<"notificationId">;
   authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY";
   semanticDecisionAuthority: false;
   certificateAuthority: false;
@@ -153,6 +195,19 @@ function withHash(
   return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
 }
 
+function withoutNotificationHash(
+  record: PremiseAnalysisNotificationRecord,
+): Omit<PremiseAnalysisNotificationRecord, "artifactHash"> {
+  const { artifactHash: _artifactHash, ...body } = record;
+  return body;
+}
+
+function withNotificationHash(
+  body: Omit<PremiseAnalysisNotificationRecord, "artifactHash">,
+): PremiseAnalysisNotificationRecord {
+  return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
+}
+
 export function assertPremiseAnalysisJobRecord(value: unknown): PremiseAnalysisJobRecord {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("stored premise analysis job is malformed");
@@ -162,12 +217,33 @@ export function assertPremiseAnalysisJobRecord(value: unknown): PremiseAnalysisJ
   const terminal = record.status === "PASS" || record.status === "EXHAUSTED";
   const { artifactHash, ...body } = record;
   if (
-    !exactKeys(record, JOB_KEYS) || record.schemaVersion !== "pmh.premise-analysis-job.v1" ||
+    !["pmh.premise-analysis-job.v1", "pmh.premise-analysis-job.v2"]
+      .includes(record.schemaVersion) ||
+    !exactKeys(record, record.schemaVersion === "pmh.premise-analysis-job.v1"
+      ? JOB_KEYS_V1
+      : JOB_KEYS_V2) ||
     !HASH_PATTERN.test(String(record.jobId)) || record.jobId !== record.analysisId ||
     !HASH_PATTERN.test(String(record.analysisId)) || !HASH_PATTERN.test(String(record.proposalId)) ||
     !HASH_PATTERN.test(String(record.semanticReviewArtifactHash)) ||
     !HASH_PATTERN.test(String(record.evidenceScopeIdentity)) ||
     !HASH_PATTERN.test(String(record.interpreterIdentity)) ||
+    (record.schemaVersion === "pmh.premise-analysis-job.v1" && (
+      record.semanticReviewJobId !== undefined || record.issueIds !== undefined ||
+      record.admissionLane !== undefined
+    )) ||
+    (record.schemaVersion === "pmh.premise-analysis-job.v2" && (
+      !HASH_PATTERN.test(String(record.semanticReviewJobId)) ||
+      record.semanticReviewJobId !== hashCanonical({
+        schemaVersion: "pmh.semantic-review-job-id.v1",
+        proposalId: record.proposalId,
+      }) ||
+      !Array.isArray(record.issueIds) || record.issueIds.length < 1 ||
+      record.issueIds.length > 20 || new Set(record.issueIds).size !== record.issueIds.length ||
+      record.issueIds.some((item) => !HASH_PATTERN.test(String(item))) ||
+      !["AUTO_ARBITRAGE_REVIEW", "AUTO_PREMISE_REVIEW"].includes(
+        String(record.admissionLane),
+      )
+    )) ||
     record.analysisId !== hashCanonical({
       schemaVersion: "pmh.premise-analysis-run.v1",
       proposalId: record.proposalId,
@@ -203,8 +279,38 @@ export function assertPremiseAnalysisJobRecord(value: unknown): PremiseAnalysisJ
   return Object.freeze(record);
 }
 
+export function assertPremiseAnalysisNotificationRecord(
+  value: unknown,
+): PremiseAnalysisNotificationRecord {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("stored premise analysis notification is malformed");
+  }
+  const record = value as PremiseAnalysisNotificationRecord;
+  const { artifactHash, ...body } = record;
+  if (
+    !exactKeys(record, NOTIFICATION_KEYS) ||
+    record.schemaVersion !== "pmh.premise-analysis-notification.v1" ||
+    !HASH_PATTERN.test(String(record.notificationId)) ||
+    !HASH_PATTERN.test(String(record.dedupeIdentity)) ||
+    !HASH_PATTERN.test(String(record.jobId)) || !HASH_PATTERN.test(String(record.proposalId)) ||
+    !["EXACT_RELATION_READY", "RESEARCH_RELATION_RETAINED", "JOB_EXHAUSTED"]
+      .includes(record.kind) ||
+    !["UNREAD", "READ"].includes(record.status) ||
+    !boundedText(record.title, 160) || !boundedText(record.summary, 500) ||
+    !isIso(record.createdAt) || (record.readAt !== null && !isIso(record.readAt)) ||
+    (record.status === "UNREAD" ? record.readAt !== null : record.readAt === null) ||
+    record.notificationId !== hashCanonical({
+      schemaVersion: "pmh.premise-analysis-notification-id.v1",
+      dedupeIdentity: record.dedupeIdentity,
+    }) ||
+    !HASH_PATTERN.test(String(artifactHash)) || artifactHash !== hashCanonical(body)
+  ) throw new Error("stored premise analysis notification violates its bounded contract");
+  return Object.freeze(record);
+}
+
 export class PremiseAnalysisScheduler {
   readonly #jobs: PremiseAnalysisJobRecord[];
+  readonly #notifications: PremiseAnalysisNotificationRecord[];
   readonly #active = new Map<Hash, Promise<PremiseAnalysisJobRecord>>();
   readonly #desk: PremiseAnalysisDesk;
   readonly #store: PremiseAnalysisSchedulerStore | undefined;
@@ -244,13 +350,44 @@ export class PremiseAnalysisScheduler {
     this.#jobs = [...(
       this.#store?.loadPremiseAnalysisJobRecords(this.#retentionLimit) ?? []
     )].map(assertPremiseAnalysisJobRecord);
+    this.#notifications = [...(
+      this.#store?.loadPremiseAnalysisNotificationRecords(this.#retentionLimit) ?? []
+    )].map(assertPremiseAnalysisNotificationRecord);
+    for (const job of this.#jobs) {
+      if (job.status === "PASS") {
+        this.#notify(
+          job,
+          job.exactCompilerAdmission === "ELIGIBLE"
+            ? "EXACT_RELATION_READY"
+            : "RESEARCH_RELATION_RETAINED",
+        );
+      } else if (job.status === "EXHAUSTED") {
+        this.#notify(job, "JOB_EXHAUSTED");
+      }
+    }
   }
 
   public reconcile(candidates: readonly PremiseAnalysisCandidate[]): void {
     const validated = [...new Map(candidates.map((candidate) => {
       const review = assertSemanticReviewRecord(candidate.review);
+      if (
+        candidate.semanticReviewJobId !== hashCanonical({
+          schemaVersion: "pmh.semantic-review-job-id.v1",
+          proposalId: candidate.proposal.proposalId,
+        }) || !Array.isArray(candidate.issueIds) || candidate.issueIds.length < 1 ||
+        candidate.issueIds.length > 20 || new Set(candidate.issueIds).size !==
+          candidate.issueIds.length ||
+        candidate.issueIds.some((item) => !HASH_PATTERN.test(String(item))) ||
+        !["AUTO_ARBITRAGE_REVIEW", "AUTO_PREMISE_REVIEW"].includes(candidate.admissionLane)
+      ) throw new Error("premise analysis candidate attribution is malformed");
       const jobId = this.#desk.idFor(candidate.proposal, review);
-      return [jobId, Object.freeze({ proposal: candidate.proposal, review })] as const;
+      return [jobId, Object.freeze({
+        proposal: candidate.proposal,
+        review,
+        semanticReviewJobId: candidate.semanticReviewJobId,
+        issueIds: Object.freeze([...candidate.issueIds]),
+        admissionLane: candidate.admissionLane,
+      })] as const;
     })).entries()].sort(([left], [right]) => left.localeCompare(right));
     const completedById = new Map(this.#desk.projection().records.map((record) =>
       [record.analysisId, record] as const
@@ -258,18 +395,31 @@ export class PremiseAnalysisScheduler {
     const timestamp = new Date(this.#now()).toISOString();
     for (const [jobId, candidate] of validated) {
       const report = candidate.review.report!;
-      const existing = this.#jobs.find((job) => job.jobId === jobId);
+      let existing = this.#jobs.find((job) => job.jobId === jobId);
       const completed = completedById.get(jobId);
+      if (existing?.schemaVersion === "pmh.premise-analysis-job.v1") {
+        existing = this.#save(withHash({
+          ...withoutHash(existing),
+          schemaVersion: "pmh.premise-analysis-job.v2",
+          semanticReviewJobId: candidate.semanticReviewJobId,
+          issueIds: Object.freeze([...candidate.issueIds].sort()),
+          admissionLane: candidate.admissionLane,
+          updatedAt: timestamp,
+        }));
+      }
       if (existing === undefined) {
         const analysis = completed?.status === "PASS" ? completed.analysis : null;
-        this.#save(withHash({
-          schemaVersion: "pmh.premise-analysis-job.v1",
+        const created = this.#save(withHash({
+          schemaVersion: "pmh.premise-analysis-job.v2",
           jobId,
           analysisId: jobId,
           proposalId: candidate.proposal.proposalId,
           semanticReviewArtifactHash: report.artifactHash,
           evidenceScopeIdentity: candidate.review.corpusSnapshotIdentity,
           interpreterIdentity: this.#desk.interpreterIdentity,
+          semanticReviewJobId: candidate.semanticReviewJobId,
+          issueIds: Object.freeze([...candidate.issueIds].sort()),
+          admissionLane: candidate.admissionLane,
           status: analysis === null ? "PENDING" : "PASS",
           attemptCount: 0,
           maxAttempts: this.#maxAttempts,
@@ -288,6 +438,14 @@ export class PremiseAnalysisScheduler {
           certificateAuthority: false,
           executionAuthority: false,
         }));
+        if (analysis !== null) {
+          this.#notify(
+            created,
+            analysis.relation.exactCompilerAdmission === "ELIGIBLE"
+              ? "EXACT_RELATION_READY"
+              : "RESEARCH_RELATION_RETAINED",
+          );
+        }
       } else if (completed?.status === "PASS" && existing.status !== "PASS") {
         this.#complete(existing, completed);
       }
@@ -358,7 +516,7 @@ export class PremiseAnalysisScheduler {
       if (record.status === "PASS") return this.#complete(leased, record);
       const now = Math.max(this.#now(), startedAt);
       const exhausted = leased.attemptCount >= leased.maxAttempts;
-      return this.#save(withHash({
+      const completed = this.#save(withHash({
         ...withoutHash(leased),
         status: exhausted ? "EXHAUSTED" : "RETRY_WAIT",
         nextAttemptAt: new Date(
@@ -370,6 +528,8 @@ export class PremiseAnalysisScheduler {
         diagnostic: compactDiagnostic(record.diagnostic ?? "premise analysis failed"),
         updatedAt: new Date(now).toISOString(),
       }));
+      if (exhausted) this.#notify(completed, "JOB_EXHAUSTED");
+      return completed;
     });
     this.#active.set(job.jobId, promise);
     return promise;
@@ -387,7 +547,7 @@ export class PremiseAnalysisScheduler {
       record.evidenceScopeIdentity !== job.evidenceScopeIdentity ||
       record.interpreterIdentity !== job.interpreterIdentity || record.completedAt === null
     ) throw new Error("premise analysis job completion lineage is inconsistent");
-    return this.#save(withHash({
+    const completed = this.#save(withHash({
       ...withoutHash(job),
       status: "PASS",
       leasedAt: null,
@@ -398,6 +558,13 @@ export class PremiseAnalysisScheduler {
       diagnostic: null,
       updatedAt: record.completedAt,
     }));
+    this.#notify(
+      completed,
+      completed.exactCompilerAdmission === "ELIGIBLE"
+        ? "EXACT_RELATION_READY"
+        : "RESEARCH_RELATION_RETAINED",
+    );
+    return completed;
   }
 
   #recoverExpiredLeases(): void {
@@ -414,7 +581,7 @@ export class PremiseAnalysisScheduler {
         continue;
       }
       const exhausted = job.attemptCount >= job.maxAttempts;
-      this.#save(withHash({
+      const recovered = this.#save(withHash({
         ...withoutHash(job),
         status: exhausted ? "EXHAUSTED" : "RETRY_WAIT",
         nextAttemptAt: new Date(
@@ -428,7 +595,59 @@ export class PremiseAnalysisScheduler {
           : "premise analysis lease expired before a durable result was observed",
         updatedAt: new Date(now).toISOString(),
       }));
+      if (exhausted) this.#notify(recovered, "JOB_EXHAUSTED");
     }
+  }
+
+  #notify(
+    job: PremiseAnalysisJobRecord,
+    kind: PremiseAnalysisNotificationRecord["kind"],
+  ): void {
+    const dedupeIdentity = hashCanonical({
+      schemaVersion: "pmh.premise-analysis-notification-dedupe.v1",
+      jobId: job.jobId,
+      kind,
+      lastAnalysisArtifactHash: job.lastAnalysisArtifactHash,
+    });
+    if (this.#notifications.some((item) => item.dedupeIdentity === dedupeIdentity)) return;
+    const createdAt = job.completedAt ?? new Date(this.#now()).toISOString();
+    this.#saveNotification(withNotificationHash({
+      schemaVersion: "pmh.premise-analysis-notification.v1",
+      notificationId: hashCanonical({
+        schemaVersion: "pmh.premise-analysis-notification-id.v1",
+        dedupeIdentity,
+      }),
+      dedupeIdentity,
+      jobId: job.jobId,
+      proposalId: job.proposalId,
+      kind,
+      status: "UNREAD",
+      title: kind === "EXACT_RELATION_READY"
+        ? "Exact premise relation is ready"
+        : kind === "RESEARCH_RELATION_RETAINED"
+          ? "Premise-dependent relation retained"
+          : "Premise analysis exhausted",
+      summary: kind === "EXACT_RELATION_READY"
+        ? "All hidden premises and joint truth states replayed successfully; deterministic payoff compilation may now evaluate this relation."
+        : kind === "RESEARCH_RELATION_RETAINED"
+          ? "The Agent found a meaningful semantic dependency, but an unverified or causal premise still blocks exact arbitrage admission."
+          : compactDiagnostic(job.diagnostic ?? "Premise-analysis attempts were exhausted."),
+      createdAt,
+      readAt: null,
+    }));
+  }
+
+  public acknowledge(notificationId: Hash): PremiseAnalysisNotificationRecord {
+    const notification = this.#notifications.find((item) =>
+      item.notificationId === notificationId
+    );
+    if (notification === undefined) throw new Error("premise analysis notification was not found");
+    if (notification.status === "READ") return notification;
+    return this.#saveNotification(withNotificationHash({
+      ...withoutNotificationHash(notification),
+      status: "READ",
+      readAt: new Date(this.#now()).toISOString(),
+    }));
   }
 
   #save(input: PremiseAnalysisJobRecord): PremiseAnalysisJobRecord {
@@ -447,16 +666,36 @@ export class PremiseAnalysisScheduler {
     return stored;
   }
 
+  #saveNotification(
+    input: PremiseAnalysisNotificationRecord,
+  ): PremiseAnalysisNotificationRecord {
+    const valid = assertPremiseAnalysisNotificationRecord(input);
+    const stored = this.#store?.savePremiseAnalysisNotificationRecord(
+      valid,
+      this.#retentionLimit,
+    ) ?? valid;
+    const index = this.#notifications.findIndex((item) =>
+      item.notificationId === stored.notificationId
+    );
+    if (index >= 0) this.#notifications.splice(index, 1);
+    this.#notifications.unshift(stored);
+    if (this.#notifications.length > this.#retentionLimit) {
+      this.#notifications.length = this.#retentionLimit;
+    }
+    return stored;
+  }
+
   public awaitIdle(): Promise<readonly PremiseAnalysisJobRecord[]> {
     return Promise.all([...this.#active.values()]);
   }
 
   public projection(): PremiseAnalysisSchedulerProjection {
     const jobs = Object.freeze([...this.#jobs]);
+    const notifications = Object.freeze([...this.#notifications]);
     const configured = this.#desk.projection().configured;
     const now = this.#now();
     return Object.freeze({
-      schemaVersion: "pmh.premise-analysis-scheduler.v1",
+      schemaVersion: "pmh.premise-analysis-scheduler.v2",
       enabled: this.tickIntervalMs !== null,
       configured,
       status: !configured ? "NEEDS_KEY" : this.#active.size > 0 ? "RUNNING" : "IDLE",
@@ -476,6 +715,11 @@ export class PremiseAnalysisScheduler {
       researchOnlyCount: jobs.filter((job) =>
         job.exactCompilerAdmission === "RESEARCH_ONLY"
       ).length,
+      attributedJobCount: jobs.filter((job) => job.schemaVersion === "pmh.premise-analysis-job.v2").length,
+      legacyAttributionDebtCount: jobs.filter((job) =>
+        job.schemaVersion === "pmh.premise-analysis-job.v1"
+      ).length,
+      unreadNotificationCount: notifications.filter((item) => item.status === "UNREAD").length,
       budget: Object.freeze({
         basis: "PROVIDER_ATTEMPTS" as const,
         maxAttemptsPerJob: this.#maxAttempts,
@@ -483,11 +727,18 @@ export class PremiseAnalysisScheduler {
         providerAttemptsStarted: jobs.reduce((sum, job) => sum + job.attemptCount, 0),
       }),
       jobs,
+      notifications,
       storage: this.#store?.premiseAnalysisJobStorage ?? Object.freeze({
         mode: "MEMORY" as const,
         durable: false,
         schemaVersion: 0,
         idempotencyKey: "jobId" as const,
+      }),
+      notificationStorage: this.#store?.premiseAnalysisNotificationStorage ?? Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "notificationId" as const,
       }),
       authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
       semanticDecisionAuthority: false,

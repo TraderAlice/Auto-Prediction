@@ -718,9 +718,10 @@ describe("control-plane HTTP surface", () => {
       executionAuthority: false,
     });
     expect(projection.ai.semanticReviewAdmission).toMatchObject({
-      policy: "TWO_DISTINCT_LISTINGS_AND_COMPILABLE_RELATION_V1",
+      policy: "TWO_TO_FOUR_DISTINCT_LISTINGS_WITH_PREMISE_LANE_V2",
       candidateCount: 0,
       autoReviewCount: 0,
+      premiseReviewCount: 0,
       researchOnlyCount: 0,
       manualReviewAvailable: true,
       modelConfidenceUsed: false,
@@ -766,7 +767,7 @@ describe("control-plane HTTP surface", () => {
     );
     expect(reviewAdmissionResponse.status).toBe(200);
     expect(await reviewAdmissionResponse.json()).toMatchObject({
-      policy: "TWO_DISTINCT_LISTINGS_AND_COMPILABLE_RELATION_V1",
+      policy: "TWO_TO_FOUR_DISTINCT_LISTINGS_WITH_PREMISE_LANE_V2",
       candidateCount: 0,
       authority: "AUTOMATIC_REVIEW_ADMISSION_ONLY",
       effects: { modelCalls: false, liveExecutionEnabled: false },
@@ -2069,7 +2070,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 22,
+          schemaVersion: 23,
         },
         records: [{ investigationId: created.investigationId }],
       });

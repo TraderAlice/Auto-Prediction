@@ -476,8 +476,8 @@ export class SemanticReviewScheduler {
         ? undefined
         : Object.freeze(candidate.evidenceClaims.map(assertRuleEvidenceClaim));
       const review = passedByProposal.get(proposalId);
-      const automatic = classifySemanticReviewAdmission(candidate.proposal).lane ===
-        "AUTO_ARBITRAGE_REVIEW";
+      const automatic = classifySemanticReviewAdmission(candidate.proposal).lane !==
+        "RESEARCH_ONLY";
       const reviewScopeIdentity = scopesByProposal.get(proposalId)?.scopeIdentity ?? null;
       const canonicalProposalId = reviewScopeIdentity === null
         ? proposalId

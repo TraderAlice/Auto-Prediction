@@ -595,7 +595,7 @@ export function buildStudioProjection(input: {
     },
   };
   const premiseAnalysisScheduler = input.premiseAnalysisScheduler ?? {
-    schemaVersion: "pmh.premise-analysis-scheduler.v1" as const,
+    schemaVersion: "pmh.premise-analysis-scheduler.v2" as const,
     enabled: false,
     configured: false,
     status: "NEEDS_KEY" as const,
@@ -610,6 +610,9 @@ export function buildStudioProjection(input: {
     exhaustedCount: 0,
     exactEligibleCount: 0,
     researchOnlyCount: 0,
+    attributedJobCount: 0,
+    legacyAttributionDebtCount: 0,
+    unreadNotificationCount: 0,
     budget: {
       basis: "PROVIDER_ATTEMPTS" as const,
       maxAttemptsPerJob: 3,
@@ -617,11 +620,18 @@ export function buildStudioProjection(input: {
       providerAttemptsStarted: 0,
     },
     jobs: [],
+    notifications: [],
     storage: {
       mode: "MEMORY" as const,
       durable: false,
       schemaVersion: 0,
       idempotencyKey: "jobId" as const,
+    },
+    notificationStorage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "notificationId" as const,
     },
     authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY" as const,
     semanticDecisionAuthority: false as const,

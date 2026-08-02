@@ -44,12 +44,18 @@ describe("semantic review admission", () => {
     expect(admission.artifactHash).toMatch(/^sha256:/u);
   });
 
-  it("keeps non-compilable relations and unsupported arity research-only", () => {
+  it("routes conditional and multi-listing relations through premise audit", () => {
     expect(classifySemanticReviewAdmission(
       proposal("related", "RELATED"),
-    )).toMatchObject({ lane: "RESEARCH_ONLY", reason: "NON_COMPILABLE_RELATION" });
+    )).toMatchObject({ lane: "AUTO_PREMISE_REVIEW", reason: "PREMISE_AUDIT_REQUIRED" });
     expect(classifySemanticReviewAdmission(
       proposal("partition", "EXHAUSTIVE", ["a:yes", "b:yes", "c:yes"]),
+    )).toMatchObject({ lane: "AUTO_PREMISE_REVIEW", reason: "PREMISE_AUDIT_REQUIRED" });
+  });
+
+  it("keeps unsupported or duplicate scopes research-only", () => {
+    expect(classifySemanticReviewAdmission(
+      proposal("too-wide", "CONDITIONAL", ["a", "b", "c", "d", "e"]),
     )).toMatchObject({ lane: "RESEARCH_ONLY", reason: "LISTING_ARITY_UNSUPPORTED" });
     expect(classifySemanticReviewAdmission(
       proposal("duplicate", "IMPLIES", ["a:yes", "a:yes"]),
@@ -67,13 +73,15 @@ describe("semantic review admission", () => {
     expect(left).toEqual(right);
     expect(left).toMatchObject({
       candidateCount: 3,
-      autoReviewCount: 1,
-      researchOnlyCount: 2,
-      autoReviewRateBps: 3_333,
+      autoReviewCount: 3,
+      premiseReviewCount: 2,
+      researchOnlyCount: 0,
+      autoReviewRateBps: 10_000,
       countsByReason: {
         TWO_LISTING_COMPILABLE_RELATION: 1,
-        NON_COMPILABLE_RELATION: 1,
-        LISTING_ARITY_UNSUPPORTED: 1,
+        PREMISE_AUDIT_REQUIRED: 2,
+        NON_COMPILABLE_RELATION: 0,
+        LISTING_ARITY_UNSUPPORTED: 0,
         DUPLICATE_LISTING_REF: 0,
       },
       modelConfidenceUsed: false,

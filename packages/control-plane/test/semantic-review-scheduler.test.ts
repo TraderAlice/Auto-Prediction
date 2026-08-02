@@ -466,7 +466,7 @@ describe("persistent semantic review scheduler", () => {
     });
   });
 
-  it("persists non-compilable proposals as research-only without an automatic request", async () => {
+  it("automatically reviews premise-bearing relations before exact admission", async () => {
     let calls = 0;
     const researchProposal = proposal("research-only", "RELATED");
     const item = candidate(
@@ -485,27 +485,32 @@ describe("persistent semantic review scheduler", () => {
       now: () => Date.parse("2026-08-02T00:00:00.000Z"),
     });
 
+    await Promise.all(scheduler.tick([item], snapshot));
     expect(scheduler.tick([item], snapshot)).toHaveLength(0);
-    expect(scheduler.tick([item], snapshot)).toHaveLength(0);
-    expect(calls).toBe(0);
+    expect(calls).toBe(1);
     expect(scheduler.projection()).toMatchObject({
-      researchOnlyCount: 1,
+      researchOnlyCount: 0,
       pendingCount: 0,
       dueCount: 0,
-      budget: { requestAttemptsStarted: 0 },
+      passedCount: 1,
+      budget: { requestAttemptsStarted: 1 },
     });
     expect(scheduler.projection().jobs[0]).toMatchObject({
-      status: "RESEARCH_ONLY",
-      recommendation: null,
-      lastReviewId: null,
-      completedAt: "2026-08-02T00:00:00.000Z",
-      diagnostic: expect.stringContaining("not a current automatic payoff-compiler relation"),
+      status: "PASS",
+      recommendation: "REJECT",
+      lastReviewId: expect.stringMatching(/^sha256:/u),
+      completedAt: expect.stringMatching(/^2026-/u),
+      diagnostic: null,
     });
   });
 
   it("allows an explicitly requested manual review to complete a research-only job", async () => {
     let calls = 0;
-    const researchProposal = proposal("manual-research", "CONFLICTING");
+    const researchProposal = proposal(
+      "manual-research",
+      "CONFLICTING",
+      ["venue-a:event"],
+    );
     const item = candidate(researchProposal, 3);
     const desk = createSemanticReviewDesk(
       { DEEPSEEK_API_KEY: "test-only" },
@@ -689,7 +694,7 @@ describe("persistent semantic review scheduler", () => {
       expect(firstScheduler.tick([item], snapshot)).toHaveLength(1);
       expect(firstScheduler.projection()).toMatchObject({
         leasedCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 22 } },
+        storage: { jobs: { durable: true, schemaVersion: 23 } },
       });
       firstStore.close();
 
@@ -732,8 +737,8 @@ describe("persistent semantic review scheduler", () => {
         bundledJobCount: 1,
         unreadNotificationCount: 1,
         storage: {
-          jobs: { durable: true, schemaVersion: 22 },
-          notifications: { durable: true, schemaVersion: 22 },
+          jobs: { durable: true, schemaVersion: 23 },
+          notifications: { durable: true, schemaVersion: 23 },
         },
       });
       thirdStore.close();
@@ -748,7 +753,7 @@ describe("persistent semantic review scheduler", () => {
     const researchProposal = proposal(
       "restart-research-only",
       "EXHAUSTIVE",
-      ["venue-a:event", "venue-b:event", "venue-c:event"],
+      ["venue-a:event"],
     );
     const item = candidate(researchProposal, 2);
     const now = () => Date.parse("2026-08-02T00:00:00.000Z");
@@ -764,7 +769,7 @@ describe("persistent semantic review scheduler", () => {
       expect(first.projection()).toMatchObject({
         researchOnlyCount: 1,
         dueCount: 0,
-        storage: { jobs: { durable: true, schemaVersion: 22 } },
+        storage: { jobs: { durable: true, schemaVersion: 23 } },
       });
       firstStore.close();
 
@@ -825,7 +830,7 @@ describe("persistent semantic review scheduler", () => {
         passedCount: 1,
         duplicateScopeCount: 1,
         uniqueReviewScopeCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 22 } },
+        storage: { jobs: { durable: true, schemaVersion: 23 } },
       });
       firstStore.close();
 

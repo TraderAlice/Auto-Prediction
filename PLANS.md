@@ -178,6 +178,27 @@ all 487 workspace tests (338 control-plane), and the production build pass;
 updated visual QA remains unavailable under the retained localhost browser
 policy, so it is not claimed.
 
+The next unpublished checkpoint removes the routing gap in front of that
+pipeline. Semantic-review admission v2 now gives every distinct 2–4 listing
+proposal one of two bounded Agent lanes: direct payoff relations enter
+`AUTO_ARBITRAGE_REVIEW`, while conditional, related, conflicting, and
+multi-listing proposals enter `AUTO_PREMISE_REVIEW`. Duplicate and out-of-range
+scopes still spend zero reviewer budget. This does not relax compilation:
+premise-lane results remain blocked until their complete premise/state replay
+is independently eligible. Premise jobs now retain their originating semantic
+review job, search issue IDs, and admission lane, including deterministic
+backfill of retained v1 jobs. SQLite schema v23 adds deduplicated premise
+notifications for exact-ready, research-retained, and exhausted outcomes, with
+read acknowledgement through the API and Studio inbox. A three-market
+conditional qualification now traverses both durable schedulers, emits an
+`EXACT_RELATION_READY` notification, and compiles six replayed states into the
+minimal payoff cover. The retained causal LAFC audit is backfilled as a
+research notification rather than disappearing into a terminal counter. Full
+type checks, all 489 workspace tests (340 control-plane), and the production
+build pass. In-app Studio QA at the default viewport and a temporary 390 px
+viewport shows the attributed retained job and research notification with no
+console errors or horizontal overflow (`375 == 375` measured content width).
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

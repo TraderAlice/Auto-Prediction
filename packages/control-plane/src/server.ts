@@ -110,7 +110,10 @@ import {
   type RuleEvidenceClaimInput,
   type RuleEvidenceClaimSchedulerStore,
 } from "./rule-evidence-claim-scheduler.js";
-import { buildSemanticReviewAdmissionProjection } from "./semantic-review-admission.js";
+import {
+  buildSemanticReviewAdmissionProjection,
+  classifySemanticReviewAdmission,
+} from "./semantic-review-admission.js";
 import { deriveRelationPayoffProjection } from "./relation-payoff.js";
 import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
 import type { OpportunityLifecycleJournalStore } from "./opportunity-lifecycle-desk.js";
@@ -440,8 +443,11 @@ function supportsPremiseAnalysisSchedulerRecords(
   if (store === undefined) return false;
   const candidate = store as Partial<PremiseAnalysisSchedulerStore>;
   return candidate.premiseAnalysisJobStorage !== undefined &&
+    candidate.premiseAnalysisNotificationStorage !== undefined &&
     typeof candidate.loadPremiseAnalysisJobRecords === "function" &&
-    typeof candidate.savePremiseAnalysisJobRecord === "function";
+    typeof candidate.savePremiseAnalysisJobRecord === "function" &&
+    typeof candidate.loadPremiseAnalysisNotificationRecords === "function" &&
+    typeof candidate.savePremiseAnalysisNotificationRecord === "function";
 }
 
 function supportsEvidenceAcquisitionRecords(
@@ -1039,14 +1045,30 @@ export function createControlPlane(options?: {
         [candidate.proposal.proposalId, candidate.proposal] as const
       ),
     );
+    const reviewJobs = new Map(semanticReviewScheduler.projection().jobs.flatMap((job) =>
+      job.status === "PASS" && job.lastReviewId !== null
+        ? [[job.lastReviewId, job] as const]
+        : []
+    ));
     return Object.freeze(semanticReviewDesk.projection().records.flatMap((review) => {
       const proposal = proposals.get(review.proposalId);
+      const reviewJob = reviewJobs.get(review.reviewId);
+      const admission = proposal === undefined
+        ? null
+        : classifySemanticReviewAdmission(proposal);
       if (
         proposal === undefined || review.status !== "PASS" || review.report === null ||
         review.report.result.semanticConstraint === undefined ||
-        proposal.listingRefs.length < 2 || proposal.listingRefs.length > 4
+        proposal.listingRefs.length < 2 || proposal.listingRefs.length > 4 ||
+        reviewJob === undefined || admission === null || admission.lane === "RESEARCH_ONLY"
       ) return [];
-      return [Object.freeze({ proposal, review })];
+      return [Object.freeze({
+        proposal,
+        review,
+        semanticReviewJobId: reviewJob.jobId,
+        issueIds: reviewJob.issueIds,
+        admissionLane: admission.lane,
+      })];
     }).sort((left, right) =>
       left.review.completedAt!.localeCompare(right.review.completedAt!) ||
       left.review.reviewId.localeCompare(right.review.reviewId)
@@ -1421,6 +1443,27 @@ export function createControlPlane(options?: {
           diagnostic: error instanceof Error
             ? error.message
             : "semantic review notification acknowledgement failed",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    const premiseNotificationAckMatch = url.pathname.match(
+      /^\/api\/v1\/premise-analysis-notifications\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
+    );
+    if (request.method === "POST" && premiseNotificationAckMatch !== null) {
+      try {
+        const notification = premiseAnalysisScheduler.acknowledge(
+          premiseNotificationAckMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, notification);
+      } catch (error) {
+        writeJson(response, 404, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "premise analysis notification acknowledgement failed",
           executionAuthority: false,
         });
       }

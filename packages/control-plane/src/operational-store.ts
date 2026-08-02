@@ -48,7 +48,9 @@ import {
 } from "./premise-analysis.js";
 import {
   assertPremiseAnalysisJobRecord,
+  assertPremiseAnalysisNotificationRecord,
   type PremiseAnalysisJobRecord,
+  type PremiseAnalysisNotificationRecord,
   type PremiseAnalysisSchedulerStore,
 } from "./premise-analysis-scheduler.js";
 import {
@@ -127,7 +129,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 22;
+const SCHEMA_VERSION = 23;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -237,6 +239,12 @@ type PremiseAnalysisRow = Readonly<{
 
 type PremiseAnalysisJobRow = Readonly<{
   job_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type PremiseAnalysisNotificationRow = Readonly<{
+  notification_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -846,6 +854,30 @@ function parseSemanticReviewJobRecord(value: unknown): SemanticReviewJobRecord {
   return record;
 }
 
+function parsePremiseAnalysisNotificationRecord(
+  value: unknown,
+): PremiseAnalysisNotificationRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite premise analysis notification row is malformed");
+  }
+  const row = value as Partial<PremiseAnalysisNotificationRow>;
+  if (
+    typeof row.notification_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite premise analysis notification row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite premise analysis notification contains invalid JSON");
+  }
+  const record = assertPremiseAnalysisNotificationRecord(decoded);
+  if (record.notificationId !== row.notification_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite premise analysis notification identity mismatch");
+  }
+  return record;
+}
+
 function parseSemanticReviewNotificationRecord(
   value: unknown,
 ): SemanticReviewNotificationRecord {
@@ -1215,6 +1247,7 @@ export class SqliteOperationalStore
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
+  public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
   public readonly semanticReviewJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewNotificationStorage: OperationalStorageProjection<"notificationId">;
   public readonly evidenceAcquisitionJobStorage: OperationalStorageProjection<"jobId">;
@@ -1357,6 +1390,12 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "jobId",
     });
+    this.premiseAnalysisNotificationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "notificationId",
+    });
     this.semanticReviewJobStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -1486,6 +1525,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'premise_analysis_jobs'`,
       )
       .get() !== undefined;
+    const premiseAnalysisNotificationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'premise_analysis_notifications'`,
+      )
+      .get() !== undefined;
     const searchQuoteObservationTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -1544,6 +1589,7 @@ export class SqliteOperationalStore
       ruleEvidenceClaimJobTableExists && ruleEvidenceClaimRecordTableExists
       && premiseAnalysisRecordTableExists
       && premiseAnalysisJobTableExists
+      && premiseAnalysisNotificationTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -2323,6 +2369,26 @@ export class SqliteOperationalStore
           ) STRICT;
           CREATE INDEX IF NOT EXISTS premise_analysis_jobs_due
             ON premise_analysis_jobs (status, next_attempt_at, job_id);
+        `);
+      }
+      if (current < 23 || !premiseAnalysisNotificationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS premise_analysis_notifications (
+            notification_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(notification_id) = 71 AND notification_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            dedupe_identity TEXT NOT NULL UNIQUE CHECK (
+              length(dedupe_identity) = 71 AND dedupe_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('UNREAD', 'READ')),
+            created_at TEXT NOT NULL CHECK (length(created_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS premise_analysis_notifications_status_created
+            ON premise_analysis_notifications (status, created_at DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -3653,6 +3719,83 @@ export class SqliteOperationalStore
       const stored = parsePremiseAnalysisJobRecord(row);
       if (hashCanonical(stored) !== recordHash) {
         throw new Error("jobId is already bound to another premise analysis job");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadPremiseAnalysisNotificationRecords(
+    limit: number,
+  ): readonly PremiseAnalysisNotificationRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT notification_id, record_json, record_hash
+         FROM premise_analysis_notifications
+         ORDER BY created_at DESC, notification_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parsePremiseAnalysisNotificationRecord));
+  }
+
+  public savePremiseAnalysisNotificationRecord(
+    record: PremiseAnalysisNotificationRecord,
+    retentionLimit: number,
+  ): PremiseAnalysisNotificationRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertPremiseAnalysisNotificationRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO premise_analysis_notifications (
+             notification_id, dedupe_identity, status, created_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(notification_id) DO UPDATE SET
+             status = excluded.status,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          validated.notificationId,
+          validated.dedupeIdentity,
+          validated.status,
+          validated.createdAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM premise_analysis_notifications
+           WHERE notification_id IN (
+             SELECT notification_id FROM premise_analysis_notifications
+             ORDER BY created_at DESC, notification_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT notification_id, record_json, record_hash
+           FROM premise_analysis_notifications WHERE notification_id = ?`,
+        )
+        .get(validated.notificationId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the premise analysis notification");
+      }
+      const stored = parsePremiseAnalysisNotificationRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("notificationId is already bound to another premise analysis notification");
       }
       this.#database.exec("COMMIT");
       return stored;

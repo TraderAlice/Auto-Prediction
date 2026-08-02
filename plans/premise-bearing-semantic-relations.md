@@ -71,9 +71,10 @@ production build passed at the v2 guard checkpoint.
 - `pmh.premise-analysis.v1` is self-verifying: it embeds the reviewed semantic
   constraint, premises, relation, interpreter identity, and terminal effect
   hash, then deterministically rebuilds the relation during replay.
-- SQLite schema v22 persists terminal analyses and durable premise-analysis
-  jobs. Jobs retry with leases and attempt budgets, survive restart, and dedupe
-  by proposal, semantic-review artifact, evidence scope, and interpreter.
+- SQLite schema v23 persists terminal analyses, durable premise-analysis jobs,
+  and deduplicated terminal notifications. Jobs retry with leases and attempt
+  budgets, survive restart, and dedupe by proposal, semantic-review artifact,
+  evidence scope, and interpreter.
 - The control-plane timer, read-only API, health projection, and Studio now
   expose premise jobs, exact/research-only counts, premise artifacts, replayed
   state counts, and blockers.
@@ -104,6 +105,43 @@ constraint's unresolved/invalid states and blocked exact compilation with
 `BASE_CONSTRAINT_RESEARCH_ONLY`. This is positive negative-path evidence: the
 new Agent stage added useful explanatory structure without manufacturing an
 arbitrage certificate.
+
+## Integrated admission, attribution, and attention checkpoint — 2026-08-02
+
+- `pmh.semantic-review-admission.v2` separates direct two-listing payoff review
+  from `AUTO_PREMISE_REVIEW`. Every unique 2–4 listing proposal may now spend a
+  bounded adversarial-review request; duplicate and out-of-range scopes remain
+  research-only without a request.
+- This is review admission, not compiler admission. `CONDITIONAL`, `RELATED`,
+  `CONFLICTING`, and multi-listing relations still require a hard reviewed
+  state matrix plus an eligible premise-bearing relation before payoff
+  compilation.
+- New premise jobs use `pmh.premise-analysis-job.v2` and retain the originating
+  semantic-review job ID, issue IDs, and admission lane. Retained v1 jobs are
+  upgraded only when the same current candidate supplies that lineage; the
+  projection exposes any remaining legacy attribution debt.
+- `pmh.premise-analysis-notification.v1` emits one durable, acknowledged inbox
+  item for `EXACT_RELATION_READY`, `RESEARCH_RELATION_RETAINED`, or
+  `JOB_EXHAUSTED`. Restart backfills missing terminal notifications without
+  repeating provider work.
+- Studio exposes the premise inbox alongside the job queue, and the API accepts
+  idempotent acknowledgement without granting semantic or execution authority.
+- An end-to-end three-market test begins with a `CONDITIONAL` proposal in the
+  premise lane, traverses semantic-review and premise-analysis schedulers with
+  one attributed request each, emits the exact-ready notification, and replays
+  six feasible states into the same minimal two-leg payout cover.
+
+The next search-quality frontier is to measure premise-lane yield by issue
+family and use those results to schedule focused temporal, containment,
+identity, and physical-possibility searches instead of a single undirected
+semantic sweep.
+
+Full type checks, all 489 workspace tests (340 control-plane), and the
+production build pass for this checkpoint. In-app Studio QA at the default
+viewport and temporary 390 px viewport shows the backfilled retained job as
+review-attributed and its `RESEARCH_RELATION_RETAINED` inbox item. The measured
+mobile document/client widths were both 375 px, and the page emitted no console
+errors. The temporary viewport override was reset after qualification.
 
 ## Proposed artifacts
 
