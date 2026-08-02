@@ -44,6 +44,8 @@ export type SearchIssueRecord = Readonly<{
   issueId: Hash;
   definitionIdentity?: Hash;
   familyDefinition?: SearchIssueFamilyDefinition;
+  defaultKey?: string;
+  supersededByIssueId?: Hash | null;
   candidatePolicy?: SearchCandidatePolicy | null;
   title: string;
   question: string;
@@ -101,6 +103,8 @@ export type SearchIssueSchedulerProjection = Readonly<{
   activeCount: number;
   issueCount: number;
   enabledIssueCount: number;
+  defaultManagedIssueCount: number;
+  supersededIssueCount: number;
   dueIssueCount: number;
   unreadNotificationCount: number;
   performance: Readonly<{
@@ -704,6 +708,15 @@ export function assertSearchIssueRecord(value: unknown): SearchIssueRecord {
   const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null ||
     isSearchCandidatePolicy(candidatePolicy);
   const v2 = record.schemaVersion === "pmh.search-issue.v2";
+  const managementValid = record.defaultKey === undefined
+    ? record.supersededByIssueId === undefined
+    : v2 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(record.defaultKey) &&
+      record.defaultKey.length <= 80 &&
+      (record.supersededByIssueId === null || (
+        HASH_PATTERN.test(String(record.supersededByIssueId)) &&
+        record.supersededByIssueId !== record.issueId &&
+        record.enabled === false
+      ));
   let familyValid = !v2 && record.definitionIdentity === undefined &&
     record.familyDefinition === undefined;
   if (v2) {
@@ -743,6 +756,7 @@ export function assertSearchIssueRecord(value: unknown): SearchIssueRecord {
     !boundedText(record.question, 1_000) ||
     !candidatePolicyValid ||
     !familyValid ||
+    !managementValid ||
     !SEARCH_LENSES.includes(record.lens) ||
     !Array.isArray(record.venueIds) || record.venueIds.length > 25 ||
     record.venueIds.some((item) => !boundedText(item, 100)) ||
@@ -823,7 +837,7 @@ const DEFAULT_ISSUES = Object.freeze([
     title: "Implication and subset chains",
     lens: "IMPLICATION" as const,
     cadenceMs: 20 * 60_000,
-    priority: 5 as const,
+    priority: 4 as const,
     question: "Search for grounded one-way implications, subsets, nested thresholds, prerequisite events, and nested time windows. State the forbidden truth assignments and do not assume the converse.",
   }),
   Object.freeze({
@@ -850,7 +864,7 @@ const DEFAULT_FAMILY_ISSUES = Object.freeze([
     title: "Temporal impossibility",
     lens: "IMPLICATION" as const,
     cadenceMs: 20 * 60_000,
-    priority: 4 as const,
+    priority: 5 as const,
     question: "Find contracts where one settled outcome would make a later required appearance, publication, certification, office-holding, or personal act impossible. Separate logical impossibility from merely reduced likelihood.",
     family: Object.freeze({
       semanticFamily: "TEMPORAL_IMPOSSIBILITY" as const,
@@ -1037,9 +1051,41 @@ export class SearchIssueScheduler {
         }
       }
       for (const template of DEFAULT_FAMILY_ISSUES) {
-        const defaultIssue = this.#familyIssue(template, now);
-        if (!this.#issues.some((issue) => issue.issueId === defaultIssue.issueId)) {
-          this.#saveIssue(defaultIssue);
+        const candidate = this.#familyIssue(template, now);
+        const existing = this.#issues.find((issue) => issue.issueId === candidate.issueId);
+        const current = this.#saveIssue(withIssueHash({
+          ...this.#withoutIssueHash(existing ?? candidate),
+          defaultKey: template.key,
+          supersededByIssueId: null,
+          ...(existing === undefined ? {} : { updatedAt: existing.updatedAt }),
+        }));
+        for (const issue of [...this.#issues]) {
+          if (issue.issueId === current.issueId) continue;
+          const managedRevision = issue.defaultKey === template.key || (
+            issue.defaultKey === undefined &&
+            issue.schemaVersion === "pmh.search-issue.v2" &&
+            issue.title === current.title &&
+            issue.question === current.question &&
+            issue.lens === current.lens &&
+            issue.cadenceMs === current.cadenceMs &&
+            issue.venueIds.length === 0 &&
+            issue.familyDefinition?.semanticFamily ===
+              current.familyDefinition?.semanticFamily &&
+            issue.familyDefinition?.definitionIdentity ===
+              current.familyDefinition?.definitionIdentity
+          );
+          if (!managedRevision || (
+            issue.defaultKey === template.key &&
+            issue.supersededByIssueId === current.issueId &&
+            issue.enabled === false
+          )) continue;
+          this.#saveIssue(withIssueHash({
+            ...this.#withoutIssueHash(issue),
+            defaultKey: template.key,
+            supersededByIssueId: current.issueId,
+            enabled: false,
+            updatedAt: new Date(now).toISOString(),
+          }));
         }
       }
     }
@@ -1201,6 +1247,10 @@ export class SearchIssueScheduler {
 
   public setEnabled(issueId: Hash, enabled: boolean): SearchIssueRecord {
     const issue = this.#requireIssue(issueId);
+    if (enabled && issue.supersededByIssueId !== undefined &&
+      issue.supersededByIssueId !== null) {
+      throw new Error("superseded default search issue cannot be re-enabled");
+    }
     const timestamp = new Date(this.#now()).toISOString();
     return this.#saveIssue(withIssueHash({
       ...this.#withoutIssueHash(issue),
@@ -1483,6 +1533,10 @@ export class SearchIssueScheduler {
       activeCount: this.#active.size,
       issueCount: issues.length,
       enabledIssueCount: issues.filter((item) => item.enabled).length,
+      defaultManagedIssueCount: issues.filter((item) => item.defaultKey !== undefined).length,
+      supersededIssueCount: issues.filter(
+        (item) => item.supersededByIssueId !== undefined && item.supersededByIssueId !== null,
+      ).length,
       dueIssueCount: issues.filter(
         (item) => item.enabled && !this.#active.has(item.issueId) && (
           Date.parse(item.nextRunAt) <= now ||

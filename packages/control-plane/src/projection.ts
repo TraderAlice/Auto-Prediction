@@ -378,6 +378,8 @@ export function buildStudioProjection(input: {
     activeCount: 0,
     issueCount: 0,
     enabledIssueCount: 0,
+    defaultManagedIssueCount: 0,
+    supersededIssueCount: 0,
     dueIssueCount: 0,
     unreadNotificationCount: 0,
     performance: {
@@ -860,7 +862,7 @@ export function buildStudioProjection(input: {
             capability.implemented,
         ),
       ).length,
-      proofTests: 340,
+      proofTests: 345,
       liveExecutionEnabled: false as const,
       controlPlaneConnected: true as const,
     },
@@ -1116,13 +1118,25 @@ export function buildStudioProjection(input: {
       height: 80,
     })),
   };
+  const stateHash = hashCanonical(state);
+  const projectionWindow = Object.freeze({
+    schemaVersion: "pmh.studio-projection-window.v1" as const,
+    mode: "FULL" as const,
+    sourceStateHash: stateHash,
+    collections: Object.freeze([]),
+    authority: "PRESENTATION_WINDOW_ONLY" as const,
+    historyDeleted: false as const,
+  });
+  const viewState = Object.freeze({ projectionWindow, ...state });
   return Object.freeze({
     identity: {
-      schemaVersion: "pmh.studio-projection.v1" as const,
+      schemaVersion: "pmh.studio-projection.v2" as const,
       campaign: "architecture-qualification",
       mode: "CONTROL_PLANE" as const,
-      stateHash: hashCanonical(state),
+      view: "FULL" as const,
+      stateHash,
+      viewHash: hashCanonical(viewState),
     },
-    ...state,
+    ...viewState,
   });
 }

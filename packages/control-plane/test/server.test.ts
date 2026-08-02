@@ -396,7 +396,13 @@ describe("control-plane HTTP surface", () => {
     const baseUrl = await listen();
     const response = await fetch(`${baseUrl}/api/v1/projection`);
     const projection = (await response.json()) as {
-      identity: { mode: string; stateHash: string };
+      identity: { mode: string; view: string; stateHash: string; viewHash: string };
+      projectionWindow: {
+        mode: string;
+        sourceStateHash: string;
+        collections: readonly { path: string; totalCount: number; includedCount: number }[];
+        historyDeleted: boolean;
+      };
       system: { liveExecutionEnabled: boolean; controlPlaneConnected: boolean };
       ai: {
         architecture: string;
@@ -542,7 +548,42 @@ describe("control-plane HTTP surface", () => {
     };
     expect(response.status).toBe(200);
     expect(projection.identity.mode).toBe("CONTROL_PLANE");
+    expect(projection.identity.view).toBe("LIVE_BOUNDED");
     expect(projection.identity.stateHash).toMatch(/^sha256:/);
+    expect(projection.identity.viewHash).toMatch(/^sha256:/);
+    expect(projection.projectionWindow).toMatchObject({
+      mode: "LIVE_BOUNDED",
+      sourceStateHash: projection.identity.stateHash,
+      historyDeleted: false,
+    });
+    expect(projection.projectionWindow.collections).toContainEqual(
+      expect.objectContaining({ path: "ai.semanticReviewScheduler.jobs" }),
+    );
+    const fullResponse = await fetch(`${baseUrl}/api/v1/projection?view=full`);
+    expect(fullResponse.status).toBe(200);
+    const fullProjection = await fullResponse.json() as {
+      identity: { view: string; stateHash: string };
+      projectionWindow: {
+        mode: string;
+        sourceStateHash: string;
+        collections: unknown[];
+        historyDeleted: boolean;
+      };
+    };
+    expect(fullProjection).toMatchObject({
+      identity: {
+        view: "FULL",
+      },
+      projectionWindow: {
+        mode: "FULL",
+        collections: [],
+        historyDeleted: false,
+      },
+    });
+    expect(fullProjection.projectionWindow.sourceStateHash).toBe(
+      fullProjection.identity.stateHash,
+    );
+    expect((await fetch(`${baseUrl}/api/v1/projection?view=unknown`)).status).toBe(400);
     expect(projection.system).toMatchObject({
       liveExecutionEnabled: false,
       controlPlaneConnected: true,
@@ -2444,7 +2485,9 @@ describe("control-plane HTTP surface", () => {
       buffered = buffered.slice(boundary + 2);
       return event;
     };
-    expect(await readEvent()).toContain("event: projection");
+    const initialEvent = await readEvent();
+    expect(initialEvent).toContain("event: projection");
+    expect(initialEvent).toContain('"view":"LIVE_BOUNDED"');
 
     await fetch(`${baseUrl}/api/v1/books/replay`, { method: "POST" });
     const event = await readEvent();

@@ -126,7 +126,11 @@ eligibility, or execution.
 
 The qualification gates above remain open until every family has a retained
 proposal example and restart/retry/disable budget behavior is demonstrated.
-The next engineering steps are automatic supersession of obsolete default issue
-versions, family-specific retrieval trailheads and adaptive cadence, followed
-by compact/paginated operator projections so retained evidence is not repeatedly
-serialized into a multi-megabyte SSE snapshot.
+Default family issues now carry a durable management key. Startup upgrades the
+recognized legacy revision, disables obsolete versions, links them to the
+current immutable issue, and refuses to re-enable a superseded default while
+leaving operator-owned issues in the same family untouched. The retained P4
+temporal revision was automatically linked to the enabled P5 successor. The
+next engineering steps are family-specific retrieval trailheads and adaptive
+cadence, followed by cursor pagination and invalidation-only SSE on top of the
+new bounded live projection.

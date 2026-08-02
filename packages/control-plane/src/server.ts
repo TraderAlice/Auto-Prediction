@@ -43,6 +43,7 @@ import {
   radarTriageTaskId,
 } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
+import { buildLiveStudioProjection } from "./studio-projection-window.js";
 import {
   applyProposalEconomicPriority,
   buildProposalEconomicTriage,
@@ -1239,10 +1240,11 @@ export function createControlPlane(options?: {
       candidateWatch: candidateWatchDesk.projection(),
     });
   };
+  const liveProjection = async () => buildLiveStudioProjection(await projection());
 
   const broadcastProjection = async (): Promise<void> => {
     const payload = `event: projection\ndata: ${JSON.stringify(
-      await projection(),
+      await liveProjection(),
     )}\n\n`;
     for (const subscriber of subscribers) {
       if (subscriber.destroyed) {
@@ -1385,7 +1387,18 @@ export function createControlPlane(options?: {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/projection") {
-      writeJson(response, 200, await projection());
+      const view = url.searchParams.get("view") ?? "live";
+      if (view === "live") {
+        writeJson(response, 200, await liveProjection());
+      } else if (view === "full") {
+        writeJson(response, 200, await projection());
+      } else {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: "projection view must be live or full",
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (
@@ -1971,7 +1984,7 @@ export function createControlPlane(options?: {
         "access-control-allow-origin": "http://localhost:5173",
       });
       response.write(
-        `event: projection\ndata: ${JSON.stringify(await projection())}\n\n`,
+        `event: projection\ndata: ${JSON.stringify(await liveProjection())}\n\n`,
       );
       subscribers.add(response);
       const heartbeat = setInterval(() => {

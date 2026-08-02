@@ -215,6 +215,20 @@ restart/retry/disable budget qualification, obsolete-default supersession,
 family-specific retrieval, and projection compaction/pagination before the
 multi-megabyte retained state becomes a durable operator bottleneck.
 
+That operator bottleneck now has a bounded transport boundary. Studio
+projection v2 separates authoritative retained-state and live-view hashes, and
+publishes an exact manifest for every active-first/recent window. The default
+projection and SSE carry a 1.02 MB live view instead of the measured 5.48 MB
+full history (81% fewer bytes); the full state remains available only through
+an explicit read-only view. Graph listing nodes no longer cross the live wire,
+while exact graph totals and identity remain. The same checkpoint gives default
+semantic issues durable management keys: startup automatically disables and
+links obsolete immutable revisions, refuses to re-enable them, and preserves
+operator-owned issues. The retained P4 temporal issue is now linked to its P5
+successor. Studio visibly identifies eighteen windowed collections and the
+retired issue; default and 390 px QA have no horizontal overflow. Cursor-based
+history and invalidation-only/coalesced SSE remain the next scalability layer.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

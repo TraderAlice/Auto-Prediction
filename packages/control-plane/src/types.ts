@@ -311,10 +311,31 @@ export type BookDeskProjection = Readonly<{
 
 export type StudioProjection = Readonly<{
   identity: Readonly<{
-    schemaVersion: "pmh.studio-projection.v1";
+    schemaVersion: "pmh.studio-projection.v2";
     campaign: string;
     mode: "CONTROL_PLANE";
+    view: "FULL" | "LIVE_BOUNDED";
     stateHash: string;
+    viewHash: string;
+  }>;
+  projectionWindow: Readonly<{
+    schemaVersion: "pmh.studio-projection-window.v1";
+    mode: "FULL" | "LIVE_BOUNDED";
+    sourceStateHash: string;
+    collections: readonly Readonly<{
+      path: string;
+      totalCount: number;
+      includedCount: number;
+      limit: number;
+      selection:
+        | "ACTIVE_THEN_RETAINED_ORDER"
+        | "RETAINED_ORDER"
+        | "OMITTED_FROM_LIVE_VIEW"
+        | "LINKED_TO_INCLUDED_CASES";
+      fullResource: "/api/v1/projection?view=full";
+    }>[];
+    authority: "PRESENTATION_WINDOW_ONLY";
+    historyDeleted: false;
   }>;
   system: Readonly<{
     lifecycle: "PRE_ALPHA";

@@ -530,6 +530,8 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   activeCount: 0,
   issueCount: 0,
   enabledIssueCount: 0,
+  defaultManagedIssueCount: 0,
+  supersededIssueCount: 0,
   dueIssueCount: 0,
   unreadNotificationCount: 0,
   performance: {
@@ -1731,6 +1733,13 @@ function Topbar({
           <Sparkles size={10} />
           Shadow only
         </Badge>
+        {studioProjection.projectionWindow.mode === "LIVE_BOUNDED" && (
+          <Badge variant="muted">
+            {studioProjection.projectionWindow.collections.filter(
+              (item) => item.includedCount < item.totalCount,
+            ).length} windowed
+          </Badge>
+        )}
         <span className="header-hash">
           <GitBranch size={13} />
           {studioProjection.identity.stateHash.slice(7, 14)}
@@ -1989,7 +1998,7 @@ function Overview({
           <code>{studioProjection.identity.stateHash}</code>
           <div>
             <Badge variant="muted">{studioProjection.identity.mode}</Badge>
-            <span>pmh.studio-projection.v1</span>
+            <span>{studioProjection.identity.schemaVersion} · {studioProjection.identity.view}</span>
           </div>
         </div>
       </section>
@@ -3038,7 +3047,7 @@ function MarketArchaeologistView() {
         <Metric
           label="Search issues"
           value={`${issueScheduler.enabledIssueCount}`}
-          detail={`${issueScheduler.activeCount}/${issueScheduler.concurrencyLimit} agents running`}
+          detail={`${issueScheduler.activeCount}/${issueScheduler.concurrencyLimit} agents running · ${issueScheduler.supersededIssueCount} retired`}
         />
         <Metric
           label="Semantic graph"
@@ -3358,6 +3367,9 @@ function MarketArchaeologistView() {
                         {issue.familyDefinition !== undefined && (
                           <Badge variant="shadow">{issue.familyDefinition.semanticFamily.replaceAll("_", " ")}</Badge>
                         )}
+                        {issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null && (
+                          <Badge variant="warning">SUPERSEDED</Badge>
+                        )}
                       </div>
                       <code>{issue.issueId.slice(7, 14)}</code>
                     </div>
@@ -3377,6 +3389,9 @@ function MarketArchaeologistView() {
                         <span>
                           falsify: {issue.familyDefinition.falsifiers.join(" · ")} · research premises {issue.familyDefinition.acceptablePremiseKinds.join("/")}
                         </span>
+                      )}
+                      {issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null && (
+                        <span>retired default · successor {issue.supersededByIssueId.slice(7, 14)}</span>
                       )}
                       <span>every {issue.cadenceMs / 60_000}m</span>
                       <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
@@ -3406,7 +3421,10 @@ function MarketArchaeologistView() {
                     <div className="search-issue-actions">
                       <Button
                         variant="outline"
-                        disabled={corpus.listingCount === 0 || issueAction !== null}
+                        disabled={
+                          corpus.listingCount === 0 || issueAction !== null ||
+                          (issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null)
+                        }
                         onClick={() => void runIssue(issue.issueId)}
                       >
                         {issueAction === `RUN:${issue.issueId}` ? <RefreshCw className="is-spinning" size={13} /> : <Play size={13} />}
@@ -3414,11 +3432,16 @@ function MarketArchaeologistView() {
                       </Button>
                       <Button
                         variant="ghost"
-                        disabled={issueAction !== null}
+                        disabled={
+                          issueAction !== null ||
+                          (issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null)
+                        }
                         onClick={() => void toggleIssue(issue)}
                       >
                         {issue.enabled ? <Pause size={13} /> : <Play size={13} />}
-                        {issue.enabled ? "Pause" : "Resume"}
+                        {issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null
+                          ? "Retired"
+                          : issue.enabled ? "Pause" : "Resume"}
                       </Button>
                     </div>
                   </article>
@@ -4349,7 +4372,7 @@ function OpportunityLifecycleView() {
           <div><strong>{reviewScheduler.duplicateScopeCount}</strong><span>duplicate calls withheld</span></div>
           <div><strong>{reviewScheduler.historicalRedundantPassCount}</strong><span>historical redundant passes</span></div>
           <div>
-            <strong>{reviewScheduler.bundledJobCount}/{reviewScheduler.jobs.length}</strong>
+            <strong>{reviewScheduler.bundledJobCount}/{reviewScheduler.scopedJobCount}</strong>
             <span>evidence bundled · {reviewScheduler.legacyEvidenceDebtCount} legacy debt</span>
           </div>
           <div><strong>{reviewScheduler.passedCount}</strong><span>reviewed</span></div>

@@ -519,18 +519,20 @@ describe("issue-driven concurrent search scheduler", () => {
     store.close();
   });
 
-  it("seeds durable issues, fills three priority slots, and notifies only a novel signature", async () => {
+  it("seeds durable issues, fills three priority slots, and notifies only novel signatures", async () => {
     const pending: Array<{ task: DiscoveryTask; resolve: (record: DiscoveryRunRecord) => void }> = [];
     const runFast = vi.fn((task: DiscoveryTask) => new Promise<DiscoveryRunRecord>((resolve) => {
       pending.push({ task, resolve });
     }));
-    const runDeep = vi.fn(async () => Object.freeze({
+    const runDeep = vi.fn(async (_snapshot: unknown, question: string) => Object.freeze({
       runId: hashCanonical({ deep: 1 }),
       status: "PASS" as const,
       proposalIds: Object.freeze([hashCanonical({ proposal: 1 })]),
       proposalDetails: Object.freeze([Object.freeze({
         proposalId: hashCanonical({ proposal: 1 }),
-        relationKind: "EQUIVALENT" as const,
+        relationKind: question.includes("Semantic family TEMPORAL_IMPOSSIBILITY")
+          ? "CONDITIONAL" as const
+          : "EQUIVALENT" as const,
         listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
       })]),
       evidenceGaps: Object.freeze([]),
@@ -581,22 +583,22 @@ describe("issue-driven concurrent search scheduler", () => {
     const completed = issues.projection();
     expect(completed.activeCount).toBe(0);
     expect(completed.issues.reduce((sum, issue) => sum + issue.runCount, 0)).toBe(3);
-    expect(completed.unreadNotificationCount).toBe(1);
-    expect(runDeep).toHaveBeenCalledTimes(1);
+    expect(completed.unreadNotificationCount).toBe(2);
+    expect(runDeep).toHaveBeenCalledTimes(2);
     expect(completed.performance).toMatchObject({
       measurementWindow: "RETAINED_TERMINAL_LEASES",
       retainedLeaseLimit: 40,
       terminalLeaseCount: 3,
-      novelCandidateCount: 1,
-      duplicateCount: 1,
-      piEscalationCount: 1,
+      novelCandidateCount: 2,
+      duplicateCount: 0,
+      piEscalationCount: 2,
       economicGateRequiredCount: 1,
       economicGatePositiveCount: 0,
       economicGateBlockedCount: 1,
       piAvoidedCount: 1,
-      modelSelectionRequiredCount: 1,
+      modelSelectionRequiredCount: 2,
       modelSelectedCandidateCount: 1,
-      modelSelectionMissCount: 0,
+      modelSelectionMissCount: 1,
       quoteEnrichmentAttemptCount: 0,
       quoteEnrichmentReadyCount: 0,
       quoteEnrichmentPartialCount: 0,
@@ -610,16 +612,16 @@ describe("issue-driven concurrent search scheduler", () => {
       boundedScopeRevisitCount: 0,
       noLeadBoundedScopeCount: 0,
       hypothesisCount: 3,
-      proposalCount: 1,
+      proposalCount: 2,
       evidenceGapCount: 0,
       providerRequestAttemptCount: 3,
       providerFailureCount: 0,
       providerFailureRateBps: 0,
       providerNativeTelemetryLeaseCount: 3,
       providerLegacyDerivedLeaseCount: 0,
-      novelCandidateRateBps: 3_333,
-      duplicateRateBps: 3_333,
-      piEscalationRateBps: 3_333,
+      novelCandidateRateBps: 6_666,
+      duplicateRateBps: 0,
+      piEscalationRateBps: 6_666,
       economicGatePositiveRateBps: 0,
     });
     expect(completed.performance.byIssue).toHaveLength(10);
@@ -658,11 +660,12 @@ describe("issue-driven concurrent search scheduler", () => {
     });
     expect(restored.projection()).toMatchObject({
       issueCount: 10,
-      unreadNotificationCount: 1,
-      performance: { terminalLeaseCount: 3, duplicateCount: 1 },
+      unreadNotificationCount: 2,
+      performance: { terminalLeaseCount: 3, duplicateCount: 0 },
     });
-    const notification = restored.projection().notifications[0]!;
-    restored.acknowledge(notification.notificationId);
+    for (const notification of restored.projection().notifications) {
+      restored.acknowledge(notification.notificationId);
+    }
     expect(restored.projection().unreadNotificationCount).toBe(0);
     store.close();
   });
@@ -1025,6 +1028,113 @@ describe("issue-driven concurrent search scheduler", () => {
             requirePositiveGrossHint: true,
           },
         });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retires obsolete default family revisions without pausing operator-owned issues", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-search-family-supersession-"));
+    const path = join(directory, "control-plane.sqlite");
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstLeases = new SearchLeaseScheduler({
+        context,
+        runFast: async (task) => runRecord(task),
+        maxPiInvocations: 0,
+        store: firstStore,
+      });
+      const first = new SearchIssueScheduler({
+        leaseScheduler: firstLeases,
+        store: firstStore,
+        seedDefaults: false,
+        now: () => nowMs,
+      });
+      const family = Object.freeze({
+        semanticFamily: "TEMPORAL_IMPOSSIBILITY" as const,
+        intendedRelationKinds: Object.freeze([
+          "MUTUALLY_EXCLUSIVE", "IMPLIES", "CONDITIONAL", "CONFLICTING",
+        ] as const),
+        falsifiers: Object.freeze([
+          "the earlier event need not prevent the later act",
+          "the later contract permits a proxy, recording, postponement, or changed identity",
+          "the settlement windows overlap differently than the titles imply",
+        ]),
+        expectedListingCount: Object.freeze({ minimum: 2 as const, maximum: 4 as const }),
+        maxCorpusListings: 18,
+        acceptablePremiseKinds: Object.freeze([
+          "SETTLEMENT_INTRINSIC", "TRADED_OUTCOME", "EXTERNAL_OBSERVATION", "CAUSAL_HYPOTHESIS",
+        ] as const),
+      });
+      const obsolete = first.create({
+        title: "Temporal impossibility",
+        question: "Find contracts where one settled outcome would make a later required appearance, publication, certification, office-holding, or personal act impossible. Separate logical impossibility from merely reduced likelihood.",
+        lens: "IMPLICATION",
+        cadenceMs: 20 * 60_000,
+        priority: 4,
+        family,
+      });
+      const operatorIssue = first.create({
+        title: "Operator temporal trailhead",
+        question: "Search a named operator-owned temporal hypothesis without adopting default lifecycle management.",
+        lens: "IMPLICATION",
+        cadenceMs: 20 * 60_000,
+        priority: 3,
+        family,
+      });
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const secondLeases = new SearchLeaseScheduler({
+        context,
+        runFast: async () => { throw new Error("must not run while reconciling defaults"); },
+        maxPiInvocations: 0,
+        store: secondStore,
+      });
+      const restored = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      const projection = restored.projection();
+      const current = projection.issues.find((issue) =>
+        issue.defaultKey === "temporal-impossibility-v1" &&
+        issue.supersededByIssueId === null
+      )!;
+      expect(current).toMatchObject({ enabled: true, priority: 5 });
+      expect(projection.issues.find((issue) => issue.issueId === obsolete.issueId)).toMatchObject({
+        enabled: false,
+        defaultKey: "temporal-impossibility-v1",
+        supersededByIssueId: current.issueId,
+      });
+      const retainedOperatorIssue = projection.issues.find(
+        (issue) => issue.issueId === operatorIssue.issueId,
+      )!;
+      expect(retainedOperatorIssue.enabled).toBe(true);
+      expect(retainedOperatorIssue.defaultKey).toBeUndefined();
+      expect(retainedOperatorIssue.supersededByIssueId).toBeUndefined();
+      expect(projection).toMatchObject({
+        issueCount: 12,
+        enabledIssueCount: 11,
+        defaultManagedIssueCount: 6,
+        supersededIssueCount: 1,
+      });
+      expect(() => restored.setEnabled(obsolete.issueId, true)).toThrow(
+        "superseded default search issue cannot be re-enabled",
+      );
+
+      const supersededHash = restored.projection().issues.find(
+        (issue) => issue.issueId === obsolete.issueId,
+      )!.artifactHash;
+      const restarted = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        store: secondStore,
+        now: () => nowMs + 2_000,
+      });
+      expect(restarted.projection().issues.find(
+        (issue) => issue.issueId === obsolete.issueId,
+      )?.artifactHash).toBe(supersededHash);
       secondStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
