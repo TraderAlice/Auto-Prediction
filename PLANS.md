@@ -59,14 +59,18 @@ shows the semantic proof without horizontal overflow or runtime errors. Commit
 `a23291a` is published in ready-for-review PR #80.
 
 The next measured capability gap is official rule evidence. In the latest
-retained 947-listing corpus, 387 listings have no inline `rulesText`: all 347
-Gemini, 20 Myriad, and 20 Polymarket Global listings. Sixteen semantic-review
-jobs are `BLOCKED_EVIDENCE`. Those adapters already expose some rule locators at
-the protocol layer, but the discovery projection drops them before MarketFS or
-semantic review. The active plan preserves those locators, adds a bounded
-anonymous evidence-acquisition queue, and resumes review over a new immutable
-evidence-enriched scope. Implementation waits for #80 to merge so PRs remain
-serial.
+retained 947-listing corpus, 387 listings initially lacked inline `rulesText`.
+Forty are an adapter mapping defect: Myriad and Polymarket Global descriptions
+already contain their settlement criteria, and #80 now routes that text through
+the rules channel. The remaining 347 are Gemini listings; 286 point to one
+official terms PDF and 61 have no locator. Sixteen semantic-review jobs are
+`BLOCKED_EVIDENCE`. Myriad's observed URLs are outcome-resolution sources, not
+contract rules, so #80 also separates `resolutionSourceUrl` from `rulesUrl` at
+the protocol boundary. The discovery projection still drops both typed
+locators before MarketFS or semantic review. The active plan preserves their
+roles, adds a bounded anonymous evidence-acquisition queue, and resumes review
+over a new immutable evidence-enriched scope. The broader implementation waits
+for #80 to merge so PRs remain serial.
 
 ## Deferred future campaigns
 

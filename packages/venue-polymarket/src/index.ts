@@ -113,12 +113,13 @@ export function normalizePolymarketCatalog(
       venueInstrumentId: market.id,
       title: market.question,
       description: market.description,
+      rulesText: market.description,
       status: market.active && !market.closed ? "OPEN" : "CLOSED",
       mechanism: "ONCHAIN_CLOB",
       closesAt: market.endDate,
       ...(market.resolutionSource === ""
         ? {}
-        : { rulesUrl: market.resolutionSource }),
+        : { resolutionSourceUrl: market.resolutionSource }),
       outcomes: labels.map((label, index) => ({
         venueOutcomeId: tokenIds[index] ?? "",
         label,

@@ -18,6 +18,10 @@ describe("Myriad AMM fixture", () => {
     expect(listing?.mechanism).toBe("AMM");
     expect(typeof listing?.outcomes[0]?.indicativePrice).toBe("bigint");
     expect(listing?.outcomes[0]?.indicativePrice).toBe(69_936_850n);
+    expect(listing?.rulesText).toBe(listing?.description);
+    expect(listing?.rulesText).toContain("Resolution Criteria");
+    expect(listing?.rulesUrl).toBeUndefined();
+    expect(listing?.resolutionSourceUrl).toBe("https://x.com/myriadmarkets");
     expect(myriadManifest.liveExecutionEnabled).toBe(false);
   });
 });

@@ -187,6 +187,7 @@ describe("verified catalog discovery context", () => {
       venueId: "venue-a",
       venueInstrumentId: `album-${index}`,
       title: `Rihanna album release ${index}`,
+      rulesText: null,
     }));
     const secondVenue = Object.freeze({
       ...seed,
@@ -195,6 +196,7 @@ describe("verified catalog discovery context", () => {
       venueInstrumentId: "unrelated",
       title: "Unrelated weather contract",
       description: "No query term overlaps this listing.",
+      rulesText: null,
     });
 
     const context = buildDiscoveryCatalogContext(

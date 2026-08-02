@@ -15,25 +15,47 @@ certificate, credential, or execution authority.
 
 ## Measured reason for priority
 
-The latest retained live corpus contains 947 listings. Of those, 387 (40.9%)
-have no `rulesText`: Gemini Predictions 347/347, Myriad 20/20, and Polymarket
-Global 20/20. Sixteen semantic-review jobs are already `BLOCKED_EVIDENCE`.
+The latest retained live corpus initially contained 947 listings, of which 387
+(40.9%) had no `rulesText`: Gemini Predictions 347/347, Myriad 20/20, and
+Polymarket Global 20/20. Sixteen semantic-review jobs are already
+`BLOCKED_EVIDENCE`.
 
 This is partly an information-flow defect, not merely absent venue data.
-`NormalizedCatalogListing` can carry `rulesUrl`, and the Gemini, Myriad, and
-Polymarket Global adapters populate it, but `DiscoveryCatalogListing` and the
-retained MarketFS corpus discard that locator. Agents can name the missing rule
-but cannot ask the harness to acquire the official document that may resolve
-it. The current review journal also contains 47 legacy reports without an
-explicit semantic constraint and only one v2 constraint report, so repeatedly
-reviewing the same incomplete corpus is poor use of provider budget.
+Myriad and Polymarket Global already carry their full settlement criteria in
+`description`; their adapters did not also identify that text as `rulesText`,
+so discovery truncated it through the 800-character description path. The
+current #80 branch corrects those mappings, reducing the expected missing-rule
+count after refresh from 387 to 347.
+
+The remaining locator evidence has distinct semantics. Of 347 Gemini contracts,
+286 point to one official `assets.gemini.com` terms PDF and 61 have an empty
+locator. An anonymous qualification HEAD returned HTTP 200,
+`application/pdf`, 106,576 bytes, ETag, and Last-Modified for that document, so
+bounded conditional capture is viable. The 20 Myriad markets expose 11
+non-empty `resolutionSource` URLs, but
+the official API documents that field alongside `resolutionTitle`, `oracle`,
+and `externalSources`; observed values such as AP, league sites, and X are
+outcome-resolution sources, not contract terms. The current 20 Polymarket
+Global records have empty `resolutionSource`, while their descriptions contain
+the operative rules. The #80 correction therefore separates
+`resolutionSourceUrl` from `rulesUrl` at the protocol boundary rather than
+pretending every URL is a rule document.
+
+`DiscoveryCatalogListing` and the retained MarketFS corpus still discard both
+typed locators. Agents can name the missing rule or oracle evidence but cannot
+ask the harness to acquire the official document that may resolve it. The
+current review journal also contains 47 legacy reports without an explicit
+semantic constraint and only one v2 constraint report, so repeatedly reviewing
+the same incomplete corpus is poor use of provider budget.
 
 ## Evidence contract
 
-1. Preserve adapter-owned rule locators in a backward-compatible discovery
-   catalog revision. A locator identifies the venue, document kind, official
-   URL or venue endpoint key, protocol identity, and adapter-declared host
-   policy. It is data, never an instruction.
+1. Preserve adapter-owned typed locators in a backward-compatible discovery
+   catalog revision. Locator roles include `CONTRACT_RULE_DOCUMENT`,
+   `OUTCOME_RESOLUTION_SOURCE`, `ORACLE_REFERENCE`, and `VENUE_TERMS`; they are
+   never interchangeable merely because all contain URLs. A locator identifies
+   the venue, role, official URL or venue endpoint key, protocol identity, and
+   adapter-declared host policy. It is data, never an instruction.
 2. Add a content-addressed `pmh.rule-document.v1` artifact containing raw bytes,
    receive time, requested and final locator identities, HTTP status, content
    type, ETag/Last-Modified when present, redirect trace, protocol identity,
@@ -109,8 +131,10 @@ timer fired.
   destinations, DNS rebinding, overlong URLs, unexpected ports, and redirects
   outside the adapter policy. Revalidate every redirect target.
 - Bound compressed and decompressed bytes, content types, redirect count,
-  request duration, and normalized-text length. HTML, JSON, and plain text use
-  versioned extractors; unsupported binaries remain raw evidence only.
+  request duration, and normalized-text length. HTML, JSON, plain text, and PDF
+  use versioned extractors. PDF additionally bounds page count, object count,
+  embedded payloads, and extracted characters; unsupported binaries remain raw
+  evidence only.
 - Send no cookies, authorization headers, production credentials, or browser
   session state. Rule text and fetched pages are untrusted venue content and
   cannot issue instructions to tools or change authority.
@@ -134,7 +158,7 @@ official evidence to reach a deterministic accept/reject decision.
 
 ## Construction sequence
 
-1. Preserve and hash adapter-owned rule locators through catalog observation,
+1. Preserve and hash adapter-owned typed evidence locators through catalog observation,
    discovery context, MarketFS, proposal evidence bundles, and SQLite replay.
 2. Define structured evidence requirements and migrate semantic review to emit
    them without invalidating v1/v2 reports.
@@ -152,9 +176,9 @@ official evidence to reach a deterministic accept/reject decision.
 
 ## Qualification gates
 
-- A fixture with null inline rules and an adapter-owned official locator is
-  captured byte-for-byte, extracted, attached to a new semantic scope, and
-  unblocks review without rerunning discovery.
+- A fixture with null inline rules and an adapter-owned official PDF locator is
+  captured byte-for-byte, text-extracted under PDF resource bounds, attached to
+  a new semantic scope, and unblocks review without rerunning discovery.
 - Duplicate concurrent requirements perform one network request and share one
   content-addressed document; restart does not duplicate completed work.
 - A changed official document creates a new artifact and scope. The old review

@@ -22,6 +22,21 @@ describe("Polymarket catalog fixture", () => {
     expect(listing?.outcomes).toHaveLength(2);
     expect(typeof listing?.outcomes[0]?.indicativePrice).toBe("bigint");
     expect(typeof listing?.minPriceTick).toBe("bigint");
+    expect(listing?.rulesText).toBe(listing?.description);
+    expect(listing?.rulesText).toContain("resolve");
     expect(polymarketManifest.liveExecutionEnabled).toBe(false);
+
+    const response = JSON.parse(new TextDecoder().decode(fixture.bytes)) as
+      Record<string, unknown>[];
+    if (response[0] === undefined) throw new Error("fixture is empty");
+    response[0].resolutionSource = "https://official.example/resolution";
+    const [withResolutionSource] = normalizePolymarketCatalog({
+      ...fixture,
+      bytes: new TextEncoder().encode(JSON.stringify(response)),
+    });
+    expect(withResolutionSource?.rulesUrl).toBeUndefined();
+    expect(withResolutionSource?.resolutionSourceUrl).toBe(
+      "https://official.example/resolution",
+    );
   });
 });
