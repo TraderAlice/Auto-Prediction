@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -21,6 +22,7 @@ import {
   RealCandidatePreflightDesk,
   SearchIssueScheduler,
   SearchLeaseScheduler,
+  startControlPlane,
   type DiscoveryCatalogContext,
   type DiscoveryRunRecord,
   type DiscoveryTask,
@@ -75,6 +77,83 @@ async function closeTracked(
 }
 
 describe("control-plane HTTP surface", () => {
+  it("loses a port race without starting catalog or lease mutations", async () => {
+    const blocker = createServer((_request, response) => response.end("occupied"));
+    servers.push(blocker);
+    await new Promise<void>((resolveListen) =>
+      blocker.listen(0, "127.0.0.1", resolveListen),
+    );
+    const address = blocker.address() as AddressInfo;
+    const directory = await mkdtemp(join(tmpdir(), "pmh-startup-gate-"));
+    const databasePath = join(directory, "control-plane.sqlite");
+
+    try {
+      await expect(
+        startControlPlane(address.port, "127.0.0.1", databasePath),
+      ).rejects.toMatchObject({ code: "EADDRINUSE" });
+
+      const store = new SqliteOperationalStore(databasePath);
+      try {
+        expect(store.loadCatalogObservations(100)).toHaveLength(0);
+        expect(store.loadSearchLeaseRecords(100)).toHaveLength(0);
+      } finally {
+        store.close();
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not start mutable background work before the HTTP listener is admitted", async () => {
+    let releaseStartup: (() => void) | undefined;
+    const startupGate = new Promise<void>((resolveStartup) => {
+      releaseStartup = resolveStartup;
+    });
+    let fetchCount = 0;
+    const source: CatalogObservationSource = {
+      venueId: "gate-test",
+      protocolIdentity: "gate-test:v1",
+      sourceUrl: "https://example.test/gate",
+      decode: () => [],
+    };
+    const catalogDesk = new CatalogObservationDesk({
+      sources: [source],
+      fetcher: async () => {
+        fetchCount += 1;
+        return new Response("[]", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const catalogRefreshScheduler = new CatalogRefreshScheduler({
+      desk: catalogDesk,
+      intervalMs: null,
+    });
+    const controlPlane = createControlPlane({
+      modelRuntime: createOpenAiDiscoveryRuntime({}),
+      catalogObservationDesk: catalogDesk,
+      catalogRefreshScheduler,
+      refreshCatalogOnReady: true,
+      startupGate,
+    });
+    servers.push(controlPlane.server);
+
+    await Promise.resolve();
+    expect(fetchCount).toBe(0);
+    expect(catalogRefreshScheduler.projection().runCount).toBe(0);
+
+    await new Promise<void>((resolveListen) =>
+      controlPlane.server.listen(0, "127.0.0.1", resolveListen),
+    );
+    expect(fetchCount).toBe(0);
+
+    releaseStartup?.();
+    await controlPlane.ready;
+    expect(fetchCount).toBe(1);
+    expect(catalogRefreshScheduler.projection().runCount).toBe(1);
+  });
+
   it("holds due issues during refresh and dispatches them on the new corpus", async () => {
     const source = catalogObservationSources.find(
       (candidate) => candidate.venueId === "polymarket-global",
@@ -1107,9 +1186,12 @@ describe("control-plane HTTP surface", () => {
 
     expect(response.status).toBe(200);
     expect(capturedDeadlineEpochMs - beforeRequest).toBeGreaterThanOrEqual(301_000);
-    expect(controlPlane.searchLeaseScheduler.projection().budget.deadlineMs).toBe(
-      300_000,
-    );
+    expect(controlPlane.searchLeaseScheduler.projection().budget).toMatchObject({
+      fastDeadlineMs: 300_000,
+      deepDeadlineMs: 300_000,
+      orchestrationGraceMs: 5_000,
+      deadlineMs: 605_000,
+    });
   });
 
   it("triages only a current server-bound radar pair through the scout pool", async () => {
@@ -1823,7 +1905,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 17,
+          schemaVersion: 18,
         },
         records: [{ investigationId: created.investigationId }],
       });

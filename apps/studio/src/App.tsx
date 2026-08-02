@@ -352,12 +352,16 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
 
 const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler"] = {
   schemaVersion: "pmh.search-lease-scheduler.v1",
-  algorithmVersion: "pmh.ai-search-leases.v3",
+  algorithmVersion: "pmh.ai-search-leases.v5",
   enabled: false,
   configured: { fastLane: true, deepLane: false },
   status: "IDLE",
   activeCount: 0,
+  activeFastCount: 0,
+  activeDeepCount: 0,
+  queuedDeepCount: 0,
   concurrencyLimit: 1,
+  deepConcurrencyLimit: 1,
   intervalMs: null,
   retentionLimit: 40,
   lensOrder: ["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"],
@@ -365,7 +369,11 @@ const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler
     maxFastModelRequests: 1,
     maxPiInvocations: 1,
     maxHypotheses: 8,
-    deadlineMs: 300_000,
+    deadlineMs: 605_000,
+    fastDeadlineMs: 300_000,
+    deepDeadlineMs: 300_000,
+    orchestrationGraceMs: 5_000,
+    maxDeepAttempts: 3,
   },
   runCount: 0,
   passCount: 0,
@@ -373,6 +381,12 @@ const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler
   issuedCount: 0,
   duplicateCount: 0,
   piEscalationCount: 0,
+  deepPendingCount: 0,
+  deepPassCount: 0,
+  deepFailedCount: 0,
+  deepRetryCount: 0,
+  preservedFastResultCount: 0,
+  expiredRecoveryCount: 0,
   retainedCorpusCount: 0,
   recoverableIssuedCount: 0,
   missingCorpusIssuedCount: 0,
@@ -418,6 +432,12 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     novelCandidateCount: 0,
     duplicateCount: 0,
     piEscalationCount: 0,
+    deepPendingCount: 0,
+    deepPassCount: 0,
+    deepFailedCount: 0,
+    deepRetryCount: 0,
+    preservedFastResultCount: 0,
+    expiredRecoveryCount: 0,
     economicGateRequiredCount: 0,
     economicGatePositiveCount: 0,
     economicGateBlockedCount: 0,
@@ -939,6 +959,33 @@ async function requestSearchLease(): Promise<boolean> {
     result.effects.liveExecutionEnabled !== false
   ) {
     throw new Error("search lease crossed its authority boundary");
+  }
+  return result.idempotentReplay === true;
+}
+
+async function requestSearchDeepRetry(leaseId: string): Promise<boolean> {
+  const response = await fetch(
+    `/api/v1/search-leases/${encodeURIComponent(leaseId)}/deep-retries`,
+    { method: "POST" },
+  );
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    status?: string;
+    idempotentReplay?: boolean;
+    semanticDecisionAuthority?: boolean;
+    certificateAuthority?: boolean;
+    executionAuthority?: boolean;
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "deep retry failed");
+  }
+  if (
+    result.status !== "PASS" ||
+    result.semanticDecisionAuthority !== false ||
+    result.certificateAuthority !== false ||
+    result.executionAuthority !== false
+  ) {
+    throw new Error("deep retry crossed its authority boundary");
   }
   return result.idempotentReplay === true;
 }
@@ -2698,6 +2745,7 @@ function MarketArchaeologistView() {
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
   const [leaseDiagnostic, setLeaseDiagnostic] = useState<string | null>(null);
+  const [deepRetryLeaseId, setDeepRetryLeaseId] = useState<string | null>(null);
   const [issueAction, setIssueAction] = useState<string | null>(null);
   const [issueDiagnostic, setIssueDiagnostic] = useState<string | null>(null);
   const [newIssueTitle, setNewIssueTitle] = useState("");
@@ -2736,6 +2784,20 @@ function MarketArchaeologistView() {
       setLeaseDiagnostic(
         error instanceof Error ? error.message : "search lease failed",
       );
+    }
+  }
+
+  async function retryDeep(leaseId: string): Promise<void> {
+    setDeepRetryLeaseId(leaseId);
+    setLeaseDiagnostic(null);
+    try {
+      await requestSearchDeepRetry(leaseId);
+    } catch (error) {
+      setLeaseDiagnostic(
+        error instanceof Error ? error.message : "deep retry failed",
+      );
+    } finally {
+      setDeepRetryLeaseId(null);
     }
   }
 
@@ -2958,6 +3020,25 @@ function MarketArchaeologistView() {
             <div><strong>{formatRateBps(issuePerformance.piEscalationRateBps)}</strong><span>pi escalation · {issuePerformance.proposalCount} proposals · {issuePerformance.evidenceGapCount} gaps</span></div>
           </div>
 
+          <div className="issue-scheduler-strip issue-performance-strip" aria-label="Fast and deep lane resilience">
+            <div>
+              <strong>{issuePerformance.preservedFastResultCount}</strong>
+              <span>fast results preserved after deep failure</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.deepPendingCount}</strong>
+              <span>deep pending or running</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.deepPassCount}/{issuePerformance.deepFailedCount}</strong>
+              <span>deep passed / unavailable</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.deepRetryCount}/{issuePerformance.expiredRecoveryCount}</strong>
+              <span>Pi retries / expired recovery records</span>
+            </div>
+          </div>
+
           <div className="issue-scheduler-strip issue-performance-strip" aria-label="AI provider reliability">
             <div>
               <strong>{issuePerformance.providerRequestAttemptCount}</strong>
@@ -3028,7 +3109,7 @@ function MarketArchaeologistView() {
           <section className="search-attention-console" aria-label="Search attention inbox">
             <div className="issue-column-heading">
               <div><Bell size={14} /><strong>Attention inbox</strong></div>
-              <span>routine scans roll into hourly digests · action and degradation notify immediately</span>
+              <span>routine scans roll into hourly digests · candidates, deep failures, and degradation notify immediately</span>
             </div>
             <div className="search-attention-summary">
               <div><strong>{attention.unreadInAppCount}</strong><span>unread briefs</span></div>
@@ -3149,6 +3230,7 @@ function MarketArchaeologistView() {
                       <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
                       <span>{issue.passCount}/{issue.runCount} passed</span>
                       <span>{performance?.novelCandidateCount ?? 0} new · {performance?.duplicateCount ?? 0} repeat · {performance?.piEscalationCount ?? 0} pi</span>
+                      <span>{performance?.deepPendingCount ?? 0} deep pending · {performance?.deepPassCount ?? 0}/{performance?.deepFailedCount ?? 0} passed/unavailable · {performance?.deepRetryCount ?? 0} retries</span>
                       <span>{performance?.degradedPassCount ?? 0}/{performance?.degradedContextCount ?? 0} degraded scans completed · {performance?.omittedVenueCount ?? 0} omission events</span>
                       <span>
                         {performance?.exactSemanticScopeCount ?? 0} exact · {performance?.boundedSemanticScopeCount ?? 0} neighborhoods
@@ -3337,9 +3419,9 @@ function MarketArchaeologistView() {
             })}
           </div>
           <div className="search-lease-budget">
-            <div><Sparkles size={14} /><span>cheap model</span><strong>≤ {scheduler.budget.maxFastModelRequests} request</strong></div>
-            <div><SquareTerminal size={14} /><span>pi deep search</span><strong>≤ {scheduler.budget.maxPiInvocations} invocation</strong></div>
-            <div><Gauge size={14} /><span>deadline</span><strong>{scheduler.budget.deadlineMs / 1000}s</strong></div>
+            <div><Sparkles size={14} /><span>fast checkpoint</span><strong>≤ {(scheduler.budget.fastDeadlineMs ?? scheduler.budget.deadlineMs) / 1000}s</strong></div>
+            <div><SquareTerminal size={14} /><span>pi attempt</span><strong>≤ {(scheduler.budget.deepDeadlineMs ?? scheduler.budget.deadlineMs) / 1000}s · {scheduler.budget.maxDeepAttempts ?? 1} tries</strong></div>
+            <div><Gauge size={14} /><span>lane health</span><strong>{scheduler.deepPendingCount} pending · {scheduler.deepFailedCount} retryable</strong></div>
             <div><Database size={14} /><span>ledger</span><strong>{scheduler.storage.durable ? "SQLite WAL" : "memory"}</strong></div>
           </div>
           <div className="search-lease-action">
@@ -3457,7 +3539,12 @@ function MarketArchaeologistView() {
               <p>{record.lease.thesis}</p>
               <div>
                 <code>{record.outcome.hypothesisCount} candidates</code>
-                <code>{record.deepLane.runId === null ? record.deepLane.reason : "PI ESCALATED"}</code>
+                <code>FAST {record.fastLane.status}</code>
+                <code>DEEP {record.deepLane.status}</code>
+                <code>{record.deepLane.reason}</code>
+                {(record.deepLane.attempts?.length ?? 0) > 0 && (
+                  <code>{record.deepLane.attempts?.length} PI attempt{record.deepLane.attempts?.length === 1 ? "" : "s"}</code>
+                )}
                 <code>{record.outcome.evidenceGapCount} gaps</code>
                 {record.fastLane.corpusCoverage !== undefined && (
                   <code>
@@ -3471,7 +3558,26 @@ function MarketArchaeologistView() {
                 )}
                 {record.lease.graphContext != null && <code>GRAPH BOUND</code>}
                 {record.lineage.duplicateOfLeaseId !== null && <code>DUPLICATE LINK</code>}
+                {record.deepLane.status === "FAILED" &&
+                  record.lease.algorithmVersion === "pmh.ai-search-leases.v5" &&
+                  record.deepLane.inputIdentity != null &&
+                  (record.deepLane.attempts?.length ?? 0) <
+                    (record.lease.budget.maxDeepAttempts ?? 1) && (
+                  <Button
+                    variant="ghost"
+                    disabled={deepRetryLeaseId !== null}
+                    onClick={() => void retryDeep(record.lease.leaseId)}
+                  >
+                    {deepRetryLeaseId === record.lease.leaseId
+                      ? <RefreshCw className="is-spinning" size={13} />
+                      : <SquareTerminal size={13} />}
+                    Retry Pi only
+                  </Button>
+                )}
               </div>
+              {record.deepLane.status === "FAILED" && record.deepLane.diagnostic !== null && (
+                <p>{record.deepLane.diagnostic}</p>
+              )}
             </article>
           ))}
         </div>

@@ -381,6 +381,12 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(focusedTask?.question).toContain("Return no hypothesis unless");
     for (const item of pending) item.resolve(runRecord(item.task));
     await Promise.all(runs);
+    await Promise.all(
+      leases.projection().records
+        .filter((record) => record.deepLane.status === "PENDING" ||
+          record.deepLane.status === "RUNNING")
+        .map((record) => leases.awaitDeep(record.lease.leaseId)),
+    );
 
     const completed = issues.projection();
     expect(completed.activeCount).toBe(0);
@@ -446,12 +452,12 @@ describe("issue-driven concurrent search scheduler", () => {
       candidateSelection: "MODEL_HYPOTHESIS",
       requireDistinctVenues: true,
     });
-    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 17 });
+    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 18 });
     expect(leases.projection()).toMatchObject({
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      corpusStorage: { durable: false, schemaVersion: 17 },
+      corpusStorage: { durable: false, schemaVersion: 18 },
     });
 
     const restored = new SearchIssueScheduler({
@@ -791,7 +797,7 @@ describe("issue-driven concurrent search scheduler", () => {
       expect(restored.projection()).toMatchObject({
         issueCount: 6,
         enabledIssueCount: 5,
-        storage: { issues: { durable: true, schemaVersion: 17 } },
+        storage: { issues: { durable: true, schemaVersion: 18 } },
       });
       expect(restored.projection().issues.find((issue) => issue.issueId === created.issueId))
         .toMatchObject({ enabled: false, title: created.title });
@@ -1050,7 +1056,7 @@ describe("issue-driven concurrent search scheduler", () => {
       ).get() as { record_hash: string }).record_hash).toBe(retainedLeaseHash);
       expect((migrated.prepare("PRAGMA user_version").get() as {
         user_version: number;
-      }).user_version).toBe(17);
+      }).user_version).toBe(18);
       migrated.close();
       const secondLeases = new SearchLeaseScheduler({
         context,

@@ -1,6 +1,6 @@
 # Fast-lane result preservation and deep-lane resilience
 
-Status: active
+Status: completed 2026-08-02
 
 Started: 2026-08-02
 
@@ -89,3 +89,65 @@ This campaign changes durable search-stage accounting and retries only. A fast
 candidate remains proposal preparation, not a semantic decision. Pi remains
 read-only and proposal-only. No certificate, execution, external-write, signing,
 credential, order, or value-moving authority changes.
+
+## Implemented contract
+
+- `pmh.ai-search-leases.v5` persists `FAST_COMPLETE` before optional deep work
+  and returns the fast result to the issue scheduler immediately.
+- Pi uses a separate one-at-a-time queue. `PENDING`, `RUNNING`, `PASS`, and
+  `FAILED` are durable deep states; queue pressure no longer appears as a Pi
+  failure.
+- Every deep attempt binds an immutable input identity over the lease, corpus,
+  source set, question, thesis, exact candidate refs, novelty signature,
+  candidate policy, and graph neighborhood.
+- A failed deep attempt leaves the top-level lease and fast lane at `PASS`,
+  projects `DEEP_UNAVAILABLE`, creates a separate WATCH notification, and is
+  eligible for a coalesced Pi-only retry. No semantic-review proposal is
+  admitted from a failed or pending stage.
+- Fast and Pi deadlines come from the actual configured worker runtimes.
+  Retry count and fixed orchestration grace are independently bounded by
+  `PMH_SEARCH_DEEP_MAX_ATTEMPTS` and
+  `PMH_SEARCH_ORCHESTRATION_GRACE_MS`.
+- Restart recovery closes an interrupted RUNNING attempt, appends a new attempt
+  over the same input, and performs zero fast-model requests. Expired issued
+  work is terminalized before recovery dispatch and excluded from scan health,
+  provider quality, hourly attention, and failure-streak accounting.
+- Historical v1-v3 and provisional development v4 records replay byte-for-byte.
+  The final staged contract moved to v5 after the live SQLite ledger proved
+  that enforcing final v4 fields would strand partially written development
+  records.
+
+## New semantic-design evidence
+
+The user supplied a useful counterexample family: “Trump is shot in August”
+versus “Trump publicly drinks cola in September.” An LLM may propose
+`MUTUALLY_EXCLUSIVE`, but a non-fatal shooting falsifies that hard relation.
+Even proven mutual exclusion creates an arbitrage constraint only through
+payoff prices—for example `YES(A)+YES(B) <= 1`, or a guaranteed floor from
+buying both NO claims—not merely because one displayed probability exceeds the
+other. The next semantic-constraint campaign must separate hard settlement
+logic from causal/statistical dependence and compile every accepted relation
+to explicit state-wise payoff inequalities.
+
+## Qualification evidence
+
+- A live v5 lease retained its `FAST_COMPLETE` checkpoint across process
+  restart and later reached `DEEP_COMPLETE` from the exact stored corpus. A
+  separate exhausted/failed Pi path left the top-level lease and fast lane at
+  `PASS`; Studio projected one preserved fast result instead of a false search
+  failure.
+- The live queue demonstrated one active Pi investigation with later work
+  pending, bounded retries, and 16 old pre-fast records terminalized as
+  `RECOVERY_EXPIRED` without new model work. SQLite and in-memory projections
+  matched after clean single-process restart.
+- Runtime inspection exposed a process-admission defect beyond the original
+  lane design: losing dev watchers could mutate SQLite before failing to bind
+  port 4100. Startup now gates catalog refresh, Pi recovery, and timer
+  activation on successful HTTP bind. A real occupied-port regression test
+  proves the loser writes neither catalog observations nor search leases.
+- Semantic-review admission remains closed for `PENDING`, `RUNNING`, or
+  `FAILED` deep stages. The Pi-only retry path uses the retained input identity
+  and performs zero fast-model calls; duplicate retries coalesce.
+- Node 24.14.0 type checks, 437 workspace tests, and the production build pass.
+  Browser QA passed on desktop and a 390 px viewport with no console warnings
+  or horizontal overflow.

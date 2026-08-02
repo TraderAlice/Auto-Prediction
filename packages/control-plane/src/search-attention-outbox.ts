@@ -36,7 +36,11 @@ export type SearchAttentionMessageRecord = Readonly<{
   schemaVersion: "pmh.search-attention-message.v1";
   messageId: Hash;
   dedupeIdentity: Hash;
-  kind: "HOURLY_DIGEST" | "ACTION_CANDIDATE" | "ISSUE_DEGRADED";
+  kind:
+    | "HOURLY_DIGEST"
+    | "ACTION_CANDIDATE"
+    | "DEEP_UNAVAILABLE"
+    | "ISSUE_DEGRADED";
   severity: SearchAttentionSeverity;
   occurredAt: string;
   windowStart: string;
@@ -245,7 +249,10 @@ export function assertSearchAttentionMessage(
     metrics === null || typeof metrics !== "object" ||
     record.schemaVersion !== "pmh.search-attention-message.v1" ||
     !HASH.test(record.messageId) || !HASH.test(record.dedupeIdentity) ||
-    !["HOURLY_DIGEST", "ACTION_CANDIDATE", "ISSUE_DEGRADED"].includes(record.kind) ||
+    ![
+      "HOURLY_DIGEST", "ACTION_CANDIDATE", "DEEP_UNAVAILABLE",
+      "ISSUE_DEGRADED",
+    ].includes(record.kind) ||
     !["ROUTINE", "WATCH", "ACTION", "DEGRADED"].includes(record.severity) ||
     !isIso(record.occurredAt) || !isIso(record.windowStart) || !isIso(record.windowEnd) ||
     Date.parse(record.windowStart) >= Date.parse(record.windowEnd) ||
@@ -519,7 +526,10 @@ export class SearchAttentionOutbox {
       deliveries: this.#deliveries.map((delivery) => delivery.artifactHash),
     });
     const knownIssues = new Set(issues.map((issue) => issue.issueId));
-    const bounded = records.filter((record) => knownIssues.has(record.lease.issueId!));
+    const bounded = records.filter((record) =>
+      knownIssues.has(record.lease.issueId!) &&
+      record.outcome.stage !== "RECOVERY_EXPIRED"
+    );
     this.#materializeDigests(bounded);
     this.#materializeImmediate(bounded);
     if (this.#webhookUrl !== null) this.#enqueueWebhookDeliveries();
@@ -584,6 +594,42 @@ export class SearchAttentionOutbox {
 
   #materializeImmediate(records: readonly SearchLeaseRecord[]): void {
     for (const record of records) {
+      if (
+        record.status === "PASS" && record.fastLane.status === "PASS" &&
+        record.deepLane.status === "FAILED"
+      ) {
+        const issueId = record.lease.issueId!;
+        const attempt = record.deepLane.attempts?.at(-1);
+        const occurredAt = record.deepLane.completedAt ?? record.completedAt!;
+        const windowStart = new Date(
+          Math.min(
+            Date.parse(record.fastLane.completedAt ?? record.lease.issuedAt),
+            Date.parse(occurredAt) - 1,
+          ),
+        ).toISOString();
+        const dedupeIdentity = hashCanonical({
+          schemaVersion: "pmh.search-attention-deep-unavailable-dedupe.v1",
+          leaseId: record.lease.leaseId,
+          attemptId: attempt?.attemptId ?? record.deepLane.runId,
+        });
+        if (!this.#messages.some(
+          (message) => message.dedupeIdentity === dedupeIdentity,
+        )) {
+          this.#saveMessage(createMessage({
+            dedupeIdentity,
+            kind: "DEEP_UNAVAILABLE",
+            severity: "WATCH",
+            occurredAt,
+            windowStart,
+            windowEnd: occurredAt,
+            issueIds: Object.freeze([issueId]),
+            sourceLeaseIds: Object.freeze([record.lease.leaseId]),
+            metrics: aggregateMetrics([record]),
+            title: "Fast search preserved; deep investigation unavailable",
+            summary: `${record.fastLane.candidateListingRefs.length} fast-lane listing refs remain retained and retryable. ${record.deepLane.diagnostic ?? "The optional deep investigation failed."}`.slice(0, 500),
+          }));
+        }
+      }
       if (
         isGroundedNovelCandidate(record) && record.outcome.proposalCount > 0 &&
         record.fastLane.economicGate?.status === "POSITIVE_GROSS_HINT"

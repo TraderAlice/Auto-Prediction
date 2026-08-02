@@ -94,6 +94,7 @@ import {
 import { verifyMaterializedOpportunity } from "./exact-promotion.js";
 import {
   parseSearchLeaseInterval,
+  parseSearchLeaseStageBudget,
   SEARCH_LENSES,
   SearchLeaseBusyError,
   SearchLeaseScheduler,
@@ -471,6 +472,12 @@ export function createControlPlane(options?: {
   semanticReviewScheduler?: SemanticReviewScheduler;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
   simulationMaterializerDesk?: AnonymousSimulationMaterializerDesk;
+  /**
+   * Production startup supplies an unresolved gate until the HTTP listener owns
+   * its port. This keeps losing dev-watch or replica processes read-only: they
+   * cannot refresh catalogs, resume Pi work, or start timers before bind wins.
+   */
+  startupGate?: Promise<void>;
 }) {
   if (
     options?.discoveryLedger !== undefined &&
@@ -550,13 +557,19 @@ export function createControlPlane(options?: {
   let graphContextForLease:
     | ((snapshot: MarketCorpusSnapshot, lens: SearchLens) => SemanticGraphSearchContext)
     | undefined;
+  let publishSearchLeaseChange: () => void = () => undefined;
+  const searchLeaseStageBudget = parseSearchLeaseStageBudget(process.env, {
+    fastDeadlineMs: modelRuntime.projection.timeoutMs,
+    deepDeadlineMs: piRuntime.projection.timeoutMs,
+  });
   const searchLeaseScheduler =
     options?.searchLeaseScheduler ??
     new SearchLeaseScheduler({
       intervalMs: parseSearchLeaseInterval(process.env),
       concurrencyLimit: 3,
       registeredVenueIds: catalogObservationDesk.registeredVenueIds(),
-      deadlineMs: Math.max(300_000, modelRuntime.projection.timeoutMs),
+      ...searchLeaseStageBudget,
+      onRecordChange: () => publishSearchLeaseChange(),
       context: (
         question,
         venueIds,
@@ -853,16 +866,18 @@ export function createControlPlane(options?: {
       }),
     );
   };
-  const realCandidateReady = realCandidatePreflightDesk.load();
-  const ready = Promise.all([
-    bookDesk.replay(),
-    catalogDesk.load(),
-    realCandidateReady,
-    realCandidateReady.then(() => candidateWatchDesk.load()),
-    ...(options?.refreshCatalogOnReady === true
-      ? [catalogRefreshScheduler.runNow("STARTUP").promise]
-      : []),
-  ]).then(() => undefined);
+  const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
+    const realCandidateReady = realCandidatePreflightDesk.load();
+    await Promise.all([
+      bookDesk.replay(),
+      catalogDesk.load(),
+      realCandidateReady,
+      realCandidateReady.then(() => candidateWatchDesk.load()),
+      ...(options?.refreshCatalogOnReady === true
+        ? [catalogRefreshScheduler.runNow("STARTUP").promise]
+        : []),
+    ]);
+  });
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
     string,
@@ -975,6 +990,17 @@ export function createControlPlane(options?: {
       }
     }
   };
+  publishSearchLeaseChange = () => {
+    void broadcastProjection();
+  };
+  void ready.then(() => {
+    for (const promise of searchLeaseScheduler.resumeDeepWork()) {
+      void promise.then(
+        () => broadcastProjection(),
+        () => broadcastProjection(),
+      );
+    }
+  });
 
   const invokeDiscovery = async (
     task: DiscoveryTask,
@@ -1891,6 +1917,41 @@ export function createControlPlane(options?: {
       }
       return;
     }
+    const deepRetryMatch = url.pathname.match(
+      /^\/api\/v1\/search-leases\/(sha256:[0-9a-f]{64})\/deep-retries$/u,
+    );
+    if (request.method === "POST" && deepRetryMatch !== null) {
+      try {
+        await ready;
+        const invocation = searchLeaseScheduler.retryDeep(
+          deepRetryMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        void invocation.promise
+          .then(() => broadcastProjection())
+          .catch(() => broadcastProjection());
+        const record = searchLeaseScheduler.projection().records.find(
+          (item) => item.lease.leaseId === deepRetryMatch[1],
+        );
+        writeJson(response, invocation.idempotentReplay ? 200 : 202, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        writeJson(
+          response,
+          error instanceof SearchLeaseUnavailableError ? 409 : 400,
+          {
+            ok: false,
+            diagnostic: error instanceof Error
+              ? error.message
+              : "deep retry failed",
+            executionAuthority: false,
+          },
+        );
+      }
+      return;
+    }
     if (
       request.method === "POST" &&
       url.pathname === "/api/v1/market-archaeologist/runs"
@@ -2396,21 +2457,30 @@ export async function startControlPlane(
 ): Promise<void> {
   const { SqliteOperationalStore } = await import("./operational-store.js");
   const discoveryStore = new SqliteOperationalStore(databasePath);
+  let releaseStartup: (() => void) | undefined;
+  const startupGate = new Promise<void>((resolveStartup) => {
+    releaseStartup = resolveStartup;
+  });
   const { server, ready } = createControlPlane({
     discoveryStore,
     investigationStore: discoveryStore,
     refreshCatalogOnReady: true,
+    startupGate,
   });
-  await ready;
   try {
     await new Promise<void>((resolveListen, reject) => {
       server.once("error", reject);
       server.listen(port, host, resolveListen);
     });
+    releaseStartup?.();
+    await ready;
     process.stdout.write(
       `control-plane http://${host}:${port} · ${discoveryStore.storage.mode}\n`,
     );
   } catch (error) {
+    if (server.listening) {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
     discoveryStore.close();
     throw error;
   }

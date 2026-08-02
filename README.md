@@ -230,8 +230,8 @@ path when a different local operational volume is required. The database is
 ignored by Git and contains bounded discovery runs plus their exact normalized
 catalog snapshots, completed investigations, and raw anonymous catalog
 observations, Candidate Watch raw books and its bounded refresh journal, and
-SQLite schema-v17 AI search-lease lineage, deduplicated task corpora, attention
-deliveries, and durable semantic-review admission dispositions;
+SQLite schema-v18 AI search-lease lineage, deduplicated task corpora, deep-lane
+attention alerts and deliveries, and durable semantic-review admission dispositions;
 it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.
 
@@ -388,7 +388,7 @@ READY/degraded counts, and current corpus identity.
 Scheduled search leases retain the issue's requested venue universe separately
 from the sources that happen to be healthy for one refresh. An empty default
 issue scope means every registered source, not merely today's eligible subset.
-Each v3 lease binds a content-hashed coverage manifest with requested, eligible,
+Each v5 lease binds a content-hashed coverage manifest with requested, eligible,
 actually represented, and omitted venue IDs plus bounded omission reasons and
 the latest raw identity when available. Equivalence, implication, and mechanism
 work requires two eligible and actually represented venues; an ordinary
@@ -396,14 +396,29 @@ partition issue may proceed with one. Relevance ranking reserves one bounded
 representative from each available requested venue before filling remaining
 slots, and the Agent receives only those represented venues. If the minimum is
 not met, the lease fails before a model request but retains the manifest.
-Explicit operator catalog-context APIs remain strict. Historical v1
-and initial coverage-aware v2 leases replay unchanged and do not suppress a v3
-qualification scan.
+Explicit operator catalog-context APIs remain strict. Historical v1 and
+coverage-aware v2/v3 plus provisional v4 leases replay unchanged and do not
+suppress a v5 qualification scan.
 
-Each lease still permits one cheap model request, one optional pi escalation,
-eight hypotheses, and a 300-second deadline. A new grounded multi-listing
-signature creates one deduplicated Finding Inbox notification; empty scans and
-known signatures stay quiet, while failures notify separately. “Candidate” in
+Fast and deep work are independent durable v5 stages. The cheap Agent receives
+its own configurable provider deadline and, on success, the control plane
+commits an immutable `FAST_COMPLETE` checkpoint before optional pi work starts.
+The default Pi queue runs one deep investigation at a time with its own
+300-second process budget; unrelated fast scans remain concurrent. A Pi timeout
+or failure produces `DEEP_UNAVAILABLE` while the lease stays `PASS`, the exact
+candidate refs and corpus remain retained, and issue failure streaks remain
+truthful. A successful retry appends a hash-bound attempt over the original
+corpus, question, candidate refs, graph neighborhood, and novelty signature;
+it makes zero fast-model requests. `POST
+/api/v1/search-leases/:leaseId/deep-retries` and the Studio **Retry Pi only**
+action coalesce concurrent retries and permit at most three attempts by
+default.
+
+A new grounded multi-listing signature creates one deduplicated Finding Inbox
+notification as soon as the fast checkpoint exists; empty scans and known
+signatures stay quiet. Deep failures create a separate WATCH notification, and
+a later grounded Pi proposal can enter semantic review without changing the
+truth of the earlier fast scan. “Candidate” in
 these metrics means at least one hypothesis binds two distinct in-context
 listing refs. A single-listing hypothesis remains searchable evidence and
 completes its semantic scope as `NOT_MULTI_LISTING`, but gets no novelty
@@ -413,11 +428,23 @@ attention digests apply the stricter qualification without rewriting them. Issue
 issued and terminal leases, acknowledgement state, and notifications survive
 restart in the hash-checked SQLite WAL. Before `ISSUED` is committed, the server
 stores the exact bounded `pmh.market-corpus.v1` body once by snapshot identity.
-If the process stops mid-run, the next process reloads that corpus and resumes
-the original lease even when a newer catalog is already current. Corpus text
+If the process stops during fast work, the next process reloads that corpus and
+resumes the original issued lease even when a newer catalog is current. If it
+stops after the fast checkpoint, a retained pending deep stage starts without
+rerunning the Agent; an interrupted RUNNING attempt is closed explicitly and a
+new bounded attempt uses the same input identity. Expired issued work is
+terminalized before any recovery provider call and is excluded from
+model-quality, issue-health, and degraded-streak metrics. Corpus text
 stays server-side and is pruned only after no retained lease references it.
 Legacy issued records without corpus evidence fail visibly and schedule fresh
 work; they never borrow a newer snapshot silently.
+
+Process admission precedes mutable startup. The production entry point first
+binds the HTTP listener, then releases catalog refresh, Pi recovery, and all
+background timers. A dev watcher or replica that loses the port race therefore
+closes its store without mutating catalog observations or search leases. This
+prevents multiple local watchers from consuming the same durable Pi retry
+budget while only one process actually serves the control plane.
 
 The Scheduled Search Desk also derives a bounded operations window from the
 retained terminal leases. It reports new-signature, duplicate, and pi-escalation
@@ -472,6 +499,12 @@ pnpm --silent investigation:smoke
 `PMH_PI_MAX_OUTPUT_BYTES` (100000–10000000) tune non-secret investigator
 bounds. The default pi timeout is 300000 ms because a real high-thinking live
 catalog investigation exceeded 120 seconds before passing within this bound.
+`PMH_DISCOVERY_TIMEOUT_MS` independently bounds the fast lane;
+`PMH_SEARCH_DEEP_MAX_ATTEMPTS` (1–5) and
+`PMH_SEARCH_ORCHESTRATION_GRACE_MS` (0–60000) bound retry history and fixed
+handoff overhead. The lease derives its lane deadlines from the actual worker
+runtimes, so projected budgets cannot claim time that the provider or Pi
+process does not honor.
 Do not commit a key or place it inline in a command. A DeepSeek-compatible
 proxy is not silently assumed; custom endpoint routing requires a separate,
 explicit configuration change.

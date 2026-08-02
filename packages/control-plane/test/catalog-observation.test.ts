@@ -73,7 +73,7 @@ describe("anonymous catalog observation desk", () => {
       catalogObservationStorage: {
         mode: "MEMORY",
         durable: false,
-        schemaVersion: 17,
+        schemaVersion: 18,
         idempotencyKey: "observationId",
       },
       loadCatalogObservations: (limit) => observations.slice(0, limit),

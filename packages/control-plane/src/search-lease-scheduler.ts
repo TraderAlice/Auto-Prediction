@@ -40,10 +40,15 @@ const SEARCH_LEASE_ALGORITHM_VERSIONS = Object.freeze([
   "pmh.ai-search-leases.v1",
   "pmh.ai-search-leases.v2",
   "pmh.ai-search-leases.v3",
+  "pmh.ai-search-leases.v4",
+  "pmh.ai-search-leases.v5",
 ] as const);
-const ALGORITHM_VERSION = "pmh.ai-search-leases.v3" as const;
+const ALGORITHM_VERSION = "pmh.ai-search-leases.v5" as const;
 const DEFAULT_RETENTION_LIMIT = 40;
-const DEFAULT_DEADLINE_MS = 300_000;
+const DEFAULT_FAST_DEADLINE_MS = 300_000;
+const DEFAULT_DEEP_DEADLINE_MS = 300_000;
+const DEFAULT_ORCHESTRATION_GRACE_MS = 5_000;
+const DEFAULT_MAX_DEEP_ATTEMPTS = 3;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const INTEGER_PATTERN = /^-?(?:0|[1-9]\d*)$/u;
 const READ_ONLY_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
@@ -129,6 +134,10 @@ export type SearchLease = Readonly<{
     maxPiInvocations: 0 | 1;
     maxHypotheses: number;
     deadlineMs: number;
+    fastDeadlineMs?: number;
+    deepDeadlineMs?: number;
+    orchestrationGraceMs?: number;
+    maxDeepAttempts?: number;
   }>;
   issuedAt: string;
   deadlineAt: string;
@@ -158,6 +167,7 @@ export type SearchLeaseFastLane = Readonly<{
   semanticScope?: SearchScopeIdentity;
   economicGate?: SearchLeaseEconomicGate;
   diagnostic: string | null;
+  completedAt?: string | null;
 }>;
 
 export type ProviderFailureCategory = ModelFailureCategory | "UNTYPED";
@@ -187,10 +197,25 @@ export type SearchLeaseAgentTelemetry = Readonly<{
   }>[];
 }>;
 
+export type SearchLeaseDeepAttempt = Readonly<{
+  attemptId: Hash;
+  attemptNumber: number;
+  inputIdentity: Hash;
+  status: "RUNNING" | "PASS" | "FAILED";
+  startedAt: string;
+  deadlineAt: string;
+  completedAt: string | null;
+  runId: string | null;
+  proposalIds: readonly string[];
+  evidenceGaps: readonly string[];
+  diagnostic: string | null;
+}>;
+
 export type SearchLeaseDeepLane = Readonly<{
-  status: "NOT_RUN" | "PASS" | "FAILED";
+  status: "NOT_RUN" | "PENDING" | "RUNNING" | "PASS" | "FAILED";
   reason:
     | "PENDING_FAST_LANE"
+    | "PENDING_DEEP_LANE"
     | "NO_CANDIDATES"
     | "NOT_MULTI_LISTING"
     | "DUPLICATE"
@@ -203,6 +228,9 @@ export type SearchLeaseDeepLane = Readonly<{
   proposalIds: readonly string[];
   evidenceGaps: readonly string[];
   diagnostic: string | null;
+  inputIdentity?: Hash | null;
+  attempts?: readonly SearchLeaseDeepAttempt[];
+  completedAt?: string | null;
   permittedTools: readonly ["read", "grep", "find", "ls"];
   toolExecutionTraceStored: false;
 }>;
@@ -226,6 +254,13 @@ export type SearchLeaseRecord = Readonly<{
     hypothesisCount: number;
     proposalCount: number;
     evidenceGapCount: number;
+    stage?:
+      | "FAST_PENDING"
+      | "FAST_FAILED"
+      | "RECOVERY_EXPIRED"
+      | "FAST_COMPLETE"
+      | "DEEP_COMPLETE"
+      | "DEEP_UNAVAILABLE";
   }>;
   trace: Readonly<{
     querySummary: string;
@@ -276,7 +311,11 @@ export type SearchLeaseSchedulerProjection = Readonly<{
   configured: Readonly<{ fastLane: boolean; deepLane: boolean }>;
   status: "IDLE" | "RUNNING";
   activeCount: number;
+  activeFastCount: number;
+  activeDeepCount: number;
+  queuedDeepCount: number;
   concurrencyLimit: number;
+  deepConcurrencyLimit: number;
   intervalMs: number | null;
   retentionLimit: number;
   lensOrder: readonly SearchLens[];
@@ -287,6 +326,12 @@ export type SearchLeaseSchedulerProjection = Readonly<{
   issuedCount: number;
   duplicateCount: number;
   piEscalationCount: number;
+  deepPendingCount: number;
+  deepPassCount: number;
+  deepFailedCount: number;
+  deepRetryCount: number;
+  preservedFastResultCount: number;
+  expiredRecoveryCount: number;
   retainedCorpusCount: number;
   recoverableIssuedCount: number;
   missingCorpusIssuedCount: number;
@@ -313,8 +358,13 @@ type SearchLeaseOptions = Readonly<{
   maxPiInvocations?: 0 | 1;
   maxHypotheses?: number;
   deadlineMs?: number;
+  fastDeadlineMs?: number;
+  deepDeadlineMs?: number;
+  orchestrationGraceMs?: number;
+  maxDeepAttempts?: number;
   retentionLimit?: number;
   concurrencyLimit?: number;
+  deepConcurrencyLimit?: number;
   registeredVenueIds?: readonly string[];
   store?: SearchLeaseRecordStore;
   context: (
@@ -341,6 +391,7 @@ type SearchLeaseOptions = Readonly<{
     listings: DiscoveryCatalogContext["listings"],
   ) => Promise<SearchQuoteEnrichmentResult>;
   now?: () => number;
+  onRecordChange?: (record: SearchLeaseRecord) => void;
 }>;
 
 export type SearchLeaseIssueInput = Readonly<{
@@ -806,6 +857,93 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
           candidatePolicy.allowedRelationKinds[0] as CompilableRelation,
         )))
   );
+  const isV5 = lease?.algorithmVersion === "pmh.ai-search-leases.v5";
+  const attempts: readonly SearchLeaseDeepAttempt[] =
+    record.deepLane?.attempts ?? [];
+  const deepInputIdentity = record.deepLane?.inputIdentity ?? null;
+  const expectedDeepInputIdentity = lease === undefined ||
+      record.lineage?.noveltySignature === null ||
+      record.lineage?.noveltySignature === undefined
+    ? null
+    : hashCanonical({
+        schemaVersion: "pmh.search-deep-input.v1",
+        leaseId: lease.leaseId,
+        snapshotIdentity: lease.snapshotIdentity,
+        sourceSetIdentity: lease.sourceSetIdentity,
+        question: record.trace?.querySummary,
+        thesis: lease.thesis,
+        listingRefs: [...(record.fastLane?.candidateListingRefs ?? [])].sort(),
+        noveltySignature: record.lineage.noveltySignature,
+        candidatePolicy: lease.candidatePolicy ?? null,
+        graphNeighborhoodIdentity: lease.graphContext?.neighborhoodIdentity ?? null,
+      });
+  const deepAttemptsValid = Array.isArray(attempts) && attempts.length <= 5 &&
+    attempts.every((attempt, index) =>
+      HASH_PATTERN.test(String(attempt.attemptId)) &&
+      attempt.attemptNumber === index + 1 &&
+      attempt.inputIdentity === deepInputIdentity &&
+      attempt.attemptId === hashCanonical({
+        schemaVersion: "pmh.search-deep-attempt-id.v1",
+        leaseId: lease?.leaseId,
+        inputIdentity: attempt.inputIdentity,
+        attemptNumber: attempt.attemptNumber,
+      }) &&
+      (attempt.status === "RUNNING" || attempt.status === "PASS" ||
+        attempt.status === "FAILED") &&
+      isIso(attempt.startedAt) && isIso(attempt.deadlineAt) &&
+      Date.parse(attempt.deadlineAt) > Date.parse(attempt.startedAt) &&
+      (!isV5 || Date.parse(attempt.deadlineAt) - Date.parse(attempt.startedAt) ===
+        lease.budget.deepDeadlineMs) &&
+      (attempt.completedAt === null ||
+        (isIso(attempt.completedAt) &&
+          Date.parse(attempt.completedAt) >= Date.parse(attempt.startedAt))) &&
+      (attempt.status === "RUNNING" ? attempt.completedAt === null :
+        attempt.completedAt !== null) &&
+      (attempt.runId === null || HASH_PATTERN.test(String(attempt.runId))) &&
+      nonEmptyStrings(attempt.proposalIds, 5) &&
+      attempt.proposalIds.every((proposalId: string) => HASH_PATTERN.test(proposalId)) &&
+      nonEmptyStrings(attempt.evidenceGaps, 20) &&
+      (attempt.diagnostic === null ||
+        (typeof attempt.diagnostic === "string" && attempt.diagnostic.length <= 500))
+    ) && attempts.filter((attempt) => attempt.status === "RUNNING").length <= 1 &&
+    (attempts.findIndex((attempt) => attempt.status === "RUNNING") < 0 ||
+      attempts.at(-1)?.status === "RUNNING");
+  const expectedStage = record.status === "ISSUED"
+    ? "FAST_PENDING"
+    : record.status === "FAILED"
+      ? record.outcome.stage === "RECOVERY_EXPIRED"
+        ? "RECOVERY_EXPIRED"
+        : "FAST_FAILED"
+      : record.deepLane.status === "PENDING" || record.deepLane.status === "RUNNING"
+        ? "FAST_COMPLETE"
+        : record.deepLane.status === "FAILED"
+          ? "DEEP_UNAVAILABLE"
+          : "DEEP_COMPLETE";
+  const v5StageValid = !isV5 || (
+    record.outcome.stage === expectedStage &&
+    isIso(record.fastLane.completedAt) === (record.fastLane.status !== "NOT_RUN") &&
+    record.fastLane.completedAt === record.completedAt &&
+    deepAttemptsValid &&
+    attempts.length <= (lease.budget.maxDeepAttempts ?? 0) &&
+    (deepInputIdentity === null || deepInputIdentity === expectedDeepInputIdentity) &&
+    (record.deepLane.status === "PENDING" || record.deepLane.status === "RUNNING" ||
+      record.deepLane.status === "PASS" || record.deepLane.status === "FAILED"
+      ? deepInputIdentity !== null && record.lineage.noveltySignature !== null
+      : true) &&
+    (record.deepLane.status === "RUNNING"
+      ? attempts.at(-1)?.status === "RUNNING"
+      : true) &&
+    (record.deepLane.status === "PASS" || record.deepLane.status === "FAILED"
+      ? attempts.at(-1)?.status === record.deepLane.status &&
+        record.deepLane.completedAt === attempts.at(-1)?.completedAt &&
+        record.deepLane.runId === attempts.at(-1)?.runId &&
+        hashCanonical(record.deepLane.proposalIds) ===
+          hashCanonical(attempts.at(-1)?.proposalIds) &&
+        hashCanonical(record.deepLane.evidenceGaps) ===
+          hashCanonical(attempts.at(-1)?.evidenceGaps) &&
+        record.deepLane.diagnostic === attempts.at(-1)?.diagnostic
+      : record.deepLane.completedAt === null)
+  );
   if (
     record.schemaVersion !== "pmh.search-lease-record.v1" ||
     lease?.schemaVersion !== "pmh.search-lease.v1" ||
@@ -833,6 +971,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     !candidatePolicyValid ||
     !providerTelemetryValid ||
     !agentTelemetryValid ||
+    !v5StageValid ||
     !corpusCoverageValid(
       record.fastLane.corpusCoverage,
       lease.scope.venueIds,
@@ -848,7 +987,21 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     !Number.isSafeInteger(lease.budget.maxHypotheses) ||
     lease.budget.maxHypotheses < 1 || lease.budget.maxHypotheses > 20 ||
     !Number.isSafeInteger(lease.budget.deadlineMs) ||
-    lease.budget.deadlineMs < 10_000 || lease.budget.deadlineMs > 600_000 ||
+    lease.budget.deadlineMs < 10_000 || lease.budget.deadlineMs > 1_200_000 ||
+    (isV5 && (
+      !Number.isSafeInteger(lease.budget.fastDeadlineMs) ||
+      lease.budget.fastDeadlineMs! < 10_000 || lease.budget.fastDeadlineMs! > 600_000 ||
+      !Number.isSafeInteger(lease.budget.deepDeadlineMs) ||
+      lease.budget.deepDeadlineMs! < 10_000 || lease.budget.deepDeadlineMs! > 600_000 ||
+      !Number.isSafeInteger(lease.budget.orchestrationGraceMs) ||
+      lease.budget.orchestrationGraceMs! < 0 ||
+      lease.budget.orchestrationGraceMs! > 60_000 ||
+      !Number.isSafeInteger(lease.budget.maxDeepAttempts) ||
+      lease.budget.maxDeepAttempts! < 1 || lease.budget.maxDeepAttempts! > 5 ||
+      lease.budget.deadlineMs !== lease.budget.fastDeadlineMs! +
+        (lease.budget.maxPiInvocations === 0 ? 0 : lease.budget.deepDeadlineMs!) +
+        lease.budget.orchestrationGraceMs!
+    )) ||
     (record.status !== "ISSUED" && record.status !== "PASS" && record.status !== "FAILED") ||
     (record.status === "ISSUED" ? record.completedAt !== null : !isIso(record.completedAt)) ||
     (record.completedAt !== null && Date.parse(record.completedAt) < Date.parse(lease.issuedAt)) ||
@@ -860,9 +1013,10 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     !Number.isSafeInteger(record.fastLane.modelRequestCount) ||
     record.fastLane.modelRequestCount < 0 ||
     (record.fastLane.status !== "NOT_RUN" && record.fastLane.status !== "PASS" && record.fastLane.status !== "FAILED") ||
-    (record.deepLane.status !== "NOT_RUN" && record.deepLane.status !== "PASS" && record.deepLane.status !== "FAILED") ||
+    !["NOT_RUN", "PENDING", "RUNNING", "PASS", "FAILED"].includes(record.deepLane.status) ||
     !([
       "PENDING_FAST_LANE",
+      "PENDING_DEEP_LANE",
       "NO_CANDIDATES",
       "NOT_MULTI_LISTING",
       "DUPLICATE",
@@ -993,9 +1147,14 @@ export class SearchLeaseScheduler {
   readonly #graphContext: SearchLeaseOptions["graphContext"] | undefined;
   readonly #now: () => number;
   readonly #active = new Map<Hash, Promise<SearchLeaseRecord>>();
+  readonly #activeDeep = new Map<Hash, Promise<SearchLeaseRecord>>();
+  readonly #queuedDeep = new Map<Hash, Promise<SearchLeaseRecord>>();
+  readonly #corpora = new Map<Hash, MarketCorpusSnapshot>();
   readonly #activeNovelty = new Map<Hash, Hash>();
   readonly #concurrencyLimit: number;
+  readonly #deepConcurrencyLimit: number;
   readonly #registeredVenueIds: readonly string[] | undefined;
+  readonly #onRecordChange: ((record: SearchLeaseRecord) => void) | undefined;
 
   public readonly intervalMs: number | null;
 
@@ -1010,28 +1169,53 @@ export class SearchLeaseScheduler {
     this.#graphContext = options.graphContext;
     this.#now = options.now ?? Date.now;
     this.#concurrencyLimit = options.concurrencyLimit ?? 1;
+    this.#deepConcurrencyLimit = options.deepConcurrencyLimit ?? 1;
     this.#registeredVenueIds = options.registeredVenueIds === undefined
       ? undefined
       : Object.freeze([...options.registeredVenueIds].sort());
+    const maxPiInvocations = options.maxPiInvocations ?? 1;
+    const fastDeadlineMs = options.fastDeadlineMs ?? options.deadlineMs ??
+      DEFAULT_FAST_DEADLINE_MS;
+    const deepDeadlineMs = options.deepDeadlineMs ?? DEFAULT_DEEP_DEADLINE_MS;
+    const orchestrationGraceMs = options.orchestrationGraceMs ??
+      DEFAULT_ORCHESTRATION_GRACE_MS;
+    const maxDeepAttempts = options.maxDeepAttempts ?? DEFAULT_MAX_DEEP_ATTEMPTS;
     this.#budget = Object.freeze({
       maxFastModelRequests: options.maxFastModelRequests ?? 1,
-      maxPiInvocations: options.maxPiInvocations ?? 1,
+      maxPiInvocations,
       maxHypotheses: options.maxHypotheses ?? 8,
-      deadlineMs: options.deadlineMs ?? DEFAULT_DEADLINE_MS,
+      deadlineMs: fastDeadlineMs +
+        (maxPiInvocations === 0 ? 0 : deepDeadlineMs) + orchestrationGraceMs,
+      fastDeadlineMs,
+      deepDeadlineMs,
+      orchestrationGraceMs,
+      maxDeepAttempts,
     });
+    this.#onRecordChange = options.onRecordChange;
     if (
       (this.intervalMs !== null &&
         (!Number.isSafeInteger(this.intervalMs) || this.intervalMs < 60_000 || this.intervalMs > 86_400_000)) ||
       !Number.isSafeInteger(this.#retentionLimit) || this.#retentionLimit < 4 ||
       !Number.isSafeInteger(this.#concurrencyLimit) ||
       this.#concurrencyLimit < 1 || this.#concurrencyLimit > 8 ||
+      !Number.isSafeInteger(this.#deepConcurrencyLimit) ||
+      this.#deepConcurrencyLimit < 1 || this.#deepConcurrencyLimit > 8 ||
       !Number.isSafeInteger(this.#budget.maxFastModelRequests) ||
       this.#budget.maxFastModelRequests < 0 || this.#budget.maxFastModelRequests > 4 ||
       (this.#budget.maxPiInvocations !== 0 && this.#budget.maxPiInvocations !== 1) ||
       !Number.isSafeInteger(this.#budget.maxHypotheses) ||
       this.#budget.maxHypotheses < 1 || this.#budget.maxHypotheses > 20 ||
       !Number.isSafeInteger(this.#budget.deadlineMs) ||
-      this.#budget.deadlineMs < 10_000 || this.#budget.deadlineMs > 600_000 ||
+      this.#budget.deadlineMs < 10_000 || this.#budget.deadlineMs > 1_200_000 ||
+      !Number.isSafeInteger(this.#budget.fastDeadlineMs) ||
+      this.#budget.fastDeadlineMs! < 10_000 || this.#budget.fastDeadlineMs! > 600_000 ||
+      !Number.isSafeInteger(this.#budget.deepDeadlineMs) ||
+      this.#budget.deepDeadlineMs! < 10_000 || this.#budget.deepDeadlineMs! > 600_000 ||
+      !Number.isSafeInteger(this.#budget.orchestrationGraceMs) ||
+      this.#budget.orchestrationGraceMs! < 0 ||
+      this.#budget.orchestrationGraceMs! > 60_000 ||
+      !Number.isSafeInteger(this.#budget.maxDeepAttempts) ||
+      this.#budget.maxDeepAttempts! < 1 || this.#budget.maxDeepAttempts! > 5 ||
       (this.#registeredVenueIds !== undefined && (
         this.#registeredVenueIds.length === 0 ||
         this.#registeredVenueIds.length > 25 ||
@@ -1066,15 +1250,64 @@ export class SearchLeaseScheduler {
       !this.#active.has(item.lease.leaseId),
     )) {
       const diagnostic = "issued search lease snapshot is no longer available after restart";
+      const completedAt = new Date(
+        Math.max(this.#now(), Date.parse(record.lease.issuedAt)),
+      ).toISOString();
       failed.push(this.#persist(withArtifactHash({
         ...withoutArtifactHash(record),
         status: "FAILED",
-        completedAt: new Date(
-          Math.max(this.#now(), Date.parse(record.lease.issuedAt)),
-        ).toISOString(),
+        completedAt,
         diagnostic,
-        fastLane: Object.freeze({ ...record.fastLane, status: "FAILED", diagnostic }),
+        fastLane: Object.freeze({
+          ...record.fastLane,
+          status: "FAILED",
+          diagnostic,
+          ...(record.lease.algorithmVersion === "pmh.ai-search-leases.v5"
+            ? { completedAt }
+            : {}),
+        }),
         deepLane: this.#skippedDeep("PENDING_FAST_LANE"),
+        outcome: Object.freeze({
+          ...record.outcome,
+          ...(record.lease.algorithmVersion === "pmh.ai-search-leases.v5"
+            ? { stage: "FAST_FAILED" as const }
+            : {}),
+        }),
+      })));
+    }
+    return Object.freeze(failed);
+  }
+
+  public failExpiredIssued(): readonly SearchLeaseRecord[] {
+    const failed: SearchLeaseRecord[] = [];
+    for (const record of this.#records.filter((item) =>
+      item.status === "ISSUED" &&
+      Date.parse(item.lease.deadlineAt) <= this.#now() &&
+      !this.#active.has(item.lease.leaseId)
+    )) {
+      const diagnostic =
+        "issued search lease expired before a lane started; no provider work was attempted";
+      const completedAt = new Date(
+        Math.max(this.#now(), Date.parse(record.lease.issuedAt)),
+      ).toISOString();
+      failed.push(this.#persist(withArtifactHash({
+        ...withoutArtifactHash(record),
+        status: "FAILED",
+        completedAt,
+        diagnostic,
+        fastLane: Object.freeze({
+          ...record.fastLane,
+          status: "FAILED" as const,
+          diagnostic,
+          ...(record.lease.algorithmVersion === "pmh.ai-search-leases.v5"
+            ? { completedAt }
+            : {}),
+        }),
+        deepLane: this.#skippedDeep("PENDING_FAST_LANE"),
+        outcome: Object.freeze({
+          ...record.outcome,
+          stage: "RECOVERY_EXPIRED" as const,
+        }),
       })));
     }
     return Object.freeze(failed);
@@ -1211,6 +1444,7 @@ export class SearchLeaseScheduler {
           candidateListingRefs: Object.freeze([]),
           economicGate: pendingEconomicGate(issue?.candidatePolicy),
           diagnostic: null,
+          completedAt: null,
         }),
         deepLane: Object.freeze({
           status: "NOT_RUN",
@@ -1219,11 +1453,20 @@ export class SearchLeaseScheduler {
           proposalIds: Object.freeze([]),
           evidenceGaps: Object.freeze([]),
           diagnostic: null,
+          inputIdentity: null,
+          attempts: Object.freeze([]),
+          completedAt: null,
           permittedTools: READ_ONLY_TOOLS,
           toolExecutionTraceStored: false,
         }),
         lineage: Object.freeze({ predecessorLeaseId, duplicateOfLeaseId: null, noveltySignature: null }),
-        outcome: Object.freeze({ novelCandidate: false, hypothesisCount: 0, proposalCount: 0, evidenceGapCount: 0 }),
+        outcome: Object.freeze({
+          novelCandidate: false,
+          hypothesisCount: 0,
+          proposalCount: 0,
+          evidenceGapCount: 0,
+          stage: "FAST_PENDING" as const,
+        }),
         trace: Object.freeze({ querySummary, chainOfThoughtStored: false }),
         semanticDecisionAuthority: false,
         certificateAuthority: false,
@@ -1231,6 +1474,7 @@ export class SearchLeaseScheduler {
         effects: lease.effects,
       });
       this.#store?.saveSearchLeaseCorpus(snapshot);
+      this.#corpora.set(snapshot.snapshotIdentity, snapshot);
       issued = this.#persist(issued);
     }
     return this.#launch(snapshot, issued);
@@ -1310,7 +1554,8 @@ export class SearchLeaseScheduler {
         question: issued.trace.querySummary,
         venueIds: taskVenueIds,
         maxHypotheses: issued.lease.budget.maxHypotheses,
-        deadlineEpochMs: Date.parse(issued.lease.deadlineAt),
+        deadlineEpochMs: Date.parse(issued.lease.issuedAt) +
+          (issued.lease.budget.fastDeadlineMs ?? issued.lease.budget.deadlineMs),
         catalogContext: context,
       });
       const run = await this.#runFast(task, issued.lease.budget.maxFastModelRequests);
@@ -1471,6 +1716,9 @@ export class SearchLeaseScheduler {
           });
         }
       }
+      const fastCompletedAt = new Date(
+        Math.max(this.#now(), Date.parse(issued.lease.issuedAt)),
+      ).toISOString();
       const fastLane: SearchLeaseFastLane = Object.freeze({
         status: "PASS",
         taskId: task.taskId,
@@ -1485,6 +1733,7 @@ export class SearchLeaseScheduler {
         semanticScope,
         economicGate,
         diagnostic: run.diagnostics.length === 0 ? null : compactDiagnostic(run.diagnostics.join("; ")),
+        completedAt: fastCompletedAt,
       });
       let deepLane: SearchLeaseDeepLane;
       if (
@@ -1510,56 +1759,26 @@ export class SearchLeaseScheduler {
       } else if (issued.lease.budget.maxPiInvocations === 0 || this.#runDeep === undefined) {
         deepLane = this.#skippedDeep("PI_DISABLED");
       } else {
-        const deepQuestion = [
-          issued.lease.thesis,
-          `Search assignment: ${issued.trace.querySummary}`,
-          `Inspect these fast-lane candidates: ${listingRefs.join(", ")}.`,
-          "Use the whole immutable MarketFS snapshot to find corroborating or falsifying rule evidence. Obey any exact candidate arity and relation exclusions in the search assignment. Return proposals only; do not make a semantic approval or trading decision.",
-          ...(issued.lease.graphContext === null || issued.lease.graphContext === undefined
-            ? []
-            : [`Prior content-addressed graph evidence: ${issued.lease.graphContext.searchBrief}`]),
-        ].join(" ").slice(0, 1_000);
-        this.#activeNovelty.set(signature, issued.lease.leaseId);
-        try {
-          const result = await this.#runDeep(snapshot, deepQuestion);
-          const proposalIds = policy === undefined || policy === null
-            ? [...result.proposalIds].slice(0, 5)
-            : (result.proposalDetails ?? [])
-              .filter((proposal) =>
-                policy.allowedRelationKinds.includes(proposal.relationKind) &&
-                proposal.listingRefs.length === policy.exactListingRefCount &&
-                proposal.listingRefs.every((listingRef) =>
-                  listingRefs.includes(listingRef)
-                )
-              )
-              .map((proposal) => proposal.proposalId)
-              .filter((proposalId, index, values) => values.indexOf(proposalId) === index)
-              .slice(0, 5);
-          const policyDiagnostic = policy !== undefined && policy !== null && proposalIds.length === 0
-            ? `${result.proposalIds.length} deep proposal${result.proposalIds.length === 1 ? "" : "s"} retained as research evidence; none matched the issue candidate policy.`
-            : null;
-          deepLane = Object.freeze({
-            status: result.status,
-            reason: policyDiagnostic === null ? "NOVEL_MULTI_LISTING" : "NO_POLICY_MATCH",
-            runId: result.runId,
-            proposalIds: Object.freeze(proposalIds),
-            evidenceGaps: Object.freeze([...result.evidenceGaps].slice(0, 20)),
-            diagnostic: result.diagnostic ?? policyDiagnostic,
-            permittedTools: READ_ONLY_TOOLS,
-            toolExecutionTraceStored: false,
-          });
-        } finally {
-          if (this.#activeNovelty.get(signature) === issued.lease.leaseId) {
-            this.#activeNovelty.delete(signature);
-          }
-        }
+        const inputIdentity = this.#deepInputIdentity(issued, listingRefs, signature);
+        deepLane = Object.freeze({
+          status: "PENDING" as const,
+          reason: "PENDING_DEEP_LANE" as const,
+          runId: null,
+          proposalIds: Object.freeze([]),
+          evidenceGaps: Object.freeze([]),
+          diagnostic: null,
+          inputIdentity,
+          attempts: Object.freeze([]),
+          completedAt: null,
+          permittedTools: READ_ONLY_TOOLS,
+          toolExecutionTraceStored: false as const,
+        });
       }
-      const completedAt = new Date(Math.max(this.#now(), Date.parse(issued.lease.issuedAt))).toISOString();
-      return this.#persist(withArtifactHash({
+      const checkpoint = this.#persist(withArtifactHash({
         ...withoutArtifactHash(issued),
-        status: deepLane.status === "FAILED" ? "FAILED" : "PASS",
-        completedAt,
-        diagnostic: deepLane.status === "FAILED" ? deepLane.diagnostic ?? "deep search failed" : null,
+        status: "PASS",
+        completedAt: fastCompletedAt,
+        diagnostic: null,
         fastLane,
         deepLane,
         lineage: Object.freeze({
@@ -1571,14 +1790,23 @@ export class SearchLeaseScheduler {
         }),
         outcome: Object.freeze({
           novelCandidate: signature !== null && duplicateLeaseId === null &&
-            (issued.lease.candidatePolicy === undefined ||
-              issued.lease.candidatePolicy === null ||
-              deepLane.proposalIds.length > 0),
+            deepLane.reason !== "ECONOMIC_GATE_BLOCKED" &&
+            hasGroundedMultiListingRefs(listingRefs),
           hypothesisCount: run.hypotheses.length,
           proposalCount: deepLane.proposalIds.length,
           evidenceGapCount: deepLane.evidenceGaps.length,
+          stage: deepLane.status === "PENDING"
+            ? "FAST_COMPLETE" as const
+            : "DEEP_COMPLETE" as const,
         }),
       }));
+      if (
+        checkpoint.deepLane.status === "PENDING" &&
+        checkpoint.lineage.noveltySignature !== null
+      ) {
+        void this.#launchDeep(snapshot, checkpoint).catch(() => undefined);
+      }
+      return checkpoint;
     } catch (error) {
       const diagnostic = compactDiagnostic(error);
       const corpusCoverage = error instanceof CatalogContextCoverageError
@@ -1597,10 +1825,403 @@ export class SearchLeaseScheduler {
           ...(corpusCoverage === undefined ? {} : { corpusCoverage }),
           status: "FAILED",
           diagnostic,
+          completedAt: new Date(
+            Math.max(this.#now(), Date.parse(issued.lease.issuedAt)),
+          ).toISOString(),
         }),
         deepLane: this.#skippedDeep("PENDING_FAST_LANE"),
+        outcome: Object.freeze({
+          ...issued.outcome,
+          stage: "FAST_FAILED" as const,
+        }),
       }));
     }
+  }
+
+  #deepInputIdentity(
+    issued: SearchLeaseRecord,
+    listingRefs: readonly string[],
+    noveltySignature: Hash,
+  ): Hash {
+    return hashCanonical({
+      schemaVersion: "pmh.search-deep-input.v1",
+      leaseId: issued.lease.leaseId,
+      snapshotIdentity: issued.lease.snapshotIdentity,
+      sourceSetIdentity: issued.lease.sourceSetIdentity,
+      question: issued.trace.querySummary,
+      thesis: issued.lease.thesis,
+      listingRefs: [...listingRefs].sort(),
+      noveltySignature,
+      candidatePolicy: issued.lease.candidatePolicy ?? null,
+      graphNeighborhoodIdentity:
+        issued.lease.graphContext?.neighborhoodIdentity ?? null,
+    });
+  }
+
+  #deepQuestion(record: SearchLeaseRecord): string {
+    return [
+      record.lease.thesis,
+      `Search assignment: ${record.trace.querySummary}`,
+      `Inspect these fast-lane candidates: ${record.fastLane.candidateListingRefs.join(", ")}.`,
+      "Use the whole immutable MarketFS snapshot to find corroborating or falsifying rule evidence. Obey any exact candidate arity and relation exclusions in the search assignment. Return proposals only; do not make a semantic approval or trading decision.",
+      ...(record.lease.graphContext === null || record.lease.graphContext === undefined
+        ? []
+        : [`Prior content-addressed graph evidence: ${record.lease.graphContext.searchBrief}`]),
+    ].join(" ").slice(0, 1_000);
+  }
+
+  #launchDeep(
+    snapshot: MarketCorpusSnapshot,
+    record: SearchLeaseRecord,
+  ): Promise<SearchLeaseRecord> {
+    const active = this.#activeDeep.get(record.lease.leaseId);
+    if (active !== undefined) return active;
+    const queued = this.#queuedDeep.get(record.lease.leaseId);
+    if (queued !== undefined) return queued;
+    if (record.deepLane.status === "PASS") return Promise.resolve(record);
+    if (record.deepLane.status !== "PENDING") {
+      return Promise.reject(new SearchLeaseUnavailableError(
+        "search lease deep stage is not pending",
+      ));
+    }
+    if (this.#runDeep === undefined) {
+      return Promise.reject(new SearchLeaseUnavailableError(
+        "pi deep investigation is not configured",
+      ));
+    }
+    if (this.#activeDeep.size >= this.#deepConcurrencyLimit) {
+      const waitForSlot = Promise.race([...this.#activeDeep.values()]).then(
+        () => undefined,
+        () => undefined,
+      ).then(() => {
+        this.#queuedDeep.delete(record.lease.leaseId);
+        const latest = this.#records.find(
+          (item) => item.lease.leaseId === record.lease.leaseId,
+        ) ?? record;
+        return this.#launchDeep(snapshot, latest);
+      });
+      this.#queuedDeep.set(record.lease.leaseId, waitForSlot);
+      return waitForSlot;
+    }
+    if (
+      snapshot.snapshotIdentity !== record.lease.snapshotIdentity ||
+      snapshot.sourceSetIdentity !== record.lease.sourceSetIdentity
+    ) {
+      return Promise.reject(new SearchLeaseUnavailableError(
+        "retained deep-stage corpus does not match the fast checkpoint",
+      ));
+    }
+    const signature = record.lineage.noveltySignature;
+    if (signature === null || record.deepLane.inputIdentity === null ||
+      record.deepLane.inputIdentity === undefined) {
+      return Promise.reject(new SearchLeaseUnavailableError(
+        "search lease deep stage is missing its immutable input identity",
+      ));
+    }
+    const otherLeaseId = this.#activeNovelty.get(signature);
+    if (otherLeaseId !== undefined && otherLeaseId !== record.lease.leaseId) {
+      const duplicate = this.#persist(withArtifactHash({
+        ...withoutArtifactHash(record),
+        deepLane: this.#skippedDeep("DUPLICATE"),
+        lineage: Object.freeze({
+          ...record.lineage,
+          duplicateOfLeaseId: otherLeaseId,
+        }),
+        outcome: Object.freeze({
+          ...record.outcome,
+          novelCandidate: false,
+          stage: "DEEP_COMPLETE" as const,
+        }),
+      }));
+      return Promise.resolve(duplicate);
+    }
+    this.#activeNovelty.set(signature, record.lease.leaseId);
+    const promise = this.#executeDeep(snapshot, record).finally(() => {
+      this.#activeDeep.delete(record.lease.leaseId);
+      if (this.#activeNovelty.get(signature) === record.lease.leaseId) {
+        this.#activeNovelty.delete(signature);
+      }
+    });
+    this.#activeDeep.set(record.lease.leaseId, promise);
+    return promise;
+  }
+
+  async #executeDeep(
+    snapshot: MarketCorpusSnapshot,
+    checkpoint: SearchLeaseRecord,
+  ): Promise<SearchLeaseRecord> {
+    if (this.#runDeep === undefined) {
+      return this.#persist(withArtifactHash({
+        ...withoutArtifactHash(checkpoint),
+        deepLane: this.#skippedDeep("PI_DISABLED"),
+        outcome: Object.freeze({
+          ...checkpoint.outcome,
+          stage: "DEEP_UNAVAILABLE" as const,
+        }),
+      }));
+    }
+    const attempts = [...(checkpoint.deepLane.attempts ?? [])];
+    const attemptNumber = attempts.length + 1;
+    const maxAttempts = checkpoint.lease.budget.maxDeepAttempts ?? 1;
+    if (attemptNumber > maxAttempts) {
+      throw new SearchLeaseUnavailableError(
+        "search lease deep retry budget is exhausted",
+      );
+    }
+    const startedAtMs = Math.max(this.#now(), Date.parse(checkpoint.lease.issuedAt));
+    const startedAt = new Date(startedAtMs).toISOString();
+    const deadlineAt = new Date(
+      startedAtMs +
+        (checkpoint.lease.budget.deepDeadlineMs ?? checkpoint.lease.budget.deadlineMs),
+    ).toISOString();
+    const inputIdentity = checkpoint.deepLane.inputIdentity!;
+    const attemptId = hashCanonical({
+      schemaVersion: "pmh.search-deep-attempt-id.v1",
+      leaseId: checkpoint.lease.leaseId,
+      inputIdentity,
+      attemptNumber,
+    });
+    const runningAttempt: SearchLeaseDeepAttempt = Object.freeze({
+      attemptId,
+      attemptNumber,
+      inputIdentity,
+      status: "RUNNING",
+      startedAt,
+      deadlineAt,
+      completedAt: null,
+      runId: null,
+      proposalIds: Object.freeze([]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    });
+    const running = this.#persist(withArtifactHash({
+      ...withoutArtifactHash(checkpoint),
+      deepLane: Object.freeze({
+        ...checkpoint.deepLane,
+        status: "RUNNING" as const,
+        attempts: Object.freeze([...attempts, runningAttempt]),
+      }),
+    }));
+
+    let result: SearchLeaseDeepResult;
+    try {
+      result = await this.#runDeep(snapshot, this.#deepQuestion(running));
+    } catch (error) {
+      result = Object.freeze({
+        runId: attemptId,
+        status: "FAILED" as const,
+        proposalIds: Object.freeze([]),
+        evidenceGaps: Object.freeze([]),
+        diagnostic: compactDiagnostic(error),
+      });
+    }
+    const policy = running.lease.candidatePolicy;
+    const listingRefs = running.fastLane.candidateListingRefs;
+    const filteredProposalIds = policy === undefined || policy === null
+      ? [...result.proposalIds].slice(0, 5)
+      : (result.proposalDetails ?? [])
+        .filter((proposal) =>
+          policy.allowedRelationKinds.includes(proposal.relationKind) &&
+          proposal.listingRefs.length === policy.exactListingRefCount &&
+          proposal.listingRefs.every((listingRef) => listingRefs.includes(listingRef))
+        )
+        .map((proposal) => proposal.proposalId)
+        .filter((proposalId, index, values) => values.indexOf(proposalId) === index)
+        .slice(0, 5);
+    const proposalIds = result.status === "PASS"
+      ? filteredProposalIds
+      : [];
+    const policyDiagnostic = policy !== undefined && policy !== null &&
+        result.status === "PASS" && proposalIds.length === 0
+      ? `${result.proposalIds.length} deep proposal${result.proposalIds.length === 1 ? "" : "s"} retained as research evidence; none matched the issue candidate policy.`
+      : null;
+    const completedAt = new Date(
+      Math.max(this.#now(), startedAtMs),
+    ).toISOString();
+    const completedAttempt: SearchLeaseDeepAttempt = Object.freeze({
+      ...runningAttempt,
+      status: result.status,
+      completedAt,
+      runId: result.runId,
+      proposalIds: Object.freeze(proposalIds),
+      evidenceGaps: Object.freeze([...result.evidenceGaps].slice(0, 20)),
+      diagnostic: result.diagnostic ?? policyDiagnostic,
+    });
+    const deepLane: SearchLeaseDeepLane = Object.freeze({
+      status: result.status,
+      reason: policyDiagnostic === null ? "NOVEL_MULTI_LISTING" : "NO_POLICY_MATCH",
+      runId: result.runId,
+      proposalIds: completedAttempt.proposalIds,
+      evidenceGaps: completedAttempt.evidenceGaps,
+      diagnostic: completedAttempt.diagnostic,
+      inputIdentity,
+      attempts: Object.freeze([...attempts, completedAttempt]),
+      completedAt,
+      permittedTools: READ_ONLY_TOOLS,
+      toolExecutionTraceStored: false,
+    });
+    return this.#persist(withArtifactHash({
+      ...withoutArtifactHash(running),
+      status: "PASS",
+      diagnostic: null,
+      deepLane,
+      outcome: Object.freeze({
+        ...running.outcome,
+        proposalCount: deepLane.proposalIds.length,
+        evidenceGapCount: deepLane.evidenceGaps.length,
+        stage: result.status === "PASS"
+          ? "DEEP_COMPLETE" as const
+          : "DEEP_UNAVAILABLE" as const,
+      }),
+    }));
+  }
+
+  public awaitDeep(leaseId: Hash): Promise<SearchLeaseRecord> {
+    const active = this.#activeDeep.get(leaseId);
+    if (active !== undefined) return active;
+    const queued = this.#queuedDeep.get(leaseId);
+    if (queued !== undefined) return queued;
+    const record = this.#records.find((item) => item.lease.leaseId === leaseId);
+    if (record === undefined) {
+      return Promise.reject(new SearchLeaseUnavailableError(
+        "search lease was not found",
+      ));
+    }
+    return Promise.resolve(record);
+  }
+
+  public retryDeep(
+    leaseId: Hash,
+  ): Readonly<{ promise: Promise<SearchLeaseRecord>; idempotentReplay: boolean }> {
+    if (this.#runDeep === undefined) {
+      throw new SearchLeaseUnavailableError("pi deep investigation is not configured");
+    }
+    const active = this.#activeDeep.get(leaseId);
+    if (active !== undefined) {
+      return Object.freeze({ promise: active, idempotentReplay: true });
+    }
+    const queued = this.#queuedDeep.get(leaseId);
+    if (queued !== undefined) {
+      return Object.freeze({ promise: queued, idempotentReplay: true });
+    }
+    const record = this.#records.find((item) => item.lease.leaseId === leaseId);
+    if (record === undefined || record.status !== "PASS") {
+      throw new SearchLeaseUnavailableError("search lease fast checkpoint is unavailable");
+    }
+    if (record.deepLane.status === "PASS") {
+      return Object.freeze({ promise: Promise.resolve(record), idempotentReplay: true });
+    }
+    if (record.deepLane.status !== "FAILED") {
+      throw new SearchLeaseUnavailableError("search lease deep stage is not retryable");
+    }
+    if (
+      record.lease.algorithmVersion !== "pmh.ai-search-leases.v5" ||
+      record.deepLane.inputIdentity === null ||
+      record.deepLane.inputIdentity === undefined
+    ) {
+      throw new SearchLeaseUnavailableError(
+        "historical deep failures do not have a retryable immutable input",
+      );
+    }
+    const maxAttempts = record.lease.budget.maxDeepAttempts ?? 1;
+    if ((record.deepLane.attempts?.length ?? 0) >= maxAttempts) {
+      throw new SearchLeaseUnavailableError("search lease deep retry budget is exhausted");
+    }
+    const snapshot = this.#corpora.get(record.lease.snapshotIdentity) ??
+      this.#store?.loadSearchLeaseCorpus(record.lease.snapshotIdentity) ?? null;
+    if (snapshot === null) {
+      throw new SearchLeaseUnavailableError("retained deep-stage corpus is unavailable");
+    }
+    const pending = this.#persist(withArtifactHash({
+      ...withoutArtifactHash(record),
+      deepLane: Object.freeze({
+        ...record.deepLane,
+        status: "PENDING" as const,
+        reason: "PENDING_DEEP_LANE" as const,
+        runId: null,
+        proposalIds: Object.freeze([]),
+        evidenceGaps: Object.freeze([]),
+        diagnostic: null,
+        completedAt: null,
+      }),
+      outcome: Object.freeze({
+        ...record.outcome,
+        proposalCount: 0,
+        evidenceGapCount: 0,
+        stage: "FAST_COMPLETE" as const,
+      }),
+    }));
+    return Object.freeze({
+      promise: this.#launchDeep(snapshot, pending),
+      idempotentReplay: false,
+    });
+  }
+
+  public resumeDeepWork(): readonly Promise<SearchLeaseRecord>[] {
+    if (this.#runDeep === undefined) return Object.freeze([]);
+    const promises: Promise<SearchLeaseRecord>[] = [];
+    for (const original of [...this.#records]) {
+      if (original.status !== "PASS" ||
+        (original.deepLane.status !== "PENDING" &&
+          original.deepLane.status !== "RUNNING")) continue;
+      const snapshot = this.#corpora.get(original.lease.snapshotIdentity) ??
+        this.#store?.loadSearchLeaseCorpus(
+        original.lease.snapshotIdentity,
+      ) ?? null;
+      if (snapshot === null) continue;
+      let record = original;
+      if (record.deepLane.status === "RUNNING") {
+        const attempts = [...(record.deepLane.attempts ?? [])];
+        const last = attempts.at(-1);
+        if (last === undefined || last.status !== "RUNNING") continue;
+        const interruptedAt = new Date(
+          Math.max(this.#now(), Date.parse(last.startedAt)),
+        ).toISOString();
+        attempts[attempts.length - 1] = Object.freeze({
+          ...last,
+          status: "FAILED" as const,
+          completedAt: interruptedAt,
+          diagnostic: "deep investigation was interrupted by process restart",
+        });
+        record = this.#persist(withArtifactHash({
+          ...withoutArtifactHash(record),
+          deepLane: Object.freeze({
+            ...record.deepLane,
+            status: "FAILED" as const,
+            diagnostic: "deep investigation was interrupted by process restart",
+            attempts: Object.freeze(attempts),
+            completedAt: interruptedAt,
+          }),
+          outcome: Object.freeze({
+            ...record.outcome,
+            stage: "DEEP_UNAVAILABLE" as const,
+          }),
+        }));
+        if ((record.deepLane.attempts?.length ?? 0) >=
+          (record.lease.budget.maxDeepAttempts ?? 1)) continue;
+        record = this.#persist(withArtifactHash({
+          ...withoutArtifactHash(record),
+          deepLane: Object.freeze({
+            ...record.deepLane,
+            status: "PENDING" as const,
+            reason: "PENDING_DEEP_LANE" as const,
+            runId: null,
+            proposalIds: Object.freeze([]),
+            evidenceGaps: Object.freeze([]),
+            diagnostic: null,
+            completedAt: null,
+          }),
+          outcome: Object.freeze({
+            ...record.outcome,
+            proposalCount: 0,
+            evidenceGapCount: 0,
+            stage: "FAST_COMPLETE" as const,
+          }),
+        }));
+      }
+      promises.push(this.#launchDeep(snapshot, record));
+    }
+    return Object.freeze(promises);
   }
 
   #skippedDeep(
@@ -1614,6 +2235,9 @@ export class SearchLeaseScheduler {
       proposalIds: Object.freeze([]),
       evidenceGaps: Object.freeze([]),
       diagnostic,
+      inputIdentity: null,
+      attempts: Object.freeze([]),
+      completedAt: null,
       permittedTools: READ_ONLY_TOOLS,
       toolExecutionTraceStored: false,
     });
@@ -1689,13 +2313,32 @@ export class SearchLeaseScheduler {
     const index = this.#records.findIndex((item) => item.lease.leaseId === stored.lease.leaseId);
     if (index >= 0) this.#records.splice(index, 1);
     this.#records.unshift(stored);
-    if (this.#records.length > this.#retentionLimit) this.#records.length = this.#retentionLimit;
+    if (this.#records.length > this.#retentionLimit) {
+      const protectedIds = new Set(this.#records.filter((item) =>
+        item.status === "ISSUED" || item.deepLane.status === "PENDING" ||
+        item.deepLane.status === "RUNNING"
+      ).map((item) => item.lease.leaseId));
+      let terminalSlots = Math.max(0, this.#retentionLimit - protectedIds.size);
+      const retained = this.#records.filter((item) => {
+        if (protectedIds.has(item.lease.leaseId)) return true;
+        if (terminalSlots <= 0) return false;
+        terminalSlots -= 1;
+        return true;
+      });
+      this.#records.splice(0, this.#records.length, ...retained);
+    }
+    this.#onRecordChange?.(stored);
     return stored;
   }
 
   public projection(): SearchLeaseSchedulerProjection {
     const records = Object.freeze([...this.#records]);
     const issued = records.filter((record) => record.status === "ISSUED");
+    const activeLeaseIds = new Set([
+      ...this.#active.keys(),
+      ...this.#activeDeep.keys(),
+      ...this.#queuedDeep.keys(),
+    ]);
     const recoverableIssuedCount = issued.filter((record) =>
       this.#store?.hasSearchLeaseCorpus(record.lease.snapshotIdentity) === true
     ).length;
@@ -1704,19 +2347,52 @@ export class SearchLeaseScheduler {
       algorithmVersion: ALGORITHM_VERSION,
       enabled: this.intervalMs !== null,
       configured: Object.freeze({ fastLane: true, deepLane: this.#runDeep !== undefined }),
-      status: this.#active.size === 0 ? "IDLE" : "RUNNING",
-      activeCount: this.#active.size,
+      status: this.#active.size === 0 && this.#activeDeep.size === 0 &&
+          this.#queuedDeep.size === 0
+        ? "IDLE"
+        : "RUNNING",
+      activeCount: activeLeaseIds.size,
+      activeFastCount: this.#active.size,
+      activeDeepCount: this.#activeDeep.size,
+      queuedDeepCount: this.#queuedDeep.size,
       concurrencyLimit: this.#concurrencyLimit,
+      deepConcurrencyLimit: this.#deepConcurrencyLimit,
       intervalMs: this.intervalMs,
       retentionLimit: this.#retentionLimit,
       lensOrder: SEARCH_LENSES,
       budget: this.#budget,
-      runCount: records.filter((record) => record.status !== "ISSUED").length,
+      runCount: records.filter((record) =>
+        record.status !== "ISSUED" && record.outcome.stage !== "RECOVERY_EXPIRED"
+      ).length,
       passCount: records.filter((record) => record.status === "PASS").length,
-      failedCount: records.filter((record) => record.status === "FAILED").length,
+      failedCount: records.filter((record) =>
+        record.status === "FAILED" && record.outcome.stage !== "RECOVERY_EXPIRED"
+      ).length,
       issuedCount: records.filter((record) => record.status === "ISSUED").length,
       duplicateCount: records.filter((record) => record.lineage.duplicateOfLeaseId !== null).length,
-      piEscalationCount: records.filter((record) => record.deepLane.runId !== null).length,
+      piEscalationCount: records.reduce(
+        (sum, record) => sum + Math.max(
+          record.deepLane.attempts?.length ?? 0,
+          record.deepLane.runId === null ? 0 : 1,
+        ),
+        0,
+      ),
+      deepPendingCount: records.filter((record) =>
+        record.deepLane.status === "PENDING" || record.deepLane.status === "RUNNING"
+      ).length,
+      deepPassCount: records.filter((record) => record.deepLane.status === "PASS").length,
+      deepFailedCount: records.filter((record) => record.deepLane.status === "FAILED").length,
+      deepRetryCount: records.reduce(
+        (sum, record) => sum + Math.max(0, (record.deepLane.attempts?.length ?? 1) - 1),
+        0,
+      ),
+      preservedFastResultCount: records.filter((record) =>
+        record.status === "PASS" && record.fastLane.status === "PASS" &&
+        record.deepLane.status === "FAILED"
+      ).length,
+      expiredRecoveryCount: records.filter(
+        (record) => record.outcome.stage === "RECOVERY_EXPIRED",
+      ).length,
       retainedCorpusCount: this.#store?.countSearchLeaseCorpora() ?? 0,
       recoverableIssuedCount,
       missingCorpusIssuedCount: issued.length - recoverableIssuedCount,
@@ -1753,4 +2429,46 @@ export function parseSearchLeaseInterval(
     throw new Error("PMH_SEARCH_LEASE_INTERVAL_MS must be 0 or an integer from 60000 to 86400000");
   }
   return value;
+}
+
+export function parseSearchLeaseStageBudget(
+  environment: Readonly<Record<string, string | undefined>>,
+  fallback: Readonly<{ fastDeadlineMs: number; deepDeadlineMs: number }>,
+): Readonly<{
+  fastDeadlineMs: number;
+  deepDeadlineMs: number;
+  orchestrationGraceMs: number;
+  maxDeepAttempts: number;
+}> {
+  const integer = (
+    name: string,
+    fallbackValue: number,
+    minimum: number,
+    maximum: number,
+  ) => {
+    const raw = environment[name]?.trim() ?? "";
+    const value = raw === "" ? fallbackValue : Number(raw);
+    if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+      throw new Error(`${name} must be an integer from ${minimum} to ${maximum}`);
+    }
+    return value;
+  };
+  return Object.freeze({
+    // These are derived from the actual provider/process runtimes so the lease
+    // cannot advertise a deadline that the worker itself does not honor.
+    fastDeadlineMs: fallback.fastDeadlineMs,
+    deepDeadlineMs: fallback.deepDeadlineMs,
+    orchestrationGraceMs: integer(
+      "PMH_SEARCH_ORCHESTRATION_GRACE_MS",
+      DEFAULT_ORCHESTRATION_GRACE_MS,
+      0,
+      60_000,
+    ),
+    maxDeepAttempts: integer(
+      "PMH_SEARCH_DEEP_MAX_ATTEMPTS",
+      DEFAULT_MAX_DEEP_ATTEMPTS,
+      1,
+      5,
+    ),
+  });
 }

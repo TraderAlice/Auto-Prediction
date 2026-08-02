@@ -2,6 +2,7 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import {
   SearchAttentionOutbox,
@@ -27,6 +28,8 @@ function lease(input: {
   quoteReady?: boolean;
   candidateListingRefs?: readonly string[];
   deepReason?: SearchLeaseRecord["deepLane"]["reason"];
+  deepStatus?: SearchLeaseRecord["deepLane"]["status"];
+  deepDiagnostic?: string;
   degradedOmissions?: number;
 }): SearchLeaseRecord {
   const status = input.status ?? "PASS";
@@ -45,6 +48,7 @@ function lease(input: {
       evidenceGapCount: 0,
     },
     deepLane: {
+      status: input.deepStatus ?? "NOT_RUN",
       runId: input.pi ? hashCanonical({ pi: input.key }) : null,
       reason: input.deepReason ??
         (input.gate === "NON_POSITIVE_GROSS_HINT"
@@ -52,8 +56,15 @@ function lease(input: {
           : input.novel
             ? "NOVEL_MULTI_LISTING"
             : "NO_CANDIDATES"),
+      diagnostic: input.deepDiagnostic ?? null,
+      completedAt: input.deepStatus === "FAILED" ? input.completedAt : null,
+      attempts: input.deepStatus === "FAILED" ? [{
+        attemptId: hashCanonical({ attempt: input.key }),
+      }] : [],
     },
     fastLane: {
+      status: status === "PASS" ? "PASS" : "FAILED",
+      completedAt: input.completedAt,
       candidateListingRefs: input.candidateListingRefs ??
         (input.novel ? ["venue-a:candidate", "venue-b:candidate"] : []),
       economicGate: input.gate === undefined ? null : {
@@ -74,6 +85,78 @@ function lease(input: {
 }
 
 describe("search attention outbox", () => {
+  it("routes a deep failure separately while preserving the successful fast scan", async () => {
+    const focused = issue("deep-unavailable");
+    const outbox = new SearchAttentionOutbox({
+      now: () => Date.parse("2026-08-02T01:05:00.000Z"),
+    });
+    const record = lease({
+      key: "deep-unavailable",
+      issueId: focused.issueId,
+      completedAt: "2026-08-02T01:01:00.000Z",
+      status: "PASS",
+      novel: true,
+      deepStatus: "FAILED",
+      deepDiagnostic: "market archaeologist timed out",
+    });
+
+    await outbox.tick([focused], [record]);
+
+    expect(outbox.projection().messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "DEEP_UNAVAILABLE",
+        severity: "WATCH",
+        title: "Fast search preserved; deep investigation unavailable",
+        summary: expect.stringContaining("market archaeologist timed out"),
+      }),
+    ]));
+    expect(outbox.projection().messages.some(
+      (message) => message.kind === "ISSUE_DEGRADED",
+    )).toBe(false);
+  });
+
+  it("persists and restores a deep-unavailable alert through SQLite", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-deep-attention-"));
+    const path = join(directory, "control-plane.sqlite");
+    const focused = issue("deep-unavailable-sqlite");
+    const now = () => Date.parse("2026-08-02T01:05:00.000Z");
+    const record = lease({
+      key: "deep-unavailable-sqlite",
+      issueId: focused.issueId,
+      completedAt: "2026-08-02T01:01:00.000Z",
+      status: "PASS",
+      novel: true,
+      deepStatus: "FAILED",
+      deepDiagnostic: "pi attempt timed out",
+    });
+
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const first = new SearchAttentionOutbox({ store: firstStore, now });
+      await first.tick([focused], [record]);
+      expect(first.projection().messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "DEEP_UNAVAILABLE",
+          severity: "WATCH",
+        }),
+      ]));
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const second = new SearchAttentionOutbox({ store: secondStore, now });
+      expect(second.projection()).toMatchObject({
+        messageCount: 1,
+        immediateCount: 1,
+      });
+      expect(second.projection().messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "DEEP_UNAVAILABLE" }),
+      ]));
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("keeps a legacy single-listing novelty record but excludes it from digest yield", async () => {
     const legacy = issue("legacy-single-ref");
     const outbox = new SearchAttentionOutbox({
@@ -410,10 +493,14 @@ describe("search attention outbox", () => {
       })]);
       const expected = first.projection();
       expect(expected.storage).toMatchObject({
-        messages: { durable: true, schemaVersion: 17 },
-        deliveries: { durable: true, schemaVersion: 17 },
+        messages: { durable: true, schemaVersion: 18 },
+        deliveries: { durable: true, schemaVersion: 18 },
       });
       firstStore.close();
+
+      const legacy = new DatabaseSync(path);
+      legacy.exec("PRAGMA user_version = 17");
+      legacy.close();
 
       const secondStore = new SqliteOperationalStore(path);
       const second = new SearchAttentionOutbox({ store: secondStore, now });

@@ -84,6 +84,12 @@ export type SearchIssueSchedulerProjection = Readonly<{
     novelCandidateCount: number;
     duplicateCount: number;
     piEscalationCount: number;
+    deepPendingCount: number;
+    deepPassCount: number;
+    deepFailedCount: number;
+    deepRetryCount: number;
+    preservedFastResultCount: number;
+    expiredRecoveryCount: number;
     economicGateRequiredCount: number;
     economicGatePositiveCount: number;
     economicGateBlockedCount: number;
@@ -140,6 +146,12 @@ export type SearchIssueSchedulerProjection = Readonly<{
       novelCandidateCount: number;
       duplicateCount: number;
       piEscalationCount: number;
+      deepPendingCount: number;
+      deepPassCount: number;
+      deepFailedCount: number;
+      deepRetryCount: number;
+      preservedFastResultCount: number;
+      expiredRecoveryCount: number;
       economicGateRequiredCount: number;
       economicGatePositiveCount: number;
       economicGateBlockedCount: number;
@@ -244,6 +256,12 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   novelCandidateCount: number;
   duplicateCount: number;
   piEscalationCount: number;
+  deepPendingCount: number;
+  deepPassCount: number;
+  deepFailedCount: number;
+  deepRetryCount: number;
+  preservedFastResultCount: number;
+  expiredRecoveryCount: number;
   economicGateRequiredCount: number;
   economicGatePositiveCount: number;
   economicGateBlockedCount: number;
@@ -291,6 +309,12 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     count: number;
   }>[];
 }> {
+  const expiredRecoveryCount = records.filter(
+    (record) => record.outcome.stage === "RECOVERY_EXPIRED",
+  ).length;
+  records = records.filter(
+    (record) => record.outcome.stage !== "RECOVERY_EXPIRED",
+  );
   const agentTelemetry = records.flatMap((record) =>
     record.fastLane.agentTelemetry === undefined
       ? []
@@ -380,7 +404,27 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     terminalLeaseCount: records.length,
     novelCandidateCount: records.filter(isGroundedNovelCandidate).length,
     duplicateCount: records.filter((record) => record.lineage.duplicateOfLeaseId !== null).length,
-    piEscalationCount: records.filter((record) => record.deepLane.runId !== null).length,
+    piEscalationCount: records.reduce(
+      (sum, record) => sum + Math.max(
+        record.deepLane.attempts?.length ?? 0,
+        record.deepLane.runId === null ? 0 : 1,
+      ),
+      0,
+    ),
+    deepPendingCount: records.filter((record) =>
+      record.deepLane.status === "PENDING" || record.deepLane.status === "RUNNING"
+    ).length,
+    deepPassCount: records.filter((record) => record.deepLane.status === "PASS").length,
+    deepFailedCount: records.filter((record) => record.deepLane.status === "FAILED").length,
+    deepRetryCount: records.reduce(
+      (sum, record) => sum + Math.max(0, (record.deepLane.attempts?.length ?? 0) - 1),
+      0,
+    ),
+    preservedFastResultCount: records.filter((record) =>
+      record.status === "PASS" && record.fastLane.status === "PASS" &&
+      record.deepLane.status === "FAILED"
+    ).length,
+    expiredRecoveryCount,
     economicGateRequiredCount: records.filter(
       (record) => record.fastLane.economicGate?.required === true,
     ).length,
@@ -790,7 +834,11 @@ export class SearchIssueScheduler {
   public tick(snapshot: MarketCorpusSnapshot): readonly Promise<SearchLeaseRecord>[] {
     if (this.tickIntervalMs === null || snapshot.listingCount === 0) return Object.freeze([]);
     const now = this.#now();
-    for (const abandoned of this.#leaseScheduler.failIssuedForUnavailableSnapshots(snapshot)) {
+    const abandonedRecords = [
+      ...this.#leaseScheduler.failExpiredIssued(),
+      ...this.#leaseScheduler.failIssuedForUnavailableSnapshots(snapshot),
+    ];
+    for (const abandoned of abandonedRecords) {
       const issueId = abandoned.lease.issueId;
       if (issueId === undefined || issueId === null ||
         !this.#issues.some((issue) => issue.issueId === issueId)) continue;
@@ -879,17 +927,18 @@ export class SearchIssueScheduler {
   #complete(issueId: Hash, lease: SearchLeaseRecord): void {
     const issue = this.#requireIssue(issueId);
     const alreadyCounted = issue.lastLeaseId === lease.lease.leaseId;
+    const recoveryOnly = lease.outcome.stage === "RECOVERY_EXPIRED";
     const completedAt = lease.completedAt ?? new Date(this.#now()).toISOString();
     this.#saveIssue(withIssueHash({
       ...this.#withoutIssueHash(issue),
       updatedAt: completedAt,
       lastCompletedAt: completedAt,
       lastLeaseId: lease.lease.leaseId,
-      runCount: issue.runCount + (alreadyCounted ? 0 : 1),
-      passCount: issue.passCount + (!alreadyCounted && lease.status === "PASS" ? 1 : 0),
-      failedCount: issue.failedCount + (!alreadyCounted && lease.status === "FAILED" ? 1 : 0),
+      runCount: issue.runCount + (alreadyCounted || recoveryOnly ? 0 : 1),
+      passCount: issue.passCount + (!alreadyCounted && !recoveryOnly && lease.status === "PASS" ? 1 : 0),
+      failedCount: issue.failedCount + (!alreadyCounted && !recoveryOnly && lease.status === "FAILED" ? 1 : 0),
     }));
-    if (lease.status === "FAILED") {
+    if (lease.status === "FAILED" && !recoveryOnly) {
       this.#notify(issue, lease, "RUN_FAILED", lease.lease.leaseId,
         lease.diagnostic ?? "Scheduled search failed before producing a bounded result.");
     } else if (
@@ -901,7 +950,9 @@ export class SearchIssueScheduler {
         lease,
         "NOVEL_CANDIDATE",
         lease.lineage.noveltySignature,
-        `${lease.outcome.hypothesisCount} fast-lane candidate${lease.outcome.hypothesisCount === 1 ? "" : "s"}; ${lease.outcome.proposalCount} grounded deep proposal${lease.outcome.proposalCount === 1 ? "" : "s"}; ${lease.outcome.evidenceGapCount} evidence gap${lease.outcome.evidenceGapCount === 1 ? "" : "s"}.`,
+        lease.outcome.stage === "FAST_COMPLETE"
+          ? `${lease.outcome.hypothesisCount} fast-lane candidate${lease.outcome.hypothesisCount === 1 ? "" : "s"} retained; the independent pi investigation is queued.`
+          : `${lease.outcome.hypothesisCount} fast-lane candidate${lease.outcome.hypothesisCount === 1 ? "" : "s"}; ${lease.outcome.proposalCount} grounded deep proposal${lease.outcome.proposalCount === 1 ? "" : "s"}; ${lease.outcome.evidenceGapCount} evidence gap${lease.outcome.evidenceGapCount === 1 ? "" : "s"}.`,
       );
     }
   }

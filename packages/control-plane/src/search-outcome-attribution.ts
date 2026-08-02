@@ -23,7 +23,7 @@ type LeaseSource = Readonly<{
   completedAt: string | null;
   lease: Readonly<{ issueId?: Hash | null }>;
   deepLane: Readonly<{
-    status: "NOT_RUN" | "PASS" | "FAILED";
+    status: "NOT_RUN" | "PENDING" | "RUNNING" | "PASS" | "FAILED";
     proposalIds: readonly string[];
   }>;
 }>;

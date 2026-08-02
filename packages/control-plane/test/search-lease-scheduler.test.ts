@@ -5,12 +5,14 @@ import {
   buildMarketCorpusSnapshot,
   CatalogContextCoverageError,
   SearchLeaseScheduler,
+  parseSearchLeaseStageBudget,
   SqliteOperationalStore,
   type DiscoveryCatalogContext,
   type DiscoveryRunRecord,
   type DiscoveryTask,
   type OpportunityHypothesis,
   type CatalogContextCoverage,
+  type SearchLeaseDeepResult,
 } from "../src/index.js";
 
 const receivedAt = "2026-08-01T00:00:00.000Z";
@@ -156,6 +158,27 @@ function runRecord(task: DiscoveryTask): DiscoveryRunRecord {
 }
 
 describe("AI-native search lease scheduler", () => {
+  it("derives lane deadlines from real runtimes and bounds retry configuration", () => {
+    expect(parseSearchLeaseStageBudget({
+      PMH_SEARCH_DEEP_MAX_ATTEMPTS: "5",
+      PMH_SEARCH_ORCHESTRATION_GRACE_MS: "12000",
+    }, {
+      fastDeadlineMs: 240_000,
+      deepDeadlineMs: 300_000,
+    })).toEqual({
+      fastDeadlineMs: 240_000,
+      deepDeadlineMs: 300_000,
+      orchestrationGraceMs: 12_000,
+      maxDeepAttempts: 5,
+    });
+    expect(() => parseSearchLeaseStageBudget({
+      PMH_SEARCH_DEEP_MAX_ATTEMPTS: "6",
+    }, {
+      fastDeadlineMs: 240_000,
+      deepDeadlineMs: 300_000,
+    })).toThrow("PMH_SEARCH_DEEP_MAX_ATTEMPTS");
+  });
+
   it("bounds the cheap lane and escalates only a novel grounded multi-venue candidate", async () => {
     const runFast = vi.fn(async (task: DiscoveryTask, budget: number) => {
       expect(budget).toBe(1);
@@ -201,7 +224,14 @@ describe("AI-native search lease scheduler", () => {
     });
 
     const first = scheduler.begin(snapshot(), "EQUIVALENCE");
-    const record = await first.promise;
+    const checkpoint = await first.promise;
+
+    expect(checkpoint).toMatchObject({
+      status: "PASS",
+      outcome: { stage: "FAST_COMPLETE" },
+      deepLane: { status: "PENDING", reason: "PENDING_DEEP_LANE" },
+    });
+    const record = await scheduler.awaitDeep(checkpoint.lease.leaseId);
 
     expect(record.status).toBe("PASS");
     expect(record.fastLane.modelRequestCount).toBe(1);
@@ -336,7 +366,7 @@ describe("AI-native search lease scheduler", () => {
       }),
       now: () => Date.parse("2026-08-01T00:00:00.000Z"),
     });
-    const record = await scheduler.begin(
+    const checkpoint = await scheduler.begin(
       snapshot(),
       "EQUIVALENCE",
       "SCHEDULE",
@@ -350,6 +380,7 @@ describe("AI-native search lease scheduler", () => {
         }),
       },
     ).promise;
+    const record = await scheduler.awaitDeep(checkpoint.lease.leaseId);
 
     expect(record).toMatchObject({
       status: "PASS",
@@ -359,7 +390,7 @@ describe("AI-native search lease scheduler", () => {
         proposalIds: [],
         evidenceGaps: ["Oracle rules diverge."],
       },
-      outcome: { novelCandidate: false, proposalCount: 0 },
+      outcome: { novelCandidate: true, proposalCount: 0 },
     });
     expect(record.deepLane.diagnostic).toContain(
       "retained as research evidence; none matched the issue candidate policy",
@@ -462,12 +493,15 @@ describe("AI-native search lease scheduler", () => {
       excludedSourceCount: 0,
       listings: positiveListings,
     });
-    const passed = await scheduler.begin(
+    const positiveCheckpoint = await scheduler.begin(
       positiveSnapshot,
       "EQUIVALENCE",
       "SCHEDULE",
       issue,
     ).promise;
+    const passed = await scheduler.awaitDeep(
+      positiveCheckpoint.lease.leaseId,
+    );
     expect(passed.fastLane.economicGate).toMatchObject({
       status: "POSITIVE_GROSS_HINT",
       indicativeCostBpsCeil: "8000",
@@ -716,7 +750,7 @@ describe("AI-native search lease scheduler", () => {
       runDeep,
       now: () => Date.parse("2026-08-01T00:00:00.000Z"),
     });
-    const record = await scheduler.begin(
+    const checkpoint = await scheduler.begin(
       batchedSnapshot,
       "EQUIVALENCE",
       "SCHEDULE",
@@ -733,6 +767,7 @@ describe("AI-native search lease scheduler", () => {
         }),
       },
     ).promise;
+    const record = await scheduler.awaitDeep(checkpoint.lease.leaseId);
 
     expect(record.fastLane).toMatchObject({
       candidateListingRefs: selectedRefs,
@@ -941,7 +976,7 @@ describe("AI-native search lease scheduler", () => {
       runDeep,
       now: () => Date.parse("2026-08-02T00:00:00.000Z"),
     });
-    const record = await scheduler.begin(current, "EQUIVALENCE", "SCHEDULE", {
+    const checkpoint = await scheduler.begin(current, "EQUIVALENCE", "SCHEDULE", {
       issueId: hashCanonical({ issue: "quote-enriched" }),
       question: "Select and price one exact pair.",
       venueIds: [],
@@ -953,6 +988,7 @@ describe("AI-native search lease scheduler", () => {
         requireDistinctVenues: true,
       }),
     }).promise;
+    const record = await scheduler.awaitDeep(checkpoint.lease.leaseId);
 
     expect(enrichPrices).toHaveBeenCalledTimes(1);
     expect(enrichPrices.mock.calls[0]?.[0].map((item) => item.listingRef).sort())
@@ -1016,10 +1052,308 @@ describe("AI-native search lease scheduler", () => {
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      storage: { schemaVersion: 17 },
-      corpusStorage: { schemaVersion: 17, idempotencyKey: "snapshotIdentity" },
+      storage: { schemaVersion: 18 },
+      corpusStorage: { schemaVersion: 18, idempotencyKey: "snapshotIdentity" },
     });
     store.close();
+  });
+
+  it("preserves a fast checkpoint across deep failure and retries pi without rerunning the Agent", async () => {
+    const store = new SqliteOperationalStore(":memory:");
+    const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+    const proposalId = hashCanonical({ proposal: "deep-retry" });
+    const runDeep = vi.fn()
+      .mockResolvedValueOnce(Object.freeze({
+        runId: hashCanonical({ deep: "failed" }),
+        status: "FAILED" as const,
+        proposalIds: Object.freeze([]),
+        evidenceGaps: Object.freeze(["Pi timed out before checking void rules."]),
+        diagnostic: "market archaeologist timed out",
+      }))
+      .mockResolvedValueOnce(Object.freeze({
+        runId: hashCanonical({ deep: "retry-pass" }),
+        status: "PASS" as const,
+        proposalIds: Object.freeze([proposalId]),
+        evidenceGaps: Object.freeze([]),
+        diagnostic: null,
+      }));
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      runFast,
+      runDeep,
+      store,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    const checkpoint = await scheduler.begin(snapshot(), "IMPLICATION").promise;
+    expect(checkpoint).toMatchObject({
+      status: "PASS",
+      outcome: { stage: "FAST_COMPLETE", novelCandidate: true },
+      deepLane: { status: "PENDING" },
+    });
+    const unavailable = await scheduler.awaitDeep(checkpoint.lease.leaseId);
+    expect(unavailable).toMatchObject({
+      status: "PASS",
+      diagnostic: null,
+      fastLane: { status: "PASS" },
+      deepLane: {
+        status: "FAILED",
+        diagnostic: "market archaeologist timed out",
+      },
+      outcome: { stage: "DEEP_UNAVAILABLE", novelCandidate: true },
+    });
+    expect(unavailable.deepLane.attempts).toHaveLength(1);
+    expect(runFast).toHaveBeenCalledTimes(1);
+
+    const retry = scheduler.retryDeep(checkpoint.lease.leaseId);
+    expect(retry.idempotentReplay).toBe(false);
+    const completed = await retry.promise;
+    expect(completed).toMatchObject({
+      status: "PASS",
+      deepLane: { status: "PASS", proposalIds: [proposalId] },
+      outcome: { stage: "DEEP_COMPLETE", proposalCount: 1 },
+    });
+    expect(completed.deepLane.inputIdentity).toBe(
+      unavailable.deepLane.inputIdentity,
+    );
+    expect(completed.deepLane.attempts).toHaveLength(2);
+    expect(runFast).toHaveBeenCalledTimes(1);
+    expect(runDeep).toHaveBeenCalledTimes(2);
+    expect(store.loadSearchLeaseRecords(10)).toEqual([completed]);
+    store.close();
+  });
+
+  it("coalesces concurrent deep retries for one immutable novelty signature", async () => {
+    let resolveRetry!: (result: SearchLeaseDeepResult) => void;
+    const retryResult = new Promise<SearchLeaseDeepResult>((resolve) => {
+      resolveRetry = resolve;
+    });
+    const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+    const runDeep = vi.fn()
+      .mockResolvedValueOnce(Object.freeze({
+        runId: hashCanonical({ deep: "first-failure" }),
+        status: "FAILED" as const,
+        proposalIds: Object.freeze([]),
+        evidenceGaps: Object.freeze([]),
+        diagnostic: "temporary pi failure",
+      }))
+      .mockImplementationOnce(() => retryResult);
+    const scheduler = new SearchLeaseScheduler({ context, runFast, runDeep });
+    const checkpoint = await scheduler.begin(snapshot(), "MECHANISM").promise;
+    await scheduler.awaitDeep(checkpoint.lease.leaseId);
+
+    const first = scheduler.retryDeep(checkpoint.lease.leaseId);
+    const second = scheduler.retryDeep(checkpoint.lease.leaseId);
+    expect(first.idempotentReplay).toBe(false);
+    expect(second.idempotentReplay).toBe(true);
+    expect(first.promise).toBe(second.promise);
+    resolveRetry(Object.freeze({
+      runId: hashCanonical({ deep: "coalesced-pass" }),
+      status: "PASS" as const,
+      proposalIds: Object.freeze([]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    }));
+    await first.promise;
+    expect(runFast).toHaveBeenCalledTimes(1);
+    expect(runDeep).toHaveBeenCalledTimes(2);
+  });
+
+  it("queues independent deep investigations behind their own concurrency limit", async () => {
+    let releaseFirst!: (result: SearchLeaseDeepResult) => void;
+    const firstDeep = new Promise<SearchLeaseDeepResult>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const alternateListings = Object.freeze([
+      listing("venue-c", "cola-c"),
+      listing("venue-d", "cola-d"),
+    ]);
+    const alternateSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "independent-deep-queue" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: alternateListings,
+    });
+    const dynamicContext = (
+      _question: string,
+      venueIds: readonly string[],
+      _lens: unknown,
+      current: ReturnType<typeof snapshot>,
+    ): DiscoveryCatalogContext => {
+      const body = Object.freeze({
+        schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+        source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+        contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+        listings: Object.freeze(current.listings.filter((item) =>
+          venueIds.includes(item.venueId)
+        )),
+      });
+      return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+    };
+    const runFast = vi.fn(async (task: DiscoveryTask) => {
+      const refs = task.catalogContext!.listings.map((item) => item.listingRef);
+      const venues = task.catalogContext!.listings.map((item) => item.venueId);
+      const base = runRecord(task);
+      return Object.freeze({
+        ...base,
+        hypotheses: Object.freeze([Object.freeze({
+          ...base.hypotheses[0]!,
+          hypothesisId: `hypothesis:${hashCanonical(refs).slice(7, 23)}`,
+          venueIds: Object.freeze(venues),
+          listingRefs: Object.freeze(refs),
+        })]),
+      });
+    });
+    const runDeep = vi.fn()
+      .mockImplementationOnce(() => firstDeep)
+      .mockResolvedValueOnce(Object.freeze({
+        runId: hashCanonical({ deep: "second-queued" }),
+        status: "PASS" as const,
+        proposalIds: Object.freeze([]),
+        evidenceGaps: Object.freeze([]),
+        diagnostic: null,
+      }));
+    const scheduler = new SearchLeaseScheduler({
+      context: dynamicContext,
+      runFast,
+      runDeep,
+      concurrencyLimit: 2,
+      deepConcurrencyLimit: 1,
+    });
+
+    const first = await scheduler.begin(snapshot(), "IMPLICATION").promise;
+    const second = await scheduler.begin(
+      alternateSnapshot,
+      "MECHANISM",
+    ).promise;
+    expect(scheduler.projection()).toMatchObject({
+      activeDeepCount: 1,
+      queuedDeepCount: 1,
+      deepPendingCount: 2,
+    });
+    expect(runDeep).toHaveBeenCalledTimes(1);
+
+    releaseFirst(Object.freeze({
+      runId: hashCanonical({ deep: "first-released" }),
+      status: "PASS" as const,
+      proposalIds: Object.freeze([]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    }));
+    await scheduler.awaitDeep(first.lease.leaseId);
+    await scheduler.awaitDeep(second.lease.leaseId);
+    expect(runDeep).toHaveBeenCalledTimes(2);
+    expect(scheduler.projection()).toMatchObject({
+      activeDeepCount: 0,
+      queuedDeepCount: 0,
+      deepPassCount: 2,
+    });
+  });
+
+  it("recovers an interrupted deep stage from SQLite without spending another fast request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-deep-resume-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+      const neverCompletes = new Promise<SearchLeaseDeepResult>(() => undefined);
+      const firstScheduler = new SearchLeaseScheduler({
+        context,
+        runFast: firstFast,
+        runDeep: () => neverCompletes,
+        store: firstStore,
+        now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+      });
+      const checkpoint = await firstScheduler.begin(
+        snapshot(),
+        "PARTITION",
+      ).promise;
+      expect(firstScheduler.projection()).toMatchObject({
+        activeDeepCount: 1,
+        records: [{ deepLane: { status: "RUNNING" } }],
+      });
+      expect(firstFast).toHaveBeenCalledTimes(1);
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const resumedFast = vi.fn();
+      const resumedDeep = vi.fn(async () => Object.freeze({
+        runId: hashCanonical({ deep: "after-restart" }),
+        status: "PASS" as const,
+        proposalIds: Object.freeze([]),
+        evidenceGaps: Object.freeze([]),
+        diagnostic: null,
+      }));
+      const secondScheduler = new SearchLeaseScheduler({
+        context,
+        runFast: resumedFast,
+        runDeep: resumedDeep,
+        store: secondStore,
+        now: () => Date.parse("2026-08-02T00:00:01.000Z"),
+      });
+      const resumed = secondScheduler.resumeDeepWork();
+      expect(resumed).toHaveLength(1);
+      const completed = await resumed[0]!;
+      expect(completed).toMatchObject({
+        status: "PASS",
+        deepLane: { status: "PASS" },
+        outcome: { stage: "DEEP_COMPLETE" },
+      });
+      expect(completed.deepLane.attempts).toHaveLength(2);
+      expect(completed.deepLane.attempts?.[0]).toMatchObject({
+        status: "FAILED",
+        diagnostic: "deep investigation was interrupted by process restart",
+      });
+      expect(completed.fastLane).toEqual(checkpoint.fastLane);
+      expect(resumedFast).not.toHaveBeenCalled();
+      expect(resumedDeep).toHaveBeenCalledTimes(1);
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("terminalizes an expired issued lease after restart without recovery provider work", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-expired-lease-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const issuedAt = Date.parse("2026-08-02T00:00:00.000Z");
+      const firstStore = new SqliteOperationalStore(path);
+      const neverCompletes = new Promise<DiscoveryRunRecord>(() => undefined);
+      const firstScheduler = new SearchLeaseScheduler({
+        context,
+        runFast: () => neverCompletes,
+        maxPiInvocations: 0,
+        store: firstStore,
+        now: () => issuedAt,
+      });
+      firstScheduler.begin(snapshot(), "MECHANISM");
+      expect(firstScheduler.projection().records[0]?.status).toBe("ISSUED");
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const recoveryFast = vi.fn();
+      const secondScheduler = new SearchLeaseScheduler({
+        context,
+        runFast: recoveryFast,
+        maxPiInvocations: 0,
+        store: secondStore,
+        now: () => issuedAt + 306_000,
+      });
+      const expired = secondScheduler.failExpiredIssued();
+      expect(expired).toHaveLength(1);
+      expect(expired[0]).toMatchObject({
+        status: "FAILED",
+        outcome: { stage: "RECOVERY_EXPIRED" },
+        fastLane: { modelRequestCount: 0 },
+        diagnostic: expect.stringContaining("no provider work was attempted"),
+      });
+      expect(recoveryFast).not.toHaveBeenCalled();
+      expect(secondScheduler.projection().expiredRecoveryCount).toBe(1);
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("writes ISSUED before AI work and resumes that exact lease after restart", async () => {
@@ -1346,7 +1680,7 @@ describe("AI-native search lease scheduler", () => {
     expect(scheduler.projection().runCount).toBe(4);
   });
 
-  it("replays historical v1 leases but does not let them suppress a v3 scan", async () => {
+  it("replays historical v1-v4 leases but does not let them suppress a v5 scan", async () => {
     const current = snapshot("historical-v1");
     const completed = await new SearchLeaseScheduler({
       context,
@@ -1441,16 +1775,19 @@ describe("AI-native search lease scheduler", () => {
       "SCHEDULE",
     ).promise;
     expect(currentRecord.lease).toMatchObject({
-      algorithmVersion: "pmh.ai-search-leases.v3",
+      algorithmVersion: "pmh.ai-search-leases.v5",
       lens: "EQUIVALENCE",
     });
     expect(scheduler.projection().records.map(
       (record) => record.lease.algorithmVersion,
     )).toEqual([
-      "pmh.ai-search-leases.v3",
+      "pmh.ai-search-leases.v5",
       "pmh.ai-search-leases.v2",
       "pmh.ai-search-leases.v1",
     ]);
     store.close();
   });
 });
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";

@@ -90,7 +90,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -1543,7 +1543,10 @@ export class SqliteOperationalStore
               dedupe_identity GLOB 'sha256:[0-9a-f]*'
             ),
             kind TEXT NOT NULL CHECK (
-              kind IN ('HOURLY_DIGEST', 'ACTION_CANDIDATE', 'ISSUE_DEGRADED')
+              kind IN (
+                'HOURLY_DIGEST', 'ACTION_CANDIDATE', 'DEEP_UNAVAILABLE',
+                'ISSUE_DEGRADED'
+              )
             ),
             severity TEXT NOT NULL CHECK (
               severity IN ('ROUTINE', 'WATCH', 'ACTION', 'DEGRADED')
@@ -1642,6 +1645,78 @@ export class SqliteOperationalStore
           DROP TABLE semantic_review_jobs_v16;
           CREATE INDEX semantic_review_jobs_due
             ON semantic_review_jobs (status, next_attempt_at, priority DESC);
+        `);
+      }
+      if (current < 18) {
+        this.#database.exec(`
+          DROP INDEX IF EXISTS search_attention_messages_occurred;
+          DROP INDEX IF EXISTS search_attention_delivery_channel;
+          DROP INDEX IF EXISTS search_attention_deliveries_due;
+          ALTER TABLE search_attention_deliveries
+            RENAME TO search_attention_deliveries_v17;
+          ALTER TABLE search_attention_messages
+            RENAME TO search_attention_messages_v17;
+
+          CREATE TABLE search_attention_messages (
+            message_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(message_id) = 71 AND message_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            dedupe_identity TEXT NOT NULL UNIQUE CHECK (
+              length(dedupe_identity) = 71 AND
+              dedupe_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            kind TEXT NOT NULL CHECK (
+              kind IN (
+                'HOURLY_DIGEST', 'ACTION_CANDIDATE', 'DEEP_UNAVAILABLE',
+                'ISSUE_DEGRADED'
+              )
+            ),
+            severity TEXT NOT NULL CHECK (
+              severity IN ('ROUTINE', 'WATCH', 'ACTION', 'DEGRADED')
+            ),
+            occurred_at TEXT NOT NULL CHECK (length(occurred_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX search_attention_messages_occurred
+            ON search_attention_messages (occurred_at DESC, message_id DESC);
+
+          CREATE TABLE search_attention_deliveries (
+            delivery_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(delivery_id) = 71 AND delivery_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            message_id TEXT NOT NULL CHECK (
+              length(message_id) = 71 AND message_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            channel TEXT NOT NULL CHECK (channel IN ('IN_APP', 'WEBHOOK_JSON')),
+            status TEXT NOT NULL CHECK (
+              status IN (
+                'PENDING', 'RETRY_WAIT', 'DELIVERED', 'ACKNOWLEDGED',
+                'DEAD_LETTER'
+              )
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (message_id) REFERENCES search_attention_messages(message_id)
+              ON DELETE CASCADE
+          ) STRICT;
+          CREATE UNIQUE INDEX search_attention_delivery_channel
+            ON search_attention_deliveries (message_id, channel);
+          CREATE INDEX search_attention_deliveries_due
+            ON search_attention_deliveries (status, next_attempt_at, delivery_id);
+
+          INSERT INTO search_attention_messages
+            SELECT * FROM search_attention_messages_v17;
+          INSERT INTO search_attention_deliveries
+            SELECT * FROM search_attention_deliveries_v17;
+          DROP TABLE search_attention_deliveries_v17;
+          DROP TABLE search_attention_messages_v17;
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -2243,7 +2318,13 @@ export class SqliteOperationalStore
         `SELECT lease_id, snapshot_identity, lens, status,
                 record_json, record_hash
          FROM search_lease_records
-         ORDER BY rowid DESC
+         ORDER BY
+           CASE
+             WHEN status = 'ISSUED' OR
+               json_extract(record_json, '$.deepLane.status') IN ('PENDING', 'RUNNING')
+             THEN 0 ELSE 1
+           END,
+           rowid DESC
          LIMIT ?`,
       )
       .all(limit);
@@ -2362,8 +2443,58 @@ export class SqliteOperationalStore
       if (priorRow !== undefined) {
         const prior = parseSearchLeaseRecord(priorRow);
         const exactReplay = hashCanonical(prior) === recordHash;
+        const priorAttempts = prior.deepLane.attempts ?? [];
+        const nextAttempts = validated.deepLane.attempts ?? [];
+        const retainedAttemptPrefix = priorAttempts.every((attempt, index) => {
+          const next = nextAttempts[index];
+          if (next === undefined) return false;
+          if (hashCanonical(attempt) === hashCanonical(next)) return true;
+          return index === priorAttempts.length - 1 &&
+            attempt.status === "RUNNING" &&
+            (next.status === "PASS" || next.status === "FAILED") &&
+            attempt.attemptId === next.attemptId &&
+            attempt.inputIdentity === next.inputIdentity &&
+            attempt.attemptNumber === next.attemptNumber &&
+            attempt.startedAt === next.startedAt &&
+            attempt.deadlineAt === next.deadlineAt;
+        });
+        const allowedDeepStateTransition =
+          (prior.deepLane.status === "PENDING" &&
+            validated.deepLane.status === "RUNNING" &&
+            nextAttempts.length === priorAttempts.length + 1) ||
+          (prior.deepLane.status === "RUNNING" &&
+            (validated.deepLane.status === "PASS" ||
+              validated.deepLane.status === "FAILED") &&
+            nextAttempts.length === priorAttempts.length) ||
+          (prior.deepLane.status === "FAILED" &&
+            validated.deepLane.status === "PENDING" &&
+            nextAttempts.length === priorAttempts.length);
+        const duplicateWhilePending =
+          prior.deepLane.status === "PENDING" &&
+          validated.deepLane.status === "NOT_RUN" &&
+          validated.deepLane.reason === "DUPLICATE" &&
+          priorAttempts.length === 0 && nextAttempts.length === 0 &&
+          prior.lineage.duplicateOfLeaseId === null &&
+          validated.lineage.duplicateOfLeaseId !== null &&
+          prior.lineage.noveltySignature === validated.lineage.noveltySignature;
+        const monotonicDeepTransition =
+          prior.lease.algorithmVersion === "pmh.ai-search-leases.v5" &&
+          validated.lease.algorithmVersion === "pmh.ai-search-leases.v5" &&
+          prior.status === "PASS" && validated.status === "PASS" &&
+          prior.completedAt === validated.completedAt &&
+          prior.diagnostic === validated.diagnostic &&
+          hashCanonical(prior.fastLane) === hashCanonical(validated.fastLane) &&
+          hashCanonical(prior.lease) === hashCanonical(validated.lease) &&
+          (hashCanonical(prior.lineage) === hashCanonical(validated.lineage) ||
+            duplicateWhilePending) &&
+          hashCanonical(prior.trace) === hashCanonical(validated.trace) &&
+          prior.outcome.novelCandidate === validated.outcome.novelCandidate &&
+          prior.outcome.hypothesisCount === validated.outcome.hypothesisCount &&
+          prior.deepLane.inputIdentity === validated.deepLane.inputIdentity &&
+          retainedAttemptPrefix &&
+          (allowedDeepStateTransition || duplicateWhilePending);
         if (
-          (!exactReplay && prior.status !== "ISSUED") ||
+          (!exactReplay && prior.status !== "ISSUED" && !monotonicDeepTransition) ||
           (!exactReplay && validated.status === "ISSUED") ||
           prior.lease.snapshotIdentity !== validated.lease.snapshotIdentity ||
           prior.lease.lens !== validated.lease.lens ||
@@ -2382,8 +2513,7 @@ export class SqliteOperationalStore
              status = excluded.status,
              updated_at = excluded.updated_at,
              record_json = excluded.record_json,
-             record_hash = excluded.record_hash
-           WHERE search_lease_records.status = 'ISSUED'`,
+             record_hash = excluded.record_hash`,
         )
         .run(
           validated.lease.leaseId,
@@ -2400,6 +2530,10 @@ export class SqliteOperationalStore
            WHERE lease_id IN (
              SELECT lease_id FROM search_lease_records
              WHERE status IN ('PASS', 'FAILED')
+               AND COALESCE(
+                 json_extract(record_json, '$.deepLane.status'),
+                 'NOT_RUN'
+               ) NOT IN ('PENDING', 'RUNNING')
              ORDER BY rowid DESC LIMIT -1 OFFSET ?
            )`,
         )
