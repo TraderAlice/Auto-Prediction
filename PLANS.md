@@ -42,18 +42,24 @@ gated, so catalog refresh, Pi recovery, and timers begin only after the HTTP
 listener owns its port. A real `EADDRINUSE` test proves the losing process
 creates no catalog observation or search-lease mutation.
 
-Node 24.14.0 type checks, all 437 workspace tests, and the production build
+Node 24.14.0 type checks, all 443 workspace tests, and the production build
 pass. Desktop and 390 px Studio QA show separate fast/deep health, retry counts,
 attempt budgets, and preserved results without horizontal overflow or browser
 warnings.
 
 The next measured capability gap is semantic constraint proof. The Agent can
 already find equivalence, implication, and partition candidates, but a relation
-label is still too coarse to prove arbitrage. The active campaign will require
-explicit feasible joint states, rule-bound counterexamples, and deterministic
-no-arbitrage inequalities. The “August shooting / September live cola” example
-is the first negative qualification: a non-fatal shooting defeats mutual
-exclusion, and unequal probabilities alone never establish arbitrage.
+label is still too coarse to prove arbitrage. The active branch now persists
+explicit feasible joint states, rule-bound counterexample attempts, and
+matrix-derived bigint payoff/price inequalities. Both Pi and AI SDK paths emit
+bounded tool effects instead of whole-response schemas. The “August shooting /
+September live cola” fixture is research-only when a non-fatal shooting permits
+both outcomes; an explicit-fatality variant compiles, while fee and depth tests
+still determine whether its quoted portfolio has a positive gross floor. Live
+DeepSeek runs now prove both tool-effect paths, Pi terminal-effect shutdown, and
+SQLite restoration of the v2 report. Studio qualification at 1280 px and 390 px
+shows the semantic proof without horizontal overflow or runtime errors. The
+remaining checkpoint is serial PR publication.
 
 ## Deferred future campaigns
 

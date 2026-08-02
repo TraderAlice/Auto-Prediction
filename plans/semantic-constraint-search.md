@@ -93,3 +93,49 @@ LLMs propose and falsify relationship hypotheses. Independent review decides
 whether rule evidence supports a hard constraint. The first-party compiler and
 exact verifier alone derive payoff claims. No live order, credential, signing,
 fund, or execution authority is introduced.
+
+## Implemented checkpoint — 2026-08-02
+
+- Added content-addressed `pmh.semantic-constraint-proposal.v1` artifacts with
+  an explicit joint truth table, hash-bound listing/rule evidence, assumptions,
+  unresolved evidence, and a mandatory counterexample attempt.
+- Added deterministic admission that separates hard settlement constraints from
+  probabilistic dependence and textual relatedness. Found/inconclusive
+  counterexamples, incomplete state spaces, missing evidence, and relations that
+  forbid no state remain research-only.
+- Replaced AI SDK whole-response `Output.object` parsing with a bounded tool
+  loop: `record_counterexample` effects precede one
+  `submit_semantic_review` effect. The five-minute default deadline is
+  configurable up to ten minutes.
+- Replaced Pi final-text JSON parsing with the repository-owned
+  `submit_market_findings` extension. Pi keeps recursive read-only corpus tools;
+  only the bounded effect tool writes once inside the ephemeral run directory,
+  its atomic publication terminates the Pi loop, and final prose is ignored.
+- Upgraded ready payoff artifacts to v2. The compiler enumerates guaranteed
+  portfolios from feasible matrix states, not relation labels, and serializes
+  every payout unit as a bigint decimal string. Legacy v1 artifacts remain
+  replayable but old semantic reviews are visibly blocked until rerun.
+- Added bigint rational price-inequality evaluation binding ask prices, explicit
+  fees, normalized requested quantity, and available depth. The same hard
+  relation can therefore produce a positive gross floor, a fee-blocked result,
+  or a depth-blocked result without gaining certificate or execution authority.
+- Qualification fixtures now reject the non-fatal shooting/later-live example,
+  admit the explicit-fatality variant, and prove the price/fee/depth distinctions.
+- Live DeepSeek qualification passes on both paths. The AI SDK smoke recorded a
+  found non-fatality counterexample and deterministic admission kept the model's
+  inconsistent hard-constraint label research-only. Pi submitted five grounded
+  candidates through `pmh.market-archaeologist-report.v2`; the terminal effect
+  ended the process, and the same `sha256:0ba0953d...` report restored from
+  SQLite after restart without rerunning the completed job.
+- Control-plane type checks and all 294 package tests pass on Node 24.
+- Full-workspace Node 24 type checks, all 443 tests, and the production build
+  pass after live qualification and terminal-effect lifecycle hardening.
+- Studio visual qualification passes at 1280 px and emulated 390 px: the
+  constraint card exposes classification, exact admission, artifact hash,
+  counterexample narrative, feasible/impossible/unresolved counts, rule hashes,
+  assumptions, and unresolved evidence with no horizontal overflow or runtime
+  console errors.
+
+## Remaining qualification
+
+- Publish the serial PR.

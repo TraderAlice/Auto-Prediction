@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
   assertResearchRelationPayoff,
+  buildSemanticConstraintArtifact,
   buildRelationPayoffProjection,
   compileResearchRelationPayoff,
+  evaluateSemanticPriceInequality,
   type MarketRelationKind,
   type MarketRelationProposal,
   type ResearchSemanticDecision,
@@ -32,8 +34,64 @@ function fixture(relationKind: MarketRelationKind): {
   });
   const opportunityId = `ai:${proposal.proposalId}`;
   const corpus = hashCanonical({ corpus: "relation-payoff" });
+  const listingEvidence = proposal.listingRefs.map((listingRef) => ({
+    listingRef,
+    listingHash: hashCanonical({ listingRef }),
+    sourceRawHash: hashCanonical({ source: listingRef }),
+    protocolIdentity: `protocol:${listingRef}`,
+    venueId: listingRef.split(":", 1)[0]!,
+    venueInstrumentId: listingRef.split(":", 2)[1]!,
+    outcomes: [
+      { venueOutcomeId: `${listingRef}:yes`, label: "Yes" },
+      { venueOutcomeId: `${listingRef}:no`, label: "No" },
+    ],
+    priceScale: "1000",
+    quantityScale: "1000",
+    minPriceTick: "1",
+  }));
+  const stateAllowed = (left: boolean, right: boolean): boolean => {
+    switch (relationKind) {
+      case "EQUIVALENT": return left === right;
+      case "IMPLIES":
+      case "SUBSET": return !left || right;
+      case "MUTUALLY_EXCLUSIVE": return !left || !right;
+      case "EXHAUSTIVE": return left || right;
+      default: return true;
+    }
+  };
+  const hard = [
+    "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
+  ].includes(relationKind);
+  const semanticConstraint = buildSemanticConstraintArtifact({
+    proposal,
+    proposalCorpusSnapshotIdentity: corpus,
+    evidenceCorpusSnapshotIdentity: corpus,
+    listingEvidence,
+    draft: {
+      classification: hard ? "HARD_SETTLEMENT_CONSTRAINT" : "PROBABILISTIC_DEPENDENCE",
+      relationKind,
+      assumptions: [],
+      counterexampleAttempt: {
+        attempted: true,
+        result: hard ? "NOT_FOUND" : "INCONCLUSIVE",
+        narrative: hard
+          ? "Tried a forbidden joint state against both rule texts and it cannot settle."
+          : "No exact settlement exclusion follows from topical relatedness.",
+        truths: [true, true],
+      },
+      truthTable: [
+        [false, false], [false, true], [true, false], [true, true],
+      ].map(([left, right]) => ({
+        truths: [left!, right!],
+        disposition: stateAllowed(left!, right!) ? "FEASIBLE" as const : "IMPOSSIBLE" as const,
+        rationale: "Explicit fixture state classification.",
+        evidenceListingRefs: proposal.listingRefs,
+      })),
+      unresolvedEvidence: hard ? [] : ["No hard constraint is stated by the rules."],
+    },
+  });
   const reportBody = {
-    schemaVersion: "pmh.semantic-review-report.v1" as const,
+    schemaVersion: "pmh.semantic-review-report.v2" as const,
     status: "PASS" as const,
     startedAt: "2026-08-01T00:00:00.000Z",
     completedAt: "2026-08-01T00:00:01.000Z",
@@ -52,21 +110,7 @@ function fixture(relationKind: MarketRelationKind): {
       evidencePosture: "ORIGINAL_CORPUS" as const,
       relationKind,
       statement: proposal.statement,
-      listingEvidence: proposal.listingRefs.map((listingRef) => ({
-        listingRef,
-        listingHash: hashCanonical({ listingRef }),
-        sourceRawHash: hashCanonical({ source: listingRef }),
-        protocolIdentity: `protocol:${listingRef}`,
-        venueId: listingRef.split(":", 1)[0]!,
-        venueInstrumentId: listingRef.split(":", 2)[1]!,
-        outcomes: [
-          { venueOutcomeId: `${listingRef}:yes`, label: "Yes" },
-          { venueOutcomeId: `${listingRef}:no`, label: "No" },
-        ],
-        priceScale: "1000",
-        quantityScale: "1000",
-        minPriceTick: "1",
-      })),
+      listingEvidence,
     },
     result: {
       recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION" as const,
@@ -80,10 +124,18 @@ function fixture(relationKind: MarketRelationKind): {
       counterexamples: [],
       missingEvidence: [],
       rationale: "Scoped for non-authoritative research simulation.",
+      semanticConstraint,
       authority: "ADVISORY_ONLY" as const,
       productionReviewAuthority: false as const,
       simulationAuthority: false as const,
       executionAuthority: false as const,
+    },
+    trace: {
+      protocol: "AI_SDK_TOOL_LOOP" as const,
+      maximumSteps: 12 as const,
+      counterexampleEffectCount: 1,
+      submittedEffectHash: hashCanonical({ fixture: relationKind }),
+      wholeResponseSchemaParsing: false as const,
     },
     effects: {
       externalWrites: false as const,
@@ -164,7 +216,11 @@ describe("research relation payoff compiler", () => {
     });
     expect(artifact.canonicalStates).toHaveLength(states);
     expect(artifact.portfolios).toHaveLength(portfolios);
-    expect(artifact.portfolios.every((item) => item.minimumPayoutUnits >= 1)).toBe(true);
+    expect(artifact.schemaVersion).toBe("pmh.research-relation-payoff.v2");
+    expect(artifact.portfolios.every((item) => BigInt(item.minimumPayoutUnits) >= 1n)).toBe(true);
+    expect(artifact.portfolios.every((item) =>
+      Object.values(item.payoutUnitsByState).every((value) => typeof value === "string")
+    )).toBe(true);
     expect(() => assertResearchRelationPayoff(artifact)).not.toThrow();
   });
 
@@ -176,7 +232,7 @@ describe("research relation payoff compiler", () => {
       canonicalStates: [],
       portfolios: [],
     });
-    expect(related.diagnostic).toContain("does not define a canonical payoff partition");
+    expect(related.diagnostic).toContain("cannot enter the exact payoff compiler");
     const projection = buildRelationPayoffProjection([fixture("RELATED"), fixture("IMPLIES")]);
     expect(projection).toMatchObject({
       qualificationCount: 2,
@@ -210,5 +266,57 @@ describe("research relation payoff compiler", () => {
     expect(() =>
       assertResearchRelationPayoff({ ...tampered, artifactHash: hashCanonical(body) }),
     ).toThrow(/contract/);
+  });
+
+  it("qualifies a state-derived price violation with bigint fees and depth", () => {
+    const qualification = compileResearchRelationPayoff(
+      fixture("MUTUALLY_EXCLUSIVE"),
+    );
+    const portfolio = qualification.portfolios.find((candidate) =>
+      candidate.legs.every((leg) => leg.outcome === "FALSE")
+    );
+    if (portfolio === undefined) throw new Error("missing mutual-exclusion complement portfolio");
+    const quotes = portfolio.legs.map((leg) => ({
+      listingRef: leg.listingRef,
+      outcome: leg.outcome,
+      askPriceUnits: leg.legId === "left" ? "300" : "400",
+      feeUnitsPerContract: "10",
+      priceScale: "1000",
+      availableQuantityUnits: "5000",
+      requiredQuantityUnits: "1000",
+      quantityScale: "1000",
+    }));
+    const positive = evaluateSemanticPriceInequality({
+      qualification,
+      portfolioId: portfolio.portfolioId,
+      quotes,
+    });
+    expect(positive).toMatchObject({
+      status: "POSITIVE_GROSS_FLOOR",
+      totalAskAndFeeUnits: "720",
+      guaranteedPayoutUnits: "1000",
+      grossEdgeUnits: "280",
+      arithmetic: "BIGINT_RATIONAL_FIXED_POINT",
+      feesIncluded: true,
+      depthIncluded: true,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+
+    const feeBlocked = evaluateSemanticPriceInequality({
+      qualification,
+      portfolioId: portfolio.portfolioId,
+      quotes: quotes.map((quote) => ({ ...quote, feeUnitsPerContract: "200" })),
+    });
+    expect(feeBlocked.status).toBe("NO_GROSS_EDGE");
+
+    const depthBlocked = evaluateSemanticPriceInequality({
+      qualification,
+      portfolioId: portfolio.portfolioId,
+      quotes: quotes.map((quote, index) =>
+        index === 0 ? { ...quote, availableQuantityUnits: "999" } : quote
+      ),
+    });
+    expect(depthBlocked.status).toBe("DEPTH_INSUFFICIENT");
   });
 });

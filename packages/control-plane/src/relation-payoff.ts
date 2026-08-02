@@ -12,6 +12,11 @@ import {
   assertSemanticReviewRecord,
   type SemanticReviewRecord,
 } from "./semantic-review.js";
+import {
+  assertSemanticConstraintArtifact,
+  inspectSemanticConstraintAdmission,
+  type SemanticConstraintArtifact,
+} from "./semantic-constraint.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 export const COMPILABLE_RELATIONS = Object.freeze([
@@ -32,6 +37,8 @@ export type RelationPayoffReadiness = Readonly<{
     | "LISTING_ARITY_UNSUPPORTED"
     | "RELATION_CHANGED"
     | "RELATION_UNSUPPORTED"
+    | "SEMANTIC_CONSTRAINT_UNAVAILABLE"
+    | "SEMANTIC_CONSTRAINT_RESEARCH_ONLY"
     | "TRADING_BINDING_UNAVAILABLE";
   diagnostic: string | null;
 }>;
@@ -49,12 +56,13 @@ export type RelationPayoffPortfolio = Readonly<{
     listingRef: string;
     outcome: "TRUE" | "FALSE";
   }>[];
-  payoutUnitsByState: Readonly<Record<string, number>>;
-  minimumPayoutUnits: number;
+  payoutUnitsByState: Readonly<Record<string, number | string>>;
+  minimumPayoutUnits: number | string;
 }>;
 
 export type ResearchRelationPayoffQualification = Readonly<{
-  schemaVersion: "pmh.research-relation-payoff.v1";
+  schemaVersion: "pmh.research-relation-payoff.v1" | "pmh.research-relation-payoff.v2";
+  semanticConstraintArtifactHash?: Hash;
   artifactHash: Hash;
   opportunityId: string;
   proposalId: Hash;
@@ -199,12 +207,24 @@ export function inspectRelationPayoffReadiness(input: {
       diagnostic: "The reviewer changed the relation kind; an operator-authored exact scope is required.",
     });
   }
-  if (!COMPILABLE_RELATIONS.includes(conclusion as CompilableRelation)) {
+  const constraint = review.report.result.semanticConstraint;
+  if (constraint === undefined) {
     return Object.freeze({
       status: "BLOCKED",
       relationKind: conclusion,
-      blocker: "RELATION_UNSUPPORTED",
-      diagnostic: `${conclusion} has research value but does not define a canonical payoff partition.`,
+      blocker: "SEMANTIC_CONSTRAINT_UNAVAILABLE",
+      diagnostic: "The retained review predates the explicit semantic state matrix; rerun review with the Agent tool protocol.",
+    });
+  }
+  const admission = inspectSemanticConstraintAdmission(
+    assertSemanticConstraintArtifact(constraint),
+  );
+  if (admission.status !== "ELIGIBLE") {
+    return Object.freeze({
+      status: "BLOCKED",
+      relationKind: conclusion,
+      blocker: "SEMANTIC_CONSTRAINT_RESEARCH_ONLY",
+      diagnostic: admission.diagnostic,
     });
   }
   const bindingDiagnostic = tradingBindingDiagnostic(input.proposal, review);
@@ -227,8 +247,8 @@ export function inspectRelationPayoffReadiness(input: {
 function payoutFor(
   truth: boolean,
   outcome: "TRUE" | "FALSE",
-): number {
-  return truth === (outcome === "TRUE") ? 1 : 0;
+): bigint {
+  return truth === (outcome === "TRUE") ? 1n : 0n;
 }
 
 function canonicalOutcomePair(
@@ -278,7 +298,8 @@ function compileReadyBody(input: {
   proposal: MarketRelationProposal;
   review: SemanticReviewRecord;
   decision: ResearchSemanticDecision;
-  relation: CompilableRelation;
+  relation: MarketRelationKind;
+  constraint: SemanticConstraintArtifact;
 }): Omit<ResearchRelationPayoffQualification, "artifactHash"> {
   const report = input.review.report!;
   const [leftRef, rightRef] = input.proposal.listingRefs;
@@ -298,25 +319,25 @@ function compileReadyBody(input: {
   if (leftOutcomes === null || rightOutcomes === null) {
     throw new Error("relation compiler outcome truth mapping is unavailable");
   }
-  const states = Object.freeze(
-    allowedTruths(input.relation).map((truth) => {
-      const stateId = `${truth.left ? "T" : "F"}${truth.right ? "T" : "F"}`;
-      return Object.freeze({
-        stateId,
-        truthByListingRef: Object.freeze({
-          [leftRef]: truth.left,
-          [rightRef]: truth.right,
-        }),
-      });
-    }),
-  );
+  const states = Object.freeze(input.constraint.truthTable
+    .filter((state) => state.disposition === "FEASIBLE")
+    .map((state) => Object.freeze({
+      stateId: state.stateId,
+      truthByListingRef: state.truthByListingRef,
+    })));
+  const outcomePairs = Object.freeze([
+    Object.freeze({ label: "Left true + right true", left: "TRUE" as const, right: "TRUE" as const }),
+    Object.freeze({ label: "Left true + right false", left: "TRUE" as const, right: "FALSE" as const }),
+    Object.freeze({ label: "Left false + right true", left: "FALSE" as const, right: "TRUE" as const }),
+    Object.freeze({ label: "Left false + right false", left: "FALSE" as const, right: "FALSE" as const }),
+  ]);
   const portfolios = Object.freeze(
-    relationPortfolioOutcomes(input.relation).map((portfolio) => {
+    outcomePairs.flatMap((portfolio) => {
       const legs = Object.freeze([
         Object.freeze({ legId: "left", listingRef: leftRef, outcome: portfolio.left }),
         Object.freeze({ legId: "right", listingRef: rightRef, outcome: portfolio.right }),
       ]);
-      const payoutUnitsByState = Object.freeze(
+      const payoutUnitsByStateBigInt = Object.freeze(
         Object.fromEntries(
           states.map((state) => [
             state.stateId,
@@ -325,7 +346,14 @@ function compileReadyBody(input: {
           ]),
         ),
       );
-      const minimumPayoutUnits = Math.min(...Object.values(payoutUnitsByState));
+      const payoutValues = Object.values(payoutUnitsByStateBigInt);
+      const minimumPayoutUnits = payoutValues.reduce(
+        (minimum, value) => value < minimum ? value : minimum,
+      );
+      if (minimumPayoutUnits < 1n) return [];
+      const payoutUnitsByState = Object.freeze(Object.fromEntries(
+        Object.entries(payoutUnitsByStateBigInt).map(([state, payout]) => [state, payout.toString()]),
+      ));
       const identityBody = {
         relation: input.relation,
         semanticDecisionId: input.decision.decisionId,
@@ -338,15 +366,16 @@ function compileReadyBody(input: {
         label: portfolio.label,
         legs,
         payoutUnitsByState,
-        minimumPayoutUnits,
+        minimumPayoutUnits: minimumPayoutUnits.toString(),
       });
     }),
   );
-  if (portfolios.some((portfolio) => portfolio.minimumPayoutUnits < 1)) {
+  if (portfolios.length === 0) {
     throw new Error("compiled relation portfolio does not preserve one payout unit");
   }
   return Object.freeze({
-    schemaVersion: "pmh.research-relation-payoff.v1" as const,
+    schemaVersion: "pmh.research-relation-payoff.v2" as const,
+    semanticConstraintArtifactHash: input.constraint.artifactHash,
     opportunityId: input.opportunityId,
     proposalId: input.proposal.proposalId,
     semanticReviewArtifactHash: report.artifactHash,
@@ -459,11 +488,16 @@ export function compileResearchRelationPayoff(input: {
       diagnostic: readiness.diagnostic!,
     });
   } else {
+    const constraint = review.report.result.semanticConstraint;
+    if (constraint === undefined) {
+      throw new Error("ready relation payoff input lost its semantic constraint");
+    }
     body = compileReadyBody({
       ...input,
       review,
       decision,
-      relation: readiness.relationKind as CompilableRelation,
+      relation: readiness.relationKind,
+      constraint: assertSemanticConstraintArtifact(constraint),
     });
   }
   return assertResearchRelationPayoff({ ...body, artifactHash: hashCanonical(body) });
@@ -479,7 +513,8 @@ export function assertResearchRelationPayoff(
   const { artifactHash, ...body } = artifact;
   const ready = artifact.status === "SIMULATION_TEMPLATE_READY";
   if (
-    artifact.schemaVersion !== "pmh.research-relation-payoff.v1" ||
+    !["pmh.research-relation-payoff.v1", "pmh.research-relation-payoff.v2"]
+      .includes(artifact.schemaVersion) ||
     !HASH_PATTERN.test(artifactHash) ||
     artifactHash !== hashCanonical(body) ||
     artifact.opportunityId.trim() === "" ||
@@ -500,13 +535,30 @@ export function assertResearchRelationPayoff(
         artifact.canonicalStates.length < 2 ||
         artifact.canonicalStates.length > 3 ||
         artifact.portfolios.length < 1 ||
-        artifact.portfolios.some((item) => item.minimumPayoutUnits < 1)
+        artifact.portfolios.some((item) => {
+          try {
+            return BigInt(item.minimumPayoutUnits) < 1n;
+          } catch {
+            return true;
+          }
+        })
       : artifact.listingBindings.length !== 0 ||
         artifact.canonicalStates.length !== 0 ||
         artifact.portfolios.length !== 0)
   ) {
     throw new Error("research relation payoff qualification violates its contract");
   }
+  if (
+    artifact.schemaVersion === "pmh.research-relation-payoff.v2" &&
+    (!HASH_PATTERN.test(String(artifact.semanticConstraintArtifactHash)) ||
+      artifact.portfolios.some((portfolio) =>
+        typeof portfolio.minimumPayoutUnits !== "string" ||
+        !/^[1-9]\d*$/u.test(portfolio.minimumPayoutUnits) ||
+        Object.values(portfolio.payoutUnitsByState).some((payout) =>
+          typeof payout !== "string" || !/^\d+$/u.test(payout)
+        )
+      ))
+  ) throw new Error("research relation payoff v2 violates bigint serialization");
   return artifact;
 }
 

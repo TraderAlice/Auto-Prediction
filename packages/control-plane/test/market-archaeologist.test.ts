@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -59,6 +59,22 @@ const snapshot = buildMarketCorpusSnapshot({
   listings,
 });
 
+async function submitEffect(
+  request: PiProcessRequest,
+  payload: unknown,
+): Promise<Awaited<ReturnType<PiProcessRunner>>> {
+  const effectPath = request.environment.PMH_MARKET_EFFECT_PATH;
+  if (effectPath === undefined) throw new Error("missing test effect path");
+  await writeFile(effectPath, JSON.stringify(payload), "utf8");
+  return {
+    exitCode: 0,
+    stdout: "Findings submitted through submit_market_findings.",
+    stderr: "",
+    timedOut: false,
+    outputLimitExceeded: false,
+  };
+}
+
 describe("Market Archaeologist", () => {
   it("lets pi recursively inspect an ephemeral full-corpus workspace", async () => {
     let captured: PiProcessRequest | undefined;
@@ -66,9 +82,7 @@ describe("Market Archaeologist", () => {
     const runner: PiProcessRunner = async (request) => {
       captured = request;
       indexText = await readFile(`${request.cwd}/index/listings.ndjson`, "utf8");
-      return {
-        exitCode: 0,
-        stdout: JSON.stringify({
+      return submitEffect(request, {
           summary: "The YouTube-specific claim may imply the broader live claim.",
           proposals: [
             {
@@ -83,11 +97,7 @@ describe("Market Archaeologist", () => {
             },
           ],
           missingEvidence: ["Independent exact rule review is absent."],
-        }),
-        stderr: "",
-        timedOut: false,
-        outputLimitExceeded: false,
-      };
+        });
     };
     const desk = createMarketArchaeologistDesk(
       { DEEPSEEK_API_KEY: secret },
@@ -98,12 +108,15 @@ describe("Market Archaeologist", () => {
     const record = await invocation.promise;
 
     expect(indexText).toContain("venue-b:august-pizza-youtube");
-    expect(captured?.args).toContain("read,grep,find,ls");
+    expect(captured?.args).toContain("read,grep,find,ls,submit_market_findings");
     expect(captured?.args.at(-1)).toContain("Generate your own aliases");
     expect(captured?.args.at(-1)).toContain(
       "listingRefs must be a JSON array of 2–8 unique exact listingRef strings",
     );
     expect(captured?.environment.DEEPSEEK_API_KEY).toBe(secret);
+    expect(captured?.completionFilePath).toBe(
+      captured?.environment.PMH_MARKET_EFFECT_PATH,
+    );
     await expect(access(captured?.cwd ?? "")).rejects.toThrow();
     expect(record).toMatchObject({
       status: "PASS",
@@ -128,6 +141,9 @@ describe("Market Archaeologist", () => {
         trace: {
           workspace: "EPHEMERAL_MARKETFS",
           recursiveSearchAvailable: true,
+          proposalEffectTool: "submit_market_findings",
+          wholeResponseSchemaParsing: false,
+          terminalEffectEndsLoop: true,
           corpusRemovedAfterRun: true,
         },
       },
@@ -242,9 +258,7 @@ describe("Market Archaeologist", () => {
   });
 
   it("visibly bounds oversized model prose without dropping grounded proposals", async () => {
-    const runner: PiProcessRunner = async () => ({
-      exitCode: 0,
-      stdout: JSON.stringify({
+    const runner: PiProcessRunner = async (request) => submitEffect(request, {
         summary: "summary",
         proposals: [
           {
@@ -259,10 +273,6 @@ describe("Market Archaeologist", () => {
           },
         ],
         missingEvidence: [],
-      }),
-      stderr: "",
-      timedOut: false,
-      outputLimitExceeded: false,
     });
     const desk = createMarketArchaeologistDesk(
       { DEEPSEEK_API_KEY: secret },
@@ -278,9 +288,7 @@ describe("Market Archaeologist", () => {
   it("restores content-verified reports and run idempotency from SQLite", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-archaeologist-store-"));
     const path = join(directory, "control-plane.sqlite");
-    const runner: PiProcessRunner = async () => ({
-      exitCode: 0,
-      stdout: JSON.stringify({
+    const runner: PiProcessRunner = async (request) => submitEffect(request, {
         summary: "The platform-specific event may imply the broad event.",
         proposals: [
           {
@@ -295,10 +303,6 @@ describe("Market Archaeologist", () => {
           },
         ],
         missingEvidence: ["Independent exact rule review."],
-      }),
-      stderr: "",
-      timedOut: false,
-      outputLimitExceeded: false,
     });
     try {
       const firstStore = new SqliteOperationalStore(path);
@@ -370,9 +374,7 @@ describe("Market Archaeologist", () => {
     const invalid = createMarketArchaeologistDesk(
       { DEEPSEEK_API_KEY: secret },
       {
-        runner: async () => ({
-          exitCode: 0,
-          stdout: JSON.stringify({
+        runner: async (request) => submitEffect(request, {
             summary: "invalid",
             proposals: [
               {
@@ -384,10 +386,6 @@ describe("Market Archaeologist", () => {
               },
             ],
             missingEvidence: [],
-          }),
-          stderr: "",
-          timedOut: false,
-          outputLimitExceeded: false,
         }),
       },
     );
