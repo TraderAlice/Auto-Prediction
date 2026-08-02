@@ -261,6 +261,7 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(observedQuestion).toContain("Try to falsify first");
     expect(completed).toMatchObject({
       status: "PASS",
+      lease: { semanticFamily: "TEMPORAL_IMPOSSIBILITY" },
       fastLane: { candidateListingRefs: selectedRefs },
       deepLane: { status: "PASS", proposalIds: [hashCanonical({ proposal: "family" })] },
       outcome: { proposalCount: 1 },

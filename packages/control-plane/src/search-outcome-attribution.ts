@@ -1,6 +1,6 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { OpportunityLifecycleState } from "@pmh/execution";
-import type { SearchSemanticFamily } from "./search-issue-scheduler.js";
+import type { SearchSemanticFamily } from "./search-semantic-family.js";
 
 export const SEARCH_OUTCOME_STAGES = Object.freeze([
   "PROPOSED",

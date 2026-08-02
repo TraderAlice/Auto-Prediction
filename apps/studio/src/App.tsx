@@ -458,7 +458,7 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
 
 const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler"] = {
   schemaVersion: "pmh.search-lease-scheduler.v1",
-  algorithmVersion: "pmh.ai-search-leases.v5",
+  algorithmVersion: "pmh.ai-search-leases.v6",
   enabled: false,
   configured: { fastLane: true, deepLane: false },
   status: "IDLE",
@@ -574,6 +574,9 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     degradedPassCount: 0,
     insufficientCoverageFailureCount: 0,
     omittedVenueCount: 0,
+    familyRetrievalLeaseCount: 0,
+    familyRetrievalNeighborhoodCount: 0,
+    familyRetrievalFallbackCount: 0,
     agentTraceLeaseCount: 0,
     agentRunCount: 0,
     agentStepCount: 0,
@@ -3334,7 +3337,9 @@ function MarketArchaeologistView() {
                   return (
                     <div key={family.semanticFamily}>
                       <strong>{family.certifiedCount}/{family.proposalCount}</strong>
-                      <span>{family.semanticFamily.replaceAll("_", " ")} · certified/proposed · {family.reviewedCount} reviewed · {provider?.providerRequestAttemptCount ?? 0} requests</span>
+                      <span>
+                        {family.semanticFamily.replaceAll("_", " ")} · certified/proposed · {family.reviewedCount} reviewed · {provider?.providerRequestAttemptCount ?? 0} requests · {provider?.familyRetrievalLeaseCount ?? 0} trailheads / {provider?.familyRetrievalNeighborhoodCount ?? 0} neighborhoods / {provider?.familyRetrievalFallbackCount ?? 0} query fallbacks
+                      </span>
                     </div>
                   );
                 })}
@@ -3732,9 +3737,16 @@ function MarketArchaeologistView() {
                   </code>
                 )}
                 {record.lease.graphContext != null && <code>GRAPH BOUND</code>}
+                {record.fastLane.retrievalPlan !== undefined && (
+                  <code>
+                    FAMILY TRAILHEAD {record.fastLane.retrievalPlan.selectedNeighborhoodRank ?? "QUERY"}/
+                    {record.fastLane.retrievalPlan.neighborhoodCount}
+                  </code>
+                )}
                 {record.lineage.duplicateOfLeaseId !== null && <code>DUPLICATE LINK</code>}
                 {record.deepLane.status === "FAILED" &&
-                  record.lease.algorithmVersion === "pmh.ai-search-leases.v5" &&
+                  (record.lease.algorithmVersion === "pmh.ai-search-leases.v5" ||
+                    record.lease.algorithmVersion === "pmh.ai-search-leases.v6") &&
                   record.deepLane.inputIdentity != null &&
                   (record.deepLane.attempts?.length ?? 0) <
                     (record.lease.budget.maxDeepAttempts ?? 1) && (
@@ -3752,6 +3764,17 @@ function MarketArchaeologistView() {
               </div>
               {record.deepLane.status === "FAILED" && record.deepLane.diagnostic !== null && (
                 <p>{record.deepLane.diagnostic}</p>
+              )}
+              {record.fastLane.retrievalPlan !== undefined && (
+                <p>
+                  Search-only colocation · {record.fastLane.retrievalPlan.semanticFamily} · {record.fastLane.retrievalPlan.selectionReason}
+                  {record.fastLane.retrievalPlan.sharedSignals.length === 0
+                    ? ""
+                    : ` · shared ${record.fastLane.retrievalPlan.sharedSignals.join(", ")}`}
+                  {record.fastLane.retrievalPlan.anchorListingRefs.length === 0
+                    ? ""
+                    : ` · anchors ${record.fastLane.retrievalPlan.anchorListingRefs.join(" + ")}`}
+                </p>
               )}
             </article>
           ))}

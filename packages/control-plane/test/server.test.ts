@@ -359,7 +359,7 @@ describe("control-plane HTTP surface", () => {
     expect(response.status).toBe(200);
     const record = await response.json() as {
       status: string;
-      lease: { scope: { venueIds: string[] } };
+      lease: { semanticFamily: string; scope: { venueIds: string[] } };
       fastLane: {
         corpusCoverage: {
           status: string;
@@ -368,11 +368,19 @@ describe("control-plane HTTP surface", () => {
           contextVenueIds: string[];
           omittedSources: { venueId: string; reason: string }[];
         };
+        retrievalPlan: {
+          semanticFamily: string;
+          selectionReason: string;
+          authority: string;
+          semanticDecisionAuthority: boolean;
+          probabilityAuthority: boolean;
+        };
       };
     };
     expect(record).toMatchObject({
       status: "PASS",
       lease: {
+        semanticFamily: "IDENTITY_SUCCESSION",
         scope: { venueIds: ["venue-a", "venue-b", "venue-c"] },
       },
       fastLane: {
@@ -384,6 +392,13 @@ describe("control-plane HTTP surface", () => {
             venueId: "venue-c",
             reason: "LATEST_REFRESH_FAILED",
           }],
+        },
+        retrievalPlan: {
+          semanticFamily: "IDENTITY_SUCCESSION",
+          selectionReason: "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK",
+          authority: "SEARCH_ROUTING_ONLY",
+          semanticDecisionAuthority: false,
+          probabilityAuthority: false,
         },
       },
     });

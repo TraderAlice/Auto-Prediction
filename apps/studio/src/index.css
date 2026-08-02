@@ -2493,6 +2493,7 @@ main {
   color: var(--muted-foreground);
   font-family: var(--font-mono);
   font-size: 8px;
+  overflow-wrap: anywhere;
 }
 
 .search-lease-history p {
@@ -2500,6 +2501,7 @@ main {
   font-size: 11px;
   line-height: 1.5;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .archaeology-console {

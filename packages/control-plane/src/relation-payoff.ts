@@ -22,7 +22,7 @@ import {
   type PremiseAnalysisArtifact,
   type PremiseAnalysisRecord,
 } from "./premise-analysis.js";
-import type { SearchSemanticFamily } from "./search-issue-scheduler.js";
+import type { SearchSemanticFamily } from "./search-semantic-family.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 export const COMPILABLE_RELATIONS = Object.freeze([

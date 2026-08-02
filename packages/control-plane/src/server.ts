@@ -144,6 +144,10 @@ import {
   type SearchIssueRecordStore,
 } from "./search-issue-scheduler.js";
 import {
+  buildSemanticFamilyCatalogSelection,
+  type SemanticFamilyRetrievalPlan,
+} from "./semantic-family-retrieval.js";
+import {
   parseSearchAttentionWebhook,
   SearchAttentionOutbox,
   type SearchAttentionStore,
@@ -671,18 +675,35 @@ export function createControlPlane(options?: {
         question,
         venueIds,
         lens,
-        _snapshot,
+        snapshot,
         feedback,
         candidatePolicy,
+        semanticFamily,
       ) => {
         const minimumEligibleVenueCount =
-          lens === "PARTITION" && candidatePolicy?.requireDistinctVenues !== true
+          semanticFamily !== null ||
+            (lens === "PARTITION" && candidatePolicy?.requireDistinctVenues !== true)
             ? 1
             : 2;
-        return catalogObservationDesk.resilientContext(
+        let retrievalPlan: SemanticFamilyRetrievalPlan | undefined;
+        const selection = catalogObservationDesk.resilientContext(
           venueIds,
           minimumEligibleVenueCount,
           (eligibleVenueIds) => {
+            if (semanticFamily !== null) {
+              const familySelection = buildSemanticFamilyCatalogSelection({
+                source: "QUALIFIED_LIVE_OBSERVATIONS",
+                corpusIdentity: snapshot.snapshotIdentity,
+                listings: snapshot.listings,
+                question,
+                eligibleVenueIds,
+                semanticFamily,
+                maxContextListings: candidatePolicy?.maxCorpusListings ?? 30,
+                feedback,
+              });
+              retrievalPlan = familySelection.retrievalPlan;
+              return familySelection.catalogContext;
+            }
             if (lens === "EQUIVALENCE") {
               if (candidatePolicy?.candidateSelection === "MODEL_HYPOTHESIS") {
                 try {
@@ -720,6 +741,9 @@ export function createControlPlane(options?: {
             );
           },
         );
+        return retrievalPlan === undefined
+          ? selection
+          : Object.freeze({ ...selection, retrievalPlan });
       },
       graphContext: (snapshot, lens) => {
         if (graphContextForLease === undefined) {

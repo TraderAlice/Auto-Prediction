@@ -1682,7 +1682,7 @@ describe("AI-native search lease scheduler", () => {
     expect(scheduler.projection().runCount).toBe(4);
   });
 
-  it("replays historical v1-v4 leases but does not let them suppress a v5 scan", async () => {
+  it("replays historical v1-v4 leases but does not let them suppress a v6 scan", async () => {
     const current = snapshot("historical-v1");
     const completed = await new SearchLeaseScheduler({
       context,
@@ -1777,13 +1777,13 @@ describe("AI-native search lease scheduler", () => {
       "SCHEDULE",
     ).promise;
     expect(currentRecord.lease).toMatchObject({
-      algorithmVersion: "pmh.ai-search-leases.v5",
+      algorithmVersion: "pmh.ai-search-leases.v6",
       lens: "EQUIVALENCE",
     });
     expect(scheduler.projection().records.map(
       (record) => record.lease.algorithmVersion,
     )).toEqual([
-      "pmh.ai-search-leases.v5",
+      "pmh.ai-search-leases.v6",
       "pmh.ai-search-leases.v2",
       "pmh.ai-search-leases.v1",
     ]);

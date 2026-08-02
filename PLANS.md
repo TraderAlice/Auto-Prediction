@@ -1,10 +1,12 @@
 # Plans
 
-The active construction plan is
-[`plans/premise-bearing-semantic-relations.md`](plans/premise-bearing-semantic-relations.md).
-It turns Agent-discovered hidden assumptions into evidence-bound premise
-artifacts and closed boolean relations, then admits only deterministically
-replayed 2–4 market state spaces to bigint payoff compilation.
+The active construction plans are
+[`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
+[`plans/probabilistic-semantic-arbitrage.md`](plans/probabilistic-semantic-arbitrage.md).
+The first gives each durable Agent issue a reproducible meaning-space
+trailhead. The second adds a sibling bounded-risk lane for near constraints
+such as “August shooting / September public act,” without weakening the exact
+hard-arbitrage compiler.
 
 ## Planning contract
 
@@ -16,6 +18,22 @@ replayed 2–4 market state spaces to bigint payoff compilation.
   rerun the plan's qualification gates against the current worktree.
 
 ## Current checkpoint
+
+The product taxonomy now explicitly distinguishes hard arbitrage from
+probabilistic semantic arbitrage. A possible non-fatal shooting is not treated
+as a gotcha that discards the Trump shooting/live-cola pair; it is the adverse
+joint state whose probability cap, tail loss, and break-even epsilon must be
+made explicit. The existing `PROBABILISTIC_DEPENDENCE` research classification
+is therefore a starting point for a bounded-risk compiler, not a terminal
+discard bucket.
+
+Family retrieval is being upgraded from one generic exact-token context to a
+content-addressed family trailhead. Search lease v6 carries the selected
+family, ranked anchors, shared signals, rotation reason, and exact context
+identity while granting only search-routing authority. The deterministic
+baseline recognizes temporal, containment, partition, identity/succession,
+and physical-event cues; the Agent still owns hypothesis generation and the
+independent review lanes own semantic and probability admission.
 
 The product is an AI-native prediction-market search system. Durable issues
 lease immutable, content-addressed market corpora to concurrent cheap Agents;

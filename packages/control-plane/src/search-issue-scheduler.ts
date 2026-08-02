@@ -14,19 +14,18 @@ import {
 } from "./search-lease-scheduler.js";
 import type { SemanticPremiseKind } from "./semantic-premise.js";
 import type { OperationalStorageProjection } from "./types.js";
+import {
+  SEARCH_SEMANTIC_FAMILIES,
+  type SearchSemanticFamily,
+} from "./search-semantic-family.js";
+
+export {
+  SEARCH_SEMANTIC_FAMILIES,
+  type SearchSemanticFamily,
+} from "./search-semantic-family.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 100;
-
-export const SEARCH_SEMANTIC_FAMILIES = Object.freeze([
-  "TEMPORAL_IMPOSSIBILITY",
-  "EVENT_CONTAINMENT",
-  "PARTITION_COMPLETENESS",
-  "IDENTITY_SUCCESSION",
-  "PHYSICAL_CO_OCCURRENCE",
-] as const);
-
-export type SearchSemanticFamily = (typeof SEARCH_SEMANTIC_FAMILIES)[number];
 
 export type SearchIssueFamilyDefinition = Readonly<{
   schemaVersion: "pmh.search-issue-family-definition.v1";
@@ -147,6 +146,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
     degradedPassCount: number;
     insufficientCoverageFailureCount: number;
     omittedVenueCount: number;
+    familyRetrievalLeaseCount: number;
+    familyRetrievalNeighborhoodCount: number;
+    familyRetrievalFallbackCount: number;
     agentTraceLeaseCount: number;
     agentRunCount: number;
     agentStepCount: number;
@@ -176,6 +178,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
       novelCandidateCount: number;
       duplicateCount: number;
       piEscalationCount: number;
+      familyRetrievalLeaseCount: number;
+      familyRetrievalNeighborhoodCount: number;
+      familyRetrievalFallbackCount: number;
       deepPendingCount: number;
       deepPassCount: number;
       deepFailedCount: number;
@@ -240,6 +245,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
       providerFailureRateBps: number | null;
       agentToolCallCount: number;
       piEscalationCount: number;
+      familyRetrievalLeaseCount: number;
+      familyRetrievalNeighborhoodCount: number;
+      familyRetrievalFallbackCount: number;
     }>[];
   }>;
   issues: readonly SearchIssueRecord[];
@@ -437,6 +445,9 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   degradedPassCount: number;
   insufficientCoverageFailureCount: number;
   omittedVenueCount: number;
+  familyRetrievalLeaseCount: number;
+  familyRetrievalNeighborhoodCount: number;
+  familyRetrievalFallbackCount: number;
   agentTraceLeaseCount: number;
   agentRunCount: number;
   agentStepCount: number;
@@ -641,6 +652,17 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
         sum + (record.fastLane.corpusCoverage?.omittedSources.length ?? 0),
       0,
     ),
+    familyRetrievalLeaseCount: records.filter(
+      (record) => record.fastLane.retrievalPlan !== undefined,
+    ).length,
+    familyRetrievalNeighborhoodCount: records.reduce(
+      (sum, record) => sum + (record.fastLane.retrievalPlan?.neighborhoodCount ?? 0),
+      0,
+    ),
+    familyRetrievalFallbackCount: records.filter(
+      (record) => record.fastLane.retrievalPlan?.selectionReason ===
+        "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK",
+    ).length,
     agentTraceLeaseCount: agentTelemetry.length,
     agentRunCount: agentTelemetry.reduce((sum, item) => sum + item.agentRunCount, 0),
     agentStepCount: agentTelemetry.reduce((sum, item) => sum + item.stepCount, 0),
@@ -1369,6 +1391,9 @@ export class SearchIssueScheduler {
           issueId: issue.issueId,
           question: searchQuestionForIssue(issue),
           venueIds: issue.venueIds,
+          ...(issue.familyDefinition === undefined
+            ? {}
+            : { semanticFamily: issue.familyDefinition.semanticFamily }),
           ...(issue.candidatePolicy === undefined
             ? {}
             : { candidatePolicy: issue.candidatePolicy }),
@@ -1594,6 +1619,9 @@ export class SearchIssueScheduler {
             providerFailureRateBps: summary.providerFailureRateBps,
             agentToolCallCount: summary.agentToolCallCount,
             piEscalationCount: summary.piEscalationCount,
+            familyRetrievalLeaseCount: summary.familyRetrievalLeaseCount,
+            familyRetrievalNeighborhoodCount: summary.familyRetrievalNeighborhoodCount,
+            familyRetrievalFallbackCount: summary.familyRetrievalFallbackCount,
           })];
         })),
       }),
