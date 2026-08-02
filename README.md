@@ -263,6 +263,11 @@ normalized by its venue adapter. Studio labels the desk `OBSERVE ONLY` and
 never selects it automatically. An explicitly requested source is eligible for
 proposal-only AI context only when its latest refresh succeeded, is non-empty,
 and is at most 15 minutes old; stale, failed, or empty sources fail the request.
+The Polymarket US source retains a bounded 500-record first page. This expands
+the searchable corpus without expanding a model request: every issue-local
+context remains capped at 30 listings and 50 KB. If a source URL changes, old
+content-addressed observations remain durable evidence but are not restored as
+the current slice; a new successful refresh must qualify the new identity.
 This qualification grants no review, compilation, certification, or execution
 authority. Refresh explicitly with `POST /api/v1/catalog/observations/refresh`.
 

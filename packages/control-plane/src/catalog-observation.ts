@@ -169,7 +169,7 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
       venueId: polymarketUsManifest.venueId,
       protocolIdentity: polymarketUsManifest.protocolIdentity,
       sourceUrl:
-        "https://gateway.polymarket.us/v1/markets?active=true&closed=false&archived=false&limit=20",
+        "https://gateway.polymarket.us/v1/markets?active=true&closed=false&archived=false&limit=500&offset=0",
       decode: normalizePolymarketUsCatalog,
     },
     {
@@ -427,12 +427,10 @@ export class CatalogObservationDesk {
       const verified = verifyStoredCatalogObservation(stored);
       const state = this.#states.get(verified.record.venueId);
       if (state === undefined || state.latest !== null) continue;
-      if (
-        verified.record.protocolIdentity !== state.source.protocolIdentity ||
-        verified.record.sourceUrl !== state.source.sourceUrl
-      ) {
+      if (verified.record.protocolIdentity !== state.source.protocolIdentity) {
         throw new Error("stored catalog observation source identity mismatch");
       }
+      if (verified.record.sourceUrl !== state.source.sourceUrl) continue;
       const fixture = buildFixture(
         state.source,
         verified.record.receivedAt,

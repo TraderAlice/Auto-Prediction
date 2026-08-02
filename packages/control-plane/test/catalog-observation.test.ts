@@ -6,6 +6,8 @@ import {
   CatalogObservationDesk,
   catalogObservationSources,
   type CatalogFetchLike,
+  type CatalogObservationStore,
+  type StoredCatalogObservation,
 } from "../src/index.js";
 
 const fixtureNames: Readonly<Record<string, string>> = {
@@ -50,6 +52,175 @@ function fixtureFetcher(options: Readonly<{ failVenue?: string }> = {}):
 }
 
 describe("anonymous catalog observation desk", () => {
+  it("retains prior source-URL evidence without restoring it as the current slice", async () => {
+    const currentSource = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "polymarket-us",
+    );
+    if (currentSource === undefined) {
+      throw new Error("missing Polymarket US source");
+    }
+    const priorSource = {
+      ...currentSource,
+      sourceUrl: currentSource.sourceUrl.replace(
+        "limit=500&offset=0",
+        "limit=20",
+      ),
+    };
+    const observations: StoredCatalogObservation[] = [];
+    const store: CatalogObservationStore = {
+      catalogObservationStorage: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 17,
+        idempotencyKey: "observationId",
+      },
+      loadCatalogObservations: (limit) => observations.slice(0, limit),
+      saveCatalogObservation: (observation) => {
+        observations.unshift(observation);
+        return observation;
+      },
+    };
+    const fixtureBytes = await readFile(
+      resolve(
+        import.meta.dirname,
+        "../../../projects/fixtures/polymarket-us/2026-08-01/polymarket-us-catalog.json",
+      ),
+    );
+    const fetcher: CatalogFetchLike = async (input) =>
+      input === priorSource.sourceUrl || input === currentSource.sourceUrl
+        ? new Response(new Uint8Array(fixtureBytes).buffer, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        : new Response(null, { status: 404 });
+    const priorDesk = new CatalogObservationDesk({
+      sources: [priorSource],
+      fetcher,
+      store,
+      now: () => Date.parse("2026-08-02T03:59:00.000Z"),
+    });
+    await priorDesk.refresh();
+    expect(observations).toHaveLength(1);
+
+    const currentDesk = new CatalogObservationDesk({
+      sources: [currentSource],
+      fetcher,
+      store,
+      now: () => Date.parse("2026-08-02T04:00:00.000Z"),
+    });
+    expect(currentDesk.projection()).toMatchObject({
+      status: "IDLE",
+      listingCount: 0,
+      sources: [
+        {
+          sourceUrl: currentSource.sourceUrl,
+          status: "NEVER_REFRESHED",
+        },
+      ],
+    });
+    const refreshed = await currentDesk.refresh();
+    expect(refreshed).toMatchObject({
+      status: "READY",
+      listingCount: 20,
+      sources: [
+        { sourceUrl: currentSource.sourceUrl, status: "CURRENT" },
+      ],
+    });
+    expect(observations).toHaveLength(2);
+  });
+
+  it("qualifies the bounded 500-market Polymarket US live slice without widening Agent context", async () => {
+    const source = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "polymarket-us",
+    );
+    if (source === undefined) throw new Error("missing Polymarket US source");
+    expect(source.sourceUrl).toBe(
+      "https://gateway.polymarket.us/v1/markets?active=true&closed=false&archived=false&limit=500&offset=0",
+    );
+
+    const fixture = JSON.parse(
+      await readFile(
+        resolve(
+          import.meta.dirname,
+          "../../../projects/fixtures/polymarket-us/2026-08-01/polymarket-us-catalog.json",
+        ),
+        "utf8",
+      ),
+    ) as { markets: Record<string, unknown>[] };
+    const markets = Array.from({ length: 500 }, (_, index) => {
+      const seed = fixture.markets[index % fixture.markets.length];
+      if (seed === undefined) throw new Error("missing fixture market");
+      const slug = `${String(seed.slug)}-breadth-${index}`;
+      const marketSides = (seed.marketSides as Record<string, unknown>[]).map(
+        (side, sideIndex) => ({
+          id: `${String(side.id)}-breadth-${index}-${sideIndex}`,
+          identifier: slug,
+          description: side.description,
+          price: side.price,
+          long: side.long,
+          quote: side.quote,
+          tradable: side.tradable,
+        }),
+      );
+      return {
+        id: `${String(seed.id)}-breadth-${index}`,
+        slug,
+        question: `${String(seed.question)} breadth ${index}`,
+        title: seed.title,
+        description: seed.description,
+        active: seed.active,
+        closed: seed.closed,
+        archived: seed.archived,
+        status: seed.status,
+        startDate: seed.startDate,
+        endDate: seed.endDate,
+        orderPriceMinTickSize: seed.orderPriceMinTickSize,
+        minimumTradeQty: seed.minimumTradeQty,
+        feeCoefficient: seed.feeCoefficient,
+        marketSides,
+      };
+    });
+    const bytes = new TextEncoder().encode(JSON.stringify({ markets }));
+    expect(bytes.byteLength).toBeLessThan(2_000_000);
+
+    const desk = new CatalogObservationDesk({
+      sources: [source],
+      fetcher: async (input, init) => {
+        expect(input).toBe(source.sourceUrl);
+        expect(init).toMatchObject({ method: "GET", credentials: "omit" });
+        return new Response(bytes, {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(bytes.byteLength),
+          },
+        });
+      },
+      now: () => Date.parse("2026-08-02T04:00:00.000Z"),
+    });
+
+    const projection = await desk.refresh();
+    expect(projection).toMatchObject({
+      status: "READY",
+      listingCount: 500,
+      maxResponseBytes: 2_000_000,
+      sources: [
+        {
+          venueId: "polymarket-us",
+          sourceUrl: source.sourceUrl,
+          status: "CURRENT",
+          byteLength: String(bytes.byteLength),
+          listingCount: 500,
+          contextEligible: true,
+        },
+      ],
+    });
+    const context = desk.context("champion breadth", [source.venueId]);
+    expect(context.listings.length).toBeGreaterThan(0);
+    expect(context.listings.length).toBeLessThanOrEqual(30);
+    expect(JSON.stringify(context).length).toBeLessThanOrEqual(50_000);
+  });
+
   it("content-addresses bounded public GET responses without promoting them", async () => {
     const desk = new CatalogObservationDesk({
       fetcher: fixtureFetcher(),
