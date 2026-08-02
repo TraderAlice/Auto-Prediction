@@ -147,8 +147,22 @@ normalizer identity. Known v1 pre-role Myriad/Polymarket projections are
 verified before upgrading the same raw bytes in memory; unrelated drift remains
 a hard restart failure.
 
+A follow-up premise audit found that v1 semantic constraints hashed free-form
+`assumptions` but did not include them in exact admission. New
+`pmh.semantic-constraint-proposal.v2` artifacts now fail closed with
+`UNVERIFIED_ASSUMPTION`; historical v1 artifacts retain their original replay
+semantics. The premise-bearing design below separates settlement-intrinsic,
+traded, observed, and merely causal premises before any later relaxation. Node
+24.14.0 checks, all 479 workspace tests (330 control-plane), and the production
+build pass after this guard.
+
 ## Deferred future campaigns
 
+- Premise-bearing semantic relations are designed in
+  [`plans/premise-bearing-semantic-relations.md`](plans/premise-bearing-semantic-relations.md).
+  The immediate guard keeps every free-form semantic assumption research-only;
+  a later campaign will bind premises to market rules, traded outcomes, or
+  retained observations before they may affect an exact state space.
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

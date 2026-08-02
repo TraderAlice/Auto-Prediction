@@ -410,7 +410,7 @@ describe("adversarial semantic review", () => {
         schemaVersion: "pmh.semantic-review-report.v3",
         result: {
           semanticConstraint: {
-            schemaVersion: "pmh.semantic-constraint-proposal.v1",
+            schemaVersion: "pmh.semantic-constraint-proposal.v2",
             exactCompilerAdmission: "RESEARCH_ONLY",
           },
           evidenceRequirements: [{

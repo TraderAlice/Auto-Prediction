@@ -92,7 +92,7 @@ describe("semantic constraint proof objects", () => {
     });
 
     expect(artifact).toMatchObject({
-      schemaVersion: "pmh.semantic-constraint-proposal.v1",
+      schemaVersion: "pmh.semantic-constraint-proposal.v2",
       exactCompilerAdmission: "ELIGIBLE",
       authority: "PROPOSE_ONLY",
       semanticDecisionAuthority: false,
@@ -101,6 +101,57 @@ describe("semantic constraint proof objects", () => {
     });
     expect(artifact.truthTable).toHaveLength(4);
     expect(() => assertSemanticConstraintArtifact(artifact)).not.toThrow();
+  });
+
+  it("keeps a hard-looking matrix research-only when fatality is only a prose assumption", () => {
+    const input = draft("HARD_SETTLEMENT_CONSTRAINT", "IMPOSSIBLE", "NOT_FOUND");
+    const artifact = buildSemanticConstraintArtifact({
+      proposal,
+      proposalCorpusSnapshotIdentity: corpus,
+      evidenceCorpusSnapshotIdentity: corpus,
+      draft: {
+        ...input,
+        assumptions: ["The August event is assumed fatal even though the market only says shooting."],
+      },
+      listingEvidence: evidence,
+    });
+
+    expect(artifact).toMatchObject({
+      exactCompilerAdmission: "RESEARCH_ONLY",
+      assumptions: ["The August event is assumed fatal even though the market only says shooting."],
+    });
+    expect(inspectSemanticConstraintAdmission(artifact)).toMatchObject({
+      blocker: "UNVERIFIED_ASSUMPTION",
+    });
+  });
+
+  it("replays historical v1 assumption semantics without rewriting the artifact", () => {
+    const current = buildSemanticConstraintArtifact({
+      proposal,
+      proposalCorpusSnapshotIdentity: corpus,
+      evidenceCorpusSnapshotIdentity: corpus,
+      draft: {
+        ...draft("HARD_SETTLEMENT_CONSTRAINT", "IMPOSSIBLE", "NOT_FOUND"),
+        assumptions: ["Historical prose assumption."],
+      },
+      listingEvidence: evidence,
+    });
+    const { artifactHash: _currentHash, ...currentBody } = current;
+    const legacyBody = {
+      ...currentBody,
+      schemaVersion: "pmh.semantic-constraint-proposal.v1" as const,
+      exactCompilerAdmission: "ELIGIBLE" as const,
+    };
+    const legacy = {
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    };
+
+    expect(() => assertSemanticConstraintArtifact(legacy)).not.toThrow();
+    expect(inspectSemanticConstraintAdmission(legacy)).toMatchObject({
+      status: "ELIGIBLE",
+      blocker: null,
+    });
   });
 
   it("rejects rehashed authority escalation", () => {
