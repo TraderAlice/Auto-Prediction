@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { DiscoveryCatalogListing } from "./types.js";
+import { hasBoundedDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
 
 const MAX_PATTERNS = 12;
 const MAX_PATTERN_LENGTH = 160;
@@ -143,6 +144,9 @@ export function buildMarketCorpusSnapshot(input: Readonly<{
   ) {
     throw new Error("market corpus listing refs must be unique");
   }
+  if (listings.some((listing) => !hasBoundedDiscoveryEvidenceLocators(listing))) {
+    throw new Error("market corpus evidence locators violate their bounded contract");
+  }
   const body = Object.freeze({
     schemaVersion: "pmh.market-corpus.v1" as const,
     contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
@@ -187,6 +191,7 @@ export function assertMarketCorpusSnapshot(value: unknown): MarketCorpusSnapshot
       typeof listing.venueInstrumentId !== "string" ||
       typeof listing.title !== "string" ||
       typeof listing.description !== "string" ||
+      !hasBoundedDiscoveryEvidenceLocators(listing) ||
       !Array.isArray(listing.outcomes)
     ) ||
     snapshot.authority !== "OBSERVE_ONLY" ||

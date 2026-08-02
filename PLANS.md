@@ -41,7 +41,7 @@ gated, so catalog refresh, Pi recovery, and timers begin only after the HTTP
 listener owns its port. A real `EADDRINUSE` test proves the losing process
 creates no catalog observation or search-lease mutation.
 
-Node 24.14.0 type checks, all 443 workspace tests, and the production build
+Node 24.14.0 type checks, all 448 workspace tests, and the production build
 pass. Desktop and 390 px Studio QA show separate fast/deep health, retry counts,
 attempt budgets, and preserved results without horizontal overflow or browser
 warnings.
@@ -58,7 +58,7 @@ SQLite restoration of the v2 report. Studio qualification at 1280 px and 390 px
 shows the semantic proof without horizontal overflow or runtime errors. Commit
 `a23291a` is published in ready-for-review PR #80.
 
-The next measured capability gap is official rule evidence. In the latest
+The active measured capability gap is official rule evidence. In the latest
 retained 947-listing corpus, 387 listings initially lacked inline `rulesText`.
 Forty are an adapter mapping defect: Myriad and Polymarket Global descriptions
 already contain their settlement criteria, and #80 now routes that text through
@@ -66,11 +66,27 @@ the rules channel. The remaining 347 are Gemini listings; 286 point to one
 official terms PDF and 61 have no locator. Sixteen semantic-review jobs are
 `BLOCKED_EVIDENCE`. Myriad's observed URLs are outcome-resolution sources, not
 contract rules, so #80 also separates `resolutionSourceUrl` from `rulesUrl` at
-the protocol boundary. The discovery projection still drops both typed
-locators before MarketFS or semantic review. The active plan preserves their
-roles, adds a bounded anonymous evidence-acquisition queue, and resumes review
-over a new immutable evidence-enriched scope. The broader implementation waits
-for #80 to merge so PRs remain serial.
+the protocol boundary.
+
+The first acquisition slice is now implemented on #80. Discovery listings
+carry content-addressed `CONTRACT_RULE_DOCUMENT` and
+`OUTCOME_RESOLUTION_SOURCE` locators whose identity binds venue, protocol,
+role, and canonical HTTPS URL. They survive bounded Agent context, MarketFS,
+proposal evidence, and SQLite restart replay, but explicitly grant no fetch
+authority. Historical listings without locators remain replayable, and locator
+posture changes corpus evidence without spuriously changing semantic-search
+identity. Malformed or tampered locators fail closed at discovery, corpus, and
+proposal-evidence boundaries. The next slice defines structured evidence
+requirements; the constrained fetcher, durable acquisition queue, enriched
+scope, and Studio funnel follow after #80 merges so PRs remain serial.
+
+The retained 947-listing SQLite corpus now replays into 306 locators without a
+network call: 286 Gemini rule documents and 20 Myriad outcome-resolution
+sources. That qualification exposed normalization-version debt in historical
+observations, so new `pmh.catalog-observation.v2` records bind an explicit
+normalizer identity. Known v1 pre-role Myriad/Polymarket projections are
+verified before upgrading the same raw bytes in memory; unrelated drift remains
+a hard restart failure.
 
 ## Deferred future campaigns
 

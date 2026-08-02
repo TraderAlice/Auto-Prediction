@@ -12,6 +12,7 @@ import {
   materializeMarketCorpus,
   type MarketCorpusSnapshot,
 } from "./market-corpus.js";
+import { hasBoundedDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
 import type { DiscoveryCatalogListing, OperationalStorageProjection } from "./types.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
@@ -289,6 +290,7 @@ export function assertProposalEvidenceBundle(
     bundle.listings.some((listing, index) =>
       listing === null || typeof listing !== "object" ||
       listing.listingRef !== bundle.listingRefs[index] ||
+      !hasBoundedDiscoveryEvidenceLocators(listing) ||
       hashCanonical(listing) !== bundle.listingHashes[index]
     ) ||
     bundle.authority !== "SEMANTIC_REVIEW_EVIDENCE_ONLY" ||

@@ -49,8 +49,7 @@ const OBSERVATION_ID_PATTERN = /^catalog-observation:[0-9a-f]{64}$/;
 const BYTE_LENGTH_PATTERN = /^(?:0|[1-9]\d*)$/;
 export const RADAR_CANDIDATES_PER_SEARCH_BATCH = 2;
 
-export type CatalogObservationRecord = Readonly<{
-  schemaVersion: "pmh.catalog-observation.v1";
+type CatalogObservationRecordBody = Readonly<{
   observationId: string;
   venueId: string;
   protocolIdentity: string;
@@ -70,6 +69,16 @@ export type CatalogObservationRecord = Readonly<{
     valueMovingOperation: false;
   }>;
 }>;
+
+export type LegacyCatalogObservationRecord = CatalogObservationRecordBody &
+  Readonly<{ schemaVersion: "pmh.catalog-observation.v1" }>;
+
+export type CatalogObservationRecord =
+  | (CatalogObservationRecordBody & Readonly<{
+      schemaVersion: "pmh.catalog-observation.v2";
+      normalizerIdentity: Hash;
+    }>)
+  | LegacyCatalogObservationRecord;
 
 export type StoredCatalogObservation = Readonly<{
   record: CatalogObservationRecord;
@@ -93,6 +102,7 @@ export interface CatalogObservationStore {
 export type CatalogObservationSourceProjection = Readonly<{
   venueId: string;
   protocolIdentity: string;
+  normalizerIdentity: Hash;
   sourceUrl: string;
   status: "NEVER_REFRESHED" | "CURRENT" | "STALE_AFTER_FAILURE" | "FAILED";
   lastAttemptAt: string | null;
@@ -143,6 +153,7 @@ export type CatalogFetchLike = (
 export type CatalogObservationSource = Readonly<{
   venueId: string;
   protocolIdentity: string;
+  normalizerIdentity?: Hash;
   sourceUrl: string;
   decode: (fixture: VerifiedRawFixture) => readonly NormalizedCatalogListing[];
 }>;
@@ -206,6 +217,24 @@ type CatalogContextCoverageBody = Omit<
   CatalogContextCoverage,
   "coverageIdentity"
 >;
+
+function catalogNormalizerIdentity(
+  venueId: string,
+  revision: string,
+): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.catalog-normalizer-identity.v1",
+    venueId,
+    revision,
+  });
+}
+
+function sourceNormalizerIdentity(source: CatalogObservationSource): Hash {
+  return source.normalizerIdentity ?? catalogNormalizerIdentity(
+    source.venueId,
+    `implicit:${source.protocolIdentity}`,
+  );
+}
 
 function isIsoOrNull(value: unknown): value is string | null {
   return value === null || (
@@ -292,6 +321,10 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
     {
       venueId: polymarketManifest.venueId,
       protocolIdentity: polymarketManifest.protocolIdentity,
+      normalizerIdentity: catalogNormalizerIdentity(
+        polymarketManifest.venueId,
+        "gamma-catalog.v2:rules-text-and-resolution-source-role",
+      ),
       sourceUrl:
         "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=20",
       decode: normalizePolymarketCatalog,
@@ -299,6 +332,10 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
     {
       venueId: polymarketUsManifest.venueId,
       protocolIdentity: polymarketUsManifest.protocolIdentity,
+      normalizerIdentity: catalogNormalizerIdentity(
+        polymarketUsManifest.venueId,
+        "gateway-catalog.v1",
+      ),
       sourceUrl:
         "https://gateway.polymarket.us/v1/markets?active=true&closed=false&archived=false&limit=500&offset=0",
       decode: normalizePolymarketUsCatalog,
@@ -306,6 +343,10 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
     {
       venueId: kalshiManifest.venueId,
       protocolIdentity: kalshiManifest.protocolIdentity,
+      normalizerIdentity: catalogNormalizerIdentity(
+        kalshiManifest.venueId,
+        "trade-api-catalog.v1",
+      ),
       sourceUrl:
         "https://external-api.kalshi.com/trade-api/v2/markets?limit=20&status=open",
       decode: normalizeKalshiCatalog,
@@ -313,6 +354,10 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
     {
       venueId: geminiManifest.venueId,
       protocolIdentity: geminiManifest.protocolIdentity,
+      normalizerIdentity: catalogNormalizerIdentity(
+        geminiManifest.venueId,
+        "predictions-catalog.v1",
+      ),
       sourceUrl:
         "https://api.gemini.com/v1/prediction-markets/events?status=active&limit=5",
       decode: normalizeGeminiCatalog,
@@ -320,6 +365,10 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
     {
       venueId: opinionManifest.venueId,
       protocolIdentity: opinionManifest.protocolIdentity,
+      normalizerIdentity: catalogNormalizerIdentity(
+        opinionManifest.venueId,
+        "openapi-catalog.v1",
+      ),
       sourceUrl:
         "https://openapi.opinion.trade/openapi/market?status=activated&limit=20",
       decode: normalizeOpinionCatalog,
@@ -327,6 +376,10 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
     {
       venueId: myriadManifest.venueId,
       protocolIdentity: myriadManifest.protocolIdentity,
+      normalizerIdentity: catalogNormalizerIdentity(
+        myriadManifest.venueId,
+        "api-v2-catalog.v2:rules-text-and-resolution-source-role",
+      ),
       sourceUrl:
         "https://api-v2.myriadprotocol.com/markets?page=1&limit=20&state=open",
       decode: normalizeMyriadCatalog,
@@ -334,6 +387,10 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
     {
       venueId: limitlessManifest.venueId,
       protocolIdentity: limitlessManifest.protocolIdentity,
+      normalizerIdentity: catalogNormalizerIdentity(
+        limitlessManifest.venueId,
+        "active-markets-catalog.v1",
+      ),
       sourceUrl: "https://api.limitless.exchange/markets/active?limit=20",
       decode: normalizeLimitlessCatalog,
     },
@@ -346,6 +403,30 @@ type SourceState = {
   lastAttemptAt: string | null;
   diagnostic: string | null;
 };
+
+function matchesLegacyPreRuleRoleNormalization(
+  listings: readonly NormalizedCatalogListing[],
+  expectedIdentity: Hash,
+): boolean {
+  if (!listings.every((listing) =>
+    listing.venueId === polymarketManifest.venueId ||
+    listing.venueId === myriadManifest.venueId
+  )) return false;
+  const legacyListings = listings.map((listing) => {
+    const {
+      rulesText: _rulesText,
+      resolutionSourceUrl,
+      ...legacyListing
+    } = listing;
+    return {
+      ...legacyListing,
+      ...(resolutionSourceUrl === undefined
+        ? {}
+        : { rulesUrl: resolutionSourceUrl }),
+    };
+  });
+  return hashCanonical(legacyListings) === expectedIdentity;
+}
 
 function assertPositiveInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 1) {
@@ -364,9 +445,17 @@ function assertRecord(value: unknown): asserts value is CatalogObservationRecord
   if (value === null || typeof value !== "object") {
     throw new Error("catalog observation record is malformed");
   }
-  const record = value as Partial<CatalogObservationRecord>;
+  const record = value as Partial<CatalogObservationRecord> & {
+    normalizerIdentity?: unknown;
+  };
+  const currentSchema = record.schemaVersion === "pmh.catalog-observation.v2";
   if (
-    record.schemaVersion !== "pmh.catalog-observation.v1" ||
+    (!currentSchema && record.schemaVersion !== "pmh.catalog-observation.v1") ||
+    (currentSchema && (
+      typeof record.normalizerIdentity !== "string" ||
+      !HASH_PATTERN.test(record.normalizerIdentity)
+    )) ||
+    (!currentSchema && record.normalizerIdentity !== undefined) ||
     typeof record.observationId !== "string" ||
     !OBSERVATION_ID_PATTERN.test(record.observationId) ||
     typeof record.venueId !== "string" ||
@@ -580,9 +669,26 @@ export class CatalogObservationDesk {
         verified.bytes,
       );
       const listings = state.source.decode(fixture);
+      const currentNormalizerIdentity = sourceNormalizerIdentity(state.source);
+      if (
+        verified.record.schemaVersion === "pmh.catalog-observation.v2" &&
+        verified.record.normalizerIdentity !== currentNormalizerIdentity
+      ) {
+        throw new Error("stored catalog observation normalizer identity mismatch");
+      }
+      const currentListingIdentity = hashCanonical(listings);
       if (
         listings.length !== verified.record.listingCount ||
-        hashCanonical(listings) !== verified.record.listingIdentity
+        (
+          currentListingIdentity !== verified.record.listingIdentity &&
+          !(
+            verified.record.schemaVersion === "pmh.catalog-observation.v1" &&
+            matchesLegacyPreRuleRoleNormalization(
+              listings,
+              verified.record.listingIdentity,
+            )
+          )
+        )
       ) {
         throw new Error("stored catalog observation normalization mismatch");
       }
@@ -640,9 +746,10 @@ export class CatalogObservationDesk {
       const fixture = buildFixture(state.source, attemptedAt, response, bytes);
       const listings = state.source.decode(fixture);
       const recordBody = Object.freeze({
-        schemaVersion: "pmh.catalog-observation.v1" as const,
+        schemaVersion: "pmh.catalog-observation.v2" as const,
         venueId: state.source.venueId,
         protocolIdentity: state.source.protocolIdentity,
+        normalizerIdentity: sourceNormalizerIdentity(state.source),
         sourceUrl: state.source.sourceUrl,
         receivedAt: attemptedAt,
         httpStatus: 200 as const,
@@ -926,6 +1033,7 @@ export class CatalogObservationDesk {
     const sourceSetIdentity = hashCanonical(
       eligibleStates.map((state) => ({
         venueId: state.source.venueId,
+        normalizerIdentity: sourceNormalizerIdentity(state.source),
         rawHash: state.latest?.record.rawHash ?? null,
         listingCount: state.latest?.record.listingCount ?? 0,
       })),
@@ -954,6 +1062,7 @@ export class CatalogObservationDesk {
       eligibleStates.map((state) => ({
         venueId: state.source.venueId,
         protocolIdentity: state.source.protocolIdentity,
+        normalizerIdentity: sourceNormalizerIdentity(state.source),
         receivedAt: state.latest?.record.receivedAt ?? null,
         rawHash: state.latest?.record.rawHash ?? null,
         listingIdentity: state.latest?.record.listingIdentity ?? null,
@@ -1060,6 +1169,7 @@ export class CatalogObservationDesk {
           return Object.freeze({
             venueId: state.source.venueId,
             protocolIdentity: state.source.protocolIdentity,
+            normalizerIdentity: sourceNormalizerIdentity(state.source),
             sourceUrl: state.source.sourceUrl,
             status:
               state.diagnostic === null
@@ -1117,6 +1227,7 @@ export class CatalogObservationDesk {
       currentSetIdentity: hashCanonical(
         sources.map((source) => ({
           venueId: source.venueId,
+          normalizerIdentity: source.normalizerIdentity,
           rawHash: source.rawHash,
           listingCount: source.listingCount,
         })),

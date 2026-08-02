@@ -6,6 +6,7 @@ export * from "./catalog-refresh-scheduler.js";
 export * from "./candidate-watch.js";
 export * from "./discovery.js";
 export * from "./discovery-agent.js";
+export * from "./discovery-evidence-locator.js";
 export * from "./discovery-ledger.js";
 export * from "./deepseek-model.js";
 export * from "./exact-promotion.js";

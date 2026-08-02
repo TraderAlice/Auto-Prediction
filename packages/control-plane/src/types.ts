@@ -1,3 +1,5 @@
+import type { Hash } from "@pmh/domain";
+
 export type DiscoveryCatalogContextSource =
   | "VERIFIED_FIXTURE_CATALOGS"
   | "QUALIFIED_LIVE_OBSERVATIONS";
@@ -5,6 +7,15 @@ export type DiscoveryCatalogContextSource =
 export type DiscoveryCatalogMode =
   | "VERIFIED_FIXTURES"
   | "CURRENT_OBSERVATIONS";
+
+export type DiscoveryEvidenceLocator = Readonly<{
+  schemaVersion: "pmh.discovery-evidence-locator.v1";
+  locatorIdentity: Hash;
+  role: "CONTRACT_RULE_DOCUMENT" | "OUTCOME_RESOLUTION_SOURCE";
+  url: string;
+  authority: "EVIDENCE_LOCATOR_ONLY";
+  fetchAuthority: false;
+}>;
 
 export type DiscoveryCatalogListing = Readonly<{
   listingRef: string;
@@ -16,6 +27,7 @@ export type DiscoveryCatalogListing = Readonly<{
   mechanism: string;
   closesAt: string | null;
   rulesText: string | null;
+  evidenceLocators?: readonly DiscoveryEvidenceLocator[];
   outcomes: readonly Readonly<{
     venueOutcomeId: string;
     label: string;

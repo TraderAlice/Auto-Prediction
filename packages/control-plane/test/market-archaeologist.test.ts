@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
   assertProposalEvidenceBundle,
+  buildDiscoveryEvidenceLocator,
   buildMarketCorpusSnapshot,
   buildProposalEvidenceBundle,
   createMarketArchaeologistDesk,
@@ -16,6 +17,14 @@ import {
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
 const secret = "test-only-deepseek-key";
+
+const venueARuleLocator = buildDiscoveryEvidenceLocator({
+  venueId: "venue-a",
+  protocolIdentity: hashCanonical({ protocol: "a" }),
+  role: "CONTRACT_RULE_DOCUMENT",
+  url: "https://rules.example/venue-a/august-pizza.html",
+});
+if (venueARuleLocator === null) throw new Error("missing test rule locator");
 
 const listings: readonly DiscoveryCatalogListing[] = [
   {
@@ -28,6 +37,7 @@ const listings: readonly DiscoveryCatalogListing[] = [
     mechanism: "CLOB",
     closesAt: "2026-09-01T00:00:00.000Z",
     rulesText: "Any public livestream in August counts.",
+    evidenceLocators: [venueARuleLocator],
     outcomes: [{ label: "Yes", indicativePrice: "0.40" }],
     sourceKind: "LIVE_OBSERVATION",
     sourceReceivedAt: "2026-08-01T00:00:00.000Z",
@@ -164,6 +174,9 @@ describe("Market Archaeologist", () => {
     expect(bundle?.listings.map((listing) => listing.listingRef)).toEqual(
       bundle?.listingRefs,
     );
+    expect(bundle?.listings.find(
+      (listing) => listing.listingRef === "venue-a:august-pizza",
+    )?.evidenceLocators).toEqual([venueARuleLocator]);
     expect(desk.projection()).toMatchObject({
       status: "IDLE",
       runCount: 1,
@@ -337,7 +350,11 @@ describe("Market Archaeologist", () => {
       });
       const replay = restored.begin(snapshot, "Durable search");
       expect(replay.idempotentReplay).toBe(true);
-      expect((await replay.promise).runId).toBe(first.runId);
+      const replayed = await replay.promise;
+      expect(replayed.runId).toBe(first.runId);
+      expect(replayed.report?.result.proposalEvidenceBundles?.[0]?.listings.find(
+        (listing) => listing.listingRef === "venue-a:august-pizza",
+      )?.evidenceLocators).toEqual([venueARuleLocator]);
       secondStore.close();
 
       const tamper = new DatabaseSync(path);

@@ -1,6 +1,6 @@
 # Durable rule-evidence acquisition and review unblocking
 
-Status: active design; implementation begins after serial PR #80 merges
+Status: active implementation; typed-locator propagation is on serial PR #80
 
 Created: 2026-08-02
 
@@ -31,8 +31,8 @@ The remaining locator evidence has distinct semantics. Of 347 Gemini contracts,
 286 point to one official `assets.gemini.com` terms PDF and 61 have an empty
 locator. An anonymous qualification HEAD returned HTTP 200,
 `application/pdf`, 106,576 bytes, ETag, and Last-Modified for that document, so
-bounded conditional capture is viable. The 20 Myriad markets expose 11
-non-empty `resolutionSource` URLs, but
+bounded conditional capture is viable. The first inspected 20-market Myriad
+slice exposed 11 non-empty `resolutionSource` URLs, but
 the official API documents that field alongside `resolutionTitle`, `oracle`,
 and `externalSources`; observed values such as AP, league sites, and X are
 outcome-resolution sources, not contract terms. The current 20 Polymarket
@@ -41,12 +41,46 @@ the operative rules. The #80 correction therefore separates
 `resolutionSourceUrl` from `rulesUrl` at the protocol boundary rather than
 pretending every URL is a rule document.
 
-`DiscoveryCatalogListing` and the retained MarketFS corpus still discard both
-typed locators. Agents can name the missing rule or oracle evidence but cannot
-ask the harness to acquire the official document that may resolve it. The
-current review journal also contains 47 legacy reports without an explicit
-semantic constraint and only one v2 constraint report, so repeatedly reviewing
-the same incomplete corpus is poor use of provider budget.
+Before the first construction slice, `DiscoveryCatalogListing` and the retained
+MarketFS corpus discarded both typed locators. The current branch now preserves
+the two observed roles end to end. Agents can see where missing rule or oracle
+evidence lives, but they still cannot ask the harness to acquire it. The current
+review journal also contains 47 legacy reports without an explicit semantic
+constraint and only one v2 constraint report, so repeatedly reviewing the same
+incomplete corpus is poor use of provider budget.
+
+## Implemented checkpoint — 2026-08-02
+
+- Added the closed `pmh.discovery-evidence-locator.v1` schema for
+  `CONTRACT_RULE_DOCUMENT` and `OUTCOME_RESOLUTION_SOURCE`. Its content hash
+  binds role, canonical HTTPS URL, venue, and protocol identity. These are the
+  only roles backed by current adapter evidence; oracle and venue-terms roles
+  remain planned until an adapter can declare their policy explicitly.
+- Catalog normalization now converts `rulesUrl` and `resolutionSourceUrl` into
+  separately typed locators. Empty, non-HTTPS, credential-bearing, fragment,
+  non-default-port, or overlong URLs are not admitted.
+- Discovery tasks, retained corpora, and proposal evidence bundles fail closed
+  on malformed, reordered, duplicated, extended, or identity-mismatched
+  locators. The locator explicitly carries `fetchAuthority: false`; no network
+  worker or model-selectable arbitrary URL exists in this slice.
+- Locator data survives discovery context hashing, MarketFS materialization,
+  per-listing proposal hashing, and SQLite Market Archaeologist restart replay.
+  Historical listings without the optional field still replay unchanged.
+- Search semantic and routing identities deliberately exclude locators: adding
+  evidence retrieval posture does not make an old relation semantically novel.
+  Corpus and proposal listing hashes do include it, so evidence posture remains
+  immutable and auditable.
+- Catalog observations now declare a content-addressed normalizer identity in
+  `pmh.catalog-observation.v2`. Historical v1 Myriad/Polymarket records are
+  verified against their exact pre-role projection before the same retained raw
+  bytes are upgraded in memory; unrelated normalization drift still fails
+  closed. This prevents a sound adapter correction from looking like raw-byte
+  corruption on restart.
+- Replaying the latest retained 947-listing SQLite corpus produced 306 typed
+  locators: 286 Gemini contract-rule documents and 20 Myriad outcome-resolution
+  sources. No network request was used for this qualification.
+- Node 24.14.0 type checks, all 448 workspace tests (299 control-plane), and the
+  production build pass for this slice.
 
 ## Evidence contract
 
@@ -158,8 +192,9 @@ official evidence to reach a deterministic accept/reject decision.
 
 ## Construction sequence
 
-1. Preserve and hash adapter-owned typed evidence locators through catalog observation,
-   discovery context, MarketFS, proposal evidence bundles, and SQLite replay.
+1. **Implemented on PR #80:** preserve and hash adapter-owned typed evidence
+   locators through catalog observation, discovery context, MarketFS, proposal
+   evidence bundles, and SQLite replay.
 2. Define structured evidence requirements and migrate semantic review to emit
    them without invalidating v1/v2 reports.
 3. Implement the policy-constrained anonymous fetcher and raw/extracted

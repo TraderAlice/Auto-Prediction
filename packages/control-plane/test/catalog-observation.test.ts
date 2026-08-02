@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { hashCanonical } from "@pmh/domain";
 import {
   assertCatalogContextCoverage,
   buildSearchScopeIdentity,
@@ -129,6 +130,123 @@ describe("anonymous catalog observation desk", () => {
       ],
     });
     expect(observations).toHaveLength(2);
+    expect(observations[0]?.record.schemaVersion).toBe(
+      "pmh.catalog-observation.v2",
+    );
+    expect(() => new CatalogObservationDesk({
+      sources: [{
+        ...currentSource,
+        normalizerIdentity: hashCanonical({ substitutedNormalizer: true }),
+      }],
+      store,
+      now: () => Date.parse("2026-08-02T04:00:00.000Z"),
+    })).toThrow(/normalizer identity mismatch/);
+  });
+
+  it("replays pre-role normalizations from raw evidence into the current projection", async () => {
+    const source = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "myriad",
+    );
+    if (source === undefined) throw new Error("missing Myriad source");
+    const observations: StoredCatalogObservation[] = [];
+    const legacyStore: CatalogObservationStore = {
+      catalogObservationStorage: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 18,
+        idempotencyKey: "observationId",
+      },
+      loadCatalogObservations: (limit) => observations.slice(0, limit),
+      saveCatalogObservation: (observation) => {
+        if (observation.record.schemaVersion !== "pmh.catalog-observation.v2") {
+          throw new Error("expected current observation record");
+        }
+        const {
+          observationId: _observationId,
+          normalizerIdentity: _normalizerIdentity,
+          schemaVersion: _schemaVersion,
+          ...recordFields
+        } = observation.record;
+        const body = {
+          schemaVersion: "pmh.catalog-observation.v1" as const,
+          ...recordFields,
+        };
+        const stored: StoredCatalogObservation = {
+          record: {
+            ...body,
+            observationId:
+              `catalog-observation:${hashCanonical(body).slice(7)}`,
+          },
+          bytes: new Uint8Array(observation.bytes),
+        };
+        observations.unshift(stored);
+        return stored;
+      },
+    };
+    const legacySource = {
+      ...source,
+      decode: (fixture: Parameters<typeof source.decode>[0]) =>
+        source.decode(fixture).map((listing) => {
+          const {
+            rulesText: _rulesText,
+            resolutionSourceUrl,
+            ...legacyListing
+          } = listing;
+          return {
+            ...legacyListing,
+            ...(resolutionSourceUrl === undefined
+              ? {}
+              : { rulesUrl: resolutionSourceUrl }),
+          };
+        }),
+    };
+    const receivedAt = "2026-08-01T03:15:00.000Z";
+    await new CatalogObservationDesk({
+      sources: [legacySource],
+      fetcher: fixtureFetcher(),
+      store: legacyStore,
+      now: () => Date.parse(receivedAt),
+    }).refresh();
+    expect(observations[0]?.record.schemaVersion).toBe(
+      "pmh.catalog-observation.v1",
+    );
+
+    const restored = new CatalogObservationDesk({
+      sources: [source],
+      store: legacyStore,
+      now: () => Date.parse(receivedAt),
+    });
+    const corpus = restored.corpus();
+    expect(corpus.listingCount).toBeGreaterThan(0);
+    expect(corpus.listings.some((listing) =>
+      listing.rulesText !== null &&
+      listing.evidenceLocators?.some(
+        (locator) => locator.role === "OUTCOME_RESOLUTION_SOURCE",
+      ) === true
+    )).toBe(true);
+
+    const legacy = observations[0]!;
+    const { observationId: _observationId, ...legacyRecordBody } = legacy.record;
+    const invalidBody = {
+      ...legacyRecordBody,
+      listingIdentity: hashCanonical({ substituted: true }),
+    };
+    const invalid: StoredCatalogObservation = {
+      record: {
+        ...invalidBody,
+        observationId:
+          `catalog-observation:${hashCanonical(invalidBody).slice(7)}`,
+      },
+      bytes: new Uint8Array(legacy.bytes),
+    };
+    expect(() => new CatalogObservationDesk({
+      sources: [source],
+      store: {
+        ...legacyStore,
+        loadCatalogObservations: () => [invalid],
+      },
+      now: () => Date.parse(receivedAt),
+    })).toThrow(/normalization mismatch/);
   });
 
   it("qualifies the bounded 500-market Polymarket US live slice without widening Agent context", async () => {

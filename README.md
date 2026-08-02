@@ -131,6 +131,12 @@ promotion remain active campaign work.
    changed economic posture can reactivate a pair that stopped only at the
    economic gate. Raw quote motion inside the same posture does not repeatedly
    consume Agent budget.
+   Adapter-provided rule documents and outcome-resolution sources travel with
+   each listing as typed, content-addressed evidence locators. They are visible
+   in MarketFS and proposal evidence but grant neither the Agent nor the harness
+   permission to fetch an arbitrary URL. Catalog observations also bind the
+   adapter normalizer identity, so a mapping revision changes the derived corpus
+   without being confused with corruption of the retained raw response.
 3. For the focused parity issue, lexical radar only supplies a replayable batch.
    A model worker must choose exactly two in-context listings from distinct
    venues. The server then prices only that chosen pair before pi. It first uses
@@ -530,7 +536,7 @@ explicit configuration change.
 
 The default host exposes Node.js 22.22.1, so ordinary local commands correctly
 warn about the engine mismatch. The full workspace checkpoint also passes under
-an isolated Node.js 24.18.1 runtime, which is the qualified production target.
+an isolated Node.js 24.14.0 runtime, which is the qualified production target.
 
 ## Project map
 
