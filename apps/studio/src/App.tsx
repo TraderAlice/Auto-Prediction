@@ -526,6 +526,7 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   status: "IDLE",
   tickIntervalMs: null,
   concurrencyLimit: 3,
+  familyConcurrencyLimit: 1,
   activeCount: 0,
   issueCount: 0,
   enabledIssueCount: 0,
@@ -592,6 +593,7 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     piEscalationRateBps: null,
     economicGatePositiveRateBps: null,
     byIssue: [],
+    byFamily: [],
   },
   issues: [],
   notifications: [],
@@ -668,17 +670,20 @@ const EMPTY_SEARCH_QUOTE_ENRICHMENT: StudioProjection["ai"]["searchQuoteEnrichme
 };
 
 const EMPTY_SEARCH_OUTCOME_ATTRIBUTION: StudioProjection["ai"]["searchOutcomeAttribution"] = {
-  schemaVersion: "pmh.search-outcome-attribution.v1",
+  schemaVersion: "pmh.search-outcome-attribution.v2",
   attributionIdentity: `sha256:${"0".repeat(64)}`,
   sourceSetIdentity: `sha256:${"0".repeat(64)}`,
   sourceArtifactCount: 0,
   measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
   issueCount: 0,
+  familyCount: 0,
+  unclassifiedIssueCount: 0,
   attributedLeaseCount: 0,
   attributedProposalCount: 0,
   totalAiProposalCount: 0,
   unattributedAiProposalCount: 0,
   multiIssueProposalCount: 0,
+  multiFamilyProposalCount: 0,
   invalidProposalReferenceCount: 0,
   lifecycleMissingCount: 0,
   attributionCoverageBps: null,
@@ -710,6 +715,7 @@ const EMPTY_SEARCH_OUTCOME_ATTRIBUTION: StudioProjection["ai"]["searchOutcomeAtt
     missingEvidenceCount: 0,
   },
   byIssue: [],
+  byFamily: [],
   modelConfidenceUsed: false,
   authority: "DERIVED_RESEARCH_EVIDENCE_ONLY",
   semanticDecisionAuthority: false,
@@ -3306,9 +3312,25 @@ function MarketArchaeologistView() {
               <span><b>{outcomeAttribution.bottlenecks.simulationBlockedCount}</b> simulation blocked</span>
               <span><b>{outcomeAttribution.bottlenecks.missingEvidenceCount}</b> evidence gaps</span>
               {outcomeAttribution.multiIssueProposalCount > 0 && <span><b>{outcomeAttribution.multiIssueProposalCount}</b> multi-issue proposals</span>}
+              {outcomeAttribution.multiFamilyProposalCount > 0 && <span><b>{outcomeAttribution.multiFamilyProposalCount}</b> multi-family proposals</span>}
               {outcomeAttribution.invalidProposalReferenceCount > 0 && <span className="is-warning"><b>{outcomeAttribution.invalidProposalReferenceCount}</b> invalid proposal refs</span>}
               {outcomeAttribution.lifecycleMissingCount > 0 && <span className="is-warning"><b>{outcomeAttribution.lifecycleMissingCount}</b> lifecycle missing</span>}
             </div>
+            {outcomeAttribution.byFamily.length > 0 && (
+              <div className="search-outcome-stages" aria-label="Semantic family yield">
+                {outcomeAttribution.byFamily.map((family) => {
+                  const provider = issuePerformance.byFamily.find(
+                    (item) => item.semanticFamily === family.semanticFamily,
+                  );
+                  return (
+                    <div key={family.semanticFamily}>
+                      <strong>{family.certifiedCount}/{family.proposalCount}</strong>
+                      <span>{family.semanticFamily.replaceAll("_", " ")} · certified/proposed · {family.reviewedCount} reviewed · {provider?.providerRequestAttemptCount ?? 0} requests</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           <div className="issue-scheduler-workbench">
@@ -3333,6 +3355,9 @@ function MarketArchaeologistView() {
                         </Badge>
                         <Badge variant="muted">P{issue.priority}</Badge>
                         <Badge variant="muted">{issue.lens}</Badge>
+                        {issue.familyDefinition !== undefined && (
+                          <Badge variant="shadow">{issue.familyDefinition.semanticFamily.replaceAll("_", " ")}</Badge>
+                        )}
                       </div>
                       <code>{issue.issueId.slice(7, 14)}</code>
                     </div>
@@ -3341,8 +3366,16 @@ function MarketArchaeologistView() {
                     <div className="search-issue-meta">
                       {issue.candidatePolicy !== undefined && issue.candidatePolicy !== null && (
                         <span className="is-policy">
-                          target {issue.candidatePolicy.allowedRelationKinds.join("/")} · exactly {issue.candidatePolicy.exactListingRefCount} refs
+                          target {issue.candidatePolicy.allowedRelationKinds.join("/")} · {issue.candidatePolicy.exactListingRefCount === undefined
+                            ? `${issue.candidatePolicy.minimumListingRefCount}-${issue.candidatePolicy.maximumListingRefCount}`
+                            : `exactly ${issue.candidatePolicy.exactListingRefCount}`} refs
+                          {issue.candidatePolicy.maxCorpusListings === undefined ? "" : ` · ≤${issue.candidatePolicy.maxCorpusListings} listing context`}
                           {issue.candidatePolicy.requirePositiveGrossHint === true ? " · positive gross gate" : ""}
+                        </span>
+                      )}
+                      {issue.familyDefinition !== undefined && (
+                        <span>
+                          falsify: {issue.familyDefinition.falsifiers.join(" · ")} · research premises {issue.familyDefinition.acceptablePremiseKinds.join("/")}
                         </span>
                       )}
                       <span>every {issue.cadenceMs / 60_000}m</span>

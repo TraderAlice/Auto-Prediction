@@ -1,6 +1,7 @@
 # Semantic search issue families
 
-Status: proposed next campaign after premise admission and notifications
+Status: active; durable family contract, scheduling, attribution, payoff lineage,
+and Studio visibility implemented locally
 
 Created: 2026-08-02
 
@@ -96,3 +97,36 @@ Counts are descriptive, not model confidence and not trading authority.
 Issue families decide where Agents look and how much provider work they may
 spend. They do not decide semantic truth, economic profitability, certificate
 eligibility, or execution.
+
+## 2026-08-02 implementation checkpoint
+
+- Search issue v2 binds a content-addressed family definition, prompt,
+  falsifiers, expected 2–4 listing range, acceptable premise kinds, and maximum
+  corpus size. Editing any of those fields creates a new immutable issue ID.
+- Five initial family issues are seeded alongside the general searches. A
+  deterministic bounded catalog preserves venue representation before the
+  Agent sees it, and one family may consume at most one concurrent lease by
+  default while unrelated families continue.
+- Provider attempts, failures, tool work, escalations, and the full downstream
+  proposal-to-certificate funnel are aggregated by semantic family. Proposal
+  attribution is deduplicated within a family and preserved when one proposal
+  originates from multiple families.
+- Qualified relation payoffs carrying search provenance use v4 and bind their
+  source issue IDs and semantic families into replay identity. The three-market
+  temporal fixture retains that lineage through premise analysis and payoff
+  compilation; deleting it fails replay validation.
+- Studio shows family definitions, falsifiers, bounded context, provider work,
+  and downstream yield. Responsive visual QA found and fixed a wrapped family
+  badge at the narrow viewport.
+- A first anonymous-corpus run exercised all five families. Temporal,
+  containment, partition, and identity correctly produced no grounded
+  candidate; physical co-occurrence produced one novel fast candidate but had
+  not produced a deep proposal at observation time. These are abstentions and
+  work measurements, not failed semantic judgments.
+
+The qualification gates above remain open until every family has a retained
+proposal example and restart/retry/disable budget behavior is demonstrated.
+The next engineering steps are automatic supersession of obsolete default issue
+versions, family-specific retrieval trailheads and adaptive cadence, followed
+by compact/paginated operator projections so retained evidence is not repeatedly
+serialized into a multi-megabyte SSE snapshot.

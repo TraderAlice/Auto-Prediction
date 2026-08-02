@@ -9,6 +9,7 @@ import {
   calculateTwoListingIndicativeEconomics,
   type CanonicalIndicativeEconomics,
 } from "./indicative-relation-economics.js";
+import { buildExactDiscoveryCatalogContext } from "./catalog-discovery.js";
 import {
   assertMarketCorpusSnapshot,
   type MarketCorpusSnapshot,
@@ -66,11 +67,80 @@ export type SearchLeaseAlgorithmVersion =
 
 export type SearchCandidatePolicy = Readonly<{
   allowedRelationKinds: readonly MarketRelationKind[];
-  exactListingRefCount: number;
+  exactListingRefCount?: number;
+  minimumListingRefCount?: number;
+  maximumListingRefCount?: number;
+  maxCorpusListings?: number;
   requirePositiveGrossHint?: boolean;
   candidateSelection?: "EXACT_CONTEXT" | "MODEL_HYPOTHESIS";
   requireDistinctVenues?: boolean;
 }>;
+
+function candidatePolicyListingBounds(
+  policy: SearchCandidatePolicy,
+): Readonly<{ minimum: number; maximum: number }> {
+  if (policy.exactListingRefCount !== undefined) {
+    return Object.freeze({
+      minimum: policy.exactListingRefCount,
+      maximum: policy.exactListingRefCount,
+    });
+  }
+  return Object.freeze({
+    minimum: policy.minimumListingRefCount ?? 2,
+    maximum: policy.maximumListingRefCount ?? 4,
+  });
+}
+
+function candidatePolicyListingCountMatches(
+  policy: SearchCandidatePolicy,
+  count: number,
+): boolean {
+  const bounds = candidatePolicyListingBounds(policy);
+  return count >= bounds.minimum && count <= bounds.maximum;
+}
+
+export function isSearchCandidatePolicy(value: unknown): value is SearchCandidatePolicy {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const policy = value as SearchCandidatePolicy;
+  const exact = policy.exactListingRefCount;
+  const minimum = policy.minimumListingRefCount;
+  const maximum = policy.maximumListingRefCount;
+  const rangeValid = exact === undefined
+    ? Number.isSafeInteger(minimum) && Number.isSafeInteger(maximum) &&
+      minimum! >= 2 && maximum! <= 4 && minimum! <= maximum!
+    : Number.isSafeInteger(exact) && exact >= 2 && exact <= 8 &&
+      minimum === undefined && maximum === undefined;
+  return (
+    Array.isArray(policy.allowedRelationKinds) &&
+    policy.allowedRelationKinds.length > 0 &&
+    policy.allowedRelationKinds.length <= 8 &&
+    new Set(policy.allowedRelationKinds).size === policy.allowedRelationKinds.length &&
+    policy.allowedRelationKinds.every((kind) => [
+      "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
+      "CONDITIONAL", "RELATED", "CONFLICTING",
+    ].includes(kind)) &&
+    rangeValid &&
+    (policy.maxCorpusListings === undefined || (
+      Number.isSafeInteger(policy.maxCorpusListings) &&
+      policy.maxCorpusListings >= candidatePolicyListingBounds(policy).maximum &&
+      policy.maxCorpusListings <= 30
+    )) &&
+    (policy.requirePositiveGrossHint === undefined ||
+      typeof policy.requirePositiveGrossHint === "boolean") &&
+    (policy.candidateSelection === undefined ||
+      policy.candidateSelection === "EXACT_CONTEXT" ||
+      policy.candidateSelection === "MODEL_HYPOTHESIS") &&
+    (policy.requireDistinctVenues === undefined ||
+      typeof policy.requireDistinctVenues === "boolean") &&
+    (policy.requirePositiveGrossHint !== true || (
+      exact === 2 &&
+      policy.allowedRelationKinds.length === 1 &&
+      COMPILABLE_RELATIONS.includes(
+        policy.allowedRelationKinds[0] as CompilableRelation,
+      )
+    ))
+  );
+}
 
 export type SearchLeaseEconomicGate = Readonly<{
   required: boolean;
@@ -831,32 +901,8 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     agentTelemetry.terminationReasons.reduce((sum, item) => sum + item.count, 0) ===
       agentTelemetry.agentRunCount
   );
-  const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null || (
-    Array.isArray(candidatePolicy.allowedRelationKinds) &&
-    candidatePolicy.allowedRelationKinds.length > 0 &&
-    candidatePolicy.allowedRelationKinds.length <= 8 &&
-    new Set(candidatePolicy.allowedRelationKinds).size === candidatePolicy.allowedRelationKinds.length &&
-    candidatePolicy.allowedRelationKinds.every((kind) => [
-      "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
-      "CONDITIONAL", "RELATED", "CONFLICTING",
-    ].includes(kind)) &&
-    Number.isSafeInteger(candidatePolicy.exactListingRefCount) &&
-    candidatePolicy.exactListingRefCount >= 2 &&
-    candidatePolicy.exactListingRefCount <= 8 &&
-    (candidatePolicy.requirePositiveGrossHint === undefined ||
-      typeof candidatePolicy.requirePositiveGrossHint === "boolean") &&
-    (candidatePolicy.candidateSelection === undefined ||
-      candidatePolicy.candidateSelection === "EXACT_CONTEXT" ||
-      candidatePolicy.candidateSelection === "MODEL_HYPOTHESIS") &&
-    (candidatePolicy.requireDistinctVenues === undefined ||
-      typeof candidatePolicy.requireDistinctVenues === "boolean") &&
-    (candidatePolicy.requirePositiveGrossHint !== true ||
-      (candidatePolicy.exactListingRefCount === 2 &&
-        candidatePolicy.allowedRelationKinds.length === 1 &&
-        COMPILABLE_RELATIONS.includes(
-          candidatePolicy.allowedRelationKinds[0] as CompilableRelation,
-        )))
-  );
+  const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null ||
+    isSearchCandidatePolicy(candidatePolicy);
   const isV5 = lease?.algorithmVersion === "pmh.ai-search-leases.v5";
   const attempts: readonly SearchLeaseDeepAttempt[] =
     record.deepLane?.attempts ?? [];
@@ -1130,6 +1176,35 @@ function scopeFor(
     closesAtMin: closes[0] ?? null,
     closesAtMax: closes.at(-1) ?? null,
   });
+}
+
+function boundCatalogContextForPolicy(
+  context: DiscoveryCatalogContext,
+  policy: SearchCandidatePolicy | null | undefined,
+): DiscoveryCatalogContext {
+  const maximum = policy?.maxCorpusListings;
+  if (maximum === undefined || context.listings.length <= maximum) return context;
+  const firstByVenue = new Set<string>();
+  const requiredRefs = new Set<string>();
+  for (const listing of context.listings) {
+    if (firstByVenue.has(listing.venueId)) continue;
+    firstByVenue.add(listing.venueId);
+    requiredRefs.add(listing.listingRef);
+  }
+  if (requiredRefs.size > maximum) {
+    throw new SearchLeaseUnavailableError(
+      "candidate corpus limit cannot retain one listing per represented venue",
+    );
+  }
+  const selectedRefs = new Set(requiredRefs);
+  for (const listing of context.listings) {
+    if (selectedRefs.size >= maximum) break;
+    selectedRefs.add(listing.listingRef);
+  }
+  return buildExactDiscoveryCatalogContext(
+    context.source,
+    context.listings.filter((listing) => selectedRefs.has(listing.listingRef)),
+  );
 }
 
 export class SearchLeaseBusyError extends Error {}
@@ -1519,9 +1594,13 @@ export class SearchLeaseScheduler {
         this.#contextFeedback(issued),
         issued.lease.candidatePolicy ?? null,
       );
-      const context = "catalogContext" in contextResult
+      const unboundedContext = "catalogContext" in contextResult
         ? contextResult.catalogContext
         : contextResult;
+      const context = boundCatalogContextForPolicy(
+        unboundedContext,
+        issued.lease.candidatePolicy,
+      );
       const corpusCoverage = "catalogContext" in contextResult
         ? assertCatalogContextCoverage(
             contextResult.coverage,
@@ -1624,7 +1703,7 @@ export class SearchLeaseScheduler {
       );
       const meetsPolicyScope = (refs: readonly string[]) =>
         policy !== undefined && policy !== null &&
-        refs.length === policy.exactListingRefCount &&
+        candidatePolicyListingCountMatches(policy, refs.length) &&
         new Set(refs).size === refs.length &&
         refs.every((listingRef) => contextVenueByRef.has(listingRef)) &&
         (policy.requireDistinctVenues !== true ||
@@ -2023,7 +2102,7 @@ export class SearchLeaseScheduler {
       : (result.proposalDetails ?? [])
         .filter((proposal) =>
           policy.allowedRelationKinds.includes(proposal.relationKind) &&
-          proposal.listingRefs.length === policy.exactListingRefCount &&
+          candidatePolicyListingCountMatches(policy, proposal.listingRefs.length) &&
           proposal.listingRefs.every((listingRef) => listingRefs.includes(listingRef))
         )
         .map((proposal) => proposal.proposalId)

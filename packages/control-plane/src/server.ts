@@ -139,6 +139,7 @@ import {
 import {
   parseSearchIssueTickInterval,
   SearchIssueScheduler,
+  type CreateSearchIssueInput,
   type SearchIssueRecordStore,
 } from "./search-issue-scheduler.js";
 import {
@@ -863,6 +864,23 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const relationPayoffProposalAttributions = () => {
+    const issues = new Map(searchIssueScheduler.projection().issues.map((issue) =>
+      [issue.issueId, issue] as const
+    ));
+    return Object.freeze(semanticReviewScheduler.projection().jobs.flatMap((job) => {
+      if (job.issueIds.length === 0) return [];
+      const semanticFamilies = Object.freeze([...new Set(job.issueIds.flatMap((issueId) => {
+        const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
+        return family === undefined ? [] : [family];
+      }))].sort());
+      return [Object.freeze({
+        proposalId: job.proposalId,
+        issueIds: Object.freeze([...job.issueIds].sort()),
+        semanticFamilies,
+      })];
+    }));
+  };
   const semanticGraph = (snapshot: MarketCorpusSnapshot) => {
     const archaeologist = marketArchaeologistDesk.projection();
     opportunityLifecycleDesk.syncMarketArchaeologist(archaeologist);
@@ -873,6 +891,7 @@ export function createControlPlane(options?: {
       semanticReviews: semanticReviews.records,
       semanticDecisions: lifecycle.semanticDecisions,
       premiseAnalyses: premiseAnalysisDesk.projection().records,
+      proposalAttributions: relationPayoffProposalAttributions(),
     });
     return buildSemanticRelationGraph({
       corpus: snapshot,
@@ -1154,6 +1173,7 @@ export function createControlPlane(options?: {
       semanticReviews: semanticReviewProjection.records,
       semanticDecisions: lifecycleProjection.semanticDecisions,
       premiseAnalyses: premiseAnalysisProjection.records,
+      proposalAttributions: relationPayoffProposalAttributions(),
     });
     const reviewAttention = buildReviewAttentionProjection({
       archaeologist: archaeologistProjection,
@@ -1530,6 +1550,8 @@ export function createControlPlane(options?: {
           archaeologist,
           semanticReviews: semanticReviews.records,
           semanticDecisions: lifecycle.semanticDecisions,
+          premiseAnalyses: premiseAnalysisDesk.projection().records,
+          proposalAttributions: relationPayoffProposalAttributions(),
         });
         const opportunityId = (body as { opportunityId: string }).opportunityId.trim();
         const qualification = relationPayoff.qualifications.find(
@@ -1689,6 +1711,8 @@ export function createControlPlane(options?: {
           archaeologist,
           semanticReviews: semanticReviews.records,
           semanticDecisions: lifecycle.semanticDecisions,
+          premiseAnalyses: premiseAnalysisDesk.projection().records,
+          proposalAttributions: relationPayoffProposalAttributions(),
         });
         const qualification = relationPayoff.qualifications.find(
           (item) => item.opportunityId === opportunityId,
@@ -1754,6 +1778,8 @@ export function createControlPlane(options?: {
           archaeologist,
           semanticReviews: semanticReviews.records,
           semanticDecisions: lifecycle.semanticDecisions,
+          premiseAnalyses: premiseAnalysisDesk.projection().records,
+          proposalAttributions: relationPayoffProposalAttributions(),
         });
         const opportunityId =
           body !== null &&
@@ -2032,9 +2058,10 @@ export function createControlPlane(options?: {
           cadenceMs?: unknown;
           priority?: unknown;
           enabled?: unknown;
+          family?: unknown;
         };
         const allowed = new Set([
-          "title", "question", "lens", "venueIds", "cadenceMs", "priority", "enabled",
+          "title", "question", "lens", "venueIds", "cadenceMs", "priority", "enabled", "family",
         ]);
         if (
           Object.keys(input).some((key) => !allowed.has(key)) ||
@@ -2048,7 +2075,9 @@ export function createControlPlane(options?: {
               input.venueIds.some((item) => typeof item !== "string"))) ||
           (input.priority !== undefined &&
             (typeof input.priority !== "number" || ![1, 2, 3, 4, 5].includes(input.priority))) ||
-          (input.enabled !== undefined && typeof input.enabled !== "boolean")
+          (input.enabled !== undefined && typeof input.enabled !== "boolean") ||
+          (input.family !== undefined &&
+            (input.family === null || typeof input.family !== "object" || Array.isArray(input.family)))
         ) {
           throw new Error("search issue fields are invalid or unbounded");
         }
@@ -2060,6 +2089,9 @@ export function createControlPlane(options?: {
           venueIds: (input.venueIds as readonly string[] | undefined) ?? [],
           priority: (input.priority as 1 | 2 | 3 | 4 | 5 | undefined) ?? 3,
           ...(input.enabled === undefined ? {} : { enabled: input.enabled as boolean }),
+          ...(input.family === undefined
+            ? {}
+            : { family: input.family as NonNullable<CreateSearchIssueInput["family"]> }),
         });
         await broadcastProjection();
         writeJson(response, 201, issue);

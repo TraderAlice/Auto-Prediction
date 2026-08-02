@@ -144,6 +144,196 @@ function runRecord(task: DiscoveryTask): DiscoveryRunRecord {
 }
 
 describe("issue-driven concurrent search scheduler", () => {
+  it("runs an immutable semantic family issue through a bounded three-listing scope", async () => {
+    const wideListings = Object.freeze(Array.from({ length: 5 }, (_, index) => {
+      const base = listings[index % listings.length]!;
+      return Object.freeze({
+        ...base,
+        listingRef: `${base.venueId}:temporal-${index}`,
+        venueInstrumentId: `temporal-${index}`,
+        title: index === 0
+          ? "Will Trump be unable to appear before September?"
+          : `Will Trump perform public act ${index} in September?`,
+        sourceRawHash: hashCanonical({ temporal: index }),
+      });
+    }));
+    const wideSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "family-bounded-context" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: wideListings,
+    });
+    let selectedRefs: readonly string[] = [];
+    let observedQuestion = "";
+    const runDeep = vi.fn(async () => Object.freeze({
+      runId: hashCanonical({ deep: "family" }),
+      status: "PASS" as const,
+      proposalIds: Object.freeze([hashCanonical({ proposal: "family" })]),
+      proposalDetails: Object.freeze([Object.freeze({
+        proposalId: hashCanonical({ proposal: "family" }),
+        relationKind: "CONDITIONAL" as const,
+        listingRefs: selectedRefs,
+      })]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    }));
+    const leases = new SearchLeaseScheduler({
+      context: (question) => {
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+          source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+          listings: wideListings,
+        });
+        observedQuestion = question;
+        return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+      },
+      runFast: async (task) => {
+        expect(task.catalogContext?.listings).toHaveLength(3);
+        selectedRefs = Object.freeze(task.catalogContext!.listings
+          .map((item) => item.listingRef).sort());
+        const base = runRecord(task);
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([Object.freeze({
+            ...base.hypotheses[0]!,
+            listingRefs: selectedRefs,
+            venueIds: Object.freeze([...new Set(
+              task.catalogContext!.listings.map((item) => item.venueId),
+            )]),
+          })]),
+        });
+      },
+      runDeep,
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      seedDefaults: false,
+      now: () => nowMs,
+    });
+    const family = Object.freeze({
+      semanticFamily: "TEMPORAL_IMPOSSIBILITY" as const,
+      intendedRelationKinds: Object.freeze(["CONDITIONAL"] as const),
+      falsifiers: Object.freeze([
+        "the earlier outcome does not prevent the later act",
+        "a recording or proxy satisfies the later contract",
+      ]),
+      expectedListingCount: Object.freeze({ minimum: 2 as const, maximum: 3 as const }),
+      maxCorpusListings: 3,
+      acceptablePremiseKinds: Object.freeze([
+        "SETTLEMENT_INTRINSIC", "CAUSAL_HYPOTHESIS",
+      ] as const),
+    });
+    const createInput = Object.freeze({
+      title: "Temporal contradiction probe",
+      question: "Search a bounded temporal neighborhood and distinguish impossibility from likelihood.",
+      lens: "IMPLICATION" as const,
+      family,
+      cadenceMs: 300_000,
+      priority: 5 as const,
+    });
+    const issue = issues.create(createInput);
+    const replay = issues.create(createInput);
+    const revised = issues.create(Object.freeze({
+      ...createInput,
+      question: `${createInput.question} Also test postponement.`,
+    }));
+    expect(issue).toMatchObject({
+      schemaVersion: "pmh.search-issue.v2",
+      issueId: replay.issueId,
+      familyDefinition: {
+        semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+        maxCorpusListings: 3,
+      },
+      candidatePolicy: {
+        minimumListingRefCount: 2,
+        maximumListingRefCount: 3,
+        maxCorpusListings: 3,
+        candidateSelection: "MODEL_HYPOTHESIS",
+      },
+    });
+    expect(revised.issueId).not.toBe(issue.issueId);
+
+    const checkpoint = await issues.runNow(issue.issueId, wideSnapshot).promise;
+    const completed = await leases.awaitDeep(checkpoint.lease.leaseId);
+    expect(observedQuestion).toContain("Semantic family TEMPORAL_IMPOSSIBILITY");
+    expect(observedQuestion).toContain("Try to falsify first");
+    expect(completed).toMatchObject({
+      status: "PASS",
+      fastLane: { candidateListingRefs: selectedRefs },
+      deepLane: { status: "PASS", proposalIds: [hashCanonical({ proposal: "family" })] },
+      outcome: { proposalCount: 1 },
+    });
+    expect(runDeep).toHaveBeenCalledTimes(1);
+    expect(issues.projection().performance.byFamily).toContainEqual(expect.objectContaining({
+      semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+      issueCount: 2,
+      terminalLeaseCount: 1,
+      proposalCount: 1,
+      providerRequestAttemptCount: 1,
+    }));
+  });
+
+  it("enforces a per-family concurrency budget without blocking another family", async () => {
+    const pending: Array<{ task: DiscoveryTask; resolve: (record: DiscoveryRunRecord) => void }> = [];
+    const leases = new SearchLeaseScheduler({
+      context,
+      maxPiInvocations: 0,
+      concurrencyLimit: 3,
+      runFast: (task) => new Promise<DiscoveryRunRecord>((resolve) => {
+        pending.push({ task, resolve });
+      }),
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      seedDefaults: false,
+      tickIntervalMs: 1_000,
+      concurrencyLimit: 3,
+      familyConcurrencyLimit: 1,
+      now: () => nowMs,
+    });
+    const familyInput = (
+      semanticFamily: "TEMPORAL_IMPOSSIBILITY" | "EVENT_CONTAINMENT",
+      title: string,
+    ) => Object.freeze({
+      title,
+      question: `Search ${title} and try to falsify it.`,
+      lens: "IMPLICATION" as const,
+      cadenceMs: 300_000,
+      priority: 5 as const,
+      family: Object.freeze({
+        semanticFamily,
+        intendedRelationKinds: Object.freeze(["CONDITIONAL"] as const),
+        falsifiers: Object.freeze(["the apparent relationship has a valid counterexample"]),
+        expectedListingCount: Object.freeze({ minimum: 2 as const, maximum: 2 as const }),
+        maxCorpusListings: 2,
+        acceptablePremiseKinds: Object.freeze(["CAUSAL_HYPOTHESIS"] as const),
+      }),
+    });
+    const temporalA = issues.create(familyInput("TEMPORAL_IMPOSSIBILITY", "temporal A"));
+    const temporalB = issues.create(familyInput("TEMPORAL_IMPOSSIBILITY", "temporal B"));
+    const containment = issues.create(familyInput("EVENT_CONTAINMENT", "containment"));
+
+    const runs = issues.tick(snapshot("family-concurrency"));
+    expect(runs).toHaveLength(2);
+    expect(pending).toHaveLength(2);
+    const activeIssueIds = new Set(leases.projection().records
+      .filter((record) => record.status === "ISSUED")
+      .map((record) => record.lease.issueId));
+    expect(activeIssueIds.has(containment.issueId)).toBe(true);
+    expect(Number(activeIssueIds.has(temporalA.issueId)) +
+      Number(activeIssueIds.has(temporalB.issueId))).toBe(1);
+    expect(issues.projection()).toMatchObject({
+      activeCount: 2,
+      concurrencyLimit: 3,
+      familyConcurrencyLimit: 1,
+    });
+    for (const item of pending) item.resolve(runRecord(item.task));
+    await Promise.all(runs);
+  });
+
   it("counts degraded productive scans and omitted venues separately", async () => {
     const leases = new SearchLeaseScheduler({
       context: (question) => Object.freeze({
@@ -366,8 +556,8 @@ describe("issue-driven concurrent search scheduler", () => {
     const runs = issues.tick(snapshot());
     expect(runs).toHaveLength(3);
     expect(issues.projection()).toMatchObject({
-      issueCount: 5,
-      enabledIssueCount: 5,
+      issueCount: 10,
+      enabledIssueCount: 10,
       activeCount: 3,
       concurrencyLimit: 3,
     });
@@ -432,7 +622,7 @@ describe("issue-driven concurrent search scheduler", () => {
       piEscalationRateBps: 3_333,
       economicGatePositiveRateBps: 0,
     });
-    expect(completed.performance.byIssue).toHaveLength(5);
+    expect(completed.performance.byIssue).toHaveLength(10);
     expect(completed.performance.byIssue.reduce(
       (sum, item) => sum + item.terminalLeaseCount,
       0,
@@ -467,7 +657,7 @@ describe("issue-driven concurrent search scheduler", () => {
       now: () => nowMs + 1_000,
     });
     expect(restored.projection()).toMatchObject({
-      issueCount: 5,
+      issueCount: 10,
       unreadNotificationCount: 1,
       performance: { terminalLeaseCount: 3, duplicateCount: 1 },
     });
@@ -795,8 +985,8 @@ describe("issue-driven concurrent search scheduler", () => {
         store: secondStore,
       });
       expect(restored.projection()).toMatchObject({
-        issueCount: 6,
-        enabledIssueCount: 5,
+        issueCount: 11,
+        enabledIssueCount: 10,
         storage: { issues: { durable: true, schemaVersion: 23 } },
       });
       expect(restored.projection().issues.find((issue) => issue.issueId === created.issueId))
@@ -822,8 +1012,8 @@ describe("issue-driven concurrent search scheduler", () => {
         store: secondStore,
       });
       expect(restarted.projection()).toMatchObject({
-        issueCount: 6,
-        enabledIssueCount: 4,
+        issueCount: 11,
+        enabledIssueCount: 9,
       });
       expect(restarted.projection().issues.find((issue) => issue.issueId === focusedDefault.issueId))
         .toMatchObject({

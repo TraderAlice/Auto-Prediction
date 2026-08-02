@@ -199,6 +199,22 @@ build pass. In-app Studio QA at the default viewport and a temporary 390 px
 viewport shows the attributed retained job and research notification with no
 console errors or horizontal overflow (`375 == 375` measured content width).
 
+The semantic-family campaign is now active locally. Five immutable v2 search
+issue families bind their intended relations, falsifiers, 2–4 listing range,
+premise policy, and bounded corpus into content-addressed definitions. The
+scheduler limits same-family concurrency without blocking unrelated work; both
+provider effort and the complete review-to-certificate funnel are attributed by
+family. Payoff v4 binds source issue and family lineage into exact replay, and
+the three-market temporal fixture proves that removing the lineage fails
+closed. Studio exposes family scope, falsification prompts, budgets, and yield;
+narrow-viewport QA caught and fixed a wrapped family label. Initial anonymous
+scans exercised all five families and mostly abstained, while physical
+co-occurrence found one novel fast candidate but no qualified deep proposal at
+the observation point. Remaining gates include one retained example per family,
+restart/retry/disable budget qualification, obsolete-default supersession,
+family-specific retrieval, and projection compaction/pagination before the
+multi-megabyte retained state becomes a durable operator bottleneck.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

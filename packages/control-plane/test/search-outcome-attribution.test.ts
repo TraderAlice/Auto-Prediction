@@ -37,7 +37,16 @@ function lease(
 
 function input(): SearchOutcomeAttributionInput {
   return Object.freeze({
-    issues: Object.freeze([{ issueId: issueA }, { issueId: issueB }]),
+    issues: Object.freeze([
+      Object.freeze({
+        issueId: issueA,
+        familyDefinition: Object.freeze({ semanticFamily: "TEMPORAL_IMPOSSIBILITY" as const }),
+      }),
+      Object.freeze({
+        issueId: issueB,
+        familyDefinition: Object.freeze({ semanticFamily: "PHYSICAL_CO_OCCURRENCE" as const }),
+      }),
+    ]),
     searchLeases: Object.freeze([
       lease("a", issueA, [p1, p2, p5, "invalid-proposal-reference"]),
       lease("b", issueB, [p2, p3]),
@@ -115,11 +124,14 @@ describe("search outcome attribution", () => {
       measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
       sourceArtifactCount: 17,
       issueCount: 2,
+      familyCount: 2,
+      unclassifiedIssueCount: 0,
       attributedLeaseCount: 3,
       attributedProposalCount: 4,
       totalAiProposalCount: 4,
       unattributedAiProposalCount: 1,
       multiIssueProposalCount: 1,
+      multiFamilyProposalCount: 1,
       invalidProposalReferenceCount: 1,
       lifecycleMissingCount: 1,
       attributionCoverageBps: 7_500,
@@ -183,6 +195,22 @@ describe("search outcome attribution", () => {
       pendingReviewCount: 1,
       operatorAcceptanceRateBps: 0,
     });
+    expect(projection.byFamily).toEqual([
+      expect.objectContaining({
+        semanticFamily: "PHYSICAL_CO_OCCURRENCE",
+        issueCount: 1,
+        leaseCount: 1,
+        proposalCount: 2,
+        reviewedCount: 1,
+      }),
+      expect.objectContaining({
+        semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+        issueCount: 1,
+        leaseCount: 2,
+        proposalCount: 3,
+        certifiedCount: 1,
+      }),
+    ]);
   });
 
   it("is content-addressed and independent of input ordering", () => {
@@ -258,6 +286,7 @@ describe("search outcome attribution", () => {
       materializations: [],
     });
     expect(projection.attributedProposalCount).toBe(0);
+    expect(projection.familyCount).toBe(0);
     expect(projection.attributionCoverageBps).toBeNull();
     expect(projection.stages.every((stage) => stage.count === 0)).toBe(true);
     expect(projection.effects.valueMovingActions).toBe(false);

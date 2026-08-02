@@ -824,8 +824,8 @@ describe("control-plane HTTP surface", () => {
     const initial = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
       response.json())) as StudioProjection;
     expect(initial.ai.searchIssueScheduler).toMatchObject({
-      issueCount: 5,
-      enabledIssueCount: 5,
+      issueCount: 10,
+      enabledIssueCount: 10,
       activeCount: 0,
       concurrencyLimit: 3,
       semanticDecisionAuthority: false,
@@ -873,8 +873,8 @@ describe("control-plane HTTP surface", () => {
     const finalProjection = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
       response.json())) as StudioProjection;
     expect(finalProjection.ai.searchIssueScheduler).toMatchObject({
-      issueCount: 6,
-      enabledIssueCount: 5,
+      issueCount: 11,
+      enabledIssueCount: 10,
     });
     expect(finalProjection.ai.searchIssueScheduler.issues.find(
       (issue) => issue.issueId === created.issueId,
@@ -2462,7 +2462,20 @@ describe("control-plane HTTP surface", () => {
     });
     const reader = eventResponse.body?.getReader();
     if (reader === undefined) throw new Error("event stream has no body");
-    await reader.read();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    const readEvent = async (): Promise<string> => {
+      while (!buffered.includes("\n\n")) {
+        const next = await reader.read();
+        if (next.done) throw new Error("event stream ended before a complete event");
+        buffered += decoder.decode(next.value, { stream: true });
+      }
+      const boundary = buffered.indexOf("\n\n");
+      const event = buffered.slice(0, boundary);
+      buffered = buffered.slice(boundary + 2);
+      return event;
+    };
+    await readEvent();
 
     await fetch(`${baseUrl}/api/v1/discovery/runs`, {
       method: "POST",
@@ -2472,11 +2485,9 @@ describe("control-plane HTTP surface", () => {
         venueIds: ["kalshi", "polymarket-global"],
       }),
     });
-    const decoder = new TextDecoder();
     let events = "";
     for (let index = 0; index < 4 && !events.includes('"runCount":1'); index += 1) {
-      const chunk = await reader.read();
-      events += decoder.decode(chunk.value);
+      events += await readEvent();
     }
     expect(events).toContain('"activeRuns":1');
     expect(events).toContain('"runCount":1');

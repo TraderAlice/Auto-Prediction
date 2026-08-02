@@ -249,11 +249,12 @@ describe("Agent-native hidden premise analysis", () => {
       now: () => now,
     });
     const evidenceBundle = buildProposalEvidenceBundle(proposal, snapshot);
+    const temporalIssueId = hashCanonical({ issue: "three-market-conditional" });
     const reviewCandidate = Object.freeze({
       proposal,
       proposalCorpusSnapshotIdentity: snapshot.snapshotIdentity,
       evidenceBundle,
-      issueIds: Object.freeze([hashCanonical({ issue: "three-market-conditional" })]),
+      issueIds: Object.freeze([temporalIssueId]),
       priority: 5 as const,
     });
     await Promise.all(reviewScheduler.tick([reviewCandidate], snapshot));
@@ -325,12 +326,29 @@ describe("Agent-native hidden premise analysis", () => {
         decisionId: hashCanonical(decisionBody),
       }),
       premiseAnalysis,
+      sourceAttribution: Object.freeze({
+        issueIds: reviewJob.issueIds,
+        semanticFamilies: Object.freeze(["TEMPORAL_IMPOSSIBILITY"] as const),
+      }),
     });
     expect(payoff).toMatchObject({
-      schemaVersion: "pmh.research-relation-payoff.v3",
+      schemaVersion: "pmh.research-relation-payoff.v4",
       status: "SIMULATION_TEMPLATE_READY",
       premiseBearingRelationArtifactHash: premiseAnalysis.relation.artifactHash,
+      sourceAttribution: {
+        issueIds: [temporalIssueId],
+        semanticFamilies: ["TEMPORAL_IMPOSSIBILITY"],
+      },
     });
+    expect(premiseScheduler.projection().jobs[0]).toMatchObject({
+      issueIds: [temporalIssueId],
+      semanticReviewJobId: reviewJob.jobId,
+    });
+    const { artifactHash: _payoffHash, sourceAttribution: _source, ...withoutSource } = payoff;
+    expect(() => assertResearchRelationPayoff({
+      ...withoutSource,
+      artifactHash: hashCanonical(withoutSource),
+    })).toThrow(/source attribution/);
     expect(payoff.canonicalStates).toHaveLength(6);
     expect(payoff.portfolios).toHaveLength(1);
     now += 1_000;

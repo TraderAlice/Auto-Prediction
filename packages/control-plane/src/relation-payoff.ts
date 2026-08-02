@@ -22,6 +22,7 @@ import {
   type PremiseAnalysisArtifact,
   type PremiseAnalysisRecord,
 } from "./premise-analysis.js";
+import type { SearchSemanticFamily } from "./search-issue-scheduler.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 export const COMPILABLE_RELATIONS = Object.freeze([
@@ -71,11 +72,13 @@ export type ResearchRelationPayoffQualification = Readonly<{
   schemaVersion:
     | "pmh.research-relation-payoff.v1"
     | "pmh.research-relation-payoff.v2"
-    | "pmh.research-relation-payoff.v3";
+    | "pmh.research-relation-payoff.v3"
+    | "pmh.research-relation-payoff.v4";
   semanticConstraintArtifactHash?: Hash;
   semanticConstraint?: SemanticConstraintArtifact;
   premiseBearingRelationArtifactHash?: Hash;
   premiseAnalysis?: PremiseAnalysisArtifact;
+  sourceAttribution?: RelationPayoffSourceAttribution;
   artifactHash: Hash;
   opportunityId: string;
   proposalId: Hash;
@@ -109,6 +112,18 @@ export type ResearchRelationPayoffQualification = Readonly<{
   }>;
 }>;
 
+export type RelationPayoffSourceAttribution = Readonly<{
+  schemaVersion: "pmh.relation-payoff-source-attribution.v1";
+  issueIds: readonly Hash[];
+  semanticFamilies: readonly SearchSemanticFamily[];
+  attributionIdentity: Hash;
+}>;
+
+export type RelationPayoffSourceAttributionInput = Readonly<{
+  issueIds: readonly Hash[];
+  semanticFamilies: readonly SearchSemanticFamily[];
+}>;
+
 export type RelationPayoffProjection = Readonly<{
   schemaVersion: "pmh.relation-payoff-desk.v1";
   qualificationCount: number;
@@ -136,6 +151,65 @@ function boundedText(value: unknown, maximum: number): value is string {
 
 function exactKeys(value: object, expected: readonly string[]): boolean {
   return Object.keys(value).sort().join("\n") === [...expected].sort().join("\n");
+}
+
+const PAYOFF_SEARCH_FAMILIES = Object.freeze([
+  "TEMPORAL_IMPOSSIBILITY",
+  "EVENT_CONTAINMENT",
+  "PARTITION_COMPLETENESS",
+  "IDENTITY_SUCCESSION",
+  "PHYSICAL_CO_OCCURRENCE",
+] as const satisfies readonly SearchSemanticFamily[]);
+
+function buildPayoffSourceAttribution(
+  input: RelationPayoffSourceAttributionInput,
+): RelationPayoffSourceAttribution {
+  const body = Object.freeze({
+    schemaVersion: "pmh.relation-payoff-source-attribution.v1" as const,
+    issueIds: Object.freeze([...new Set(input.issueIds)].sort()),
+    semanticFamilies: Object.freeze([...new Set(input.semanticFamilies)].sort()),
+  });
+  const attribution = Object.freeze({
+    ...body,
+    attributionIdentity: hashCanonical(body),
+  });
+  if (
+    attribution.issueIds.length < 1 || attribution.issueIds.length > 20 ||
+    attribution.issueIds.some((issueId) => !HASH_PATTERN.test(issueId)) ||
+    attribution.semanticFamilies.length > PAYOFF_SEARCH_FAMILIES.length ||
+    attribution.semanticFamilies.some((family) => !PAYOFF_SEARCH_FAMILIES.includes(family))
+  ) throw new Error("relation payoff source attribution is malformed or unbounded");
+  return attribution;
+}
+
+function assertPayoffSourceAttribution(
+  value: unknown,
+): RelationPayoffSourceAttribution {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("relation payoff source attribution is malformed");
+  }
+  const attribution = value as RelationPayoffSourceAttribution;
+  const { attributionIdentity, ...body } = attribution;
+  if (
+    !exactKeys(attribution, [
+      "attributionIdentity", "issueIds", "schemaVersion", "semanticFamilies",
+    ]) ||
+    attribution.schemaVersion !== "pmh.relation-payoff-source-attribution.v1" ||
+    !Array.isArray(attribution.issueIds) || attribution.issueIds.length < 1 ||
+    attribution.issueIds.length > 20 ||
+    attribution.issueIds.some((issueId) => !HASH_PATTERN.test(String(issueId))) ||
+    [...attribution.issueIds].sort().join("\n") !== attribution.issueIds.join("\n") ||
+    new Set(attribution.issueIds).size !== attribution.issueIds.length ||
+    !Array.isArray(attribution.semanticFamilies) ||
+    attribution.semanticFamilies.length > PAYOFF_SEARCH_FAMILIES.length ||
+    attribution.semanticFamilies.some((family) => !PAYOFF_SEARCH_FAMILIES.includes(family)) ||
+    [...attribution.semanticFamilies].sort().join("\n") !==
+      attribution.semanticFamilies.join("\n") ||
+    new Set(attribution.semanticFamilies).size !== attribution.semanticFamilies.length ||
+    !HASH_PATTERN.test(String(attributionIdentity)) ||
+    attributionIdentity !== hashCanonical(body)
+  ) throw new Error("relation payoff source attribution violates its bounded contract");
+  return Object.freeze(attribution);
 }
 
 function allowedTruths(
@@ -338,6 +412,7 @@ function compileReadyBody(input: {
   relation: MarketRelationKind;
   constraint: SemanticConstraintArtifact;
   premiseAnalysis?: PremiseAnalysisArtifact;
+  sourceAttribution?: RelationPayoffSourceAttributionInput;
 }): Omit<ResearchRelationPayoffQualification, "artifactHash"> {
   const report = input.review.report!;
   const evidenceByRef = new Map(
@@ -444,7 +519,10 @@ function compileReadyBody(input: {
     throw new Error("compiled relation portfolio does not preserve one payout unit");
   }
   return Object.freeze({
-    schemaVersion: "pmh.research-relation-payoff.v3" as const,
+    schemaVersion: (input.sourceAttribution === undefined
+      ? "pmh.research-relation-payoff.v3"
+      : "pmh.research-relation-payoff.v4") as
+        "pmh.research-relation-payoff.v3" | "pmh.research-relation-payoff.v4",
     semanticConstraintArtifactHash: input.constraint.artifactHash,
     semanticConstraint: input.constraint,
     ...(input.premiseAnalysis === undefined
@@ -453,6 +531,9 @@ function compileReadyBody(input: {
           premiseBearingRelationArtifactHash: input.premiseAnalysis.relation.artifactHash,
           premiseAnalysis: input.premiseAnalysis,
         }),
+    ...(input.sourceAttribution === undefined
+      ? {}
+      : { sourceAttribution: buildPayoffSourceAttribution(input.sourceAttribution) }),
     opportunityId: input.opportunityId,
     proposalId: input.proposal.proposalId,
     semanticReviewArtifactHash: report.artifactHash,
@@ -512,6 +593,7 @@ export function compileResearchRelationPayoff(input: {
   review: SemanticReviewRecord;
   decision: ResearchSemanticDecision;
   premiseAnalysis?: PremiseAnalysisArtifact;
+  sourceAttribution?: RelationPayoffSourceAttributionInput;
 }): ResearchRelationPayoffQualification {
   const review = assertSemanticReviewRecord(input.review);
   const decision = assertResearchSemanticDecision(input.decision);
@@ -568,11 +650,14 @@ export function assertResearchRelationPayoff(
   const { artifactHash, ...body } = artifact;
   const ready = artifact.status === "SIMULATION_TEMPLATE_READY";
   const v3 = artifact.schemaVersion === "pmh.research-relation-payoff.v3";
+  const v4 = artifact.schemaVersion === "pmh.research-relation-payoff.v4";
+  const multiListing = v3 || v4;
   if (
     ![
       "pmh.research-relation-payoff.v1",
       "pmh.research-relation-payoff.v2",
       "pmh.research-relation-payoff.v3",
+      "pmh.research-relation-payoff.v4",
     ]
       .includes(artifact.schemaVersion) ||
     !HASH_PATTERN.test(artifactHash) ||
@@ -595,7 +680,7 @@ export function assertResearchRelationPayoff(
     artifact.effects.liveExecutionEnabled !== false ||
     (ready ? artifact.diagnostic !== null : !boundedText(artifact.diagnostic, 500)) ||
     (ready
-      ? (v3
+      ? (multiListing
           ? artifact.listingBindings.length < 2 || artifact.listingBindings.length > 4 ||
             artifact.canonicalStates.length < 1 ||
             artifact.canonicalStates.length >= 2 ** artifact.listingBindings.length ||
@@ -617,7 +702,11 @@ export function assertResearchRelationPayoff(
     throw new Error("research relation payoff qualification violates its contract");
   }
   if (
-    ["pmh.research-relation-payoff.v2", "pmh.research-relation-payoff.v3"]
+    [
+      "pmh.research-relation-payoff.v2",
+      "pmh.research-relation-payoff.v3",
+      "pmh.research-relation-payoff.v4",
+    ]
       .includes(artifact.schemaVersion) &&
     (!HASH_PATTERN.test(String(artifact.semanticConstraintArtifactHash)) ||
       artifact.portfolios.some((portfolio) =>
@@ -628,7 +717,7 @@ export function assertResearchRelationPayoff(
         )
       ))
   ) throw new Error("research relation payoff v2 violates bigint serialization");
-  if (v3 && ready) {
+  if (multiListing && ready) {
     const expectedTopLevelKeys = [
       "artifactHash", "authority", "canonicalStates", "certificateAuthority", "diagnostic",
       "effects", "executionAuthority", "listingBindings", "opportunityId", "portfolios",
@@ -638,13 +727,20 @@ export function assertResearchRelationPayoff(
       ...(artifact.premiseAnalysis === undefined
         ? []
         : ["premiseAnalysis", "premiseBearingRelationArtifactHash"]),
+      ...(v4 ? ["sourceAttribution"] : []),
     ];
     if (
       !exactKeys(artifact, expectedTopLevelKeys) ||
       !exactKeys(artifact.effects, [
         "externalWrites", "liveExecutionEnabled", "valueMovingActions",
       ])
-    ) throw new Error("research relation payoff v3 contains extended data");
+    ) throw new Error("research relation payoff v3/v4 contains extended data or missing source attribution");
+    if (
+      v4
+        ? artifact.sourceAttribution === undefined
+        : artifact.sourceAttribution !== undefined
+    ) throw new Error("research relation payoff source attribution version is inconsistent");
+    if (v4) assertPayoffSourceAttribution(artifact.sourceAttribution);
     const semanticConstraint = assertSemanticConstraintArtifact(artifact.semanticConstraint);
     const refs = artifact.listingBindings.map((binding, position) => {
       if (
@@ -777,6 +873,7 @@ export function buildRelationPayoffProjection(
     review: SemanticReviewRecord;
     decision: ResearchSemanticDecision;
     premiseAnalysis?: PremiseAnalysisArtifact;
+    sourceAttribution?: RelationPayoffSourceAttributionInput;
   }>[],
   sourceDecisionCount = inputs.length,
 ): RelationPayoffProjection {
@@ -812,6 +909,11 @@ export function deriveRelationPayoffProjection(input: {
   semanticReviews: readonly SemanticReviewRecord[];
   semanticDecisions: readonly ResearchSemanticDecision[];
   premiseAnalyses?: readonly PremiseAnalysisRecord[];
+  proposalAttributions?: readonly Readonly<{
+    proposalId: Hash;
+    issueIds: readonly Hash[];
+    semanticFamilies: readonly SearchSemanticFamily[];
+  }>[];
 }): RelationPayoffProjection {
   const accepted = input.semanticDecisions.filter(
     (decision) => decision.decision === "ACCEPT_FOR_SIMULATION",
@@ -834,6 +936,9 @@ export function deriveRelationPayoffProjection(input: {
       item.status === "PASS" && item.analysis !== null &&
       item.semanticReviewArtifactHash === decision.semanticReviewArtifactHash
     )?.analysis ?? undefined;
+    const sourceAttribution = input.proposalAttributions?.find(
+      (item) => item.proposalId === proposalId,
+    );
     return proposal === undefined || review === undefined
       ? []
       : [{
@@ -842,6 +947,12 @@ export function deriveRelationPayoffProjection(input: {
           review,
           decision,
           ...(premiseAnalysis === undefined ? {} : { premiseAnalysis }),
+          ...(sourceAttribution === undefined
+            ? {}
+            : { sourceAttribution: {
+              issueIds: sourceAttribution.issueIds,
+              semanticFamilies: sourceAttribution.semanticFamilies,
+            } }),
         }];
   });
   return buildRelationPayoffProjection(compilableInputs, accepted.length);

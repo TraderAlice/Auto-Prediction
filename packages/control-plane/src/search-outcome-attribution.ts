@@ -1,5 +1,6 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { OpportunityLifecycleState } from "@pmh/execution";
+import type { SearchSemanticFamily } from "./search-issue-scheduler.js";
 
 export const SEARCH_OUTCOME_STAGES = Object.freeze([
   "PROPOSED",
@@ -15,7 +16,10 @@ const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 export type SearchOutcomeStage = (typeof SEARCH_OUTCOME_STAGES)[number];
 
-type IssueSource = Readonly<{ issueId: Hash }>;
+type IssueSource = Readonly<{
+  issueId: Hash;
+  familyDefinition?: Readonly<{ semanticFamily: SearchSemanticFamily }>;
+}>;
 
 type LeaseSource = Readonly<{
   artifactHash: Hash;
@@ -137,18 +141,46 @@ export type SearchOutcomeIssueAttribution = Readonly<{
   operatorAcceptanceRateBps: number | null;
 }>;
 
+export type SearchOutcomeFamilyAttribution = Readonly<{
+  semanticFamily: SearchSemanticFamily;
+  issueCount: number;
+  leaseCount: number;
+  proposalCount: number;
+  reviewedCount: number;
+  operatorAcceptedCount: number;
+  operatorRejectedCount: number;
+  positiveGrossHintCount: number;
+  nonPositiveGrossHintCount: number;
+  economicUnavailableCount: number;
+  materializedReadyCount: number;
+  positiveSimulationCount: number;
+  certifiedCount: number;
+  shadowObservedCount: number;
+  pendingReviewCount: number;
+  pendingOperatorDecisionCount: number;
+  materializationBlockedCount: number;
+  simulationBlockedCount: number;
+  exactRejectedCount: number;
+  shadowDivergedCount: number;
+  missingEvidenceCount: number;
+  operatorAcceptanceRateBps: number | null;
+}>;
+
 export type SearchOutcomeAttributionProjection = Readonly<{
-  schemaVersion: "pmh.search-outcome-attribution.v1";
+  schemaVersion: "pmh.search-outcome-attribution.v2";
   attributionIdentity: Hash;
   sourceSetIdentity: Hash;
   sourceArtifactCount: number;
   measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES";
   issueCount: number;
+  familyCount: number;
+  unclassifiedIssueCount: number;
   attributedLeaseCount: number;
   attributedProposalCount: number;
   totalAiProposalCount: number;
   unattributedAiProposalCount: number;
   multiIssueProposalCount: number;
+  multiFamilyProposalCount: number;
   invalidProposalReferenceCount: number;
   lifecycleMissingCount: number;
   attributionCoverageBps: number | null;
@@ -172,6 +204,7 @@ export type SearchOutcomeAttributionProjection = Readonly<{
     missingEvidenceCount: number;
   }>;
   byIssue: readonly SearchOutcomeIssueAttribution[];
+  byFamily: readonly SearchOutcomeFamilyAttribution[];
   modelConfidenceUsed: false;
   authority: "DERIVED_RESEARCH_EVIDENCE_ONLY";
   semanticDecisionAuthority: false;
@@ -400,6 +433,12 @@ export function buildSearchOutcomeAttribution(
   input: SearchOutcomeAttributionInput,
 ): SearchOutcomeAttributionProjection {
   const issueIds = new Set(input.issues.map((issue) => issue.issueId));
+  const familyByIssue = new Map(input.issues.flatMap((issue) =>
+    issue.familyDefinition === undefined
+      ? []
+      : [[issue.issueId, issue.familyDefinition.semanticFamily] as const]
+  ));
+  const semanticFamilies = new Set(familyByIssue.values());
   const leases = input.searchLeases.filter(
     (record) => record.lease.issueId !== null && record.lease.issueId !== undefined &&
       issueIds.has(record.lease.issueId),
@@ -433,6 +472,15 @@ export function buildSearchOutcomeAttribution(
       const attribution = proposalIssues.get(job.proposalId) ?? new Set<Hash>();
       attribution.add(issueId);
       proposalIssues.set(job.proposalId, attribution);
+    }
+  }
+  const proposalsByFamily = new Map<SearchSemanticFamily, Set<Hash>>(
+    [...semanticFamilies].map((family) => [family, new Set<Hash>()]),
+  );
+  for (const [proposalId, attributedIssues] of proposalIssues) {
+    for (const issueId of attributedIssues) {
+      const family = familyByIssue.get(issueId);
+      if (family !== undefined) proposalsByFamily.get(family)!.add(proposalId);
     }
   }
   const attributedProposalIds = new Set(proposalIssues.keys());
@@ -495,6 +543,23 @@ export function buildSearchOutcomeAttribution(
     leases.filter((record) => record.lease.issueId === issueId).length,
     evaluate(proposalsByIssue.get(issueId) ?? new Set<Hash>(), context),
   )));
+  const byFamily = Object.freeze([...semanticFamilies].sort().map((semanticFamily) => {
+    const familyIssueIds = new Set([...familyByIssue.entries()].flatMap(([issueId, family]) =>
+      family === semanticFamily ? [issueId] : []
+    ));
+    const summary = issueSummary(
+      [...familyIssueIds].sort()[0] ?? hashCanonical({ semanticFamily }),
+      leases.filter((record) => record.lease.issueId !== null &&
+        record.lease.issueId !== undefined && familyIssueIds.has(record.lease.issueId)).length,
+      evaluate(proposalsByFamily.get(semanticFamily) ?? new Set<Hash>(), context),
+    );
+    const { issueId: _issueId, ...metrics } = summary;
+    return Object.freeze({
+      semanticFamily,
+      issueCount: familyIssueIds.size,
+      ...metrics,
+    });
+  }));
   const attributedOpportunityIds = new Set(
     [...attributedProposalIds].map(opportunityId),
   );
@@ -554,12 +619,22 @@ export function buildSearchOutcomeAttribution(
     nonPositiveGrossHintCount: overall.nonPositiveGrossHint.size,
     unavailableOrUnsupportedCount: overall.economicUnavailable.size,
   });
+  const issueDefinitionSetIdentity = hashCanonical([...input.issues]
+    .map((issue) => Object.freeze({
+      issueId: issue.issueId,
+      semanticFamily: issue.familyDefinition?.semanticFamily ?? null,
+    }))
+    .sort((left, right) => left.issueId.localeCompare(right.issueId)));
   const body = Object.freeze({
-    schemaVersion: "pmh.search-outcome-attribution.v1" as const,
-    sourceSetIdentity: hashCanonical(sourceArtifactHashes),
+    schemaVersion: "pmh.search-outcome-attribution.v2" as const,
+    sourceSetIdentity: hashCanonical({ sourceArtifactHashes, issueDefinitionSetIdentity }),
     sourceArtifactCount: sourceArtifactHashes.length,
     measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES" as const,
     issueCount: issueIds.size,
+    familyCount: semanticFamilies.size,
+    unclassifiedIssueCount: input.issues.filter(
+      (issue) => issue.familyDefinition === undefined,
+    ).length,
     attributedLeaseCount: leases.length,
     attributedProposalCount: attributedProposalIds.size,
     totalAiProposalCount: aiProposalIds.size,
@@ -568,6 +643,12 @@ export function buildSearchOutcomeAttribution(
     ).length,
     multiIssueProposalCount: [...proposalIssues.values()].filter(
       (attribution) => attribution.size > 1,
+    ).length,
+    multiFamilyProposalCount: [...proposalIssues.values()].filter((attribution) =>
+      new Set([...attribution].flatMap((issueId) => {
+        const family = familyByIssue.get(issueId);
+        return family === undefined ? [] : [family];
+      })).size > 1
     ).length,
     invalidProposalReferenceCount,
     lifecycleMissingCount: overall.lifecycleMissing.size,
@@ -579,6 +660,7 @@ export function buildSearchOutcomeAttribution(
     economics,
     bottlenecks,
     byIssue,
+    byFamily,
     modelConfidenceUsed: false as const,
     authority: "DERIVED_RESEARCH_EVIDENCE_ONLY" as const,
     semanticDecisionAuthority: false as const,
