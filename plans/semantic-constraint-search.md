@@ -1,6 +1,6 @@
 # Semantic constraint search and payoff compilation
 
-Status: active
+Status: implemented; PR #80 ready 2026-08-02
 
 Created: 2026-08-02
 
@@ -136,6 +136,6 @@ fund, or execution authority is introduced.
   assumptions, and unresolved evidence with no horizontal overflow or runtime
   console errors.
 
-## Remaining qualification
+## Publication
 
-- Publish the serial PR.
+- Commit `a23291a` is published in ready-for-review PR #80.

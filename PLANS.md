@@ -1,11 +1,10 @@
 # Plans
 
 The active construction plan is
-[`plans/semantic-constraint-search.md`](plans/semantic-constraint-search.md).
-It turns Agent-discovered meaning relationships into falsifiable joint
-settlement constraints and deterministic payoff inequalities, while keeping
-statistical dependence and textual relatedness outside exact-arbitrage
-authority.
+[`plans/rule-evidence-acquisition.md`](plans/rule-evidence-acquisition.md).
+It turns structured Agent evidence gaps into policy-constrained anonymous rule
+captures and enriched semantic scopes, so blocked candidates can reach a
+deterministic accept/reject decision without repeating discovery.
 
 ## Planning contract
 
@@ -47,9 +46,7 @@ pass. Desktop and 390 px Studio QA show separate fast/deep health, retry counts,
 attempt budgets, and preserved results without horizontal overflow or browser
 warnings.
 
-The next measured capability gap is semantic constraint proof. The Agent can
-already find equivalence, implication, and partition candidates, but a relation
-label is still too coarse to prove arbitrage. The active branch now persists
+The semantic-constraint campaign now persists
 explicit feasible joint states, rule-bound counterexample attempts, and
 matrix-derived bigint payoff/price inequalities. Both Pi and AI SDK paths emit
 bounded tool effects instead of whole-response schemas. The “August shooting /
@@ -58,8 +55,18 @@ both outcomes; an explicit-fatality variant compiles, while fee and depth tests
 still determine whether its quoted portfolio has a positive gross floor. Live
 DeepSeek runs now prove both tool-effect paths, Pi terminal-effect shutdown, and
 SQLite restoration of the v2 report. Studio qualification at 1280 px and 390 px
-shows the semantic proof without horizontal overflow or runtime errors. The
-remaining checkpoint is serial PR publication.
+shows the semantic proof without horizontal overflow or runtime errors. Commit
+`a23291a` is published in ready-for-review PR #80.
+
+The next measured capability gap is official rule evidence. In the latest
+retained 947-listing corpus, 387 listings have no inline `rulesText`: all 347
+Gemini, 20 Myriad, and 20 Polymarket Global listings. Sixteen semantic-review
+jobs are `BLOCKED_EVIDENCE`. Those adapters already expose some rule locators at
+the protocol layer, but the discovery projection drops them before MarketFS or
+semantic review. The active plan preserves those locators, adds a bounded
+anonymous evidence-acquisition queue, and resumes review over a new immutable
+evidence-enriched scope. Implementation waits for #80 to merge so PRs remain
+serial.
 
 ## Deferred future campaigns
 
