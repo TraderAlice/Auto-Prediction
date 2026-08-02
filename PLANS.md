@@ -1,7 +1,8 @@
 # Plans
 
-`plans/polymarket-us-anonymous-materialization.md` is the active construction
-plan.
+There is no active construction plan. The next measured bottleneck should be
+promoted from the deferred list only after fresh runtime evidence defines a
+bounded campaign.
 
 ## Planning contract
 
@@ -125,14 +126,12 @@ The v17 live backfill maps 102 scoped jobs to 81 unique scopes and measures 17
 historical redundant passes. Repeated ticks keep the request counter at 114.
 Full checks, workspace tests, production build, desktop QA, and 390 px QA pass.
 
-The next deterministic bottleneck is exact anonymous venue coverage. The
-operator queue contains one decision-ready reviewed relation and zero exact
-adapter paths; that relation is a Polymarket US `IMPLIES` pair. Anonymous live
-GETs now reach both current books and market metadata. Official venue rules
-define the synthetic short mapping and theta taker-fee formula closely enough
-to construct a conservative, bigint-only fee upper bound for an exact FOK
-simulation. The active campaign qualifies that path without creating an order
-or requiring an account.
+Polymarket US anonymous exact materialization is merged and live in PR #68.
+Public YES offers and synthetic `1 - bid` NO asks now feed a raw-evidence-bound
+FOK simulation. The materializer binds current market side IDs, open state,
+tick and quantity increments, and uses the venue's cumulative banker's-rounded
+theta fee cap as a conservative request-specific bound. No account or trading
+host is involved.
 
 The live qualification now reports one exact adapter path. A non-persistent
 Atlanta smoke retained four anonymous raw sources, transformed 11 World Series
