@@ -84,6 +84,16 @@ import {
   type SemanticReviewSchedulerStore,
 } from "./semantic-review-scheduler.js";
 import {
+  createPremiseAnalysisDesk,
+  type PremiseAnalysisRecordStore,
+} from "./premise-analysis.js";
+import {
+  parsePremiseAnalysisTickInterval,
+  PremiseAnalysisScheduler,
+  type PremiseAnalysisCandidate,
+  type PremiseAnalysisSchedulerStore,
+} from "./premise-analysis-scheduler.js";
+import {
   EvidenceAcquisitionScheduler,
   parseEvidenceAcquisitionTickInterval,
   type EvidenceAcquisitionSchedulerStore,
@@ -414,6 +424,26 @@ function supportsSemanticReviewSchedulerRecords(
   );
 }
 
+function supportsPremiseAnalysisRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & PremiseAnalysisRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<PremiseAnalysisRecordStore>;
+  return candidate.premiseAnalysisStorage !== undefined &&
+    typeof candidate.loadPremiseAnalysisRecords === "function" &&
+    typeof candidate.savePremiseAnalysisRecord === "function";
+}
+
+function supportsPremiseAnalysisSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & PremiseAnalysisSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<PremiseAnalysisSchedulerStore>;
+  return candidate.premiseAnalysisJobStorage !== undefined &&
+    typeof candidate.loadPremiseAnalysisJobRecords === "function" &&
+    typeof candidate.savePremiseAnalysisJobRecord === "function";
+}
+
 function supportsEvidenceAcquisitionRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & EvidenceAcquisitionSchedulerStore {
@@ -524,6 +554,8 @@ export function createControlPlane(options?: {
   searchAttentionOutbox?: SearchAttentionOutbox;
   semanticReviewDesk?: SemanticReviewDesk;
   semanticReviewScheduler?: SemanticReviewScheduler;
+  premiseAnalysisDesk?: ReturnType<typeof createPremiseAnalysisDesk>;
+  premiseAnalysisScheduler?: PremiseAnalysisScheduler;
   evidenceAcquisitionScheduler?: EvidenceAcquisitionScheduler;
   ruleEvidenceClaimDesk?: ReturnType<typeof createRuleEvidenceClaimDesk>;
   ruleEvidenceClaimScheduler?: RuleEvidenceClaimScheduler;
@@ -765,6 +797,22 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const premiseAnalysisDesk = options?.premiseAnalysisDesk ??
+    createPremiseAnalysisDesk(process.env, {
+      ...(supportsPremiseAnalysisRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const premiseAnalysisScheduler = options?.premiseAnalysisScheduler ??
+    new PremiseAnalysisScheduler({
+      desk: premiseAnalysisDesk,
+      tickIntervalMs: parsePremiseAnalysisTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsPremiseAnalysisSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const evidenceAcquisitionScheduler =
     options?.evidenceAcquisitionScheduler ??
     new EvidenceAcquisitionScheduler({
@@ -818,6 +866,7 @@ export function createControlPlane(options?: {
       archaeologist,
       semanticReviews: semanticReviews.records,
       semanticDecisions: lifecycle.semanticDecisions,
+      premiseAnalyses: premiseAnalysisDesk.projection().records,
     });
     return buildSemanticRelationGraph({
       corpus: snapshot,
@@ -984,6 +1033,25 @@ export function createControlPlane(options?: {
       }),
     );
   };
+  const premiseAnalysisCandidates = (): readonly PremiseAnalysisCandidate[] => {
+    const proposals = new Map(
+      semanticReviewCandidates().map((candidate) =>
+        [candidate.proposal.proposalId, candidate.proposal] as const
+      ),
+    );
+    return Object.freeze(semanticReviewDesk.projection().records.flatMap((review) => {
+      const proposal = proposals.get(review.proposalId);
+      if (
+        proposal === undefined || review.status !== "PASS" || review.report === null ||
+        review.report.result.semanticConstraint === undefined ||
+        proposal.listingRefs.length < 2 || proposal.listingRefs.length > 4
+      ) return [];
+      return [Object.freeze({ proposal, review })];
+    }).sort((left, right) =>
+      left.review.completedAt!.localeCompare(right.review.completedAt!) ||
+      left.review.reviewId.localeCompare(right.review.reviewId)
+    ));
+  };
   const evidenceRequirements = (): readonly EvidenceRequirement[] => Object.freeze([
     ...marketArchaeologistDesk.projection().records.flatMap((record) =>
       record.status === "PASS" && record.report !== null
@@ -1047,9 +1115,12 @@ export function createControlPlane(options?: {
       semanticReviewCandidates(),
       semanticReviewProjection.records,
     );
+    premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
     evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
+    const premiseAnalysisProjection = premiseAnalysisDesk.projection();
+    const premiseAnalysisSchedulerProjection = premiseAnalysisScheduler.projection();
     const evidenceAcquisitionProjection = evidenceAcquisitionScheduler.projection();
     const ruleEvidenceClaimProjection = ruleEvidenceClaimScheduler.projection();
     const lifecycleProjection = opportunityLifecycleDesk.projection();
@@ -1060,6 +1131,7 @@ export function createControlPlane(options?: {
       archaeologist: archaeologistProjection,
       semanticReviews: semanticReviewProjection.records,
       semanticDecisions: lifecycleProjection.semanticDecisions,
+      premiseAnalyses: premiseAnalysisProjection.records,
     });
     const reviewAttention = buildReviewAttentionProjection({
       archaeologist: archaeologistProjection,
@@ -1106,6 +1178,8 @@ export function createControlPlane(options?: {
       semanticReview: semanticReviewProjection,
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
+      premiseAnalysis: premiseAnalysisProjection,
+      premiseAnalysisScheduler: premiseAnalysisSchedulerProjection,
       evidenceAcquisition: evidenceAcquisitionProjection,
       ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
@@ -1251,6 +1325,8 @@ export function createControlPlane(options?: {
         searchAttention: searchAttentionOutbox.projection(),
         semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
+        premiseAnalysis: premiseAnalysisDesk.projection(),
+        premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
         evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
         ruleEvidenceClaims: ruleEvidenceClaimScheduler.projection(),
         semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
@@ -1296,6 +1372,18 @@ export function createControlPlane(options?: {
         semanticReviewDesk.projection().records,
       );
       writeJson(response, 200, semanticReviewScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/premise-analysis"
+    ) {
+      await ready;
+      premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
+      writeJson(response, 200, Object.freeze({
+        desk: premiseAnalysisDesk.projection(),
+        scheduler: premiseAnalysisScheduler.projection(),
+      }));
       return;
     }
     if (
@@ -2475,6 +2563,7 @@ export function createControlPlane(options?: {
   let searchIssueTimer: ReturnType<typeof setInterval> | null = null;
   let searchAttentionTimer: ReturnType<typeof setInterval> | null = null;
   let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
+  let premiseAnalysisTimer: ReturnType<typeof setInterval> | null = null;
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -2584,6 +2673,24 @@ export function createControlPlane(options?: {
       semanticReviewTimer.unref();
     });
   }
+  const premiseAnalysisTickMs = premiseAnalysisScheduler.tickIntervalMs;
+  if (premiseAnalysisTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = premiseAnalysisScheduler.tick(premiseAnalysisCandidates());
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted premise-audit work.
+        }
+      };
+      tick();
+      premiseAnalysisTimer = setInterval(tick, premiseAnalysisTickMs);
+      premiseAnalysisTimer.unref();
+    });
+  }
   const evidenceAcquisitionTickMs = evidenceAcquisitionScheduler.tickIntervalMs;
   if (evidenceAcquisitionTickMs !== null) {
     void ready.then(() => {
@@ -2625,6 +2732,7 @@ export function createControlPlane(options?: {
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
     if (searchAttentionTimer !== null) clearInterval(searchAttentionTimer);
     if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
+    if (premiseAnalysisTimer !== null) clearInterval(premiseAnalysisTimer);
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
@@ -2649,6 +2757,8 @@ export function createControlPlane(options?: {
     searchAttentionOutbox,
     semanticReviewDesk,
     semanticReviewScheduler,
+    premiseAnalysisDesk,
+    premiseAnalysisScheduler,
     evidenceAcquisitionScheduler,
     ruleEvidenceClaimDesk,
     ruleEvidenceClaimScheduler,

@@ -42,6 +42,16 @@ import {
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
 import {
+  assertPremiseAnalysisRecord,
+  type PremiseAnalysisRecord,
+  type PremiseAnalysisRecordStore,
+} from "./premise-analysis.js";
+import {
+  assertPremiseAnalysisJobRecord,
+  type PremiseAnalysisJobRecord,
+  type PremiseAnalysisSchedulerStore,
+} from "./premise-analysis-scheduler.js";
+import {
   assertSemanticReviewJobRecord,
   assertSemanticReviewNotificationRecord,
   type SemanticReviewJobRecord,
@@ -117,7 +127,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 20;
+const SCHEMA_VERSION = 22;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -212,6 +222,21 @@ type SearchAttentionDeliveryRow = Readonly<{
 type SemanticReviewRow = Readonly<{
   review_id: string;
   opportunity_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type PremiseAnalysisRow = Readonly<{
+  analysis_id: string;
+  proposal_id: string;
+  semantic_review_artifact_hash: string;
+  evidence_scope_identity: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type PremiseAnalysisJobRow = Readonly<{
+  job_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -746,6 +771,56 @@ function parseSemanticReviewRecord(value: unknown): SemanticReviewRecord {
   return record;
 }
 
+function parsePremiseAnalysisRecord(value: unknown): PremiseAnalysisRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite premise analysis row is malformed");
+  }
+  const row = value as Partial<PremiseAnalysisRow>;
+  if (
+    typeof row.analysis_id !== "string" || typeof row.proposal_id !== "string" ||
+    typeof row.semantic_review_artifact_hash !== "string" ||
+    typeof row.evidence_scope_identity !== "string" ||
+    typeof row.record_json !== "string" || typeof row.record_hash !== "string"
+  ) throw new Error("SQLite premise analysis row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite premise analysis record contains invalid JSON");
+  }
+  const record = assertPremiseAnalysisRecord(decoded);
+  if (
+    record.status === "RUNNING" || record.analysisId !== row.analysis_id ||
+    record.proposalId !== row.proposal_id ||
+    record.semanticReviewArtifactHash !== row.semantic_review_artifact_hash ||
+    record.evidenceScopeIdentity !== row.evidence_scope_identity ||
+    hashCanonical(record) !== row.record_hash
+  ) throw new Error("SQLite premise analysis record identity mismatch");
+  return record;
+}
+
+function parsePremiseAnalysisJobRecord(value: unknown): PremiseAnalysisJobRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite premise analysis job row is malformed");
+  }
+  const row = value as Partial<PremiseAnalysisJobRow>;
+  if (
+    typeof row.job_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite premise analysis job row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite premise analysis job contains invalid JSON");
+  }
+  const record = assertPremiseAnalysisJobRecord(decoded);
+  if (record.jobId !== row.job_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite premise analysis job identity mismatch");
+  }
+  return record;
+}
+
 function parseSemanticReviewJobRecord(value: unknown): SemanticReviewJobRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite semantic review job row is malformed");
@@ -1093,6 +1168,8 @@ export class SqliteOperationalStore
     SearchIssueRecordStore,
     SearchAttentionStore,
     SemanticReviewRecordStore,
+    PremiseAnalysisRecordStore,
+    PremiseAnalysisSchedulerStore,
     SemanticReviewSchedulerStore,
     EvidenceAcquisitionSchedulerStore,
     RuleEvidenceClaimRecordStore,
@@ -1136,6 +1213,8 @@ export class SqliteOperationalStore
   public readonly searchAttentionMessageStorage: OperationalStorageProjection<"messageId">;
   public readonly searchAttentionDeliveryStorage: OperationalStorageProjection<"deliveryId">;
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
+  public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
+  public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewNotificationStorage: OperationalStorageProjection<"notificationId">;
   public readonly evidenceAcquisitionJobStorage: OperationalStorageProjection<"jobId">;
@@ -1266,6 +1345,18 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "reviewId",
     });
+    this.premiseAnalysisStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "analysisId",
+    });
+    this.premiseAnalysisJobStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "jobId",
+    });
     this.semanticReviewJobStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -1383,6 +1474,18 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'semantic_review_notifications'`,
       )
       .get() !== undefined;
+    const premiseAnalysisRecordTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'premise_analysis_records'`,
+      )
+      .get() !== undefined;
+    const premiseAnalysisJobTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'premise_analysis_jobs'`,
+      )
+      .get() !== undefined;
     const searchQuoteObservationTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -1439,6 +1542,8 @@ export class SqliteOperationalStore
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
       ruleEvidenceClaimJobTableExists && ruleEvidenceClaimRecordTableExists
+      && premiseAnalysisRecordTableExists
+      && premiseAnalysisJobTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -2166,6 +2271,58 @@ export class SqliteOperationalStore
             ON rule_evidence_claim_records (
               requirement_id, completed_at DESC, interpretation_id DESC
             );
+        `);
+      }
+      if (current < 21 || !premiseAnalysisRecordTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS premise_analysis_records (
+            analysis_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(analysis_id) = 71 AND analysis_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            proposal_id TEXT NOT NULL CHECK (
+              length(proposal_id) = 71 AND proposal_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_review_artifact_hash TEXT NOT NULL CHECK (
+              length(semantic_review_artifact_hash) = 71 AND
+              semantic_review_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            evidence_scope_identity TEXT NOT NULL CHECK (
+              length(evidence_scope_identity) = 71 AND
+              evidence_scope_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('PASS', 'FAILED')),
+            completed_at TEXT NOT NULL CHECK (length(completed_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS premise_analysis_records_completed
+            ON premise_analysis_records (completed_at DESC, analysis_id DESC);
+          CREATE INDEX IF NOT EXISTS premise_analysis_records_proposal
+            ON premise_analysis_records (
+              proposal_id, semantic_review_artifact_hash, completed_at DESC
+            );
+        `);
+      }
+      if (current < 22 || !premiseAnalysisJobTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS premise_analysis_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN ('PENDING', 'LEASED', 'RETRY_WAIT', 'PASS', 'EXHAUSTED')
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS premise_analysis_jobs_due
+            ON premise_analysis_jobs (status, next_attempt_at, job_id);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -3333,6 +3490,176 @@ export class SqliteOperationalStore
       )
       .all(limit);
     return Object.freeze(rows.map(parseSemanticReviewRecord));
+  }
+
+  public loadPremiseAnalysisRecords(
+    limit: number,
+  ): readonly PremiseAnalysisRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT analysis_id, proposal_id, semantic_review_artifact_hash,
+                evidence_scope_identity, record_json, record_hash
+         FROM premise_analysis_records
+         ORDER BY completed_at DESC, analysis_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parsePremiseAnalysisRecord));
+  }
+
+  public savePremiseAnalysisRecord(
+    record: PremiseAnalysisRecord,
+    retentionLimit: number,
+  ): PremiseAnalysisRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertPremiseAnalysisRecord(record);
+    if (validated.status === "RUNNING" || validated.completedAt === null) {
+      throw new Error("SQLite cannot persist an active premise analysis");
+    }
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO premise_analysis_records (
+             analysis_id, proposal_id, semantic_review_artifact_hash,
+             evidence_scope_identity, status, completed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(analysis_id) DO UPDATE SET
+             proposal_id = excluded.proposal_id,
+             semantic_review_artifact_hash = excluded.semantic_review_artifact_hash,
+             evidence_scope_identity = excluded.evidence_scope_identity,
+             status = excluded.status,
+             completed_at = excluded.completed_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash
+           WHERE premise_analysis_records.status = 'FAILED'`,
+        )
+        .run(
+          validated.analysisId,
+          validated.proposalId,
+          validated.semanticReviewArtifactHash,
+          validated.evidenceScopeIdentity,
+          validated.status,
+          validated.completedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM premise_analysis_records
+           WHERE analysis_id IN (
+             SELECT analysis_id FROM premise_analysis_records
+             ORDER BY completed_at DESC, analysis_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT analysis_id, proposal_id, semantic_review_artifact_hash,
+                  evidence_scope_identity, record_json, record_hash
+           FROM premise_analysis_records WHERE analysis_id = ?`,
+        )
+        .get(validated.analysisId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the premise analysis record");
+      }
+      const stored = parsePremiseAnalysisRecord(row);
+      if (
+        stored.proposalId !== validated.proposalId ||
+        stored.semanticReviewArtifactHash !== validated.semanticReviewArtifactHash ||
+        stored.evidenceScopeIdentity !== validated.evidenceScopeIdentity ||
+        (stored.status === validated.status && hashCanonical(stored) !== recordHash)
+      ) throw new Error("analysisId is already bound to another premise analysis");
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadPremiseAnalysisJobRecords(
+    limit: number,
+  ): readonly PremiseAnalysisJobRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM premise_analysis_jobs
+         ORDER BY next_attempt_at, job_id
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parsePremiseAnalysisJobRecord));
+  }
+
+  public savePremiseAnalysisJobRecord(
+    record: PremiseAnalysisJobRecord,
+    retentionLimit: number,
+  ): PremiseAnalysisJobRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertPremiseAnalysisJobRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO premise_analysis_jobs (
+             job_id, status, next_attempt_at, updated_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(job_id) DO UPDATE SET
+             status = excluded.status,
+             next_attempt_at = excluded.next_attempt_at,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          validated.jobId,
+          validated.status,
+          validated.nextAttemptAt,
+          validated.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM premise_analysis_jobs
+           WHERE job_id IN (
+             SELECT job_id FROM premise_analysis_jobs
+             ORDER BY updated_at DESC, job_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT job_id, record_json, record_hash
+           FROM premise_analysis_jobs WHERE job_id = ?`,
+        )
+        .get(validated.jobId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the premise analysis job");
+      }
+      const stored = parsePremiseAnalysisJobRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("jobId is already bound to another premise analysis job");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   public loadSemanticReviewJobRecords(

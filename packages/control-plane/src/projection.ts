@@ -49,6 +49,8 @@ import {
   type SemanticReviewAdmissionProjection,
 } from "./semantic-review-admission.js";
 import type { SemanticReviewSchedulerProjection } from "./semantic-review-scheduler.js";
+import type { PremiseAnalysisDeskProjection } from "./premise-analysis.js";
+import type { PremiseAnalysisSchedulerProjection } from "./premise-analysis-scheduler.js";
 import type { EvidenceAcquisitionSchedulerProjection } from "./evidence-acquisition-scheduler.js";
 import type { RuleEvidenceClaimSchedulerProjection } from "./rule-evidence-claim-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
@@ -122,6 +124,8 @@ export function buildStudioProjection(input: {
   semanticReview?: SemanticReviewDeskProjection;
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
+  premiseAnalysis?: PremiseAnalysisDeskProjection;
+  premiseAnalysisScheduler?: PremiseAnalysisSchedulerProjection;
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
   ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
@@ -560,6 +564,75 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const premiseAnalysis = input.premiseAnalysis ?? {
+    schemaVersion: "pmh.premise-analysis-desk.v1" as const,
+    configured: false,
+    model: "deepseek-v4-flash",
+    interpreterIdentity: hashCanonical({ default: "premise-analysis" }),
+    status: "NEEDS_KEY" as const,
+    activeCount: 0,
+    runCount: 0,
+    passCount: 0,
+    failedCount: 0,
+    exactEligibleCount: 0,
+    researchOnlyCount: 0,
+    concurrencyLimit: 3,
+    records: [],
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "analysisId" as const,
+    },
+    authority: "PROPOSE_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
+  const premiseAnalysisScheduler = input.premiseAnalysisScheduler ?? {
+    schemaVersion: "pmh.premise-analysis-scheduler.v1" as const,
+    enabled: false,
+    configured: false,
+    status: "NEEDS_KEY" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 3,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    passedCount: 0,
+    exhaustedCount: 0,
+    exactEligibleCount: 0,
+    researchOnlyCount: 0,
+    budget: {
+      basis: "PROVIDER_ATTEMPTS" as const,
+      maxAttemptsPerJob: 3,
+      maxRequestsPerTick: 3,
+      providerAttemptsStarted: 0,
+    },
+    jobs: [],
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "jobId" as const,
+    },
+    authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const evidenceAcquisition = input.evidenceAcquisition ?? {
     schemaVersion: "pmh.evidence-acquisition-scheduler.v1" as const,
     enabled: false,
@@ -877,6 +950,8 @@ export function buildStudioProjection(input: {
       semanticReviewAdmission: input.semanticReviewAdmission ??
         buildSemanticReviewAdmissionProjection([]),
       semanticReviewScheduler,
+      premiseAnalysis,
+      premiseAnalysisScheduler,
       evidenceAcquisition,
       ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),

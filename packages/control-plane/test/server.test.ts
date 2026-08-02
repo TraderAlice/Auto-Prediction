@@ -469,6 +469,26 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        premiseAnalysis: {
+          configured: boolean;
+          runCount: number;
+          exactEligibleCount: number;
+          researchOnlyCount: number;
+          storage: { durable: boolean; idempotencyKey: string };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
+        premiseAnalysisScheduler: {
+          enabled: boolean;
+          pendingCount: number;
+          exactEligibleCount: number;
+          budget: { basis: string; maxAttemptsPerJob: number };
+          storage: { durable: boolean; idempotencyKey: string };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         evidenceAcquisition: {
           enabled: boolean;
           pendingCount: number;
@@ -621,6 +641,36 @@ describe("control-plane HTTP surface", () => {
       semanticDecisionAuthority: false,
       certificateAuthority: false,
       executionAuthority: false,
+    });
+    expect(projection.ai.premiseAnalysis).toMatchObject({
+      configured: false,
+      runCount: 0,
+      exactEligibleCount: 0,
+      researchOnlyCount: 0,
+      storage: { durable: false, idempotencyKey: "analysisId" },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.premiseAnalysisScheduler).toMatchObject({
+      enabled: false,
+      pendingCount: 0,
+      exactEligibleCount: 0,
+      budget: { basis: "PROVIDER_ATTEMPTS", maxAttemptsPerJob: 3 },
+      storage: { durable: false, idempotencyKey: "jobId" },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const premiseResponse = await fetch(`${baseUrl}/api/v1/premise-analysis`);
+    expect(premiseResponse.status).toBe(200);
+    expect(await premiseResponse.json()).toMatchObject({
+      desk: { configured: false, authority: "PROPOSE_ONLY" },
+      scheduler: {
+        enabled: false,
+        authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
+        executionAuthority: false,
+      },
     });
     expect(projection.ai.evidenceAcquisition).toMatchObject({
       enabled: false,
@@ -2019,7 +2069,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 20,
+          schemaVersion: 22,
         },
         records: [{ investigationId: created.investigationId }],
       });

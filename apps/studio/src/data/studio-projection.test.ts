@@ -130,6 +130,26 @@ describe("Studio projection safety", () => {
         liveExecutionEnabled: false,
       },
     });
+    expect(studioProjection.ai.premiseAnalysis).toMatchObject({
+      configured: false,
+      runCount: 0,
+      exactEligibleCount: 0,
+      researchOnlyCount: 0,
+      authority: "PROPOSE_ONLY",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(studioProjection.ai.premiseAnalysisScheduler).toMatchObject({
+      enabled: false,
+      pendingCount: 0,
+      exactEligibleCount: 0,
+      budget: { basis: "PROVIDER_ATTEMPTS", maxAttemptsPerJob: 3 },
+      authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
     expect(studioProjection.ai.ruleEvidenceClaims).toMatchObject({
       configured: false,
       status: "NEEDS_KEY",

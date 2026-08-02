@@ -1052,8 +1052,8 @@ describe("AI-native search lease scheduler", () => {
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      storage: { schemaVersion: 20 },
-      corpusStorage: { schemaVersion: 20, idempotencyKey: "snapshotIdentity" },
+      storage: { schemaVersion: 22 },
+      corpusStorage: { schemaVersion: 22, idempotencyKey: "snapshotIdentity" },
     });
     store.close();
   });

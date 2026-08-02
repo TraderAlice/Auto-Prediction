@@ -1,7 +1,6 @@
 # Premise-bearing semantic relations
 
-Status: queued design; implement after the active rule-evidence serial stack is
-published
+Status: implementation in progress on the unpublished serial stack
 
 Created: 2026-08-02
 
@@ -53,7 +52,58 @@ This guard is intentionally conservative. It should not be relaxed until a
 structured premise can prove how its truth participates in settlement.
 
 Node 24.14.0 full workspace checks, all 479 tests (330 control-plane), and the
-production build pass with the v2 guard and historical-v1 replay regression.
+production build passed at the v2 guard checkpoint.
+
+## Implemented checkpoint — 2026-08-02
+
+- `pmh.semantic-premise.v1` now separates settlement-intrinsic, traded,
+  externally observed, and causal propositions. Exact listing bindings include
+  the listing hash and evidence scope; causal hypotheses have no exact-state
+  authority.
+- `pmh.premise-bearing-relation.v1` uses a bounded canonical boolean AST and
+  replays it over every retained 2–4 listing truth state. Exact admission
+  requires a hard base constraint, only intrinsic/traded listing-bound
+  premises, a failed counterexample search, and an expression whose truth
+  exactly matches every feasible/impossible disposition.
+- A DeepSeek V4 Flash Vercel AI SDK loop records premises and submits postfix
+  expressions through tools. Rejected effects feed diagnostics back into the
+  same bounded loop; prose is never parsed as the terminal schema.
+- `pmh.premise-analysis.v1` is self-verifying: it embeds the reviewed semantic
+  constraint, premises, relation, interpreter identity, and terminal effect
+  hash, then deterministically rebuilds the relation during replay.
+- SQLite schema v22 persists terminal analyses and durable premise-analysis
+  jobs. Jobs retry with leases and attempt budgets, survive restart, and dedupe
+  by proposal, semantic-review artifact, evidence scope, and interpreter.
+- The control-plane timer, read-only API, health projection, and Studio now
+  expose premise jobs, exact/research-only counts, premise artifacts, replayed
+  state counts, and blockers.
+- `pmh.research-relation-payoff.v3` compiles 2–4 listing truth tables. It
+  enumerates bounded partial buy portfolios (`NONE`/`TRUE`/`FALSE` per listing),
+  drops portfolios dominated by a guaranteed strict subset, serializes all
+  monetary payout units as bigint strings, embeds the reviewed constraint, and
+  embeds the complete admitted premise analysis when one is required. Replay
+  reconstructs feasible states, payout floors, portfolio identities, and the
+  premise relation rather than trusting a copied state list.
+
+The Trump shooting / cola / fatality qualification now retains six feasible
+states out of eight and derives one minimal guaranteed-payout template using
+only `fatality=FALSE` and `cola=FALSE`; the irrelevant broad-shooting leg is
+correctly omitted. Without the scope-bound premise analysis, a conditional or
+3–4 listing relation is blocked from payoff compilation.
+
+Node 24.14.0 checks and all 487 workspace tests (338 control-plane) pass at this
+checkpoint. Production build and updated Studio desktop/390 px visual QA remain
+to be rerun before the local commit.
+
+A live scheduled DeepSeek qualification then audited the retained LAFC
+cross-venue candidate. In one provider attempt it recorded four causal
+premises, found concrete postponed-final counterexamples for two of them,
+repaired two rejected tool effects, and terminated with a persisted
+`CAUSAL_RESEARCH_ONLY` relation. First-party replay retained the base
+constraint's unresolved/invalid states and blocked exact compilation with
+`BASE_CONSTRAINT_RESEARCH_ONLY`. This is positive negative-path evidence: the
+new Agent stage added useful explanatory structure without manufacturing an
+arbitrage certificate.
 
 ## Proposed artifacts
 
@@ -104,8 +154,9 @@ first-party validator owns identities, lineage, and admission.
    bounded diagnostic and does not terminate the loop; only an accepted effect
    ends it.
 
-Partial premise work survives timeout and remains searchable. It does not enter
-the exact compiler.
+Rejected tool effects survive within the bounded loop as trace counts and
+diagnostics. Terminal PASS/FAILED runs and retry jobs survive process restart;
+partial provider prose does not enter the exact compiler.
 
 ## Deterministic compiler policy
 

@@ -1,10 +1,10 @@
 # Plans
 
 The active construction plan is
-[`plans/rule-evidence-acquisition.md`](plans/rule-evidence-acquisition.md).
-It turns structured Agent evidence gaps into policy-constrained anonymous rule
-captures and enriched semantic scopes, so blocked candidates can reach a
-deterministic accept/reject decision without repeating discovery.
+[`plans/premise-bearing-semantic-relations.md`](plans/premise-bearing-semantic-relations.md).
+It turns Agent-discovered hidden assumptions into evidence-bound premise
+artifacts and closed boolean relations, then admits only deterministically
+replayed 2–4 market state spaces to bigint payoff compilation.
 
 ## Planning contract
 
@@ -156,13 +156,30 @@ traded, observed, and merely causal premises before any later relaxation. Node
 24.14.0 checks, all 479 workspace tests (330 control-plane), and the production
 build pass after this guard.
 
+The premise-bearing campaign is now implemented through its first integrated
+compiler checkpoint. DeepSeek uses Vercel AI SDK tools to record typed premises
+and submit a bounded postfix relation; rejected effects remain repairable in
+the same loop. First-party code binds model-local keys, rebuilds the canonical
+AST over every retained truth state, and admits only intrinsic or traded
+listing-bound premises. SQLite schema v22 persists both the self-verifying
+analysis artifact and its leased retry job. The control-plane timer, API, and
+Studio expose this stage after semantic review. The payoff compiler now
+enumerates minimal guaranteed-payout portfolios over 2–4 listings rather than
+hard-coding a left/right pair, and conditional or multi-listing compilation
+requires the matching eligible premise analysis. The shooting/cola/fatality
+fixture produces six feasible states and one minimal two-leg payout cover.
+The v3 artifact now embeds and replays both its semantic constraint and required
+premise analysis, so rehashed state substitution or removal of a required
+premise audit fails closed. A live scheduled DeepSeek audit of the retained
+LAFC cross-venue candidate recorded four causal premises, repaired two rejected
+tool effects, found postponed-final counterexamples, and correctly remained
+`CAUSAL_RESEARCH_ONLY / BASE_CONSTRAINT_RESEARCH_ONLY`. Node 24.14.0 checks,
+all 487 workspace tests (338 control-plane), and the production build pass;
+updated visual QA remains unavailable under the retained localhost browser
+policy, so it is not claimed.
+
 ## Deferred future campaigns
 
-- Premise-bearing semantic relations are designed in
-  [`plans/premise-bearing-semantic-relations.md`](plans/premise-bearing-semantic-relations.md).
-  The immediate guard keeps every free-form semantic assumption research-only;
-  a later campaign will bind premises to market rules, traded outcomes, or
-  retained observations before they may affect an exact state space.
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

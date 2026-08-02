@@ -209,6 +209,59 @@ const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewSch
   },
 };
 
+const EMPTY_PREMISE_ANALYSIS: StudioProjection["ai"]["premiseAnalysis"] = {
+  schemaVersion: "pmh.premise-analysis-desk.v1",
+  configured: false,
+  model: "deepseek-v4-flash",
+  interpreterIdentity: `sha256:${"0".repeat(64)}`,
+  status: "NEEDS_KEY",
+  activeCount: 0,
+  runCount: 0,
+  passCount: 0,
+  failedCount: 0,
+  exactEligibleCount: 0,
+  researchOnlyCount: 0,
+  concurrencyLimit: 3,
+  records: [],
+  storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "analysisId" },
+  authority: "PROPOSE_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+};
+
+const EMPTY_PREMISE_ANALYSIS_SCHEDULER: StudioProjection["ai"]["premiseAnalysisScheduler"] = {
+  schemaVersion: "pmh.premise-analysis-scheduler.v1",
+  enabled: false,
+  configured: false,
+  status: "NEEDS_KEY",
+  tickIntervalMs: null,
+  concurrencyLimit: 3,
+  activeCount: 0,
+  dueCount: 0,
+  pendingCount: 0,
+  leasedCount: 0,
+  retryWaitCount: 0,
+  passedCount: 0,
+  exhaustedCount: 0,
+  exactEligibleCount: 0,
+  researchOnlyCount: 0,
+  budget: {
+    basis: "PROVIDER_ATTEMPTS",
+    maxAttemptsPerJob: 3,
+    maxRequestsPerTick: 3,
+    providerAttemptsStarted: 0,
+  },
+  jobs: [],
+  storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "jobId" },
+  authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+};
+
 const EMPTY_RULE_EVIDENCE_CLAIMS: StudioProjection["ai"]["ruleEvidenceClaims"] = {
   schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
   enabled: false,
@@ -3716,6 +3769,10 @@ function OpportunityLifecycleView() {
     studioProjection.ai.semanticReviewAdmission ?? EMPTY_SEMANTIC_REVIEW_ADMISSION;
   const reviewScheduler =
     studioProjection.ai.semanticReviewScheduler ?? EMPTY_SEMANTIC_REVIEW_SCHEDULER;
+  const premiseAnalysis =
+    studioProjection.ai.premiseAnalysis ?? EMPTY_PREMISE_ANALYSIS;
+  const premiseScheduler =
+    studioProjection.ai.premiseAnalysisScheduler ?? EMPTY_PREMISE_ANALYSIS_SCHEDULER;
   const ruleEvidenceClaims =
     studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
   const reviewAttention =
@@ -4284,6 +4341,76 @@ function OpportunityLifecycleView() {
               </article>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="review-operations" aria-label="Hidden premise analysis">
+        <div className="review-operations-heading">
+          <div>
+            <GitBranch size={15} />
+            <div>
+              <strong>Agent-native hidden-premise audit</strong>
+              <span>
+                {premiseScheduler.enabled
+                  ? `${premiseScheduler.tickIntervalMs}ms tick · SQLite ${premiseScheduler.storage.durable ? "WAL" : "off"}`
+                  : "automatic dispatch disabled · semantic premises remain inspectable"}
+              </span>
+            </div>
+          </div>
+          <Badge variant={premiseScheduler.exactEligibleCount > 0 ? "verified" : "muted"}>
+            {premiseScheduler.exactEligibleCount} EXACT
+          </Badge>
+        </div>
+        <div className="review-operations-stats">
+          <div><strong>{premiseScheduler.dueCount}</strong><span>due</span></div>
+          <div><strong>{premiseScheduler.leasedCount}/{premiseScheduler.concurrencyLimit}</strong><span>leased</span></div>
+          <div><strong>{premiseScheduler.retryWaitCount}</strong><span>retry wait</span></div>
+          <div><strong>{premiseScheduler.passedCount}</strong><span>audited</span></div>
+          <div><strong>{premiseScheduler.exactEligibleCount}</strong><span>closed logic</span></div>
+          <div><strong>{premiseScheduler.researchOnlyCount}</strong><span>premise-dependent</span></div>
+          <div><strong>{premiseScheduler.exhaustedCount}</strong><span>exhausted</span></div>
+          <div>
+            <strong>{premiseScheduler.budget.providerAttemptsStarted}</strong>
+            <span>provider attempts · {premiseScheduler.budget.maxAttemptsPerJob}/job</span>
+          </div>
+        </div>
+        <div className="review-job-list">
+          {premiseScheduler.jobs.length === 0 ? (
+            <div className="review-operation-empty">
+              <strong>No premise-audit jobs retained</strong>
+              <span>Passed 2–4 market semantic constraints seed one scope-bound Agent audit.</span>
+            </div>
+          ) : premiseScheduler.jobs.slice(0, 8).map((job) => {
+            const record = premiseAnalysis.records.find((item) => item.analysisId === job.analysisId);
+            const relation = record?.analysis?.relation;
+            return (
+              <article key={job.jobId}>
+                <Badge variant={job.exactCompilerAdmission === "ELIGIBLE" ? "verified" : job.status === "EXHAUSTED" ? "warning" : "muted"}>
+                  {job.status.replaceAll("_", " ")}
+                </Badge>
+                <div>
+                  <strong>
+                    {relation === undefined
+                      ? proposals.get(job.proposalId)?.statement ?? "Scoped hidden-premise audit"
+                      : `${relation.classification.replaceAll("_", " ")} · ${relation.exactCompilerAdmission}`}
+                  </strong>
+                  <span>
+                    {record?.analysis?.premises.length ?? 0} premise artifact
+                    {(record?.analysis?.premises.length ?? 0) === 1 ? "" : "s"}
+                    {relation ? ` · ${relation.evaluatedStates.length} states replayed` : ""}
+                    {relation?.blocker ? ` · ${relation.blocker.replaceAll("_", " ")}` : ""}
+                    {` · attempt ${job.attemptCount}/${job.maxAttempts}`}
+                  </span>
+                </div>
+                <code>{job.evidenceScopeIdentity.slice(7, 19)}…</code>
+              </article>
+            );
+          })}
+        </div>
+        <div className="attention-authority-lock">
+          <CircleOff size={14} />
+          <span>LLM tools expose premises and expressions; only replayed truth states can enter the exact compiler.</span>
+          <code>{premiseAnalysis.interpreterIdentity.slice(0, 22)}…</code>
         </div>
       </section>
 

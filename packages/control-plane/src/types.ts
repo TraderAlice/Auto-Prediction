@@ -343,6 +343,8 @@ export type StudioProjection = Readonly<{
     semanticReview: import("./semantic-review.js").SemanticReviewDeskProjection;
     semanticReviewAdmission: import("./semantic-review-admission.js").SemanticReviewAdmissionProjection;
     semanticReviewScheduler: import("./semantic-review-scheduler.js").SemanticReviewSchedulerProjection;
+    premiseAnalysis: import("./premise-analysis.js").PremiseAnalysisDeskProjection;
+    premiseAnalysisScheduler: import("./premise-analysis-scheduler.js").PremiseAnalysisSchedulerProjection;
     evidenceAcquisition: import("./evidence-acquisition-scheduler.js").EvidenceAcquisitionSchedulerProjection;
     ruleEvidenceClaims: import("./rule-evidence-claim-scheduler.js").RuleEvidenceClaimSchedulerProjection;
     reviewAttention: import("./review-attention.js").ReviewAttentionProjection;

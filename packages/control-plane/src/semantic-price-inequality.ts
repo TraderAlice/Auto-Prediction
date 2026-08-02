@@ -69,10 +69,11 @@ export function evaluateSemanticPriceInequality(input: {
 }): SemanticPriceInequalityEvaluation {
   const qualification = assertResearchRelationPayoff(input.qualification);
   if (
-    qualification.schemaVersion !== "pmh.research-relation-payoff.v2" ||
+    !["pmh.research-relation-payoff.v2", "pmh.research-relation-payoff.v3"]
+      .includes(qualification.schemaVersion) ||
     qualification.status !== "SIMULATION_TEMPLATE_READY" ||
     qualification.semanticConstraintArtifactHash === undefined
-  ) throw new Error("semantic price evaluation requires a v2 compiler-ready constraint");
+  ) throw new Error("semantic price evaluation requires a bigint compiler-ready constraint");
   const portfolio = qualification.portfolios.find(
     (candidate) => candidate.portfolioId === input.portfolioId,
   );
