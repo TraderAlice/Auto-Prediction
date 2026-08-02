@@ -116,6 +116,52 @@ incomplete corpus is poor use of provider budget.
   parallel suites no longer turn an expected pre-Agent rejection into a
   malformed record.
 
+## Implemented stacked checkpoint — constrained document capture
+
+- Added a first-party `EvidenceDocumentFetcher` that accepts only a validated
+  requirement plus an exact offered locator identity. A content-addressed
+  adapter policy must independently match venue, protocol, locator role,
+  hostname, and response content type before any request is admitted. The only
+  built-in route is the currently evidenced Gemini contract-rule policy for
+  `assets.gemini.com`; external Myriad resolution sources do not inherit it.
+- Every hop is HTTPS-only, credential-free, manually redirected, revalidated
+  against the exact host policy, DNS-resolved before use, and pinned into the
+  TLS socket so a second lookup cannot rebind it to a private address. Public,
+  private, link-local, documentation, benchmark, multicast, and reserved
+  address postures are distinguished before network I/O.
+- This host uses Clash fake-IP DNS (`198.18.0.0/15`). That range remains denied
+  by default. An explicit `trustClashFakeIp` option admits only that range while
+  retaining exact hostname allowlisting, pinned destination, normal TLS
+  certificate/SNI verification, and an auditable `CLASH_FAKE_IP_PINNED` field
+  in both capture and observation artifacts.
+- `pmh.rule-document.v1` preserves exact bytes, requested and final locator
+  identities, redirect trace, response metadata, receive time, raw hash, byte
+  length, policy identity, and an authority-free anonymous acquisition record.
+  `pmh.rule-document-observation.v1` represents both `200` and a later `304`;
+  the latter points to the retained immutable document instead of duplicating
+  its bytes.
+- `pmh.rule-document-text.v1` binds derived text to its parent raw/document
+  hashes and versioned extractor identity. Plain UTF-8, JSON, HTML, XHTML, and
+  PDF are supported only when the adapter policy declares their type. PDF.js
+  receives in-memory bytes only, performs no range/stream/worker fetches, and
+  is bounded by raw bytes, time, pages, declared direct/compressed objects,
+  images, and extracted characters. Venue text remains explicitly untrusted;
+  prompt instructions have no authority.
+- Focused tests prove public-address capture, default-denied and explicitly
+  recorded Clash fake IP, private-address rejection before fetch, same-policy
+  and off-policy redirects, advertised and streamed byte bounds, compressed
+  response rejection, type policy, PDF object/page posture, conditional ETag
+  reuse, byte/text tamper detection, and closed authority schemas.
+- Live anonymous qualification through the configured Clash path captured the
+  historical Gemini BTC rule PDF at 87,279 bytes (`sha256:a6c0ab29827e5552…`),
+  extracted 5,116 characters from two pages, bound the selected route to
+  `198.18.0.55`/IPv4, then received HTTP `304` on the conditional request and
+  reused the same document identity. No credential,
+  browser state, provider request, semantic decision, or value-moving action
+  was involved.
+- Node 24.14.0 full workspace checks, all 457 tests (308 control-plane), and the
+  production build pass for the stacked checkpoint.
+
 ## Evidence contract
 
 1. Preserve adapter-owned typed locators in a backward-compatible discovery
@@ -232,8 +278,10 @@ official evidence to reach a deterministic accept/reject decision.
 2. **Implemented on the unpublished serial stack:** define structured evidence
    requirements and migrate both Pi discovery and AI SDK semantic review to
    emit them without invalidating v1/v2 reports.
-3. Implement the policy-constrained anonymous fetcher and raw/extracted
-   evidence artifacts with SSRF and resource-bound tests.
+3. **Implemented on the unpublished serial stack:** implement the
+   policy-constrained anonymous fetcher and raw/extracted evidence artifacts
+   with SSRF, DNS rebinding, proxy-posture, redirect, conditional request, and
+   resource-bound tests plus a live Gemini PDF qualification.
 4. Add the durable coalescing acquisition scheduler, restart recovery,
    freshness, retention, and terminal-state accounting.
 5. Add the Agent tool loop for requesting eligible documents and submitting

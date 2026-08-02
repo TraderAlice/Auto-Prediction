@@ -13,6 +13,7 @@
     "discovery:smoke": "pnpm --filter @pmh/control-plane smoke:provider",
     "investigation:smoke": "pnpm --filter @pmh/control-plane smoke:investigator",
     "semantic-constraint:smoke": "pnpm --filter @pmh/control-plane smoke:semantic-constraint",
+    "evidence-document:smoke": "pnpm --filter @pmh/control-plane smoke:evidence-document",
     "fixtures:capture": "node scripts/capture-public-fixtures.mjs",
     "fixtures:capture:streams": "node scripts/capture-public-stream-fixtures.mjs",
     "pmh": "pnpm -r build && node packages/cli/dist/main.js",

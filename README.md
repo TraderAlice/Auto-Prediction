@@ -60,6 +60,13 @@ This is not a trading bot and it has no live-trading authority. The repository d
   `DOCUMENT_LOCATOR`, `MARKET_DATA`, or `UNSUPPORTED` routing. Shared official
   documents coalesce to one acquisition scope without granting network,
   provider-request, review, certificate, or execution authority.
+- A policy-constrained anonymous rule-document reader that admits only an exact
+  adapter-issued locator under a separately content-addressed
+  venue/protocol/role/host/content-type policy. DNS answers are rejected or
+  explicitly classified, pinned into the TLS socket, and rechecked on every
+  manual redirect. Exact raw bytes, `200`/`304` observations, and bounded
+  untrusted text/PDF extractions have separate hashes; no document text can
+  become a prompt instruction or semantic verdict.
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection. It prices both canonical equivalent-claim portfolios with `bigint`, ranks positive gross search hints first, and still treats every pair as an unreviewed semantic lead rather than an opportunity. The focused two-leg issue requires a positive current hint before pi; for an AI-selected pair only, missing Opinion catalog prices can be enriched from bounded anonymous token books whose raw bytes are retained. Fees, common depth, fillability, and executability remain absent.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
@@ -234,11 +241,19 @@ pnpm install
 pnpm check
 pnpm test
 pnpm fixtures:capture:streams
+PMH_EVIDENCE_TRUST_CLASH_FAKE_IP=1 pnpm evidence-document:smoke
 pnpm pmh system status
 pnpm pmh venue list
 pnpm pmh venue inspect polymarket-global
 pnpm studio
 ```
+
+The evidence-document smoke uses the checked-in Gemini catalog locator and an
+anonymous public GET. `PMH_EVIDENCE_TRUST_CLASH_FAKE_IP=1` is required only
+when the host's DNS intentionally returns Clash's `198.18.0.0/15` fake-IP
+range; without that explicit posture, reserved addresses fail before network
+I/O. The resulting JSON reports hashes, bounds, network posture, extraction
+metadata, and conditional `304` reuse, never the untrusted rule text itself.
 
 `pnpm studio` stores bounded Scout Inbox state in
 `.data/control-plane.sqlite` using WAL mode. Set `PMH_STATE_DB` to an alternate

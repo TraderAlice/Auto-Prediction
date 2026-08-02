@@ -91,6 +91,21 @@ acquisition queue, enriched scope, and Studio funnel follow after #80 merges so
 PRs remain serial. Node 24.14.0 checks, all 452 tests (303 control-plane), and
 the production build pass for this stack.
 
+The same unpublished stack now has a working policy-constrained document
+capture boundary. Only a first-party venue/protocol/role/host/content-type
+policy can turn an Agent requirement into an anonymous GET. DNS results are
+checked and pinned into the TLS connection; redirects are manually revalidated;
+bytes, headers, content encoding, time, PDF pages/objects/images, and extracted
+characters are bounded. Raw documents, `200`/`304` observations, and untrusted
+text views each have independent content hashes and closed authority schemas.
+Clash's `198.18/15` fake-IP posture is denied by default and must be explicitly
+enabled, after which it is recorded as `CLASH_FAKE_IP_PINNED`. A live Gemini PDF
+qualification captured 87,279 bytes, extracted 5,116 characters from two pages,
+bound the observed Clash route to `198.18.0.55`/IPv4, then reused the document
+on an ETag `304`. Node 24.14.0 checks, all 457 tests (308 control-plane), and the
+production build pass. Durable coalescing persistence and automatic review
+resumption are now the next construction boundary.
+
 The retained 947-listing SQLite corpus now replays into 306 locators without a
 network call: 286 Gemini rule documents and 20 Myriad outcome-resolution
 sources. That qualification exposed normalization-version debt in historical
