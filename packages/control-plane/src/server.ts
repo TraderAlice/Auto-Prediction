@@ -555,6 +555,7 @@ export function createControlPlane(options?: {
     new SearchLeaseScheduler({
       intervalMs: parseSearchLeaseInterval(process.env),
       concurrencyLimit: 3,
+      registeredVenueIds: catalogObservationDesk.registeredVenueIds(),
       deadlineMs: Math.max(300_000, modelRuntime.projection.timeoutMs),
       context: (
         question,
@@ -564,35 +565,50 @@ export function createControlPlane(options?: {
         feedback,
         candidatePolicy,
       ) => {
-        if (lens === "EQUIVALENCE") {
-          if (candidatePolicy?.candidateSelection === "MODEL_HYPOTHESIS") {
-            try {
-              return catalogObservationDesk.radarSearchContext(
-                venueIds,
+        const minimumEligibleVenueCount =
+          lens === "PARTITION" && candidatePolicy?.requireDistinctVenues !== true
+            ? 1
+            : 2;
+        return catalogObservationDesk.resilientContext(
+          venueIds,
+          minimumEligibleVenueCount,
+          (eligibleVenueIds) => {
+            if (lens === "EQUIVALENCE") {
+              if (candidatePolicy?.candidateSelection === "MODEL_HYPOTHESIS") {
+                try {
+                  return catalogObservationDesk.radarSearchContext(
+                    eligibleVenueIds,
+                    feedback,
+                  );
+                } catch (error) {
+                  if (!(error instanceof RadarCandidateUnavailableError)) throw error;
+                }
+              }
+              const allowedVenues = new Set(eligibleVenueIds);
+              const candidates = orderRadarCandidatesForSearch(
+                catalogObservationDesk.radar().candidates.filter((candidate) =>
+                  candidate.listings.every((listing) =>
+                    allowedVenues.has(listing.venueId)
+                  )
+                ),
                 feedback,
               );
-            } catch (error) {
-              if (!(error instanceof RadarCandidateUnavailableError)) throw error;
+              for (const candidate of candidates) {
+                try {
+                  return catalogObservationDesk.radarTriageScope(
+                    candidate.candidateId,
+                  ).catalogContext;
+                } catch (error) {
+                  if (!(error instanceof RadarCandidateUnavailableError)) throw error;
+                }
+              }
             }
-          }
-          const candidates = orderRadarCandidatesForSearch(
-            catalogObservationDesk.radar().candidates,
-            feedback,
-          );
-          for (const candidate of candidates) {
-            try {
-              return catalogObservationDesk.radarTriageScope(
-                candidate.candidateId,
-              ).catalogContext;
-            } catch (error) {
-              if (!(error instanceof RadarCandidateUnavailableError)) throw error;
-            }
-          }
-        }
-        return catalogObservationDesk.rotatingContext(
-          question,
-          venueIds,
-          feedback,
+            return catalogObservationDesk.rotatingContext(
+              question,
+              eligibleVenueIds,
+              feedback,
+            );
+          },
         );
       },
       graphContext: (snapshot, lens) => {

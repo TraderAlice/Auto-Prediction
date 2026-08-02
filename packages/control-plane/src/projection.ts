@@ -299,7 +299,7 @@ export function buildStudioProjection(input: {
   };
   const searchLeaseScheduler = input.searchLeaseScheduler ?? {
     schemaVersion: "pmh.search-lease-scheduler.v1" as const,
-    algorithmVersion: "pmh.ai-search-leases.v1" as const,
+    algorithmVersion: "pmh.ai-search-leases.v3" as const,
     enabled: false,
     configured: { fastLane: true, deepLane: false },
     status: "IDLE" as const,
@@ -386,6 +386,11 @@ export function buildStudioProjection(input: {
       hypothesisCount: 0,
       proposalCount: 0,
       evidenceGapCount: 0,
+      coverageManifestCount: 0,
+      degradedContextCount: 0,
+      degradedPassCount: 0,
+      insufficientCoverageFailureCount: 0,
+      omittedVenueCount: 0,
       agentTraceLeaseCount: 0,
       agentRunCount: 0,
       agentStepCount: 0,

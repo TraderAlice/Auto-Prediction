@@ -1,10 +1,10 @@
 # Plans
 
-The latest completed construction plan is
-[`plans/agent-first-discovery-runtime.md`](plans/agent-first-discovery-runtime.md).
-It replaces one-shot whole-response JSON parsing with a bounded multi-step
-agent whose read-only catalog tools and proposal tools produce an immutable,
-operator-visible effect journal.
+The active construction plan is
+[`plans/fast-lane-deep-lane-resilience.md`](plans/fast-lane-deep-lane-resilience.md).
+It separates durable cheap-Agent success from optional pi investigation, so a
+deep timeout cannot erase a grounded fast candidate or misclassify issue health,
+and it adds exact-corpus deep retry plus expired-lease restart hygiene.
 
 ## Planning contract
 
@@ -21,6 +21,22 @@ The product is an AI-native prediction-market search system. Durable issues
 define bounded recurring semantic briefs; a priority scheduler leases immutable
 market corpora to concurrent cheap scouts and escalates only novel grounded
 candidate signatures to pi. Findings enter a deduplicated in-app inbox.
+
+Catalog fault coupling is now resolved. Coverage-aware v3 leases preserve the
+registered request universe, select only eligible sources, reserve an actual
+bounded representative from each available requested venue, bind omissions and
+prior raw identities, and fail before AI when a lens-specific represented-venue
+minimum is not met. One-source failure continuation, insufficient-context
+failure, SQLite restart, v1/v2 compatibility, attention identity migration,
+desktop QA, 390 px QA, 427 tests, and the production build pass.
+
+The next measured persistence bottleneck is lane outcome coupling. A real v3
+implication run represented all seven venues; its cheap Agent completed eight
+steps and twelve tool calls and accepted one candidate effect. Optional pi then
+timed out inside the shared lease deadline, turning the whole lease into
+`FAILED`. The active campaign will retain the fast result, give deep work its own
+durable retryable stage and budget, and keep restart-expired leases from
+polluting model-quality and issue-health metrics.
 
 Provider-attempt telemetry is merged and live in PR #74. DeepSeek and OpenAI now emit
 safe bounded failures with exact request-attempt counts; worker and lease

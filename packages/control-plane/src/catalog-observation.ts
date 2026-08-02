@@ -156,6 +156,137 @@ export type RadarTriageScope = Readonly<{
   catalogContext: DiscoveryCatalogContext;
 }>;
 
+export const CATALOG_CONTEXT_OMISSION_REASONS = Object.freeze([
+  "NOT_REGISTERED",
+  "NEVER_REFRESHED",
+  "EMPTY_OBSERVATION",
+  "LATEST_REFRESH_FAILED",
+  "STALE",
+] as const);
+
+export type CatalogContextOmissionReason =
+  (typeof CATALOG_CONTEXT_OMISSION_REASONS)[number];
+
+export type CatalogContextCoverage = Readonly<{
+  schemaVersion: "pmh.catalog-context-coverage.v1";
+  coverageIdentity: Hash;
+  status: "FULL" | "DEGRADED";
+  requestedVenueIds: readonly string[];
+  eligibleVenueIds: readonly string[];
+  contextVenueIds: readonly string[];
+  minimumEligibleVenueCount: number;
+  omittedSources: readonly Readonly<{
+    venueId: string;
+    reason: CatalogContextOmissionReason;
+    lastObservationRawHash: Hash | null;
+    lastAttemptAt: string | null;
+    freshUntil: string | null;
+  }>[];
+  authority: "SEARCH_COVERAGE_EVIDENCE_ONLY";
+  semanticDecisionAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+}>;
+
+export type CatalogContextSelection = Readonly<{
+  catalogContext: DiscoveryCatalogContext;
+  coverage: CatalogContextCoverage;
+}>;
+
+export class CatalogContextCoverageError extends Error {
+  public constructor(
+    message: string,
+    public readonly coverage: CatalogContextCoverage,
+  ) {
+    super(message);
+  }
+}
+
+type CatalogContextCoverageBody = Omit<
+  CatalogContextCoverage,
+  "coverageIdentity"
+>;
+
+function isIsoOrNull(value: unknown): value is string | null {
+  return value === null || (
+    typeof value === "string" &&
+    !Number.isNaN(Date.parse(value)) &&
+    new Date(value).toISOString() === value
+  );
+}
+
+function withCoverageIdentity(
+  body: CatalogContextCoverageBody,
+): CatalogContextCoverage {
+  return Object.freeze({ ...body, coverageIdentity: hashCanonical(body) });
+}
+
+export function assertCatalogContextCoverage(
+  value: unknown,
+  expectedRequestedVenueIds?: readonly string[],
+): CatalogContextCoverage {
+  if (value === null || typeof value !== "object") {
+    throw new Error("catalog context coverage is malformed");
+  }
+  const coverage = value as CatalogContextCoverage;
+  const requested = coverage.requestedVenueIds;
+  const eligible = coverage.eligibleVenueIds;
+  const represented = coverage.contextVenueIds;
+  const omitted = coverage.omittedSources;
+  const requestedSet = new Set(requested);
+  const eligibleSet = new Set(eligible);
+  const omittedVenueIds = omitted?.map((item) => item.venueId) ?? [];
+  const omittedSet = new Set(omittedVenueIds);
+  const expectedRequested = expectedRequestedVenueIds === undefined
+    ? null
+    : [...new Set(expectedRequestedVenueIds)].sort();
+  const { coverageIdentity, ...body } = coverage;
+  if (
+    coverage.schemaVersion !== "pmh.catalog-context-coverage.v1" ||
+    !Array.isArray(requested) || requested.length === 0 || requested.length > 25 ||
+    requested.some((item) => typeof item !== "string" || item.trim() === "") ||
+    requested.join("\n") !== [...requested].sort().join("\n") ||
+    requestedSet.size !== requested.length ||
+    (expectedRequested !== null &&
+      requested.join("\n") !== expectedRequested.join("\n")) ||
+    !Array.isArray(eligible) || eligible.length > requested.length ||
+    eligible.join("\n") !== [...eligible].sort().join("\n") ||
+    eligibleSet.size !== eligible.length ||
+    eligible.some((venueId) => !requestedSet.has(venueId)) ||
+    !Array.isArray(represented) || represented.length > eligible.length ||
+    represented.join("\n") !== [...represented].sort().join("\n") ||
+    new Set(represented).size !== represented.length ||
+    represented.some((venueId) => !eligibleSet.has(venueId)) ||
+    !Number.isSafeInteger(coverage.minimumEligibleVenueCount) ||
+    coverage.minimumEligibleVenueCount < 1 ||
+    coverage.minimumEligibleVenueCount > requested.length ||
+    !Array.isArray(omitted) || omitted.length > requested.length ||
+    omittedSet.size !== omitted.length ||
+    omittedVenueIds.join("\n") !== [...omittedVenueIds].sort().join("\n") ||
+    omitted.some((item) =>
+      typeof item?.venueId !== "string" || !requestedSet.has(item.venueId) ||
+      eligibleSet.has(item.venueId) ||
+      !CATALOG_CONTEXT_OMISSION_REASONS.includes(item.reason) ||
+      (item.lastObservationRawHash !== null &&
+        !HASH_PATTERN.test(String(item.lastObservationRawHash))) ||
+      !isIsoOrNull(item.lastAttemptAt) || !isIsoOrNull(item.freshUntil)
+    ) ||
+    requested.some((venueId) =>
+      eligibleSet.has(venueId) === omittedSet.has(venueId)
+    ) ||
+    coverage.status !== (omitted.length === 0 ? "FULL" : "DEGRADED") ||
+    coverage.authority !== "SEARCH_COVERAGE_EVIDENCE_ONLY" ||
+    coverage.semanticDecisionAuthority !== false ||
+    coverage.certificateAuthority !== false ||
+    coverage.executionAuthority !== false ||
+    !HASH_PATTERN.test(String(coverageIdentity)) ||
+    coverageIdentity !== hashCanonical(body)
+  ) {
+    throw new Error("catalog context coverage violates its contract");
+  }
+  return Object.freeze(coverage);
+}
+
 export const catalogObservationSources: readonly CatalogObservationSource[] =
   Object.freeze([
     {
@@ -621,6 +752,95 @@ export class CatalogObservationDesk {
       requested,
       feedback,
     );
+  }
+
+  public resilientContext(
+    venueIds: readonly string[],
+    minimumEligibleVenueCount: number,
+    build: (eligibleVenueIds: readonly string[]) => DiscoveryCatalogContext,
+  ): CatalogContextSelection {
+    const requestedVenueIds = [...new Set(venueIds)].sort();
+    if (
+      requestedVenueIds.length === 0 ||
+      requestedVenueIds.length !== venueIds.length ||
+      !Number.isSafeInteger(minimumEligibleVenueCount) ||
+      minimumEligibleVenueCount < 1 ||
+      minimumEligibleVenueCount > requestedVenueIds.length
+    ) {
+      throw new Error("resilient catalog context coverage is invalid or unbounded");
+    }
+    const now = this.#now();
+    const eligibleVenueIds: string[] = [];
+    const omittedSources: CatalogContextCoverage["omittedSources"][number][] = [];
+    for (const venueId of requestedVenueIds) {
+      const state = this.#states.get(venueId);
+      if (state === undefined) {
+        omittedSources.push(Object.freeze({
+          venueId,
+          reason: "NOT_REGISTERED",
+          lastObservationRawHash: null,
+          lastAttemptAt: null,
+          freshUntil: null,
+        }));
+        continue;
+      }
+      const eligibility = this.#contextEligibility(state, now);
+      if (eligibility.eligible) {
+        eligibleVenueIds.push(venueId);
+        continue;
+      }
+      omittedSources.push(Object.freeze({
+        venueId,
+        reason: state.diagnostic !== null
+          ? "LATEST_REFRESH_FAILED"
+          : state.latest === null
+            ? "NEVER_REFRESHED"
+            : state.listings.length === 0
+              ? "EMPTY_OBSERVATION"
+              : "STALE",
+        lastObservationRawHash: state.latest?.record.rawHash ?? null,
+        lastAttemptAt: state.lastAttemptAt,
+        freshUntil: eligibility.freshUntil,
+      }));
+    }
+    const coverageFor = (contextVenueIds: readonly string[]) =>
+      withCoverageIdentity(Object.freeze({
+        schemaVersion: "pmh.catalog-context-coverage.v1" as const,
+        status: omittedSources.length === 0 ? "FULL" as const : "DEGRADED" as const,
+        requestedVenueIds: Object.freeze(requestedVenueIds),
+        eligibleVenueIds: Object.freeze([...eligibleVenueIds]),
+        contextVenueIds: Object.freeze([...new Set(contextVenueIds)].sort()),
+        minimumEligibleVenueCount,
+        omittedSources: Object.freeze([...omittedSources]),
+        authority: "SEARCH_COVERAGE_EVIDENCE_ONLY" as const,
+        semanticDecisionAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+      }));
+    if (eligibleVenueIds.length < minimumEligibleVenueCount) {
+      const coverage = coverageFor([]);
+      throw new CatalogContextCoverageError(
+        `only ${eligibleVenueIds.length} of ${requestedVenueIds.length} requested catalog sources are eligible; this search requires ${minimumEligibleVenueCount}`,
+        coverage,
+      );
+    }
+    const catalogContext = build(Object.freeze([...eligibleVenueIds]));
+    const contextVenueIds = catalogContext.listings.map((listing) => listing.venueId);
+    const coverage = assertCatalogContextCoverage(
+      coverageFor(contextVenueIds),
+      requestedVenueIds,
+    );
+    if (coverage.contextVenueIds.length < minimumEligibleVenueCount) {
+      throw new CatalogContextCoverageError(
+        `bounded catalog context represents only ${coverage.contextVenueIds.length} venue sources; this search requires ${minimumEligibleVenueCount}`,
+        coverage,
+      );
+    }
+    return Object.freeze({ catalogContext, coverage });
+  }
+
+  public registeredVenueIds(): readonly string[] {
+    return Object.freeze([...this.#states.keys()].sort());
   }
 
   public radarSearchContext(

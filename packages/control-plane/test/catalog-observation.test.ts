@@ -2,7 +2,9 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  assertCatalogContextCoverage,
   buildSearchScopeIdentity,
+  CatalogContextCoverageError,
   CatalogObservationDesk,
   catalogObservationSources,
   type CatalogFetchLike,
@@ -348,6 +350,98 @@ describe("anonymous catalog observation desk", () => {
     expect(() => desk.context("rates", ["kalshi"])).toThrow(
       /latest refresh failed/,
     );
+
+    const requestedVenueIds = catalogObservationSources.map(
+      (source) => source.venueId,
+    );
+    const selection = desk.resilientContext(
+      requestedVenueIds,
+      2,
+      (eligibleVenueIds) => desk.context("rates", eligibleVenueIds),
+    );
+    expect(selection.coverage).toMatchObject({
+      status: "DEGRADED",
+      requestedVenueIds: [...requestedVenueIds].sort(),
+      minimumEligibleVenueCount: 2,
+      omittedSources: [{
+        venueId: "kalshi",
+        reason: "LATEST_REFRESH_FAILED",
+        lastObservationRawHash: prior?.rawHash,
+        lastAttemptAt: "2026-08-01T03:16:00.000Z",
+      }],
+      authority: "SEARCH_COVERAGE_EVIDENCE_ONLY",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(selection.coverage.eligibleVenueIds).not.toContain("kalshi");
+    expect(selection.catalogContext.listings.every(
+      (listing) => listing.venueId !== "kalshi",
+    )).toBe(true);
+    expect(assertCatalogContextCoverage(
+      JSON.parse(JSON.stringify(selection.coverage)),
+      requestedVenueIds,
+    )).toEqual(selection.coverage);
+    const tamperedCoverage = JSON.parse(JSON.stringify(selection.coverage));
+    tamperedCoverage.omittedSources[0].reason = "STALE";
+    expect(() => assertCatalogContextCoverage(
+      tamperedCoverage,
+      requestedVenueIds,
+    )).toThrow(/violates its contract/);
+
+    try {
+      desk.resilientContext(
+        ["kalshi"],
+        1,
+        (eligibleVenueIds) => desk.context("rates", eligibleVenueIds),
+      );
+      throw new Error("expected insufficient coverage");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CatalogContextCoverageError);
+      expect((error as CatalogContextCoverageError).coverage).toMatchObject({
+        status: "DEGRADED",
+        requestedVenueIds: ["kalshi"],
+        eligibleVenueIds: [],
+        contextVenueIds: [],
+        minimumEligibleVenueCount: 1,
+      });
+    }
+  });
+
+  it("distinguishes a successful empty observation from a source never refreshed", async () => {
+    const source = catalogObservationSources[0];
+    if (source === undefined) throw new Error("missing catalog source");
+    const emptySource = Object.freeze({
+      ...source,
+      decode: () => Object.freeze([]),
+    });
+    const desk = new CatalogObservationDesk({
+      sources: [emptySource],
+      now: () => Date.parse("2026-08-01T03:16:00.000Z"),
+      fetcher: async () => new Response("[]", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    });
+    await desk.refresh();
+
+    try {
+      desk.resilientContext(
+        desk.registeredVenueIds(),
+        1,
+        () => { throw new Error("must not build an empty context"); },
+      );
+      throw new Error("expected insufficient coverage");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CatalogContextCoverageError);
+      expect((error as CatalogContextCoverageError).coverage.omittedSources).toEqual([
+        expect.objectContaining({
+          venueId: source.venueId,
+          reason: "EMPTY_OBSERVATION",
+          lastObservationRawHash: expect.stringMatching(/^sha256:/u),
+        }),
+      ]);
+    }
   });
 
   it("expires live context qualification without discarding the observation", async () => {

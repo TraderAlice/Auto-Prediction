@@ -185,6 +185,107 @@ describe("control-plane HTTP surface", () => {
     });
   });
 
+  it("runs a default issue against healthy sources while binding one failed source", async () => {
+    const source = (venueId: string): CatalogObservationSource => ({
+      venueId,
+      protocolIdentity: `${venueId}:v1`,
+      sourceUrl: `https://example.test/${venueId}`,
+      decode: (fixture) => [
+        {
+          venueId,
+          venueInstrumentId: `${venueId}-rate-decision`,
+          title: `Federal funds rate decision on ${venueId}`,
+          description: "Whether the announced target rate is unchanged.",
+          status: "OPEN",
+          mechanism: "CENTRALIZED_ORDER_BOOK",
+          closesAt: "2026-08-31T20:00:00.000Z",
+          outcomes: [
+            { venueOutcomeId: "yes", label: "Yes" },
+            { venueOutcomeId: "no", label: "No" },
+          ],
+          priceScale: 1_000_000n,
+          quantityScale: 1_000_000n,
+          sourceFixtureHash: fixture.rawHash,
+          protocolIdentity: `${venueId}:v1`,
+        },
+      ],
+    });
+    let failedVenue: string | null = null;
+    const desk = new CatalogObservationDesk({
+      sources: [source("venue-a"), source("venue-b"), source("venue-c")],
+      now: () => Date.parse("2026-08-01T09:30:00.000Z"),
+      fetcher: async (input) => {
+        if (failedVenue !== null && input.endsWith(`/${failedVenue}`)) {
+          return new Response("unavailable", { status: 503 });
+        }
+        return new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    await desk.refresh();
+    failedVenue = "venue-c";
+    await desk.refresh();
+    expect(desk.projection()).toMatchObject({
+      status: "DEGRADED",
+      healthySourceCount: 2,
+      contextQualification: { eligibleSourceCount: 2 },
+    });
+
+    const { baseUrl } = await listenControlPlane({
+      catalogObservationDesk: desk,
+      refreshCatalogOnReady: false,
+      marketArchaeologistDesk: createMarketArchaeologistDesk({}),
+    });
+    const studio = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
+      response.json()
+    )) as StudioProjection;
+    const issue = studio.ai.searchIssueScheduler.issues.find(
+      (candidate) => candidate.lens === "MECHANISM",
+    );
+    if (issue === undefined) throw new Error("missing mechanism issue");
+
+    const response = await fetch(
+      `${baseUrl}/api/v1/search-issues/${issue.issueId}/runs`,
+      { method: "POST" },
+    );
+    expect(response.status).toBe(200);
+    const record = await response.json() as {
+      status: string;
+      lease: { scope: { venueIds: string[] } };
+      fastLane: {
+        corpusCoverage: {
+          status: string;
+          requestedVenueIds: string[];
+          eligibleVenueIds: string[];
+          contextVenueIds: string[];
+          omittedSources: { venueId: string; reason: string }[];
+        };
+      };
+    };
+    expect(record).toMatchObject({
+      status: "PASS",
+      lease: {
+        scope: { venueIds: ["venue-a", "venue-b", "venue-c"] },
+      },
+      fastLane: {
+        corpusCoverage: {
+          status: "DEGRADED",
+          requestedVenueIds: ["venue-a", "venue-b", "venue-c"],
+          eligibleVenueIds: ["venue-a", "venue-b"],
+          omittedSources: [{
+            venueId: "venue-c",
+            reason: "LATEST_REFRESH_FAILED",
+          }],
+        },
+      },
+    });
+    expect(record.fastLane.corpusCoverage.contextVenueIds.every(
+      (venueId) => venueId === "venue-a" || venueId === "venue-b",
+    )).toBe(true);
+  });
+
   it("serves a live-disabled projection from a process", async () => {
     const baseUrl = await listen();
     const response = await fetch(`${baseUrl}/api/v1/projection`);

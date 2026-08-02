@@ -13,6 +13,7 @@ import {
   type DiscoveryRunRecord,
   type DiscoveryTask,
   type OpportunityHypothesis,
+  type CatalogContextCoverage,
 } from "../src/index.js";
 
 const nowMs = Date.parse("2026-08-01T00:00:00.000Z");
@@ -60,6 +61,46 @@ function context(question: string, venueIds: readonly string[]): DiscoveryCatalo
   return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
 }
 
+function degradedCoverage(): CatalogContextCoverage {
+  const body = Object.freeze({
+    schemaVersion: "pmh.catalog-context-coverage.v1" as const,
+    status: "DEGRADED" as const,
+    requestedVenueIds: Object.freeze(["venue-a", "venue-b"]),
+    eligibleVenueIds: Object.freeze(["venue-a"]),
+    contextVenueIds: Object.freeze(["venue-a"]),
+    minimumEligibleVenueCount: 1,
+    omittedSources: Object.freeze([Object.freeze({
+      venueId: "venue-b",
+      reason: "LATEST_REFRESH_FAILED" as const,
+      lastObservationRawHash: hashCanonical({ venueId: "venue-b", prior: 1 }),
+      lastAttemptAt: "2026-08-01T00:00:00.000Z",
+      freshUntil: "2026-08-01T00:15:00.000Z",
+    })]),
+    authority: "SEARCH_COVERAGE_EVIDENCE_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return Object.freeze({ ...body, coverageIdentity: hashCanonical(body) });
+}
+
+function underrepresentedCoverage(): CatalogContextCoverage {
+  const body = Object.freeze({
+    schemaVersion: "pmh.catalog-context-coverage.v1" as const,
+    status: "FULL" as const,
+    requestedVenueIds: Object.freeze(["venue-a", "venue-b"]),
+    eligibleVenueIds: Object.freeze(["venue-a", "venue-b"]),
+    contextVenueIds: Object.freeze(["venue-a"]),
+    minimumEligibleVenueCount: 2,
+    omittedSources: Object.freeze([]),
+    authority: "SEARCH_COVERAGE_EVIDENCE_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return Object.freeze({ ...body, coverageIdentity: hashCanonical(body) });
+}
+
 function runRecord(task: DiscoveryTask): DiscoveryRunRecord {
   const hypothesis: OpportunityHypothesis = Object.freeze({
     hypothesisId: `hypothesis:${hashCanonical(task.taskId).slice(7, 23)}`,
@@ -103,6 +144,88 @@ function runRecord(task: DiscoveryTask): DiscoveryRunRecord {
 }
 
 describe("issue-driven concurrent search scheduler", () => {
+  it("counts degraded productive scans and omitted venues separately", async () => {
+    const leases = new SearchLeaseScheduler({
+      context: (question) => Object.freeze({
+        catalogContext: context(question, ["venue-a"]),
+        coverage: degradedCoverage(),
+      }),
+      maxPiInvocations: 0,
+      runFast: async (task) => {
+        const run = runRecord(task);
+        return Object.freeze({
+          ...run,
+          hypotheses: Object.freeze([]),
+          workerReports: Object.freeze(run.workerReports!.map((report) =>
+            Object.freeze({ ...report, hypothesisCount: 0 })
+          )),
+        });
+      },
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      tickIntervalMs: 1_000,
+      now: () => nowMs,
+    });
+    const issue = issues.projection().issues.find(
+      (item) => item.lens === "PARTITION",
+    );
+    if (issue === undefined) throw new Error("missing partition issue");
+
+    await issues.runNow(issue.issueId, snapshot("degraded-metrics")).promise;
+    const performance = issues.projection().performance;
+    expect(performance).toMatchObject({
+      terminalLeaseCount: 1,
+      coverageManifestCount: 1,
+      degradedContextCount: 1,
+      degradedPassCount: 1,
+      insufficientCoverageFailureCount: 0,
+      omittedVenueCount: 1,
+    });
+    expect(performance.byIssue.find((item) => item.issueId === issue.issueId))
+      .toMatchObject({
+        degradedContextCount: 1,
+        degradedPassCount: 1,
+        omittedVenueCount: 1,
+      });
+  });
+
+  it("counts a full-source but underrepresented context as insufficient", async () => {
+    const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+    const leases = new SearchLeaseScheduler({
+      context: (question) => Object.freeze({
+        catalogContext: context(question, ["venue-a"]),
+        coverage: underrepresentedCoverage(),
+      }),
+      maxPiInvocations: 0,
+      runFast,
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      tickIntervalMs: 1_000,
+      now: () => nowMs,
+    });
+    const issue = issues.projection().issues.find(
+      (item) => item.lens === "IMPLICATION",
+    );
+    if (issue === undefined) throw new Error("missing implication issue");
+
+    const record = await issues.runNow(
+      issue.issueId,
+      snapshot("underrepresented-metrics"),
+    ).promise;
+    expect(record.status).toBe("FAILED");
+    expect(runFast).not.toHaveBeenCalled();
+    expect(issues.projection().performance).toMatchObject({
+      coverageManifestCount: 1,
+      degradedContextCount: 0,
+      insufficientCoverageFailureCount: 1,
+      omittedVenueCount: 0,
+    });
+  });
+
   it("rotates a single-listing result without candidate notification and excludes a legacy misclassification", async () => {
     const store = new SqliteOperationalStore(":memory:");
     const runDeep = vi.fn();

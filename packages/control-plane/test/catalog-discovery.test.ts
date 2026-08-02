@@ -177,6 +177,39 @@ describe("verified catalog discovery context", () => {
     })).resolves.toMatchObject({ executionAuthority: false });
   });
 
+  it("reserves cross-venue representatives before relevance fills the context", async () => {
+    const desk = new FixtureCatalogDiscoveryDesk();
+    await desk.load();
+    const seed = desk.context("Rihanna album", ["polymarket-global"]).listings[0]!;
+    const dominant = Array.from({ length: 35 }, (_, index) => Object.freeze({
+      ...seed,
+      listingRef: `venue-a:album-${index}`,
+      venueId: "venue-a",
+      venueInstrumentId: `album-${index}`,
+      title: `Rihanna album release ${index}`,
+    }));
+    const secondVenue = Object.freeze({
+      ...seed,
+      listingRef: "venue-b:unrelated",
+      venueId: "venue-b",
+      venueInstrumentId: "unrelated",
+      title: "Unrelated weather contract",
+      description: "No query term overlaps this listing.",
+    });
+
+    const context = buildDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      Object.freeze([...dominant, secondVenue]),
+      "Rihanna album release",
+      ["venue-a", "venue-b"],
+    );
+    expect(context.listings).toHaveLength(30);
+    expect(new Set(context.listings.map((listing) => listing.venueId))).toEqual(
+      new Set(["venue-a", "venue-b"]),
+    );
+    expect(context.listings).toContainEqual(secondVenue);
+  });
+
   it("retains an explicitly selected listing set without a second lexical filter", async () => {
     const desk = new FixtureCatalogDiscoveryDesk();
     await desk.load();

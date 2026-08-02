@@ -385,6 +385,21 @@ refresh is in flight, then consume the resulting immutable corpus immediately;
 an empty corpus creates no AI lease. Studio reports the timer, next refresh,
 READY/degraded counts, and current corpus identity.
 
+Scheduled search leases retain the issue's requested venue universe separately
+from the sources that happen to be healthy for one refresh. An empty default
+issue scope means every registered source, not merely today's eligible subset.
+Each v3 lease binds a content-hashed coverage manifest with requested, eligible,
+actually represented, and omitted venue IDs plus bounded omission reasons and
+the latest raw identity when available. Equivalence, implication, and mechanism
+work requires two eligible and actually represented venues; an ordinary
+partition issue may proceed with one. Relevance ranking reserves one bounded
+representative from each available requested venue before filling remaining
+slots, and the Agent receives only those represented venues. If the minimum is
+not met, the lease fails before a model request but retains the manifest.
+Explicit operator catalog-context APIs remain strict. Historical v1
+and initial coverage-aware v2 leases replay unchanged and do not suppress a v3
+qualification scan.
+
 Each lease still permits one cheap model request, one optional pi escalation,
 eight hypotheses, and a 300-second deadline. A new grounded multi-listing
 signature creates one deduplicated Finding Inbox notification; empty scans and

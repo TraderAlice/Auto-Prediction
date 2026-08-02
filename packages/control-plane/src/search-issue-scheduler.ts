@@ -106,6 +106,11 @@ export type SearchIssueSchedulerProjection = Readonly<{
     hypothesisCount: number;
     proposalCount: number;
     evidenceGapCount: number;
+    coverageManifestCount: number;
+    degradedContextCount: number;
+    degradedPassCount: number;
+    insufficientCoverageFailureCount: number;
+    omittedVenueCount: number;
     agentTraceLeaseCount: number;
     agentRunCount: number;
     agentStepCount: number;
@@ -157,6 +162,11 @@ export type SearchIssueSchedulerProjection = Readonly<{
       hypothesisCount: number;
       proposalCount: number;
       evidenceGapCount: number;
+      coverageManifestCount: number;
+      degradedContextCount: number;
+      degradedPassCount: number;
+      insufficientCoverageFailureCount: number;
+      omittedVenueCount: number;
       agentTraceLeaseCount: number;
       agentRunCount: number;
       agentStepCount: number;
@@ -256,6 +266,11 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   hypothesisCount: number;
   proposalCount: number;
   evidenceGapCount: number;
+  coverageManifestCount: number;
+  degradedContextCount: number;
+  degradedPassCount: number;
+  insufficientCoverageFailureCount: number;
+  omittedVenueCount: number;
   agentTraceLeaseCount: number;
   agentRunCount: number;
   agentStepCount: number;
@@ -280,6 +295,12 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     record.fastLane.agentTelemetry === undefined
       ? []
       : [record.fastLane.agentTelemetry]
+  );
+  const coverageRecords = records.filter(
+    (record) => record.fastLane.corpusCoverage !== undefined,
+  );
+  const degradedRecords = coverageRecords.filter(
+    (record) => record.fastLane.corpusCoverage?.status === "DEGRADED",
   );
   const terminationCount = (reasons: readonly string[]) =>
     agentTelemetry.reduce(
@@ -412,6 +433,22 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     hypothesisCount: records.reduce((sum, record) => sum + record.outcome.hypothesisCount, 0),
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     evidenceGapCount: records.reduce((sum, record) => sum + record.outcome.evidenceGapCount, 0),
+    coverageManifestCount: coverageRecords.length,
+    degradedContextCount: degradedRecords.length,
+    degradedPassCount: degradedRecords.filter(
+      (record) => record.status === "PASS",
+    ).length,
+    insufficientCoverageFailureCount: coverageRecords.filter((record) => {
+      const coverage = record.fastLane.corpusCoverage!;
+      return record.status === "FAILED" &&
+        (coverage.eligibleVenueIds.length < coverage.minimumEligibleVenueCount ||
+          coverage.contextVenueIds.length < coverage.minimumEligibleVenueCount);
+    }).length,
+    omittedVenueCount: degradedRecords.reduce(
+      (sum, record) =>
+        sum + (record.fastLane.corpusCoverage?.omittedSources.length ?? 0),
+      0,
+    ),
     agentTraceLeaseCount: agentTelemetry.length,
     agentRunCount: agentTelemetry.reduce((sum, item) => sum + item.agentRunCount, 0),
     agentStepCount: agentTelemetry.reduce((sum, item) => sum + item.stepCount, 0),

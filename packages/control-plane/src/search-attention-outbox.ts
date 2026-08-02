@@ -28,6 +28,8 @@ export type SearchAttentionIssueMetrics = Readonly<{
   economicPositiveCount: number;
   economicBlockedCount: number;
   quoteRescuedCount: number;
+  degradedContextCount?: number;
+  omittedVenueCount?: number;
 }>;
 
 export type SearchAttentionMessageRecord = Readonly<{
@@ -51,6 +53,8 @@ export type SearchAttentionMessageRecord = Readonly<{
     economicPositiveCount: number;
     economicBlockedCount: number;
     quoteRescuedCount: number;
+    degradedContextCount?: number;
+    omittedVenueCount?: number;
     byIssue: readonly SearchAttentionIssueMetrics[];
   }>;
   title: string;
@@ -221,6 +225,10 @@ function assertIssueMetrics(value: SearchAttentionIssueMetrics): void {
     value.economicPositiveCount,
     value.economicBlockedCount,
     value.quoteRescuedCount,
+    ...(value.degradedContextCount === undefined
+      ? []
+      : [value.degradedContextCount]),
+    ...(value.omittedVenueCount === undefined ? [] : [value.omittedVenueCount]),
   ].some((count) => !validCount(count))) {
     throw new Error("search attention issue metrics are malformed");
   }
@@ -253,6 +261,12 @@ export function assertSearchAttentionMessage(
       metrics.novelCandidateCount, metrics.proposalCount,
       metrics.piEscalationCount, metrics.economicPositiveCount,
       metrics.economicBlockedCount, metrics.quoteRescuedCount]
+      .concat(
+        metrics.degradedContextCount === undefined
+          ? []
+          : [metrics.degradedContextCount],
+        metrics.omittedVenueCount === undefined ? [] : [metrics.omittedVenueCount],
+      )
       .some((count) => !validCount(count)) ||
     metrics.byIssue.length < 1 || metrics.byIssue.length > 40 ||
     !boundedText(record.title, 200) || !boundedText(record.summary, 1_000) ||
@@ -328,6 +342,14 @@ function metricsFor(issueId: Hash, records: readonly SearchLeaseRecord[]): Searc
       return enrichment !== undefined && enrichment.status === "READY" &&
         record.fastLane.economicGate?.status !== "PRICE_UNAVAILABLE";
     }).length,
+    degradedContextCount: records.filter(
+      (record) => record.fastLane.corpusCoverage?.status === "DEGRADED",
+    ).length,
+    omittedVenueCount: records.reduce(
+      (sum, record) =>
+        sum + (record.fastLane.corpusCoverage?.omittedSources.length ?? 0),
+      0,
+    ),
   });
 }
 
@@ -357,6 +379,14 @@ function aggregateMetrics(records: readonly SearchLeaseRecord[]) {
       return enrichment !== undefined && enrichment.status === "READY" &&
         record.fastLane.economicGate?.status !== "PRICE_UNAVAILABLE";
     }).length,
+    degradedContextCount: records.filter(
+      (record) => record.fastLane.corpusCoverage?.status === "DEGRADED",
+    ).length,
+    omittedVenueCount: records.reduce(
+      (sum, record) =>
+        sum + (record.fastLane.corpusCoverage?.omittedSources.length ?? 0),
+      0,
+    ),
     byIssue,
   });
 }
@@ -547,7 +577,7 @@ export class SearchAttentionOutbox {
         sourceLeaseIds,
         metrics,
         title: "Scheduled search hourly digest",
-        summary: `${metrics.scanCount} scans · ${metrics.novelCandidateCount} novel · ${metrics.proposalCount} proposals · ${metrics.piEscalationCount} pi · ${metrics.economicBlockedCount} economic blocks · ${metrics.failedCount} failures.`,
+        summary: `${metrics.scanCount} scans · ${metrics.novelCandidateCount} novel · ${metrics.proposalCount} proposals · ${metrics.piEscalationCount} pi · ${metrics.economicBlockedCount} economic blocks · ${metrics.degradedContextCount ?? 0} degraded · ${metrics.failedCount} failures.`,
       }));
     }
   }
@@ -560,12 +590,16 @@ export class SearchAttentionOutbox {
       ) {
         const occurredAt = record.completedAt!;
         const issueId = record.lease.issueId!;
+        const dedupeIdentity = hashCanonical({
+          schemaVersion: "pmh.search-attention-action-dedupe.v1",
+          leaseId: record.lease.leaseId,
+        });
+        if (this.#messages.some(
+          (message) => message.dedupeIdentity === dedupeIdentity,
+        )) continue;
         const metrics = aggregateMetrics([record]);
         this.#saveMessage(createMessage({
-          dedupeIdentity: hashCanonical({
-            schemaVersion: "pmh.search-attention-action-dedupe.v1",
-            leaseId: record.lease.leaseId,
-          }),
+          dedupeIdentity,
           kind: "ACTION_CANDIDATE",
           severity: "ACTION",
           occurredAt,
@@ -590,13 +624,17 @@ export class SearchAttentionOutbox {
         streak.push(record);
         if (streak.length !== 3) continue;
         const occurredAt = record.completedAt!;
+        const dedupeIdentity = hashCanonical({
+          schemaVersion: "pmh.search-attention-degraded-dedupe.v1",
+          issueId,
+          thirdLeaseId: record.lease.leaseId,
+        });
+        if (this.#messages.some(
+          (message) => message.dedupeIdentity === dedupeIdentity,
+        )) continue;
         const metrics = aggregateMetrics(streak);
         this.#saveMessage(createMessage({
-          dedupeIdentity: hashCanonical({
-            schemaVersion: "pmh.search-attention-degraded-dedupe.v1",
-            issueId,
-            thirdLeaseId: record.lease.leaseId,
-          }),
+          dedupeIdentity,
           kind: "ISSUE_DEGRADED",
           severity: "DEGRADED",
           occurredAt,

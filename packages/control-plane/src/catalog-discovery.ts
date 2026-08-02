@@ -183,8 +183,10 @@ export function buildDiscoveryCatalogContext(
     (item) => item.score >= Math.max(1, strongestScore - 1),
   );
   const selected: DiscoveryCatalogListing[] = [];
-  for (const item of (relevant.length > 0 ? relevant : ranked)) {
-    if (selected.length >= MAX_LISTINGS_PER_TASK) break;
+  const selectedRefs = new Set<string>();
+  const append = (item: (typeof ranked)[number]): boolean => {
+    if (selected.length >= MAX_LISTINGS_PER_TASK) return false;
+    if (selectedRefs.has(item.listing.listingRef)) return false;
     const candidate = [...selected, item.listing];
     const boundedCandidate = {
       schemaVersion: "pmh.discovery-catalog-context.v2" as const,
@@ -194,9 +196,20 @@ export function buildDiscoveryCatalogContext(
       contextIdentity: `sha256:${"0".repeat(64)}`,
     };
     if (JSON.stringify(boundedCandidate).length > MAX_CATALOG_CONTEXT_CHARACTERS) {
-      continue;
+      return false;
     }
     selected.push(item.listing);
+    selectedRefs.add(item.listing.listingRef);
+    return true;
+  };
+  const representedVenues = new Set<string>();
+  for (const item of ranked) {
+    if (representedVenues.has(item.listing.venueId)) continue;
+    if (append(item)) representedVenues.add(item.listing.venueId);
+  }
+  for (const item of (relevant.length > 0 ? relevant : ranked)) {
+    if (selected.length >= MAX_LISTINGS_PER_TASK) break;
+    append(item);
   }
   const listings = Object.freeze(selected);
   return buildExactDiscoveryCatalogContext(source, listings);

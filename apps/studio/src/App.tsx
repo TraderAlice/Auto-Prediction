@@ -352,7 +352,7 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
 
 const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler"] = {
   schemaVersion: "pmh.search-lease-scheduler.v1",
-  algorithmVersion: "pmh.ai-search-leases.v1",
+  algorithmVersion: "pmh.ai-search-leases.v3",
   enabled: false,
   configured: { fastLane: true, deepLane: false },
   status: "IDLE",
@@ -440,6 +440,11 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     hypothesisCount: 0,
     proposalCount: 0,
     evidenceGapCount: 0,
+    coverageManifestCount: 0,
+    degradedContextCount: 0,
+    degradedPassCount: 0,
+    insufficientCoverageFailureCount: 0,
+    omittedVenueCount: 0,
     agentTraceLeaseCount: 0,
     agentRunCount: 0,
     agentStepCount: 0,
@@ -2927,6 +2932,25 @@ function MarketArchaeologistView() {
             </div>
           </div>
 
+          <div className="issue-scheduler-strip issue-performance-strip" aria-label="Catalog coverage continuity">
+            <div>
+              <strong>{issuePerformance.coverageManifestCount}/{issuePerformance.terminalLeaseCount}</strong>
+              <span>coverage-bound scans</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.degradedPassCount}/{issuePerformance.degradedContextCount}</strong>
+              <span>completed / degraded scans</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.insufficientCoverageFailureCount}</strong>
+              <span>insufficient-coverage failures</span>
+            </div>
+            <div>
+              <strong>{issuePerformance.omittedVenueCount}</strong>
+              <span>venue omission events · retained</span>
+            </div>
+          </div>
+
           <div className="issue-scheduler-strip issue-performance-strip">
             <div><strong>{issuePerformance.terminalLeaseCount}</strong><span>retained completed scans</span></div>
             <div><strong>{formatRateBps(issuePerformance.novelCandidateRateBps)}</strong><span>new candidate signatures</span></div>
@@ -3043,6 +3067,7 @@ function MarketArchaeologistView() {
                       <span>{message.metrics.novelCandidateCount} novel</span>
                       <span>{message.metrics.proposalCount} proposals</span>
                       <span>{message.metrics.economicPositiveCount} positive gates</span>
+                      <span>{message.metrics.degradedContextCount ?? 0} degraded</span>
                       <span>{message.metrics.failedCount} failed</span>
                     </div>
                     {delivery?.status === "DELIVERED" && (
@@ -3124,6 +3149,7 @@ function MarketArchaeologistView() {
                       <span>next {new Date(issue.nextRunAt).toLocaleString()}</span>
                       <span>{issue.passCount}/{issue.runCount} passed</span>
                       <span>{performance?.novelCandidateCount ?? 0} new · {performance?.duplicateCount ?? 0} repeat · {performance?.piEscalationCount ?? 0} pi</span>
+                      <span>{performance?.degradedPassCount ?? 0}/{performance?.degradedContextCount ?? 0} degraded scans completed · {performance?.omittedVenueCount ?? 0} omission events</span>
                       <span>
                         {performance?.exactSemanticScopeCount ?? 0} exact · {performance?.boundedSemanticScopeCount ?? 0} neighborhoods
                         {" · "}{(performance?.semanticScopeRevisitCount ?? 0) + (performance?.boundedScopeRevisitCount ?? 0)} revisits
@@ -3433,6 +3459,16 @@ function MarketArchaeologistView() {
                 <code>{record.outcome.hypothesisCount} candidates</code>
                 <code>{record.deepLane.runId === null ? record.deepLane.reason : "PI ESCALATED"}</code>
                 <code>{record.outcome.evidenceGapCount} gaps</code>
+                {record.fastLane.corpusCoverage !== undefined && (
+                  <code>
+                    {record.fastLane.corpusCoverage.status}{" "}
+                    {record.fastLane.corpusCoverage.eligibleVenueIds.length}/
+                    {record.fastLane.corpusCoverage.requestedVenueIds.length}
+                    {record.fastLane.corpusCoverage.omittedSources.length === 0
+                      ? ""
+                      : ` · ${record.fastLane.corpusCoverage.omittedSources.map((source) => source.venueId).join(", ")}`}
+                  </code>
+                )}
                 {record.lease.graphContext != null && <code>GRAPH BOUND</code>}
                 {record.lineage.duplicateOfLeaseId !== null && <code>DUPLICATE LINK</code>}
               </div>

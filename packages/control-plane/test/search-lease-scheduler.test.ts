@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   assertSearchLeaseRecord,
   buildMarketCorpusSnapshot,
+  CatalogContextCoverageError,
   SearchLeaseScheduler,
   SqliteOperationalStore,
   type DiscoveryCatalogContext,
   type DiscoveryRunRecord,
   type DiscoveryTask,
   type OpportunityHypothesis,
+  type CatalogContextCoverage,
 } from "../src/index.js";
 
 const receivedAt = "2026-08-01T00:00:00.000Z";
@@ -65,6 +67,32 @@ function context(
   });
   expect(question.length).toBeGreaterThan(0);
   return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+}
+
+function degradedCoverage(
+  contextVenueIds: readonly string[] = ["venue-a"],
+  minimumEligibleVenueCount = 1,
+): CatalogContextCoverage {
+  const body = Object.freeze({
+    schemaVersion: "pmh.catalog-context-coverage.v1" as const,
+    status: "DEGRADED" as const,
+    requestedVenueIds: Object.freeze(["venue-a", "venue-b"]),
+    eligibleVenueIds: Object.freeze(["venue-a"]),
+    contextVenueIds: Object.freeze([...contextVenueIds]),
+    minimumEligibleVenueCount,
+    omittedSources: Object.freeze([Object.freeze({
+      venueId: "venue-b",
+      reason: "LATEST_REFRESH_FAILED" as const,
+      lastObservationRawHash: hashCanonical({ venueId: "venue-b", prior: 1 }),
+      lastAttemptAt: "2026-08-01T00:00:00.000Z",
+      freshUntil: "2026-08-01T00:15:00.000Z",
+    })]),
+    authority: "SEARCH_COVERAGE_EVIDENCE_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return Object.freeze({ ...body, coverageIdentity: hashCanonical(body) });
 }
 
 function hypothesis(task: DiscoveryTask): OpportunityHypothesis {
@@ -1108,6 +1136,197 @@ describe("AI-native search lease scheduler", () => {
     });
   });
 
+  it("binds degraded source coverage and limits the Agent to represented venues", async () => {
+    const store = new SqliteOperationalStore(":memory:");
+    const runFast = vi.fn(async (task: DiscoveryTask) => {
+      expect(task.venueIds).toEqual(["venue-a"]);
+      expect(task.catalogContext?.listings.map((item) => item.venueId)).toEqual([
+        "venue-a",
+      ]);
+      const run = runRecord(task);
+      return Object.freeze({
+        ...run,
+        hypotheses: Object.freeze([]),
+        workerReports: Object.freeze(run.workerReports!.map((report) =>
+          Object.freeze({ ...report, hypothesisCount: 0 })
+        )),
+      });
+    });
+    const scheduler = new SearchLeaseScheduler({
+      context: (question) => Object.freeze({
+        catalogContext: context(question, ["venue-a"]),
+        coverage: degradedCoverage(),
+      }),
+      maxPiInvocations: 0,
+      runFast,
+      store,
+    });
+
+    const record = await scheduler.begin(
+      snapshot("degraded-pass"),
+      "PARTITION",
+    ).promise;
+    expect(record).toMatchObject({
+      status: "PASS",
+      fastLane: {
+        status: "PASS",
+        corpusCoverage: {
+          status: "DEGRADED",
+          eligibleVenueIds: ["venue-a"],
+          contextVenueIds: ["venue-a"],
+          omittedSources: [{
+            venueId: "venue-b",
+            reason: "LATEST_REFRESH_FAILED",
+          }],
+        },
+      },
+    });
+    expect(runFast).toHaveBeenCalledOnce();
+    expect(assertSearchLeaseRecord(
+      JSON.parse(JSON.stringify(record)),
+    )).toEqual(record);
+    const restored = new SearchLeaseScheduler({
+      context,
+      maxPiInvocations: 0,
+      runFast: async (task) => runRecord(task),
+      store,
+    }).projection().records[0];
+    expect(restored?.fastLane.corpusCoverage).toEqual(
+      record.fastLane.corpusCoverage,
+    );
+    store.close();
+  });
+
+  it("keeps the registered source universe in an empty issue scope", async () => {
+    const current = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "one-eligible-source" }),
+      eligibleSourceCount: 1,
+      excludedSourceCount: 1,
+      listings: Object.freeze([listings[0]!]),
+    });
+    const runFast = vi.fn(async (task: DiscoveryTask) => {
+      expect(task.venueIds).toEqual(["venue-a"]);
+      const run = runRecord(task);
+      return Object.freeze({ ...run, hypotheses: Object.freeze([]) });
+    });
+    const scheduler = new SearchLeaseScheduler({
+      registeredVenueIds: ["venue-b", "venue-a"],
+      context: (_question, venueIds) => {
+        expect(venueIds).toEqual(["venue-a", "venue-b"]);
+        return Object.freeze({
+          catalogContext: context("registered universe", ["venue-a"]),
+          coverage: degradedCoverage(),
+        });
+      },
+      maxPiInvocations: 0,
+      runFast,
+    });
+
+    const record = await scheduler.begin(
+      current,
+      "PARTITION",
+      "SCHEDULE",
+      {
+        issueId: hashCanonical({ issue: "all registered" }),
+        question: "Search every registered source that is currently eligible.",
+        venueIds: [],
+      },
+    ).promise;
+    expect(record.lease.scope.venueIds).toEqual(["venue-a", "venue-b"]);
+    expect(record.fastLane.corpusCoverage).toMatchObject({
+      status: "DEGRADED",
+      requestedVenueIds: ["venue-a", "venue-b"],
+      eligibleVenueIds: ["venue-a"],
+    });
+    expect(runFast).toHaveBeenCalledOnce();
+  });
+
+  it("retains insufficient coverage and spends no Agent request", async () => {
+    const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+    const coverage = degradedCoverage([], 2);
+    const scheduler = new SearchLeaseScheduler({
+      context: () => {
+        throw new CatalogContextCoverageError(
+          "only 1 of 2 requested catalog sources are eligible; this search requires 2",
+          coverage,
+        );
+      },
+      maxPiInvocations: 0,
+      runFast,
+    });
+
+    const record = await scheduler.begin(
+      snapshot("degraded-fail"),
+      "EQUIVALENCE",
+    ).promise;
+    expect(record).toMatchObject({
+      status: "FAILED",
+      diagnostic: "only 1 of 2 requested catalog sources are eligible; this search requires 2",
+      fastLane: {
+        status: "FAILED",
+        corpusCoverage: {
+          status: "DEGRADED",
+          eligibleVenueIds: ["venue-a"],
+          contextVenueIds: [],
+          minimumEligibleVenueCount: 2,
+        },
+        modelRequestCount: 0,
+      },
+    });
+    expect(runFast).not.toHaveBeenCalled();
+    expect(assertSearchLeaseRecord(
+      JSON.parse(JSON.stringify(record)),
+    )).toEqual(record);
+  });
+
+  it("rejects a context that represents fewer venues than its v3 minimum before AI", async () => {
+    const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+    const body = Object.freeze({
+      schemaVersion: "pmh.catalog-context-coverage.v1" as const,
+      status: "FULL" as const,
+      requestedVenueIds: Object.freeze(["venue-a", "venue-b"]),
+      eligibleVenueIds: Object.freeze(["venue-a", "venue-b"]),
+      contextVenueIds: Object.freeze(["venue-a"]),
+      minimumEligibleVenueCount: 2,
+      omittedSources: Object.freeze([]),
+      authority: "SEARCH_COVERAGE_EVIDENCE_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    });
+    const scheduler = new SearchLeaseScheduler({
+      registeredVenueIds: ["venue-a", "venue-b"],
+      context: (question) => Object.freeze({
+        catalogContext: context(question, ["venue-a"]),
+        coverage: Object.freeze({
+          ...body,
+          coverageIdentity: hashCanonical(body),
+        }),
+      }),
+      maxPiInvocations: 0,
+      runFast,
+    });
+
+    const record = await scheduler.begin(
+      snapshot("underrepresented-v3"),
+      "IMPLICATION",
+    ).promise;
+    expect(record).toMatchObject({
+      status: "FAILED",
+      diagnostic: "bounded catalog context does not satisfy its coverage manifest",
+      fastLane: {
+        status: "FAILED",
+        modelRequestCount: 0,
+        corpusCoverage: {
+          status: "FULL",
+          contextVenueIds: ["venue-a"],
+          minimumEligibleVenueCount: 2,
+        },
+      },
+    });
+    expect(runFast).not.toHaveBeenCalled();
+  });
+
   it("finishes each lens once per immutable snapshot and remains opt-in", async () => {
     const scheduler = new SearchLeaseScheduler({
       intervalMs: 60_000,
@@ -1125,5 +1344,113 @@ describe("AI-native search lease scheduler", () => {
     }
     expect(scheduler.shouldSchedule(current)).toBe(false);
     expect(scheduler.projection().runCount).toBe(4);
+  });
+
+  it("replays historical v1 leases but does not let them suppress a v3 scan", async () => {
+    const current = snapshot("historical-v1");
+    const completed = await new SearchLeaseScheduler({
+      context,
+      maxPiInvocations: 0,
+      runFast: async (task) => Object.freeze({
+        ...runRecord(task),
+        hypotheses: Object.freeze([]),
+      }),
+    }).begin(current, "EQUIVALENCE").promise;
+    const legacyLeaseId = hashCanonical({
+      schemaVersion: "pmh.search-lease-id.v1",
+      algorithmVersion: "pmh.ai-search-leases.v1",
+      snapshotIdentity: completed.lease.snapshotIdentity,
+      lens: completed.lease.lens,
+    });
+    const { artifactHash: _artifactHash, ...completedBody } = completed;
+    const legacyBody = Object.freeze({
+      ...completedBody,
+      lease: Object.freeze({
+        ...completed.lease,
+        leaseId: legacyLeaseId,
+        algorithmVersion: "pmh.ai-search-leases.v1" as const,
+      }),
+      fastLane: Object.freeze({
+        ...completed.fastLane,
+        taskId: `search-lease:${legacyLeaseId.slice(7)}`,
+      }),
+    });
+    const legacy = assertSearchLeaseRecord(Object.freeze({
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    }));
+    expect(legacy.lease.algorithmVersion).toBe("pmh.ai-search-leases.v1");
+    const v2LeaseId = hashCanonical({
+      schemaVersion: "pmh.search-lease-id.v1",
+      algorithmVersion: "pmh.ai-search-leases.v2",
+      snapshotIdentity: completed.lease.snapshotIdentity,
+      lens: completed.lease.lens,
+    });
+    const v2CoverageBody = Object.freeze({
+      schemaVersion: "pmh.catalog-context-coverage.v1" as const,
+      status: "FULL" as const,
+      requestedVenueIds: Object.freeze(["venue-a", "venue-b"]),
+      eligibleVenueIds: Object.freeze(["venue-a", "venue-b"]),
+      contextVenueIds: Object.freeze(["venue-a"]),
+      minimumEligibleVenueCount: 2,
+      omittedSources: Object.freeze([]),
+      authority: "SEARCH_COVERAGE_EVIDENCE_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    });
+    const v2Body = Object.freeze({
+      ...completedBody,
+      lease: Object.freeze({
+        ...completed.lease,
+        leaseId: v2LeaseId,
+        algorithmVersion: "pmh.ai-search-leases.v2" as const,
+      }),
+      fastLane: Object.freeze({
+        ...completed.fastLane,
+        taskId: `search-lease:${v2LeaseId.slice(7)}`,
+        corpusCoverage: Object.freeze({
+          ...v2CoverageBody,
+          coverageIdentity: hashCanonical(v2CoverageBody),
+        }),
+      }),
+    });
+    const v2 = assertSearchLeaseRecord(Object.freeze({
+      ...v2Body,
+      artifactHash: hashCanonical(v2Body),
+    }));
+    expect(v2.fastLane.corpusCoverage?.contextVenueIds).toEqual(["venue-a"]);
+
+    const store = new SqliteOperationalStore(":memory:");
+    store.saveSearchLeaseRecord(legacy, 40);
+    store.saveSearchLeaseRecord(v2, 40);
+    const scheduler = new SearchLeaseScheduler({
+      intervalMs: 60_000,
+      context,
+      maxPiInvocations: 0,
+      runFast: async (task) => Object.freeze({
+        ...runRecord(task),
+        hypotheses: Object.freeze([]),
+      }),
+      store,
+    });
+    expect(scheduler.shouldSchedule(current)).toBe(true);
+    const currentRecord = await scheduler.begin(
+      current,
+      undefined,
+      "SCHEDULE",
+    ).promise;
+    expect(currentRecord.lease).toMatchObject({
+      algorithmVersion: "pmh.ai-search-leases.v3",
+      lens: "EQUIVALENCE",
+    });
+    expect(scheduler.projection().records.map(
+      (record) => record.lease.algorithmVersion,
+    )).toEqual([
+      "pmh.ai-search-leases.v3",
+      "pmh.ai-search-leases.v2",
+      "pmh.ai-search-leases.v1",
+    ]);
+    store.close();
   });
 });

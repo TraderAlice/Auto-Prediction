@@ -27,6 +27,7 @@ function lease(input: {
   quoteReady?: boolean;
   candidateListingRefs?: readonly string[];
   deepReason?: SearchLeaseRecord["deepLane"]["reason"];
+  degradedOmissions?: number;
 }): SearchLeaseRecord {
   const status = input.status ?? "PASS";
   return {
@@ -59,6 +60,15 @@ function lease(input: {
         status: input.gate,
         quoteEnrichment: input.quoteReady ? { status: "READY" } : undefined,
       },
+      corpusCoverage: input.degradedOmissions === undefined
+        ? undefined
+        : {
+            status: "DEGRADED",
+            omittedSources: Array.from(
+              { length: input.degradedOmissions },
+              (_, index) => ({ venueId: `venue-omitted-${index}` }),
+            ),
+          },
     },
   } as unknown as SearchLeaseRecord;
 }
@@ -110,6 +120,7 @@ describe("search attention outbox", () => {
         completedAt: "2026-08-02T00:20:00.000Z",
         gate: "NON_POSITIVE_GROSS_HINT",
         quoteReady: true,
+        degradedOmissions: 1,
       }),
     ];
     const outbox = new SearchAttentionOutbox({
@@ -150,6 +161,8 @@ describe("search attention outbox", () => {
         piEscalationCount: 1,
         economicBlockedCount: 1,
         quoteRescuedCount: 1,
+        degradedContextCount: 1,
+        omittedVenueCount: 1,
       },
       semanticDecisionAuthority: false,
       certificateAuthority: false,
@@ -423,6 +436,65 @@ describe("search attention outbox", () => {
       expect(third.projection()).toMatchObject({ messageCount: 1, unreadInAppCount: 0 });
       expect(third.projection().deliveries[0]).toMatchObject({ status: "ACKNOWLEDGED" });
       thirdStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a legacy immediate message immutable when new derived metrics appear", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-attention-legacy-"));
+    const path = join(directory, "control-plane.sqlite");
+    const scheduled = issue("legacy-degraded");
+    const records = [1, 2, 3].map((value) => lease({
+      key: `legacy-failed-${value}`,
+      issueId: scheduled.issueId,
+      completedAt: `2026-08-02T01:0${value}:00.000Z`,
+      status: "FAILED",
+      degradedOmissions: 1,
+    }));
+    try {
+      const materializer = new SearchAttentionOutbox({
+        now: () => Date.parse("2026-08-02T01:20:00.000Z"),
+      });
+      await materializer.tick([scheduled], records);
+      const current = materializer.projection().messages.find(
+        (message) => message.kind === "ISSUE_DEGRADED",
+      )!;
+      const { artifactHash: _artifactHash, ...currentBody } = current;
+      const byIssue = current.metrics.byIssue.map((item) => {
+        const {
+          degradedContextCount: _degradedContextCount,
+          omittedVenueCount: _omittedVenueCount,
+          ...legacy
+        } = item;
+        return Object.freeze(legacy);
+      });
+      const {
+        degradedContextCount: _degradedContextCount,
+        omittedVenueCount: _omittedVenueCount,
+        ...legacyMetricCounts
+      } = current.metrics;
+      const legacyBody = Object.freeze({
+        ...currentBody,
+        metrics: Object.freeze({
+          ...legacyMetricCounts,
+          byIssue: Object.freeze(byIssue),
+        }),
+      });
+      const legacy = Object.freeze({
+        ...legacyBody,
+        artifactHash: hashCanonical(legacyBody),
+      });
+      const store = new SqliteOperationalStore(path);
+      store.saveSearchAttentionMessage(legacy, 100);
+      const restored = new SearchAttentionOutbox({
+        store,
+        now: () => Date.parse("2026-08-02T01:20:00.000Z"),
+      });
+
+      await expect(restored.tick([scheduled], records)).resolves.toBe(false);
+      expect(restored.projection().messages).toEqual([legacy]);
+      store.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
