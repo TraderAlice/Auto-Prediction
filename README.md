@@ -511,6 +511,19 @@ separately reports original captures, exact-current rebases, and unresolved
 legacy evidence debt. These reports remain advisory: they cannot accept a
 proposal, simulate it, certify it, or route an order.
 
+Structured document requirements also feed a separate durable acquisition
+queue. Set `PMH_EVIDENCE_ACQUISITION_TICK_MS` to 1000–60000 to enable it. Jobs
+coalesce by content-addressed acquisition scope, lease before network I/O,
+recover expired work after restart, and retain independent SQLite records for
+raw bytes, bounded extracted text, and every `200`/`304` observation. Current
+requirements become stale on their freshness deadline and revalidate
+conditionally; historical requirements remain bound to their original bytes.
+Unsupported routes consume zero fetch and provider budget. If Clash fake-IP DNS
+is active, `PMH_EVIDENCE_TRUST_CLASH_FAKE_IP=1` must be explicit and the selected
+address is retained in the observation. The worker starts only after the HTTP
+listener wins startup admission, and `/api/v1/evidence-acquisition` exposes its
+queue and accounting without returning untrusted document text.
+
 Both AI paths use tool effects instead of treating a model's entire final
 answer as a fixed-schema document. Pi retains its recursive read-only MarketFS
 tools and receives one repository-owned `submit_market_findings` extension;

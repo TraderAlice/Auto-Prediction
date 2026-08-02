@@ -49,6 +49,23 @@ import {
   type SemanticReviewSchedulerStore,
 } from "./semantic-review-scheduler.js";
 import {
+  assertEvidenceAcquisitionJobRecord,
+  type EvidenceAcquisitionJobRecord,
+  type EvidenceAcquisitionSchedulerStore,
+} from "./evidence-acquisition-scheduler.js";
+import {
+  assertEvidenceDocumentCapture,
+  assertEvidenceDocumentObservation,
+  assertStoredEvidenceDocument,
+  assertStoredEvidenceDocumentText,
+  type EvidenceDocumentCapture,
+  type EvidenceDocumentObservation,
+  type EvidenceDocumentRecord,
+  type EvidenceDocumentTextRecord,
+  type StoredEvidenceDocument,
+  type StoredEvidenceDocumentText,
+} from "./evidence-document.js";
+import {
   assertSearchLeaseRecord,
   type SearchLeaseRecord,
   type SearchLeaseRecordStore,
@@ -90,7 +107,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -197,6 +214,35 @@ type SemanticReviewJobRow = Readonly<{
 
 type SemanticReviewNotificationRow = Readonly<{
   notification_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type EvidenceAcquisitionJobRow = Readonly<{
+  job_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type EvidenceDocumentRow = Readonly<{
+  document_id: string;
+  record_json: string;
+  record_hash: string;
+  raw_bytes: Uint8Array;
+}>;
+
+type EvidenceDocumentTextRow = Readonly<{
+  extraction_id: string;
+  document_id: string;
+  record_json: string;
+  record_hash: string;
+  extracted_text: string;
+}>;
+
+type EvidenceDocumentObservationRow = Readonly<{
+  observation_id: string;
+  acquisition_job_id: string;
+  document_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -730,6 +776,110 @@ function parseSemanticReviewNotificationRecord(
   return record;
 }
 
+function parseEvidenceAcquisitionJobRecord(value: unknown): EvidenceAcquisitionJobRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite evidence acquisition job row is malformed");
+  }
+  const row = value as Partial<EvidenceAcquisitionJobRow>;
+  if (
+    typeof row.job_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite evidence acquisition job row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite evidence acquisition job contains invalid JSON");
+  }
+  const record = assertEvidenceAcquisitionJobRecord(decoded);
+  if (record.jobId !== row.job_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite evidence acquisition job identity mismatch");
+  }
+  return record;
+}
+
+function parseEvidenceDocument(value: unknown): StoredEvidenceDocument {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite evidence document row is malformed");
+  }
+  const row = value as Partial<EvidenceDocumentRow>;
+  if (
+    typeof row.document_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string" || !(row.raw_bytes instanceof Uint8Array)
+  ) throw new Error("SQLite evidence document row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite evidence document contains invalid JSON");
+  }
+  const document = assertStoredEvidenceDocument({
+    record: decoded as EvidenceDocumentRecord,
+    bytes: row.raw_bytes,
+  });
+  if (
+    document.record.documentId !== row.document_id ||
+    hashCanonical(document.record) !== row.record_hash
+  ) throw new Error("SQLite evidence document identity mismatch");
+  return document;
+}
+
+function parseEvidenceDocumentText(value: unknown): StoredEvidenceDocumentText {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite evidence document text row is malformed");
+  }
+  const row = value as Partial<EvidenceDocumentTextRow>;
+  if (
+    typeof row.extraction_id !== "string" || typeof row.document_id !== "string" ||
+    typeof row.record_json !== "string" || typeof row.record_hash !== "string" ||
+    typeof row.extracted_text !== "string"
+  ) throw new Error("SQLite evidence document text row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite evidence document text contains invalid JSON");
+  }
+  const extraction = assertStoredEvidenceDocumentText({
+    record: decoded as EvidenceDocumentTextRecord,
+    text: row.extracted_text,
+  });
+  if (
+    extraction.record.extractionId !== row.extraction_id ||
+    extraction.record.documentId !== row.document_id ||
+    hashCanonical(extraction.record) !== row.record_hash
+  ) throw new Error("SQLite evidence document text identity mismatch");
+  return extraction;
+}
+
+function parseEvidenceDocumentObservation(
+  value: unknown,
+): Readonly<{ jobId: Hash; observation: EvidenceDocumentObservation }> {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite evidence document observation row is malformed");
+  }
+  const row = value as Partial<EvidenceDocumentObservationRow>;
+  if (
+    typeof row.observation_id !== "string" ||
+    typeof row.acquisition_job_id !== "string" || typeof row.document_id !== "string" ||
+    typeof row.record_json !== "string" || typeof row.record_hash !== "string"
+  ) throw new Error("SQLite evidence document observation row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite evidence document observation contains invalid JSON");
+  }
+  const observation = assertEvidenceDocumentObservation(decoded);
+  if (
+    observation.observationId !== row.observation_id ||
+    observation.documentId !== row.document_id ||
+    hashCanonical(observation) !== row.record_hash ||
+    !/^sha256:[0-9a-f]{64}$/u.test(row.acquisition_job_id)
+  ) throw new Error("SQLite evidence document observation identity mismatch");
+  return Object.freeze({ jobId: row.acquisition_job_id as Hash, observation });
+}
+
 function parseOpportunityLifecycleJournal(
   value: unknown,
 ): OpportunityLifecycleJournal {
@@ -871,6 +1021,7 @@ export class SqliteOperationalStore
     SearchAttentionStore,
     SemanticReviewRecordStore,
     SemanticReviewSchedulerStore,
+    EvidenceAcquisitionSchedulerStore,
     OpportunityLifecycleJournalStore,
     AnonymousSimulationMaterializationStore
 {
@@ -912,6 +1063,10 @@ export class SqliteOperationalStore
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
   public readonly semanticReviewJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewNotificationStorage: OperationalStorageProjection<"notificationId">;
+  public readonly evidenceAcquisitionJobStorage: OperationalStorageProjection<"jobId">;
+  public readonly evidenceDocumentStorage: OperationalStorageProjection<"documentId">;
+  public readonly evidenceDocumentTextStorage: OperationalStorageProjection<"extractionId">;
+  public readonly evidenceDocumentObservationStorage: OperationalStorageProjection<"observationId">;
   public readonly opportunityLifecycleStorage: OperationalStorageProjection<"opportunityId">;
   public readonly anonymousSimulationMaterializationStorage: Readonly<{
     mode: "MEMORY" | "SQLITE_WAL";
@@ -1046,6 +1201,30 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "notificationId",
     });
+    this.evidenceAcquisitionJobStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "jobId",
+    });
+    this.evidenceDocumentStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "documentId",
+    });
+    this.evidenceDocumentTextStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "extractionId",
+    });
+    this.evidenceDocumentObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
+    });
     this.opportunityLifecycleStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -1121,6 +1300,30 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'search_quote_observations'`,
       )
       .get() !== undefined;
+    const evidenceAcquisitionJobTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'evidence_acquisition_jobs'`,
+      )
+      .get() !== undefined;
+    const evidenceDocumentTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'evidence_documents'`,
+      )
+      .get() !== undefined;
+    const evidenceDocumentTextTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'evidence_document_texts'`,
+      )
+      .get() !== undefined;
+    const evidenceDocumentObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'evidence_document_observations'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -1131,7 +1334,9 @@ export class SqliteOperationalStore
       searchAttentionDeliveryTableExists &&
       semanticReviewJobTableExists &&
       semanticReviewNotificationTableExists &&
-      searchQuoteObservationTableExists
+      searchQuoteObservationTableExists &&
+      evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
+      evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -1717,6 +1922,95 @@ export class SqliteOperationalStore
             SELECT * FROM search_attention_deliveries_v17;
           DROP TABLE search_attention_deliveries_v17;
           DROP TABLE search_attention_messages_v17;
+        `);
+      }
+      if (
+        current < 19 || !evidenceAcquisitionJobTableExists ||
+        !evidenceDocumentTableExists || !evidenceDocumentTextTableExists ||
+        !evidenceDocumentObservationTableExists
+      ) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS evidence_acquisition_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN (
+                'PENDING', 'LEASED', 'RETRY_WAIT', 'CAPTURED', 'STALE',
+                'UNSUPPORTED', 'EXHAUSTED'
+              )
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS evidence_acquisition_jobs_due
+            ON evidence_acquisition_jobs (status, next_attempt_at, job_id);
+
+          CREATE TABLE IF NOT EXISTS evidence_documents (
+            document_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(document_id) = 71 AND document_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            raw_hash TEXT NOT NULL CHECK (
+              length(raw_hash) = 71 AND raw_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            raw_bytes BLOB NOT NULL
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS evidence_documents_received
+            ON evidence_documents (received_at DESC, document_id DESC);
+
+          CREATE TABLE IF NOT EXISTS evidence_document_texts (
+            extraction_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(extraction_id) = 71 AND extraction_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            document_id TEXT NOT NULL CHECK (
+              length(document_id) = 71 AND document_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            extracted_text TEXT NOT NULL,
+            FOREIGN KEY (document_id) REFERENCES evidence_documents(document_id)
+              ON DELETE CASCADE
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS evidence_document_texts_document
+            ON evidence_document_texts (document_id, extraction_id);
+
+          CREATE TABLE IF NOT EXISTS evidence_document_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            acquisition_job_id TEXT NOT NULL CHECK (
+              length(acquisition_job_id) = 71 AND
+              acquisition_job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            document_id TEXT NOT NULL CHECK (
+              length(document_id) = 71 AND document_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+            http_status INTEGER NOT NULL CHECK (http_status IN (200, 304)),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (acquisition_job_id) REFERENCES evidence_acquisition_jobs(job_id)
+              ON DELETE CASCADE,
+            FOREIGN KEY (document_id) REFERENCES evidence_documents(document_id)
+              ON DELETE RESTRICT
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS evidence_document_observations_job
+            ON evidence_document_observations (
+              acquisition_job_id, received_at DESC, observation_id DESC
+            );
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -3017,6 +3311,276 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadEvidenceAcquisitionJobRecords(
+    limit: number,
+  ): readonly EvidenceAcquisitionJobRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM evidence_acquisition_jobs
+         ORDER BY updated_at DESC, job_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseEvidenceAcquisitionJobRecord));
+  }
+
+  #upsertEvidenceAcquisitionJob(
+    record: EvidenceAcquisitionJobRecord,
+  ): EvidenceAcquisitionJobRecord {
+    const recordJson = canonicalJson(record);
+    const recordHash = hashCanonical(record);
+    this.#database
+      .prepare(
+        `INSERT INTO evidence_acquisition_jobs (
+           job_id, status, next_attempt_at, updated_at, record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(job_id) DO UPDATE SET
+           status = excluded.status,
+           next_attempt_at = excluded.next_attempt_at,
+           updated_at = excluded.updated_at,
+           record_json = excluded.record_json,
+           record_hash = excluded.record_hash`,
+      )
+      .run(
+        record.jobId,
+        record.status,
+        record.nextAttemptAt,
+        record.updatedAt,
+        recordJson,
+        recordHash,
+      );
+    const row = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM evidence_acquisition_jobs WHERE job_id = ?`,
+      )
+      .get(record.jobId);
+    if (row === undefined) throw new Error("SQLite failed to retain the evidence acquisition job");
+    const stored = parseEvidenceAcquisitionJobRecord(row);
+    if (hashCanonical(stored) !== recordHash) {
+      throw new Error("jobId is already bound to another evidence acquisition scope");
+    }
+    return stored;
+  }
+
+  #pruneEvidenceAcquisition(retentionLimit: number): void {
+    this.#database
+      .prepare(
+        `DELETE FROM evidence_acquisition_jobs
+         WHERE job_id IN (
+           SELECT job_id FROM evidence_acquisition_jobs
+           ORDER BY updated_at DESC, job_id DESC
+           LIMIT -1 OFFSET ?
+         )`,
+      )
+      .run(retentionLimit);
+    this.#database
+      .prepare(
+        `DELETE FROM evidence_documents
+         WHERE NOT EXISTS (
+           SELECT 1 FROM evidence_document_observations
+           WHERE evidence_document_observations.document_id =
+                 evidence_documents.document_id
+         )`,
+      )
+      .run();
+  }
+
+  public saveEvidenceAcquisitionJobRecord(
+    recordInput: EvidenceAcquisitionJobRecord,
+    retentionLimit: number,
+  ): EvidenceAcquisitionJobRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const record = assertEvidenceAcquisitionJobRecord(recordInput);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const stored = this.#upsertEvidenceAcquisitionJob(record);
+      this.#pruneEvidenceAcquisition(retentionLimit);
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadEvidenceDocumentCapture(jobId: Hash): EvidenceDocumentCapture | null {
+    this.#assertOpen();
+    if (!/^sha256:[0-9a-f]{64}$/u.test(jobId)) {
+      throw new Error("evidence acquisition job identity is malformed");
+    }
+    const jobRow = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM evidence_acquisition_jobs WHERE job_id = ?`,
+      )
+      .get(jobId);
+    if (jobRow === undefined) return null;
+    const job = parseEvidenceAcquisitionJobRecord(jobRow);
+    if (
+      job.lastObservationId === null || job.lastDocumentId === null ||
+      job.lastExtractionId === null
+    ) return null;
+    const observationRow = this.#database
+      .prepare(
+        `SELECT observation_id, acquisition_job_id, document_id, record_json, record_hash
+         FROM evidence_document_observations
+         WHERE observation_id = ? AND acquisition_job_id = ?`,
+      )
+      .get(job.lastObservationId, job.jobId);
+    const documentRow = this.#database
+      .prepare(
+        `SELECT document_id, record_json, record_hash, raw_bytes
+         FROM evidence_documents WHERE document_id = ?`,
+      )
+      .get(job.lastDocumentId);
+    const extractionRow = this.#database
+      .prepare(
+        `SELECT extraction_id, document_id, record_json, record_hash, extracted_text
+         FROM evidence_document_texts WHERE extraction_id = ?`,
+      )
+      .get(job.lastExtractionId);
+    if (
+      observationRow === undefined || documentRow === undefined || extractionRow === undefined
+    ) throw new Error("SQLite evidence acquisition capture is incomplete");
+    const observation = parseEvidenceDocumentObservation(observationRow);
+    if (observation.jobId !== job.jobId) {
+      throw new Error("SQLite evidence observation is bound to another acquisition job");
+    }
+    return assertEvidenceDocumentCapture(Object.freeze({
+      status: observation.observation.httpStatus === 304 ? "NOT_MODIFIED" : "CAPTURED",
+      observation: observation.observation,
+      document: parseEvidenceDocument(documentRow),
+      extraction: parseEvidenceDocumentText(extractionRow),
+    }));
+  }
+
+  public saveEvidenceAcquisitionCompletion(
+    recordInput: EvidenceAcquisitionJobRecord,
+    captureInput: EvidenceDocumentCapture,
+    retentionLimit: number,
+  ): Readonly<{ record: EvidenceAcquisitionJobRecord; capture: EvidenceDocumentCapture }> {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const record = assertEvidenceAcquisitionJobRecord(recordInput);
+    const capture = assertEvidenceDocumentCapture(captureInput);
+    if (
+      record.status !== "CAPTURED" ||
+      record.lastObservationId !== capture.observation.observationId ||
+      record.lastDocumentId !== capture.document.record.documentId ||
+      record.lastExtractionId !== capture.extraction.record.extractionId ||
+      record.httpStatus !== capture.observation.httpStatus ||
+      record.acquisitionScopeIdentity !== capture.observation.acquisitionScopeIdentity ||
+      !record.requirementIds.includes(capture.observation.requirementId) ||
+      record.locatorIdentity !== capture.observation.locatorIdentity ||
+      record.policyIdentity !== capture.observation.policyIdentity
+    ) throw new Error("evidence acquisition completion lineage is inconsistent");
+    const documentJson = canonicalJson(capture.document.record);
+    const documentHash = hashCanonical(capture.document.record);
+    const extractionJson = canonicalJson(capture.extraction.record);
+    const extractionHash = hashCanonical(capture.extraction.record);
+    const observationJson = canonicalJson(capture.observation);
+    const observationHash = hashCanonical(capture.observation);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#upsertEvidenceAcquisitionJob(record);
+      this.#database
+        .prepare(
+          `INSERT INTO evidence_documents (
+             document_id, raw_hash, received_at, record_json, record_hash, raw_bytes
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(document_id) DO NOTHING`,
+        )
+        .run(
+          capture.document.record.documentId,
+          capture.document.record.rawHash,
+          capture.document.record.receivedAt,
+          documentJson,
+          documentHash,
+          capture.document.bytes,
+        );
+      this.#database
+        .prepare(
+          `INSERT INTO evidence_document_texts (
+             extraction_id, document_id, record_json, record_hash, extracted_text
+           ) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(extraction_id) DO NOTHING`,
+        )
+        .run(
+          capture.extraction.record.extractionId,
+          capture.extraction.record.documentId,
+          extractionJson,
+          extractionHash,
+          capture.extraction.text,
+        );
+      this.#database
+        .prepare(
+          `INSERT INTO evidence_document_observations (
+             observation_id, acquisition_job_id, document_id, received_at, http_status,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+        )
+        .run(
+          capture.observation.observationId,
+          record.jobId,
+          capture.observation.documentId,
+          capture.observation.receivedAt,
+          capture.observation.httpStatus,
+          observationJson,
+          observationHash,
+        );
+      const storedDocumentRow = this.#database
+        .prepare(
+          `SELECT document_id, record_json, record_hash, raw_bytes
+           FROM evidence_documents WHERE document_id = ?`,
+        )
+        .get(capture.document.record.documentId);
+      const storedExtractionRow = this.#database
+        .prepare(
+          `SELECT extraction_id, document_id, record_json, record_hash, extracted_text
+           FROM evidence_document_texts WHERE extraction_id = ?`,
+        )
+        .get(capture.extraction.record.extractionId);
+      const storedObservationRow = this.#database
+        .prepare(
+          `SELECT observation_id, acquisition_job_id, document_id, record_json, record_hash
+           FROM evidence_document_observations WHERE observation_id = ?`,
+        )
+        .get(capture.observation.observationId);
+      if (
+        storedDocumentRow === undefined || storedExtractionRow === undefined ||
+        storedObservationRow === undefined
+      ) throw new Error("SQLite failed to retain the evidence acquisition capture");
+      const storedDocument = parseEvidenceDocument(storedDocumentRow);
+      const storedExtraction = parseEvidenceDocumentText(storedExtractionRow);
+      const storedObservation = parseEvidenceDocumentObservation(storedObservationRow);
+      if (
+        storedDocument.record.documentId !== capture.document.record.documentId ||
+        storedExtraction.record.extractionId !== capture.extraction.record.extractionId ||
+        storedObservation.jobId !== record.jobId ||
+        storedObservation.observation.observationId !== capture.observation.observationId
+      ) throw new Error("content identity is already bound to another evidence artifact");
+      this.#pruneEvidenceAcquisition(retentionLimit);
+      const storedRecord = this.#upsertEvidenceAcquisitionJob(record);
+      const storedCapture = assertEvidenceDocumentCapture(Object.freeze({
+        status: capture.status,
+        observation: storedObservation.observation,
+        document: storedDocument,
+        extraction: storedExtraction,
+      }));
+      this.#database.exec("COMMIT");
+      return Object.freeze({ record: storedRecord, capture: storedCapture });
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

@@ -103,8 +103,24 @@ enabled, after which it is recorded as `CLASH_FAKE_IP_PINNED`. A live Gemini PDF
 qualification captured 87,279 bytes, extracted 5,116 characters from two pages,
 bound the observed Clash route to `198.18.0.55`/IPv4, then reused the document
 on an ETag `304`. Node 24.14.0 checks, all 457 tests (308 control-plane), and the
-production build pass. Durable coalescing persistence and automatic review
-resumption are now the next construction boundary.
+production build pass. That checkpoint supplied the constrained network and
+artifact boundary consumed by the durable scheduler below.
+
+The unpublished stack now also runs those requirements through a durable,
+coalesced acquisition scheduler. SQLite schema v19 retains jobs, immutable raw
+documents, bounded text, and each `200`/`304` observation independently. Leases
+survive restart, unsupported routes spend zero fetch/model budget, current
+documents conditionally refresh without exhausting a lifetime attempt cap, and
+changed bytes remain alongside prior versions. A fetch-policy change preserves
+old observations but clears the current conditional cursor and forces a full
+request under the new policy. Runtime workers start only after listener
+admission and expose bounded queue/accounting state without untrusted text. A
+live two-requirement Gemini run proved one coalesced capture followed by SQLite
+restart and an ETag `304` over the same 87,279-byte document. The next
+construction boundary is the Agent evidence-claim tool loop and an enriched
+semantic scope that can resume blocked reviews without repeating discovery.
+Node 24.14.0 checks, all 467 tests (318 control-plane), and the production build
+pass for this checkpoint.
 
 The retained 947-listing SQLite corpus now replays into 306 locators without a
 network call: 286 Gemini rule documents and 20 Myriad outcome-resolution

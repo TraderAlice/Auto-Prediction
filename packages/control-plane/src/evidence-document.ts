@@ -459,7 +459,9 @@ function pinnedHttpsFetch(
         headers.append(response.rawHeaders[index]!, response.rawHeaders[index + 1]!);
       }
       const status = response.statusCode ?? 500;
-      const body = status === 204 || status === 304
+      const bodyless = status === 204 || status === 304;
+      if (bodyless) response.resume();
+      const body = bodyless
         ? null
         : Readable.toWeb(response) as ReadableStream<Uint8Array>;
       resolve(new Response(body, {
@@ -973,6 +975,21 @@ export class EvidenceDocumentFetcher {
     this.#trustClashFakeIp = options.trustClashFakeIp ?? false;
   }
 
+  public policyFor(
+    requirementInput: EvidenceRequirement,
+    locatorIdentity: Hash,
+  ): EvidenceDocumentFetchPolicy | null {
+    const requirement = assertEvidenceRequirement(requirementInput);
+    const binding = locatorFromRequirement(requirement, locatorIdentity);
+    const policy = this.#policies.find((candidate) =>
+      candidate.venueId === binding.venueId &&
+      candidate.protocolIdentity === binding.protocolIdentity &&
+      candidate.role === binding.locator.role
+    ) ?? null;
+    if (policy !== null) validateUrl(binding.locator.url, policy);
+    return policy;
+  }
+
   public async capture(input: Readonly<{
     requirement: EvidenceRequirement;
     locatorIdentity: Hash;
@@ -980,12 +997,8 @@ export class EvidenceDocumentFetcher {
   }>): Promise<EvidenceDocumentCapture> {
     const requirement = assertEvidenceRequirement(input.requirement);
     const binding = locatorFromRequirement(requirement, input.locatorIdentity);
-    const policy = this.#policies.find((candidate) =>
-      candidate.venueId === binding.venueId &&
-      candidate.protocolIdentity === binding.protocolIdentity &&
-      candidate.role === binding.locator.role
-    );
-    if (policy === undefined) {
+    const policy = this.policyFor(requirement, input.locatorIdentity);
+    if (policy === null) {
       throw new Error("no first-party evidence fetch policy admits this locator");
     }
     const previous = input.previous === undefined

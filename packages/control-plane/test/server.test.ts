@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
   AnonymousSimulationMaterializerDesk,
@@ -19,6 +19,8 @@ import {
   createPiInvestigatorRuntime,
   createSemanticReviewDesk,
   DiscoveryPool,
+  EvidenceAcquisitionScheduler,
+  EvidenceDocumentFetcher,
   RealCandidatePreflightDesk,
   SearchIssueScheduler,
   SearchLeaseScheduler,
@@ -130,10 +132,16 @@ describe("control-plane HTTP surface", () => {
       desk: catalogDesk,
       intervalMs: null,
     });
+    const evidenceAcquisitionScheduler = new EvidenceAcquisitionScheduler({
+      fetcher: new EvidenceDocumentFetcher({ policies: [] }),
+      tickIntervalMs: 1_000,
+    });
+    const evidenceTick = vi.spyOn(evidenceAcquisitionScheduler, "tick");
     const controlPlane = createControlPlane({
       modelRuntime: createOpenAiDiscoveryRuntime({}),
       catalogObservationDesk: catalogDesk,
       catalogRefreshScheduler,
+      evidenceAcquisitionScheduler,
       refreshCatalogOnReady: true,
       startupGate,
     });
@@ -142,16 +150,19 @@ describe("control-plane HTTP surface", () => {
     await Promise.resolve();
     expect(fetchCount).toBe(0);
     expect(catalogRefreshScheduler.projection().runCount).toBe(0);
+    expect(evidenceTick).not.toHaveBeenCalled();
 
     await new Promise<void>((resolveListen) =>
       controlPlane.server.listen(0, "127.0.0.1", resolveListen),
     );
     expect(fetchCount).toBe(0);
+    expect(evidenceTick).not.toHaveBeenCalled();
 
     releaseStartup?.();
     await controlPlane.ready;
     expect(fetchCount).toBe(1);
     expect(catalogRefreshScheduler.projection().runCount).toBe(1);
+    expect(evidenceTick).toHaveBeenCalledOnce();
   });
 
   it("holds due issues during refresh and dispatches them on the new corpus", async () => {
@@ -442,6 +453,15 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        evidenceAcquisition: {
+          enabled: boolean;
+          pendingCount: number;
+          requirementCount: number;
+          budget: { basis: string; maxAttemptsPerJob: number };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         reviewAttention: {
           contentHash: string;
           itemCount: number;
@@ -575,6 +595,30 @@ describe("control-plane HTTP surface", () => {
       budget: { basis: "REQUEST_ATTEMPTS", maxAttemptsPerJob: 3 },
       semanticDecisionAuthority: false,
       certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.evidenceAcquisition).toMatchObject({
+      enabled: false,
+      pendingCount: 0,
+      requirementCount: 0,
+      budget: { basis: "FETCH_ATTEMPTS", maxAttemptsPerJob: 3 },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        anonymousReadsOnly: true,
+        credentialsUsed: false,
+        providerRequests: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    const evidenceResponse = await fetch(`${baseUrl}/api/v1/evidence-acquisition`);
+    expect(evidenceResponse.status).toBe(200);
+    expect(await evidenceResponse.json()).toMatchObject({
+      schemaVersion: "pmh.evidence-acquisition-scheduler.v1",
+      requirementCount: 0,
+      authority: "ANONYMOUS_EVIDENCE_ORCHESTRATION_ONLY",
       executionAuthority: false,
     });
     expect(projection.ai.semanticReviewAdmission).toMatchObject({
@@ -1929,7 +1973,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 18,
+          schemaVersion: 19,
         },
         records: [{ investigationId: created.investigationId }],
       });

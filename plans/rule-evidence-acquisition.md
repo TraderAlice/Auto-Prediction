@@ -162,6 +162,42 @@ incomplete corpus is poor use of provider budget.
 - Node 24.14.0 full workspace checks, all 457 tests (308 control-plane), and the
   production build pass for the stacked checkpoint.
 
+## Implemented stacked checkpoint — durable acquisition scheduling
+
+- Added a content-addressed acquisition job per evidence scope. Requirements
+  from multiple proposals are retained separately but share one fetch, lease,
+  retry budget, and current-document freshness cycle. Requirements arriving
+  while a shared fetch is already leased are merged into the durable completion
+  instead of being overwritten by the older dispatch snapshot.
+- SQLite schema v19 independently retains acquisition jobs, exact document
+  bytes, bounded text extractions, and every document observation. Jobs lease
+  before network I/O, recover expired leases after restart, bound concurrency
+  and requests per tick, and distinguish retry wait, exhaustion, unsupported,
+  captured, and stale states. Unsupported routes spend neither fetch nor model
+  budget.
+- A successful current-document capture resets only its retry-cycle attempt
+  count. Lifetime attempts and conditional-reuse counts remain auditable, so
+  repeated freshness checks can continue past one cycle's maximum without
+  erasing their cost. Historical captures never refresh.
+- Current documents revalidate with retained ETag or Last-Modified metadata.
+  `304` creates a new immutable observation over the prior document; changed
+  bytes create a new document and extraction while preserving the old
+  observation. After a fetch-policy change, the old observation remains
+  immutable but the current job deliberately drops its conditional cursor and
+  performs a full request under the new policy.
+- The control-plane runtime collects requirements from both discovery and
+  semantic-review reports, exposes bounded queue/accounting data at
+  `/api/v1/evidence-acquisition`, and starts scheduled reads only after the HTTP
+  listener wins startup admission. The Studio projection includes the queue but
+  never embeds untrusted extracted text.
+- A live Gemini qualification captured the shared PDF once for two requirements,
+  restored the job and artifacts from SQLite, reached its freshness boundary,
+  and received HTTP `304` while reusing the same 87,279-byte document identity.
+  The recorded route remained Clash fake-IP `198.18.0.55`/IPv4, and no model,
+  credential, semantic-decision, certificate, or execution authority was used.
+- Node 24.14.0 full workspace checks, all 467 tests (318 control-plane), and the
+  production build pass for this scheduler checkpoint.
+
 ## Evidence contract
 
 1. Preserve adapter-owned typed locators in a backward-compatible discovery
@@ -282,8 +318,9 @@ official evidence to reach a deterministic accept/reject decision.
    policy-constrained anonymous fetcher and raw/extracted evidence artifacts
    with SSRF, DNS rebinding, proxy-posture, redirect, conditional request, and
    resource-bound tests plus a live Gemini PDF qualification.
-4. Add the durable coalescing acquisition scheduler, restart recovery,
-   freshness, retention, and terminal-state accounting.
+4. **Implemented on the unpublished serial stack:** add the durable coalescing
+   acquisition scheduler, restart recovery, freshness, retention, policy-change
+   invalidation, and terminal-state accounting.
 5. Add the Agent tool loop for requesting eligible documents and submitting
    bounded evidence claims; preserve partial fetch success across model failure.
 6. Build enriched semantic scopes and automatically resume blocked review jobs

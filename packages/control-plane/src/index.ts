@@ -10,6 +10,7 @@ export * from "./discovery-evidence-locator.js";
 export * from "./discovery-ledger.js";
 export * from "./evidence-requirement.js";
 export * from "./evidence-document.js";
+export * from "./evidence-acquisition-scheduler.js";
 export * from "./deepseek-model.js";
 export * from "./exact-promotion.js";
 export * from "./investigation-desk.js";

@@ -1,10 +1,13 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { hashBytes, hashCanonical } from "@pmh/domain";
 import { geminiManifest } from "@pmh/venue-gemini";
 import { buildDiscoveryEvidenceLocator } from "./discovery-evidence-locator.js";
 import { EvidenceDocumentFetcher } from "./evidence-document.js";
+import { EvidenceAcquisitionScheduler } from "./evidence-acquisition-scheduler.js";
 import { buildEvidenceRequirements } from "./evidence-requirement.js";
+import { SqliteOperationalStore } from "./operational-store.js";
 import type { DiscoveryCatalogListing } from "./types.js";
 
 const fixturePath = resolve(
@@ -69,9 +72,9 @@ async function main(): Promise<void> {
     listing({ listingRef: "gemini-smoke:rule", sourceRawHash, locatorUrl: url }),
     listing({ listingRef: "gemini-smoke:peer", sourceRawHash }),
   ]);
-  const requirement = buildEvidenceRequirements({
+  const buildRequirement = (proposal: string) => buildEvidenceRequirements({
     origin: "SEMANTIC_REVIEW",
-    proposalId: hashCanonical({ schemaVersion: "pmh.evidence-document-smoke.v1" }),
+    proposalId: hashCanonical({ schemaVersion: "pmh.evidence-document-smoke.v2", proposal }),
     proposalListingRefs: listings.map((item) => item.listingRef),
     listings,
     drafts: [Object.freeze({
@@ -81,24 +84,63 @@ async function main(): Promise<void> {
       reason: "Qualify the bounded acquisition and extraction boundary.",
       satisfyingObservation: "The official PDF is captured and yields bounded text.",
       contradictingObservation: "The locator is unavailable or cannot yield bounded text.",
-      temporalPosture: "HISTORICAL_AT_SOURCE_OBSERVATION" as const,
+      temporalPosture: "CURRENT" as const,
     })],
   })[0]!;
+  const requirements = Object.freeze([
+    buildRequirement("first"),
+    buildRequirement("second"),
+  ]);
+  const directory = await mkdtemp(join(tmpdir(), "pmh-evidence-smoke-"));
+  const databasePath = join(directory, "operations.sqlite");
+  let now = Date.now();
   const fetcher = new EvidenceDocumentFetcher({
     trustClashFakeIp: process.env.PMH_EVIDENCE_TRUST_CLASH_FAKE_IP === "1",
+    now: () => now,
   });
-  const capture = await fetcher.capture({
-    requirement,
-    locatorIdentity: requirement.eligibleLocators[0]!.locator.locatorIdentity,
-  });
-  const revalidated = await fetcher.capture({
-    requirement,
-    locatorIdentity: requirement.eligibleLocators[0]!.locator.locatorIdentity,
-    previous: capture,
-  });
-  process.stdout.write(`${JSON.stringify({
+  try {
+    const firstStore = new SqliteOperationalStore(databasePath);
+    const firstScheduler = new EvidenceAcquisitionScheduler({
+      fetcher,
+      tickIntervalMs: 1_000,
+      freshForMs: 1_000,
+      store: firstStore,
+      now: () => now,
+    });
+    await Promise.all(firstScheduler.tick(requirements));
+    const firstJob = firstScheduler.projection().jobs[0]!;
+    const capture = firstScheduler.captureForJob(firstJob.jobId);
+    if (capture === null) throw new Error("durable smoke produced no first capture");
+    firstStore.close();
+
+    now += 1_000;
+    const secondStore = new SqliteOperationalStore(databasePath);
+    const secondScheduler = new EvidenceAcquisitionScheduler({
+      fetcher,
+      tickIntervalMs: 1_000,
+      freshForMs: 1_000,
+      store: secondStore,
+      now: () => now,
+    });
+    const restartProjection = secondScheduler.projection();
+    const refreshRuns = secondScheduler.tick(requirements);
+    await Promise.all(refreshRuns);
+    const projection = secondScheduler.projection();
+    const revalidatedJob = projection.jobs[0]!;
+    const revalidated = secondScheduler.captureForJob(revalidatedJob.jobId);
+    if (revalidated === null) throw new Error("durable smoke lost its revalidated capture");
+    process.stdout.write(`${JSON.stringify({
     status: capture.status,
-    requirementId: requirement.requirementId,
+    requirementId: requirements[0]!.requirementId,
+    acquisitionJobId: firstJob.jobId,
+    coalescedRequirementCount: projection.coalescedRequirementCount,
+    fetchAttemptsStarted: projection.budget.fetchAttemptsStarted,
+    conditionalReuseCount: projection.conditionalReuseCount,
+    durableStorage: projection.storage.jobs.durable,
+    restartStatusBeforeTick: restartProjection.jobs[0]?.status ?? null,
+    restartNextRefreshAt: restartProjection.jobs[0]?.nextRefreshAt ?? null,
+    restartNow: new Date(now).toISOString(),
+    refreshDispatchCount: refreshRuns.length,
     policyIdentity: capture.document.record.policyIdentity,
     locatorIdentity: capture.document.record.locatorIdentity,
     finalLocatorIdentity: capture.document.record.finalLocatorIdentity,
@@ -123,6 +165,10 @@ async function main(): Promise<void> {
     revalidationDocumentReused:
       revalidated.document.record.documentId === capture.document.record.documentId,
   }, null, 2)}\n`);
+    secondStore.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 void main().catch((error: unknown) => {

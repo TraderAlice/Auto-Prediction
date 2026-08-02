@@ -83,6 +83,13 @@ import {
   type SemanticReviewCandidate,
   type SemanticReviewSchedulerStore,
 } from "./semantic-review-scheduler.js";
+import {
+  EvidenceAcquisitionScheduler,
+  parseEvidenceAcquisitionTickInterval,
+  type EvidenceAcquisitionSchedulerStore,
+} from "./evidence-acquisition-scheduler.js";
+import { EvidenceDocumentFetcher } from "./evidence-document.js";
+import type { EvidenceRequirement } from "./evidence-requirement.js";
 import { buildSemanticReviewAdmissionProjection } from "./semantic-review-admission.js";
 import { deriveRelationPayoffProjection } from "./relation-payoff.js";
 import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
@@ -397,6 +404,23 @@ function supportsSemanticReviewSchedulerRecords(
   );
 }
 
+function supportsEvidenceAcquisitionRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & EvidenceAcquisitionSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<EvidenceAcquisitionSchedulerStore>;
+  return (
+    candidate.evidenceAcquisitionJobStorage !== undefined &&
+    candidate.evidenceDocumentStorage !== undefined &&
+    candidate.evidenceDocumentTextStorage !== undefined &&
+    candidate.evidenceDocumentObservationStorage !== undefined &&
+    typeof candidate.loadEvidenceAcquisitionJobRecords === "function" &&
+    typeof candidate.saveEvidenceAcquisitionJobRecord === "function" &&
+    typeof candidate.loadEvidenceDocumentCapture === "function" &&
+    typeof candidate.saveEvidenceAcquisitionCompletion === "function"
+  );
+}
+
 function supportsOpportunityLifecycleJournals(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & OpportunityLifecycleJournalStore {
@@ -470,6 +494,7 @@ export function createControlPlane(options?: {
   searchAttentionOutbox?: SearchAttentionOutbox;
   semanticReviewDesk?: SemanticReviewDesk;
   semanticReviewScheduler?: SemanticReviewScheduler;
+  evidenceAcquisitionScheduler?: EvidenceAcquisitionScheduler;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
   simulationMaterializerDesk?: AnonymousSimulationMaterializerDesk;
   /**
@@ -708,6 +733,19 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const evidenceAcquisitionScheduler =
+    options?.evidenceAcquisitionScheduler ??
+    new EvidenceAcquisitionScheduler({
+      fetcher: new EvidenceDocumentFetcher({
+        trustClashFakeIp: process.env.PMH_EVIDENCE_TRUST_CLASH_FAKE_IP === "1",
+      }),
+      tickIntervalMs: parseEvidenceAcquisitionTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsEvidenceAcquisitionRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const opportunityLifecycleDesk =
     options?.opportunityLifecycleDesk ??
     new OpportunityLifecycleDesk(
@@ -866,6 +904,20 @@ export function createControlPlane(options?: {
       }),
     );
   };
+  const evidenceRequirements = (): readonly EvidenceRequirement[] => Object.freeze([
+    ...marketArchaeologistDesk.projection().records.flatMap((record) =>
+      record.status === "PASS" && record.report !== null
+        ? record.report.result.evidenceRequirements ?? []
+        : []
+    ),
+    ...semanticReviewDesk.projection().records.flatMap((record) =>
+      record.status === "PASS" && record.report !== null
+        ? record.report.result.evidenceRequirements ?? []
+        : []
+    ),
+  ].filter((requirement, index, all) =>
+    all.findIndex((candidate) => candidate.requirementId === requirement.requirementId) === index
+  ));
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     const realCandidateReady = realCandidatePreflightDesk.load();
     await Promise.all([
@@ -907,7 +959,9 @@ export function createControlPlane(options?: {
       applyProposalEconomicPriority(baseReviewCandidates, economicTriageProjection),
       semanticReviewProjection.records,
     );
+    evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
+    const evidenceAcquisitionProjection = evidenceAcquisitionScheduler.projection();
     const lifecycleProjection = opportunityLifecycleDesk.projection();
     const searchLeaseProjection = searchLeaseScheduler.projection();
     const searchIssueProjection = searchIssueScheduler.projection();
@@ -962,6 +1016,7 @@ export function createControlPlane(options?: {
       semanticReview: semanticReviewProjection,
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
+      evidenceAcquisition: evidenceAcquisitionProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
       semanticRelationGraph,
@@ -1105,6 +1160,7 @@ export function createControlPlane(options?: {
         searchAttention: searchAttentionOutbox.projection(),
         semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
+        evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
         semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
           baseSemanticReviewCandidates().map((candidate) => candidate.proposal),
         ),
@@ -1148,6 +1204,15 @@ export function createControlPlane(options?: {
         semanticReviewDesk.projection().records,
       );
       writeJson(response, 200, semanticReviewScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/evidence-acquisition"
+    ) {
+      await ready;
+      evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+      writeJson(response, 200, evidenceAcquisitionScheduler.projection());
       return;
     }
     const reviewNotificationAckMatch = url.pathname.match(
@@ -2308,6 +2373,7 @@ export function createControlPlane(options?: {
   let searchIssueTimer: ReturnType<typeof setInterval> | null = null;
   let searchAttentionTimer: ReturnType<typeof setInterval> | null = null;
   let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
+  let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
   if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
@@ -2415,11 +2481,30 @@ export function createControlPlane(options?: {
       semanticReviewTimer.unref();
     });
   }
+  const evidenceAcquisitionTickMs = evidenceAcquisitionScheduler.tickIntervalMs;
+  if (evidenceAcquisitionTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = evidenceAcquisitionScheduler.tick(evidenceRequirements());
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted acquisition work.
+        }
+      };
+      tick();
+      evidenceAcquisitionTimer = setInterval(tick, evidenceAcquisitionTickMs);
+      evidenceAcquisitionTimer.unref();
+    });
+  }
   server.once("close", () => {
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
     if (searchAttentionTimer !== null) clearInterval(searchAttentionTimer);
     if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
+    if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
     discoveryLedger.close();
   });
@@ -2442,6 +2527,7 @@ export function createControlPlane(options?: {
     searchAttentionOutbox,
     semanticReviewDesk,
     semanticReviewScheduler,
+    evidenceAcquisitionScheduler,
     opportunityLifecycleDesk,
     projection,
     ready,
