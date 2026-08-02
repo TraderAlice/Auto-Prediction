@@ -181,7 +181,7 @@ function lcm(left: bigint, right: bigint): bigint {
   return (left / gcd(left, right)) * right;
 }
 
-function estimateWithIdentity(input: ProbabilityEstimateInput): ProbabilityEstimate {
+export function buildProbabilityEstimate(input: ProbabilityEstimateInput): ProbabilityEstimate {
   const body = Object.freeze({
     estimator: input.estimator.trim(),
     method: input.method,
@@ -195,7 +195,7 @@ function estimateWithIdentity(input: ProbabilityEstimateInput): ProbabilityEstim
   return Object.freeze({ ...body, estimateIdentity: hashCanonical(body) });
 }
 
-function validateEstimate(value: unknown): ProbabilityEstimate {
+export function assertProbabilityEstimate(value: unknown): ProbabilityEstimate {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("probability estimate is malformed");
   }
@@ -277,8 +277,8 @@ export function buildProbabilisticSemanticBound(input: Readonly<{
   if (!Array.isArray(input.estimates) || input.estimates.length < 2 || input.estimates.length > 8) {
     throw new Error("probability bound requires 2–8 independent estimates");
   }
-  const estimates = Object.freeze(input.estimates.map(estimateWithIdentity));
-  estimates.forEach(validateEstimate);
+  const estimates = Object.freeze(input.estimates.map(buildProbabilityEstimate));
+  estimates.forEach(assertProbabilityEstimate);
   if (
     new Set(estimates.map((item) => item.estimator)).size !== estimates.length ||
     new Set(estimates.map((item) => item.estimateIdentity)).size !== estimates.length ||
@@ -337,7 +337,7 @@ export function assertProbabilisticSemanticBound(
   const artifact = value as ProbabilisticSemanticBoundArtifact;
   const { artifactHash, ...body } = artifact;
   const constraint = assertSemanticConstraintArtifact(artifact.semanticConstraint);
-  const estimates = artifact.estimates.map(validateEstimate);
+  const estimates = artifact.estimates.map(assertProbabilityEstimate);
   const envelope = expectedEnvelope(estimates);
   const expectedStates = expectedStateIds(artifact.listingRefs.length);
   const actualStates = constraint.truthTable.map((item) => item.stateId).sort();

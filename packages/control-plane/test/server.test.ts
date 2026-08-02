@@ -490,6 +490,28 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        probabilityEstimation: {
+          configured: boolean;
+          runCount: number;
+          passCount: number;
+          abstainedCount: number;
+          roles: string[];
+          storage: { durable: boolean; idempotencyKey: string };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
+        probabilityEstimationScheduler: {
+          enabled: boolean;
+          caseCount: number;
+          boundReadyCount: number;
+          unreadNotificationCount: number;
+          budget: { basis: string; maxAttemptsPerRole: number };
+          storage: { jobs: { durable: boolean; idempotencyKey: string } };
+          semanticDecisionAuthority: boolean;
+          probabilityCertificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         premiseAnalysis: {
           configured: boolean;
           runCount: number;
@@ -697,6 +719,42 @@ describe("control-plane HTTP surface", () => {
       semanticDecisionAuthority: false,
       certificateAuthority: false,
       executionAuthority: false,
+    });
+    expect(projection.ai.probabilityEstimation).toMatchObject({
+      configured: false,
+      runCount: 0,
+      passCount: 0,
+      abstainedCount: 0,
+      roles: ["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"],
+      storage: { durable: false, idempotencyKey: "runId" },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.probabilityEstimationScheduler).toMatchObject({
+      enabled: false,
+      caseCount: 0,
+      boundReadyCount: 0,
+      unreadNotificationCount: 0,
+      budget: { basis: "PROVIDER_ATTEMPTS", maxAttemptsPerRole: 3 },
+      storage: { jobs: { durable: false, idempotencyKey: "jobId" } },
+      semanticDecisionAuthority: false,
+      probabilityCertificateAuthority: false,
+      executionAuthority: false,
+    });
+    const probabilityResponse = await fetch(`${baseUrl}/api/v1/probability-estimation`);
+    expect(probabilityResponse.status).toBe(200);
+    expect(await probabilityResponse.json()).toMatchObject({
+      desk: {
+        schemaVersion: "pmh.probability-estimation-desk.v1",
+        authority: "ESTIMATION_ORCHESTRATION_ONLY",
+        executionAuthority: false,
+      },
+      scheduler: {
+        schemaVersion: "pmh.probability-estimation-scheduler.v1",
+        authority: "ESTIMATION_ORCHESTRATION_ONLY",
+        executionAuthority: false,
+      },
     });
     expect(projection.ai.premiseAnalysis).toMatchObject({
       configured: false,
@@ -2126,7 +2184,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 23,
+          schemaVersion: 25,
         },
         records: [{ investigationId: created.investigationId }],
       });

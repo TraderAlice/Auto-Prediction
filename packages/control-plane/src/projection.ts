@@ -44,6 +44,8 @@ import {
   type OpportunityLifecycleDeskProjection,
 } from "./opportunity-lifecycle-desk.js";
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
+import type { ProbabilityEstimationDeskProjection } from "./probability-estimation-agent.js";
+import type { ProbabilityEstimationSchedulerProjection } from "./probability-estimation-scheduler.js";
 import {
   buildSemanticReviewAdmissionProjection,
   type SemanticReviewAdmissionProjection,
@@ -122,6 +124,8 @@ export function buildStudioProjection(input: {
   searchAttention?: SearchAttentionProjection;
   searchOutcomeAttribution?: SearchOutcomeAttributionProjection;
   semanticReview?: SemanticReviewDeskProjection;
+  probabilityEstimation?: ProbabilityEstimationDeskProjection;
+  probabilityEstimationScheduler?: ProbabilityEstimationSchedulerProjection;
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   premiseAnalysis?: PremiseAnalysisDeskProjection;
@@ -764,6 +768,89 @@ export function buildStudioProjection(input: {
       effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
     },
   });
+  const probabilityEstimation = input.probabilityEstimation ?? {
+    schemaVersion: "pmh.probability-estimation-desk.v1" as const,
+    configured: false,
+    model: "unavailable",
+    status: "NEEDS_KEY" as const,
+    activeCount: 0,
+    runCount: 0,
+    passCount: 0,
+    abstainedCount: 0,
+    failedCount: 0,
+    roles: Object.freeze(["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"] as const),
+    records: Object.freeze([]),
+    storage: Object.freeze({
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "runId" as const,
+    }),
+    authority: "ESTIMATION_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: Object.freeze({
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    }),
+  };
+  const probabilityEstimationScheduler = input.probabilityEstimationScheduler ?? {
+    schemaVersion: "pmh.probability-estimation-scheduler.v1" as const,
+    enabled: false,
+    configured: false,
+    status: "NEEDS_KEY" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 3,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    blockedEvidenceCount: 0,
+    passedCount: 0,
+    abstainedCount: 0,
+    exhaustedCount: 0,
+    caseCount: 0,
+    boundReadyCount: 0,
+    freshBoundCount: 0,
+    unsupportedCandidateCount: 0,
+    unreadNotificationCount: 0,
+    budget: Object.freeze({
+      basis: "PROVIDER_ATTEMPTS" as const,
+      maxAttemptsPerRole: 3,
+      maxRequestsPerTick: 3,
+      providerAttemptsStarted: 0,
+    }),
+    jobs: Object.freeze([]),
+    bounds: Object.freeze([]),
+    notifications: Object.freeze([]),
+    storage: Object.freeze({
+      jobs: Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "jobId" as const,
+      }),
+      notifications: Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "notificationId" as const,
+      }),
+    }),
+    authority: "ESTIMATION_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityCertificateAuthority: false as const,
+    hardArbitrageAuthority: false as const,
+    executionAuthority: false as const,
+    effects: Object.freeze({
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    }),
+  };
   const investigationDesk = input.investigationDesk ?? {
     retentionLimit: 10,
     activeCount: 0 as const,
@@ -964,6 +1051,8 @@ export function buildStudioProjection(input: {
       searchIssueScheduler,
       searchOutcomeAttribution,
       semanticReview,
+      probabilityEstimation,
+      probabilityEstimationScheduler,
       semanticReviewAdmission: input.semanticReviewAdmission ??
         buildSemanticReviewAdmissionProjection([]),
       semanticReviewScheduler,

@@ -79,6 +79,19 @@ import {
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
 import {
+  createProbabilityEstimationDesk,
+  ProbabilityEstimationDesk,
+  PROBABILITY_ESTIMATOR_ROLES,
+  type ProbabilityEstimationRunStore,
+  type ProbabilityEstimatorRole,
+} from "./probability-estimation-agent.js";
+import {
+  parseProbabilityEstimationTickInterval,
+  ProbabilityEstimationScheduler,
+  type ProbabilityEstimationCandidate,
+  type ProbabilityEstimationSchedulerStore,
+} from "./probability-estimation-scheduler.js";
+import {
   parseSemanticReviewTickInterval,
   SemanticReviewScheduler,
   type SemanticReviewCandidate,
@@ -418,6 +431,29 @@ function supportsSemanticReviewRecords(
   );
 }
 
+function supportsProbabilityEstimationRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ProbabilityEstimationRunStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ProbabilityEstimationRunStore>;
+  return candidate.probabilityEstimationStorage !== undefined &&
+    typeof candidate.loadProbabilityEstimationRunRecords === "function" &&
+    typeof candidate.saveProbabilityEstimationRunRecord === "function";
+}
+
+function supportsProbabilityEstimationSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ProbabilityEstimationSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ProbabilityEstimationSchedulerStore>;
+  return candidate.probabilityEstimationJobStorage !== undefined &&
+    candidate.probabilityEstimationNotificationStorage !== undefined &&
+    typeof candidate.loadProbabilityEstimationJobRecords === "function" &&
+    typeof candidate.saveProbabilityEstimationJobRecord === "function" &&
+    typeof candidate.loadProbabilityEstimationNotificationRecords === "function" &&
+    typeof candidate.saveProbabilityEstimationNotificationRecord === "function";
+}
+
 function supportsSemanticReviewSchedulerRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & SemanticReviewSchedulerStore {
@@ -565,6 +601,8 @@ export function createControlPlane(options?: {
   searchIssueScheduler?: SearchIssueScheduler;
   searchAttentionOutbox?: SearchAttentionOutbox;
   semanticReviewDesk?: SemanticReviewDesk;
+  probabilityEstimationDesk?: ProbabilityEstimationDesk;
+  probabilityEstimationScheduler?: ProbabilityEstimationScheduler;
   semanticReviewScheduler?: SemanticReviewScheduler;
   premiseAnalysisDesk?: ReturnType<typeof createPremiseAnalysisDesk>;
   premiseAnalysisScheduler?: PremiseAnalysisScheduler;
@@ -815,6 +853,24 @@ export function createControlPlane(options?: {
     options?.semanticReviewDesk ??
     createSemanticReviewDesk(process.env, {
       ...(supportsSemanticReviewRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const probabilityEstimationDesk =
+    options?.probabilityEstimationDesk ??
+    createProbabilityEstimationDesk(process.env, {
+      ...(supportsProbabilityEstimationRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const probabilityEstimationScheduler =
+    options?.probabilityEstimationScheduler ??
+    new ProbabilityEstimationScheduler({
+      desk: probabilityEstimationDesk,
+      tickIntervalMs: parseProbabilityEstimationTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsProbabilityEstimationSchedulerRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -1118,6 +1174,13 @@ export function createControlPlane(options?: {
       left.review.reviewId.localeCompare(right.review.reviewId)
     ));
   };
+  const probabilityEstimationCandidates = (): readonly ProbabilityEstimationCandidate[] =>
+    Object.freeze(semanticReviewDesk.projection().records.flatMap((review) =>
+      review.status === "PASS" && review.report !== null &&
+          review.report.result.semanticConstraint?.classification === "PROBABILISTIC_DEPENDENCE"
+        ? [Object.freeze({ review })]
+        : []
+    ));
   const evidenceRequirements = (): readonly EvidenceRequirement[] => Object.freeze([
     ...marketArchaeologistDesk.projection().records.flatMap((record) =>
       record.status === "PASS" && record.report !== null
@@ -1181,6 +1244,10 @@ export function createControlPlane(options?: {
       semanticReviewCandidates(),
       semanticReviewProjection.records,
     );
+    probabilityEstimationScheduler.reconcile(
+      probabilityEstimationCandidates(),
+      catalogObservationDesk.corpus(),
+    );
     premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
     evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
@@ -1243,6 +1310,8 @@ export function createControlPlane(options?: {
       searchIssueScheduler: searchIssueProjection,
       searchOutcomeAttribution,
       semanticReview: semanticReviewProjection,
+      probabilityEstimation: probabilityEstimationDesk.projection(),
+      probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
       premiseAnalysis: premiseAnalysisProjection,
@@ -1393,6 +1462,8 @@ export function createControlPlane(options?: {
         searchAttention: searchAttentionOutbox.projection(),
         semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
+        probabilityEstimation: probabilityEstimationDesk.projection(),
+        probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
         premiseAnalysis: premiseAnalysisDesk.projection(),
         premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
         evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
@@ -1521,6 +1592,27 @@ export function createControlPlane(options?: {
           diagnostic: error instanceof Error
             ? error.message
             : "premise analysis notification acknowledgement failed",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    const probabilityNotificationAckMatch = url.pathname.match(
+      /^\/api\/v1\/probability-estimation-notifications\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
+    );
+    if (request.method === "POST" && probabilityNotificationAckMatch !== null) {
+      try {
+        const notification = probabilityEstimationScheduler.acknowledge(
+          probabilityNotificationAckMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, notification);
+      } catch (error) {
+        writeJson(response, 404, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "probability estimation notification acknowledgement failed",
           executionAuthority: false,
         });
       }
@@ -1973,6 +2065,21 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/probability-estimation"
+    ) {
+      await ready;
+      probabilityEstimationScheduler.reconcile(
+        probabilityEstimationCandidates(),
+        catalogObservationDesk.corpus(),
+      );
+      writeJson(response, 200, Object.freeze({
+        desk: probabilityEstimationDesk.projection(),
+        scheduler: probabilityEstimationScheduler.projection(),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/research-cases/review-intake"
     ) {
       const caseId = url.searchParams.get("caseId")?.trim() ?? "";
@@ -2262,6 +2369,10 @@ export function createControlPlane(options?: {
         );
         await broadcastProjection();
         const record = await invocation.promise;
+        probabilityEstimationScheduler.reconcile(
+          probabilityEstimationCandidates(),
+          catalogObservationDesk.corpus(),
+        );
         await broadcastProjection();
         writeJson(response, record.status === "PASS" ? 200 : 422, {
           ...record,
@@ -2434,6 +2545,55 @@ export function createControlPlane(options?: {
             executionAuthority: false,
           },
         );
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/probability-estimation/runs"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body)) {
+          throw new Error("probability estimation request is malformed");
+        }
+        const raw = body as {
+          semanticReviewArtifactHash?: unknown;
+          adverseStateIds?: unknown;
+          role?: unknown;
+        };
+        if (
+          Object.keys(body).sort().join("\n") !==
+            ["adverseStateIds", "role", "semanticReviewArtifactHash"].sort().join("\n") ||
+          typeof raw.semanticReviewArtifactHash !== "string" ||
+          !Array.isArray(raw.adverseStateIds) ||
+          raw.adverseStateIds.some((item) => typeof item !== "string") ||
+          !PROBABILITY_ESTIMATOR_ROLES.includes(raw.role as ProbabilityEstimatorRole)
+        ) throw new Error("probability estimation requires review hash, adverse states, and role");
+        const review = semanticReviewDesk.projection().records.find((record) =>
+          record.report?.artifactHash === raw.semanticReviewArtifactHash
+        );
+        if (review === undefined) throw new Error("probabilistic semantic review was not found");
+        const invocation = probabilityEstimationDesk.begin(
+          review,
+          catalogObservationDesk.corpus(),
+          raw.adverseStateIds as string[],
+          raw.role as ProbabilityEstimatorRole,
+        );
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" || record.status === "ABSTAINED" ? 200 : 422, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "probability estimation failed",
+          executionAuthority: false,
+        });
       }
       return;
     }
@@ -2675,6 +2835,7 @@ export function createControlPlane(options?: {
   let searchIssueTimer: ReturnType<typeof setInterval> | null = null;
   let searchAttentionTimer: ReturnType<typeof setInterval> | null = null;
   let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
+  let probabilityEstimationTimer: ReturnType<typeof setInterval> | null = null;
   let premiseAnalysisTimer: ReturnType<typeof setInterval> | null = null;
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
@@ -2785,6 +2946,27 @@ export function createControlPlane(options?: {
       semanticReviewTimer.unref();
     });
   }
+  const probabilityEstimationTickMs = probabilityEstimationScheduler.tickIntervalMs;
+  if (probabilityEstimationTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = probabilityEstimationScheduler.tick(
+            probabilityEstimationCandidates(),
+            catalogObservationDesk.corpus(),
+          );
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted role-estimation work.
+        }
+      };
+      tick();
+      probabilityEstimationTimer = setInterval(tick, probabilityEstimationTickMs);
+      probabilityEstimationTimer.unref();
+    });
+  }
   const premiseAnalysisTickMs = premiseAnalysisScheduler.tickIntervalMs;
   if (premiseAnalysisTickMs !== null) {
     void ready.then(() => {
@@ -2844,6 +3026,7 @@ export function createControlPlane(options?: {
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
     if (searchAttentionTimer !== null) clearInterval(searchAttentionTimer);
     if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
+    if (probabilityEstimationTimer !== null) clearInterval(probabilityEstimationTimer);
     if (premiseAnalysisTimer !== null) clearInterval(premiseAnalysisTimer);
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
@@ -2868,6 +3051,8 @@ export function createControlPlane(options?: {
     searchIssueScheduler,
     searchAttentionOutbox,
     semanticReviewDesk,
+    probabilityEstimationDesk,
+    probabilityEstimationScheduler,
     semanticReviewScheduler,
     premiseAnalysisDesk,
     premiseAnalysisScheduler,

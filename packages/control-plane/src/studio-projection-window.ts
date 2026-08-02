@@ -7,6 +7,10 @@ export const LIVE_PROJECTION_LIMITS = Object.freeze({
   semanticReviewJobs: 16,
   semanticReviewNotifications: 12,
   semanticReviews: 32,
+  probabilityEstimationRuns: 32,
+  probabilityEstimationJobs: 32,
+  probabilityEstimationBounds: 12,
+  probabilityEstimationNotifications: 12,
   searchLeases: 8,
   marketArchaeologistRuns: 4,
   lifecycleCases: 32,
@@ -91,6 +95,35 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
     LIVE_PROJECTION_LIMITS.semanticReviews,
     "ACTIVE_THEN_RETAINED_ORDER",
     (record) => record.status === "RUNNING" || selectedOpportunityIds.has(record.opportunityId),
+  );
+  const probabilityEstimationRuns = window(
+    "ai.probabilityEstimation.records",
+    full.ai.probabilityEstimation.records,
+    LIVE_PROJECTION_LIMITS.probabilityEstimationRuns,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (record) => record.status === "RUNNING",
+  );
+  const probabilityEstimationJobs = window(
+    "ai.probabilityEstimationScheduler.jobs",
+    full.ai.probabilityEstimationScheduler.jobs,
+    LIVE_PROJECTION_LIMITS.probabilityEstimationJobs,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (record) => ["PENDING", "LEASED", "RETRY_WAIT", "BLOCKED_EVIDENCE"].includes(
+      record.status,
+    ),
+  );
+  const probabilityEstimationBounds = window(
+    "ai.probabilityEstimationScheduler.bounds",
+    full.ai.probabilityEstimationScheduler.bounds,
+    LIVE_PROJECTION_LIMITS.probabilityEstimationBounds,
+    "RETAINED_ORDER",
+  );
+  const probabilityEstimationNotifications = window(
+    "ai.probabilityEstimationScheduler.notifications",
+    full.ai.probabilityEstimationScheduler.notifications,
+    LIVE_PROJECTION_LIMITS.probabilityEstimationNotifications,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (record) => record.status === "UNREAD",
   );
   const searchLeases = window(
     "ai.searchLeaseScheduler.records",
@@ -267,6 +300,16 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
         notifications: issueNotifications,
       }),
       semanticReview: Object.freeze({ ...full.ai.semanticReview, records: semanticReviews }),
+      probabilityEstimation: Object.freeze({
+        ...full.ai.probabilityEstimation,
+        records: probabilityEstimationRuns,
+      }),
+      probabilityEstimationScheduler: Object.freeze({
+        ...full.ai.probabilityEstimationScheduler,
+        jobs: probabilityEstimationJobs,
+        bounds: probabilityEstimationBounds,
+        notifications: probabilityEstimationNotifications,
+      }),
       semanticReviewAdmission: Object.freeze({
         ...full.ai.semanticReviewAdmission,
         candidates: admissionCandidates,

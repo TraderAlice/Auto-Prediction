@@ -47,6 +47,18 @@ import {
   type PremiseAnalysisRecordStore,
 } from "./premise-analysis.js";
 import {
+  assertProbabilityEstimationRunRecord,
+  type ProbabilityEstimationRunRecord,
+  type ProbabilityEstimationRunStore,
+} from "./probability-estimation-agent.js";
+import {
+  assertProbabilityEstimationJobRecord,
+  assertProbabilityEstimationNotificationRecord,
+  type ProbabilityEstimationJobRecord,
+  type ProbabilityEstimationNotificationRecord,
+  type ProbabilityEstimationSchedulerStore,
+} from "./probability-estimation-scheduler.js";
+import {
   assertPremiseAnalysisJobRecord,
   assertPremiseAnalysisNotificationRecord,
   type PremiseAnalysisJobRecord,
@@ -129,7 +141,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 23;
+const SCHEMA_VERSION = 25;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -224,6 +236,27 @@ type SearchAttentionDeliveryRow = Readonly<{
 type SemanticReviewRow = Readonly<{
   review_id: string;
   opportunity_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ProbabilityEstimationRunRow = Readonly<{
+  run_id: string;
+  semantic_review_artifact_hash: string;
+  semantic_constraint_artifact_hash: string;
+  role: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ProbabilityEstimationJobRow = Readonly<{
+  job_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ProbabilityEstimationNotificationRow = Readonly<{
+  notification_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -779,6 +812,85 @@ function parseSemanticReviewRecord(value: unknown): SemanticReviewRecord {
   return record;
 }
 
+function parseProbabilityEstimationRunRecord(
+  value: unknown,
+): ProbabilityEstimationRunRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite probability estimation row is malformed");
+  }
+  const row = value as Partial<ProbabilityEstimationRunRow>;
+  if (
+    typeof row.run_id !== "string" ||
+    typeof row.semantic_review_artifact_hash !== "string" ||
+    typeof row.semantic_constraint_artifact_hash !== "string" ||
+    typeof row.role !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite probability estimation row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite probability estimation record contains invalid JSON");
+  }
+  const record = assertProbabilityEstimationRunRecord(decoded);
+  if (
+    record.runId !== row.run_id ||
+    record.semanticReviewArtifactHash !== row.semantic_review_artifact_hash ||
+    record.semanticConstraintArtifactHash !== row.semantic_constraint_artifact_hash ||
+    record.role !== row.role || hashCanonical(record) !== row.record_hash
+  ) throw new Error("SQLite probability estimation record identity mismatch");
+  return record;
+}
+
+function parseProbabilityEstimationJobRecord(
+  value: unknown,
+): ProbabilityEstimationJobRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite probability estimation job row is malformed");
+  }
+  const row = value as Partial<ProbabilityEstimationJobRow>;
+  if (
+    typeof row.job_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite probability estimation job row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite probability estimation job contains invalid JSON");
+  }
+  const record = assertProbabilityEstimationJobRecord(decoded);
+  if (record.jobId !== row.job_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite probability estimation job identity mismatch");
+  }
+  return record;
+}
+
+function parseProbabilityEstimationNotificationRecord(
+  value: unknown,
+): ProbabilityEstimationNotificationRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite probability estimation notification row is malformed");
+  }
+  const row = value as Partial<ProbabilityEstimationNotificationRow>;
+  if (
+    typeof row.notification_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite probability estimation notification row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite probability estimation notification contains invalid JSON");
+  }
+  const record = assertProbabilityEstimationNotificationRecord(decoded);
+  if (
+    record.notificationId !== row.notification_id ||
+    hashCanonical(record) !== row.record_hash
+  ) throw new Error("SQLite probability estimation notification identity mismatch");
+  return record;
+}
+
 function parsePremiseAnalysisRecord(value: unknown): PremiseAnalysisRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite premise analysis row is malformed");
@@ -1200,6 +1312,8 @@ export class SqliteOperationalStore
     SearchIssueRecordStore,
     SearchAttentionStore,
     SemanticReviewRecordStore,
+    ProbabilityEstimationRunStore,
+    ProbabilityEstimationSchedulerStore,
     PremiseAnalysisRecordStore,
     PremiseAnalysisSchedulerStore,
     SemanticReviewSchedulerStore,
@@ -1245,6 +1359,10 @@ export class SqliteOperationalStore
   public readonly searchAttentionMessageStorage: OperationalStorageProjection<"messageId">;
   public readonly searchAttentionDeliveryStorage: OperationalStorageProjection<"deliveryId">;
   public readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
+  public readonly probabilityEstimationStorage: OperationalStorageProjection<"runId">;
+  public readonly probabilityEstimationJobStorage: OperationalStorageProjection<"jobId">;
+  public readonly probabilityEstimationNotificationStorage:
+    OperationalStorageProjection<"notificationId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -1377,6 +1495,24 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "reviewId",
+    });
+    this.probabilityEstimationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "runId",
+    });
+    this.probabilityEstimationJobStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "jobId",
+    });
+    this.probabilityEstimationNotificationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "notificationId",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -1513,6 +1649,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'semantic_review_notifications'`,
       )
       .get() !== undefined;
+    const probabilityEstimationRunTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'probability_estimation_runs'`,
+      )
+      .get() !== undefined;
+    const probabilityEstimationJobTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'probability_estimation_jobs'`,
+      )
+      .get() !== undefined;
+    const probabilityEstimationNotificationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'probability_estimation_notifications'`,
+      )
+      .get() !== undefined;
     const premiseAnalysisRecordTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -1583,6 +1737,9 @@ export class SqliteOperationalStore
       searchAttentionDeliveryTableExists &&
       semanticReviewJobTableExists &&
       semanticReviewNotificationTableExists &&
+      probabilityEstimationRunTableExists &&
+      probabilityEstimationJobTableExists &&
+      probabilityEstimationNotificationTableExists &&
       searchQuoteObservationTableExists &&
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
@@ -2389,6 +2546,83 @@ export class SqliteOperationalStore
           ) STRICT;
           CREATE INDEX IF NOT EXISTS premise_analysis_notifications_status_created
             ON premise_analysis_notifications (status, created_at DESC);
+        `);
+      }
+      if (current < 24 || !probabilityEstimationRunTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS probability_estimation_runs (
+            run_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(run_id) = 71 AND run_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_review_artifact_hash TEXT NOT NULL CHECK (
+              length(semantic_review_artifact_hash) = 71 AND
+              semantic_review_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_constraint_artifact_hash TEXT NOT NULL CHECK (
+              length(semantic_constraint_artifact_hash) = 71 AND
+              semantic_constraint_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            role TEXT NOT NULL CHECK (
+              role IN ('REFERENCE_CLASS', 'CAUSAL', 'INDEPENDENT')
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN ('RUNNING', 'PASS', 'ABSTAINED', 'FAILED')
+            ),
+            started_at TEXT NOT NULL CHECK (length(started_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS probability_estimation_runs_scope
+            ON probability_estimation_runs (
+              semantic_review_artifact_hash,
+              semantic_constraint_artifact_hash,
+              started_at DESC,
+              run_id DESC
+            );
+        `);
+      }
+      if (
+        current < 25 || !probabilityEstimationJobTableExists ||
+        !probabilityEstimationNotificationTableExists
+      ) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS probability_estimation_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN (
+                'PENDING', 'LEASED', 'RETRY_WAIT', 'BLOCKED_EVIDENCE',
+                'PASS', 'ABSTAINED', 'EXHAUSTED'
+              )
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS probability_estimation_jobs_due
+            ON probability_estimation_jobs (status, next_attempt_at, job_id);
+          CREATE TABLE IF NOT EXISTS probability_estimation_notifications (
+            notification_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(notification_id) = 71 AND notification_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            dedupe_identity TEXT NOT NULL UNIQUE CHECK (
+              length(dedupe_identity) = 71 AND dedupe_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('UNREAD', 'READ')),
+            created_at TEXT NOT NULL CHECK (length(created_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS probability_estimation_notifications_status_created
+            ON probability_estimation_notifications (status, created_at DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -3558,6 +3792,246 @@ export class SqliteOperationalStore
       )
       .all(limit);
     return Object.freeze(rows.map(parseSemanticReviewRecord));
+  }
+
+  public loadProbabilityEstimationRunRecords(
+    limit: number,
+  ): readonly ProbabilityEstimationRunRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT run_id, semantic_review_artifact_hash,
+                semantic_constraint_artifact_hash, role, record_json, record_hash
+         FROM probability_estimation_runs
+         ORDER BY started_at DESC, run_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseProbabilityEstimationRunRecord));
+  }
+
+  public saveProbabilityEstimationRunRecord(
+    record: ProbabilityEstimationRunRecord,
+    retentionLimit: number,
+  ): ProbabilityEstimationRunRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertProbabilityEstimationRunRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO probability_estimation_runs (
+             run_id, semantic_review_artifact_hash,
+             semantic_constraint_artifact_hash, role, status, started_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(run_id) DO UPDATE SET
+             status = excluded.status,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash
+           WHERE probability_estimation_runs.status IN ('RUNNING', 'FAILED')`,
+        )
+        .run(
+          validated.runId,
+          validated.semanticReviewArtifactHash,
+          validated.semanticConstraintArtifactHash,
+          validated.role,
+          validated.status,
+          validated.startedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM probability_estimation_runs
+           WHERE run_id IN (
+             SELECT run_id FROM probability_estimation_runs
+             ORDER BY started_at DESC, run_id DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT run_id, semantic_review_artifact_hash,
+                  semantic_constraint_artifact_hash, role, record_json, record_hash
+           FROM probability_estimation_runs WHERE run_id = ?`,
+        )
+        .get(validated.runId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the probability estimation run");
+      }
+      const stored = parseProbabilityEstimationRunRecord(row);
+      if (
+        stored.semanticReviewArtifactHash !== validated.semanticReviewArtifactHash ||
+        stored.semanticConstraintArtifactHash !== validated.semanticConstraintArtifactHash ||
+        stored.role !== validated.role ||
+        (stored.status === validated.status && hashCanonical(stored) !== recordHash)
+      ) throw new Error("runId is already bound to another probability estimation run");
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadProbabilityEstimationJobRecords(
+    limit: number,
+  ): readonly ProbabilityEstimationJobRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM probability_estimation_jobs
+         ORDER BY next_attempt_at, job_id
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseProbabilityEstimationJobRecord));
+  }
+
+  public saveProbabilityEstimationJobRecord(
+    record: ProbabilityEstimationJobRecord,
+    retentionLimit: number,
+  ): ProbabilityEstimationJobRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertProbabilityEstimationJobRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO probability_estimation_jobs (
+             job_id, status, next_attempt_at, updated_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(job_id) DO UPDATE SET
+             status = excluded.status,
+             next_attempt_at = excluded.next_attempt_at,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          validated.jobId,
+          validated.status,
+          validated.nextAttemptAt,
+          validated.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM probability_estimation_jobs
+           WHERE job_id IN (
+             SELECT job_id FROM probability_estimation_jobs
+             ORDER BY updated_at DESC, job_id DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT job_id, record_json, record_hash
+           FROM probability_estimation_jobs WHERE job_id = ?`,
+        )
+        .get(validated.jobId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the probability estimation job");
+      }
+      const stored = parseProbabilityEstimationJobRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("jobId is already bound to another probability estimation job");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadProbabilityEstimationNotificationRecords(
+    limit: number,
+  ): readonly ProbabilityEstimationNotificationRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT notification_id, record_json, record_hash
+         FROM probability_estimation_notifications
+         ORDER BY created_at DESC, notification_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseProbabilityEstimationNotificationRecord));
+  }
+
+  public saveProbabilityEstimationNotificationRecord(
+    record: ProbabilityEstimationNotificationRecord,
+    retentionLimit: number,
+  ): ProbabilityEstimationNotificationRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertProbabilityEstimationNotificationRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO probability_estimation_notifications (
+             notification_id, dedupe_identity, status, created_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(notification_id) DO UPDATE SET
+             status = excluded.status,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          validated.notificationId,
+          validated.dedupeIdentity,
+          validated.status,
+          validated.createdAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM probability_estimation_notifications
+           WHERE notification_id IN (
+             SELECT notification_id FROM probability_estimation_notifications
+             ORDER BY created_at DESC, notification_id DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT notification_id, record_json, record_hash
+           FROM probability_estimation_notifications WHERE notification_id = ?`,
+        )
+        .get(validated.notificationId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the probability estimation notification");
+      }
+      const stored = parseProbabilityEstimationNotificationRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error(
+          "notificationId is already bound to another probability estimation notification",
+        );
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   public loadPremiseAnalysisRecords(

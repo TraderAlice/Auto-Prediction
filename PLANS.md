@@ -2,7 +2,11 @@
 
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
-[`plans/probabilistic-semantic-arbitrage.md`](plans/probabilistic-semantic-arbitrage.md).
+[`plans/probabilistic-semantic-arbitrage.md`](plans/probabilistic-semantic-arbitrage.md),
+with the Agent workflow tracked in
+[`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
+and AI resource observability tracked in
+[`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -33,6 +37,25 @@ conservative envelope supplies epsilon to bigint all-state replay. The output
 shows expected-edge floor, adverse tail loss, break-even epsilon, calibration,
 and independent risk gates, while being structurally unable to claim a hard
 certificate or guaranteed profit.
+
+Probability estimation is now a native tool-effect loop rather than a fixed
+response schema. Reference-class, causal, and independent roles must record an
+adverse counter-scenario before submitting an evidence-bound interval or an
+explicit abstention. Their runs are content-addressed, survive SQLite restart,
+and appear as estimate-only records in Studio. A durable scheduler now derives
+relation-specific adverse states, leases all three roles concurrently, retries
+within explicit budgets, and recovers expired work after restart. Two distinct
+passing roles are required before first-party code assembles a conservative
+upper bound; ready, abstained, and exhausted outcomes enter a durable inbox.
+Resolved-outcome calibration is the next probability-quality checkpoint.
+
+The next observability checkpoint is a unified AI usage ledger. Provider usage
+will be retained per invocation and rolled up by purpose, role, model, outcome,
+and UTC time bucket. Input, output, reasoning, cache-read, and cache-write token
+counts remain separate. AI SDK paths can provide complete provider-reported
+usage; Pi invocations remain explicitly partial until its CLI exposes equivalent
+metadata. Prompts, outputs, API keys, and inferred currency costs do not enter
+the ledger.
 
 Family retrieval is being upgraded from one generic exact-token context to a
 content-addressed family trailhead. Search lease v6 carries the selected

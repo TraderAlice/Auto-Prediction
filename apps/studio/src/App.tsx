@@ -124,6 +124,83 @@ const EMPTY_SEMANTIC_REVIEW: StudioProjection["ai"]["semanticReview"] = {
   },
 };
 
+const EMPTY_PROBABILITY_ESTIMATION: StudioProjection["ai"]["probabilityEstimation"] = {
+  schemaVersion: "pmh.probability-estimation-desk.v1",
+  configured: false,
+  model: "unavailable",
+  status: "NEEDS_KEY",
+  activeCount: 0,
+  runCount: 0,
+  passCount: 0,
+  abstainedCount: 0,
+  failedCount: 0,
+  roles: ["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"],
+  records: [],
+  storage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "runId",
+  },
+  authority: "ESTIMATION_ORCHESTRATION_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
+const EMPTY_PROBABILITY_ESTIMATION_SCHEDULER:
+  StudioProjection["ai"]["probabilityEstimationScheduler"] = {
+    schemaVersion: "pmh.probability-estimation-scheduler.v1",
+    enabled: false,
+    configured: false,
+    status: "NEEDS_KEY",
+    tickIntervalMs: null,
+    concurrencyLimit: 3,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    blockedEvidenceCount: 0,
+    passedCount: 0,
+    abstainedCount: 0,
+    exhaustedCount: 0,
+    caseCount: 0,
+    boundReadyCount: 0,
+    freshBoundCount: 0,
+    unsupportedCandidateCount: 0,
+    unreadNotificationCount: 0,
+    budget: {
+      basis: "PROVIDER_ATTEMPTS",
+      maxAttemptsPerRole: 3,
+      maxRequestsPerTick: 3,
+      providerAttemptsStarted: 0,
+    },
+    jobs: [],
+    bounds: [],
+    notifications: [],
+    storage: {
+      jobs: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "jobId" },
+      notifications: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "notificationId",
+      },
+    },
+    authority: "ESTIMATION_ORCHESTRATION_ONLY",
+    semanticDecisionAuthority: false,
+    probabilityCertificateAuthority: false,
+    hardArbitrageAuthority: false,
+    executionAuthority: false,
+    effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+  };
+
 const EMPTY_SEMANTIC_REVIEW_ADMISSION: StudioProjection["ai"]["semanticReviewAdmission"] = {
   schemaVersion: "pmh.semantic-review-admission-desk.v2",
   policy: "TWO_TO_FOUR_DISTINCT_LISTINGS_WITH_PREMISE_LANE_V2",
@@ -1204,6 +1281,19 @@ async function requestPremiseNotificationAcknowledgement(
   const result = (await response.json()) as { diagnostic?: string };
   if (!response.ok) {
     throw new Error(result.diagnostic ?? "premise notification acknowledgement failed");
+  }
+}
+
+async function requestProbabilityNotificationAcknowledgement(
+  notificationId: string,
+): Promise<void> {
+  const response = await fetch(
+    `/api/v1/probability-estimation-notifications/${notificationId}/acknowledgements`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+  );
+  const result = (await response.json()) as { diagnostic?: string };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "probability notification acknowledgement failed");
   }
 }
 
@@ -3869,6 +3959,11 @@ function OpportunityLifecycleView() {
   const desk = studioProjection.opportunityLifecycle;
   const semanticReview =
     studioProjection.ai.semanticReview ?? EMPTY_SEMANTIC_REVIEW;
+  const probabilityEstimation =
+    studioProjection.ai.probabilityEstimation ?? EMPTY_PROBABILITY_ESTIMATION;
+  const probabilityScheduler =
+    studioProjection.ai.probabilityEstimationScheduler ??
+      EMPTY_PROBABILITY_ESTIMATION_SCHEDULER;
   const reviewAdmission =
     studioProjection.ai.semanticReviewAdmission ?? EMPTY_SEMANTIC_REVIEW_ADMISSION;
   const reviewScheduler =
@@ -3915,6 +4010,8 @@ function OpportunityLifecycleView() {
   >({});
   const [reviewNotificationAction, setReviewNotificationAction] = useState<string | null>(null);
   const [premiseNotificationAction, setPremiseNotificationAction] = useState<string | null>(null);
+  const [probabilityNotificationAction, setProbabilityNotificationAction] =
+    useState<string | null>(null);
   const proposals = new Map(
     studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
       (record.report?.result.proposals ?? []).map((proposal) => [
@@ -3951,6 +4048,15 @@ function OpportunityLifecycleView() {
       await requestPremiseNotificationAcknowledgement(notificationId);
     } finally {
       setPremiseNotificationAction(null);
+    }
+  }
+
+  async function acknowledgeProbabilityNotification(notificationId: string): Promise<void> {
+    setProbabilityNotificationAction(notificationId);
+    try {
+      await requestProbabilityNotificationAcknowledgement(notificationId);
+    } finally {
+      setProbabilityNotificationAction(null);
     }
   }
 
@@ -4119,6 +4225,11 @@ function OpportunityLifecycleView() {
             REVIEWER {semanticReview.configured ? "READY" : "NEEDS KEY"}
           </Badge>
           <Badge variant="shadow">DEFAULT · HUMAN APPROVAL</Badge>
+          <Badge variant={probabilityEstimation.configured ? "shadow" : "warning"}>
+            ESTIMATORS {probabilityEstimation.configured
+              ? probabilityScheduler.enabled ? "AUTO" : "MANUAL"
+              : "NEED KEY"}
+          </Badge>
           <Badge variant="warning">LIVE ROUTE ABSENT</Badge>
         </div>
       </div>
@@ -4133,11 +4244,106 @@ function OpportunityLifecycleView() {
           detail={`${semanticReview.storage.durable ? "SQLite" : "memory"} · advisory / decided`}
         />
         <Metric
+          label="Probability agents"
+          value={`${probabilityScheduler.freshBoundCount}/${probabilityScheduler.caseCount}`}
+          detail={`fresh bounds / cases · ${probabilityScheduler.storage.jobs.durable ? "SQLite" : "memory"}`}
+        />
+        <Metric
           label="Public evidence"
           value={`${simulationMaterializer.retainedRawSourceCount}`}
           detail={`${simulationMaterializer.storage.durable ? "SQLite WAL" : "memory"} · content addressed`}
         />
       </div>
+
+      <section className="attention-queue" aria-label="Probability estimation agents">
+        <div className="attention-queue-heading">
+          <div>
+            <Gauge size={15} />
+            <div>
+              <strong>Probability estimation agents</strong>
+              <span>Role-separated intervals · counter-scenario first · abstention is valid</span>
+            </div>
+          </div>
+          <Badge variant={probabilityScheduler.unreadNotificationCount > 0 ? "warning" : "shadow"}>
+            {probabilityScheduler.unreadNotificationCount > 0
+              ? `${probabilityScheduler.unreadNotificationCount} UNREAD`
+              : "ESTIMATE ONLY"}
+          </Badge>
+        </div>
+        <div className="attention-queue-stats">
+          <div><strong>{probabilityScheduler.activeCount}</strong><span>active roles</span></div>
+          <div><strong>{probabilityScheduler.dueCount}</strong><span>due</span></div>
+          <div><strong>{probabilityScheduler.passedCount}</strong><span>intervals</span></div>
+          <div><strong>{probabilityScheduler.boundReadyCount}</strong><span>bounds ready</span></div>
+          <div><strong>{probabilityScheduler.abstainedCount}</strong><span>abstained</span></div>
+          <div><strong>{probabilityScheduler.blockedEvidenceCount}</strong><span>evidence blocked</span></div>
+        </div>
+        <div className="attention-item-list">
+          {probabilityScheduler.notifications.filter((item) => item.status === "UNREAD")
+            .slice(0, 4).map((notification) => (
+              <article key={notification.notificationId}>
+                <div className="attention-item-topline">
+                  <Badge variant={notification.kind === "BOUND_READY" ? "verified" : "warning"}>
+                    {notification.kind.replaceAll("_", " ")}
+                  </Badge>
+                  <time>{new Date(notification.createdAt).toLocaleString()}</time>
+                </div>
+                <strong>{notification.title}</strong>
+                <p>{notification.summary}</p>
+                <Button
+                  variant="ghost"
+                  disabled={probabilityNotificationAction === notification.notificationId}
+                  onClick={() => void acknowledgeProbabilityNotification(notification.notificationId)}
+                >
+                  {probabilityNotificationAction === notification.notificationId
+                    ? "Acknowledging…"
+                    : "Acknowledge"}
+                </Button>
+              </article>
+            ))}
+          {probabilityScheduler.bounds.slice(0, 4).map((bound) => (
+            <article key={bound.artifactHash}>
+              <div className="attention-item-topline">
+                <Badge variant={Date.parse(bound.expiresAt) > Date.now() ? "shadow" : "muted"}>
+                  {Date.parse(bound.expiresAt) > Date.now() ? "BOUND FRESH" : "BOUND STALE"}
+                </Badge>
+                <Badge variant="muted">{bound.estimates.length} ROLES</Badge>
+              </div>
+              <strong>Adverse states {bound.adverseStateIds.join(" + ")} ≤ {bound.epsilonPpm} ppm</strong>
+              <p>Conservative envelope {bound.lowerPpm}–{bound.epsilonPpm} ppm; expires {new Date(bound.expiresAt).toLocaleString()}.</p>
+              <small>Uncalibrated estimate · price/risk compiler required · not guaranteed profit</small>
+            </article>
+          ))}
+          {probabilityEstimation.records.length === 0 && probabilityScheduler.bounds.length === 0 &&
+          probabilityScheduler.notifications.length === 0 ? (
+            <div className="review-operation-empty">
+              <strong>No probability estimates retained yet</strong>
+              <span>Probabilistic semantic reviews enter independent reference-class, causal, and skeptical roles here.</span>
+            </div>
+          ) : probabilityEstimation.records.slice(0, 6).map((record) => (
+            <article key={record.runId}>
+              <div className="attention-item-topline">
+                <Badge variant={record.status === "PASS" ? "shadow" : record.status === "ABSTAINED" ? "muted" : "warning"}>
+                  {record.status}
+                </Badge>
+                <Badge variant="muted">{record.role.replaceAll("_", " ")}</Badge>
+              </div>
+              <strong>
+                {record.estimate === null
+                  ? "No numeric bound submitted"
+                  : `${record.estimate.lowerPpm}–${record.estimate.upperPpm} ppm adverse-state probability`}
+              </strong>
+              <p>{record.rationale ?? record.diagnostic ?? "Agent run is in progress."}</p>
+              <div className="attention-item-facts">
+                <span>{record.counterScenarios.length} counter-scenario{record.counterScenarios.length === 1 ? "" : "s"}</span>
+                <span>{record.trace?.providerRequestAttemptCount ?? 0} requests</span>
+                <span>{record.adverseStateIds.join(" + ")} adverse state{record.adverseStateIds.length === 1 ? "" : "s"}</span>
+              </div>
+              <small>Not confidence · not guaranteed profit · no certificate or execution authority</small>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <section className="attention-queue economic-frontier" aria-label="Pre-review economic frontier">
         <div className="attention-queue-heading">
