@@ -1,6 +1,8 @@
 # Plans
 
-`plans/provider-attempt-telemetry.md` is the active construction plan.
+There is no active construction plan. The next measured bottleneck should be
+promoted from the deferred list only after fresh runtime evidence defines a
+bounded campaign.
 
 ## Planning contract
 
@@ -18,7 +20,7 @@ define bounded recurring semantic briefs; a priority scheduler leases immutable
 market corpora to concurrent cheap scouts and escalates only novel grounded
 candidate signatures to pi. Findings enter a deduplicated in-app inbox.
 
-Provider-attempt telemetry is the active campaign. DeepSeek and OpenAI now emit
+Provider-attempt telemetry is merged and live in PR #74. DeepSeek and OpenAI now emit
 safe bounded failures with exact request-attempt counts; worker and lease
 records retain those enums without bodies, prompts, headers, stacks, URLs, or
 credentials. Historical leases remain immutable and project as explicit legacy
