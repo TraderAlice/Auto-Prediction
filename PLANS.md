@@ -1,6 +1,8 @@
 # Plans
 
-`plans/polymarket-us-catalog-breadth.md` is the active construction plan.
+There is no active construction plan. The next measured bottleneck should be
+promoted from the deferred list only after fresh runtime evidence defines a
+bounded campaign.
 
 ## Planning contract
 
@@ -140,15 +142,10 @@ deterministic chain therefore rejected the candidate as currently non-positive;
 it did not fabricate an opportunity or persist an operator semantic decision.
 All 400 workspace tests, the production build, desktop QA, and 390 px QA pass.
 
-The newly exact Polymarket US path exposes a more fundamental discovery limit:
-the Agent corpus includes only 20 US listings. Anonymous probes returned full
-100-market pages through offset 10,000, proving at least 10,100 current open
-markets. The gateway caps a single request at 500 records; that response is
-about 1.39 MB and fits the existing 2 MB byte bound. The active campaign first
-expands the current deterministic slice from 20 to 500 and measures actual
-search yield before adding stateful offset rotation.
-
-The 500-record breadth slice is now qualified locally. The seven-source corpus
+The Polymarket US catalog-breadth campaign is merged in PR #70. Anonymous
+probes returned full 100-market pages through offset 10,000, proving at least
+10,100 current open markets. The gateway caps a single request at 500 records;
+that response fits the existing 2 MB byte bound. The live seven-source corpus
 contains 947 listings, including 500 Polymarket US records in 1,393,232 retained
 bytes. SQLite restart restores the exact URL, hash, and corpus. Its first Agent
 scope paired Gemini golfer Davis Riley with Polymarket US MLB player Austin
