@@ -3,6 +3,7 @@ import {
   createDeepSeekDiscoveryRuntime,
   createDiscoveryModelRuntime,
   DeepSeekAiSdkAgentPort,
+  AiUsageLedger,
   runModelProviderSmoke,
 } from "../src/index.js";
 import {
@@ -82,12 +83,14 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
   it("uses native tools across steps and never requests response_format", async () => {
     const secret = "test-only-deepseek-key";
     const bodies: Record<string, unknown>[] = [];
+    const usageLedger = new AiUsageLedger();
     const runtime = createDeepSeekDiscoveryRuntime(
       {
         DEEPSEEK_API_KEY: secret,
         PMH_DISCOVERY_TIMEOUT_MS: "3000",
       },
       {
+        usageRecorder: usageLedger,
         async fetcher(input, init) {
           expect(String(input)).toBe("https://api.deepseek.com/chat/completions");
           expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${secret}`);
@@ -128,6 +131,15 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
       valueMovingAuthority: false,
     });
     expect(JSON.stringify(runtime)).not.toContain(secret);
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      totals: {
+        invocationCount: "1",
+        durableEffectCount: "1",
+        tokens: { inputTokens: "300", outputTokens: "60", totalTokens: "360" },
+      },
+      byRole: [{ key: "EQUIVALENCE", invocationCount: "1" }],
+    });
   });
 
   it("repairs syntactically malformed tool JSON at the tool boundary", async () => {
@@ -188,8 +200,10 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
         headers: { "content-type": "application/json" },
       }), "INVALID_PROVIDER_OUTPUT"],
     ] as const) {
+      const usageLedger = new AiUsageLedger();
       const port = new DeepSeekAiSdkAgentPort({
         apiKey: "test-only-deepseek-key",
+        usageRecorder: usageLedger,
         async fetcher() {
           return response.clone();
         },
@@ -210,6 +224,11 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
         category === "INVALID_PROVIDER_OUTPUT" ? "PROTOCOL_FAILURE" : "PROVIDER_FAILURE");
       expect(failure instanceof Error ? failure.message : String(failure))
         .not.toContain("sensitive");
+      expect(usageLedger.projection()).toMatchObject({
+        eventCount: 1,
+        coverage: { unavailable: 1 },
+        byOutcome: [{ key: "FAILED", invocationCount: "1" }],
+      });
     }
   });
 

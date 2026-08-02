@@ -29,7 +29,7 @@ whole-response schema or treating model confidence as probability.
 - `pmh.probability-estimation-run.v1` binds review, semantic constraint,
   retained catalog context, role, model, counter-scenarios, estimate, trace,
   and authority. Whole-response schema parsing is explicitly false.
-- SQLite schema v25 persists running and terminal records. A process restart
+- SQLite schema v26 persists running and terminal records. A process restart
   converts an interrupted run to retryable `FAILED` instead of leaving an
   immortal lease.
 - The control plane exposes the desk and scheduler at

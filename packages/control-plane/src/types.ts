@@ -364,6 +364,7 @@ export type StudioProjection = Readonly<{
     semanticReview: import("./semantic-review.js").SemanticReviewDeskProjection;
     probabilityEstimation: import("./probability-estimation-agent.js").ProbabilityEstimationDeskProjection;
     probabilityEstimationScheduler: import("./probability-estimation-scheduler.js").ProbabilityEstimationSchedulerProjection;
+    aiUsage: import("./ai-usage-ledger.js").AiUsageProjection;
     semanticReviewAdmission: import("./semantic-review-admission.js").SemanticReviewAdmissionProjection;
     semanticReviewScheduler: import("./semantic-review-scheduler.js").SemanticReviewSchedulerProjection;
     premiseAnalysis: import("./premise-analysis.js").PremiseAnalysisDeskProjection;

@@ -46,6 +46,7 @@ import {
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
 import type { ProbabilityEstimationDeskProjection } from "./probability-estimation-agent.js";
 import type { ProbabilityEstimationSchedulerProjection } from "./probability-estimation-scheduler.js";
+import { AiUsageLedger, type AiUsageProjection } from "./ai-usage-ledger.js";
 import {
   buildSemanticReviewAdmissionProjection,
   type SemanticReviewAdmissionProjection,
@@ -126,6 +127,7 @@ export function buildStudioProjection(input: {
   semanticReview?: SemanticReviewDeskProjection;
   probabilityEstimation?: ProbabilityEstimationDeskProjection;
   probabilityEstimationScheduler?: ProbabilityEstimationSchedulerProjection;
+  aiUsage?: AiUsageProjection;
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   premiseAnalysis?: PremiseAnalysisDeskProjection;
@@ -1053,6 +1055,7 @@ export function buildStudioProjection(input: {
       semanticReview,
       probabilityEstimation,
       probabilityEstimationScheduler,
+      aiUsage: input.aiUsage ?? new AiUsageLedger().projection(),
       semanticReviewAdmission: input.semanticReviewAdmission ??
         buildSemanticReviewAdmissionProjection([]),
       semanticReviewScheduler,

@@ -22,6 +22,7 @@ import {
   type SemanticConstraintArtifact,
 } from "./semantic-constraint.js";
 import type { OperationalStorageProjection } from "./types.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MODEL_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/u;
@@ -327,6 +328,7 @@ export class DeepSeekPremiseAnalysisModelPort implements PremiseAnalysisModelPor
     private readonly maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
     private readonly timeoutMs = DEFAULT_TIMEOUT_MS,
     fetcher?: PremiseAnalysisFetchLike,
+    private readonly usageRecorder?: AiUsageRecorder,
   ) {
     this.#fetcher = fetcher;
     if (
@@ -353,12 +355,13 @@ export class DeepSeekPremiseAnalysisModelPort implements PremiseAnalysisModelPor
     let submittedEffectHash: Hash | null = null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const startedAtMs = Date.now();
     try {
       const provider = createDeepSeek({
         apiKey: this.apiKey.trim(),
         ...(this.#fetcher === undefined ? {} : { fetch: this.#fetcher }),
       });
-      await generateText({
+      const result = await generateText({
         model: provider(this.model),
         maxOutputTokens: this.maxOutputTokens,
         maxRetries: 0,
@@ -495,6 +498,19 @@ export class DeepSeekPremiseAnalysisModelPort implements PremiseAnalysisModelPor
       if (submitted === null || submittedEffectHash === null) {
         throw new Error("premise analyst completed without an accepted terminal relation effect");
       }
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "PREMISE_ANALYSIS",
+        role: "HIDDEN_PREMISE_AUDITOR",
+        provider: "DEEPSEEK",
+        model: this.model,
+        transport: "VERCEL_AI_SDK",
+        operationIdentity: `review:${validated.report.artifactHash}`,
+        outcome: "SUCCEEDED",
+        durableEffect: true,
+        providerRequestCount: result.steps.length,
+        usage: result.usage,
+      });
       return Object.freeze({
         premises: Object.freeze([...premisesByKey.values()].sort(
           (left, right) => left.premiseId.localeCompare(right.premiseId),
@@ -507,6 +523,17 @@ export class DeepSeekPremiseAnalysisModelPort implements PremiseAnalysisModelPor
         }),
       });
     } catch (error) {
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "PREMISE_ANALYSIS",
+        role: "HIDDEN_PREMISE_AUDITOR",
+        provider: "DEEPSEEK",
+        model: this.model,
+        transport: "VERCEL_AI_SDK",
+        operationIdentity: `review:${validated.report.artifactHash}`,
+        outcome: controller.signal.aborted ? "TIMED_OUT" : "FAILED",
+        durableEffect: false,
+      });
       if (controller.signal.aborted) throw new Error("premise analysis timed out");
       throw new Error(`premise analysis failed: ${compactDiagnostic(error)}`, { cause: error });
     } finally {
@@ -839,6 +866,7 @@ export function createPremiseAnalysisDesk(
     analyst?: PremiseAnalysisModelPort;
     store?: PremiseAnalysisRecordStore;
     retentionLimit?: number;
+    usageRecorder?: AiUsageRecorder;
   }> = {},
 ): PremiseAnalysisDesk {
   const model = environment.PMH_PREMISE_ANALYSIS_MODEL?.trim() || DEFAULT_MODEL;
@@ -869,6 +897,8 @@ export function createPremiseAnalysisDesk(
     key,
     maxOutputTokens,
     timeoutMs,
+    undefined,
+    options.usageRecorder,
   ));
   return new PremiseAnalysisDesk(
     analyst,

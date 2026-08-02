@@ -13,6 +13,7 @@ import {
   type SemanticReviewRecord,
 } from "./semantic-review.js";
 import type { DiscoveryCatalogListing, OperationalStorageProjection } from "./types.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MODEL_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/u;
@@ -371,6 +372,7 @@ export class DeepSeekProbabilityEstimator implements ProbabilityEstimatorModelPo
     private readonly maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
     private readonly timeoutMs = DEFAULT_TIMEOUT_MS,
     fetcher?: DeepSeekFetchLike,
+    private readonly usageRecorder?: AiUsageRecorder,
   ) {
     this.#apiKey = apiKey.trim();
     this.#fetcher = fetcher;
@@ -385,6 +387,7 @@ export class DeepSeekProbabilityEstimator implements ProbabilityEstimatorModelPo
   public async estimate(input: ModelInput): Promise<ModelResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const startedAtMs = Date.now();
     let providerRequestAttemptCount = 0;
     try {
       const provider = createDeepSeek({
@@ -525,6 +528,19 @@ export class DeepSeekProbabilityEstimator implements ProbabilityEstimatorModelPo
         throw new Error("probability estimator completed without a terminal tool effect");
       }
       const completed = terminal as Omit<ModelResult, "trace" | "counterScenarios">;
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "PROBABILITY_ESTIMATION",
+        role: input.role,
+        provider: "DEEPSEEK",
+        model: this.model,
+        transport: "VERCEL_AI_SDK",
+        operationIdentity: `constraint:${input.semanticConstraintArtifactHash}`,
+        outcome: completed.status === "ABSTAINED" ? "ABSTAINED" : "SUCCEEDED",
+        durableEffect: true,
+        providerRequestCount: providerRequestAttemptCount,
+        usage: result.usage,
+      });
       const trace = Object.freeze({
         protocol: "AI_SDK_TOOL_LOOP" as const,
         maximumSteps: MAX_STEPS as 10,
@@ -541,6 +557,18 @@ export class DeepSeekProbabilityEstimator implements ProbabilityEstimatorModelPo
         trace,
       });
     } catch (error) {
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "PROBABILITY_ESTIMATION",
+        role: input.role,
+        provider: "DEEPSEEK",
+        model: this.model,
+        transport: "VERCEL_AI_SDK",
+        operationIdentity: `constraint:${input.semanticConstraintArtifactHash}`,
+        outcome: controller.signal.aborted ? "TIMED_OUT" : "FAILED",
+        durableEffect: false,
+        providerRequestCount: providerRequestAttemptCount,
+      });
       if (controller.signal.aborted) throw new Error("probability estimation request timed out");
       throw new Error(`probability estimation request failed: ${compactDiagnostic(
         error instanceof Error ? error.message : String(error),
@@ -939,6 +967,7 @@ export function createProbabilityEstimationDesk(
     fetcher?: DeepSeekFetchLike;
     store?: ProbabilityEstimationRunStore;
     now?: () => number;
+    usageRecorder?: AiUsageRecorder;
   }> = {},
 ): ProbabilityEstimationDesk {
   const model = environment.PMH_PROBABILITY_ESTIMATION_MODEL?.trim() || DEFAULT_MODEL;
@@ -966,6 +995,7 @@ export function createProbabilityEstimationDesk(
         maxOutputTokens,
         timeoutMs,
         options.fetcher,
+        options.usageRecorder,
       ));
   return new ProbabilityEstimationDesk(
     estimator,

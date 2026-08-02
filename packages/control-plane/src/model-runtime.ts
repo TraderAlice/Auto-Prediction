@@ -8,6 +8,7 @@ import {
   type OpenAiDiscoveryRuntime,
   type OpenAiFetchLike,
 } from "./openai-model.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 
 export type DiscoveryModelRuntime =
   | DeepSeekDiscoveryRuntime
@@ -18,6 +19,7 @@ export function createDiscoveryModelRuntime(
   options: Readonly<{
     deepSeekFetcher?: DeepSeekFetchLike;
     openAiFetcher?: OpenAiFetchLike;
+    usageRecorder?: AiUsageRecorder;
   }> = {},
 ): DiscoveryModelRuntime {
   const provider = environment.PMH_DISCOVERY_PROVIDER?.trim().toLowerCase() ||
@@ -25,17 +27,27 @@ export function createDiscoveryModelRuntime(
   if (provider === "deepseek") {
     return createDeepSeekDiscoveryRuntime(
       environment,
-      options.deepSeekFetcher === undefined
-        ? {}
-        : { fetcher: options.deepSeekFetcher },
+      {
+        ...(options.deepSeekFetcher === undefined
+          ? {}
+          : { fetcher: options.deepSeekFetcher }),
+        ...(options.usageRecorder === undefined
+          ? {}
+          : { usageRecorder: options.usageRecorder }),
+      },
     );
   }
   if (provider === "openai") {
     return createOpenAiDiscoveryRuntime(
       environment,
-      options.openAiFetcher === undefined
-        ? {}
-        : { fetcher: options.openAiFetcher },
+      {
+        ...(options.openAiFetcher === undefined
+          ? {}
+          : { fetcher: options.openAiFetcher }),
+        ...(options.usageRecorder === undefined
+          ? {}
+          : { usageRecorder: options.usageRecorder }),
+      },
     );
   }
   throw new Error("PMH_DISCOVERY_PROVIDER must be deepseek or openai");

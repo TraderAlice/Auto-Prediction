@@ -19,6 +19,7 @@ import {
 } from "ai";
 import { jsonrepair } from "jsonrepair";
 import { ModelRequestFailure } from "./model-failure.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 import type {
   DiscoveryAgentEffect,
   DiscoveryAgentEffectReason,
@@ -614,6 +615,14 @@ function failureCategory(error: unknown) {
   });
 }
 
+function discoveryUsageRole(workerId: string): string {
+  if (workerId === "model-fast-lane") return "EQUIVALENCE";
+  const prefix = "model-fast-lane-";
+  return workerId.startsWith(prefix)
+    ? workerId.slice(prefix.length).toUpperCase()
+    : workerId;
+}
+
 export async function runAiSdkDiscoveryAgent(input: Readonly<{
   provider: "DEEPSEEK" | "OPENAI";
   model: LanguageModel;
@@ -627,6 +636,7 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
   maxSteps: number;
   maxToolCalls: number;
   requestAttemptCount: () => number;
+  usageRecorder?: AiUsageRecorder;
   providerOptions?: Parameters<typeof generateText>[0]["providerOptions"];
 }>): Promise<DiscoveryAgentRunResult> {
   const remainingMs = input.task.deadlineEpochMs - Date.now();
@@ -638,6 +648,7 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
     input.task,
     input.maxToolCalls,
   );
+  const startedAtMs = Date.now();
   const controller = new AbortController();
   const deadlineBound = remainingMs <= input.timeoutMs;
   const timeout = setTimeout(
@@ -808,6 +819,22 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
           : stepCount >= input.maxSteps
             ? "STEP_LIMIT"
             : "MODEL_FINISHED";
+    input.usageRecorder?.record({
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+      purpose: "DISCOVERY_FAST",
+      role: discoveryUsageRole(input.workerId),
+      provider: input.provider,
+      model: input.modelId,
+      transport: "VERCEL_AI_SDK",
+      operationIdentity: hashCanonical({
+        schemaVersion: "pmh.ai-usage-operation.v1",
+        taskId: input.task.taskId,
+      }),
+      outcome: "SUCCEEDED",
+      durableEffect: session.acceptedProposalCount > 0,
+      providerRequestCount: input.requestAttemptCount(),
+      usage: result.usage,
+    });
     return session.finish({
       stepCount,
       providerRequestAttemptCount: input.requestAttemptCount(),
@@ -830,6 +857,21 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
       providerRequestAttemptCount: requestAttemptCount,
       toolCallCount: observedToolCallCount,
       terminationReason: abortCategory.terminationReason,
+    });
+    input.usageRecorder?.record({
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+      purpose: "DISCOVERY_FAST",
+      role: discoveryUsageRole(input.workerId),
+      provider: input.provider,
+      model: input.modelId,
+      transport: "VERCEL_AI_SDK",
+      operationIdentity: hashCanonical({
+        schemaVersion: "pmh.ai-usage-operation.v1",
+        taskId: input.task.taskId,
+      }),
+      outcome: controller.signal.aborted ? "TIMED_OUT" : "FAILED",
+      durableEffect: false,
+      providerRequestCount: requestAttemptCount,
     });
     throw new ModelRequestFailure(
       input.provider,

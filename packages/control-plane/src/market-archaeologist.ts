@@ -21,6 +21,7 @@ import {
   type EvidenceRequirementDraft,
 } from "./evidence-requirement.js";
 import type { DiscoveryCatalogListing, OperationalStorageProjection } from "./types.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -801,6 +802,7 @@ export class MarketArchaeologist {
     private readonly timeoutMs: number,
     private readonly maxOutputBytes: number,
     private readonly runner: PiProcessRunner = runBoundedPiProcess,
+    private readonly usageRecorder?: AiUsageRecorder,
   ) {
     this.#apiKey = apiKey;
   }
@@ -960,7 +962,36 @@ export class MarketArchaeologist {
           liveExecutionEnabled: false as const,
         }),
       });
-      return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
+      const report = Object.freeze({ ...body, artifactHash: hashCanonical(body) });
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "PI_MARKET_ARCHAEOLOGY",
+        role: "MARKET_ARCHAEOLOGIST",
+        provider: "deepseek",
+        model: this.model,
+        transport: "PI_CLI",
+        operationIdentity: `corpus:${snapshot.snapshotIdentity}`,
+        outcome: "SUCCEEDED",
+        durableEffect: true,
+        providerRequestCount: null,
+      });
+      return report;
+    } catch (error) {
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "PI_MARKET_ARCHAEOLOGY",
+        role: "MARKET_ARCHAEOLOGIST",
+        provider: "deepseek",
+        model: this.model,
+        transport: "PI_CLI",
+        operationIdentity: `corpus:${snapshot.snapshotIdentity}`,
+        outcome: error instanceof Error && /timed out/iu.test(error.message)
+          ? "TIMED_OUT"
+          : "FAILED",
+        durableEffect: false,
+        providerRequestCount: null,
+      });
+      throw error;
     } finally {
       await Promise.all([
         rm(workspace, { recursive: true, force: true }),
@@ -1165,6 +1196,7 @@ export function createMarketArchaeologistDesk(
     retentionLimit?: number;
     store?: MarketArchaeologistRecordStore;
     concurrencyLimit?: number;
+    usageRecorder?: AiUsageRecorder;
   }> = {},
 ): MarketArchaeologistDesk {
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";
@@ -1210,6 +1242,7 @@ export function createMarketArchaeologistDesk(
           timeoutMs,
           maxOutputBytes,
           options.runner ?? runBoundedPiProcess,
+          options.usageRecorder,
         );
   return new MarketArchaeologistDesk(
     archaeologist,

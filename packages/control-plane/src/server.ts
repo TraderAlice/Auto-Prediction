@@ -45,6 +45,10 @@ import {
 import { buildStudioProjection } from "./projection.js";
 import { buildLiveStudioProjection } from "./studio-projection-window.js";
 import {
+  AiUsageLedger,
+  type AiUsageEventStore,
+} from "./ai-usage-ledger.js";
+import {
   applyProposalEconomicPriority,
   buildProposalEconomicTriage,
   recoverBaseReviewPriority,
@@ -580,6 +584,16 @@ function supportsSearchAttentionRecords(
   );
 }
 
+function supportsAiUsageEvents(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & AiUsageEventStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<AiUsageEventStore>;
+  return candidate.aiUsageStorage !== undefined &&
+    typeof candidate.loadAiUsageEvents === "function" &&
+    typeof candidate.saveAiUsageEvent === "function";
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -603,6 +617,7 @@ export function createControlPlane(options?: {
   semanticReviewDesk?: SemanticReviewDesk;
   probabilityEstimationDesk?: ProbabilityEstimationDesk;
   probabilityEstimationScheduler?: ProbabilityEstimationScheduler;
+  aiUsageLedger?: AiUsageLedger;
   semanticReviewScheduler?: SemanticReviewScheduler;
   premiseAnalysisDesk?: ReturnType<typeof createPremiseAnalysisDesk>;
   premiseAnalysisScheduler?: PremiseAnalysisScheduler;
@@ -632,9 +647,19 @@ export function createControlPlane(options?: {
       "provide either investigationDesk or investigationStore, not both",
     );
   }
+  const aiUsageLedger = options?.aiUsageLedger ?? new AiUsageLedger(
+    200,
+    supportsAiUsageEvents(options?.discoveryStore)
+      ? options.discoveryStore
+      : undefined,
+  );
   const modelRuntime =
-    options?.modelRuntime ?? createDiscoveryModelRuntime();
-  const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime();
+    options?.modelRuntime ?? createDiscoveryModelRuntime(process.env, {
+      usageRecorder: aiUsageLedger,
+    });
+  const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime(process.env, {
+    usageRecorder: aiUsageLedger,
+  });
   const worker = new HeuristicDiscoveryWorker();
   const pool =
     options?.discoveryPool ??
@@ -682,6 +707,7 @@ export function createControlPlane(options?: {
   const marketArchaeologistDesk =
     options?.marketArchaeologistDesk ??
     createMarketArchaeologistDesk(process.env, {
+      usageRecorder: aiUsageLedger,
       ...(supportsMarketArchaeologistRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -852,6 +878,7 @@ export function createControlPlane(options?: {
   const semanticReviewDesk =
     options?.semanticReviewDesk ??
     createSemanticReviewDesk(process.env, {
+      usageRecorder: aiUsageLedger,
       ...(supportsSemanticReviewRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -859,6 +886,7 @@ export function createControlPlane(options?: {
   const probabilityEstimationDesk =
     options?.probabilityEstimationDesk ??
     createProbabilityEstimationDesk(process.env, {
+      usageRecorder: aiUsageLedger,
       ...(supportsProbabilityEstimationRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -887,6 +915,7 @@ export function createControlPlane(options?: {
     });
   const premiseAnalysisDesk = options?.premiseAnalysisDesk ??
     createPremiseAnalysisDesk(process.env, {
+      usageRecorder: aiUsageLedger,
       ...(supportsPremiseAnalysisRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -916,6 +945,7 @@ export function createControlPlane(options?: {
     });
   const ruleEvidenceClaimDesk = options?.ruleEvidenceClaimDesk ??
     createRuleEvidenceClaimDesk(process.env, {
+      usageRecorder: aiUsageLedger,
       ...(supportsRuleEvidenceClaimRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -1312,6 +1342,7 @@ export function createControlPlane(options?: {
       semanticReview: semanticReviewProjection,
       probabilityEstimation: probabilityEstimationDesk.projection(),
       probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
+      aiUsage: aiUsageLedger.projection(),
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
       premiseAnalysis: premiseAnalysisProjection,
@@ -1464,6 +1495,7 @@ export function createControlPlane(options?: {
         semanticReview: semanticReviewDesk.projection(),
         probabilityEstimation: probabilityEstimationDesk.projection(),
         probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
+        aiUsage: aiUsageLedger.projection(),
         premiseAnalysis: premiseAnalysisDesk.projection(),
         premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
         evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
@@ -2076,6 +2108,10 @@ export function createControlPlane(options?: {
         desk: probabilityEstimationDesk.projection(),
         scheduler: probabilityEstimationScheduler.projection(),
       }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/ai-usage") {
+      writeJson(response, 200, aiUsageLedger.projection());
       return;
     }
     if (
@@ -3053,6 +3089,7 @@ export function createControlPlane(options?: {
     semanticReviewDesk,
     probabilityEstimationDesk,
     probabilityEstimationScheduler,
+    aiUsageLedger,
     semanticReviewScheduler,
     premiseAnalysisDesk,
     premiseAnalysisScheduler,

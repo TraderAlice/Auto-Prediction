@@ -10,6 +10,7 @@ import {
   type EvidenceRequirement,
 } from "./evidence-requirement.js";
 import type { OperationalStorageProjection } from "./types.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MODEL_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/u;
@@ -565,6 +566,7 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
     private readonly maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
     private readonly timeoutMs = DEFAULT_TIMEOUT_MS,
     fetcher?: RuleEvidenceClaimFetchLike,
+    private readonly usageRecorder?: AiUsageRecorder,
   ) {
     this.#apiKey = apiKey.trim();
     this.#fetcher = fetcher;
@@ -587,12 +589,13 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
     let readEffectCount = 0;
     let submitted: RuleEvidenceClaimDraft | null = null;
     let submittedEffectHash: Hash | null = null;
+    const startedAtMs = Date.now();
     try {
       const provider = createDeepSeek({
         apiKey: this.#apiKey,
         ...(this.#fetcher === undefined ? {} : { fetch: this.#fetcher }),
       });
-      await generateText({
+      const result = await generateText({
         model: provider(this.model),
         maxOutputTokens: this.maxOutputTokens,
         maxRetries: 0,
@@ -730,11 +733,35 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
       if (submitted === null || submittedEffectHash === null) {
         throw new Error("rule evidence interpreter completed without its terminal claim effect");
       }
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "RULE_EVIDENCE_CLAIM",
+        role: "EVIDENCE_INTERPRETER",
+        provider: "DEEPSEEK",
+        model: this.model,
+        transport: "VERCEL_AI_SDK",
+        operationIdentity: `requirement:${validated.requirement.requirementId}`,
+        outcome: "SUCCEEDED",
+        durableEffect: true,
+        providerRequestCount: result.steps.length,
+        usage: result.usage,
+      });
       return Object.freeze({
         draft: submitted,
         trace: Object.freeze({ searchEffectCount, readEffectCount, submittedEffectHash }),
       });
     } catch (error) {
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "RULE_EVIDENCE_CLAIM",
+        role: "EVIDENCE_INTERPRETER",
+        provider: "DEEPSEEK",
+        model: this.model,
+        transport: "VERCEL_AI_SDK",
+        operationIdentity: `requirement:${validated.requirement.requirementId}`,
+        outcome: controller.signal.aborted ? "TIMED_OUT" : "FAILED",
+        durableEffect: false,
+      });
       if (controller.signal.aborted) throw new Error("rule evidence interpretation timed out");
       throw new Error(`rule evidence interpretation failed: ${compactDiagnostic(error)}`, {
         cause: error,
@@ -928,6 +955,7 @@ export function createRuleEvidenceClaimDesk(
     concurrencyLimit?: number;
     store?: RuleEvidenceClaimRecordStore;
     now?: () => number;
+    usageRecorder?: AiUsageRecorder;
   }> = {},
 ): RuleEvidenceClaimDesk {
   const model = environment.PMH_EVIDENCE_CLAIM_MODEL?.trim() || DEFAULT_MODEL;
@@ -962,6 +990,7 @@ export function createRuleEvidenceClaimDesk(
         maxOutputTokens,
         timeoutMs,
         options.fetcher,
+        options.usageRecorder,
       ));
   return new RuleEvidenceClaimDesk(
     interpreter,

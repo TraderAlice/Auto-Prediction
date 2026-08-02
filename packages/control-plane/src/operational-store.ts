@@ -140,8 +140,13 @@ import type {
   DiscoveryRunRecord,
   OperationalStorageProjection,
 } from "./types.js";
+import {
+  assertAiUsageEvent,
+  type AiUsageEvent,
+  type AiUsageEventStore,
+} from "./ai-usage-ledger.js";
 
-const SCHEMA_VERSION = 25;
+const SCHEMA_VERSION = 26;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -163,6 +168,12 @@ type StoredCatalogObservationRow = Readonly<{
   record_json: string;
   record_hash: string;
   raw_bytes: Uint8Array;
+}>;
+
+type StoredAiUsageEventRow = Readonly<{
+  event_id: string;
+  record_json: string;
+  record_hash: string;
 }>;
 
 type StoredCandidateBookObservationRow = Readonly<{
@@ -1275,6 +1286,34 @@ function parseAnonymousSimulationMaterializationRecord(
   return record;
 }
 
+function parseAiUsageEvent(value: unknown): AiUsageEvent {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite AI usage event row is malformed");
+  }
+  const row = value as Partial<StoredAiUsageEventRow>;
+  if (
+    typeof row.event_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error("SQLite AI usage event row has invalid column types");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite AI usage event contains invalid JSON");
+  }
+  const event = assertAiUsageEvent(decoded as AiUsageEvent);
+  if (
+    event.eventId !== row.event_id ||
+    hashCanonical(event) !== row.record_hash
+  ) {
+    throw new Error("SQLite AI usage event identity mismatch");
+  }
+  return event;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -1314,6 +1353,7 @@ export class SqliteOperationalStore
     SemanticReviewRecordStore,
     ProbabilityEstimationRunStore,
     ProbabilityEstimationSchedulerStore,
+    AiUsageEventStore,
     PremiseAnalysisRecordStore,
     PremiseAnalysisSchedulerStore,
     SemanticReviewSchedulerStore,
@@ -1363,6 +1403,7 @@ export class SqliteOperationalStore
   public readonly probabilityEstimationJobStorage: OperationalStorageProjection<"jobId">;
   public readonly probabilityEstimationNotificationStorage:
     OperationalStorageProjection<"notificationId">;
+  public readonly aiUsageStorage: OperationalStorageProjection<"eventId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -1513,6 +1554,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "notificationId",
+    });
+    this.aiUsageStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "eventId",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -1667,6 +1714,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'probability_estimation_notifications'`,
       )
       .get() !== undefined;
+    const aiUsageEventTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'ai_usage_events'`,
+      )
+      .get() !== undefined;
     const premiseAnalysisRecordTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -1740,6 +1793,7 @@ export class SqliteOperationalStore
       probabilityEstimationRunTableExists &&
       probabilityEstimationJobTableExists &&
       probabilityEstimationNotificationTableExists &&
+      aiUsageEventTableExists &&
       searchQuoteObservationTableExists &&
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
@@ -2623,6 +2677,31 @@ export class SqliteOperationalStore
           ) STRICT;
           CREATE INDEX IF NOT EXISTS probability_estimation_notifications_status_created
             ON probability_estimation_notifications (status, created_at DESC);
+        `);
+      }
+      if (current < 26 || !aiUsageEventTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS ai_usage_events (
+            event_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(event_id) = 71 AND event_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            occurred_at TEXT NOT NULL CHECK (length(occurred_at) > 0),
+            purpose TEXT NOT NULL CHECK (
+              purpose IN (
+                'DISCOVERY_FAST', 'SEMANTIC_REVIEW', 'RULE_EVIDENCE_CLAIM',
+                'PREMISE_ANALYSIS', 'PROBABILITY_ESTIMATION',
+                'PI_INVESTIGATION', 'PI_MARKET_ARCHAEOLOGY'
+              )
+            ),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS ai_usage_events_occurred
+            ON ai_usage_events (occurred_at DESC, event_id DESC);
+          CREATE INDEX IF NOT EXISTS ai_usage_events_purpose_occurred
+            ON ai_usage_events (purpose, occurred_at DESC, event_id DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -4031,6 +4110,50 @@ export class SqliteOperationalStore
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;
+    }
+  }
+
+  public loadAiUsageEvents(): readonly AiUsageEvent[] {
+    this.#assertOpen();
+    const rows = this.#database
+      .prepare(
+        `SELECT event_id, record_json, record_hash
+         FROM ai_usage_events
+         ORDER BY occurred_at ASC, event_id ASC`,
+      )
+      .all();
+    return Object.freeze(rows.map(parseAiUsageEvent));
+  }
+
+  public saveAiUsageEvent(event: AiUsageEvent): void {
+    this.#assertOpen();
+    const validated = assertAiUsageEvent(event);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database
+      .prepare(
+        `INSERT INTO ai_usage_events (
+           event_id, occurred_at, purpose, record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(event_id) DO NOTHING`,
+      )
+      .run(
+        validated.eventId,
+        validated.occurredAt,
+        validated.purpose,
+        recordJson,
+        recordHash,
+      );
+    const row = this.#database
+      .prepare(
+        `SELECT event_id, record_json, record_hash
+         FROM ai_usage_events WHERE event_id = ?`,
+      )
+      .get(validated.eventId);
+    if (row === undefined) throw new Error("SQLite failed to retain the AI usage event");
+    const stored = parseAiUsageEvent(row);
+    if (hashCanonical(stored) !== recordHash) {
+      throw new Error("eventId is already bound to another AI usage event");
     }
   }
 

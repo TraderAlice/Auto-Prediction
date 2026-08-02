@@ -512,6 +512,13 @@ describe("control-plane HTTP surface", () => {
           probabilityCertificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        aiUsage: {
+          schemaVersion: string;
+          eventCount: number;
+          promptTextRetained: boolean;
+          outputTextRetained: boolean;
+          currencyCostEstimated: boolean;
+        };
         premiseAnalysis: {
           configured: boolean;
           runCount: number;
@@ -755,6 +762,20 @@ describe("control-plane HTTP surface", () => {
         authority: "ESTIMATION_ORCHESTRATION_ONLY",
         executionAuthority: false,
       },
+    });
+    expect(projection.ai.aiUsage).toMatchObject({
+      schemaVersion: "pmh.ai-usage-ledger.v1",
+      eventCount: 0,
+      promptTextRetained: false,
+      outputTextRetained: false,
+      currencyCostEstimated: false,
+    });
+    const usageResponse = await fetch(`${baseUrl}/api/v1/ai-usage`);
+    expect(usageResponse.status).toBe(200);
+    expect(await usageResponse.json()).toMatchObject({
+      schemaVersion: "pmh.ai-usage-ledger.v1",
+      totals: { invocationCount: "0", tokens: { totalTokens: null } },
+      storage: { durable: false, idempotencyKey: "eventId" },
     });
     expect(projection.ai.premiseAnalysis).toMatchObject({
       configured: false,
@@ -2184,7 +2205,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 25,
+          schemaVersion: 26,
         },
         records: [{ investigationId: created.investigationId }],
       });

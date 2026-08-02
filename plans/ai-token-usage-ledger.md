@@ -1,6 +1,6 @@
 # AI token usage ledger
 
-Status: active; contract designed, implementation pending
+Status: implemented locally; provider pricing and token-aware scheduler budgets remain
 
 Created: 2026-08-02
 
@@ -57,3 +57,29 @@ table and effective-date policy exist.
 - Projection windows remain bounded while durable aggregate totals remain
   correct.
 - No event or API response contains prompt/output text or environment secrets.
+
+## Implemented checkpoint
+
+- SQLite schema v26 retains immutable `pmh.ai-usage-event.v1` records and
+  rebuilds all aggregates exactly after restart.
+- Discovery, semantic review, evidence interpretation, premise analysis, and
+  probability estimation record aggregated Vercel AI SDK usage at the terminal
+  tool-loop boundary. Failures with no usage metadata remain `UNAVAILABLE`.
+- Pi investigation and Market Archaeologist invocations record duration,
+  purpose, role, outcome, and durable-effect status as `PARTIAL`; token fields
+  remain null.
+- The control plane exposes `GET /api/v1/ai-usage`; the full projection contains
+  all aggregates while the live projection retains only 48 recent event rows.
+- Studio shows totals, purpose-ranked consumption, coverage, recent invocations,
+  and UTC hourly frequency. Desktop and 390 px QA have no horizontal overflow or
+  browser warnings.
+
+## Next implementation
+
+1. Add versioned provider price schedules with effective dates before showing
+   currency cost.
+2. Derive tokens per durable effect and tokens per admitted candidate over
+   sufficiently large samples; never equate low spend with semantic quality.
+3. Let each durable Agent issue choose request, token, time, and currency ceilings
+   from an explicit combined budget policy after the open product decision is
+   answered.

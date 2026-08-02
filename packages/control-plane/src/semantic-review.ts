@@ -27,6 +27,7 @@ import {
   type RuleEvidenceClaim,
 } from "./rule-evidence-claim.js";
 import { deriveSemanticReviewScope } from "./semantic-review-scope.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_MAX_OUTPUT_TOKENS = 1_800;
@@ -794,6 +795,7 @@ export class DeepSeekSemanticReviewModelPort
     private readonly maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
     private readonly timeoutMs = DEFAULT_TIMEOUT_MS,
     fetcher?: SemanticReviewFetchLike,
+    private readonly usageRecorder?: AiUsageRecorder,
   ) {
     this.#apiKey = apiKey.trim();
     this.#fetcher = fetcher;
@@ -816,6 +818,7 @@ export class DeepSeekSemanticReviewModelPort
   ): Promise<RawSemanticReview> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const startedAtMs = Date.now();
     try {
       const provider = createDeepSeek({
         apiKey: this.#apiKey,
@@ -908,7 +911,7 @@ export class DeepSeekSemanticReviewModelPort
           },
         }),
       };
-      await generateText({
+      const result = await generateText({
         model: provider(this.model),
         maxOutputTokens: this.maxOutputTokens,
         maxRetries: 0,
@@ -955,8 +958,32 @@ export class DeepSeekSemanticReviewModelPort
       if (submitted === null) {
         throw new Error("semantic reviewer completed without submitting its tool effect");
       }
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "SEMANTIC_REVIEW",
+        role: "ADVERSARIAL_REVIEW",
+        provider: "DEEPSEEK",
+        model: this.model,
+        transport: "VERCEL_AI_SDK",
+        operationIdentity: `proposal:${input.proposal.proposalId}`,
+        outcome: "SUCCEEDED",
+        durableEffect: true,
+        providerRequestCount: result.steps.length,
+        usage: result.usage,
+      });
       return submitted;
     } catch (error) {
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "SEMANTIC_REVIEW",
+        role: "ADVERSARIAL_REVIEW",
+        provider: "DEEPSEEK",
+        model: this.model,
+        transport: "VERCEL_AI_SDK",
+        operationIdentity: `proposal:${input.proposal.proposalId}`,
+        outcome: controller.signal.aborted ? "TIMED_OUT" : "FAILED",
+        durableEffect: false,
+      });
       if (controller.signal.aborted) {
         throw new Error("semantic review request timed out");
       }
@@ -1344,6 +1371,7 @@ export function createSemanticReviewDesk(
     retentionLimit?: number;
     concurrencyLimit?: number;
     store?: SemanticReviewRecordStore;
+    usageRecorder?: AiUsageRecorder;
   }> = {},
 ): SemanticReviewDesk {
   const model =
@@ -1383,6 +1411,7 @@ export function createSemanticReviewDesk(
           maxOutputTokens,
           timeoutMs,
           options.fetcher,
+          options.usageRecorder,
         ));
   return new SemanticReviewDesk(
     reviewer,

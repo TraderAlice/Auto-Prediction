@@ -5602,6 +5602,39 @@ footer span:first-child {
   font-size: 7px;
 }
 
+.usage-hourly-trend {
+  display: grid;
+  align-items: end;
+  gap: 5px;
+  min-height: 82px;
+  padding: 10px 14px;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(126, 240, 193, 0.1);
+}
+
+.usage-hourly-trend > div {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 18px;
+}
+
+.usage-hourly-trend i {
+  display: block;
+  width: min(18px, 70%);
+  min-height: 8px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(180deg, var(--primary), rgba(126, 240, 193, 0.22));
+}
+
+.usage-hourly-trend span,
+.usage-hourly-trend strong {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-style: normal;
+}
+
 .attention-item-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

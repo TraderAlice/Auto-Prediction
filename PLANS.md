@@ -49,13 +49,20 @@ passing roles are required before first-party code assembles a conservative
 upper bound; ready, abstained, and exhausted outcomes enter a durable inbox.
 Resolved-outcome calibration is the next probability-quality checkpoint.
 
-The next observability checkpoint is a unified AI usage ledger. Provider usage
-will be retained per invocation and rolled up by purpose, role, model, outcome,
-and UTC time bucket. Input, output, reasoning, cache-read, and cache-write token
-counts remain separate. AI SDK paths can provide complete provider-reported
-usage; Pi invocations remain explicitly partial until its CLI exposes equivalent
-metadata. Prompts, outputs, API keys, and inferred currency costs do not enter
-the ledger.
+The unified AI usage ledger is now implemented locally. SQLite schema v26
+retains one immutable event per invocation and rolls it up by purpose, role,
+model, outcome, and UTC hour/day. Input, output, reasoning, cache-read, and
+cache-write token counts remain separate. All five AI SDK tool-loop families
+record provider-reported usage; discovery and the two Pi lanes are also covered.
+Pi remains explicitly partial until its CLI exposes exact tokens, and provider
+failures without metadata remain unavailable rather than zero. Studio now shows
+purpose-ranked consumption, recent frequency, coverage, duration, and durable
+effects. Prompts, outputs, API keys, and inferred currency costs do not enter the
+ledger. A versioned price table and token-aware issue budget policy follow after
+the open product decision. All 515 workspace tests, workspace type checks, and
+the production build pass. Browser QA at desktop width and 390 px shows the
+durable totals, purpose ranking, real hourly frequency, and partial/unavailable
+coverage without horizontal overflow or console warnings.
 
 Family retrieval is being upgraded from one generic exact-token context to a
 content-addressed family trailhead. Search lease v6 carries the selected

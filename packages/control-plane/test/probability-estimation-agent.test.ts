@@ -660,8 +660,8 @@ describe("durable probability estimation scheduling", () => {
         passedCount: 2,
         unreadNotificationCount: 1,
         storage: {
-          jobs: { durable: true, schemaVersion: 25 },
-          notifications: { durable: true, schemaVersion: 25 },
+          jobs: { durable: true, schemaVersion: 26 },
+          notifications: { durable: true, schemaVersion: 26 },
         },
       });
       secondStore.close();

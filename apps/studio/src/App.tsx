@@ -72,6 +72,24 @@ function formatRateBps(value: number | null): string {
   return `${Math.floor(value / 100)}.${String(value % 100).padStart(2, "0")}%`;
 }
 
+function formatTokenCount(value: string | null): string {
+  if (value === null) return "unknown";
+  try {
+    return BigInt(value).toLocaleString("en-US");
+  } catch {
+    return value;
+  }
+}
+
+function tokenMagnitude(value: string | null): bigint {
+  if (value === null) return -1n;
+  try {
+    return BigInt(value);
+  } catch {
+    return -1n;
+  }
+}
+
 const EMPTY_CATALOG_CONTEXT: StudioProjection["ai"]["catalogContext"] = {
   mode: "VERIFIED_FIXTURE_CATALOGS",
   corpusIdentity: `sha256:${"0".repeat(64)}`,
@@ -200,6 +218,40 @@ const EMPTY_PROBABILITY_ESTIMATION_SCHEDULER:
     executionAuthority: false,
     effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
   };
+
+const EMPTY_AI_USAGE: StudioProjection["ai"]["aiUsage"] = {
+  schemaVersion: "pmh.ai-usage-ledger.v1",
+  eventCount: 0,
+  coverage: { complete: 0, partial: 0, unavailable: 0 },
+  totals: {
+    dimension: "PURPOSE",
+    key: "ALL",
+    invocationCount: "0",
+    durableEffectCount: "0",
+    completeCount: "0",
+    partialCount: "0",
+    unavailableCount: "0",
+    tokens: {
+      inputTokens: null,
+      outputTokens: null,
+      reasoningTokens: null,
+      cacheReadTokens: null,
+      cacheWriteTokens: null,
+      totalTokens: null,
+    },
+  },
+  byPurpose: [],
+  byRole: [],
+  byModel: [],
+  byOutcome: [],
+  hourly: [],
+  daily: [],
+  recentEvents: [],
+  storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "eventId" },
+  promptTextRetained: false,
+  outputTextRetained: false,
+  currencyCostEstimated: false,
+};
 
 const EMPTY_SEMANTIC_REVIEW_ADMISSION: StudioProjection["ai"]["semanticReviewAdmission"] = {
   schemaVersion: "pmh.semantic-review-admission-desk.v2",
@@ -3964,6 +4016,7 @@ function OpportunityLifecycleView() {
   const probabilityScheduler =
     studioProjection.ai.probabilityEstimationScheduler ??
       EMPTY_PROBABILITY_ESTIMATION_SCHEDULER;
+  const aiUsage = studioProjection.ai.aiUsage ?? EMPTY_AI_USAGE;
   const reviewAdmission =
     studioProjection.ai.semanticReviewAdmission ?? EMPTY_SEMANTIC_REVIEW_ADMISSION;
   const reviewScheduler =
@@ -4207,6 +4260,19 @@ function OpportunityLifecycleView() {
     }
   }
 
+  const usagePurposes = [...aiUsage.byPurpose].sort((left, right) => {
+    const leftTokens = tokenMagnitude(left.tokens.totalTokens);
+    const rightTokens = tokenMagnitude(right.tokens.totalTokens);
+    return leftTokens === rightTokens
+      ? left.key.localeCompare(right.key)
+      : leftTokens > rightTokens ? -1 : 1;
+  });
+  const recentUsageHours = aiUsage.hourly.slice(-12);
+  const maximumHourlyCalls = Math.max(
+    1,
+    ...recentUsageHours.map((bucket) => Number(bucket.invocationCount)),
+  );
+
   return (
     <section className="page-section lifecycle-page">
       <div className="page-heading lifecycle-heading">
@@ -4342,6 +4408,112 @@ function OpportunityLifecycleView() {
               <small>Not confidence · not guaranteed profit · no certificate or execution authority</small>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="attention-queue" aria-label="AI token usage ledger">
+        <div className="attention-queue-heading">
+          <div>
+            <Activity size={15} />
+            <div>
+              <strong>AI usage ledger</strong>
+              <span>Purpose × role × model × outcome · provider-reported tokens only</span>
+            </div>
+          </div>
+          <Badge variant={aiUsage.storage.durable ? "verified" : "muted"}>
+            {aiUsage.storage.durable ? "SQLITE DURABLE" : "MEMORY"}
+          </Badge>
+        </div>
+        <div className="attention-queue-stats">
+          <div>
+            <strong>{formatTokenCount(aiUsage.totals.invocationCount)}</strong>
+            <span>invocations</span>
+          </div>
+          <div>
+            <strong>{formatTokenCount(aiUsage.totals.tokens.totalTokens)}</strong>
+            <span>reported total tokens</span>
+          </div>
+          <div>
+            <strong>{formatTokenCount(aiUsage.totals.tokens.inputTokens)}</strong>
+            <span>input</span>
+          </div>
+          <div>
+            <strong>{formatTokenCount(aiUsage.totals.tokens.outputTokens)}</strong>
+            <span>output</span>
+          </div>
+          <div>
+            <strong>{formatTokenCount(aiUsage.totals.tokens.reasoningTokens)}</strong>
+            <span>reasoning</span>
+          </div>
+          <div>
+            <strong>{formatTokenCount(aiUsage.totals.tokens.cacheReadTokens)}</strong>
+            <span>cache read</span>
+          </div>
+        </div>
+        {recentUsageHours.length > 0 && (
+          <div
+            className="usage-hourly-trend"
+            aria-label="AI invocation frequency by UTC hour"
+            style={{
+              gridTemplateColumns:
+                `repeat(${Math.max(1, recentUsageHours.length)}, minmax(18px, 1fr))`,
+            }}
+          >
+            {recentUsageHours.map((bucket) => {
+              const calls = Number(bucket.invocationCount);
+              return (
+                <div key={bucket.bucket} title={`${bucket.bucket}: ${bucket.invocationCount} calls, ${formatTokenCount(bucket.tokens.totalTokens)} tokens`}>
+                  <span>{new Date(bucket.bucket).getUTCHours().toString().padStart(2, "0")}Z</span>
+                  <i style={{ height: `${Math.max(8, Math.round((calls / maximumHourlyCalls) * 44))}px` }} />
+                  <strong>{bucket.invocationCount}</strong>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="attention-item-list">
+          {usagePurposes.length === 0 ? (
+            <div className="review-operation-empty">
+              <strong>No AI usage retained yet</strong>
+              <span>The next AI SDK or Pi invocation will appear here; unavailable usage is not counted as zero.</span>
+            </div>
+          ) : usagePurposes.map((purpose) => (
+            <article key={purpose.key}>
+              <div className="attention-item-topline">
+                <Badge variant="shadow">{purpose.key.replaceAll("_", " ")}</Badge>
+                <span>{formatTokenCount(purpose.invocationCount)} calls</span>
+              </div>
+              <strong>{formatTokenCount(purpose.tokens.totalTokens)} reported tokens</strong>
+              <p>
+                {formatTokenCount(purpose.tokens.inputTokens)} input · {formatTokenCount(purpose.tokens.outputTokens)} output · {formatTokenCount(purpose.tokens.reasoningTokens)} reasoning · {formatTokenCount(purpose.tokens.cacheReadTokens)} cache read
+              </p>
+              <div className="attention-item-facts">
+                <span>{formatTokenCount(purpose.durableEffectCount)} durable effects</span>
+                <span>{purpose.completeCount} complete</span>
+                <span>{purpose.partialCount} partial</span>
+                <span>{purpose.unavailableCount} unavailable</span>
+              </div>
+            </article>
+          ))}
+          {aiUsage.recentEvents.slice(0, 8).map((event) => (
+            <article key={event.eventId}>
+              <div className="attention-item-topline">
+                <Badge variant={event.outcome === "SUCCEEDED" ? "verified" : event.outcome === "ABSTAINED" ? "muted" : "warning"}>
+                  {event.outcome}
+                </Badge>
+                <time>{new Date(event.occurredAt).toLocaleString()}</time>
+              </div>
+              <strong>{event.purpose.replaceAll("_", " ")} · {event.role ?? "unspecified role"}</strong>
+              <p>{event.provider}/{event.model} · {formatTokenCount(event.tokens.totalTokens)} tokens · {event.durationMs} ms</p>
+              <small>{event.coverage} coverage · {event.providerRequestCount ?? "unknown"} provider requests · prompts and outputs not retained</small>
+            </article>
+          ))}
+        </div>
+        <div className="case-authority-lock archaeology-authority-lock">
+          <CircleOff size={15} />
+          <span>
+            Missing provider metadata stays unknown. Pi is partial until its CLI exposes exact token usage; currency cost is intentionally absent until pricing is versioned.
+          </span>
         </div>
       </section>
 

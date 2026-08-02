@@ -18,6 +18,7 @@ import type {
   DiscoveryTask,
   ModelProviderProjection,
 } from "./types.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_MAX_OUTPUT_TOKENS = 800;
@@ -34,6 +35,7 @@ export type DeepSeekAiSdkAgentPortOptions = Readonly<{
   maxSteps?: number;
   maxToolCalls?: number;
   fetcher?: DeepSeekFetchLike;
+  usageRecorder?: AiUsageRecorder;
 }>;
 
 function boundedInteger(
@@ -54,6 +56,7 @@ function boundedInteger(
 export class DeepSeekAiSdkAgentPort implements DiscoveryAgentPort {
   readonly #apiKey: string;
   readonly #fetcher: DeepSeekFetchLike;
+  readonly #usageRecorder: AiUsageRecorder | undefined;
   public readonly maxOutputTokens: number;
   public readonly timeoutMs: number;
   public readonly maxSteps: number;
@@ -92,6 +95,7 @@ export class DeepSeekAiSdkAgentPort implements DiscoveryAgentPort {
       throw new Error("DeepSeek agent loop budget is invalid or unbounded");
     }
     this.#fetcher = options.fetcher ?? fetch;
+    this.#usageRecorder = options.usageRecorder;
   }
 
   public async run(input: {
@@ -127,6 +131,7 @@ export class DeepSeekAiSdkAgentPort implements DiscoveryAgentPort {
       maxSteps: this.maxSteps,
       maxToolCalls: this.maxToolCalls,
       requestAttemptCount: () => requestAttemptCount,
+      ...(this.#usageRecorder === undefined ? {} : { usageRecorder: this.#usageRecorder }),
       providerOptions: {
         deepseek: {
           thinking: { type: "disabled" },
@@ -144,7 +149,10 @@ export type DeepSeekDiscoveryRuntime = Readonly<{
 
 export function createDeepSeekDiscoveryRuntime(
   environment: Readonly<Record<string, string | undefined>> = process.env,
-  options: Readonly<{ fetcher?: DeepSeekFetchLike }> = {},
+  options: Readonly<{
+    fetcher?: DeepSeekFetchLike;
+    usageRecorder?: AiUsageRecorder;
+  }> = {},
 ): DeepSeekDiscoveryRuntime {
   const model = environment.PMH_DISCOVERY_MODEL?.trim() || DEFAULT_MODEL;
   if (!MODEL_ID_PATTERN.test(model)) {
@@ -207,6 +215,9 @@ export function createDeepSeekDiscoveryRuntime(
         maxSteps,
         maxToolCalls,
         ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
+        ...(options.usageRecorder === undefined
+          ? {}
+          : { usageRecorder: options.usageRecorder }),
       });
   const workers = Object.freeze(
     agentPort === null
