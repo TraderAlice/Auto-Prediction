@@ -8,7 +8,9 @@ with the Agent workflow tracked in
 and AI resource observability tracked in
 [`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md), with terminal
 protocol efficiency tracked in
-[`plans/semantic-review-loop-efficiency.md`](plans/semantic-review-loop-efficiency.md).
+[`plans/semantic-review-loop-efficiency.md`](plans/semantic-review-loop-efficiency.md)
+and resolved-outcome quality tracked in
+[`plans/probability-calibration.md`](plans/probability-calibration.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -49,7 +51,18 @@ relation-specific adverse states, leases all three roles concurrently, retries
 within explicit budgets, and recovers expired work after restart. Two distinct
 passing roles are required before first-party code assembles a conservative
 upper bound; ready, abstained, and exhausted outcomes enter a durable inbox.
-Resolved-outcome calibration is the next probability-quality checkpoint.
+Resolved-outcome calibration is now the active probability-quality checkpoint.
+
+That calibration checkpoint now has its first deterministic artifact. Every
+resolved joint state binds the exact historical probability bound plus one
+source-hashed resolution record per listing; first-party code derives whether
+the adverse state occurred and rejects post-hoc forecasts. Immutable snapshots
+group estimates by estimator, method, relation, horizon, and probability bucket,
+then use bigint arithmetic for empirical rate, mean interval, upper/lower miss,
+and midpoint Brier score. A cohort below its explicit minimum remains
+`INSUFFICIENT_SAMPLE`; calibration evidence grants no certificate or execution
+authority. Durable resolution ingestion, SQLite replay, search-family lineage,
+and Studio trends are next.
 
 The unified AI usage ledger is now implemented locally. SQLite schema v26
 retains one immutable event per invocation and rolls it up by purpose, role,
@@ -61,7 +74,7 @@ failures without metadata remain unavailable rather than zero. Studio now shows
 purpose-ranked consumption, recent frequency, coverage, duration, and durable
 effects. Prompts, outputs, API keys, and inferred currency costs do not enter the
 ledger. A versioned price table and token-aware issue budget policy follow after
-the open product decision. All 518 workspace tests, workspace type checks, and
+the open product decision. All 520 workspace tests, workspace type checks, and
 the production build pass. Browser QA at desktop width and 390 px shows the
 durable totals, purpose ranking, real hourly frequency, and partial/unavailable
 coverage without horizontal overflow or console warnings.

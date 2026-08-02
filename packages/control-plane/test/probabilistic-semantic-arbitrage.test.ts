@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  assertProbabilityCalibrationArtifact,
+  assertProbabilityCalibrationObservation,
   assertProbabilisticSemanticArbitrageEvaluation,
   assertProbabilisticSemanticBound,
+  buildProbabilityCalibrationArtifact,
+  buildProbabilityCalibrationObservation,
   buildProbabilisticSemanticBound,
   buildSemanticConstraintArtifact,
   compileProbabilisticSemanticArbitrage,
@@ -249,6 +253,116 @@ describe("probabilistic semantic arbitrage", () => {
     expect(() => assertProbabilisticSemanticArbitrageEvaluation({
       ...evaluationBody,
       artifactHash: hashCanonical(evaluationBody),
+    })).toThrow(/does not replay/u);
+  });
+});
+
+describe("resolved-outcome probability calibration", () => {
+  function calibrationBound(tag: string) {
+    return buildProbabilisticSemanticBound({
+      semanticConstraint: constraint,
+      adverseStateIds: ["TT"],
+      estimates: estimates(),
+      counterScenarios: [
+        "A non-fatal shooting permits the later appearance.",
+        `Calibration cohort case ${tag}.`,
+      ],
+    });
+  }
+
+  function observation(tag: string, adverse: boolean) {
+    const artifact = calibrationBound(tag);
+    return buildProbabilityCalibrationObservation({
+      bound: artifact,
+      resolutionEvidence: [...listingRefs].reverse().map((listingRef, index) => ({
+        listingRef,
+        truthValue: adverse,
+        resolvedAt: `2026-08-02T0${index + 5}:00:00.000Z`,
+        sourceRawHash: hashCanonical({ resolution: tag, listingRef }),
+        protocolIdentity: `resolution:${listingRef}`,
+      })),
+    });
+  }
+
+  it("measures resolved adverse frequency against immutable role intervals", () => {
+    const ordinary = observation("ordinary", false);
+    const adverse = observation("adverse", true);
+    expect(ordinary).toMatchObject({
+      observedStateId: "FF",
+      adverseOccurred: false,
+      horizonBucket: "LE_1D",
+      authority: "SHADOW_CALIBRATION_ONLY",
+      probabilityCertificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(adverse).toMatchObject({ observedStateId: "TT", adverseOccurred: true });
+    expect(ordinary.resolutionEvidence.map((item) => item.listingRef)).toEqual(listingRefs);
+    expect(() => assertProbabilityCalibrationObservation(ordinary)).not.toThrow();
+
+    const calibration = buildProbabilityCalibrationArtifact({
+      observations: [adverse, ordinary],
+      createdAt: "2026-08-03T00:00:00.000Z",
+      minimumSampleSize: 2,
+    });
+    expect(calibration).toMatchObject({
+      minimumSampleSize: "2",
+      measuredGroupCount: "2",
+      insufficientGroupCount: "0",
+      authority: "CALIBRATION_EVIDENCE_ONLY",
+      probabilityCertificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(calibration.groups).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        estimator: "reference-class-worker",
+        method: "REFERENCE_CLASS",
+        sampleCount: "2",
+        adverseCount: "1",
+        empiricalRatePpm: "500000",
+        meanLowerPpm: "20000",
+        meanUpperPpm: "40000",
+        upperExceedancePpm: "460000",
+        meanMidpointBrierPpm: "470900",
+        status: "UNDERPREDICTED",
+      }),
+      expect.objectContaining({
+        estimator: "independent-causal-worker",
+        method: "CAUSAL_MODEL",
+        empiricalRatePpm: "500000",
+        meanUpperPpm: "50000",
+        upperExceedancePpm: "450000",
+        meanMidpointBrierPpm: "461600",
+        status: "UNDERPREDICTED",
+      }),
+    ]));
+    expect(() => assertProbabilityCalibrationArtifact(calibration)).not.toThrow();
+  });
+
+  it("fails closed on duplicated outcomes, post-hoc forecasts, and metric tampering", () => {
+    const resolved = observation("one-case", false);
+    expect(() => buildProbabilityCalibrationArtifact({
+      observations: [resolved, resolved],
+      createdAt: "2026-08-03T00:00:00.000Z",
+      minimumSampleSize: 2,
+    })).toThrow(/duplicated/u);
+    expect(() => buildProbabilityCalibrationObservation({
+      bound: calibrationBound("post-hoc"),
+      resolutionEvidence: listingRefs.map((listingRef) => ({
+        listingRef,
+        truthValue: false,
+        resolvedAt: "2026-08-01T23:59:00.000Z",
+        sourceRawHash: hashCanonical({ early: listingRef }),
+        protocolIdentity: `resolution:${listingRef}`,
+      })),
+    })).toThrow(/predates/u);
+    const sufficient = buildProbabilityCalibrationArtifact({
+      observations: [observation("first", false), observation("second", true)],
+      createdAt: "2026-08-03T00:00:00.000Z",
+      minimumSampleSize: 2,
+    });
+    expect(() => assertProbabilityCalibrationArtifact({
+      ...sufficient,
+      groups: [{ ...sufficient.groups[0]!, empiricalRatePpm: "0" }, ...sufficient.groups.slice(1)],
     })).toThrow(/does not replay/u);
   });
 });

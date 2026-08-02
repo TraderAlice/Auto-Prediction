@@ -1,8 +1,9 @@
 # Role-separated probability estimation agents
 
 Status: active; tool loop, abstention, durable run journal, concurrent automatic
-scheduling, conservative bound assembly, notification inbox, and Studio
-observability implemented locally; external evidence tools and calibration remain
+scheduling, conservative bound assembly, notification inbox, Studio
+observability, and first-party calibration replay implemented locally; external
+evidence tools and durable resolution ingestion remain
 
 Created: 2026-08-02
 
@@ -52,8 +53,10 @@ whole-response schema or treating model confidence as probability.
 
 1. Acquire reference-class evidence through explicit evidence tools rather
    than open-ended model browsing.
-2. Retain resolved adverse-state outcomes and calculate calibration coverage,
-   exceedance rate, and interval score by role, family, horizon, and ppm bucket.
+2. Persist source-bound resolution observations and calibration snapshots. The
+   pure replay layer now calculates empirical rate, interval miss, and midpoint
+   Brier by estimator, method, relation, horizon, and ppm bucket; semantic-family
+   grouping waits for first-party issue lineage on the bound.
 3. Feed measured per-role token and request usage into recurring-work budgets
    without allowing observability metadata to change semantic authority.
 

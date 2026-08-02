@@ -138,9 +138,12 @@ state. At a two-NO ask-plus-fee cost of 0.80 and epsilon 0.05, replay yields a
 and 0.20 break-even epsilon. At epsilon 0.20 the same prices become a semantic
 watch. Tampered probability envelopes and replay arithmetic fail closed.
 
-Next, expose the bound-submission effects as Agent tools, persist estimates and
-evaluations, add role-separated estimation scheduling and calibration outcome
-tracking, and render this lane in Studio without guaranteed-profit language.
+The Agent tools, durable role scheduling, and conservative bound assembly are
+now implemented. The first calibration replay artifact also binds resolved
+joint states to historical bounds and calculates deterministic cohort metrics.
+Next, persist resolution/calibration journals, attach first-party search-family
+lineage, and render cohort sufficiency and score trends in Studio without
+guaranteed-profit language.
 
 ## Authority boundary
 
