@@ -14,7 +14,8 @@ import type {
 const RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 const DEFAULT_MODEL = "gpt-5.6-luna";
 const DEFAULT_MAX_OUTPUT_TOKENS = 800;
-const DEFAULT_TIMEOUT_MS = 8_000;
+const DEFAULT_TIMEOUT_MS = 300_000;
+const MAX_TIMEOUT_MS = 300_000;
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/;
 
 export const discoveryOutputSchema = Object.freeze({
@@ -166,9 +167,11 @@ export class OpenAiResponsesModelPort implements AiModelPort {
     if (
       !Number.isSafeInteger(this.timeoutMs) ||
       this.timeoutMs < 1_000 ||
-      this.timeoutMs > 30_000
+      this.timeoutMs > MAX_TIMEOUT_MS
     ) {
-      throw new Error("OpenAI request timeout must be from 1000 to 30000 ms");
+      throw new Error(
+        `OpenAI request timeout must be from 1000 to ${MAX_TIMEOUT_MS} ms`,
+      );
     }
     this.fetcher = options.fetcher ?? fetch;
   }
@@ -324,7 +327,7 @@ export function createOpenAiDiscoveryRuntime(
     environment.PMH_DISCOVERY_TIMEOUT_MS,
     DEFAULT_TIMEOUT_MS,
     1_000,
-    30_000,
+    MAX_TIMEOUT_MS,
     "PMH_DISCOVERY_TIMEOUT_MS",
   );
   const apiKey = environment.OPENAI_API_KEY?.trim() ?? "";

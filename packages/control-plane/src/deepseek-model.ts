@@ -2,9 +2,15 @@ import { createDeepSeek, type DeepSeekProviderSettings } from "@ai-sdk/deepseek"
 import {
   APICallError,
   generateText,
+  InvalidResponseDataError,
+  JSONParseError,
   jsonSchema,
+  NoContentGeneratedError,
   NoObjectGeneratedError,
+  NoOutputGeneratedError,
   Output,
+  RetryError,
+  TypeValidationError,
 } from "ai";
 import { StructuredModelDiscoveryWorker } from "./discovery.js";
 import { ModelRequestFailure } from "./model-failure.js";
@@ -22,7 +28,8 @@ import type {
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_MAX_OUTPUT_TOKENS = 800;
-const DEFAULT_TIMEOUT_MS = 8_000;
+const DEFAULT_TIMEOUT_MS = 300_000;
+const MAX_TIMEOUT_MS = 300_000;
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/;
 
 type DiscoveryModelPayload = Readonly<{
@@ -86,9 +93,11 @@ export class DeepSeekAiSdkModelPort implements AiModelPort {
     if (
       !Number.isSafeInteger(this.timeoutMs) ||
       this.timeoutMs < 1_000 ||
-      this.timeoutMs > 30_000
+      this.timeoutMs > MAX_TIMEOUT_MS
     ) {
-      throw new Error("DeepSeek request timeout must be from 1000 to 30000 ms");
+      throw new Error(
+        `DeepSeek request timeout must be from 1000 to ${MAX_TIMEOUT_MS} ms`,
+      );
     }
     this.#fetcher = options.fetcher ?? fetch;
   }
@@ -161,20 +170,35 @@ export class DeepSeekAiSdkModelPort implements AiModelPort {
           { cause: error },
         );
       }
-      if (NoObjectGeneratedError.isInstance(error)) {
+      const sdkError = RetryError.isInstance(error) ? error.lastError : error;
+      if (
+        NoObjectGeneratedError.isInstance(sdkError) ||
+        NoOutputGeneratedError.isInstance(sdkError) ||
+        NoContentGeneratedError.isInstance(sdkError) ||
+        InvalidResponseDataError.isInstance(sdkError) ||
+        JSONParseError.isInstance(sdkError) ||
+        TypeValidationError.isInstance(sdkError)
+      ) {
         throw new ModelRequestFailure(
           "DEEPSEEK",
           "INVALID_PROVIDER_OUTPUT",
           requestAttemptCount,
-          { cause: error },
+          { cause: sdkError },
         );
       }
-      if (APICallError.isInstance(error)) {
+      if (APICallError.isInstance(sdkError)) {
+        const successfulStatusWithInvalidBody =
+          sdkError.statusCode !== undefined &&
+          sdkError.statusCode >= 200 && sdkError.statusCode < 300;
         throw new ModelRequestFailure(
           "DEEPSEEK",
-          error.isRetryable ? "RETRYABLE_PROVIDER" : "REJECTED_PROVIDER",
+          successfulStatusWithInvalidBody
+            ? "INVALID_PROVIDER_OUTPUT"
+            : sdkError.isRetryable
+              ? "RETRYABLE_PROVIDER"
+              : "REJECTED_PROVIDER",
           requestAttemptCount,
-          { cause: error },
+          { cause: sdkError },
         );
       }
       throw new ModelRequestFailure(
@@ -214,7 +238,7 @@ export function createDeepSeekDiscoveryRuntime(
     environment.PMH_DISCOVERY_TIMEOUT_MS,
     DEFAULT_TIMEOUT_MS,
     1_000,
-    30_000,
+    MAX_TIMEOUT_MS,
     "PMH_DISCOVERY_TIMEOUT_MS",
   );
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";

@@ -555,6 +555,7 @@ export function createControlPlane(options?: {
     new SearchLeaseScheduler({
       intervalMs: parseSearchLeaseInterval(process.env),
       concurrencyLimit: 3,
+      deadlineMs: Math.max(300_000, modelRuntime.projection.timeoutMs),
       context: (
         question,
         venueIds,
@@ -1656,6 +1657,7 @@ export function createControlPlane(options?: {
           await readJson(request),
           catalogDesk,
           catalogObservationDesk,
+          modelRuntime.projection.timeoutMs + 2_000,
         );
         const invocation = await invokeDiscovery(task);
         writeJson(response, 200, {

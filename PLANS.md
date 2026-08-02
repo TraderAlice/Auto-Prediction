@@ -30,6 +30,16 @@ Three historical invalid-model-output failures remain visible but correctly do
 not count against the provider. No retry, fallback, budget, timeout, or
 authority changed.
 
+The discovery time-budget campaign is qualified. DeepSeek and OpenAI now use a
+configurable 300,000 ms default and maximum; manual discovery gets a 302,000 ms
+enclosing deadline and scheduled leases cannot be shorter than 300,000 ms. The
+Vercel path is current at `ai@7.0.48` and `@ai-sdk/deepseek@3.0.19`; Pi remains
+current at `0.83.0` as the separate deep lane. SDK retry wrappers, HTTP
+rejections, and malformed successful responses project safe distinct failure
+categories. A real configured DeepSeek smoke completed in 746 ms with one
+provider request, and the live Studio projection shows `300s` without browser
+warnings. Full workspace checks, 407 tests, and the production build pass.
+
 AI remains the search engine, never the judge. Independent semantic review,
 deterministic payoff compilation, exact exchange simulation, and the first-party
 verifier own every later promotion step. No live or value-moving route exists.

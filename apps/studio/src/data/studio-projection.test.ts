@@ -33,7 +33,7 @@ describe("Studio projection safety", () => {
       credentialEnv: "DEEPSEEK_API_KEY",
       model: "deepseek-v4-flash",
       maxOutputTokens: 800,
-      timeoutMs: 8_000,
+      timeoutMs: 300_000,
       responseStorage: "PROVIDER_POLICY",
       authority: "PROPOSE_ONLY",
     });

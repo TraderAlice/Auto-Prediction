@@ -79,7 +79,7 @@ describe("budgeted OpenAI Responses model port", () => {
       credentialEnv: "OPENAI_API_KEY",
       model: "gpt-5.6-luna",
       maxOutputTokens: 800,
-      timeoutMs: 8_000,
+      timeoutMs: 300_000,
       fanout: 1,
       workerRoles: ["EQUIVALENCE"],
       reasoningEffort: "minimal",
@@ -365,5 +365,13 @@ describe("budgeted OpenAI Responses model port", () => {
       timeoutMs: 3_000,
     });
     expect(JSON.stringify(runtime)).not.toContain("test-only-key");
+    expect(createOpenAiDiscoveryRuntime({
+      OPENAI_API_KEY: "test-only-key",
+      PMH_DISCOVERY_TIMEOUT_MS: "300000",
+    }).projection.timeoutMs).toBe(300_000);
+    expect(() => createOpenAiDiscoveryRuntime({
+      OPENAI_API_KEY: "test-only-key",
+      PMH_DISCOVERY_TIMEOUT_MS: "300001",
+    })).toThrow(/PMH_DISCOVERY_TIMEOUT_MS/);
   });
 });

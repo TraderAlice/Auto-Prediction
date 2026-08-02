@@ -82,7 +82,7 @@ describe("Vercel AI SDK DeepSeek discovery adapter", () => {
       credentialEnv: "DEEPSEEK_API_KEY",
       model: "deepseek-v4-flash",
       maxOutputTokens: 800,
-      timeoutMs: 8_000,
+      timeoutMs: 300_000,
       fanout: 1,
       workerRoles: ["EQUIVALENCE"],
       reasoningEffort: "disabled",
@@ -122,6 +122,17 @@ describe("Vercel AI SDK DeepSeek discovery adapter", () => {
     expect(() =>
       createDeepSeekDiscoveryRuntime({ PMH_DISCOVERY_FANOUT: "5" }),
     ).toThrow(/PMH_DISCOVERY_FANOUT/);
+  });
+
+  it("accepts a five-minute request budget and rejects a larger one", () => {
+    expect(createDeepSeekDiscoveryRuntime({
+      DEEPSEEK_API_KEY: "test-only-deepseek-key",
+      PMH_DISCOVERY_TIMEOUT_MS: "300000",
+    }).projection.timeoutMs).toBe(300_000);
+    expect(() => createDeepSeekDiscoveryRuntime({
+      DEEPSEEK_API_KEY: "test-only-deepseek-key",
+      PMH_DISCOVERY_TIMEOUT_MS: "300001",
+    })).toThrow(/PMH_DISCOVERY_TIMEOUT_MS/);
   });
 
   it("sends one bounded JSON request and returns only a grounded proposal", async () => {
@@ -219,6 +230,35 @@ describe("Vercel AI SDK DeepSeek discovery adapter", () => {
     });
     expect(failure instanceof Error ? failure.message : String(failure))
       .not.toContain("sensitive upstream detail");
+  });
+
+  it("classifies malformed SDK output without retaining the provider body", async () => {
+    const port = new DeepSeekAiSdkModelPort({
+      apiKey: "test-only-deepseek-key",
+      async fetcher() {
+        return new Response("sensitive malformed response", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    let failure: unknown;
+    try {
+      await port.completeStructured({
+        model: "deepseek-v4-flash",
+        schemaVersion: "pmh.discovery-output.v1",
+        system: "Propose only.",
+        task,
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({
+      category: "INVALID_PROVIDER_OUTPUT",
+      requestAttemptCount: 1,
+    });
+    expect(failure instanceof Error ? failure.message : String(failure))
+      .not.toContain("sensitive malformed response");
   });
 
   it("qualifies DeepSeek through the provider-neutral smoke command", async () => {

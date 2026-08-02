@@ -977,6 +977,40 @@ describe("control-plane HTTP surface", () => {
     expect(malformed.status).toBe(400);
   });
 
+  it("keeps manual and scheduled task deadlines at least as long as the provider budget", async () => {
+    let capturedDeadlineEpochMs = 0;
+    const capturingWorker: DiscoveryWorker = {
+      workerId: "deadline-capture",
+      kind: "HEURISTIC",
+      costTier: "FREE",
+      async discover(task) {
+        capturedDeadlineEpochMs = task.deadlineEpochMs;
+        return [];
+      },
+    };
+    const { baseUrl, controlPlane } = await listenControlPlane({
+      modelRuntime: createOpenAiDiscoveryRuntime({
+        PMH_DISCOVERY_TIMEOUT_MS: "300000",
+      }),
+      discoveryPool: new DiscoveryPool([capturingWorker]),
+    });
+    const beforeRequest = Date.now();
+    const response = await fetch(`${baseUrl}/api/v1/discovery/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "Capture the configured deadline.",
+        venueIds: ["gemini-predictions"],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(capturedDeadlineEpochMs - beforeRequest).toBeGreaterThanOrEqual(301_000);
+    expect(controlPlane.searchLeaseScheduler.projection().budget.deadlineMs).toBe(
+      300_000,
+    );
+  });
+
   it("triages only a current server-bound radar pair through the scout pool", async () => {
     let nowMs = Date.parse("2026-08-01T04:07:36.000Z");
     const source = (

@@ -313,7 +313,9 @@ score, never confidence, semantic equivalence, profit, or a verifier verdict.
 Select `PMH_DISCOVERY_PROVIDER=deepseek|openai` and override the model defaults
 with `PMH_DISCOVERY_MODEL`,
 `PMH_DISCOVERY_MAX_OUTPUT_TOKENS` (128–4096), and
-`PMH_DISCOVERY_TIMEOUT_MS` (1000–30000). `PMH_DISCOVERY_FANOUT` accepts 1–4
+`PMH_DISCOVERY_TIMEOUT_MS` (1000–300000, default 300000). The enclosing manual
+task and scheduled lease deadlines are never shorter than this provider budget.
+`PMH_DISCOVERY_FANOUT` accepts 1–4
 and defaults to 1, so merely adding a key does not multiply request volume.
 Without a key, the process fails
 closed to heuristic-only mode and Studio shows `NEEDS KEY`.

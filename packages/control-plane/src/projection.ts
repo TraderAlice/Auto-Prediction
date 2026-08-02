@@ -150,7 +150,7 @@ export function buildStudioProjection(input: {
     credentialEnv: "DEEPSEEK_API_KEY" as const,
     model: "deepseek-v4-flash",
     maxOutputTokens: 800,
-    timeoutMs: 8_000,
+    timeoutMs: 300_000,
     fanout: 1,
     workerRoles: ["EQUIVALENCE" as const],
     reasoningEffort: "disabled" as const,

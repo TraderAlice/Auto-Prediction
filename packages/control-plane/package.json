@@ -17,7 +17,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@ai-sdk/deepseek": "3.0.17",
+    "@ai-sdk/deepseek": "3.0.19",
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@pmh/domain": "workspace:*",
     "@pmh/evidence": "workspace:*",
@@ -32,7 +32,7 @@
     "@pmh/venue-opinion": "workspace:*",
     "@pmh/venue-polymarket": "workspace:*",
     "@pmh/venue-polymarket-us": "workspace:*",
-    "ai": "7.0.44"
+    "ai": "7.0.48"
   },
   "devDependencies": {
     "tsx": "^4.23.1"
