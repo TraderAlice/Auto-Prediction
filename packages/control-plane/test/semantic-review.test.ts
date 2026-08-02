@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { hashCanonical } from "@pmh/domain";
 import {
   assertSemanticReviewRecord,
@@ -6,6 +9,7 @@ import {
   createSemanticReviewDesk,
   type MarketRelationProposal,
 } from "../src/index.js";
+import { SqliteOperationalStore } from "../src/operational-store.js";
 
 const listings = [
   {
@@ -79,17 +83,25 @@ const proposal: MarketRelationProposal = Object.freeze({
   }),
 });
 
-function chatCompletion(payload: unknown): Response {
+function toolCompletion(name: string, payload: unknown, id: string): Response {
   return Response.json({
-    id: "chatcmpl-semantic-review",
+    id: `chatcmpl-${id}`,
     object: "chat.completion",
     created: 1_785_523_200,
     model: "deepseek-v4-flash",
     choices: [
       {
         index: 0,
-        message: { role: "assistant", content: JSON.stringify(payload) },
-        finish_reason: "stop",
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id,
+            type: "function",
+            function: { name, arguments: JSON.stringify(payload) },
+          }],
+        },
+        finish_reason: "tool_calls",
       },
     ],
     usage: { prompt_tokens: 200, completion_tokens: 100, total_tokens: 300 },
@@ -113,9 +125,29 @@ const reviewPayload = {
   rationale: "The conditional statement is plausible but the supplied rules are incomplete.",
 } as const;
 
+const submissionPayload = {
+  recommendation: reviewPayload.recommendation,
+  relationConclusion: reviewPayload.relationConclusion,
+  assessments: reviewPayload.assessments,
+  missingEvidence: reviewPayload.missingEvidence,
+  rationale: reviewPayload.rationale,
+  constraint: {
+    classification: "PROBABILISTIC_DEPENDENCE",
+    assumptions: ["Feed agreement is not guaranteed by either venue's rules."],
+    truthTable: [
+      { truths: [false, false], disposition: "FEASIBLE", rationale: "Both feeds may end down.", evidenceListingRefs: proposal.listingRefs },
+      { truths: [false, true], disposition: "FEASIBLE", rationale: "Tie semantics can differ.", evidenceListingRefs: proposal.listingRefs },
+      { truths: [true, false], disposition: "FEASIBLE", rationale: "Boundary feeds can differ.", evidenceListingRefs: proposal.listingRefs },
+      { truths: [true, true], disposition: "FEASIBLE", rationale: "Both feeds may end up.", evidenceListingRefs: proposal.listingRefs },
+    ],
+    unresolvedEvidence: reviewPayload.missingEvidence,
+  },
+} as const;
+
 describe("adversarial semantic review", () => {
   it("runs one bounded AI SDK review and preserves advisory-only authority", async () => {
     let requestBody = "";
+    let requestCount = 0;
     const desk = createSemanticReviewDesk(
       {
         DEEPSEEK_API_KEY: "test-only-key",
@@ -123,8 +155,19 @@ describe("adversarial semantic review", () => {
       },
       {
         async fetcher(_input, init) {
-          requestBody = String(init?.body);
-          return chatCompletion(reviewPayload);
+          requestBody += String(init?.body);
+          requestCount += 1;
+          return requestCount === 1
+            ? toolCompletion("record_counterexample", {
+                result: "FOUND",
+                narrative: reviewPayload.counterexamples[0],
+                truths: [false, true],
+              }, "call-counterexample")
+            : toolCompletion(
+                "submit_semantic_review",
+                submissionPayload,
+                "call-submit",
+              );
         },
       },
     );
@@ -144,10 +187,19 @@ describe("adversarial semantic review", () => {
         },
         result: {
           recommendation: "ESCALATE",
+          semanticConstraint: {
+            classification: "PROBABILISTIC_DEPENDENCE",
+            exactCompilerAdmission: "RESEARCH_ONLY",
+          },
           authority: "ADVISORY_ONLY",
           productionReviewAuthority: false,
           simulationAuthority: false,
           executionAuthority: false,
+        },
+        trace: {
+          protocol: "AI_SDK_TOOL_LOOP",
+          counterexampleEffectCount: 1,
+          wholeResponseSchemaParsing: false,
         },
         effects: {
           externalWrites: false,
@@ -160,6 +212,8 @@ describe("adversarial semantic review", () => {
     expect(() => assertSemanticReviewRecord(record)).not.toThrow();
     expect(requestBody).toContain("adversarial semantic reviewer");
     expect(requestBody).toContain("untrusted data");
+    expect(requestBody).toContain("submit_semantic_review");
+    expect(requestCount).toBe(2);
     expect(JSON.stringify(record)).not.toContain("test-only-key");
 
     const replay = desk.begin(opportunityId, proposal, snapshot);
@@ -253,5 +307,70 @@ describe("adversarial semantic review", () => {
     expect(record.status).toBe("PASS");
     expect(record.report?.input.listingEvidence[0]?.outcomes).toHaveLength(3);
     expect(() => assertSemanticReviewRecord(record)).not.toThrow();
+  });
+
+  it("restores a content-addressed tool-effect constraint from SQLite without rerunning the model", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-semantic-tool-store-"));
+    const path = join(directory, "control-plane.sqlite");
+    const constraintDraft = {
+      ...submissionPayload.constraint,
+      relationKind: proposal.relationKind,
+      counterexampleAttempt: {
+        attempted: true as const,
+        result: "FOUND" as const,
+        narrative: reviewPayload.counterexamples[0],
+        truths: [false, true],
+      },
+    };
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstDesk = createSemanticReviewDesk(
+        { DEEPSEEK_API_KEY: "test-only-key" },
+        {
+          store: firstStore,
+          reviewer: { review: async () => ({ ...reviewPayload, constraintDraft }) },
+        },
+      );
+      const first = await firstDesk.begin(
+        `ai:${proposal.proposalId}`,
+        proposal,
+        snapshot,
+      ).promise;
+      expect(first.report).toMatchObject({
+        schemaVersion: "pmh.semantic-review-report.v2",
+        result: {
+          semanticConstraint: {
+            schemaVersion: "pmh.semantic-constraint-proposal.v1",
+            exactCompilerAdmission: "RESEARCH_ONLY",
+          },
+        },
+      });
+      const constraintHash = first.report?.result.semanticConstraint?.artifactHash;
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const restoredDesk = createSemanticReviewDesk(
+        { DEEPSEEK_API_KEY: "test-only-key" },
+        {
+          store: secondStore,
+          reviewer: { review: async () => { throw new Error("must not rerun"); } },
+        },
+      );
+      const restored = restoredDesk.projection().records[0];
+      expect(restored?.report?.result.semanticConstraint?.artifactHash).toBe(
+        constraintHash,
+      );
+      expect(() => assertSemanticReviewRecord(restored)).not.toThrow();
+      const replay = restoredDesk.begin(
+        `ai:${proposal.proposalId}`,
+        proposal,
+        snapshot,
+      );
+      expect(replay.idempotentReplay).toBe(true);
+      expect((await replay.promise).reviewId).toBe(first.reviewId);
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

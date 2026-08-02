@@ -131,6 +131,12 @@ promotion remain active campaign work.
    changed economic posture can reactivate a pair that stopped only at the
    economic gate. Raw quote motion inside the same posture does not repeatedly
    consume Agent budget.
+   Adapter-provided rule documents and outcome-resolution sources travel with
+   each listing as typed, content-addressed evidence locators. They are visible
+   in MarketFS and proposal evidence but grant neither the Agent nor the harness
+   permission to fetch an arbitrary URL. Catalog observations also bind the
+   adapter normalizer identity, so a mapping revision changes the derived corpus
+   without being confused with corruption of the retained raw response.
 3. For the focused parity issue, lexical radar only supplies a replayable batch.
    A model worker must choose exactly two in-context listings from distinct
    venues. The server then prices only that chosen pair before pi. It first uses
@@ -480,6 +486,20 @@ separately reports original captures, exact-current rebases, and unresolved
 legacy evidence debt. These reports remain advisory: they cannot accept a
 proposal, simulate it, certify it, or route an order.
 
+Both AI paths use tool effects instead of treating a model's entire final
+answer as a fixed-schema document. Pi retains its recursive read-only MarketFS
+tools and receives one repository-owned `submit_market_findings` extension;
+only that tool may write one bounded effect into the ephemeral run directory,
+the atomically published effect ends that Pi loop, and final prose is ignored.
+The independent AI SDK reviewer runs a bounded
+multi-step loop: it must call `record_counterexample` before
+`submit_semantic_review`. That submitted effect carries an explicit joint
+truth-state matrix bound to retained rule hashes. Probabilistic dependence,
+textual relatedness, surviving counterexamples, and incomplete state spaces
+remain research-only. The deterministic compiler enumerates guaranteed
+portfolios from feasible states rather than trusting the model's relation label,
+and serializes payout arithmetic as bigint decimal strings.
+
 For an official DeepSeek key, put it in the Git-ignored root `.env.local` file:
 
 ```dotenv
@@ -499,6 +519,11 @@ pnpm --silent investigation:smoke
 `PMH_PI_MAX_OUTPUT_BYTES` (100000–10000000) tune non-secret investigator
 bounds. The default pi timeout is 300000 ms because a real high-thinking live
 catalog investigation exceeded 120 seconds before passing within this bound.
+Semantic review independently uses `PMH_SEMANTIC_REVIEW_TIMEOUT_MS`
+(1000–600000, default 300000), `PMH_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS`
+(512–4096, default 1800), and `PMH_SEMANTIC_REVIEW_CONCURRENCY` (1–8,
+default 3). Its timeout covers the complete AI SDK tool loop rather than
+imposing a short response cutoff.
 `PMH_DISCOVERY_TIMEOUT_MS` independently bounds the fast lane;
 `PMH_SEARCH_DEEP_MAX_ATTEMPTS` (1–5) and
 `PMH_SEARCH_ORCHESTRATION_GRACE_MS` (0–60000) bound retry history and fixed
@@ -511,7 +536,7 @@ explicit configuration change.
 
 The default host exposes Node.js 22.22.1, so ordinary local commands correctly
 warn about the engine mismatch. The full workspace checkpoint also passes under
-an isolated Node.js 24.18.1 runtime, which is the qualified production target.
+an isolated Node.js 24.14.0 runtime, which is the qualified production target.
 
 ## Project map
 

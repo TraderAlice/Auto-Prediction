@@ -4225,9 +4225,9 @@ function OpportunityLifecycleView() {
           </div>
           <h2>RELATION PAYOFF COMPILER</h2>
           <p>
-            Turns accepted binary implications and partitions into canonical
-            truth states and buy-only complete-payout templates. Related or
-            conditional semantics stay blocked.
+            Compiles hash-bound feasible settlement states into bigint payout
+            floors and buy-only complete-payout templates. Relation labels are
+            routing hints; the explicit state matrix is authoritative input.
           </p>
           <code>
             {relationPayoff.supportedRelations.join(" · ")}
@@ -4397,6 +4397,50 @@ function OpportunityLifecycleView() {
                             </p>
                           ))}
                         </div>
+                        {reviewReport.result.semanticConstraint !== undefined && (() => {
+                          const constraint = reviewReport.result.semanticConstraint;
+                          const feasibleCount = constraint.truthTable.filter(
+                            (state) => state.disposition === "FEASIBLE",
+                          ).length;
+                          const impossibleCount = constraint.truthTable.filter(
+                            (state) => state.disposition === "IMPOSSIBLE",
+                          ).length;
+                          const unresolvedCount = constraint.truthTable.filter(
+                            (state) => state.disposition === "UNRESOLVED",
+                          ).length;
+                          return (
+                            <div className="lifecycle-constraint-proof">
+                              <div>
+                                <Badge
+                                  variant={
+                                    constraint.exactCompilerAdmission === "ELIGIBLE"
+                                      ? "verified"
+                                      : "warning"
+                                  }
+                                >
+                                  {constraint.classification.replaceAll("_", " ")}
+                                </Badge>
+                                <span>
+                                  {constraint.exactCompilerAdmission.replaceAll("_", " ")}
+                                </span>
+                                <code>{constraint.artifactHash.slice(0, 23)}…</code>
+                              </div>
+                              <p>{constraint.counterexampleAttempt.narrative}</p>
+                              <div className="lifecycle-constraint-counts">
+                                <span>{feasibleCount} feasible</span>
+                                <span>{impossibleCount} impossible</span>
+                                <span>{unresolvedCount} unresolved</span>
+                                <span>{constraint.ruleEvidence.length} rule hashes</span>
+                              </div>
+                              {constraint.assumptions.map((assumption) => (
+                                <small key={assumption}>Assumption · {assumption}</small>
+                              ))}
+                              {constraint.unresolvedEvidence.map((gap) => (
+                                <small className="is-gap" key={gap}>Unresolved · {gap}</small>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 

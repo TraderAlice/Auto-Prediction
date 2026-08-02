@@ -1,4 +1,6 @@
-import { access } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
@@ -230,5 +232,38 @@ describe("pi investigator", () => {
     expect(result.stdout).not.toContain("message_update");
     expect(result.stdout).toContain("message_end");
     expect(result.stdout).toContain("summary");
+  });
+
+  it("ends a bounded process when a terminal effect file is published", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-pi-effect-test-"));
+    const completionFilePath = join(directory, "effect.json");
+    try {
+      const script = [
+        "const { writeFileSync, renameSync } = require('node:fs');",
+        `const target = ${JSON.stringify(completionFilePath)};`,
+        "writeFileSync(target + '.tmp', '{\"ok\":true}');",
+        "renameSync(target + '.tmp', target);",
+        "setInterval(() => {}, 1000);",
+      ].join("\n");
+      const result = await runBoundedPiProcess({
+        command: process.execPath,
+        args: ["-e", script],
+        cwd: process.cwd(),
+        environment: { PATH: process.env.PATH ?? "" },
+        timeoutMs: 5_000,
+        maxOutputBytes: 1_000,
+        outputMode: "FINAL_TEXT",
+        completionFilePath,
+      });
+
+      expect(result).toMatchObject({
+        timedOut: false,
+        outputLimitExceeded: false,
+        completionSignalDetected: true,
+      });
+      expect(await readFile(completionFilePath, "utf8")).toBe('{"ok":true}');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

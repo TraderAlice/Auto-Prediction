@@ -1,11 +1,10 @@
 # Plans
 
 The active construction plan is
-[`plans/semantic-constraint-search.md`](plans/semantic-constraint-search.md).
-It turns Agent-discovered meaning relationships into falsifiable joint
-settlement constraints and deterministic payoff inequalities, while keeping
-statistical dependence and textual relatedness outside exact-arbitrage
-authority.
+[`plans/rule-evidence-acquisition.md`](plans/rule-evidence-acquisition.md).
+It turns structured Agent evidence gaps into policy-constrained anonymous rule
+captures and enriched semantic scopes, so blocked candidates can reach a
+deterministic accept/reject decision without repeating discovery.
 
 ## Planning contract
 
@@ -42,18 +41,52 @@ gated, so catalog refresh, Pi recovery, and timers begin only after the HTTP
 listener owns its port. A real `EADDRINUSE` test proves the losing process
 creates no catalog observation or search-lease mutation.
 
-Node 24.14.0 type checks, all 437 workspace tests, and the production build
+Node 24.14.0 type checks, all 448 workspace tests, and the production build
 pass. Desktop and 390 px Studio QA show separate fast/deep health, retry counts,
 attempt budgets, and preserved results without horizontal overflow or browser
 warnings.
 
-The next measured capability gap is semantic constraint proof. The Agent can
-already find equivalence, implication, and partition candidates, but a relation
-label is still too coarse to prove arbitrage. The active campaign will require
-explicit feasible joint states, rule-bound counterexamples, and deterministic
-no-arbitrage inequalities. The “August shooting / September live cola” example
-is the first negative qualification: a non-fatal shooting defeats mutual
-exclusion, and unequal probabilities alone never establish arbitrage.
+The semantic-constraint campaign now persists
+explicit feasible joint states, rule-bound counterexample attempts, and
+matrix-derived bigint payoff/price inequalities. Both Pi and AI SDK paths emit
+bounded tool effects instead of whole-response schemas. The “August shooting /
+September live cola” fixture is research-only when a non-fatal shooting permits
+both outcomes; an explicit-fatality variant compiles, while fee and depth tests
+still determine whether its quoted portfolio has a positive gross floor. Live
+DeepSeek runs now prove both tool-effect paths, Pi terminal-effect shutdown, and
+SQLite restoration of the v2 report. Studio qualification at 1280 px and 390 px
+shows the semantic proof without horizontal overflow or runtime errors. Commit
+`a23291a` is published in ready-for-review PR #80.
+
+The active measured capability gap is official rule evidence. In the latest
+retained 947-listing corpus, 387 listings initially lacked inline `rulesText`.
+Forty are an adapter mapping defect: Myriad and Polymarket Global descriptions
+already contain their settlement criteria, and #80 now routes that text through
+the rules channel. The remaining 347 are Gemini listings; 286 point to one
+official terms PDF and 61 have no locator. Sixteen semantic-review jobs are
+`BLOCKED_EVIDENCE`. Myriad's observed URLs are outcome-resolution sources, not
+contract rules, so #80 also separates `resolutionSourceUrl` from `rulesUrl` at
+the protocol boundary.
+
+The first acquisition slice is now implemented on #80. Discovery listings
+carry content-addressed `CONTRACT_RULE_DOCUMENT` and
+`OUTCOME_RESOLUTION_SOURCE` locators whose identity binds venue, protocol,
+role, and canonical HTTPS URL. They survive bounded Agent context, MarketFS,
+proposal evidence, and SQLite restart replay, but explicitly grant no fetch
+authority. Historical listings without locators remain replayable, and locator
+posture changes corpus evidence without spuriously changing semantic-search
+identity. Malformed or tampered locators fail closed at discovery, corpus, and
+proposal-evidence boundaries. The next slice defines structured evidence
+requirements; the constrained fetcher, durable acquisition queue, enriched
+scope, and Studio funnel follow after #80 merges so PRs remain serial.
+
+The retained 947-listing SQLite corpus now replays into 306 locators without a
+network call: 286 Gemini rule documents and 20 Myriad outcome-resolution
+sources. That qualification exposed normalization-version debt in historical
+observations, so new `pmh.catalog-observation.v2` records bind an explicit
+normalizer identity. Known v1 pre-role Myriad/Polymarket projections are
+verified before upgrading the same raw bytes in memory; unrelated drift remains
+a hard restart failure.
 
 ## Deferred future campaigns
 

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -78,6 +79,7 @@ export type PiProcessRequest = Readonly<{
   timeoutMs: number;
   maxOutputBytes: number;
   outputMode: "JSON_EVENTS" | "FINAL_TEXT";
+  completionFilePath?: string;
 }>;
 
 export type PiProcessResult = Readonly<{
@@ -86,6 +88,7 @@ export type PiProcessResult = Readonly<{
   stderr: string;
   timedOut: boolean;
   outputLimitExceeded: boolean;
+  completionSignalDetected?: boolean;
 }>;
 
 export type PiProcessRunner = (
@@ -108,6 +111,7 @@ export const runBoundedPiProcess: PiProcessRunner = (request) =>
     const stdoutDecoder = new StringDecoder("utf8");
     let timedOut = false;
     let outputLimitExceeded = false;
+    let completionSignalDetected = false;
     let settled = false;
     let forceKill: ReturnType<typeof setTimeout> | undefined;
     const terminate = () => {
@@ -120,6 +124,18 @@ export const runBoundedPiProcess: PiProcessRunner = (request) =>
       timedOut = true;
       terminate();
     }, request.timeoutMs);
+    const completionPoll = request.completionFilePath === undefined
+      ? undefined
+      : setInterval(() => {
+          if (
+            !completionSignalDetected &&
+            existsSync(request.completionFilePath as string)
+          ) {
+            completionSignalDetected = true;
+            clearTimeout(timeout);
+            terminate();
+          }
+        }, 25);
     const retain = (value: string, target: "stdout" | "stderr") => {
       outputBytes += Buffer.byteLength(value);
       if (outputBytes > request.maxOutputBytes) {
@@ -199,6 +215,7 @@ export const runBoundedPiProcess: PiProcessRunner = (request) =>
     );
     child.once("error", (error) => {
       clearTimeout(timeout);
+      if (completionPoll !== undefined) clearInterval(completionPoll);
       if (forceKill !== undefined) clearTimeout(forceKill);
       if (!settled) {
         settled = true;
@@ -207,6 +224,7 @@ export const runBoundedPiProcess: PiProcessRunner = (request) =>
     });
     child.once("close", (code) => {
       clearTimeout(timeout);
+      if (completionPoll !== undefined) clearInterval(completionPoll);
       if (forceKill !== undefined) clearTimeout(forceKill);
       const finalText = stdoutDecoder.end();
       if (request.outputMode === "FINAL_TEXT") {
@@ -223,6 +241,7 @@ export const runBoundedPiProcess: PiProcessRunner = (request) =>
           stderr,
           timedOut,
           outputLimitExceeded,
+          completionSignalDetected,
         });
       }
     });

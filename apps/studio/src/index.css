@@ -6104,6 +6104,47 @@ footer span:first-child {
   color: var(--warning);
 }
 
+.lifecycle-constraint-proof {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, var(--accent));
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--card) 92%, var(--accent));
+}
+
+.lifecycle-constraint-proof > div:first-child,
+.lifecycle-constraint-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lifecycle-constraint-proof code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.lifecycle-constraint-proof > p,
+.lifecycle-constraint-proof > small {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.lifecycle-constraint-proof > small.is-gap {
+  color: var(--warning);
+}
+
+.lifecycle-constraint-counts > span {
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 82%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
 .lifecycle-decision-box {
   border-top: 1px solid var(--border);
   display: grid;

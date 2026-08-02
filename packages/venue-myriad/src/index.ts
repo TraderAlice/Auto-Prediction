@@ -84,10 +84,11 @@ export function normalizeMyriadCatalog(
       venueInstrumentId: `${market.id}:${market.slug}`,
       title: market.title,
       description: market.description,
+      rulesText: market.description,
       status: market.state.toUpperCase(),
       mechanism: market.tradingModel === "amm" ? "AMM" : "ONCHAIN_CLOB",
       closesAt: market.expiresAt,
-      rulesUrl: market.resolutionSource,
+      resolutionSourceUrl: market.resolutionSource,
       outcomes: market.outcomes.map((outcome) => ({
         venueOutcomeId: outcome.tokenId,
         label: outcome.title,

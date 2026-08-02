@@ -75,6 +75,19 @@ async function review(
   recommendation: SemanticReviewRecommendation,
   reviewCorpus = corpus,
 ): Promise<SemanticReviewRecord> {
+  const exactRelation = [
+    "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
+  ].includes(item.relationKind);
+  const allowed = (left: boolean, right: boolean): boolean => {
+    switch (item.relationKind) {
+      case "EQUIVALENT": return left === right;
+      case "IMPLIES":
+      case "SUBSET": return !left || right;
+      case "MUTUALLY_EXCLUSIVE": return !left || !right;
+      case "EXHAUSTIVE": return left || right;
+      default: return true;
+    }
+  };
   const desk = createSemanticReviewDesk(
     { DEEPSEEK_API_KEY: "test-only" },
     { reviewer: { review: async () => ({
@@ -89,6 +102,36 @@ async function review(
       counterexamples: recommendation === "REJECT" ? ["A direct contradiction exists."] : [],
       missingEvidence: recommendation === "ESCALATE" ? ["Need the complete rule text."] : [],
       rationale: "Advisory fixture conclusion.",
+      constraintDraft: {
+        classification: exactRelation
+          ? "HARD_SETTLEMENT_CONSTRAINT" as const
+          : "TEXTUAL_RELATEDNESS" as const,
+        relationKind: item.relationKind,
+        assumptions: [],
+        counterexampleAttempt: {
+          attempted: true as const,
+          result: recommendation === "REJECT"
+            ? "FOUND" as const
+            : recommendation === "ESCALATE"
+              ? "INCONCLUSIVE" as const
+              : "NOT_FOUND" as const,
+          narrative: recommendation === "REJECT"
+            ? "A direct contradiction survives."
+            : "Attempted the forbidden state against the fixture rules.",
+          truths: [true, false],
+        },
+        truthTable: [
+          [false, false], [false, true], [true, false], [true, true],
+        ].map(([left, right]) => ({
+          truths: [left!, right!],
+          disposition: allowed(left!, right!) ? "FEASIBLE" as const : "IMPOSSIBLE" as const,
+          rationale: "Explicit fixture state classification.",
+          evidenceListingRefs: item.listingRefs,
+        })),
+        unresolvedEvidence: recommendation === "ESCALATE"
+          ? ["Need the complete rule text."]
+          : exactRelation ? [] : ["No hard settlement constraint."],
+      },
     }) } },
   );
   return desk.begin(`ai:${item.proposalId}`, item, reviewCorpus).promise;
@@ -152,7 +195,9 @@ describe("review attention queue", () => {
       },
       semanticDecisionAuthority: false, simulationAuthority: false, certificateAuthority: false, executionAuthority: false,
     });
-    expect(projection.items[1]?.payoffReadiness.blocker).toBe("RELATION_UNSUPPORTED");
+    expect(projection.items[1]?.payoffReadiness.blocker).toBe(
+      "SEMANTIC_CONSTRAINT_RESEARCH_ONLY",
+    );
     const preReview = buildProposalEconomicTriage({
       candidates: [{
         proposal: ready,

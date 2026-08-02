@@ -5,6 +5,8 @@ import {
   FixtureCatalogDiscoveryDesk,
   HeuristicDiscoveryWorker,
   buildDiscoveryCatalogContext,
+  buildDiscoveryEvidenceLocator,
+  buildDiscoveryEvidenceLocators,
   buildExactDiscoveryCatalogContext,
   buildRotatingDiscoveryCatalogContext,
   buildSearchScopeIdentity,
@@ -97,6 +99,79 @@ describe("verified catalog discovery context", () => {
     });
   });
 
+  it("preserves typed evidence roles without granting retrieval authority", async () => {
+    const desk = new FixtureCatalogDiscoveryDesk();
+    await desk.load();
+    const context = desk.context("Myriad", ["myriad"]);
+    const sourced = context.listings.find(
+      (listing) => (listing.evidenceLocators?.length ?? 0) > 0,
+    );
+    expect(sourced?.evidenceLocators).toEqual([
+      expect.objectContaining({
+        schemaVersion: "pmh.discovery-evidence-locator.v1",
+        role: "OUTCOME_RESOLUTION_SOURCE",
+        url: expect.stringMatching(/^https:\/\//u),
+        locatorIdentity: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+        authority: "EVIDENCE_LOCATOR_ONLY",
+        fetchAuthority: false,
+      }),
+    ]);
+
+    const locators = buildDiscoveryEvidenceLocators({
+      venueId: "venue-a",
+      protocolIdentity: "venue-a:v1",
+      rulesUrl: " https://rules.example/contract.pdf ",
+      resolutionSourceUrl: "https://oracle.example/result",
+    });
+    expect(locators.map((locator) => locator.role)).toEqual([
+      "CONTRACT_RULE_DOCUMENT",
+      "OUTCOME_RESOLUTION_SOURCE",
+    ]);
+    expect(locators.every((locator) => locator.fetchAuthority === false)).toBe(true);
+    expect(buildDiscoveryEvidenceLocator({
+      venueId: "venue-a",
+      protocolIdentity: "venue-a:v1",
+      role: "CONTRACT_RULE_DOCUMENT",
+      url: "http://rules.example/contract.pdf",
+    })).toBeNull();
+  });
+
+  it("rejects a content-addressed context with a tampered evidence locator", async () => {
+    const desk = new FixtureCatalogDiscoveryDesk();
+    await desk.load();
+    const context = desk.context("Myriad", ["myriad"]);
+    const locatorIndex = context.listings.findIndex(
+      (listing) => (listing.evidenceLocators?.length ?? 0) > 0,
+    );
+    expect(locatorIndex).toBeGreaterThanOrEqual(0);
+    const listings = context.listings.map((listing, index) => index !== locatorIndex
+      ? listing
+      : {
+          ...listing,
+          evidenceLocators: listing.evidenceLocators?.map((locator) => ({
+            ...locator,
+            url: "https://substituted.example/result",
+          })),
+        });
+    const body = {
+      schemaVersion: context.schemaVersion,
+      source: context.source,
+      contentPolicy: context.contentPolicy,
+      listings,
+    };
+    await expect(new DiscoveryPool(
+      [new HeuristicDiscoveryWorker()],
+      () => 1_000,
+    ).run({
+      taskId: "task:tampered-evidence-locator",
+      question: "Myriad",
+      venueIds: ["myriad"],
+      maxHypotheses: 5,
+      deadlineEpochMs: 2_000,
+      catalogContext: { ...body, contextIdentity: hashCanonical(body) },
+    })).rejects.toThrow(/catalog context/);
+  });
+
   it("fails closed when context content no longer matches its identity", async () => {
     const desk = new FixtureCatalogDiscoveryDesk();
     await desk.load();
@@ -187,6 +262,7 @@ describe("verified catalog discovery context", () => {
       venueId: "venue-a",
       venueInstrumentId: `album-${index}`,
       title: `Rihanna album release ${index}`,
+      rulesText: null,
     }));
     const secondVenue = Object.freeze({
       ...seed,
@@ -195,6 +271,7 @@ describe("verified catalog discovery context", () => {
       venueInstrumentId: "unrelated",
       title: "Unrelated weather contract",
       description: "No query term overlaps this listing.",
+      rulesText: null,
     });
 
     const context = buildDiscoveryCatalogContext(

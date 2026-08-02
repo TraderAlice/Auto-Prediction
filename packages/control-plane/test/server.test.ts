@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -781,9 +781,10 @@ describe("control-plane HTTP surface", () => {
     const archaeologist = createMarketArchaeologistDesk(
       { DEEPSEEK_API_KEY: "test-only-key" },
       {
-        runner: async () => ({
-          exitCode: 0,
-          stdout: JSON.stringify({
+        runner: async (request) => {
+          const effectPath = request.environment.PMH_MARKET_EFFECT_PATH;
+          if (effectPath === undefined) throw new Error("missing market effect path");
+          await writeFile(effectPath, JSON.stringify({
             summary: "The hourly markets diverge on ties and source disagreement.",
             proposals: [
               {
@@ -799,11 +800,15 @@ describe("control-plane HTTP surface", () => {
               },
             ],
             missingEvidence: [],
-          }),
-          stderr: "",
-          timedOut: false,
-          outputLimitExceeded: false,
-        }),
+          }), "utf8");
+          return {
+            exitCode: 0,
+            stdout: "Findings submitted through submit_market_findings.",
+            stderr: "",
+            timedOut: false,
+            outputLimitExceeded: false,
+          };
+        },
       },
     );
     const archaeologyRecord = await archaeologist.begin(
@@ -826,9 +831,27 @@ describe("control-plane HTTP surface", () => {
               voidAndCancellation: "No complete outage policy is supplied.",
               resolutionSources: "The relation explicitly conditions on source agreement.",
             },
-            counterexamples: ["A tie resolves differently."],
+            counterexamples: [],
             missingEvidence: [],
             rationale: "The implication scope is explicit enough for simulation.",
+            constraintDraft: {
+              classification: "HARD_SETTLEMENT_CONSTRAINT" as const,
+              relationKind: "IMPLIES" as const,
+              assumptions: [],
+              counterexampleAttempt: {
+                attempted: true as const,
+                result: "NOT_FOUND" as const,
+                narrative: "Tried Limitless Up with Opinion Down; the scoped source-agreement rules exclude it.",
+                truths: [true, false],
+              },
+              truthTable: [
+                { truths: [false, false], disposition: "FEASIBLE" as const, rationale: "Both may settle Down.", evidenceListingRefs: ["limitless:limitless-btc-hourly", "opinion:opinion-btc-hourly"] },
+                { truths: [false, true], disposition: "FEASIBLE" as const, rationale: "Opinion may be Up without Limitless Up.", evidenceListingRefs: ["limitless:limitless-btc-hourly", "opinion:opinion-btc-hourly"] },
+                { truths: [true, false], disposition: "IMPOSSIBLE" as const, rationale: "The reviewed implication forbids this state.", evidenceListingRefs: ["limitless:limitless-btc-hourly", "opinion:opinion-btc-hourly"] },
+                { truths: [true, true], disposition: "FEASIBLE" as const, rationale: "Both may settle Up.", evidenceListingRefs: ["limitless:limitless-btc-hourly", "opinion:opinion-btc-hourly"] },
+              ],
+              unresolvedEvidence: [],
+            },
           }),
         },
       },

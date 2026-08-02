@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDiscoveryEvidenceLocator,
   buildSearchScopeIdentity,
   type DiscoveryCatalogListing,
 } from "../src/index.js";
@@ -49,6 +50,20 @@ describe("search scope identity", () => {
       priceIndependentSemanticIdentity: true,
       authority: "SEARCH_ROUTING_ONLY",
     });
+  });
+
+  it("keeps search identity stable when only evidence retrieval posture changes", () => {
+    const locator = buildDiscoveryEvidenceLocator({
+      venueId: "venue-a",
+      protocolIdentity: "venue-a:v1",
+      role: "CONTRACT_RULE_DOCUMENT",
+      url: "https://rules.example/event.html",
+    });
+    if (locator === null) throw new Error("missing test evidence locator");
+    const baseline = buildSearchScopeIdentity([listing()]);
+    const located = buildSearchScopeIdentity([listing({ evidenceLocators: [locator] })]);
+    expect(located.semanticScopeIdentity).toBe(baseline.semanticScopeIdentity);
+    expect(located.routingScopeIdentity).toBe(baseline.routingScopeIdentity);
   });
 
   it("collapses partial price motion until the missing price posture changes", () => {

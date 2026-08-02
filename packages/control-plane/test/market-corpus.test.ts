@@ -2,6 +2,8 @@ import { access, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  assertMarketCorpusSnapshot,
+  buildDiscoveryEvidenceLocator,
   buildMarketCorpusSnapshot,
   materializeMarketCorpus,
   searchMarketCorpus,
@@ -14,6 +16,14 @@ function listing(
   title: string,
   rulesText: string,
 ): DiscoveryCatalogListing {
+  const protocolIdentity = hashCanonical({ protocol: venueId });
+  const evidenceLocator = buildDiscoveryEvidenceLocator({
+    venueId,
+    protocolIdentity,
+    role: "CONTRACT_RULE_DOCUMENT",
+    url: `https://rules.example/${venueId}/${listingRef.split(":").at(-1)}.html`,
+  });
+  if (evidenceLocator === null) throw new Error("missing test evidence locator");
   return {
     listingRef,
     venueId,
@@ -24,6 +34,7 @@ function listing(
     mechanism: "CLOB",
     closesAt: "2026-08-31T00:00:00.000Z",
     rulesText,
+    evidenceLocators: [evidenceLocator],
     outcomes: [
       { label: "Yes", indicativePrice: "0.40" },
       { label: "No", indicativePrice: "0.60" },
@@ -31,7 +42,7 @@ function listing(
     sourceKind: "LIVE_OBSERVATION",
     sourceReceivedAt: "2026-08-01T00:00:00.000Z",
     sourceRawHash: hashCanonical({ venueId }),
-    protocolIdentity: hashCanonical({ protocol: venueId }),
+    protocolIdentity,
   };
 }
 
@@ -81,6 +92,35 @@ describe("Market Corpus", () => {
         listings: [...snapshot.listings].reverse(),
       }).snapshotIdentity,
     ).toBe(snapshot.snapshotIdentity);
+    const withoutLocators = snapshot.listings.map((item) => {
+      const { evidenceLocators: _evidenceLocators, ...rest } = item;
+      return rest;
+    });
+    expect(buildMarketCorpusSnapshot({
+      sourceSetIdentity: snapshot.sourceSetIdentity,
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: withoutLocators,
+    }).snapshotIdentity).not.toBe(snapshot.snapshotIdentity);
+    expect(assertMarketCorpusSnapshot(JSON.parse(JSON.stringify(snapshot))))
+      .toEqual(snapshot);
+  });
+
+  it("fails closed when a locator no longer matches its bound venue and protocol", () => {
+    const first = snapshot.listings[0]!;
+    const tampered = {
+      ...first,
+      evidenceLocators: first.evidenceLocators?.map((locator) => ({
+        ...locator,
+        url: "https://substituted.example/rules.html",
+      })),
+    };
+    expect(() => buildMarketCorpusSnapshot({
+      sourceSetIdentity: snapshot.sourceSetIdentity,
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: [tampered, snapshot.listings[1]!],
+    })).toThrow(/evidence locators/);
   });
 
   it("supports bounded literal and regex searches bound to the snapshot", () => {
@@ -122,6 +162,18 @@ describe("Market Corpus", () => {
       expect(readme).toContain("untrusted data");
       expect(index).toContain("venue-a:pizza-video");
       expect(index).toContain("venues/venue-a/");
+      const indexed = index.trim().split("\n").map((line) =>
+        JSON.parse(line) as { listingRef: string; path: string }
+      );
+      const entry = indexed.find((item) => item.listingRef === "venue-a:pizza-video");
+      expect(entry).toBeDefined();
+      const file = JSON.parse(
+        await readFile(`${root}/${entry?.path}`, "utf8"),
+      ) as DiscoveryCatalogListing;
+      expect(file.evidenceLocators).toEqual(
+        snapshot.listings.find((item) => item.listingRef === entry?.listingRef)
+          ?.evidenceLocators,
+      );
     } finally {
       const { rm } = await import("node:fs/promises");
       await rm(root, { recursive: true, force: true });

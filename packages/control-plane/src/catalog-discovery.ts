@@ -15,6 +15,7 @@ import type {
   DiscoveryCatalogContextSource,
   DiscoveryCatalogProjection,
 } from "./types.js";
+import { buildDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
 import { buildSearchScopeIdentity } from "./search-scope-identity.js";
 
 export const MAX_LISTINGS_PER_TASK = 30;
@@ -135,6 +136,7 @@ export function toDiscoveryCatalogListing(
     receivedAt: string;
   }>,
 ): DiscoveryCatalogListing {
+  const evidenceLocators = buildDiscoveryEvidenceLocators(listing);
   return Object.freeze({
     listingRef: `${listing.venueId}:${listing.venueInstrumentId}`,
     venueId: listing.venueId,
@@ -148,6 +150,7 @@ export function toDiscoveryCatalogListing(
       listing.rulesText === undefined
         ? null
         : compactText(listing.rulesText, MAX_RULE_CHARACTERS),
+    ...(evidenceLocators.length === 0 ? {} : { evidenceLocators }),
     outcomes: Object.freeze(
       listing.outcomes.map((outcome) =>
         Object.freeze({

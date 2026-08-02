@@ -8,7 +8,10 @@ import type {
   DiscoveryWorker,
   OpportunityHypothesis,
 } from "./types.js";
-import { MAX_CATALOG_CONTEXT_CHARACTERS } from "./catalog-discovery.js";
+import {
+  MAX_CATALOG_CONTEXT_CHARACTERS,
+} from "./catalog-discovery.js";
+import { hasBoundedDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
 
 const SEARCH_STOPWORDS = new Set([
   "and",
@@ -57,6 +60,7 @@ function hasBoundedCatalogListing(
     listing.mechanism.length <= 100 &&
     (listing.closesAt === null || listing.closesAt.length <= 64) &&
     (listing.rulesText === null || listing.rulesText.length <= 1_200) &&
+    hasBoundedDiscoveryEvidenceLocators(listing) &&
     (listing.sourceKind === "VERIFIED_FIXTURE" ||
       listing.sourceKind === "LIVE_OBSERVATION") &&
     !Number.isNaN(Date.parse(listing.sourceReceivedAt)) &&
