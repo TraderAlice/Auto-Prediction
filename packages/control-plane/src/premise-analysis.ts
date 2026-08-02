@@ -356,6 +356,7 @@ export class DeepSeekPremiseAnalysisModelPort implements PremiseAnalysisModelPor
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAtMs = Date.now();
+    let usageRecorded = false;
     try {
       const provider = createDeepSeek({
         apiKey: this.apiKey.trim(),
@@ -496,6 +497,20 @@ export class DeepSeekPremiseAnalysisModelPort implements PremiseAnalysisModelPor
         },
       });
       if (submitted === null || submittedEffectHash === null) {
+        this.usageRecorder?.record({
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+          purpose: "PREMISE_ANALYSIS",
+          role: "HIDDEN_PREMISE_AUDITOR",
+          provider: "DEEPSEEK",
+          model: this.model,
+          transport: "VERCEL_AI_SDK",
+          operationIdentity: `review:${validated.report.artifactHash}`,
+          outcome: "FAILED",
+          durableEffect: false,
+          providerRequestCount: result.steps.length,
+          usage: result.usage,
+        });
+        usageRecorded = true;
         throw new Error("premise analyst completed without an accepted terminal relation effect");
       }
       this.usageRecorder?.record({
@@ -511,6 +526,7 @@ export class DeepSeekPremiseAnalysisModelPort implements PremiseAnalysisModelPor
         providerRequestCount: result.steps.length,
         usage: result.usage,
       });
+      usageRecorded = true;
       return Object.freeze({
         premises: Object.freeze([...premisesByKey.values()].sort(
           (left, right) => left.premiseId.localeCompare(right.premiseId),
@@ -523,7 +539,7 @@ export class DeepSeekPremiseAnalysisModelPort implements PremiseAnalysisModelPor
         }),
       });
     } catch (error) {
-      this.usageRecorder?.record({
+      if (!usageRecorded) this.usageRecorder?.record({
         durationMs: Math.max(0, Date.now() - startedAtMs),
         purpose: "PREMISE_ANALYSIS",
         role: "HIDDEN_PREMISE_AUDITOR",

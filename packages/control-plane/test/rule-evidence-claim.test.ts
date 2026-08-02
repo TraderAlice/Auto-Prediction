@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  AiUsageLedger,
   buildDiscoveryEvidenceLocator,
   buildEvidenceDocumentFetchPolicy,
   buildEvidenceRequirements,
@@ -15,7 +16,7 @@ import {
   type EvidenceRequirement,
   type RuleEvidenceClaimModelPort,
 } from "../src/index.js";
-import { deepSeekToolResponse } from "./model-agent-fixtures.js";
+import { deepSeekTextResponse, deepSeekToolResponse } from "./model-agent-fixtures.js";
 
 const now = () => Date.parse("2026-08-02T08:00:00.000Z");
 const publicResolver = async () => Object.freeze([
@@ -233,6 +234,34 @@ describe("Agent-native rule evidence claims", () => {
     expect(result).toMatchObject({
       draft: { disposition: "SUPPORTS" },
       trace: { searchEffectCount: 1, readEffectCount: 0 },
+    });
+  });
+
+  it("retains provider usage when the interpreter omits its terminal claim effect", async () => {
+    const input = requirement();
+    const observed = await capture();
+    const usageLedger = new AiUsageLedger();
+    const port = new DeepSeekRuleEvidenceClaimModelPort(
+      "deepseek-v4-flash",
+      "test-only-key",
+      1_800,
+      3_000,
+      async () => deepSeekTextResponse("The clause is ambiguous.", 1),
+      usageLedger,
+    );
+
+    await expect(port.interpret({ requirement: input, capture: observed })).rejects.toThrow(
+      /without its terminal claim effect/u,
+    );
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      coverage: { complete: 1, unavailable: 0 },
+      byPurpose: [{ key: "RULE_EVIDENCE_CLAIM", invocationCount: "1" }],
+      byOutcome: [{ key: "FAILED", invocationCount: "1" }],
+      totals: {
+        durableEffectCount: "0",
+        tokens: { inputTokens: "100", outputTokens: "20", totalTokens: "120" },
+      },
     });
   });
 

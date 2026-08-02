@@ -67,6 +67,25 @@ export function deepSeekToolResponse(
   );
 }
 
+export function deepSeekTextResponse(
+  content: string,
+  ordinal: number,
+  usage = Object.freeze({ prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }),
+): Response {
+  return Response.json({
+    id: `chatcmpl-text-${ordinal}`,
+    object: "chat.completion",
+    created: 1_785_523_200 + ordinal,
+    model: "deepseek-v4-flash",
+    choices: [{
+      index: 0,
+      message: { role: "assistant", content },
+      finish_reason: "stop",
+    }],
+    usage,
+  });
+}
+
 export function deepSeekRawToolResponse(
   name: string,
   argumentsText: string,

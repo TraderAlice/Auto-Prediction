@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { hashCanonical } from "@pmh/domain";
 import {
   assertSemanticReviewRecord,
+  AiUsageLedger,
   buildMarketCorpusSnapshot,
   createSemanticReviewDesk,
   type MarketRelationProposal,
@@ -104,6 +105,21 @@ function toolCompletion(name: string, payload: unknown, id: string): Response {
         finish_reason: "tool_calls",
       },
     ],
+    usage: { prompt_tokens: 200, completion_tokens: 100, total_tokens: 300 },
+  });
+}
+
+function textCompletion(content: string, id: string): Response {
+  return Response.json({
+    id: `chatcmpl-${id}`,
+    object: "chat.completion",
+    created: 1_785_523_200,
+    model: "deepseek-v4-flash",
+    choices: [{
+      index: 0,
+      message: { role: "assistant", content },
+      finish_reason: "stop",
+    }],
     usage: { prompt_tokens: 200, completion_tokens: 100, total_tokens: 300 },
   });
 }
@@ -283,6 +299,119 @@ describe("adversarial semantic review", () => {
       status: "PASS",
       report: {
         trace: { counterexampleEffectCount: 1 },
+      },
+    });
+  });
+
+  it("retains an explicit abstention as research instead of retryable technical failure", async () => {
+    let requestCount = 0;
+    const usageLedger = new AiUsageLedger();
+    const desk = createSemanticReviewDesk(
+      {
+        DEEPSEEK_API_KEY: "test-only-key",
+        PMH_SEMANTIC_REVIEW_TIMEOUT_MS: "3000",
+      },
+      {
+        usageRecorder: usageLedger,
+        async fetcher() {
+          requestCount += 1;
+          return requestCount === 1
+            ? toolCompletion("record_counterexample", {
+                result: "INCONCLUSIVE",
+                narrative: "The supplied evidence does not settle divergent feed behavior.",
+                truths: [false, true],
+              }, "call-abstain-counterexample")
+            : toolCompletion("abstain_semantic_review", {
+                reason:
+                  "The bounded review cannot classify the complete state space without inventing feed semantics.",
+                missingEvidence: [],
+                evidenceRequirements: [],
+              }, "call-abstain-terminal");
+        },
+      },
+    );
+
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+
+    expect(requestCount).toBe(2);
+    expect(record).toMatchObject({
+      status: "PASS",
+      report: {
+        schemaVersion: "pmh.semantic-review-report.v2",
+        result: {
+          recommendation: "ESCALATE",
+          relationConclusion: "RELATED",
+          missingEvidence: [],
+          semanticConstraint: {
+            classification: "TEXTUAL_RELATEDNESS",
+            exactCompilerAdmission: "RESEARCH_ONLY",
+            semanticDecisionAuthority: false,
+            executionAuthority: false,
+          },
+        },
+        trace: {
+          terminalEffect: "ABSTAINED",
+          wholeResponseSchemaParsing: false,
+        },
+      },
+    });
+    expect(record.report?.result.semanticConstraint?.unresolvedEvidence).toEqual([
+      "Agent abstained from semantic classification: The bounded review cannot classify the complete state space without inventing feed semantics.",
+    ]);
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      byOutcome: [{ key: "ABSTAINED", invocationCount: "1" }],
+      totals: { tokens: { totalTokens: "600" } },
+    });
+  });
+
+  it("retains provider usage when a model violates the terminal tool protocol", async () => {
+    let requestCount = 0;
+    const usageLedger = new AiUsageLedger();
+    const desk = createSemanticReviewDesk(
+      {
+        DEEPSEEK_API_KEY: "test-only-key",
+        PMH_SEMANTIC_REVIEW_TIMEOUT_MS: "3000",
+      },
+      {
+        usageRecorder: usageLedger,
+        async fetcher() {
+          requestCount += 1;
+          return requestCount === 1
+            ? toolCompletion("record_counterexample", {
+                result: "INCONCLUSIVE",
+                narrative: "The feeds may diverge at the resolution boundary.",
+                truths: [false, true],
+              }, "call-protocol-counterexample")
+            : textCompletion(
+                "I cannot complete the classification.",
+                "protocol-violation",
+              );
+        },
+      },
+    );
+
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+
+    expect(record).toMatchObject({
+      status: "FAILED",
+      diagnostic: expect.stringContaining("without submitting its tool effect"),
+    });
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      coverage: { complete: 1, unavailable: 0 },
+      byOutcome: [{ key: "FAILED", invocationCount: "1" }],
+      totals: {
+        durableEffectCount: "0",
+        tokens: { inputTokens: "400", outputTokens: "200", totalTokens: "600" },
       },
     });
   });

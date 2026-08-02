@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashCanonical } from "@pmh/domain";
 import {
+  AiUsageLedger,
   assertProbabilityEstimationRunRecord,
   buildMarketCorpusSnapshot,
   buildProbabilisticSemanticBound,
@@ -15,6 +16,7 @@ import {
   type SemanticReviewRecord,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
+import { deepSeekTextResponse } from "./model-agent-fixtures.js";
 
 const listings = [
   {
@@ -300,6 +302,39 @@ describe("Agent-first probability estimation", () => {
     expect(JSON.stringify(bodies[0])).toContain("record_counter_scenario");
     expect(JSON.stringify(bodies[0])).toContain("abstain_probability_estimate");
     expect(JSON.stringify(record)).not.toContain("test-only-key");
+  });
+
+  it("retains provider usage when the estimator omits its terminal effect", async () => {
+    const usageLedger = new AiUsageLedger();
+    const desk = createProbabilityEstimationDesk(
+      {
+        DEEPSEEK_API_KEY: "test-only-key",
+        PMH_PROBABILITY_ESTIMATION_TIMEOUT_MS: "3000",
+      },
+      {
+        usageRecorder: usageLedger,
+        now: () => Date.parse("2026-08-02T00:02:00.000Z"),
+        async fetcher() {
+          return deepSeekTextResponse("A numeric interval is not ready.", 1);
+        },
+      },
+    );
+
+    const record = await desk.begin(review, snapshot, ["TT"], "CAUSAL").promise;
+    expect(record).toMatchObject({
+      status: "FAILED",
+      diagnostic: expect.stringContaining("without a terminal tool effect"),
+    });
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      coverage: { complete: 1, unavailable: 0 },
+      byPurpose: [{ key: "PROBABILITY_ESTIMATION", invocationCount: "1" }],
+      byOutcome: [{ key: "FAILED", invocationCount: "1" }],
+      totals: {
+        durableEffectCount: "0",
+        tokens: { inputTokens: "100", outputTokens: "20", totalTokens: "120" },
+      },
+    });
   });
 
   it("aggregates separate role runs conservatively and replays idempotently", async () => {

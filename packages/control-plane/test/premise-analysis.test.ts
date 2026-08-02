@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashCanonical } from "@pmh/domain";
 import {
+  AiUsageLedger,
   assertPremiseAnalysisArtifact,
   assertResearchRelationPayoff,
   buildProposalEvidenceBundle,
@@ -23,7 +24,7 @@ import {
   type PremiseAnalysisModelPort,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
-import { deepSeekToolResponse } from "./model-agent-fixtures.js";
+import { deepSeekTextResponse, deepSeekToolResponse } from "./model-agent-fixtures.js";
 
 const refs = ["venue:shot", "venue:cola", "venue:fatal"] as const;
 
@@ -469,6 +470,33 @@ describe("Agent-native hidden premise analysis", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
     restartedStore.close();
     await rm(directory, { recursive: true, force: true });
+  });
+
+  it("retains provider usage when the analyst omits its terminal relation effect", async () => {
+    const review = await reviewed();
+    const usageLedger = new AiUsageLedger();
+    const port = new DeepSeekPremiseAnalysisModelPort(
+      "deepseek-v4-flash",
+      "test-premise-key",
+      1_800,
+      3_000,
+      async () => deepSeekTextResponse("The relation needs more thought.", 1),
+      usageLedger,
+    );
+
+    await expect(port.analyze({ proposal, review })).rejects.toThrow(
+      /without an accepted terminal relation effect/u,
+    );
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      coverage: { complete: 1, unavailable: 0 },
+      byPurpose: [{ key: "PREMISE_ANALYSIS", invocationCount: "1" }],
+      byOutcome: [{ key: "FAILED", invocationCount: "1" }],
+      totals: {
+        durableEffectCount: "0",
+        tokens: { inputTokens: "100", outputTokens: "20", totalTokens: "120" },
+      },
+    });
   });
 
   it("exposes bounded configuration defaults", async () => {

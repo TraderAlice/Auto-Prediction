@@ -6,7 +6,9 @@ The active construction plans are
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
-[`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md).
+[`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md), with terminal
+protocol efficiency tracked in
+[`plans/semantic-review-loop-efficiency.md`](plans/semantic-review-loop-efficiency.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -59,10 +61,23 @@ failures without metadata remain unavailable rather than zero. Studio now shows
 purpose-ranked consumption, recent frequency, coverage, duration, and durable
 effects. Prompts, outputs, API keys, and inferred currency costs do not enter the
 ledger. A versioned price table and token-aware issue budget policy follow after
-the open product decision. All 515 workspace tests, workspace type checks, and
+the open product decision. All 518 workspace tests, workspace type checks, and
 the production build pass. Browser QA at desktop width and 390 px shows the
 durable totals, purpose ranking, real hourly frequency, and partial/unavailable
 coverage without horizontal overflow or console warnings.
+
+That ledger exposed a concrete semantic-review waste pattern: 23 retained runs
+ended without a terminal tool effect, while returned provider usage could be
+misclassified as unavailable. Semantic review now supports an explicit,
+counterexample-gated abstention that persists a research-only artifact instead
+of throwing away bounded reasoning. Step preparation forces a safe terminal
+effect near exhaustion, but plain prose still fails as a tool-protocol
+violation. Every AI SDK loop now retains returned usage before terminal
+validation throws, so protocol failures are complete failed events rather than
+lost or double-counted invocations. Focused regression coverage spans semantic
+review, evidence interpretation, premise analysis, and probability estimation;
+real-provider requalification follows after the running service is restarted
+onto this checkpoint.
 
 Family retrieval is being upgraded from one generic exact-token context to a
 content-addressed family trailhead. Search lease v6 carries the selected

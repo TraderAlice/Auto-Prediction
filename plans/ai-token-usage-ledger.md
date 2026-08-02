@@ -25,9 +25,11 @@ Every model invocation records one immutable usage event with:
   estimate.
 
 AI SDK `generateText` usage is aggregated across all tool-loop steps and written
-once at the terminal boundary. Failed requests with no provider usage still
-record an invocation and explicit unavailable coverage. Pi records invocation,
-duration, and outcome with partial coverage until the CLI exposes exact usage.
+once at the terminal boundary. When `generateText` returns but first-party tool
+protocol validation fails, the returned usage is retained as one complete
+failed event. Failed requests with no provider usage still record an invocation
+and explicit unavailable coverage. Pi records invocation, duration, and outcome
+with partial coverage until the CLI exposes exact usage.
 
 ## Projection contract
 
@@ -73,6 +75,10 @@ table and effective-date policy exist.
 - Studio shows totals, purpose-ranked consumption, coverage, recent invocations,
   and UTC hourly frequency. Desktop and 390 px QA have no horizontal overflow or
   browser warnings.
+- Missing-terminal failures in semantic review, evidence interpretation,
+  premise analysis, and probability estimation retain returned provider usage
+  exactly once. Semantic review can instead end through an explicit durable
+  research-only abstention when it cannot complete a justified classification.
 
 ## Next implementation
 

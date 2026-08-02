@@ -389,6 +389,7 @@ export class DeepSeekProbabilityEstimator implements ProbabilityEstimatorModelPo
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAtMs = Date.now();
     let providerRequestAttemptCount = 0;
+    let usageRecorded = false;
     try {
       const provider = createDeepSeek({
         apiKey: this.#apiKey,
@@ -525,6 +526,20 @@ export class DeepSeekProbabilityEstimator implements ProbabilityEstimatorModelPo
         },
       });
       if (terminal === null) {
+        this.usageRecorder?.record({
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+          purpose: "PROBABILITY_ESTIMATION",
+          role: input.role,
+          provider: "DEEPSEEK",
+          model: this.model,
+          transport: "VERCEL_AI_SDK",
+          operationIdentity: `constraint:${input.semanticConstraintArtifactHash}`,
+          outcome: "FAILED",
+          durableEffect: false,
+          providerRequestCount: providerRequestAttemptCount,
+          usage: result.usage,
+        });
+        usageRecorded = true;
         throw new Error("probability estimator completed without a terminal tool effect");
       }
       const completed = terminal as Omit<ModelResult, "trace" | "counterScenarios">;
@@ -541,6 +556,7 @@ export class DeepSeekProbabilityEstimator implements ProbabilityEstimatorModelPo
         providerRequestCount: providerRequestAttemptCount,
         usage: result.usage,
       });
+      usageRecorded = true;
       const trace = Object.freeze({
         protocol: "AI_SDK_TOOL_LOOP" as const,
         maximumSteps: MAX_STEPS as 10,
@@ -557,7 +573,7 @@ export class DeepSeekProbabilityEstimator implements ProbabilityEstimatorModelPo
         trace,
       });
     } catch (error) {
-      this.usageRecorder?.record({
+      if (!usageRecorded) this.usageRecorder?.record({
         durationMs: Math.max(0, Date.now() - startedAtMs),
         purpose: "PROBABILITY_ESTIMATION",
         role: input.role,

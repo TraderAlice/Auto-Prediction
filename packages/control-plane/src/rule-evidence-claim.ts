@@ -590,6 +590,7 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
     let submitted: RuleEvidenceClaimDraft | null = null;
     let submittedEffectHash: Hash | null = null;
     const startedAtMs = Date.now();
+    let usageRecorded = false;
     try {
       const provider = createDeepSeek({
         apiKey: this.#apiKey,
@@ -731,6 +732,20 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
         },
       });
       if (submitted === null || submittedEffectHash === null) {
+        this.usageRecorder?.record({
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+          purpose: "RULE_EVIDENCE_CLAIM",
+          role: "EVIDENCE_INTERPRETER",
+          provider: "DEEPSEEK",
+          model: this.model,
+          transport: "VERCEL_AI_SDK",
+          operationIdentity: `requirement:${validated.requirement.requirementId}`,
+          outcome: "FAILED",
+          durableEffect: false,
+          providerRequestCount: result.steps.length,
+          usage: result.usage,
+        });
+        usageRecorded = true;
         throw new Error("rule evidence interpreter completed without its terminal claim effect");
       }
       this.usageRecorder?.record({
@@ -746,12 +761,13 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
         providerRequestCount: result.steps.length,
         usage: result.usage,
       });
+      usageRecorded = true;
       return Object.freeze({
         draft: submitted,
         trace: Object.freeze({ searchEffectCount, readEffectCount, submittedEffectHash }),
       });
     } catch (error) {
-      this.usageRecorder?.record({
+      if (!usageRecorded) this.usageRecorder?.record({
         durationMs: Math.max(0, Date.now() - startedAtMs),
         purpose: "RULE_EVIDENCE_CLAIM",
         role: "EVIDENCE_INTERPRETER",
