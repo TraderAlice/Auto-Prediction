@@ -1,6 +1,8 @@
 # Plans
 
-`plans/grounded-candidate-accounting.md` is the active construction plan.
+There is no active construction plan. The next measured bottleneck should be
+promoted from the deferred list only after fresh runtime evidence defines a
+bounded campaign.
 
 ## Planning contract
 
@@ -156,16 +158,17 @@ Node 24 checks, 402 workspace tests, the production build, desktop QA, and
 390 px QA pass. Studio shows all 947 live listings with no horizontal overflow
 or browser warnings.
 
-The expanded corpus exposed an accounting defect in general search issues.
+The grounded-candidate accounting campaign is merged in PR #72. The expanded
+corpus exposed an accounting defect in general search issues.
 Two of the ten `novelCandidate` records in the retained 40-lease window bind
 only one listing. Both followed a DeepSeek failure or timeout, both stopped at
 `NOT_MULTI_LISTING`, and both still emitted a raw “new candidate” notification.
 The Riley surname collision is one of them. Deep review and action alerts
 remained closed, but the derived candidate rate is inflated by 20% and gives
-the scheduler/operator a false picture of discovery yield. The active campaign
-keeps those single-listing hypotheses as immutable search evidence while
-requiring at least two distinct grounded refs for candidate identity,
-notification, and derived candidate accounting.
+the scheduler/operator a false picture of discovery yield. Single-listing
+hypotheses now remain immutable search evidence while at least two distinct
+grounded refs are required for candidate identity, notification, and derived
+candidate accounting.
 
 The tightening is live in the development control plane. Across the identical
 40 retained terminal leases, derived novel-candidate yield fell from 10 to 8
