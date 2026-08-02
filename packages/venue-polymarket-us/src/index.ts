@@ -110,7 +110,8 @@ export const polymarketUsManifest: VenueManifest = {
   precisionRules: [
     "JSON numeric tokens are decoded lexically before fixed-point parsing",
     "internal public-price normalization scale is 1e8 and public quantity scale is 1e4",
-    "the public long-side REST book is never synthesized into executable short-side depth",
+    "the public book is long-side native; research-only NO depth is the documented one-minus-bid transform",
+    "theta taker fees use a one-cent cumulative half-to-even upper bound for a fixed FOK research request",
   ],
   authenticationBoundary:
     "gateway catalog, book, and BBO are anonymous; api.polymarket.us trading and WebSocket surfaces require credentials and are excluded",
@@ -129,8 +130,8 @@ export const polymarketUsManifest: VenueManifest = {
       evidenceRefs: ["polymarket-us-market-book", "polymarket-us-market-bbo"],
       limitations: [
         "REST snapshots only; the documented market WebSocket requires API-key authentication",
-        "book normalization represents the published long-contract book only",
-        "fee rounding and executable short-side depth are not yet price-qualified",
+        "book normalization remains long-contract native; anonymous simulation derives synthetic NO asks with raw lineage",
+        "anonymous simulation uses the documented cumulative fee cap as a conservative fee bound, never as an observed fill charge",
       ],
     },
     {

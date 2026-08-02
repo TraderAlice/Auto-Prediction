@@ -57,7 +57,7 @@ This is not a trading bot and it has no live-trading authority. The repository d
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
 - An operator-triggered Candidate Watch that captures current Polymarket and Limitless books under one refresh identity, retains exact raw bytes plus a bounded hash-checked attempt journal in SQLite WAL schema v5, restores failures across restart, refuses mixed-time screens after partial failure, and either reuses an unchanged bound result or recomputes changed-book economics without invoking review or verification.
-- An AI-to-simulation materializer that retains catalog outcome-token and fixed-point bindings through semantic review and payoff compilation, acquires the exact public books for an accepted portfolio, preserves raw response evidence in bounded SQLite WAL storage, and automatically runs bigint portfolio simulation only when every fee schedule is exactly representable. Dynamic or authenticated fee/book surfaces remain visible blockers.
+- An AI-to-simulation materializer that retains catalog outcome-token and fixed-point bindings through semantic review and payoff compilation, acquires the exact public books for an accepted portfolio, preserves raw response evidence in bounded SQLite WAL storage, and automatically runs bigint portfolio simulation only when every fee schedule is exactly representable. Polymarket US YES offers and synthetic NO asks are qualified from its public long-side book; the documented cumulative theta-fee cap becomes a conservative fixed fee bound for that exact FOK request. Dynamic or authenticated fee/book surfaces remain visible blockers.
 - A narrow first-party exact-promotion boundary that rebuilds candidates only
   from compiler-bound relations plus durable anonymous book/fee evidence,
   rechecks canonical payouts, ticks, quantities, identities, and expiry, and
@@ -182,7 +182,12 @@ promotion remain active campaign work.
 8. Materialize a portfolio. The server reacquires current public books and fee
    evidence, walks depth with `bigint` arithmetic, and either produces a
    simulated worst-case floor or a precise blocker such as missing depth,
-   unsupported fees, stale evidence, or incompatible outcome scope.
+   unsupported fees, stale evidence, or incompatible outcome scope. For
+   Polymarket US, YES consumes public offers and NO consumes public bids after
+   the documented `1 - price` transform. The fixed request carries a
+   half-to-even-rounded upper bound on cumulative theta taker fees, so any
+   reported positive floor remains conservative even if the realized fee is
+   lower.
 9. Only the first-party exact verifier can issue a short-lived certificate.
    The configured policy then notifies, requests human approval for shadow, or
    runs automatic shadow. A later observation reacquires the market and records
@@ -281,9 +286,13 @@ portfolio identity and a base-unit quantity. The server—not the browser—deri
 the venue outcome tokens from hash-bound review evidence, captures current
 anonymous books, enforces token, scale, tick, byte-cap, and receive-time-skew
 contracts, and feeds a complete plan to the bigint simulator only when fees are
-exact. A public Polymarket zero-fee response is supported. Non-zero Polymarket
-curved fees, Limitless dynamic taker fees, authenticated-only books, and partial
-failures return retained research evidence with a blocking diagnostic. These
+exact. Polymarket Global zero-fee responses are supported; non-zero Global
+curved fees remain calibration-gated. Polymarket US uses its anonymous market
+book and market-detail endpoints, binds current Yes/No side IDs, turns long-side
+bids into synthetic NO asks at `1 - bid`, and models the official cumulative
+banker's-rounded theta-fee cap as a conservative fixed fee bound for the exact
+requested quantity. Limitless dynamic taker fees, authenticated-only books, and
+partial failures return retained research evidence with a blocking diagnostic. These
 materialization records and their byte-exact public sources are stored
 atomically in SQLite WAL and revalidated on restart. A positive exactly modeled
 bundle then enters the first-party verifier automatically; generic browser POST
@@ -454,8 +463,8 @@ an isolated Node.js 24.18.1 runtime, which is the qualified production target.
 - `projects/campaigns`: immutable content-addressed qualification checkpoints.
 - `docs/design`: current architecture truth.
 - `PLANS.md`: short construction-plan index and current checkpoint.
-- `plans/durable-proposal-evidence.md`: active content-addressed evidence
-  continuity campaign; retired plans remain recoverable from Git history.
+- `plans/polymarket-us-anonymous-materialization.md`: active anonymous exact
+  materialization campaign; retired plans remain recoverable from Git history.
 - `QUESTIONS.md`: non-blocking user decisions queued for batch support.
 - `AGENTS.md`: collaboration rules and the user-input/access ledger.
 

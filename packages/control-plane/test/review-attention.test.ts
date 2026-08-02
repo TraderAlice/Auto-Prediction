@@ -186,6 +186,48 @@ describe("review attention queue", () => {
     });
   });
 
+  it("recognizes a compiler-ready Polymarket US pair as exact anonymous adapter coverage", async () => {
+    const usListings = listings.map((listing, index) => ({
+      ...listing,
+      listingRef: `polymarket-us:${index === 0 ? "left" : "right"}`,
+      venueId: "polymarket-us",
+      venueInstrumentId: index === 0 ? "left" : "right",
+      outcomes: listing.outcomes.map((outcome) => ({
+        ...outcome,
+        venueOutcomeId: `us-${outcome.venueOutcomeId}`,
+      })),
+    }));
+    const usCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ sources: "attention-us" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: usListings,
+    });
+    const ready = proposal("IMPLIES", "us-ready", usCorpus);
+    const projection = buildReviewAttentionProjection({
+      archaeologist: archaeologist([ready], usCorpus),
+      semanticReviews: [await review(
+        ready,
+        "ACCEPT_FOR_RESEARCH_SIMULATION",
+        usCorpus,
+      )],
+      semanticReviewJobs: [],
+      semanticDecisions: [],
+      corpus: usCorpus,
+    });
+
+    expect(projection).toMatchObject({
+      exactAdapterCoverageCount: 1,
+      counts: { DECISION_READY: 1 },
+    });
+    expect(projection.items[0]?.anonymousCoverage).toEqual({
+      status: "EXACT_ADAPTER_COVERAGE",
+      exactLegCount: 2,
+      bookOnlyLegCount: 0,
+      unsupportedLegCount: 0,
+    });
+  });
+
   it("keeps an accepted but explicitly non-settling relation out of simulation attention", async () => {
     const nonSettlingCorpus = buildMarketCorpusSnapshot({
       sourceSetIdentity: hashCanonical({ sources: "attention-non-settling" }),

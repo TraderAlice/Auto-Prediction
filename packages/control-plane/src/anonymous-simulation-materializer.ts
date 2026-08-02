@@ -21,6 +21,7 @@ export type AnonymousMaterializationBlocker =
   | "BOOK_INSTRUMENT_MISMATCH"
   | "BOOK_SCHEMA_INVALID"
   | "FEE_ACQUISITION_FAILED"
+  | "ORDER_QUANTITY_UNSUPPORTED"
   | "DYNAMIC_FEE_MODEL_UNSUPPORTED"
   | "NON_ZERO_CURVED_FEE_UNSUPPORTED"
   | "INCOMPATIBLE_PORTFOLIO_SCALE"
@@ -34,6 +35,7 @@ const ANONYMOUS_MATERIALIZATION_BLOCKERS =
     "BOOK_INSTRUMENT_MISMATCH",
     "BOOK_SCHEMA_INVALID",
     "FEE_ACQUISITION_FAILED",
+    "ORDER_QUANTITY_UNSUPPORTED",
     "DYNAMIC_FEE_MODEL_UNSUPPORTED",
     "NON_ZERO_CURVED_FEE_UNSUPPORTED",
     "INCOMPATIBLE_PORTFOLIO_SCALE",
@@ -72,7 +74,11 @@ export type AnonymousMaterializationLeg = Readonly<{
   bookSourceId: Hash | null;
   feeSourceId: Hash | null;
   askLevelCount: number;
-  feeModel: "COLLATERAL_RATE_V1" | "BINARY_PRICE_CURVE_V1" | null;
+  feeModel:
+    | "COLLATERAL_RATE_V1"
+    | "BINARY_PRICE_CURVE_V1"
+    | "BINARY_THETA_ORDER_BOUND_V1"
+    | null;
   feeQualification: "EXACT" | "REQUIRES_MATCH_CALIBRATION" | null;
 }>;
 
@@ -413,7 +419,8 @@ export function assertAnonymousSimulationMaterializationRecord(
         (leg.feeSourceId !== null && !isHash(leg.feeSourceId)) ||
         (leg.feeModel !== null &&
           leg.feeModel !== "COLLATERAL_RATE_V1" &&
-          leg.feeModel !== "BINARY_PRICE_CURVE_V1") ||
+          leg.feeModel !== "BINARY_PRICE_CURVE_V1" &&
+          leg.feeModel !== "BINARY_THETA_ORDER_BOUND_V1") ||
         (leg.feeQualification !== null &&
           leg.feeQualification !== "EXACT" &&
           leg.feeQualification !== "REQUIRES_MATCH_CALIBRATION") ||
@@ -433,6 +440,8 @@ export function assertAnonymousSimulationMaterializationRecord(
           leg.feeQualification !== "EXACT") ||
         (leg.feeModel === "BINARY_PRICE_CURVE_V1" &&
           leg.feeQualification !== "REQUIRES_MATCH_CALIBRATION") ||
+        (leg.feeModel === "BINARY_THETA_ORDER_BOUND_V1" &&
+          leg.feeQualification !== "EXACT") ||
         ((leg.feeModel === null) !== (leg.feeQualification === null)),
     ) ||
     record.sources.some(
@@ -559,20 +568,98 @@ function bookUrl(binding: ListingBinding, instrumentId: string): string | null {
   if (binding.venueId === "limitless") {
     return `https://api.limitless.exchange/markets/${encodeURIComponent(binding.venueInstrumentId)}/orderbook`;
   }
+  if (binding.venueId === "polymarket-us") {
+    return `https://gateway.polymarket.us/v1/markets/${encodeURIComponent(binding.venueInstrumentId)}/book`;
+  }
   return null;
 }
 
 function feeUrl(binding: ListingBinding, marketId: string | null): string | null {
-  return binding.venueId === "polymarket-global"
-    ? marketId === null
+  if (binding.venueId === "polymarket-global") {
+    return marketId === null
       ? null
-      : `https://clob.polymarket.com/clob-markets/${encodeURIComponent(marketId)}`
-    : null;
+      : `https://clob.polymarket.com/clob-markets/${encodeURIComponent(marketId)}`;
+  }
+  if (binding.venueId === "polymarket-us") {
+    return `https://gateway.polymarket.us/v1/market/slug/${encodeURIComponent(binding.venueInstrumentId)}`;
+  }
+  return null;
+}
+
+function parsePolymarketUsBook(input: {
+  binding: ListingBinding;
+  instrumentId: string;
+  outcome: "TRUE" | "FALSE";
+  bytes: Uint8Array;
+  rawHash: Hash;
+}): ReturnType<typeof parseBook> {
+  const root = object(decode(input.bytes), "Polymarket US anonymous book");
+  const raw = object(root.marketData, "book.marketData");
+  const marketSlug = string(raw.marketSlug, "book.marketData.marketSlug");
+  if (marketSlug !== input.binding.venueInstrumentId) {
+    throw new Error(
+      `book instrument ${marketSlug} does not match ${input.binding.venueInstrumentId}`,
+    );
+  }
+  if (raw.state !== "MARKET_STATE_OPEN") {
+    throw new Error("Polymarket US book is not open");
+  }
+  const sourceSide = input.outcome === "TRUE" ? "offers" : "bids";
+  const candidates = raw[sourceSide];
+  if (!Array.isArray(candidates) || candidates.length > 10_000) {
+    throw new Error(`book.${sourceSide} must be a bounded array`);
+  }
+  const priceScale = BigInt(input.binding.priceScale);
+  const quantityScale = BigInt(input.binding.quantityScale);
+  const tick = input.binding.minPriceTick === null
+    ? null
+    : BigInt(input.binding.minPriceTick);
+  const levels = Object.freeze(candidates.map((candidate, index) => {
+    const level = object(candidate, `book.${sourceSide}[${index}]`);
+    const px = object(level.px, `book.${sourceSide}[${index}].px`);
+    if (px.currency !== "USD") {
+      throw new Error(`book.${sourceSide}[${index}].px.currency is not USD`);
+    }
+    const priceLexeme = string(px.value, `book.${sourceSide}[${index}].px.value`);
+    const quantityLexeme = string(level.qty, `book.${sourceSide}[${index}].qty`);
+    const longPrice = parseFixed(priceLexeme, priceScale);
+    const price = input.outcome === "TRUE" ? longPrice : priceScale - longPrice;
+    const quantity = parseFixed(quantityLexeme, quantityScale);
+    if (
+      longPrice <= 0n ||
+      longPrice >= priceScale ||
+      price <= 0n ||
+      price >= priceScale ||
+      quantity <= 0n ||
+      (tick !== null && (longPrice % tick !== 0n || price % tick !== 0n))
+    ) {
+      throw new Error(`book.${sourceSide}[${index}] violates the fixed-point contract`);
+    }
+    return Object.freeze({
+      price: price.toString(),
+      quantity: quantity.toString(),
+      levelIdentity: hashCanonical({
+        rawHash: input.rawHash,
+        sourceSide: sourceSide === "offers" ? "YES_OFFER" : "YES_BID",
+        normalizedOutcome: input.outcome,
+        transform: input.outcome === "TRUE" ? "IDENTITY" : "ONE_MINUS_BID",
+        index,
+        priceLexeme,
+        quantityLexeme,
+      }),
+    });
+  }));
+  return Object.freeze({
+    nativeGeneration: string(raw.transactTime, "book.marketData.transactTime"),
+    marketId: marketSlug,
+    levels,
+  });
 }
 
 function parseBook(input: {
   binding: ListingBinding;
   instrumentId: string;
+  outcome: "TRUE" | "FALSE";
   bytes: Uint8Array;
   rawHash: Hash;
 }): Readonly<{
@@ -584,6 +671,9 @@ function parseBook(input: {
     levelIdentity: Hash;
   }>[];
 }> {
+  if (input.binding.venueId === "polymarket-us") {
+    return parsePolymarketUsBook(input);
+  }
   const raw = object(decode(input.bytes), "anonymous book");
   const boundInstrument =
     input.binding.venueId === "polymarket-global"
@@ -730,6 +820,173 @@ function parsePolymarketFee(input: {
   });
 }
 
+function roundRationalToQuantumHalfEven(
+  numerator: bigint,
+  denominator: bigint,
+  quantum: bigint,
+): bigint {
+  if (numerator < 0n || denominator <= 0n || quantum <= 0n) {
+    throw new Error("banker's rounding requires a non-negative rational and positive quantum");
+  }
+  const quantumDenominator = denominator * quantum;
+  const quotient = numerator / quantumDenominator;
+  const remainder = numerator % quantumDenominator;
+  const comparison = remainder * 2n - quantumDenominator;
+  const roundedUnits = comparison < 0n
+    ? quotient
+    : comparison > 0n
+      ? quotient + 1n
+      : quotient % 2n === 0n
+        ? quotient
+        : quotient + 1n;
+  return roundedUnits * quantum;
+}
+
+function parsePolymarketUsFee(input: {
+  bytes: Uint8Array;
+  binding: ListingBinding;
+  instrumentId: string;
+  rawHash: Hash;
+  bookRawHash: Hash;
+  protocolIdentity: string;
+  levels: readonly Readonly<{ price: string; quantity: string; levelIdentity: Hash }>[];
+  requestedQuantity: string;
+}): Readonly<{
+  wire: Readonly<Record<string, unknown>>;
+  model: "BINARY_THETA_ORDER_BOUND_V1";
+  qualification: "EXACT";
+}> {
+  const root = object(decode(input.bytes), "Polymarket US market detail");
+  const market = object(root.market, "fee.market");
+  const slug = string(market.slug, "fee.market.slug");
+  if (slug !== input.binding.venueInstrumentId) {
+    throw new Error("Polymarket US fee evidence reports another market slug");
+  }
+  if (
+    market.active !== true ||
+    market.closed !== false ||
+    market.archived !== false ||
+    market.status !== "MARKET_STATUS_OPEN"
+  ) {
+    throw new Error("Polymarket US fee evidence is not for an open market");
+  }
+  const priceScale = BigInt(input.binding.priceScale);
+  const quantityScale = BigInt(input.binding.quantityScale);
+  const requestedQuantity = BigInt(input.requestedQuantity);
+  const tick = parseFixed(
+    string(market.orderPriceMinTickSize, "fee.market.orderPriceMinTickSize"),
+    priceScale,
+  );
+  if (
+    input.binding.minPriceTick === null ||
+    tick !== BigInt(input.binding.minPriceTick)
+  ) {
+    throw new Error("Polymarket US fee evidence reports another price tick");
+  }
+  const minimumQuantity = parseFixed(
+    string(market.minimumTradeQty, "fee.market.minimumTradeQty"),
+    quantityScale,
+  );
+  if (minimumQuantity <= 0n || requestedQuantity % minimumQuantity !== 0n) {
+    throw new Error("Polymarket US requested quantity is not aligned to minimumTradeQty");
+  }
+  if (!Array.isArray(market.marketSides) || market.marketSides.length !== 2) {
+    throw new Error("Polymarket US fee evidence has no binary side binding");
+  }
+  const sides = market.marketSides.map((candidate, index) => {
+    const side = object(candidate, `fee.market.marketSides[${index}]`);
+    return Object.freeze({
+      id: string(side.id, `fee.market.marketSides[${index}].id`),
+      identifier: string(
+        side.identifier,
+        `fee.market.marketSides[${index}].identifier`,
+      ),
+      description: string(
+        side.description,
+        `fee.market.marketSides[${index}].description`,
+      ),
+      long: side.long,
+    });
+  });
+  const trueSide = sides.find((side) => side.id === input.binding.trueOutcome.venueOutcomeId);
+  const falseSide = sides.find((side) => side.id === input.binding.falseOutcome.venueOutcomeId);
+  if (
+    trueSide === undefined ||
+    falseSide === undefined ||
+    trueSide.long !== true ||
+    falseSide.long !== false ||
+    trueSide.identifier !== slug ||
+    falseSide.identifier !== slug ||
+    trueSide.description.trim().toLowerCase() !== "yes" ||
+    falseSide.description.trim().toLowerCase() !== "no"
+  ) {
+    throw new Error("Polymarket US fee evidence changed the bound Yes/No side mapping");
+  }
+  const thetaScale = priceScale;
+  const theta = parseFixed(
+    string(market.feeCoefficient, "fee.market.feeCoefficient"),
+    thetaScale,
+  );
+  if (theta < 0n || theta >= thetaScale) {
+    throw new Error("Polymarket US theta fee coefficient is outside [0, 1)");
+  }
+  if (priceScale % 100n !== 0n) {
+    throw new Error("Polymarket US collateral scale cannot represent one cent");
+  }
+  const feeQuantum = priceScale / 100n;
+  const sorted = [...input.levels].sort((left, right) => {
+    const leftPrice = BigInt(left.price);
+    const rightPrice = BigInt(right.price);
+    return leftPrice === rightPrice
+      ? left.levelIdentity.localeCompare(right.levelIdentity)
+      : leftPrice < rightPrice
+        ? -1
+        : 1;
+  });
+  let remaining = requestedQuantity;
+  let cumulativeNumerator = 0n;
+  for (const level of sorted) {
+    if (remaining === 0n) break;
+    const quantity = BigInt(level.quantity);
+    const fillQuantity = quantity < remaining ? quantity : remaining;
+    const price = BigInt(level.price);
+    cumulativeNumerator +=
+      fillQuantity * theta * price * (priceScale - price);
+    remaining -= fillQuantity;
+  }
+  const cumulativeDenominator = quantityScale * thetaScale * priceScale;
+  const feeBound = roundRationalToQuantumHalfEven(
+    cumulativeNumerator,
+    cumulativeDenominator,
+    feeQuantum,
+  );
+  const scheduleHash = hashCanonical({
+    protocolIdentity: input.protocolIdentity,
+    rulesIdentity: "polymarket-us-theta-bankers-cumulative-cap:2026-07-01",
+    marketRawHash: input.rawHash,
+    bookRawHash: input.bookRawHash,
+    slug,
+    instrumentId: input.instrumentId,
+    requestedQuantity,
+    theta,
+    thetaScale,
+    feeQuantum,
+    rounding: "HALF_TO_EVEN",
+    cumulativeOrderCap: true,
+  });
+  return Object.freeze({
+    model: "BINARY_THETA_ORDER_BOUND_V1",
+    qualification: "EXACT",
+    wire: Object.freeze({
+      model: "COLLATERAL_RATE_V1",
+      rate: "0",
+      rateScale: "1",
+      flat: feeBound.toString(),
+      scheduleHash,
+    }),
+  });
+}
+
 function finalizeRecord(
   body: Omit<AnonymousSimulationMaterializationRecord, "materializationId">,
 ): AnonymousSimulationMaterializationRecord {
@@ -847,7 +1104,9 @@ export class AnonymousSimulationMaterializerDesk {
         protocolIdentity:
           binding.venueId === "polymarket-global"
             ? "clob-book-rest:2026-08-01"
-            : "api-v1-orderbook:2026-08-01",
+            : binding.venueId === "polymarket-us"
+              ? "gateway-market-book-v1:2026-08-02"
+              : "api-v1-orderbook:2026-08-01",
         sourceUrl,
       });
     } catch (error) {
@@ -864,6 +1123,7 @@ export class AnonymousSimulationMaterializerDesk {
       book = parseBook({
         binding,
         instrumentId,
+        outcome: leg.outcome,
         bytes: bookSource.bytes,
         rawHash: bookSource.record.rawHash,
       });
@@ -911,7 +1171,10 @@ export class AnonymousSimulationMaterializerDesk {
         kind: "FEE",
         venueId: binding.venueId,
         instrumentId,
-        protocolIdentity: "clob-market-info-rest:2026-08-01",
+        protocolIdentity:
+          binding.venueId === "polymarket-us"
+            ? "gateway-market-detail-v1:2026-08-02"
+            : "clob-market-info-rest:2026-08-01",
         sourceUrl: polymarketFeeUrl,
       });
     } catch (error) {
@@ -925,22 +1188,38 @@ export class AnonymousSimulationMaterializerDesk {
         askLevelCount: book.levels.length,
       });
     }
-    let feeSchedule: ReturnType<typeof parsePolymarketFee>;
+    let feeSchedule:
+      | ReturnType<typeof parsePolymarketFee>
+      | ReturnType<typeof parsePolymarketUsFee>;
     try {
-      feeSchedule = parsePolymarketFee({
-        bytes: feeSource.bytes,
-        binding,
-        instrumentId,
-        rawHash: feeSource.record.rawHash,
-        protocolIdentity: feeSource.record.protocolIdentity,
-      });
+      feeSchedule = binding.venueId === "polymarket-us"
+        ? parsePolymarketUsFee({
+            bytes: feeSource.bytes,
+            binding,
+            instrumentId,
+            rawHash: feeSource.record.rawHash,
+            bookRawHash: bookSource.record.rawHash,
+            protocolIdentity: feeSource.record.protocolIdentity,
+            levels: book.levels,
+            requestedQuantity,
+          })
+        : parsePolymarketFee({
+            bytes: feeSource.bytes,
+            binding,
+            instrumentId,
+            rawHash: feeSource.record.rawHash,
+            protocolIdentity: feeSource.record.protocolIdentity,
+          });
     } catch (error) {
+      const diagnostic = error instanceof Error ? error.message : "fee schema is invalid";
       return blockedLeg({
         leg,
         binding,
         instrumentId,
-        blocker: "FEE_ACQUISITION_FAILED",
-        diagnostic: error instanceof Error ? error.message : "fee schema is invalid",
+        blocker: diagnostic.includes("minimumTradeQty")
+          ? "ORDER_QUANTITY_UNSUPPORTED"
+          : "FEE_ACQUISITION_FAILED",
+        diagnostic,
         sources: Object.freeze([bookSource, feeSource]),
         askLevelCount: book.levels.length,
       });

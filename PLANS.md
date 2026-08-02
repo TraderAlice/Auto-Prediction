@@ -1,8 +1,7 @@
 # Plans
 
-There is no active construction plan. The next measured bottleneck should be
-promoted from the deferred list only after fresh runtime evidence defines a
-bounded campaign.
+`plans/polymarket-us-anonymous-materialization.md` is the active construction
+plan.
 
 ## Planning contract
 
@@ -126,11 +125,28 @@ The v17 live backfill maps 102 scoped jobs to 81 unique scopes and measures 17
 historical redundant passes. Repeated ticks keep the request counter at 114.
 Full checks, workspace tests, production build, desktop QA, and 390 px QA pass.
 
+The next deterministic bottleneck is exact anonymous venue coverage. The
+operator queue contains one decision-ready reviewed relation and zero exact
+adapter paths; that relation is a Polymarket US `IMPLIES` pair. Anonymous live
+GETs now reach both current books and market metadata. Official venue rules
+define the synthetic short mapping and theta taker-fee formula closely enough
+to construct a conservative, bigint-only fee upper bound for an exact FOK
+simulation. The active campaign qualifies that path without creating an order
+or requiring an account.
+
+The live qualification now reports one exact adapter path. A non-persistent
+Atlanta smoke retained four anonymous raw sources, transformed 11 World Series
+YES-bid levels into NO asks, retained seven National League YES ask levels, and
+priced one contract per leg. Current 0.925 + 0.129 prices plus a
+0.01 conservative fee bound produced cost 1.064 and a -0.064 floor. The
+deterministic chain therefore rejected the candidate as currently non-positive;
+it did not fabricate an opportunity or persist an operator semantic decision.
+All 400 workspace tests, the production build, desktop QA, and 390 px QA pass.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
-- Polymarket US short-side mapping, theta fees, and fill rounding.
 - Structured operator scope for conditional and multi-listing relations.
 - Destination-specific notification formatting after the first external
   channel is selected in `QUESTIONS.md`.

@@ -172,7 +172,9 @@ function anonymousCoverage(
   const venues = proposal.listingRefs.map((listingRef) =>
     captured.get(listingRef)?.venueId ?? current.get(listingRef)?.venueId ?? null,
   );
-  const exactLegCount = venues.filter((venue) => venue === "polymarket-global").length;
+  const exactLegCount = venues.filter((venue) =>
+    venue === "polymarket-global" || venue === "polymarket-us"
+  ).length;
   const bookOnlyLegCount = venues.filter((venue) => venue === "limitless").length;
   const unsupportedLegCount = venues.length - exactLegCount - bookOnlyLegCount;
   const status = unsupportedLegCount > 0
