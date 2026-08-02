@@ -76,9 +76,20 @@ proposal evidence, and SQLite restart replay, but explicitly grant no fetch
 authority. Historical listings without locators remain replayable, and locator
 posture changes corpus evidence without spuriously changing semantic-search
 identity. Malformed or tampered locators fail closed at discovery, corpus, and
-proposal-evidence boundaries. The next slice defines structured evidence
-requirements; the constrained fetcher, durable acquisition queue, enriched
-scope, and Studio funnel follow after #80 merges so PRs remain serial.
+proposal-evidence boundaries.
+
+The unpublished serial stack now implements structured evidence requirements
+for both Agent effect paths. Pi findings must attach explicit requirements to
+each proposal, and AI SDK semantic review must attach them whenever evidence is
+missing. First-party code—not the model—derives content-addressed acquisition
+artifacts and eligible adapter locators, with explicit `DOCUMENT_LOCATOR`,
+`MARKET_DATA`, or `UNSUPPORTED` routing. Shared Gemini rule PDFs collapse to
+one acquisition scope across listings and proposals, while every claim keeps
+its own source lineage. New v3 reports survive SQLite restart; v1/v2 replay and
+fail-closed lineage checks remain intact. The constrained fetcher, durable
+acquisition queue, enriched scope, and Studio funnel follow after #80 merges so
+PRs remain serial. Node 24.14.0 checks, all 452 tests (303 control-plane), and
+the production build pass for this stack.
 
 The retained 947-listing SQLite corpus now replays into 306 locators without a
 network call: 286 Gemini rule documents and 20 Myriad outcome-resolution

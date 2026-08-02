@@ -797,6 +797,7 @@ describe("control-plane HTTP surface", () => {
                   "A Limitless Up outcome implies an Opinion Up outcome under the reviewed scope.",
                 rationale: "The left event is a strict subset of the right event.",
                 falsifiers: ["Limitless Up while Opinion resolves Down."],
+                evidenceRequirements: [],
               },
             ],
             missingEvidence: [],

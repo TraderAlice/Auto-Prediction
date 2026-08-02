@@ -130,6 +130,15 @@ const submissionPayload = {
   relationConclusion: reviewPayload.relationConclusion,
   assessments: reviewPayload.assessments,
   missingEvidence: reviewPayload.missingEvidence,
+  evidenceRequirements: [{
+    kind: "VOID_CANCELLATION",
+    listingRefs: proposal.listingRefs,
+    claim: "The outage and fallback clauses must exclude divergent settlement.",
+    reason: "The supplied rules omit the complete outage policy.",
+    satisfyingObservation: "Both official rule sets specify identical outage handling.",
+    contradictingObservation: "Either rule set permits a different fallback outcome.",
+    temporalPosture: "HISTORICAL_AT_SOURCE_OBSERVATION",
+  }],
   rationale: reviewPayload.rationale,
   constraint: {
     classification: "PROBABILISTIC_DEPENDENCE",
@@ -180,6 +189,7 @@ describe("adversarial semantic review", () => {
       status: "PASS",
       opportunityId,
       report: {
+        schemaVersion: "pmh.semantic-review-report.v3",
         engine: {
           transport: "VERCEL_AI_SDK",
           role: "ADVERSARIAL_SEMANTIC_REVIEWER",
@@ -191,6 +201,13 @@ describe("adversarial semantic review", () => {
             classification: "PROBABILISTIC_DEPENDENCE",
             exactCompilerAdmission: "RESEARCH_ONLY",
           },
+          evidenceRequirements: [{
+            kind: "VOID_CANCELLATION",
+            acquisitionRoute: "UNSUPPORTED",
+            origin: "SEMANTIC_REVIEW",
+            fetchAuthority: false,
+            providerRequestAuthority: false,
+          }],
           authority: "ADVISORY_ONLY",
           productionReviewAuthority: false,
           simulationAuthority: false,
@@ -200,6 +217,7 @@ describe("adversarial semantic review", () => {
           protocol: "AI_SDK_TOOL_LOOP",
           counterexampleEffectCount: 1,
           wholeResponseSchemaParsing: false,
+          structuredEvidenceRequirements: true,
         },
         effects: {
           externalWrites: false,
@@ -328,7 +346,11 @@ describe("adversarial semantic review", () => {
         { DEEPSEEK_API_KEY: "test-only-key" },
         {
           store: firstStore,
-          reviewer: { review: async () => ({ ...reviewPayload, constraintDraft }) },
+          reviewer: { review: async () => ({
+            ...reviewPayload,
+            constraintDraft,
+            evidenceRequirementDrafts: submissionPayload.evidenceRequirements,
+          }) },
         },
       );
       const first = await firstDesk.begin(
@@ -337,15 +359,22 @@ describe("adversarial semantic review", () => {
         snapshot,
       ).promise;
       expect(first.report).toMatchObject({
-        schemaVersion: "pmh.semantic-review-report.v2",
+        schemaVersion: "pmh.semantic-review-report.v3",
         result: {
           semanticConstraint: {
             schemaVersion: "pmh.semantic-constraint-proposal.v1",
             exactCompilerAdmission: "RESEARCH_ONLY",
           },
+          evidenceRequirements: [{
+            origin: "SEMANTIC_REVIEW",
+            kind: "VOID_CANCELLATION",
+            acquisitionRoute: "UNSUPPORTED",
+          }],
         },
       });
       const constraintHash = first.report?.result.semanticConstraint?.artifactHash;
+      const requirementId = first.report?.result.evidenceRequirements?.[0]
+        ?.requirementId;
       firstStore.close();
 
       const secondStore = new SqliteOperationalStore(path);
@@ -360,6 +389,8 @@ describe("adversarial semantic review", () => {
       expect(restored?.report?.result.semanticConstraint?.artifactHash).toBe(
         constraintHash,
       );
+      expect(restored?.report?.result.evidenceRequirements?.[0]?.requirementId)
+        .toBe(requirementId);
       expect(() => assertSemanticReviewRecord(restored)).not.toThrow();
       const replay = restoredDesk.begin(
         `ai:${proposal.proposalId}`,

@@ -1615,6 +1615,7 @@ describe("AI-native search lease scheduler", () => {
 
   it("rejects a context that represents fewer venues than its v3 minimum before AI", async () => {
     const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+    let nowMs = Date.parse("2026-08-02T00:00:00.000Z");
     const body = Object.freeze({
       schemaVersion: "pmh.catalog-context-coverage.v1" as const,
       status: "FULL" as const,
@@ -1639,6 +1640,7 @@ describe("AI-native search lease scheduler", () => {
       }),
       maxPiInvocations: 0,
       runFast,
+      now: () => nowMs++,
     });
 
     const record = await scheduler.begin(

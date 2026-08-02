@@ -104,6 +104,15 @@ describe("Market Archaeologist", () => {
               statement: "YouTube Live qualification implies public livestream qualification.",
               rationale: "The second rule is a platform-specific subset of the first.",
               falsifiers: ["The broad venue excludes YouTube streams."],
+              evidenceRequirements: [{
+                kind: "RESOLUTION_RULE",
+                listingRefs: ["venue-a:august-pizza"],
+                claim: "The broad venue includes YouTube Live streams.",
+                reason: "The implication fails if the broad rule excludes that platform.",
+                satisfyingObservation: "The official rule explicitly includes YouTube Live.",
+                contradictingObservation: "The official rule excludes YouTube Live.",
+                temporalPosture: "HISTORICAL_AT_SOURCE_OBSERVATION",
+              }],
             },
           ],
           missingEvidence: ["Independent exact rule review is absent."],
@@ -132,6 +141,7 @@ describe("Market Archaeologist", () => {
       status: "PASS",
       trigger: "OPERATOR",
       report: {
+        schemaVersion: "pmh.market-archaeologist-report.v3",
         task: {
           corpusSnapshotIdentity: snapshot.snapshotIdentity,
           corpusListingCount: 2,
@@ -147,6 +157,17 @@ describe("Market Archaeologist", () => {
               executionAuthority: false,
             },
           ],
+          evidenceRequirements: [{
+            kind: "RESOLUTION_RULE",
+            origin: "MARKET_ARCHAEOLOGIST",
+            acquisitionRoute: "DOCUMENT_LOCATOR",
+            eligibleLocators: [{
+              listingRefs: ["venue-a:august-pizza"],
+              locator: { role: "CONTRACT_RULE_DOCUMENT", fetchAuthority: false },
+            }],
+            fetchAuthority: false,
+            providerRequestAuthority: false,
+          }],
         },
         trace: {
           workspace: "EPHEMERAL_MARKETFS",
@@ -154,6 +175,7 @@ describe("Market Archaeologist", () => {
           proposalEffectTool: "submit_market_findings",
           wholeResponseSchemaParsing: false,
           terminalEffectEndsLoop: true,
+          structuredEvidenceRequirements: true,
           corpusRemovedAfterRun: true,
         },
       },
@@ -283,6 +305,7 @@ describe("Market Archaeologist", () => {
             statement: "A platform-specific stream implies a public stream.",
             rationale: "Both rules identify the same event with different scope.",
             falsifiers: [`The broad rule excludes the platform. ${"x".repeat(600)}`],
+            evidenceRequirements: [],
           },
         ],
         missingEvidence: [],
@@ -313,6 +336,15 @@ describe("Market Archaeologist", () => {
             statement: "The YouTube event implies the broad live event.",
             rationale: "The named platform is a narrower delivery channel.",
             falsifiers: ["The broad rule excludes YouTube."],
+            evidenceRequirements: [{
+              kind: "RESOLUTION_RULE",
+              listingRefs: ["venue-a:august-pizza"],
+              claim: "The broad rule includes YouTube Live.",
+              reason: "The proposal depends on platform inclusion.",
+              satisfyingObservation: "The official rule includes YouTube Live.",
+              contradictingObservation: "The official rule excludes YouTube Live.",
+              temporalPosture: "HISTORICAL_AT_SOURCE_OBSERVATION",
+            }],
           },
         ],
         missingEvidence: ["Independent exact rule review."],
@@ -355,6 +387,11 @@ describe("Market Archaeologist", () => {
       expect(replayed.report?.result.proposalEvidenceBundles?.[0]?.listings.find(
         (listing) => listing.listingRef === "venue-a:august-pizza",
       )?.evidenceLocators).toEqual([venueARuleLocator]);
+      expect(replayed.report?.result.evidenceRequirements?.[0]).toMatchObject({
+        origin: "MARKET_ARCHAEOLOGIST",
+        acquisitionRoute: "DOCUMENT_LOCATOR",
+        eligibleLocators: [{ locator: venueARuleLocator }],
+      });
       secondStore.close();
 
       const tamper = new DatabaseSync(path);
@@ -400,6 +437,7 @@ describe("Market Archaeologist", () => {
                 statement: "invalid",
                 rationale: "invalid",
                 falsifiers: [],
+                evidenceRequirements: [],
               },
             ],
             missingEvidence: [],
@@ -412,5 +450,31 @@ describe("Market Archaeologist", () => {
       report: null,
       diagnostic: "market archaeologist proposal exceeds corpus scope",
     });
+
+    const proseOnly = createMarketArchaeologistDesk(
+      { DEEPSEEK_API_KEY: secret },
+      {
+        runner: async (request) => submitEffect(request, {
+          summary: "missing structured request",
+          proposals: [{
+            relationKind: "IMPLIES",
+            listingRefs: [
+              "venue-b:august-pizza-youtube",
+              "venue-a:august-pizza",
+            ],
+            statement: "The narrow event implies the broad event.",
+            rationale: "This candidate still needs explicit evidence posture.",
+            falsifiers: [],
+          }],
+          missingEvidence: ["The broad rule is absent."],
+        }),
+      },
+    );
+    await expect(proseOnly.begin(snapshot, "Search").promise).resolves
+      .toMatchObject({
+        status: "FAILED",
+        report: null,
+        diagnostic: "evidence requirement draft set is invalid or unbounded",
+      });
   });
 });

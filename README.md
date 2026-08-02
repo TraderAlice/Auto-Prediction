@@ -53,6 +53,13 @@ This is not a trading bot and it has no live-trading authority. The repository d
   changed economic posture can still reactivate an economically blocked pair,
   while raw price motion inside the same posture does not restart semantic work.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
+- Content-addressed structured evidence requirements emitted through both Pi
+  and Vercel AI SDK tool effects. Agents describe the missing claim, its exact
+  listing scope, falsifying observations, and historical posture; first-party
+  code alone derives adapter-owned document locators and deterministic
+  `DOCUMENT_LOCATOR`, `MARKET_DATA`, or `UNSUPPORTED` routing. Shared official
+  documents coalesce to one acquisition scope without granting network,
+  provider-request, review, certificate, or execution authority.
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection. It prices both canonical equivalent-claim portfolios with `bigint`, ranks positive gross search hints first, and still treats every pair as an unreviewed semantic lead rather than an opportunity. The focused two-leg issue requires a positive current hint before pi; for an AI-selected pair only, missing Opinion catalog prices can be enriched from bounded anonymous token books whose raw bytes are retained. Fees, common depth, fillability, and executability remain absent.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
@@ -178,7 +185,10 @@ promotion remain active campaign work.
    semantic-review scope with prior jobs. An unchanged scope reuses its
    canonical job; changed contract semantics or directional order get a fresh
    review. The reviewer must bind exact listing refs, rule identities, outcome
-   mapping, time windows, and counterexamples. The **Operator attention queue** then
+   mapping, time windows, and counterexamples. Missing evidence is also emitted
+   as a structured acquisition requirement: the model cannot invent a URL, and
+   unsupported requirements are classified without spending fetch or model
+   budget. The **Operator attention queue** then
    tells you whether that advisory result defines a canonical payoff partition,
    whether current contract semantics still match the retained evidence, and
    whether the implemented anonymous adapters can reach its legs. Its

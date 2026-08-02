@@ -1815,19 +1815,20 @@ export class SearchLeaseScheduler {
             issued.lease.scope.venueIds,
           )
         : issued.fastLane.corpusCoverage;
+      const completedAt = new Date(
+        Math.max(this.#now(), Date.parse(issued.lease.issuedAt)),
+      ).toISOString();
       return this.#persist(withArtifactHash({
         ...withoutArtifactHash(issued),
         status: "FAILED",
-        completedAt: new Date(Math.max(this.#now(), Date.parse(issued.lease.issuedAt))).toISOString(),
+        completedAt,
         diagnostic,
         fastLane: Object.freeze({
           ...issued.fastLane,
           ...(corpusCoverage === undefined ? {} : { corpusCoverage }),
           status: "FAILED",
           diagnostic,
-          completedAt: new Date(
-            Math.max(this.#now(), Date.parse(issued.lease.issuedAt)),
-          ).toISOString(),
+          completedAt,
         }),
         deepLane: this.#skippedDeep("PENDING_FAST_LANE"),
         outcome: Object.freeze({

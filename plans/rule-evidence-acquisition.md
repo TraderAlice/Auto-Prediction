@@ -82,6 +82,40 @@ incomplete corpus is poor use of provider budget.
 - Node 24.14.0 type checks, all 448 workspace tests (299 control-plane), and the
   production build pass for this slice.
 
+## Implemented stacked checkpoint — structured requirements
+
+- Both Agent effect paths now submit bounded, proposal-scoped evidence
+  requirements instead of leaving acquisition intent only in prose. Pi's
+  `submit_market_findings` requires them on every proposal; the Vercel AI SDK
+  `submit_semantic_review` effect requires them whenever `missingEvidence` is
+  non-empty. Neither schema accepts a URL.
+- First-party code derives `pmh.evidence-requirement.v1` artifacts from the
+  immutable proposal listings. Each artifact binds its claim, satisfying and
+  contradicting observations, historical/current posture, source listing/raw
+  hashes, venue/protocol identity, and adapter-issued locator identities. It
+  explicitly carries no fetch, provider-request, semantic-decision,
+  certificate, or execution authority.
+- Requirements route deterministically to `DOCUMENT_LOCATOR`, `MARKET_DATA`,
+  or `UNSUPPORTED`. Unsupported requests remain represented instead of causing
+  an improvised fetch or another model request.
+- A shared official document is represented once with all affected listing
+  refs. Its acquisition scope excludes proposal-local listing membership, so
+  two Agents asking the same evidence kind and historical posture for the same
+  Gemini PDF can share one future fetch while retaining distinct requirement
+  IDs and claims.
+- New Pi and semantic-review reports use v3 and persist requirements through
+  SQLite restart. Historical v1/v2 reports remain valid and cannot be silently
+  extended with v3 fields. Rehashed locator substitution and cross-listing
+  rebinding fail closed against adapter/source lineage.
+- Node 24.14.0 full workspace checks, all 452 tests (303 control-plane), and the
+  production build pass on the unpublished stacked branch.
+- That full qualification also exposed a pre-existing millisecond race in the
+  search-lease failure path: the record and its fast lane sampled completion
+  time separately even though v5 requires them to match. They now share one
+  sampled timestamp, with an advancing-clock regression test, so overloaded
+  parallel suites no longer turn an expected pre-Agent rejection into a
+  malformed record.
+
 ## Evidence contract
 
 1. Preserve adapter-owned typed locators in a backward-compatible discovery
@@ -195,8 +229,9 @@ official evidence to reach a deterministic accept/reject decision.
 1. **Implemented on PR #80:** preserve and hash adapter-owned typed evidence
    locators through catalog observation, discovery context, MarketFS, proposal
    evidence bundles, and SQLite replay.
-2. Define structured evidence requirements and migrate semantic review to emit
-   them without invalidating v1/v2 reports.
+2. **Implemented on the unpublished serial stack:** define structured evidence
+   requirements and migrate both Pi discovery and AI SDK semantic review to
+   emit them without invalidating v1/v2 reports.
 3. Implement the policy-constrained anonymous fetcher and raw/extracted
    evidence artifacts with SSRF and resource-bound tests.
 4. Add the durable coalescing acquisition scheduler, restart recovery,
