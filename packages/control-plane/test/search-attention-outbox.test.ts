@@ -25,6 +25,8 @@ function lease(input: {
   pi?: boolean;
   gate?: "POSITIVE_GROSS_HINT" | "NON_POSITIVE_GROSS_HINT" | "PRICE_UNAVAILABLE";
   quoteReady?: boolean;
+  candidateListingRefs?: readonly string[];
+  deepReason?: SearchLeaseRecord["deepLane"]["reason"];
 }): SearchLeaseRecord {
   const status = input.status ?? "PASS";
   return {
@@ -43,9 +45,16 @@ function lease(input: {
     },
     deepLane: {
       runId: input.pi ? hashCanonical({ pi: input.key }) : null,
-      reason: input.gate === "NON_POSITIVE_GROSS_HINT" ? "ECONOMIC_GATE_BLOCKED" : "NO_CANDIDATES",
+      reason: input.deepReason ??
+        (input.gate === "NON_POSITIVE_GROSS_HINT"
+          ? "ECONOMIC_GATE_BLOCKED"
+          : input.novel
+            ? "NOVEL_MULTI_LISTING"
+            : "NO_CANDIDATES"),
     },
     fastLane: {
+      candidateListingRefs: input.candidateListingRefs ??
+        (input.novel ? ["venue-a:candidate", "venue-b:candidate"] : []),
       economicGate: input.gate === undefined ? null : {
         status: input.gate,
         quoteEnrichment: input.quoteReady ? { status: "READY" } : undefined,
@@ -55,6 +64,34 @@ function lease(input: {
 }
 
 describe("search attention outbox", () => {
+  it("keeps a legacy single-listing novelty record but excludes it from digest yield", async () => {
+    const legacy = issue("legacy-single-ref");
+    const outbox = new SearchAttentionOutbox({
+      now: () => Date.parse("2026-08-02T01:05:00.000Z"),
+    });
+    const record = lease({
+      key: "legacy-single-ref",
+      issueId: legacy.issueId,
+      completedAt: "2026-08-02T00:10:00.000Z",
+      novel: true,
+      candidateListingRefs: ["venue-a:single"],
+      deepReason: "NOT_MULTI_LISTING",
+    });
+
+    await outbox.tick([legacy], [record]);
+
+    expect(record.outcome.novelCandidate).toBe(true);
+    expect(outbox.projection().messages[0]).toMatchObject({
+      kind: "HOURLY_DIGEST",
+      severity: "ROUTINE",
+      metrics: {
+        scanCount: 1,
+        novelCandidateCount: 0,
+        proposalCount: 0,
+      },
+    });
+  });
+
   it("materializes one idempotent closed-window digest across concurrent issues", async () => {
     const alpha = issue("alpha");
     const beta = issue("beta");

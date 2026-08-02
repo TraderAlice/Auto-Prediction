@@ -2,6 +2,7 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import {
   SEARCH_LENSES,
+  isGroundedNovelCandidate,
   SearchLeaseBusyError,
   SearchLeaseScheduler,
   type SearchLeaseRecord,
@@ -255,7 +256,7 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   });
   return Object.freeze({
     terminalLeaseCount: records.length,
-    novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
+    novelCandidateCount: records.filter(isGroundedNovelCandidate).length,
     duplicateCount: records.filter((record) => record.lineage.duplicateOfLeaseId !== null).length,
     piEscalationCount: records.filter((record) => record.deepLane.runId !== null).length,
     economicGateRequiredCount: records.filter(
@@ -715,7 +716,10 @@ export class SearchIssueScheduler {
     if (lease.status === "FAILED") {
       this.#notify(issue, lease, "RUN_FAILED", lease.lease.leaseId,
         lease.diagnostic ?? "Scheduled search failed before producing a bounded result.");
-    } else if (lease.outcome.novelCandidate && lease.lineage.noveltySignature !== null) {
+    } else if (
+      isGroundedNovelCandidate(lease) &&
+      lease.lineage.noveltySignature !== null
+    ) {
       this.#notify(
         issue,
         lease,

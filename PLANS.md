@@ -1,8 +1,6 @@
 # Plans
 
-There is no active construction plan. The next measured bottleneck should be
-promoted from the deferred list only after fresh runtime evidence defines a
-bounded campaign.
+`plans/grounded-candidate-accounting.md` is the active construction plan.
 
 ## Planning contract
 
@@ -157,6 +155,29 @@ therefore increased recall without weakening falsification or promotion gates.
 Node 24 checks, 402 workspace tests, the production build, desktop QA, and
 390 px QA pass. Studio shows all 947 live listings with no horizontal overflow
 or browser warnings.
+
+The expanded corpus exposed an accounting defect in general search issues.
+Two of the ten `novelCandidate` records in the retained 40-lease window bind
+only one listing. Both followed a DeepSeek failure or timeout, both stopped at
+`NOT_MULTI_LISTING`, and both still emitted a raw “new candidate” notification.
+The Riley surname collision is one of them. Deep review and action alerts
+remained closed, but the derived candidate rate is inflated by 20% and gives
+the scheduler/operator a false picture of discovery yield. The active campaign
+keeps those single-listing hypotheses as immutable search evidence while
+requiring at least two distinct grounded refs for candidate identity,
+notification, and derived candidate accounting.
+
+The tightening is live in the development control plane. Across the identical
+40 retained terminal leases, derived novel-candidate yield fell from 10 to 8
+and the rate from 2,500 to 2,000 bps. The two historical single-ref outcomes and
+their raw notifications remain byte-for-byte evidence; neither is counted by
+current performance. No provider or pi request was needed to prove the
+reclassification.
+
+Node 24 checks, 405 workspace tests, and the production build pass. During
+browser QA one scheduled lease was active, so Studio honestly showed 7 grounded
+signatures across 39 terminal scans (17.94%). Desktop and 390 px layouts have no
+horizontal overflow or browser warnings.
 
 ## Deferred future campaigns
 

@@ -210,6 +210,56 @@ describe("AI-native search lease scheduler", () => {
     expect(runDeep).toHaveBeenCalledTimes(1);
   });
 
+  it("retains a single-listing lead without assigning candidate novelty or spending pi", async () => {
+    const runDeep = vi.fn();
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => {
+        const run = runRecord(task);
+        const candidate = run.hypotheses[0];
+        if (candidate === undefined) throw new Error("missing candidate");
+        return Object.freeze({
+          ...run,
+          hypotheses: Object.freeze([
+            Object.freeze({
+              ...candidate,
+              venueIds: Object.freeze(["venue-a"]),
+              listingRefs: Object.freeze(["venue-a:pizza-a"]),
+            }),
+          ]),
+          diagnostics: Object.freeze(["model request timed out"]),
+        });
+      },
+      runDeep,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+
+    const record = await scheduler.begin(snapshot(), "EQUIVALENCE").promise;
+    expect(record).toMatchObject({
+      status: "PASS",
+      fastLane: {
+        candidateListingRefs: ["venue-a:pizza-a"],
+        diagnostic: "model request timed out",
+      },
+      deepLane: {
+        status: "NOT_RUN",
+        reason: "NOT_MULTI_LISTING",
+        runId: null,
+      },
+      lineage: {
+        duplicateOfLeaseId: null,
+        noveltySignature: null,
+      },
+      outcome: {
+        novelCandidate: false,
+        hypothesisCount: 1,
+        proposalCount: 0,
+      },
+    });
+    expect(record.fastLane.hypothesisIds).toHaveLength(1);
+    expect(runDeep).not.toHaveBeenCalled();
+  });
+
   it("links duplicate candidate signatures and does not spend a second pi invocation", async () => {
     const runDeep = vi.fn(async () => Object.freeze({
       runId: hashCanonical({ deep: 1 }),

@@ -374,7 +374,13 @@ READY/degraded counts, and current corpus identity.
 Each lease still permits one cheap model request, one optional pi escalation,
 eight hypotheses, and a 300-second deadline. A new grounded multi-listing
 signature creates one deduplicated Finding Inbox notification; empty scans and
-known signatures stay quiet, while failures notify separately. Issues,
+known signatures stay quiet, while failures notify separately. “Candidate” in
+these metrics means at least one hypothesis binds two distinct in-context
+listing refs. A single-listing hypothesis remains searchable evidence and
+completes its semantic scope as `NOT_MULTI_LISTING`, but gets no novelty
+identity, candidate yield, pi escalation, or finding notification. Historical
+hash-valid records keep their original bytes; derived performance and new
+attention digests apply the stricter qualification without rewriting them. Issues,
 issued and terminal leases, acknowledgement state, and notifications survive
 restart in the hash-checked SQLite WAL. Before `ISSUED` is committed, the server
 stores the exact bounded `pmh.market-corpus.v1` body once by snapshot identity.

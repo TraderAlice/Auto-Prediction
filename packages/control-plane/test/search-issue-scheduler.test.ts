@@ -103,6 +103,102 @@ function runRecord(task: DiscoveryTask): DiscoveryRunRecord {
 }
 
 describe("issue-driven concurrent search scheduler", () => {
+  it("rotates a single-listing result without candidate notification and excludes a legacy misclassification", async () => {
+    const store = new SqliteOperationalStore(":memory:");
+    const runDeep = vi.fn();
+    const leases = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => {
+        const run = runRecord(task);
+        const candidate = run.hypotheses[0];
+        if (candidate === undefined) throw new Error("missing candidate");
+        return Object.freeze({
+          ...run,
+          hypotheses: Object.freeze([
+            Object.freeze({
+              ...candidate,
+              venueIds: Object.freeze(["venue-a"]),
+              listingRefs: Object.freeze(["venue-a:pizza"]),
+            }),
+          ]),
+          diagnostics: Object.freeze(["DeepSeek request timed out"]),
+        });
+      },
+      runDeep,
+      store,
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      tickIntervalMs: 1_000,
+      store,
+      now: () => nowMs,
+    });
+    const issue = issues.projection().issues.find((item) =>
+      item.title === "Cross-venue same claim"
+    );
+    if (issue === undefined) throw new Error("missing general search issue");
+
+    const record = await issues.runNow(issue.issueId, snapshot()).promise;
+    expect(record).toMatchObject({
+      deepLane: { reason: "NOT_MULTI_LISTING" },
+      outcome: { novelCandidate: false, hypothesisCount: 1 },
+      lineage: { noveltySignature: null },
+    });
+    expect(issues.projection()).toMatchObject({
+      unreadNotificationCount: 0,
+      performance: {
+        terminalLeaseCount: 1,
+        novelCandidateCount: 0,
+        noLeadSemanticScopeCount: 1,
+      },
+    });
+    expect(runDeep).not.toHaveBeenCalled();
+
+    const { artifactHash: _artifactHash, ...recordBody } = record;
+    const legacyBody = Object.freeze({
+      ...recordBody,
+      lineage: Object.freeze({
+        ...record.lineage,
+        noveltySignature: hashCanonical({ legacy: record.lease.leaseId }),
+      }),
+      outcome: Object.freeze({
+        ...record.outcome,
+        novelCandidate: true,
+      }),
+    });
+    const legacyStore = new SqliteOperationalStore(":memory:");
+    legacyStore.saveSearchLeaseRecord(Object.freeze({
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    }), 40);
+
+    const restoredLeases = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => runRecord(task),
+      store: legacyStore,
+      now: () => nowMs,
+    });
+    expect(restoredLeases.projection().records[0]).toMatchObject({
+      outcome: { novelCandidate: true },
+      fastLane: { candidateListingRefs: ["venue-a:pizza"] },
+      deepLane: { reason: "NOT_MULTI_LISTING" },
+    });
+    const restoredIssues = new SearchIssueScheduler({
+      leaseScheduler: restoredLeases,
+      tickIntervalMs: 1_000,
+      store: legacyStore,
+      now: () => nowMs,
+    });
+    expect(restoredIssues.projection().performance).toMatchObject({
+      terminalLeaseCount: 1,
+      novelCandidateCount: 0,
+      noLeadSemanticScopeCount: 1,
+    });
+    legacyStore.close();
+    store.close();
+  });
+
   it("seeds durable issues, fills three priority slots, and notifies only a novel signature", async () => {
     const pending: Array<{ task: DiscoveryTask; resolve: (record: DiscoveryRunRecord) => void }> = [];
     const runFast = vi.fn((task: DiscoveryTask) => new Promise<DiscoveryRunRecord>((resolve) => {

@@ -762,12 +762,27 @@ function candidateSignature(hypotheses: readonly OpportunityHypothesis[]): Hash 
   return grounded.length === 0 ? null : hashCanonical(grounded);
 }
 
-function hasMultiListingCandidate(
+export function hasGroundedMultiListingRefs(
+  listingRefs: readonly string[],
+): boolean {
+  return listingRefs.length >= 2 &&
+    new Set(listingRefs).size === listingRefs.length;
+}
+
+function hasGroundedMultiListingCandidate(
   hypotheses: readonly OpportunityHypothesis[],
 ): boolean {
   return hypotheses.some(
-    (item) => (item.listingRefs?.length ?? 0) >= 2,
+    (item) => hasGroundedMultiListingRefs(item.listingRefs ?? []),
   );
+}
+
+export function isGroundedNovelCandidate(
+  record: SearchLeaseRecord,
+): boolean {
+  return record.outcome.novelCandidate &&
+    record.deepLane.reason !== "NOT_MULTI_LISTING" &&
+    hasGroundedMultiListingRefs(record.fastLane.candidateListingRefs);
 }
 
 function scopeFor(
@@ -1084,6 +1099,12 @@ export class SearchLeaseScheduler {
         throw new Error("fast lane exceeded its model request budget");
       }
       const hypothesisSignature = candidateSignature(run.hypotheses);
+      const groundedCandidateHypotheses = run.hypotheses.filter((hypothesis) =>
+        hasGroundedMultiListingRefs(hypothesis.listingRefs ?? [])
+      );
+      const groundedCandidateSignature = candidateSignature(
+        groundedCandidateHypotheses,
+      );
       const policy = issued.lease.candidatePolicy;
       const candidateSelection = policy?.candidateSelection ?? "EXACT_CONTEXT";
       const contextListingRefs = Object.freeze(
@@ -1121,14 +1142,19 @@ export class SearchLeaseScheduler {
       const hypothesisListingRefs = Object.freeze([...new Set(
         run.hypotheses.flatMap((item) => item.listingRefs ?? []),
       )].sort());
+      const groundedCandidateListingRefs = Object.freeze([...new Set(
+        groundedCandidateHypotheses.flatMap((item) => item.listingRefs ?? []),
+      )].sort());
       const listingRefs = exactPolicyContext ??
         (selectedModelHypothesis === null
           ? policy === undefined || policy === null
-            ? hypothesisListingRefs
+            ? groundedCandidateListingRefs.length === 0
+              ? hypothesisListingRefs
+              : groundedCandidateListingRefs
             : Object.freeze([])
           : Object.freeze([...(selectedModelHypothesis.listingRefs ?? [])].sort()));
       const signature = policy === undefined || policy === null
-        ? hypothesisSignature
+        ? groundedCandidateSignature
         : exactPolicyContext !== null && hypothesisSignature !== null
           ? hashCanonical({
               schemaVersion: "pmh.search-candidate-signature.v2",
@@ -1194,11 +1220,15 @@ export class SearchLeaseScheduler {
         diagnostic: run.diagnostics.length === 0 ? null : compactDiagnostic(run.diagnostics.join("; ")),
       });
       let deepLane: SearchLeaseDeepLane;
-      if (signature === null) {
-        deepLane = this.#skippedDeep("NO_CANDIDATES");
-      } else if (listingRefs.length < 2 ||
+      if (
         (policy === undefined || policy === null) &&
-          !hasMultiListingCandidate(run.hypotheses)) {
+        hypothesisSignature !== null &&
+        !hasGroundedMultiListingCandidate(run.hypotheses)
+      ) {
+        deepLane = this.#skippedDeep("NOT_MULTI_LISTING");
+      } else if (signature === null) {
+        deepLane = this.#skippedDeep("NO_CANDIDATES");
+      } else if (listingRefs.length < 2) {
         deepLane = this.#skippedDeep("NOT_MULTI_LISTING");
       } else if (
         fastLane.economicGate?.required === true &&

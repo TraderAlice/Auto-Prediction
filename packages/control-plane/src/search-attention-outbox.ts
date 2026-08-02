@@ -1,6 +1,9 @@
 import { canonicalJson, hashCanonical, type Hash } from "@pmh/domain";
 import type { SearchIssueRecord } from "./search-issue-scheduler.js";
-import type { SearchLeaseRecord } from "./search-lease-scheduler.js";
+import {
+  isGroundedNovelCandidate,
+  type SearchLeaseRecord,
+} from "./search-lease-scheduler.js";
 import type { OperationalStorageProjection } from "./types.js";
 
 const HASH = /^sha256:[0-9a-f]{64}$/u;
@@ -311,7 +314,7 @@ function metricsFor(issueId: Hash, records: readonly SearchLeaseRecord[]): Searc
     scanCount: records.length,
     passCount: records.filter((record) => record.status === "PASS").length,
     failedCount: records.filter((record) => record.status === "FAILED").length,
-    novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
+    novelCandidateCount: records.filter(isGroundedNovelCandidate).length,
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     piEscalationCount: records.filter((record) => record.deepLane.runId !== null).length,
     economicPositiveCount: records.filter((record) =>
@@ -340,7 +343,7 @@ function aggregateMetrics(records: readonly SearchLeaseRecord[]) {
     scanCount: records.length,
     passCount: records.filter((record) => record.status === "PASS").length,
     failedCount: records.filter((record) => record.status === "FAILED").length,
-    novelCandidateCount: records.filter((record) => record.outcome.novelCandidate).length,
+    novelCandidateCount: records.filter(isGroundedNovelCandidate).length,
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     piEscalationCount: records.filter((record) => record.deepLane.runId !== null).length,
     economicPositiveCount: records.filter((record) =>
@@ -526,7 +529,7 @@ export class SearchAttentionOutbox {
         windowEnd,
       });
       const severity: SearchAttentionSeverity = sorted.some((record) =>
-        record.outcome.novelCandidate && record.outcome.proposalCount > 0 &&
+        isGroundedNovelCandidate(record) && record.outcome.proposalCount > 0 &&
         record.fastLane.economicGate?.status === "POSITIVE_GROSS_HINT"
       )
         ? "ACTION"
@@ -552,7 +555,7 @@ export class SearchAttentionOutbox {
   #materializeImmediate(records: readonly SearchLeaseRecord[]): void {
     for (const record of records) {
       if (
-        record.outcome.novelCandidate && record.outcome.proposalCount > 0 &&
+        isGroundedNovelCandidate(record) && record.outcome.proposalCount > 0 &&
         record.fastLane.economicGate?.status === "POSITIVE_GROSS_HINT"
       ) {
         const occurredAt = record.completedAt!;
