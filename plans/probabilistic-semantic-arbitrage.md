@@ -1,6 +1,7 @@
 # Probabilistic semantic arbitrage
 
-Status: active design; follows the family-retrieval checkpoint
+Status: active implementation; core probability-bound artifact and deterministic
+bounded-risk compiler implemented locally
 
 Created: 2026-08-02
 
@@ -112,6 +113,34 @@ opportunities must never share certificate semantics or risk accounting.
 - Resolved shadow outcomes produce calibration metrics without rewriting prior
   estimates.
 - Studio never renders probabilistic semantic arbitrage as guaranteed profit.
+
+## 2026-08-02 compiler checkpoint
+
+The first implementation keeps the hard verifier untouched and introduces two
+content-addressed research artifacts:
+
+- `pmh.probabilistic-semantic-bound.v1` retains a complete probabilistic truth
+  matrix, one or more adverse states, counter-scenarios, evidence hashes, and
+  2–8 independently named estimator intervals. Its conservative envelope uses
+  the minimum lower bound, maximum upper bound, latest completion time, and
+  earliest expiry. It grants estimate authority only.
+- `pmh.probabilistic-semantic-arbitrage.v1` replays every joint state with
+  bigint rational fixed-point arithmetic. It reports non-adverse and adverse
+  payout floors, fee-adjusted expected edge, adverse tail loss, break-even
+  epsilon, calibration posture, and separate freshness, depth, concentration,
+  tail-loss, and positive-edge gates. It can only classify an idea as
+  `PROBABILISTIC_SEMANTIC_ARBITRAGE` or `SEMANTIC_WATCH`; it cannot emit a hard
+  certificate.
+
+The Trump shooting/live-cola fixture deliberately retains the non-fatal joint
+state. At a two-NO ask-plus-fee cost of 0.80 and epsilon 0.05, replay yields a
+0.95 expected-payout floor, 0.15 expected-edge floor, 0.80 adverse tail loss,
+and 0.20 break-even epsilon. At epsilon 0.20 the same prices become a semantic
+watch. Tampered probability envelopes and replay arithmetic fail closed.
+
+Next, expose the bound-submission effects as Agent tools, persist estimates and
+evaluations, add role-separated estimation scheduling and calibration outcome
+tracking, and render this lane in Studio without guaranteed-profit language.
 
 ## Authority boundary
 

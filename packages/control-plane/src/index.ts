@@ -44,6 +44,7 @@ export * from "./semantic-family-retrieval.js";
 export * from "./semantic-premise.js";
 export * from "./premise-analysis.js";
 export * from "./premise-analysis-scheduler.js";
+export * from "./probabilistic-semantic-arbitrage.js";
 export * from "./semantic-price-inequality.js";
 export * from "./semantic-constraint-smoke.js";
 export * from "./semantic-review-admission.js";

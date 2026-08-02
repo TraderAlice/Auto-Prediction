@@ -27,6 +27,13 @@ made explicit. The existing `PROBABILISTIC_DEPENDENCE` research classification
 is therefore a starting point for a bounded-risk compiler, not a terminal
 discard bucket.
 
+The first bounded-risk compiler checkpoint now embodies that distinction.
+Probability estimates remain separate, hash-bound evidence artifacts; a
+conservative envelope supplies epsilon to bigint all-state replay. The output
+shows expected-edge floor, adverse tail loss, break-even epsilon, calibration,
+and independent risk gates, while being structurally unable to claim a hard
+certificate or guaranteed profit.
+
 Family retrieval is being upgraded from one generic exact-token context to a
 content-addressed family trailhead. Search lease v6 carries the selected
 family, ranked anchors, shared signals, rotation reason, and exact context
