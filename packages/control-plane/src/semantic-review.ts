@@ -1,5 +1,5 @@
 import { createDeepSeek, type DeepSeekProviderSettings } from "@ai-sdk/deepseek";
-import { generateText, hasToolCall, jsonSchema, stepCountIs, tool } from "ai";
+import { generateText, jsonSchema, stepCountIs, tool } from "ai";
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type {
   MarketRelationKind,
@@ -22,6 +22,11 @@ import {
   type EvidenceRequirement,
   type EvidenceRequirementDraft,
 } from "./evidence-requirement.js";
+import {
+  assertRuleEvidenceClaim,
+  type RuleEvidenceClaim,
+} from "./rule-evidence-claim.js";
+import { deriveSemanticReviewScope } from "./semantic-review-scope.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_MAX_OUTPUT_TOKENS = 1_800;
@@ -46,7 +51,8 @@ export type SemanticReviewReport = Readonly<{
   schemaVersion:
     | "pmh.semantic-review-report.v1"
     | "pmh.semantic-review-report.v2"
-    | "pmh.semantic-review-report.v3";
+    | "pmh.semantic-review-report.v3"
+    | "pmh.semantic-review-report.v4";
   artifactHash: Hash;
   status: "PASS";
   startedAt: string;
@@ -63,7 +69,12 @@ export type SemanticReviewReport = Readonly<{
     proposalId: Hash;
     proposalCorpusSnapshotIdentity: Hash;
     corpusSnapshotIdentity: Hash;
-    evidencePosture: "ORIGINAL_CORPUS" | "REBASED_CURRENT_CORPUS";
+    evidencePosture:
+      | "ORIGINAL_CORPUS"
+      | "REBASED_CURRENT_CORPUS"
+      | "ENRICHED_EVIDENCE_SCOPE";
+    semanticReviewScopeIdentity?: Hash;
+    evidenceClaims?: readonly RuleEvidenceClaim[];
     relationKind: MarketRelationKind;
     statement: string;
     listingEvidence: readonly Readonly<{
@@ -105,6 +116,7 @@ export type SemanticReviewReport = Readonly<{
     submittedEffectHash: Hash;
     wholeResponseSchemaParsing: false;
     structuredEvidenceRequirements?: true;
+    structuredRuleEvidenceClaims?: true;
   }>;
   effects: Readonly<{
     externalWrites: false;
@@ -192,6 +204,7 @@ type SemanticReviewSubmission = Readonly<{
 export type SemanticReviewModelInput = Readonly<{
   proposal: MarketRelationProposal;
   listings: MarketCorpusSnapshot["listings"];
+  evidenceClaims?: readonly RuleEvidenceClaim[];
 }>;
 
 export interface SemanticReviewModelPort {
@@ -587,8 +600,9 @@ export function assertSemanticReviewRecord(
   if (passed) {
     const report = record.report as SemanticReviewReport;
     const { artifactHash, ...reportBody } = report;
-    const expectedPosture =
-      record.proposalCorpusSnapshotIdentity === record.corpusSnapshotIdentity
+    const expectedPosture = report.schemaVersion === "pmh.semantic-review-report.v4"
+      ? "ENRICHED_EVIDENCE_SCOPE"
+      : record.proposalCorpusSnapshotIdentity === record.corpusSnapshotIdentity
         ? "ORIGINAL_CORPUS"
         : "REBASED_CURRENT_CORPUS";
     if (
@@ -596,6 +610,7 @@ export function assertSemanticReviewRecord(
         "pmh.semantic-review-report.v1",
         "pmh.semantic-review-report.v2",
         "pmh.semantic-review-report.v3",
+        "pmh.semantic-review-report.v4",
       ].includes(report.schemaVersion) ||
       report.status !== "PASS" || !HASH_PATTERN.test(artifactHash) ||
       artifactHash !== hashCanonical(reportBody)
@@ -668,7 +683,8 @@ export function assertSemanticReviewRecord(
     ) throw new Error("stored semantic review report violates advisory result");
     if (
       report.schemaVersion === "pmh.semantic-review-report.v2" ||
-      report.schemaVersion === "pmh.semantic-review-report.v3"
+      report.schemaVersion === "pmh.semantic-review-report.v3" ||
+      report.schemaVersion === "pmh.semantic-review-report.v4"
     ) {
       if (
         report.result.semanticConstraint === undefined ||
@@ -692,7 +708,10 @@ export function assertSemanticReviewRecord(
           report.input.listingEvidence.map((item) => item.listingRef).join("\n")
       ) throw new Error("stored semantic constraint violates review lineage");
     }
-    if (report.schemaVersion === "pmh.semantic-review-report.v3") {
+    if (
+      report.schemaVersion === "pmh.semantic-review-report.v3" ||
+      report.schemaVersion === "pmh.semantic-review-report.v4"
+    ) {
       if (
         report.trace?.structuredEvidenceRequirements !== true ||
         !Array.isArray(report.result.evidenceRequirements) ||
@@ -729,6 +748,26 @@ export function assertSemanticReviewRecord(
       report.trace?.structuredEvidenceRequirements !== undefined
     ) {
       throw new Error("legacy semantic review report contains v3 evidence fields");
+    }
+    if (report.schemaVersion === "pmh.semantic-review-report.v4") {
+      if (
+        !HASH_PATTERN.test(String(report.input.semanticReviewScopeIdentity)) ||
+        report.input.semanticReviewScopeIdentity !== record.corpusSnapshotIdentity ||
+        !Array.isArray(report.input.evidenceClaims) ||
+        report.input.evidenceClaims.length < 1 || report.input.evidenceClaims.length > 100 ||
+        report.trace?.structuredRuleEvidenceClaims !== true
+      ) throw new Error("stored enriched semantic review lacks rule evidence claims");
+      const claims = report.input.evidenceClaims.map(assertRuleEvidenceClaim);
+      if (
+        new Set(claims.map((claim) => claim.requirementId)).size !== claims.length ||
+        claims.some((claim) => claim.proposalId !== report.input.proposalId)
+      ) throw new Error("stored enriched semantic review claim lineage is inconsistent");
+    } else if (
+      report.input.semanticReviewScopeIdentity !== undefined ||
+      report.input.evidenceClaims !== undefined ||
+      report.trace?.structuredRuleEvidenceClaims !== undefined
+    ) {
+      throw new Error("legacy semantic review report contains v4 evidence fields");
     }
     if (
       report.result.authority !== "ADVISORY_ONLY" ||
@@ -809,9 +848,26 @@ export class DeepSeekSemanticReviewModelPort
           ),
           execute: async (input) => {
             if (counterexampleEffects.length === 0) {
-              throw new Error("semantic review requires a recorded counterexample attempt");
+              return Object.freeze({
+                accepted: false,
+                proposalOnly: true,
+                diagnostic: "semantic review requires a recorded counterexample attempt",
+                exactCompilerAdmission: "DETERMINED_EXTERNALLY" as const,
+              });
             }
-            const submission = validateSubmission(input);
+            let submission: SemanticReviewSubmission;
+            try {
+              submission = validateSubmission(input);
+            } catch (error) {
+              return Object.freeze({
+                accepted: false,
+                proposalOnly: true,
+                diagnostic: compactDiagnostic(
+                  error instanceof Error ? error.message : String(error),
+                ),
+                exactCompilerAdmission: "DETERMINED_EXTERNALLY" as const,
+              });
+            }
             const found = counterexampleEffects.find((effect) => effect.result === "FOUND");
             const inconclusive = counterexampleEffects.find(
               (effect) => effect.result === "INCONCLUSIVE",
@@ -858,7 +914,7 @@ export class DeepSeekSemanticReviewModelPort
         maxRetries: 0,
         abortSignal: controller.signal,
         tools,
-        stopWhen: [hasToolCall("submit_semantic_review"), stepCountIs(12)],
+        stopWhen: [() => submitted !== null, stepCountIs(12)],
         system:
           "You are an adversarial semantic reviewer for prediction-market research. " +
           "Your job is to falsify the proposed relationship using exact rule text, " +
@@ -874,6 +930,11 @@ export class DeepSeekSemanticReviewModelPort
           "entry naming exact in-scope listingRefs, what observation would satisfy or " +
           "contradict the claim, and whether current or source-time rules are required. " +
           "Never invent a URL or locator; the harness derives eligible locators. " +
+          "When ruleEvidenceClaims are present, treat them as advisory, untrusted " +
+          "requirement-specific interpretations with program-verified exact passages. " +
+          "Reassess their reasoning against the cited quote and use CONTRADICTS or " +
+          "INCONCLUSIVE claims to preserve or expand unresolved states. A claim is not " +
+          "itself a semantic decision or certificate. " +
           "Probabilistic dependence and textual relatedness are research-only. " +
           "ACCEPT_FOR_RESEARCH_SIMULATION means " +
           "only that the stated relation is sufficiently scoped for deterministic " +
@@ -882,6 +943,7 @@ export class DeepSeekSemanticReviewModelPort
           schemaVersion: "pmh.semantic-review-input.v1",
           proposal: input.proposal,
           listings: input.listings,
+          ruleEvidenceClaims: input.evidenceClaims ?? [],
         }),
         providerOptions: {
           deepseek: {
@@ -944,6 +1006,7 @@ export class SemanticReviewDesk {
     snapshot: MarketCorpusSnapshot,
     proposalCorpusSnapshotIdentity: Hash = snapshot.snapshotIdentity,
     evidenceBundle?: ProposalEvidenceBundle,
+    evidenceClaims: readonly RuleEvidenceClaim[] = [],
   ): Readonly<{
     promise: Promise<SemanticReviewRecord>;
     idempotentReplay: boolean;
@@ -970,6 +1033,12 @@ export class SemanticReviewDesk {
     )) {
       throw new Error("semantic review evidence bundle lineage mismatch");
     }
+    const claims = Object.freeze(evidenceClaims.map(assertRuleEvidenceClaim));
+    if (
+      claims.length > 100 || new Set(claims.map((claim) => claim.requirementId)).size !==
+        claims.length || claims.some((claim) => claim.proposalId !== proposal.proposalId) ||
+      (claims.length > 0 && captured?.schemaVersion !== "pmh.proposal-evidence-bundle.v2")
+    ) throw new Error("semantic review enriched evidence claim lineage mismatch");
     const listings = captured?.listings ?? proposal.listingRefs.map((listingRef) => {
       const listing = snapshot.listings.find(
         (candidate) => candidate.listingRef === listingRef,
@@ -979,7 +1048,10 @@ export class SemanticReviewDesk {
       }
       return listing;
     });
-    const corpusSnapshotIdentity =
+    const enrichedScope = claims.length === 0
+      ? null
+      : deriveSemanticReviewScope(proposal, captured, claims);
+    const corpusSnapshotIdentity = enrichedScope?.scopeIdentity ??
       captured?.evidenceCorpusSnapshotIdentity ?? snapshot.snapshotIdentity;
     const reviewId = hashCanonical({
       schemaVersion: "pmh.semantic-review-run.v1",
@@ -1021,7 +1093,11 @@ export class SemanticReviewDesk {
     });
     this.#replace(running);
     const promise = Promise.resolve()
-      .then(() => this.reviewer!.review({ proposal, listings: Object.freeze(listings) }))
+      .then(() => this.reviewer!.review({
+        proposal,
+        listings: Object.freeze(listings),
+        ...(claims.length === 0 ? {} : { evidenceClaims: claims }),
+      }))
       .then(
         (raw): SemanticReviewRecord => {
           const completedAt = new Date().toISOString();
@@ -1080,7 +1156,9 @@ export class SemanticReviewDesk {
                 drafts: evidenceRequirementDrafts,
               });
           const reportBody = Object.freeze({
-            schemaVersion: semanticConstraint === undefined
+            schemaVersion: claims.length > 0
+              ? ("pmh.semantic-review-report.v4" as const)
+              : semanticConstraint === undefined
               ? ("pmh.semantic-review-report.v1" as const)
               : evidenceRequirements === undefined
                 ? ("pmh.semantic-review-report.v2" as const)
@@ -1100,10 +1178,17 @@ export class SemanticReviewDesk {
               proposalId: proposal.proposalId,
               proposalCorpusSnapshotIdentity,
               corpusSnapshotIdentity,
-              evidencePosture:
-                proposalCorpusSnapshotIdentity === corpusSnapshotIdentity
+              evidencePosture: claims.length > 0
+                ? ("ENRICHED_EVIDENCE_SCOPE" as const)
+                : proposalCorpusSnapshotIdentity === corpusSnapshotIdentity
                   ? ("ORIGINAL_CORPUS" as const)
                   : ("REBASED_CURRENT_CORPUS" as const),
+              ...(claims.length === 0
+                ? {}
+                : {
+                    semanticReviewScopeIdentity: corpusSnapshotIdentity,
+                    evidenceClaims: claims,
+                  }),
               relationKind: proposal.relationKind,
               statement: proposal.statement,
               listingEvidence,
@@ -1132,6 +1217,9 @@ export class SemanticReviewDesk {
                     ...(evidenceRequirements === undefined
                       ? {}
                       : { structuredEvidenceRequirements: true as const }),
+                    ...(claims.length === 0
+                      ? {}
+                      : { structuredRuleEvidenceClaims: true as const }),
                   }),
                 }),
             effects: Object.freeze({

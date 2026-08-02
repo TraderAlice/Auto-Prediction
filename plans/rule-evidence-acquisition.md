@@ -198,6 +198,54 @@ incomplete corpus is poor use of provider budget.
 - Node 24.14.0 full workspace checks, all 467 tests (318 control-plane), and the
   production build pass for this scheduler checkpoint.
 
+## Implemented stacked checkpoint — Agent interpretation and review re-entry
+
+- Added a bounded Vercel AI SDK tool loop for each exact
+  requirement×document×extraction tuple. The initial request receives document
+  metadata but not the full untrusted body; the Agent can perform literal
+  searches and bounded reads before terminating through
+  `submit_rule_evidence_claim`. Whole-response schema parsing is not used.
+- `pmh.rule-evidence-claim.v1` binds the proposal-local requirement, immutable
+  document and extraction hashes, interpreter identity, disposition, exact
+  passage offsets, quotes, and quote hashes. First-party validation requires
+  every quote to equal the retained text slice. Fabricated, overlapping,
+  out-of-bounds, cross-proposal, or authority-bearing claims fail closed.
+  Supporting and contradicting claims require citations and no unresolved gap;
+  inconclusive claims must preserve unresolved evidence.
+- A separate durable scheduler leases one interpretation job per requirement
+  and current captured document, bounds concurrency, attempts, and requests per
+  tick, retries transient model failures, restores expired work after restart,
+  and reuses an already-persisted PASS without another provider call. SQLite
+  schema v20 retains jobs and immutable claim records independently from raw
+  documents and extracted text.
+- Complete current claim sets create
+  `pmh.evidence-enriched-semantic-scope.v1` artifacts. The semantic-review
+  scheduler reruns the same proposal under a new v2 scope and emits a v4 report
+  without mutating the original review. Any resulting hard constraint binds the
+  enriched scope identity; partial claim sets do not silently rebind a review.
+- The control plane reconciles acquisition, claim interpretation, and enriched
+  semantic review in order. `/api/v1/rule-evidence-claims`, `/health`, SSE, and
+  Studio expose bounded scheduling and disposition counts without returning
+  retained document text or granting claims semantic-decision authority.
+- Focused qualification proves exact citation rejection, no full document in
+  the first provider request, correction-capable tool iteration, independent
+  claims over a coalesced document, bounded exhaustion, SQLite restart without
+  duplicate model work, tamper rejection, and automatic evidence-enriched
+  review re-entry while retaining the original report.
+- A rejected terminal submission no longer ends either the evidence interpreter
+  or semantic reviewer merely because the model called the submit tool. The
+  first-party tool returns a bounded diagnostic and the loop continues until an
+  effect is actually accepted or the step budget is exhausted. Regression tests
+  cover premature submission, required evidence inspection, invalid exact
+  quotes, and subsequent correction.
+- A live DeepSeek V4 Flash interpretation passed in 14.4 seconds over a bounded
+  local rule capture: two passage reads, one verified 160-character citation,
+  `SUPPORTS`, no whole-response parsing, and no semantic-decision, certificate,
+  or execution authority. Node 24.14.0 full workspace checks, all 477 tests
+  (328 control-plane), and the production build pass. The dev server also
+  admitted both Vite and the control plane; desktop/390 px visual inspection
+  remains unclaimed because the browser-control URL policy rejected localhost.
+
 ## Evidence contract
 
 1. Preserve adapter-owned typed locators in a backward-compatible discovery
@@ -321,13 +369,18 @@ official evidence to reach a deterministic accept/reject decision.
 4. **Implemented on the unpublished serial stack:** add the durable coalescing
    acquisition scheduler, restart recovery, freshness, retention, policy-change
    invalidation, and terminal-state accounting.
-5. Add the Agent tool loop for requesting eligible documents and submitting
-   bounded evidence claims; preserve partial fetch success across model failure.
-6. Build enriched semantic scopes and automatically resume blocked review jobs
-   without repeating discovery or spending duplicate review attempts.
-7. Surface the queue, provenance, coverage, and conversion funnel in Studio.
-8. Qualify against live anonymous official sources, SQLite restart, desktop and
-   390 px layouts, then publish as the next serial PR.
+5. **Implemented on the unpublished serial stack:** add the Agent tool loop for
+   bounded search/read over eligible captured documents and terminal evidence
+   claims; preserve captured artifacts across model failure.
+6. **Implemented on the unpublished serial stack:** build enriched semantic
+   scopes and automatically resume the same proposal's review without repeating
+   discovery or reusing a PASS from another evidence scope.
+7. **Implemented on the unpublished serial stack:** expose the interpretation
+   queue, durable posture, disposition counts, attempt budget, and jobs in
+   Studio without exposing raw document text.
+8. Qualify against live anonymous official sources and the configured model,
+   SQLite restart, desktop and 390 px layouts, then publish after serial PR #80
+   merges.
 
 ## Qualification gates
 

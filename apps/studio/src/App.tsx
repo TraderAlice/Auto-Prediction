@@ -209,6 +209,47 @@ const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewSch
   },
 };
 
+const EMPTY_RULE_EVIDENCE_CLAIMS: StudioProjection["ai"]["ruleEvidenceClaims"] = {
+  schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
+  enabled: false,
+  configured: false,
+  status: "NEEDS_KEY",
+  tickIntervalMs: null,
+  concurrencyLimit: 3,
+  activeCount: 0,
+  dueCount: 0,
+  pendingCount: 0,
+  leasedCount: 0,
+  retryWaitCount: 0,
+  passedCount: 0,
+  exhaustedCount: 0,
+  supportedCount: 0,
+  contradictedCount: 0,
+  inconclusiveCount: 0,
+  budget: {
+    basis: "PROVIDER_ATTEMPTS",
+    maxAttemptsPerJob: 3,
+    maxRequestsPerTick: 3,
+    providerAttemptsStarted: 0,
+  },
+  jobs: [],
+  storage: {
+    mode: "MEMORY",
+    durable: false,
+    schemaVersion: 0,
+    idempotencyKey: "jobId",
+  },
+  authority: "ADVISORY_EVIDENCE_INTERPRETATION_ORCHESTRATION_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_REVIEW_ATTENTION: StudioProjection["ai"]["reviewAttention"] = {
   schemaVersion: "pmh.review-attention-queue.v1",
   contentHash: `sha256:${"0".repeat(64)}`,
@@ -3675,6 +3716,8 @@ function OpportunityLifecycleView() {
     studioProjection.ai.semanticReviewAdmission ?? EMPTY_SEMANTIC_REVIEW_ADMISSION;
   const reviewScheduler =
     studioProjection.ai.semanticReviewScheduler ?? EMPTY_SEMANTIC_REVIEW_SCHEDULER;
+  const ruleEvidenceClaims =
+    studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
   const reviewAttention =
     studioProjection.ai.reviewAttention ?? EMPTY_REVIEW_ATTENTION;
   const economicTriage =
@@ -4020,6 +4063,66 @@ function OpportunityLifecycleView() {
             Auto lane: two distinct listings plus {reviewAdmission.supportedRelations.join(" / ")}. Manual advisory review remains available for every retained proposal.
           </span>
           <code>{reviewAdmission.contentHash.slice(0, 22)}…</code>
+        </div>
+      </section>
+
+      <section className="attention-queue" aria-label="Agent rule evidence claims">
+        <div className="attention-queue-heading">
+          <div>
+            <BookOpenCheck size={15} />
+            <div>
+              <strong>Agent rule-evidence claims</strong>
+              <span>
+                One durable interpretation job per requirement × captured document · exact passage offsets verified before semantic reuse
+              </span>
+            </div>
+          </div>
+          <Badge variant={ruleEvidenceClaims.exhaustedCount > 0 ? "warning" : ruleEvidenceClaims.passedCount > 0 ? "verified" : "muted"}>
+            {ruleEvidenceClaims.status.replaceAll("_", " ")}
+          </Badge>
+        </div>
+        <div className="attention-queue-stats">
+          <div><strong>{ruleEvidenceClaims.dueCount}</strong><span>due</span></div>
+          <div><strong>{ruleEvidenceClaims.leasedCount}/{ruleEvidenceClaims.concurrencyLimit}</strong><span>leased</span></div>
+          <div><strong>{ruleEvidenceClaims.supportedCount}</strong><span>supports</span></div>
+          <div><strong>{ruleEvidenceClaims.contradictedCount}</strong><span>contradicts</span></div>
+          <div><strong>{ruleEvidenceClaims.inconclusiveCount}</strong><span>inconclusive</span></div>
+          <div><strong>{ruleEvidenceClaims.exhaustedCount}</strong><span>exhausted</span></div>
+        </div>
+        <div className="attention-item-list">
+          {ruleEvidenceClaims.jobs.length === 0 ? (
+            <div className="review-operation-empty">
+              <strong>No rule-evidence interpretation jobs retained</strong>
+              <span>Captured documents are fanned out across proposal-local evidence requirements here.</span>
+            </div>
+          ) : ruleEvidenceClaims.jobs.slice(0, 8).map((job) => (
+            <article key={job.jobId}>
+              <div className="attention-item-topline">
+                <Badge variant={job.status === "PASS" ? "verified" : job.status === "EXHAUSTED" ? "warning" : "muted"}>
+                  {job.status.replaceAll("_", " ")}
+                </Badge>
+                <Badge variant="shadow">{job.requirement.kind.replaceAll("_", " ")}</Badge>
+                <time>{new Date(job.updatedAt).toLocaleString()}</time>
+              </div>
+              <strong>{job.requirement.claim}</strong>
+              <p>{job.diagnostic ?? "Exact captured passage lineage retained; awaiting or completed advisory interpretation."}</p>
+              <div className="attention-item-facts">
+                <span>attempt {job.attemptCount}/{job.maxAttempts}</span>
+                <span>doc {job.documentId.slice(7, 14)}</span>
+                <span>requirement {job.requirementId.slice(7, 14)}</span>
+              </div>
+              <small>Claim text is not exposed here; enriched semantic review consumes only verified, content-addressed claim artifacts.</small>
+            </article>
+          ))}
+        </div>
+        <div className="attention-authority-lock">
+          <CircleOff size={14} />
+          <span>
+            Tool-mediated reading is advisory: exact quote validation prevents fabricated passages, while semantic decisions and certificates remain separate gates.
+          </span>
+          <code>
+            {ruleEvidenceClaims.storage.durable ? "SQLite WAL" : "memory"} · {ruleEvidenceClaims.budget.providerAttemptsStarted} attempts
+          </code>
         </div>
       </section>
 

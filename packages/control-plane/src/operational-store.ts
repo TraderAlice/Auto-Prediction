@@ -66,6 +66,16 @@ import {
   type StoredEvidenceDocumentText,
 } from "./evidence-document.js";
 import {
+  assertRuleEvidenceClaimRecord,
+  type RuleEvidenceClaimRecord,
+  type RuleEvidenceClaimRecordStore,
+} from "./rule-evidence-claim.js";
+import {
+  assertRuleEvidenceClaimJobRecord,
+  type RuleEvidenceClaimJobRecord,
+  type RuleEvidenceClaimSchedulerStore,
+} from "./rule-evidence-claim-scheduler.js";
+import {
   assertSearchLeaseRecord,
   type SearchLeaseRecord,
   type SearchLeaseRecordStore,
@@ -107,7 +117,7 @@ import type {
   OperationalStorageProjection,
 } from "./types.js";
 
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 20;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -243,6 +253,21 @@ type EvidenceDocumentObservationRow = Readonly<{
   observation_id: string;
   acquisition_job_id: string;
   document_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type RuleEvidenceClaimJobRow = Readonly<{
+  job_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type RuleEvidenceClaimRecordRow = Readonly<{
+  interpretation_id: string;
+  requirement_id: string;
+  document_id: string;
+  extraction_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -880,6 +905,54 @@ function parseEvidenceDocumentObservation(
   return Object.freeze({ jobId: row.acquisition_job_id as Hash, observation });
 }
 
+function parseRuleEvidenceClaimJobRecord(value: unknown): RuleEvidenceClaimJobRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite rule evidence claim job row is malformed");
+  }
+  const row = value as Partial<RuleEvidenceClaimJobRow>;
+  if (
+    typeof row.job_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite rule evidence claim job row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite rule evidence claim job contains invalid JSON");
+  }
+  const record = assertRuleEvidenceClaimJobRecord(decoded);
+  if (record.jobId !== row.job_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite rule evidence claim job identity mismatch");
+  }
+  return record;
+}
+
+function parseRuleEvidenceClaimRecord(value: unknown): RuleEvidenceClaimRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite rule evidence claim record row is malformed");
+  }
+  const row = value as Partial<RuleEvidenceClaimRecordRow>;
+  if (
+    typeof row.interpretation_id !== "string" ||
+    typeof row.requirement_id !== "string" || typeof row.document_id !== "string" ||
+    typeof row.extraction_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite rule evidence claim record row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite rule evidence claim record contains invalid JSON");
+  }
+  const record = assertRuleEvidenceClaimRecord(decoded);
+  if (
+    record.interpretationId !== row.interpretation_id ||
+    record.requirementId !== row.requirement_id || record.documentId !== row.document_id ||
+    record.extractionId !== row.extraction_id || hashCanonical(record) !== row.record_hash
+  ) throw new Error("SQLite rule evidence claim record identity mismatch");
+  return record;
+}
+
 function parseOpportunityLifecycleJournal(
   value: unknown,
 ): OpportunityLifecycleJournal {
@@ -1022,6 +1095,8 @@ export class SqliteOperationalStore
     SemanticReviewRecordStore,
     SemanticReviewSchedulerStore,
     EvidenceAcquisitionSchedulerStore,
+    RuleEvidenceClaimRecordStore,
+    RuleEvidenceClaimSchedulerStore,
     OpportunityLifecycleJournalStore,
     AnonymousSimulationMaterializationStore
 {
@@ -1067,6 +1142,8 @@ export class SqliteOperationalStore
   public readonly evidenceDocumentStorage: OperationalStorageProjection<"documentId">;
   public readonly evidenceDocumentTextStorage: OperationalStorageProjection<"extractionId">;
   public readonly evidenceDocumentObservationStorage: OperationalStorageProjection<"observationId">;
+  public readonly ruleEvidenceClaimStorage: OperationalStorageProjection<"interpretationId">;
+  public readonly ruleEvidenceClaimJobStorage: OperationalStorageProjection<"jobId">;
   public readonly opportunityLifecycleStorage: OperationalStorageProjection<"opportunityId">;
   public readonly anonymousSimulationMaterializationStorage: Readonly<{
     mode: "MEMORY" | "SQLITE_WAL";
@@ -1225,6 +1302,18 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "observationId",
     });
+    this.ruleEvidenceClaimStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "interpretationId",
+    });
+    this.ruleEvidenceClaimJobStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "jobId",
+    });
     this.opportunityLifecycleStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -1324,6 +1413,18 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'evidence_document_observations'`,
       )
       .get() !== undefined;
+    const ruleEvidenceClaimJobTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'rule_evidence_claim_jobs'`,
+      )
+      .get() !== undefined;
+    const ruleEvidenceClaimRecordTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'rule_evidence_claim_records'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -1336,7 +1437,8 @@ export class SqliteOperationalStore
       semanticReviewNotificationTableExists &&
       searchQuoteObservationTableExists &&
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
-      evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists
+      evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
+      ruleEvidenceClaimJobTableExists && ruleEvidenceClaimRecordTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -2010,6 +2112,59 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS evidence_document_observations_job
             ON evidence_document_observations (
               acquisition_job_id, received_at DESC, observation_id DESC
+            );
+        `);
+      }
+      if (
+        current < 20 || !ruleEvidenceClaimJobTableExists ||
+        !ruleEvidenceClaimRecordTableExists
+      ) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS rule_evidence_claim_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN ('PENDING', 'LEASED', 'RETRY_WAIT', 'PASS', 'EXHAUSTED')
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS rule_evidence_claim_jobs_due
+            ON rule_evidence_claim_jobs (status, next_attempt_at, job_id);
+
+          CREATE TABLE IF NOT EXISTS rule_evidence_claim_records (
+            interpretation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(interpretation_id) = 71 AND
+              interpretation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            requirement_id TEXT NOT NULL CHECK (
+              length(requirement_id) = 71 AND requirement_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            document_id TEXT NOT NULL CHECK (
+              length(document_id) = 71 AND document_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            extraction_id TEXT NOT NULL CHECK (
+              length(extraction_id) = 71 AND extraction_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('PASS', 'FAILED')),
+            completed_at TEXT NOT NULL CHECK (length(completed_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (document_id) REFERENCES evidence_documents(document_id)
+              ON DELETE RESTRICT,
+            FOREIGN KEY (extraction_id) REFERENCES evidence_document_texts(extraction_id)
+              ON DELETE RESTRICT
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS rule_evidence_claim_records_requirement
+            ON rule_evidence_claim_records (
+              requirement_id, completed_at DESC, interpretation_id DESC
             );
         `);
       }
@@ -3581,6 +3736,197 @@ export class SqliteOperationalStore
       }));
       this.#database.exec("COMMIT");
       return Object.freeze({ record: storedRecord, capture: storedCapture });
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadRuleEvidenceClaimJobRecords(
+    limit: number,
+  ): readonly RuleEvidenceClaimJobRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM rule_evidence_claim_jobs
+         ORDER BY updated_at DESC, job_id DESC LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseRuleEvidenceClaimJobRecord));
+  }
+
+  public saveRuleEvidenceClaimJobRecord(
+    recordInput: RuleEvidenceClaimJobRecord,
+    retentionLimit: number,
+  ): RuleEvidenceClaimJobRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const record = assertRuleEvidenceClaimJobRecord(recordInput);
+    const recordJson = canonicalJson(record);
+    const recordHash = hashCanonical(record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO rule_evidence_claim_jobs (
+             job_id, status, next_attempt_at, updated_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(job_id) DO UPDATE SET
+             status = excluded.status,
+             next_attempt_at = excluded.next_attempt_at,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          record.jobId,
+          record.status,
+          record.nextAttemptAt,
+          record.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM rule_evidence_claim_jobs
+           WHERE job_id IN (
+             SELECT job_id FROM rule_evidence_claim_jobs
+             ORDER BY updated_at DESC, job_id DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT job_id, record_json, record_hash
+           FROM rule_evidence_claim_jobs WHERE job_id = ?`,
+        )
+        .get(record.jobId);
+      if (row === undefined) throw new Error("SQLite failed to retain rule evidence claim job");
+      const stored = parseRuleEvidenceClaimJobRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("SQLite rule evidence claim job changed during persistence");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  #verifyRuleEvidenceClaimExtraction(record: RuleEvidenceClaimRecord): void {
+    const row = this.#database
+      .prepare(
+        `SELECT extraction_id, document_id, record_json, record_hash, extracted_text
+         FROM evidence_document_texts WHERE extraction_id = ?`,
+      )
+      .get(record.extractionId);
+    if (row === undefined) {
+      throw new Error("SQLite rule evidence claim lost its retained extraction");
+    }
+    const extraction = parseEvidenceDocumentText(row);
+    if (extraction.record.documentId !== record.documentId) {
+      throw new Error("SQLite rule evidence claim extraction belongs to another document");
+    }
+    if (record.claim === null) return;
+    if (
+      record.claim.documentRawHash !== extraction.record.rawHash ||
+      record.claim.extractionTextHash !== extraction.record.textHash ||
+      record.claim.citations.some((citation) =>
+        extraction.text.slice(citation.start, citation.end) !== citation.quote
+      )
+    ) throw new Error("SQLite rule evidence claim citation or extraction lineage mismatch");
+  }
+
+  public loadRuleEvidenceClaimRecords(
+    limit: number,
+  ): readonly RuleEvidenceClaimRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT interpretation_id, requirement_id, document_id, extraction_id,
+                record_json, record_hash
+         FROM rule_evidence_claim_records
+         ORDER BY completed_at DESC, interpretation_id DESC LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map((row) => {
+      const record = parseRuleEvidenceClaimRecord(row);
+      this.#verifyRuleEvidenceClaimExtraction(record);
+      return record;
+    }));
+  }
+
+  public saveRuleEvidenceClaimRecord(
+    recordInput: RuleEvidenceClaimRecord,
+    retentionLimit: number,
+  ): RuleEvidenceClaimRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const record = assertRuleEvidenceClaimRecord(recordInput);
+    if (record.status === "RUNNING" || record.completedAt === null) {
+      throw new Error("SQLite cannot persist an active rule evidence claim");
+    }
+    this.#verifyRuleEvidenceClaimExtraction(record);
+    const recordJson = canonicalJson(record);
+    const recordHash = hashCanonical(record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO rule_evidence_claim_records (
+             interpretation_id, requirement_id, document_id, extraction_id,
+             status, completed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(interpretation_id) DO UPDATE SET
+             requirement_id = excluded.requirement_id,
+             document_id = excluded.document_id,
+             extraction_id = excluded.extraction_id,
+             status = excluded.status,
+             completed_at = excluded.completed_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash
+           WHERE rule_evidence_claim_records.status = 'FAILED'`,
+        )
+        .run(
+          record.interpretationId,
+          record.requirementId,
+          record.documentId,
+          record.extractionId,
+          record.status,
+          record.completedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM rule_evidence_claim_records
+           WHERE interpretation_id IN (
+             SELECT interpretation_id FROM rule_evidence_claim_records
+             ORDER BY completed_at DESC, interpretation_id DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT interpretation_id, requirement_id, document_id, extraction_id,
+                  record_json, record_hash
+           FROM rule_evidence_claim_records WHERE interpretation_id = ?`,
+        )
+        .get(record.interpretationId);
+      if (row === undefined) throw new Error("SQLite failed to retain rule evidence claim");
+      const stored = parseRuleEvidenceClaimRecord(row);
+      this.#verifyRuleEvidenceClaimExtraction(stored);
+      if (
+        stored.requirementId !== record.requirementId ||
+        stored.documentId !== record.documentId || stored.extractionId !== record.extractionId ||
+        (stored.status === record.status && hashCanonical(stored) !== recordHash)
+      ) throw new Error("SQLite rule evidence claim identity is already bound elsewhere");
+      this.#database.exec("COMMIT");
+      return stored;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

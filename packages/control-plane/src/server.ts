@@ -90,6 +90,16 @@ import {
 } from "./evidence-acquisition-scheduler.js";
 import { EvidenceDocumentFetcher } from "./evidence-document.js";
 import type { EvidenceRequirement } from "./evidence-requirement.js";
+import {
+  createRuleEvidenceClaimDesk,
+  type RuleEvidenceClaimRecordStore,
+} from "./rule-evidence-claim.js";
+import {
+  parseRuleEvidenceClaimTickInterval,
+  RuleEvidenceClaimScheduler,
+  type RuleEvidenceClaimInput,
+  type RuleEvidenceClaimSchedulerStore,
+} from "./rule-evidence-claim-scheduler.js";
 import { buildSemanticReviewAdmissionProjection } from "./semantic-review-admission.js";
 import { deriveRelationPayoffProjection } from "./relation-payoff.js";
 import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
@@ -421,6 +431,26 @@ function supportsEvidenceAcquisitionRecords(
   );
 }
 
+function supportsRuleEvidenceClaimRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & RuleEvidenceClaimRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<RuleEvidenceClaimRecordStore>;
+  return candidate.ruleEvidenceClaimStorage !== undefined &&
+    typeof candidate.loadRuleEvidenceClaimRecords === "function" &&
+    typeof candidate.saveRuleEvidenceClaimRecord === "function";
+}
+
+function supportsRuleEvidenceClaimSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & RuleEvidenceClaimSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<RuleEvidenceClaimSchedulerStore>;
+  return candidate.ruleEvidenceClaimJobStorage !== undefined &&
+    typeof candidate.loadRuleEvidenceClaimJobRecords === "function" &&
+    typeof candidate.saveRuleEvidenceClaimJobRecord === "function";
+}
+
 function supportsOpportunityLifecycleJournals(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & OpportunityLifecycleJournalStore {
@@ -495,6 +525,8 @@ export function createControlPlane(options?: {
   semanticReviewDesk?: SemanticReviewDesk;
   semanticReviewScheduler?: SemanticReviewScheduler;
   evidenceAcquisitionScheduler?: EvidenceAcquisitionScheduler;
+  ruleEvidenceClaimDesk?: ReturnType<typeof createRuleEvidenceClaimDesk>;
+  ruleEvidenceClaimScheduler?: RuleEvidenceClaimScheduler;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
   simulationMaterializerDesk?: AnonymousSimulationMaterializerDesk;
   /**
@@ -746,6 +778,22 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const ruleEvidenceClaimDesk = options?.ruleEvidenceClaimDesk ??
+    createRuleEvidenceClaimDesk(process.env, {
+      ...(supportsRuleEvidenceClaimRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const ruleEvidenceClaimScheduler = options?.ruleEvidenceClaimScheduler ??
+    new RuleEvidenceClaimScheduler({
+      desk: ruleEvidenceClaimDesk,
+      tickIntervalMs: parseRuleEvidenceClaimTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsRuleEvidenceClaimSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const opportunityLifecycleDesk =
     options?.opportunityLifecycleDesk ??
     new OpportunityLifecycleDesk(
@@ -895,7 +943,39 @@ export function createControlPlane(options?: {
     ));
   };
   const semanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
-    const candidates = baseSemanticReviewCandidates();
+    const recordsById = new Map(ruleEvidenceClaimDesk.projection().records.map((record) =>
+      [record.interpretationId, record] as const
+    ));
+    const inputs = ruleEvidenceClaimInputs();
+    const existingClaims = new Map(semanticReviewScheduler.projection().jobs.map((job) =>
+      [job.proposalId, job.evidenceClaims ?? []] as const
+    ));
+    const candidates = baseSemanticReviewCandidates().map((candidate) => {
+      const proposalInputs = inputs.filter((input) =>
+        input.requirement.proposalId === candidate.proposal.proposalId
+      );
+      const claims = proposalInputs.length === 0
+        ? []
+        : proposalInputs.flatMap((input) => {
+            const id = ruleEvidenceClaimDesk.interpretationIdFor(
+              input.requirement,
+              input.capture,
+            );
+            const record = recordsById.get(id);
+            return record?.status === "PASS" && record.claim !== null ? [record.claim] : [];
+          });
+      const completeCurrentSet = proposalInputs.length > 0 &&
+        claims.length === proposalInputs.length;
+      const retainedClaims = completeCurrentSet
+        ? claims
+        : existingClaims.get(candidate.proposal.proposalId) ?? [];
+      return Object.freeze({
+        ...candidate,
+        ...(retainedClaims.length === 0
+          ? {}
+          : { evidenceClaims: Object.freeze(retainedClaims) }),
+      });
+    });
     return applyProposalEconomicPriority(
       candidates,
       buildProposalEconomicTriage({
@@ -918,6 +998,14 @@ export function createControlPlane(options?: {
   ].filter((requirement, index, all) =>
     all.findIndex((candidate) => candidate.requirementId === requirement.requirementId) === index
   ));
+  const ruleEvidenceClaimInputs = (): readonly RuleEvidenceClaimInput[] => Object.freeze(
+    evidenceAcquisitionScheduler.projection().jobs.flatMap((job) => {
+      if (job.status !== "CAPTURED") return [];
+      const capture = evidenceAcquisitionScheduler.captureForJob(job.jobId);
+      if (capture === null) return [];
+      return job.requirements.map((requirement) => Object.freeze({ requirement, capture }));
+    }),
+  );
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     const realCandidateReady = realCandidatePreflightDesk.load();
     await Promise.all([
@@ -956,12 +1044,14 @@ export function createControlPlane(options?: {
       corpus: catalogObservationDesk.corpus(),
     });
     semanticReviewScheduler.reconcile(
-      applyProposalEconomicPriority(baseReviewCandidates, economicTriageProjection),
+      semanticReviewCandidates(),
       semanticReviewProjection.records,
     );
     evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+    ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
     const evidenceAcquisitionProjection = evidenceAcquisitionScheduler.projection();
+    const ruleEvidenceClaimProjection = ruleEvidenceClaimScheduler.projection();
     const lifecycleProjection = opportunityLifecycleDesk.projection();
     const searchLeaseProjection = searchLeaseScheduler.projection();
     const searchIssueProjection = searchIssueScheduler.projection();
@@ -1017,6 +1107,7 @@ export function createControlPlane(options?: {
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
       evidenceAcquisition: evidenceAcquisitionProjection,
+      ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
       semanticRelationGraph,
@@ -1161,6 +1252,7 @@ export function createControlPlane(options?: {
         semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
         evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
+        ruleEvidenceClaims: ruleEvidenceClaimScheduler.projection(),
         semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
           baseSemanticReviewCandidates().map((candidate) => candidate.proposal),
         ),
@@ -1213,6 +1305,16 @@ export function createControlPlane(options?: {
       await ready;
       evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
       writeJson(response, 200, evidenceAcquisitionScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/rule-evidence-claims"
+    ) {
+      await ready;
+      evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+      ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
+      writeJson(response, 200, ruleEvidenceClaimScheduler.projection());
       return;
     }
     const reviewNotificationAckMatch = url.pathname.match(
@@ -2374,6 +2476,7 @@ export function createControlPlane(options?: {
   let searchAttentionTimer: ReturnType<typeof setInterval> | null = null;
   let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
+  let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
   if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
@@ -2499,12 +2602,31 @@ export function createControlPlane(options?: {
       evidenceAcquisitionTimer.unref();
     });
   }
+  const ruleEvidenceClaimTickMs = ruleEvidenceClaimScheduler.tickIntervalMs;
+  if (ruleEvidenceClaimTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = ruleEvidenceClaimScheduler.tick(ruleEvidenceClaimInputs());
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted interpretation work.
+        }
+      };
+      tick();
+      ruleEvidenceClaimTimer = setInterval(tick, ruleEvidenceClaimTickMs);
+      ruleEvidenceClaimTimer.unref();
+    });
+  }
   server.once("close", () => {
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
     if (searchAttentionTimer !== null) clearInterval(searchAttentionTimer);
     if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
+    if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
     discoveryLedger.close();
   });
@@ -2528,6 +2650,8 @@ export function createControlPlane(options?: {
     semanticReviewDesk,
     semanticReviewScheduler,
     evidenceAcquisitionScheduler,
+    ruleEvidenceClaimDesk,
+    ruleEvidenceClaimScheduler,
     opportunityLifecycleDesk,
     projection,
     ready,

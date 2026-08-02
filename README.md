@@ -242,6 +242,7 @@ pnpm check
 pnpm test
 pnpm fixtures:capture:streams
 PMH_EVIDENCE_TRUST_CLASH_FAKE_IP=1 pnpm evidence-document:smoke
+pnpm rule-evidence-claim:smoke
 pnpm pmh system status
 pnpm pmh venue list
 pnpm pmh venue inspect polymarket-global
@@ -255,13 +256,18 @@ range; without that explicit posture, reserved addresses fail before network
 I/O. The resulting JSON reports hashes, bounds, network posture, extraction
 metadata, and conditional `304` reuse, never the untrusted rule text itself.
 
+`pnpm rule-evidence-claim:smoke` independently qualifies the configured live
+DeepSeek tool loop over a bounded local rule capture. It reports only artifact
+identities, disposition, citation/read counts, and authority flags; it never
+prints the API key, document text, citation text, or provider reasoning.
+
 `pnpm studio` stores bounded Scout Inbox state in
 `.data/control-plane.sqlite` using WAL mode. Set `PMH_STATE_DB` to an alternate
 path when a different local operational volume is required. The database is
 ignored by Git and contains bounded discovery runs plus their exact normalized
 catalog snapshots, completed investigations, and raw anonymous catalog
 observations, Candidate Watch raw books and its bounded refresh journal, and
-SQLite schema-v18 AI search-lease lineage, deduplicated task corpora, deep-lane
+SQLite schema-v20 AI search-lease lineage, deduplicated task corpora, deep-lane
 attention alerts and deliveries, and durable semantic-review admission dispositions;
 it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.
@@ -523,6 +529,28 @@ is active, `PMH_EVIDENCE_TRUST_CLASH_FAKE_IP=1` must be explicit and the selecte
 address is retained in the observation. The worker starts only after the HTTP
 listener wins startup admission, and `/api/v1/evidence-acquisition` exposes its
 queue and accounting without returning untrusted document text.
+
+Captured rule documents then fan out into a proposal-local Agent interpretation
+queue. Set `PMH_EVIDENCE_CLAIM_TICK_MS` to 1000–60000 to enable it; the example
+keeps it off by default so a fresh clone cannot spend provider budget. Each
+durable job binds one structured requirement to one exact document extraction.
+The Vercel AI SDK loop initially receives only metadata, then may use bounded
+literal search and passage-read tools before it terminates through
+`submit_rule_evidence_claim`. The submitted claim must cite exact character
+offsets whose quoted text matches the retained extraction exactly. It can
+support, contradict, or leave the requirement inconclusive, but cannot decide a
+semantic relation, publish a certificate, or execute anything.
+
+`PMH_EVIDENCE_CLAIM_MODEL`, `PMH_EVIDENCE_CLAIM_MAX_OUTPUT_TOKENS`,
+`PMH_EVIDENCE_CLAIM_TIMEOUT_MS`, and `PMH_EVIDENCE_CLAIM_CONCURRENCY` tune this
+loop; defaults are DeepSeek V4 Flash, 1,800 output tokens, five minutes, and
+three concurrent jobs. Complete current claim sets create a content-addressed
+evidence-enriched semantic scope and automatically rerun the same proposal's
+adversarial review. The old review remains replayable, and the new v4 report
+and any hard constraint bind the new scope identity. Partial claim sets never
+silently rebind an existing review. `/api/v1/rule-evidence-claims` and Studio
+show queue, retry-budget, storage, and disposition counts without returning
+the document body or claim citations.
 
 Both AI paths use tool effects instead of treating a model's entire final
 answer as a fixed-schema document. Pi retains its recursive read-only MarketFS

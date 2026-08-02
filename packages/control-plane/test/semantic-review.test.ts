@@ -239,6 +239,54 @@ describe("adversarial semantic review", () => {
     expect((await replay.promise).reviewId).toBe(record.reviewId);
   });
 
+  it("keeps the tool loop alive after a premature terminal submission", async () => {
+    let requestCount = 0;
+    const desk = createSemanticReviewDesk(
+      {
+        DEEPSEEK_API_KEY: "test-only-key",
+        PMH_SEMANTIC_REVIEW_TIMEOUT_MS: "3000",
+      },
+      {
+        async fetcher() {
+          requestCount += 1;
+          if (requestCount === 1) {
+            return toolCompletion(
+              "submit_semantic_review",
+              submissionPayload,
+              "call-premature-submit",
+            );
+          }
+          if (requestCount === 2) {
+            return toolCompletion("record_counterexample", {
+              result: "FOUND",
+              narrative: reviewPayload.counterexamples[0],
+              truths: [false, true],
+            }, "call-corrective-counterexample");
+          }
+          return toolCompletion(
+            "submit_semantic_review",
+            submissionPayload,
+            "call-corrected-submit",
+          );
+        },
+      },
+    );
+
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+
+    expect(requestCount).toBe(3);
+    expect(record).toMatchObject({
+      status: "PASS",
+      report: {
+        trace: { counterexampleEffectCount: 1 },
+      },
+    });
+  });
+
   it("fails closed when the key or exact listing scope is absent", () => {
     const missing = createSemanticReviewDesk({});
     expect(() =>

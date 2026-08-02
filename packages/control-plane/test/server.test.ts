@@ -22,6 +22,8 @@ import {
   EvidenceAcquisitionScheduler,
   EvidenceDocumentFetcher,
   RealCandidatePreflightDesk,
+  RuleEvidenceClaimDesk,
+  RuleEvidenceClaimScheduler,
   SearchIssueScheduler,
   SearchLeaseScheduler,
   startControlPlane,
@@ -137,11 +139,22 @@ describe("control-plane HTTP surface", () => {
       tickIntervalMs: 1_000,
     });
     const evidenceTick = vi.spyOn(evidenceAcquisitionScheduler, "tick");
+    const ruleEvidenceClaimDesk = new RuleEvidenceClaimDesk(
+      null,
+      "deepseek-v4-flash",
+    );
+    const ruleEvidenceClaimScheduler = new RuleEvidenceClaimScheduler({
+      desk: ruleEvidenceClaimDesk,
+      tickIntervalMs: 1_000,
+    });
+    const ruleEvidenceClaimTick = vi.spyOn(ruleEvidenceClaimScheduler, "tick");
     const controlPlane = createControlPlane({
       modelRuntime: createOpenAiDiscoveryRuntime({}),
       catalogObservationDesk: catalogDesk,
       catalogRefreshScheduler,
       evidenceAcquisitionScheduler,
+      ruleEvidenceClaimDesk,
+      ruleEvidenceClaimScheduler,
       refreshCatalogOnReady: true,
       startupGate,
     });
@@ -151,18 +164,21 @@ describe("control-plane HTTP surface", () => {
     expect(fetchCount).toBe(0);
     expect(catalogRefreshScheduler.projection().runCount).toBe(0);
     expect(evidenceTick).not.toHaveBeenCalled();
+    expect(ruleEvidenceClaimTick).not.toHaveBeenCalled();
 
     await new Promise<void>((resolveListen) =>
       controlPlane.server.listen(0, "127.0.0.1", resolveListen),
     );
     expect(fetchCount).toBe(0);
     expect(evidenceTick).not.toHaveBeenCalled();
+    expect(ruleEvidenceClaimTick).not.toHaveBeenCalled();
 
     releaseStartup?.();
     await controlPlane.ready;
     expect(fetchCount).toBe(1);
     expect(catalogRefreshScheduler.projection().runCount).toBe(1);
     expect(evidenceTick).toHaveBeenCalledOnce();
+    expect(ruleEvidenceClaimTick).toHaveBeenCalledOnce();
   });
 
   it("holds due issues during refresh and dispatches them on the new corpus", async () => {
@@ -462,6 +478,15 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        ruleEvidenceClaims: {
+          enabled: boolean;
+          configured: boolean;
+          pendingCount: number;
+          budget: { basis: string; maxAttemptsPerJob: number };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         reviewAttention: {
           contentHash: string;
           itemCount: number;
@@ -619,6 +644,27 @@ describe("control-plane HTTP surface", () => {
       schemaVersion: "pmh.evidence-acquisition-scheduler.v1",
       requirementCount: 0,
       authority: "ANONYMOUS_EVIDENCE_ORCHESTRATION_ONLY",
+      executionAuthority: false,
+    });
+    expect(projection.ai.ruleEvidenceClaims).toMatchObject({
+      enabled: false,
+      configured: false,
+      pendingCount: 0,
+      passedCount: 0,
+      supportedCount: 0,
+      contradictedCount: 0,
+      inconclusiveCount: 0,
+      budget: { basis: "PROVIDER_ATTEMPTS", maxAttemptsPerJob: 3 },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const claimResponse = await fetch(`${baseUrl}/api/v1/rule-evidence-claims`);
+    expect(claimResponse.status).toBe(200);
+    expect(await claimResponse.json()).toMatchObject({
+      schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
+      passedCount: 0,
+      authority: "ADVISORY_EVIDENCE_INTERPRETATION_ORCHESTRATION_ONLY",
       executionAuthority: false,
     });
     expect(projection.ai.semanticReviewAdmission).toMatchObject({
@@ -1973,7 +2019,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 19,
+          schemaVersion: 20,
         },
         records: [{ investigationId: created.investigationId }],
       });

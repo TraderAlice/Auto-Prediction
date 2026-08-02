@@ -16,6 +16,10 @@ import {
 import type { OperationalStorageProjection } from "./types.js";
 import { classifySemanticReviewAdmission } from "./semantic-review-admission.js";
 import { deriveSemanticReviewScope } from "./semantic-review-scope.js";
+import {
+  assertRuleEvidenceClaim,
+  type RuleEvidenceClaim,
+} from "./rule-evidence-claim.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 250;
@@ -35,12 +39,13 @@ export type SemanticReviewJobStatus =
   | "EXHAUSTED";
 
 export type SemanticReviewJobRecord = Readonly<{
-  schemaVersion: "pmh.semantic-review-job.v1";
+  schemaVersion: "pmh.semantic-review-job.v1" | "pmh.semantic-review-job.v2";
   jobId: Hash;
   opportunityId: string;
   proposalId: Hash;
   proposalCorpusSnapshotIdentity: Hash;
   evidenceBundle?: ProposalEvidenceBundle | null;
+  evidenceClaims?: readonly RuleEvidenceClaim[];
   reviewScopeIdentity?: Hash | null;
   duplicateOfJobId?: Hash | null;
   issueIds: readonly Hash[];
@@ -93,6 +98,7 @@ export type SemanticReviewCandidate = Readonly<{
   proposal: MarketRelationProposal;
   proposalCorpusSnapshotIdentity: Hash;
   evidenceBundle: DurableProposalEvidenceBundle | null;
+  evidenceClaims?: readonly RuleEvidenceClaim[];
   issueIds: readonly Hash[];
   priority: 1 | 2 | 3 | 4 | 5;
 }>;
@@ -204,6 +210,17 @@ function withNotificationHash(
   return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
 }
 
+function withoutJobHashAndClaims(
+  record: SemanticReviewJobRecord,
+): Omit<SemanticReviewJobRecord, "artifactHash" | "evidenceClaims"> {
+  const {
+    artifactHash: _artifactHash,
+    evidenceClaims: _evidenceClaims,
+    ...body
+  } = record;
+  return body;
+}
+
 export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJobRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("stored semantic review job is malformed");
@@ -213,10 +230,12 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
     record.status === "RESEARCH_ONLY" || record.status === "DUPLICATE_SCOPE";
   const leased = record.status === "LEASED";
   const evidenceBundle = record.evidenceBundle ?? null;
+  const evidenceClaims = record.evidenceClaims ?? [];
   const reviewScopeIdentity = record.reviewScopeIdentity ?? null;
   const duplicateOfJobId = record.duplicateOfJobId ?? null;
   if (
-    record.schemaVersion !== "pmh.semantic-review-job.v1" ||
+    !["pmh.semantic-review-job.v1", "pmh.semantic-review-job.v2"]
+      .includes(record.schemaVersion) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
     record.jobId !== semanticReviewJobId(record.proposalId) ||
     record.opportunityId !== `ai:${record.proposalId}` ||
@@ -226,11 +245,24 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
       assertProposalEvidenceBundle(evidenceBundle).proposalId !== record.proposalId ||
       evidenceBundle.proposalCorpusSnapshotIdentity !== record.proposalCorpusSnapshotIdentity
     )) ||
+    (record.schemaVersion === "pmh.semantic-review-job.v1" &&
+      record.evidenceClaims !== undefined) ||
+    (record.schemaVersion === "pmh.semantic-review-job.v2" && (
+      !Array.isArray(record.evidenceClaims) || evidenceClaims.length < 1 ||
+      evidenceClaims.length > 100 ||
+      evidenceBundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2"
+    )) ||
+    new Set(evidenceClaims.map((claim) => claim.requirementId)).size !==
+      evidenceClaims.length ||
+    evidenceClaims.map(assertRuleEvidenceClaim).some((claim) =>
+      claim.proposalId !== record.proposalId
+    ) ||
     (record.reviewScopeIdentity !== undefined &&
       evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" &&
       reviewScopeIdentity !== deriveSemanticReviewScope(
         evidenceBundle.proposal,
         evidenceBundle,
+        evidenceClaims,
       ).scopeIdentity) ||
     (reviewScopeIdentity !== null &&
       !HASH_PATTERN.test(String(reviewScopeIdentity))) ||
@@ -364,26 +396,51 @@ export class SemanticReviewScheduler {
     reviews: readonly SemanticReviewRecord[],
   ): void {
     const now = new Date(this.#now()).toISOString();
-    const passedByProposal = new Map(
-      reviews.filter((review) => review.status === "PASS" && review.report !== null)
-        .map((review) => [review.proposalId, review] as const),
-    );
     const existingByProposal = new Map(
       this.#jobs.map((job) => [job.proposalId, job] as const),
     );
-    for (const job of [...this.#jobs]) {
-      const review = passedByProposal.get(job.proposalId);
-      if (review !== undefined && job.status !== "PASS") {
-        this.#completeFromReview(job, review);
-      }
-    }
     const sortedCandidates = [...candidates].sort((left, right) =>
       left.proposal.proposalId.localeCompare(right.proposal.proposalId)
     );
     const scopesByProposal = new Map(sortedCandidates.map((candidate) => [
       candidate.proposal.proposalId,
-      deriveSemanticReviewScope(candidate.proposal, candidate.evidenceBundle),
+      deriveSemanticReviewScope(
+        candidate.proposal,
+        candidate.evidenceBundle,
+        candidate.evidenceClaims ?? [],
+      ),
     ] as const));
+    const passedReviews = reviews.filter((review) =>
+      review.status === "PASS" && review.report !== null
+    );
+    for (const job of [...this.#jobs]) {
+      if (job.status === "PASS") continue;
+      const review = passedReviews.find((item) =>
+        item.proposalId === job.proposalId &&
+        (job.schemaVersion === "pmh.semantic-review-job.v2"
+          ? item.corpusSnapshotIdentity === job.reviewScopeIdentity &&
+            item.report?.schemaVersion === "pmh.semantic-review-report.v4"
+          : item.report?.schemaVersion !== "pmh.semantic-review-report.v4")
+      );
+      if (review !== undefined) {
+        const completed = this.#completeFromReview(job, review);
+        existingByProposal.set(job.proposalId, completed);
+      }
+    }
+    const passedByProposal = new Map(sortedCandidates.flatMap((candidate) => {
+      const scopeIdentity = scopesByProposal.get(candidate.proposal.proposalId)?.scopeIdentity;
+      const enriched = (candidate.evidenceClaims?.length ?? 0) > 0;
+      const review = passedReviews.find((item) =>
+        item.proposalId === candidate.proposal.proposalId &&
+        (enriched
+          ? item.corpusSnapshotIdentity === scopeIdentity &&
+            item.report?.schemaVersion === "pmh.semantic-review-report.v4"
+          : item.report?.schemaVersion !== "pmh.semantic-review-report.v4")
+      );
+      return review === undefined
+        ? []
+        : [[candidate.proposal.proposalId, review] as const];
+    }));
     const canonicalProposalByScope = new Map<Hash, Hash>();
     const scopedGroups = new Map<Hash, SemanticReviewCandidate[]>();
     for (const candidate of sortedCandidates) {
@@ -415,6 +472,9 @@ export class SemanticReviewScheduler {
       const jobId = semanticReviewJobId(proposalId);
       const existing = this.#jobs.find((job) => job.jobId === jobId);
       const issueIds = Object.freeze([...new Set(candidate.issueIds)].sort());
+      const evidenceClaims = candidate.evidenceClaims === undefined
+        ? undefined
+        : Object.freeze(candidate.evidenceClaims.map(assertRuleEvidenceClaim));
       const review = passedByProposal.get(proposalId);
       const automatic = classifySemanticReviewAdmission(candidate.proposal).lane ===
         "AUTO_ARBITRAGE_REVIEW";
@@ -428,12 +488,17 @@ export class SemanticReviewScheduler {
         : null;
       if (existing === undefined) {
         this.#saveJob(withJobHash({
-          schemaVersion: "pmh.semantic-review-job.v1",
+          schemaVersion: evidenceClaims === undefined || evidenceClaims.length === 0
+            ? "pmh.semantic-review-job.v1"
+            : "pmh.semantic-review-job.v2",
           jobId,
           opportunityId: `ai:${proposalId}`,
           proposalId,
           proposalCorpusSnapshotIdentity: candidate.proposalCorpusSnapshotIdentity,
           evidenceBundle: candidate.evidenceBundle,
+          ...(evidenceClaims === undefined || evidenceClaims.length === 0
+            ? {}
+            : { evidenceClaims }),
           reviewScopeIdentity,
           duplicateOfJobId,
           issueIds,
@@ -462,6 +527,40 @@ export class SemanticReviewScheduler {
                 ? duplicateScopeDiagnostic(duplicateOfJobId)
                 : null,
           createdAt: now,
+          updatedAt: now,
+        }));
+        continue;
+      }
+      const scopeChanged = (existing.reviewScopeIdentity ?? null) !== reviewScopeIdentity;
+      if (scopeChanged && existing.status !== "LEASED" && review === undefined) {
+        this.#saveJob(withJobHash({
+          ...(evidenceClaims === undefined || evidenceClaims.length === 0
+            ? withoutJobHashAndClaims(existing)
+            : this.#withoutJobHash(existing)),
+          schemaVersion: evidenceClaims === undefined || evidenceClaims.length === 0
+            ? "pmh.semantic-review-job.v1"
+            : "pmh.semantic-review-job.v2",
+          evidenceBundle: candidate.evidenceBundle ?? existing.evidenceBundle ?? null,
+          ...(evidenceClaims === undefined || evidenceClaims.length === 0
+            ? {}
+            : { evidenceClaims }),
+          reviewScopeIdentity,
+          duplicateOfJobId,
+          issueIds,
+          priority: candidate.priority,
+          status: !automatic
+            ? "RESEARCH_ONLY"
+            : duplicateOfJobId === null ? "PENDING" : "DUPLICATE_SCOPE",
+          attemptCount: 0,
+          nextAttemptAt: now,
+          leasedAt: null,
+          leaseExpiresAt: null,
+          completedAt: !automatic || duplicateOfJobId !== null ? now : null,
+          lastReviewId: null,
+          recommendation: null,
+          diagnostic: !automatic
+            ? researchOnlyDiagnostic(candidate)
+            : duplicateOfJobId === null ? null : duplicateScopeDiagnostic(duplicateOfJobId),
           updatedAt: now,
         }));
         continue;
@@ -552,6 +651,9 @@ export class SemanticReviewScheduler {
           issueIds,
           priority: candidate.priority,
           evidenceBundle: candidate.evidenceBundle ?? existing.evidenceBundle ?? null,
+          ...(evidenceClaims === undefined || evidenceClaims.length === 0
+            ? {}
+            : { schemaVersion: "pmh.semantic-review-job.v2" as const, evidenceClaims }),
           reviewScopeIdentity,
           duplicateOfJobId,
           updatedAt: now,
@@ -604,6 +706,7 @@ export class SemanticReviewScheduler {
     const evidenceBundle = storedBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
       ? storedBundle
       : candidate.evidenceBundle;
+    const evidenceClaims = job.evidenceClaims ?? candidate.evidenceClaims ?? [];
     const missingListingRefs = evidenceBundle === null || evidenceBundle === undefined
       ? candidate.proposal.listingRefs.filter(
         (listingRef) => !snapshot.listings.some((listing) => listing.listingRef === listingRef),
@@ -631,6 +734,7 @@ export class SemanticReviewScheduler {
         snapshot,
         candidate.proposalCorpusSnapshotIdentity,
         evidenceBundle ?? undefined,
+        evidenceClaims,
       );
     } catch (error) {
       const reverted = this.#saveJob(withJobHash({
@@ -689,7 +793,11 @@ export class SemanticReviewScheduler {
       !this.#active.has(item.jobId)
     )) {
       const review = this.#reviewDesk.projection().records.find(
-        (record) => record.proposalId === job.proposalId && record.status === "PASS",
+        (record) => record.proposalId === job.proposalId && record.status === "PASS" &&
+          (job.schemaVersion === "pmh.semantic-review-job.v2"
+            ? record.corpusSnapshotIdentity === job.reviewScopeIdentity &&
+              record.report?.schemaVersion === "pmh.semantic-review-report.v4"
+            : record.report?.schemaVersion !== "pmh.semantic-review-report.v4"),
       );
       if (review !== undefined) {
         this.#completeFromReview(job, review);
@@ -727,6 +835,7 @@ export class SemanticReviewScheduler {
         proposal: bundle.proposal,
         proposalCorpusSnapshotIdentity: job.proposalCorpusSnapshotIdentity,
         evidenceBundle: bundle,
+        ...(job.evidenceClaims === undefined ? {} : { evidenceClaims: job.evidenceClaims }),
         issueIds: job.issueIds,
         priority: job.priority,
       }));
@@ -791,6 +900,14 @@ export class SemanticReviewScheduler {
     if (review.status !== "PASS" || review.report === null || review.completedAt === null) {
       throw new Error("semantic review job requires a passing durable review");
     }
+    if (
+      (job.schemaVersion === "pmh.semantic-review-job.v2" && (
+        review.report.schemaVersion !== "pmh.semantic-review-report.v4" ||
+        review.corpusSnapshotIdentity !== job.reviewScopeIdentity
+      )) ||
+      (job.schemaVersion === "pmh.semantic-review-job.v1" &&
+        review.report.schemaVersion === "pmh.semantic-review-report.v4")
+    ) throw new Error("semantic review completion belongs to another evidence scope");
     const completed = this.#saveJob(withJobHash({
       ...this.#withoutJobHash(job),
       duplicateOfJobId: null,
@@ -829,9 +946,10 @@ export class SemanticReviewScheduler {
     kind: SemanticReviewNotificationRecord["kind"],
   ): void {
     const dedupeIdentity = hashCanonical({
-      schemaVersion: "pmh.semantic-review-notification-dedupe.v1",
+      schemaVersion: "pmh.semantic-review-notification-dedupe.v2",
       jobId: job.jobId,
       kind,
+      lastReviewId: job.lastReviewId,
     });
     if (this.#notifications.some((item) => item.dedupeIdentity === dedupeIdentity)) return;
     const createdAt = job.completedAt ?? new Date(this.#now()).toISOString();

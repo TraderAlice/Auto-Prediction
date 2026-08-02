@@ -50,6 +50,7 @@ import {
 } from "./semantic-review-admission.js";
 import type { SemanticReviewSchedulerProjection } from "./semantic-review-scheduler.js";
 import type { EvidenceAcquisitionSchedulerProjection } from "./evidence-acquisition-scheduler.js";
+import type { RuleEvidenceClaimSchedulerProjection } from "./rule-evidence-claim-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
 import { emptyReviewAttentionProjection, type ReviewAttentionProjection } from "./review-attention.js";
@@ -122,6 +123,7 @@ export function buildStudioProjection(input: {
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
+  ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
   proposalEconomicTriage?: ProposalEconomicTriageProjection;
   semanticRelationGraph?: SemanticRelationGraphProjection;
@@ -602,6 +604,46 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const ruleEvidenceClaims = input.ruleEvidenceClaims ?? {
+    schemaVersion: "pmh.rule-evidence-claim-scheduler.v1" as const,
+    enabled: false,
+    configured: false,
+    status: "NEEDS_KEY" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 3,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    passedCount: 0,
+    exhaustedCount: 0,
+    supportedCount: 0,
+    contradictedCount: 0,
+    inconclusiveCount: 0,
+    budget: {
+      basis: "PROVIDER_ATTEMPTS" as const,
+      maxAttemptsPerJob: 3,
+      maxRequestsPerTick: 3,
+      providerAttemptsStarted: 0,
+    },
+    jobs: [],
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "jobId" as const,
+    },
+    authority: "ADVISORY_EVIDENCE_INTERPRETATION_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const semanticRelationGraph = input.semanticRelationGraph ?? buildSemanticRelationGraph({
     corpus: {
       ...marketCorpus,
@@ -836,6 +878,7 @@ export function buildStudioProjection(input: {
         buildSemanticReviewAdmissionProjection([]),
       semanticReviewScheduler,
       evidenceAcquisition,
+      ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),
       proposalEconomicTriage: input.proposalEconomicTriage ?? emptyProposalEconomicTriage(),
       semanticRelationGraph,

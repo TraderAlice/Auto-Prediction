@@ -122,6 +122,23 @@ semantic scope that can resume blocked reviews without repeating discovery.
 Node 24.14.0 checks, all 467 tests (318 control-plane), and the production build
 pass for this checkpoint.
 
+That next boundary is now implemented locally. A Vercel AI SDK Agent inspects
+each captured document through bounded literal-search and passage-read tools,
+then terminates with a content-addressed claim whose exact quote offsets are
+verified against the retained extraction. SQLite schema v20 durably leases one
+requirement×document interpretation job, recovers restart state, bounds retries
+and concurrency, and never repeats an already-persisted PASS. Once every
+currently claimable requirement for a proposal has a claim, the scheduler
+derives a new evidence-enriched semantic scope and reruns the same proposal;
+the original review remains immutable, and a v4 report and hard constraint bind
+the new scope. Studio and the read-only API expose queue and disposition counts
+without document text. A live DeepSeek V4 Flash run passed in 14.4 seconds with
+two bounded reads and one exact 160-character citation. Node 24.14.0 checks,
+all 477 workspace tests (328 control-plane), and the production build pass.
+Both development listeners admit successfully; desktop/390 px visual QA remains
+explicitly unclaimed because browser control rejected localhost under its URL
+policy. Publication still waits for PR #80 to merge.
+
 The retained 947-listing SQLite corpus now replays into 306 locators without a
 network call: 286 Gemini rule documents and 20 Myriad outcome-resolution
 sources. That qualification exposed normalization-version debt in historical
