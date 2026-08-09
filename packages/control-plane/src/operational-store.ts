@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { canonicalJson, hashCanonical, type Hash } from "@pmh/domain";
+import { canonicalJson, hashBytes, hashCanonical, type Hash } from "@pmh/domain";
 import {
   assertDiscoveryRunRecord,
   type DiscoveryRunStore,
@@ -158,11 +158,16 @@ import {
 } from "./probability-calibration.js";
 import type { ProbabilityCalibrationStore } from "./probability-calibration-desk.js";
 import {
+  assertProbabilityResolutionCapture,
+  type ProbabilityResolutionCapture,
+  type ProbabilityResolutionCaptureStore,
+} from "./probability-resolution-acquisition.js";
+import {
   assertProbabilisticSemanticBound,
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
 
-const SCHEMA_VERSION = 28;
+const SCHEMA_VERSION = 29;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -215,6 +220,20 @@ type ProbabilityCalibrationSnapshotRow = Readonly<{
   artifact_hash: string;
   record_json: string;
   record_hash: string;
+}>;
+
+type ProbabilityResolutionCaptureRow = Readonly<{
+  artifact_hash: string;
+  listing_ref: string;
+  source_raw_hash: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ProbabilityResolutionSourceRow = Readonly<{
+  raw_hash: string;
+  byte_length: number | bigint;
+  raw_bytes: Uint8Array;
 }>;
 
 type StoredCandidateBookObservationRow = Readonly<{
@@ -1457,6 +1476,28 @@ function parseProbabilityCalibrationSnapshot(value: unknown): ProbabilityCalibra
   return artifact;
 }
 
+function parseProbabilityResolutionCapture(value: unknown): ProbabilityResolutionCapture {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite probability resolution capture row is malformed");
+  }
+  const row = value as Partial<ProbabilityResolutionCaptureRow>;
+  if (typeof row.artifact_hash !== "string" || typeof row.listing_ref !== "string" ||
+    typeof row.source_raw_hash !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string") {
+    throw new Error("SQLite probability resolution capture row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite probability resolution capture contains invalid JSON");
+  }
+  const capture = assertProbabilityResolutionCapture(decoded);
+  if (capture.artifactHash !== row.artifact_hash || capture.listingRef !== row.listing_ref ||
+    capture.sourceRawHash !== row.source_raw_hash || hashCanonical(capture) !== row.record_hash) {
+    throw new Error("SQLite probability resolution capture identity mismatch");
+  }
+  return capture;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -1506,7 +1547,8 @@ export class SqliteOperationalStore
     RuleEvidenceClaimSchedulerStore,
     OpportunityLifecycleJournalStore,
     AnonymousSimulationMaterializationStore,
-    ProbabilityCalibrationStore
+    ProbabilityCalibrationStore,
+    ProbabilityResolutionCaptureStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -1554,6 +1596,10 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"artifactHash">;
   public readonly probabilityCalibrationSnapshotStorage:
     OperationalStorageProjection<"artifactHash">;
+  public readonly probabilityResolutionCaptureStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly probabilityResolutionSourceStorage:
+    OperationalStorageProjection<"rawHash">;
   public readonly aiUsageStorage: OperationalStorageProjection<"eventId">;
   public readonly aiRuntimeConfigurationStorage:
     OperationalStorageProjection<"singleton">;
@@ -1725,6 +1771,18 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "artifactHash",
+    });
+    this.probabilityResolutionCaptureStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.probabilityResolutionSourceStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "rawHash",
     });
     this.aiUsageStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -1909,6 +1967,18 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'probability_calibration_snapshots'`,
       )
       .get() !== undefined;
+    const probabilityResolutionCaptureTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'probability_resolution_captures'`,
+      )
+      .get() !== undefined;
+    const probabilityResolutionSourceTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'probability_resolution_sources'`,
+      )
+      .get() !== undefined;
     const aiUsageEventTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -1997,6 +2067,8 @@ export class SqliteOperationalStore
       probabilityCalibrationBoundTableExists &&
       probabilityCalibrationObservationTableExists &&
       probabilityCalibrationSnapshotTableExists &&
+      probabilityResolutionCaptureTableExists &&
+      probabilityResolutionSourceTableExists &&
       aiUsageEventTableExists &&
       aiRuntimeConfigurationTableExists &&
       searchQuoteObservationTableExists &&
@@ -2969,6 +3041,41 @@ export class SqliteOperationalStore
           ) STRICT;
           CREATE INDEX IF NOT EXISTS probability_calibration_snapshots_created
             ON probability_calibration_snapshots (created_at DESC, artifact_hash DESC);
+        `);
+      }
+      if (current < 29 || !probabilityResolutionCaptureTableExists ||
+        !probabilityResolutionSourceTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS probability_resolution_sources (
+            raw_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(raw_hash) = 71 AND raw_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+            raw_bytes BLOB NOT NULL
+          ) STRICT;
+          CREATE TABLE IF NOT EXISTS probability_resolution_captures (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL CHECK (length(listing_ref) > 0),
+            fetched_at TEXT NOT NULL CHECK (length(fetched_at) > 0),
+            status TEXT NOT NULL CHECK (status IN (
+              'UNRESOLVED', 'RESOLVED', 'RESOLUTION_TIME_UNAVAILABLE',
+              'CONFLICT', 'HTTP_ERROR', 'UNSUPPORTED'
+            )),
+            source_raw_hash TEXT NOT NULL CHECK (
+              length(source_raw_hash) = 71 AND source_raw_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (source_raw_hash) REFERENCES probability_resolution_sources(raw_hash)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS probability_resolution_captures_listing
+            ON probability_resolution_captures (listing_ref, fetched_at DESC, artifact_hash DESC);
+          CREATE INDEX IF NOT EXISTS probability_resolution_captures_status
+            ON probability_resolution_captures (status, fetched_at DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -4171,6 +4278,91 @@ export class SqliteOperationalStore
       )
       .all(limit);
     return Object.freeze(rows.map(parseProbabilityCalibrationObservation));
+  }
+
+  public loadProbabilityResolutionCaptures(
+    limit: number,
+  ): readonly ProbabilityResolutionCapture[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT artifact_hash, listing_ref, source_raw_hash, record_json, record_hash
+         FROM probability_resolution_captures
+         ORDER BY fetched_at DESC, artifact_hash DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseProbabilityResolutionCapture));
+  }
+
+  public loadProbabilityResolutionSource(rawHash: Hash): Uint8Array | null {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT raw_hash, byte_length, raw_bytes
+         FROM probability_resolution_sources WHERE raw_hash = ?`,
+      )
+      .get(rawHash) as ProbabilityResolutionSourceRow | undefined;
+    if (row === undefined) return null;
+    if (typeof row.raw_hash !== "string" ||
+      (typeof row.byte_length !== "number" && typeof row.byte_length !== "bigint") ||
+      !(row.raw_bytes instanceof Uint8Array)) {
+      throw new Error("SQLite probability resolution source row is malformed");
+    }
+    const bytes = new Uint8Array(row.raw_bytes);
+    if (row.raw_hash !== rawHash || BigInt(bytes.byteLength) !== BigInt(row.byte_length) ||
+      hashBytes(bytes) !== rawHash) {
+      throw new Error("SQLite probability resolution source identity mismatch");
+    }
+    return bytes;
+  }
+
+  public saveProbabilityResolutionCapture(
+    capture: ProbabilityResolutionCapture,
+    rawBytes: Uint8Array,
+  ): ProbabilityResolutionCapture {
+    this.#assertOpen();
+    const validated = assertProbabilityResolutionCapture(capture);
+    if (hashBytes(rawBytes) !== validated.sourceRawHash ||
+      BigInt(rawBytes.byteLength) !== BigInt(validated.byteLength)) {
+      throw new Error("probability resolution raw source does not match capture");
+    }
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database.prepare(
+        `INSERT INTO probability_resolution_sources (raw_hash, byte_length, raw_bytes)
+         VALUES (?, ?, ?) ON CONFLICT(raw_hash) DO NOTHING`,
+      ).run(validated.sourceRawHash, rawBytes.byteLength, rawBytes);
+      const retainedBytes = this.loadProbabilityResolutionSource(validated.sourceRawHash);
+      if (retainedBytes === null || hashBytes(retainedBytes) !== validated.sourceRawHash) {
+        throw new Error("SQLite failed to retain probability resolution source");
+      }
+      this.#database.prepare(
+        `INSERT INTO probability_resolution_captures (
+           artifact_hash, listing_ref, fetched_at, status, source_raw_hash,
+           record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(artifact_hash) DO NOTHING`,
+      ).run(validated.artifactHash, validated.listingRef, validated.fetchedAt,
+        validated.status, validated.sourceRawHash, recordJson, recordHash);
+      const row = this.#database.prepare(
+        `SELECT artifact_hash, listing_ref, source_raw_hash, record_json, record_hash
+         FROM probability_resolution_captures WHERE artifact_hash = ?`,
+      ).get(validated.artifactHash);
+      if (row === undefined) throw new Error("SQLite failed to retain probability resolution capture");
+      const stored = parseProbabilityResolutionCapture(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("artifactHash is already bound to another probability resolution capture");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   public loadProbabilityCalibrationBounds(

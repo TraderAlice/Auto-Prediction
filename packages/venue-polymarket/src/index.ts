@@ -1,4 +1,4 @@
-import { parseFixed } from "@pmh/domain";
+import { parseFixed, type Hash } from "@pmh/domain";
 import type { VerifiedRawFixture } from "@pmh/evidence";
 import type { VerifiedStreamFixture } from "@pmh/evidence";
 import type { NormalizedBookUpdate } from "@pmh/market-state";
@@ -25,6 +25,26 @@ const MarketSchema = z.object({
 });
 
 const StringArraySchema = z.array(z.string());
+
+const ResolutionMarketSchema = z.object({
+  id: z.string(),
+  closed: z.boolean(),
+  closedTime: z.string().nullable().optional(),
+  umaResolutionStatus: z.string().nullable().optional(),
+  outcomes: z.string(),
+  outcomePrices: z.string(),
+  clobTokenIds: z.string(),
+});
+
+export type PolymarketBinaryResolution = Readonly<{
+  venueInstrumentId: string;
+  truthValue: boolean;
+  winningOutcome: "Yes" | "No";
+  winningOutcomeId: string;
+  resolvedAt: string;
+  sourceRawHash: Hash;
+  protocolIdentity: string;
+}>;
 
 const BookLevelSchema = z.object({
   price: z.string(),
@@ -131,6 +151,50 @@ export function normalizePolymarketCatalog(
       sourceFixtureHash: fixture.rawHash,
       protocolIdentity: fixture.metadata.protocolVersion,
     };
+  });
+}
+
+export function decodePolymarketBinaryResolution(
+  fixture: VerifiedRawFixture,
+  expectedVenueInstrumentId?: string,
+): PolymarketBinaryResolution | null {
+  if (
+    fixture.metadata.venue !== polymarketManifest.venueId ||
+    fixture.metadata.protocolVersion !== polymarketManifest.protocolIdentity
+  ) throw new Error("fixture protocol does not match Polymarket resolution adapter");
+  const market = ResolutionMarketSchema.parse(
+    parseJsonWithNumberLexemes(new TextDecoder("utf-8", { fatal: true }).decode(fixture.bytes)),
+  );
+  if (expectedVenueInstrumentId !== undefined && market.id !== expectedVenueInstrumentId) {
+    throw new Error("Polymarket resolution market does not match the requested instrument");
+  }
+  if (!market.closed || market.umaResolutionStatus !== "resolved") return null;
+  if (market.closedTime === undefined || market.closedTime === null) {
+    throw new Error("resolved Polymarket market has no venue-reported close time");
+  }
+  const resolvedEpoch = Date.parse(market.closedTime);
+  if (!Number.isFinite(resolvedEpoch)) {
+    throw new Error("resolved Polymarket market close time is invalid");
+  }
+  const labels = StringArraySchema.parse(JSON.parse(market.outcomes));
+  const prices = StringArraySchema.parse(JSON.parse(market.outcomePrices));
+  const outcomeIds = StringArraySchema.parse(JSON.parse(market.clobTokenIds));
+  if (
+    labels.length !== 2 || labels[0]?.toLowerCase() !== "yes" ||
+    labels[1]?.toLowerCase() !== "no" || prices.length !== 2 ||
+    outcomeIds.length !== 2 ||
+    !((prices[0] === "1" && prices[1] === "0") ||
+      (prices[0] === "0" && prices[1] === "1"))
+  ) throw new Error("resolved Polymarket binary payout vector is not exact Yes/No");
+  const winningIndex = prices[0] === "1" ? 0 : 1;
+  return Object.freeze({
+    venueInstrumentId: market.id,
+    truthValue: winningIndex === 0,
+    winningOutcome: winningIndex === 0 ? "Yes" as const : "No" as const,
+    winningOutcomeId: outcomeIds[winningIndex]!,
+    resolvedAt: new Date(resolvedEpoch).toISOString(),
+    sourceRawHash: fixture.rawHash,
+    protocolIdentity: fixture.metadata.protocolVersion,
   });
 }
 

@@ -101,6 +101,11 @@ import {
 } from "./probability-calibration-desk.js";
 import type { ProbabilityResolutionEvidence } from "./probability-calibration.js";
 import {
+  parseProbabilityResolutionInterval,
+  ProbabilityResolutionAcquisitionScheduler,
+  type ProbabilityResolutionCaptureStore,
+} from "./probability-resolution-acquisition.js";
+import {
   parseSemanticReviewTickInterval,
   SemanticReviewScheduler,
   type SemanticReviewCandidate,
@@ -488,6 +493,18 @@ function supportsProbabilityCalibrationRecords(
     typeof candidate.saveProbabilityCalibrationSnapshot === "function";
 }
 
+function supportsProbabilityResolutionCaptures(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ProbabilityResolutionCaptureStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ProbabilityResolutionCaptureStore>;
+  return candidate.probabilityResolutionCaptureStorage !== undefined &&
+    candidate.probabilityResolutionSourceStorage !== undefined &&
+    typeof candidate.loadProbabilityResolutionCaptures === "function" &&
+    typeof candidate.saveProbabilityResolutionCapture === "function" &&
+    typeof candidate.loadProbabilityResolutionSource === "function";
+}
+
 function supportsSemanticReviewSchedulerRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & SemanticReviewSchedulerStore {
@@ -737,6 +754,7 @@ export function createControlPlane(options?: {
   probabilityEstimationDesk?: ProbabilityEstimationDesk;
   probabilityEstimationScheduler?: ProbabilityEstimationScheduler;
   probabilityCalibrationDesk?: ProbabilityCalibrationDesk;
+  probabilityResolutionAcquisitionScheduler?: ProbabilityResolutionAcquisitionScheduler;
   aiUsageLedger?: AiUsageLedger;
   aiRuntimeConfigurationDesk?: AiRuntimeConfigurationDesk;
   modelRuntimeFactory?: (configuration: AiRuntimeConfiguration) => DiscoveryModelRuntime;
@@ -1038,6 +1056,15 @@ export function createControlPlane(options?: {
     new ProbabilityCalibrationDesk({
       boundSource: () => probabilityEstimationScheduler.projection().bounds,
       ...(supportsProbabilityCalibrationRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const probabilityResolutionAcquisitionScheduler =
+    options?.probabilityResolutionAcquisitionScheduler ??
+    new ProbabilityResolutionAcquisitionScheduler({
+      sink: probabilityCalibrationDesk,
+      intervalMs: parseProbabilityResolutionInterval(process.env),
+      ...(supportsProbabilityResolutionCaptures(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -1484,6 +1511,7 @@ export function createControlPlane(options?: {
       probabilityEstimation: probabilityEstimationDesk.projection(),
       probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
       probabilityCalibration: probabilityCalibrationDesk.projection(),
+      probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
       aiUsage: aiUsageLedger.projection(),
       runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
       semanticReviewAdmission,
@@ -1639,6 +1667,7 @@ export function createControlPlane(options?: {
         probabilityEstimation: probabilityEstimationDesk.projection(),
         probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
         probabilityCalibration: probabilityCalibrationDesk.projection(),
+        probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
         aiUsage: aiUsageLedger.projection(),
         runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
         premiseAnalysis: premiseAnalysisDesk.projection(),
@@ -1724,6 +1753,38 @@ export function createControlPlane(options?: {
     ) {
       await ready;
       writeJson(response, 200, probabilityCalibrationDesk.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/probability-resolution-acquisition"
+    ) {
+      await ready;
+      writeJson(response, 200, probabilityResolutionAcquisitionScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/probability-resolution-acquisition/runs"
+    ) {
+      try {
+        await ready;
+        await probabilityResolutionAcquisitionScheduler.runNow();
+        await broadcastProjection();
+        writeJson(response, 200, Object.freeze({
+          ok: true,
+          probabilityResolutionAcquisition:
+            probabilityResolutionAcquisitionScheduler.projection(),
+          probabilityCalibration: probabilityCalibrationDesk.projection(),
+          executionAuthority: false as const,
+        }));
+      } catch (error) {
+        writeJson(response, 502, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "resolution acquisition failed",
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (
@@ -3089,6 +3150,7 @@ export function createControlPlane(options?: {
   let searchAttentionTimer: ReturnType<typeof setInterval> | null = null;
   let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
   let probabilityEstimationTimer: ReturnType<typeof setInterval> | null = null;
+  let probabilityResolutionTimer: ReturnType<typeof setInterval> | null = null;
   let premiseAnalysisTimer: ReturnType<typeof setInterval> | null = null;
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
@@ -3220,6 +3282,24 @@ export function createControlPlane(options?: {
       probabilityEstimationTimer.unref();
     });
   }
+  const probabilityResolutionTickMs = probabilityResolutionAcquisitionScheduler.intervalMs;
+  if (probabilityResolutionTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const run = probabilityResolutionAcquisitionScheduler.tick();
+          if (run === null) return;
+          void broadcastProjection();
+          void run.then(() => broadcastProjection(), () => broadcastProjection());
+        } catch {
+          // The next bounded tick retries anonymous resolution acquisition.
+        }
+      };
+      tick();
+      probabilityResolutionTimer = setInterval(tick, probabilityResolutionTickMs);
+      probabilityResolutionTimer.unref();
+    });
+  }
   const premiseAnalysisTickMs = premiseAnalysisScheduler.tickIntervalMs;
   if (premiseAnalysisTickMs !== null) {
     void ready.then(() => {
@@ -3280,6 +3360,7 @@ export function createControlPlane(options?: {
     if (searchAttentionTimer !== null) clearInterval(searchAttentionTimer);
     if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
     if (probabilityEstimationTimer !== null) clearInterval(probabilityEstimationTimer);
+    if (probabilityResolutionTimer !== null) clearInterval(probabilityResolutionTimer);
     if (premiseAnalysisTimer !== null) clearInterval(premiseAnalysisTimer);
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
@@ -3307,6 +3388,7 @@ export function createControlPlane(options?: {
     probabilityEstimationDesk,
     probabilityEstimationScheduler,
     probabilityCalibrationDesk,
+    probabilityResolutionAcquisitionScheduler,
     aiUsageLedger,
     semanticReviewScheduler,
     premiseAnalysisDesk,

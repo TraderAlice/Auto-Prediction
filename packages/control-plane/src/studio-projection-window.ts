@@ -13,6 +13,7 @@ export const LIVE_PROJECTION_LIMITS = Object.freeze({
   probabilityEstimationNotifications: 12,
   probabilityCalibrationObservations: 20,
   probabilityCalibrationSnapshots: 12,
+  probabilityResolutionCaptures: 20,
   aiUsageEvents: 48,
   searchLeases: 8,
   marketArchaeologistRuns: 4,
@@ -138,6 +139,12 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
     "ai.probabilityCalibration.snapshots",
     full.ai.probabilityCalibration.snapshots,
     LIVE_PROJECTION_LIMITS.probabilityCalibrationSnapshots,
+    "RETAINED_ORDER",
+  );
+  const probabilityResolutionCaptures = window(
+    "ai.probabilityResolutionAcquisition.captures",
+    full.ai.probabilityResolutionAcquisition.captures,
+    LIVE_PROJECTION_LIMITS.probabilityResolutionCaptures,
     "RETAINED_ORDER",
   );
   const aiUsageEvents = window(
@@ -335,6 +342,10 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
         ...full.ai.probabilityCalibration,
         observations: probabilityCalibrationObservations,
         snapshots: probabilityCalibrationSnapshots,
+      }),
+      probabilityResolutionAcquisition: Object.freeze({
+        ...full.ai.probabilityResolutionAcquisition,
+        captures: probabilityResolutionCaptures,
       }),
       aiUsage: Object.freeze({ ...full.ai.aiUsage, recentEvents: aiUsageEvents }),
       semanticReviewAdmission: Object.freeze({

@@ -195,10 +195,15 @@ between milestones. A strict API accepts source-hashed per-listing settlement
 evidence, while the bounded Studio view shows pending bounds, adverse outcomes,
 cohort sufficiency, interval misses, Brier score, and milestone history without
 claiming that dashboard status text is a result. Official anonymous venue-
-resolution capture and search-family lineage are next.
-Node 24.14.0 checks, all 551 workspace tests (402 control-plane), and the
-production build pass. Studio desktop and 390 px inspection show the new
-calibration section without console warnings or horizontal overflow.
+resolution capture is now wired end to end. Strict Global decoding requires
+resolved status, an exact binary payout vector, and a venue-reported close time
+before first-party code can auto-score a registered bound. US exact 0/1 payouts
+are content-addressed but visibly blocked because the official anonymous
+settlement response has no resolution timestamp; fetch time is never
+substituted. SQLite schema v29 separates deduplicated raw bytes from immutable
+capture records, the five-minute scheduler survives restart, and API/Studio
+manual polling uses the same bounded path. Search-family lineage and cohort
+admission are next.
 
 The unified AI usage ledger is now implemented locally. SQLite schema v26
 retains one immutable event per invocation and rolls it up by purpose, role,

@@ -1,7 +1,10 @@
 import { resolve } from "node:path";
+import { hashBytes } from "@pmh/domain";
 import { loadRawFixture } from "@pmh/evidence";
+import { verifyRawFixture } from "@pmh/evidence";
 import { describe, expect, it } from "vitest";
 import {
+  decodePolymarketUsBinarySettlement,
   decodePolymarketUsBookSnapshot,
   normalizePolymarketUsBbo,
   normalizePolymarketUsCatalog,
@@ -18,6 +21,25 @@ async function fixture(name: string) {
     resolve(fixtureRoot, `${name}.json`),
     resolve(fixtureRoot, `${name}.meta.json`),
   );
+}
+
+function settlementFixture(settlement: number, slug = "resolved-market") {
+  const bytes = new TextEncoder().encode(JSON.stringify({ slug, settlement }));
+  return verifyRawFixture(bytes, {
+    schemaVersion: "pmh.raw-fixture.v1",
+    name: "polymarket-us-settlement",
+    venue: polymarketUsManifest.venueId,
+    protocolVersion: polymarketUsManifest.protocolIdentity,
+    sourceUrl: `https://gateway.polymarket.us/v1/markets/${slug}/settlement`,
+    fetchedAt: "2026-08-09T09:00:00.000Z",
+    httpStatus: 200,
+    contentType: "application/json",
+    etag: null,
+    lastModified: null,
+    rawHash: hashBytes(bytes),
+    byteLength: String(bytes.byteLength),
+    acquisition: { method: "GET", credentialsUsed: false, valueMovingOperation: false },
+  });
 }
 
 describe("Polymarket US anonymous public data", () => {
@@ -83,5 +105,32 @@ describe("Polymarket US anonymous public data", () => {
       executableDepth: false,
     });
     expect(observation.artifactHash).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  });
+
+  it("decodes an exact US settlement without inventing a resolution time", () => {
+    expect(decodePolymarketUsBinarySettlement(settlementFixture(1), "resolved-market"))
+      .toMatchObject({
+        venueInstrumentId: "resolved-market",
+        truthValue: true,
+        settlementPrice: "1",
+        resolvedAt: null,
+        resolutionTimeBasis: "UNAVAILABLE_FROM_ANONYMOUS_SETTLEMENT_ENDPOINT",
+        protocolIdentity: polymarketUsManifest.protocolIdentity,
+      });
+    expect(decodePolymarketUsBinarySettlement(settlementFixture(0))).toMatchObject({
+      truthValue: false,
+      settlementPrice: "0",
+      resolvedAt: null,
+    });
+  });
+
+  it("rejects a mismatched or fractional US settlement", () => {
+    expect(() => decodePolymarketUsBinarySettlement(
+      settlementFixture(1),
+      "elsewhere",
+    )).toThrow(/requested instrument/u);
+    expect(() => decodePolymarketUsBinarySettlement(settlementFixture(0.5))).toThrow(
+      /exact binary payout/u,
+    );
   });
 });

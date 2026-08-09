@@ -264,6 +264,14 @@ export class ProbabilityCalibrationDesk {
     });
   }
 
+  public pendingBounds(): readonly ProbabilisticSemanticBoundArtifact[] {
+    this.#syncBounds();
+    const observed = new Set(this.#observations.map((item) => item.boundArtifactHash));
+    return Object.freeze(this.#registeredBounds
+      .filter((bound) => !observed.has(bound.artifactHash))
+      .slice());
+  }
+
   public projection(): ProbabilityCalibrationDeskProjection {
     this.#syncBounds();
     const bounds = this.#registeredBounds;

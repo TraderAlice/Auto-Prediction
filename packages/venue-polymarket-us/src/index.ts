@@ -45,6 +45,20 @@ const MarketSchema = z.object({
 });
 
 const CatalogSchema = z.object({ markets: z.array(MarketSchema) });
+const SettlementSchema = z.object({
+  slug: z.string(),
+  settlement: z.string(),
+});
+
+export type PolymarketUsBinarySettlement = Readonly<{
+  venueInstrumentId: string;
+  truthValue: boolean;
+  settlementPrice: "0" | "1";
+  resolvedAt: null;
+  resolutionTimeBasis: "UNAVAILABLE_FROM_ANONYMOUS_SETTLEMENT_ENDPOINT";
+  sourceRawHash: Hash;
+  protocolIdentity: string;
+}>;
 
 const BookLevelSchema = z.object({ px: AmountSchema, qty: z.string() });
 const BookSchema = z.object({
@@ -225,6 +239,33 @@ export function normalizePolymarketUsCatalog(
       sourceFixtureHash: fixture.rawHash,
       protocolIdentity: fixture.metadata.protocolVersion,
     });
+  });
+}
+
+export function decodePolymarketUsBinarySettlement(
+  fixture: VerifiedRawFixture,
+  expectedVenueInstrumentId?: string,
+): PolymarketUsBinarySettlement {
+  if (
+    fixture.metadata.venue !== polymarketUsManifest.venueId ||
+    fixture.metadata.protocolVersion !== polymarketUsManifest.protocolIdentity
+  ) throw new Error("fixture protocol does not match Polymarket US settlement adapter");
+  const settlement = SettlementSchema.parse(decode(fixture));
+  if (
+    expectedVenueInstrumentId !== undefined &&
+    settlement.slug !== expectedVenueInstrumentId
+  ) throw new Error("Polymarket US settlement does not match the requested instrument");
+  if (settlement.settlement !== "0" && settlement.settlement !== "1") {
+    throw new Error("Polymarket US settlement is not an exact binary payout");
+  }
+  return Object.freeze({
+    venueInstrumentId: settlement.slug,
+    truthValue: settlement.settlement === "1",
+    settlementPrice: settlement.settlement,
+    resolvedAt: null,
+    resolutionTimeBasis: "UNAVAILABLE_FROM_ANONYMOUS_SETTLEMENT_ENDPOINT" as const,
+    sourceRawHash: fixture.rawHash,
+    protocolIdentity: fixture.metadata.protocolVersion,
   });
 }
 

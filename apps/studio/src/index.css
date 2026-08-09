@@ -5715,6 +5715,10 @@ footer span:first-child {
   grid-column: 1 / -1;
 }
 
+.attention-item-list > .resolution-acquisition-card {
+  grid-column: 1 / -1;
+}
+
 .attention-item-topline {
   flex-wrap: wrap;
   gap: 6px;

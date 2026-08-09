@@ -47,6 +47,7 @@ import type { SemanticReviewDeskProjection } from "./semantic-review.js";
 import type { ProbabilityEstimationDeskProjection } from "./probability-estimation-agent.js";
 import type { ProbabilityEstimationSchedulerProjection } from "./probability-estimation-scheduler.js";
 import type { ProbabilityCalibrationDeskProjection } from "./probability-calibration-desk.js";
+import type { ProbabilityResolutionAcquisitionProjection } from "./probability-resolution-acquisition.js";
 import { AiUsageLedger, type AiUsageProjection } from "./ai-usage-ledger.js";
 import {
   buildSemanticReviewAdmissionProjection,
@@ -129,6 +130,7 @@ export function buildStudioProjection(input: {
   probabilityEstimation?: ProbabilityEstimationDeskProjection;
   probabilityEstimationScheduler?: ProbabilityEstimationSchedulerProjection;
   probabilityCalibration?: ProbabilityCalibrationDeskProjection;
+  probabilityResolutionAcquisition?: ProbabilityResolutionAcquisitionProjection;
   aiUsage?: AiUsageProjection;
   runtimeConfiguration?: import("./ai-runtime-configuration.js").AiRuntimeConfigurationProjection;
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
@@ -914,6 +916,28 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     }),
   });
+  const probabilityResolutionAcquisition = input.probabilityResolutionAcquisition ?? Object.freeze({
+    schemaVersion: "pmh.probability-resolution-acquisition.v1" as const,
+    enabled: false, status: "DISABLED" as const, intervalMs: null,
+    timeoutMs: 30_000, maxResponseBytes: 1_000_000, nextPollAt: null,
+    pendingBoundCount: 0, pendingListingCount: 0, capturedListingCount: 0,
+    resolvedListingCount: 0, timeUnavailableListingCount: 0, conflictListingCount: 0,
+    unsupportedListingCount: 0, unresolvedListingCount: 0, httpErrorListingCount: 0,
+    autoRecordedBoundCount: 0, runCount: 0, failedRequestCount: 0,
+    lastStartedAt: null, lastCompletedAt: null, lastDiagnostic: null,
+    captures: Object.freeze([]),
+    storage: Object.freeze({
+      captures: Object.freeze({ mode: "MEMORY" as const, durable: false, schemaVersion: 0,
+        idempotencyKey: "artifactHash" as const }),
+      sources: Object.freeze({ mode: "MEMORY" as const, durable: false, schemaVersion: 0,
+        idempotencyKey: "rawHash" as const }),
+    }),
+    authority: "ANONYMOUS_RESOLUTION_ORCHESTRATION_ONLY" as const,
+    probabilityCertificateAuthority: false as const, executionAuthority: false as const,
+    effects: Object.freeze({ anonymousPublicGets: true as const, modelCalls: false as const,
+      externalWrites: false as const, valueMovingActions: false as const,
+      liveExecutionEnabled: false as const }),
+  });
   const investigationDesk = input.investigationDesk ?? {
     retentionLimit: 10,
     activeCount: 0 as const,
@@ -1118,6 +1142,7 @@ export function buildStudioProjection(input: {
       probabilityEstimation,
       probabilityEstimationScheduler,
       probabilityCalibration,
+      probabilityResolutionAcquisition,
       aiUsage: input.aiUsage ?? new AiUsageLedger().projection(),
       runtimeConfiguration: input.runtimeConfiguration ?? Object.freeze({
         configuration: Object.freeze({

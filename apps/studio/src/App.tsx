@@ -267,6 +267,28 @@ const EMPTY_PROBABILITY_CALIBRATION:
     effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
   };
 
+const EMPTY_PROBABILITY_RESOLUTION_ACQUISITION:
+  StudioProjection["ai"]["probabilityResolutionAcquisition"] = {
+    schemaVersion: "pmh.probability-resolution-acquisition.v1",
+    enabled: false, status: "DISABLED", intervalMs: null,
+    timeoutMs: 30_000, maxResponseBytes: 1_000_000, nextPollAt: null,
+    pendingBoundCount: 0, pendingListingCount: 0, capturedListingCount: 0,
+    resolvedListingCount: 0, timeUnavailableListingCount: 0, conflictListingCount: 0,
+    unsupportedListingCount: 0, unresolvedListingCount: 0, httpErrorListingCount: 0,
+    autoRecordedBoundCount: 0, runCount: 0, failedRequestCount: 0,
+    lastStartedAt: null, lastCompletedAt: null, lastDiagnostic: null,
+    captures: [],
+    storage: {
+      captures: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "artifactHash" },
+      sources: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "rawHash" },
+    },
+    authority: "ANONYMOUS_RESOLUTION_ORCHESTRATION_ONLY",
+    probabilityCertificateAuthority: false,
+    executionAuthority: false,
+    effects: { anonymousPublicGets: true, modelCalls: false, externalWrites: false,
+      valueMovingActions: false, liveExecutionEnabled: false },
+  };
+
 const EMPTY_AI_USAGE: StudioProjection["ai"]["aiUsage"] = {
   schemaVersion: "pmh.ai-usage-ledger.v1",
   eventCount: 0,
@@ -1151,6 +1173,17 @@ async function requestDiscoveryRun(
     restored: result.idempotentReplay === true,
     partial: result.workerReports?.some((report) => report.status !== "PASS") ?? false,
   });
+}
+
+async function requestProbabilityResolutionRun(): Promise<void> {
+  const response = await fetch("/api/v1/probability-resolution-acquisition/runs", {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error("anonymous resolution acquisition failed");
+  const result = (await response.json()) as { executionAuthority?: boolean };
+  if (result.executionAuthority !== false) {
+    throw new Error("resolution acquisition crossed its authority boundary");
+  }
 }
 
 async function requestAiRuntimeConfigurationUpdate(
@@ -4226,6 +4259,9 @@ function OpportunityLifecycleView() {
       EMPTY_PROBABILITY_ESTIMATION_SCHEDULER;
   const probabilityCalibration =
     studioProjection.ai.probabilityCalibration ?? EMPTY_PROBABILITY_CALIBRATION;
+  const probabilityResolutionAcquisition =
+    studioProjection.ai.probabilityResolutionAcquisition ??
+      EMPTY_PROBABILITY_RESOLUTION_ACQUISITION;
   const aiUsage = studioProjection.ai.aiUsage ?? EMPTY_AI_USAGE;
   const reviewAdmission =
     studioProjection.ai.semanticReviewAdmission ?? EMPTY_SEMANTIC_REVIEW_ADMISSION;
@@ -4275,6 +4311,9 @@ function OpportunityLifecycleView() {
   const [premiseNotificationAction, setPremiseNotificationAction] = useState<string | null>(null);
   const [probabilityNotificationAction, setProbabilityNotificationAction] =
     useState<string | null>(null);
+  const [resolutionRunState, setResolutionRunState] = useState<
+    "IDLE" | "RUNNING" | "FAILED"
+  >("IDLE");
   const proposals = new Map(
     studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
       (record.report?.result.proposals ?? []).map((proposal) => [
@@ -4320,6 +4359,16 @@ function OpportunityLifecycleView() {
       await requestProbabilityNotificationAcknowledgement(notificationId);
     } finally {
       setProbabilityNotificationAction(null);
+    }
+  }
+
+  async function runResolutionAcquisition(): Promise<void> {
+    setResolutionRunState("RUNNING");
+    try {
+      await requestProbabilityResolutionRun();
+      setResolutionRunState("IDLE");
+    } catch {
+      setResolutionRunState("FAILED");
     }
   }
 
@@ -4530,6 +4579,11 @@ function OpportunityLifecycleView() {
           detail={`${probabilityCalibration.measuredGroupCount} measured cohorts · ${probabilityCalibration.storage.observations.durable ? "SQLite" : "memory"}`}
         />
         <Metric
+          label="Settlement capture"
+          value={`${probabilityResolutionAcquisition.resolvedListingCount}/${probabilityResolutionAcquisition.pendingListingCount}`}
+          detail={`${probabilityResolutionAcquisition.timeUnavailableListingCount} payout-only · ${probabilityResolutionAcquisition.storage.sources.durable ? "raw SQLite" : "memory"}`}
+        />
+        <Metric
           label="Public evidence"
           value={`${simulationMaterializer.retainedRawSourceCount}`}
           detail={`${simulationMaterializer.storage.durable ? "SQLite WAL" : "memory"} · content addressed`}
@@ -4648,6 +4702,46 @@ function OpportunityLifecycleView() {
           <div><strong>{probabilityCalibration.snapshotCount}</strong><span>milestone snapshots</span></div>
         </div>
         <div className="attention-item-list">
+          <article className="resolution-acquisition-card">
+            <div className="attention-item-topline">
+              <Badge variant={probabilityResolutionAcquisition.conflictListingCount > 0 || probabilityResolutionAcquisition.httpErrorListingCount > 0 ? "warning" : probabilityResolutionAcquisition.resolvedListingCount > 0 ? "verified" : "shadow"}>
+                ANONYMOUS CAPTURE · {probabilityResolutionAcquisition.status}
+              </Badge>
+              <Button
+                variant="ghost"
+                disabled={resolutionRunState === "RUNNING" || probabilityResolutionAcquisition.status === "POLLING"}
+                onClick={() => void runResolutionAcquisition()}
+              >
+                {resolutionRunState === "RUNNING" || probabilityResolutionAcquisition.status === "POLLING"
+                  ? "Polling…"
+                  : resolutionRunState === "FAILED" ? "Retry poll" : "Poll official results"}
+              </Button>
+            </div>
+            <strong>{probabilityResolutionAcquisition.resolvedListingCount} timed payouts · {probabilityResolutionAcquisition.timeUnavailableListingCount} payout-only</strong>
+            <p>
+              Global requires a resolved 1/0 vector plus venue-reported close time. US exact 0/1 settlement is retained, but remains calibration-blocked because the anonymous endpoint does not report when resolution occurred.
+            </p>
+            <div className="attention-item-facts">
+              <span>{probabilityResolutionAcquisition.pendingListingCount} pending listings</span>
+              <span>{probabilityResolutionAcquisition.unresolvedListingCount} not resolved</span>
+              <span>{probabilityResolutionAcquisition.conflictListingCount} conflicts</span>
+              <span>{probabilityResolutionAcquisition.failedRequestCount} request failures</span>
+            </div>
+            <small>Raw bytes content-addressed · deterministic venue adapters · 5-minute default cadence · no model calls</small>
+          </article>
+          {probabilityResolutionAcquisition.captures.slice(0, 6).map((capture) => (
+            <article key={capture.artifactHash}>
+              <div className="attention-item-topline">
+                <Badge variant={capture.status === "RESOLVED" ? "verified" : capture.status === "RESOLUTION_TIME_UNAVAILABLE" || capture.status === "UNRESOLVED" ? "shadow" : "warning"}>
+                  {capture.status.replaceAll("_", " ")}
+                </Badge>
+                <time>{new Date(capture.fetchedAt).toLocaleString()}</time>
+              </div>
+              <strong>{capture.listingRef}</strong>
+              <p>{capture.diagnostic ?? (capture.truthValue === null ? "No terminal payout in this response." : `Truth value ${capture.truthValue ? "YES" : "NO"}.`)}</p>
+              <small>{capture.protocolIdentity} · raw {capture.sourceRawHash.slice(0, 23)}… · {capture.byteLength} bytes</small>
+            </article>
+          ))}
           {probabilityCalibration.groups.length === 0 ? (
             <div className="review-operation-empty">
               <strong>No resolved probability outcomes retained yet</strong>
