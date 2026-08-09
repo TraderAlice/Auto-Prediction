@@ -275,7 +275,7 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
         );
         return [...queryTerms].some((term) => listingTerms.has(term));
       }) ?? [];
-    if (task.catalogContext !== undefined && relevantListings.length === 0) {
+    if (task.catalogContext !== undefined && relevantListings.length < 2) {
       return [];
     }
     const titleGroups = new Map<string, typeof relevantListings>();

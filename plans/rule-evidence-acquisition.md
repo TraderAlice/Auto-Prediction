@@ -378,6 +378,11 @@ official evidence to reach a deterministic accept/reject decision.
 7. **Implemented on the unpublished serial stack:** expose the interpretation
    queue, durable posture, disposition counts, attempt budget, and jobs in
    Studio without exposing raw document text.
+   Live Studio use later found a retained model-origin locator whose hostname
+   violated the adapter policy. Reconciliation now classifies that locator as
+   `UNSUPPORTED` with zero fetch attempts instead of letting policy validation
+   terminate the control-plane process; a regression test covers the stored
+   untrusted-locator path.
 8. Qualify against live anonymous official sources and the configured model,
    SQLite restart, desktop and 390 px layouts, then publish after serial PR #80
    merges.

@@ -82,6 +82,22 @@ covered by the mocked transport test. Studio also distinguishes partial pool
 results from a fully passing model run, so a heuristic fallback can no longer
 paint a failed model worker as “Proposal ready.”
 
+A same-surface live comparison then exposed a quality distinction that provider
+health alone could not show. Luna/high inspected the two Polymarket catalogs in
+37.6 seconds with eight requests and 28,279 tokens, but recorded one durable
+`COMPLETE_SET` hypothesis while its own thesis said no grounded relation was
+supported. Terra/high received the same search surface plus an explicit
+two-listing support condition and correctly abstained in 6.7 seconds with two
+requests and 4,326 tokens. The operator selection therefore remains Terra/high
+for semantic-relation discovery; Luna remains eligible for cheaper trailhead
+work, but not as the assumed quality baseline.
+
+This run also tightened the first-party effect contract. New semantic discovery
+hypotheses must bind at least two inspected listings. A single-listing pricing
+observation belongs to deterministic venue analysis, not the semantic Agent
+proposal lane. Heuristic workers follow the same admission rule, while stored
+historical artifacts retain their existing replay compatibility.
+
 ## Authority boundary
 
 This configuration changes model supply only. It grants no equivalence-review,

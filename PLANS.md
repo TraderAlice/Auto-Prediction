@@ -141,6 +141,15 @@ output, and 253 reasoning tokens. Concurrent scheduled Codex scouts also ran
 successfully. Studio now labels a mixed worker result as partial instead of
 claiming “Proposal ready” when only the heuristic fallback passed.
 
+A later same-surface Polymarket comparison made Terra/high the semantic-search
+baseline rather than merely a fallback. Luna/high spent eight requests and
+28,279 tokens over 37.6 seconds, then persisted a one-listing proposal while its
+own thesis said no grounded relation existed. Terra/high correctly abstained in
+two requests, 4,326 tokens, and 6.7 seconds. New Agent and heuristic proposals
+therefore require at least two inspected listing references; single-listing
+pricing remains a deterministic venue-solver concern, and historical stored
+artifacts retain replay compatibility.
+
 The product taxonomy now explicitly distinguishes hard arbitrage from
 probabilistic semantic arbitrage. A possible non-fatal shooting is not treated
 as a gotcha that discards the Trump shooting/live-cola pair; it is the adverse

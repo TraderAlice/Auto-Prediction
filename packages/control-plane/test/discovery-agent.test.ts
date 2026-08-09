@@ -116,7 +116,7 @@ describe("bounded discovery agent session", () => {
     expect(session.recordHypothesis({
       thesis: "An ungrounded guess.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
-      listingRefs: ["venue-c:invented"],
+      listingRefs: ["venue-a:rain-yes", "venue-c:invented"],
       claimSearchTerms: ["rain"],
       confidenceBps: 5_000,
     })).toMatchObject({ status: "REJECTED", reason: "UNKNOWN_LISTING" });
@@ -158,6 +158,30 @@ describe("bounded discovery agent session", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+  });
+
+  it("keeps single-listing observations out of the semantic proposal lane", () => {
+    const session = new DiscoveryAgentSession("model-agent", task, 12);
+    session.inspectListings({ listingRefs: ["venue-a:rain-yes"] });
+    expect(session.recordHypothesis({
+      thesis: "No grounded relation was found, but retain this contract.",
+      strategyKind: "COMPLETE_SET",
+      listingRefs: ["venue-a:rain-yes"],
+      claimSearchTerms: ["rainfall"],
+      confidenceBps: 9_000,
+    })).toMatchObject({
+      status: "REJECTED",
+      reason: "INVALID_INPUT",
+      guidance: expect.stringContaining("2-20 listingRefs"),
+    });
+    expect(session.completeSearch({ reason: "No relational lead survived inspection." }))
+      .toMatchObject({ status: "ACCEPTED", reason: "SEARCH_COMPLETED" });
+    expect(session.finish({
+      stepCount: 2,
+      providerRequestAttemptCount: 2,
+      toolCallCount: 3,
+      terminationReason: "EXPLICIT_COMPLETION",
+    }).hypotheses).toEqual([]);
   });
 
   it("makes exact repeated tool inputs idempotent", () => {

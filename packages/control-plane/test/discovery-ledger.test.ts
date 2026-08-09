@@ -9,7 +9,12 @@ import {
   HeuristicDiscoveryWorker,
   type DiscoveryTask,
 } from "../src/index.js";
-import { agentTask, proposalInput, TEST_LISTING_REF } from "./model-agent-fixtures.js";
+import {
+  agentTask,
+  proposalInput,
+  TEST_LISTING_REF,
+  TEST_LISTING_REFS,
+} from "./model-agent-fixtures.js";
 
 const baseTask: DiscoveryTask = {
   taskId: "task:one",
@@ -100,7 +105,7 @@ describe("discovery ledger", () => {
 
   it("round-trips a bounded agent effect journal and rejects trace substitution", async () => {
     const session = new DiscoveryAgentSession("model:journal", agentTask, 24);
-    session.inspectListings({ listingRefs: [TEST_LISTING_REF] });
+    session.inspectListings({ listingRefs: TEST_LISTING_REFS });
     session.recordHypothesis(proposalInput());
     session.completeSearch({ reason: "Grounded journal qualification complete." });
     const result = session.finish({

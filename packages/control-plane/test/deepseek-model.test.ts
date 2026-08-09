@@ -14,10 +14,15 @@ import {
   proposalInput,
   scriptedToolCall,
   TEST_LISTING_REF,
+  TEST_LISTING_REFS,
 } from "./model-agent-fixtures.js";
 
 const SMOKE_LISTING_REF =
   "gemini-predictions:GEMI-WXHIGH-BOS-2608010359-80TO81";
+const SMOKE_LISTING_REFS = Object.freeze([
+  SMOKE_LISTING_REF,
+  "gemini-predictions:GEMI-WXHIGH-BOS-2608010359-82TO83",
+]);
 
 describe("Vercel AI SDK DeepSeek discovery agent", () => {
   it("defaults to bounded DeepSeek V4 Flash agent runs", () => {
@@ -117,7 +122,7 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
     expect(JSON.stringify(bodies)).toContain("confidenceBps");
     expect(result.hypotheses[0]).toMatchObject({
       workerId: "model-fast-lane",
-      listingRefs: [TEST_LISTING_REF],
+      listingRefs: TEST_LISTING_REFS,
       authority: "PROPOSE_ONLY",
       reviewStatus: "UNREVIEWED",
     });
@@ -153,7 +158,7 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
         if (requestCount === 1) {
           return deepSeekRawToolResponse(
             "inspect_listings",
-            `{listingRefs:['${TEST_LISTING_REF}',],}`,
+            `{listingRefs:['${TEST_LISTING_REFS[0]}','${TEST_LISTING_REFS[1]}',],}`,
             requestCount,
           );
         }
@@ -331,9 +336,9 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
       async deepSeekFetcher() {
         requestCount += 1;
         const call = requestCount === 1
-          ? { name: "inspect_listings", input: { listingRefs: [SMOKE_LISTING_REF] } }
+          ? { name: "inspect_listings", input: { listingRefs: SMOKE_LISTING_REFS } }
           : requestCount === 2
-            ? { name: "record_hypothesis", input: proposalInput(SMOKE_LISTING_REF) }
+            ? { name: "record_hypothesis", input: proposalInput(SMOKE_LISTING_REFS) }
             : { name: "complete_search", input: { reason: "Qualified." } };
         return deepSeekToolResponse(call.name, call.input, requestCount);
       },

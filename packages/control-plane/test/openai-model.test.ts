@@ -9,6 +9,7 @@ import {
   openAiRawToolResponse,
   proposalInput,
   TEST_LISTING_REF,
+  TEST_LISTING_REFS,
 } from "./model-agent-fixtures.js";
 
 describe("Vercel AI SDK OpenAI Responses discovery agent", () => {
@@ -58,7 +59,7 @@ describe("Vercel AI SDK OpenAI Responses discovery agent", () => {
         if (ordinal === 2) {
           return openAiToolResponse(
             "inspect_listings",
-            { listingRefs: [TEST_LISTING_REF] },
+            { listingRefs: TEST_LISTING_REFS },
             ordinal,
           );
         }

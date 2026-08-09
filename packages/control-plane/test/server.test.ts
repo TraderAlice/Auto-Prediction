@@ -1890,9 +1890,7 @@ describe("control-plane HTTP surface", () => {
       catalogContextSource: "QUALIFIED_LIVE_OBSERVATIONS",
       catalogListingCount: 1,
       executionAuthority: false,
-      hypotheses: [
-        { authority: "PROPOSE_ONLY", reviewStatus: "UNREVIEWED" },
-      ],
+      hypotheses: [],
     });
     const current = await fetch(
       `${baseUrl}/api/v1/catalog/observations`,

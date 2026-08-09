@@ -20,7 +20,12 @@ import {
   type StoredAnonymousSimulationMaterialization,
   type StoredCandidateBookObservation,
 } from "../src/index.js";
-import { agentTask, proposalInput, TEST_LISTING_REF } from "./model-agent-fixtures.js";
+import {
+  agentTask,
+  proposalInput,
+  TEST_LISTING_REF,
+  TEST_LISTING_REFS,
+} from "./model-agent-fixtures.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
 const tempDirectories: string[] = [];
@@ -360,7 +365,7 @@ describe("SQLite operational store", () => {
   it("restores the exact discovery-agent effect journal across restart", async () => {
     const path = await databasePath();
     const session = new DiscoveryAgentSession("model:durable-agent", agentTask, 24);
-    session.inspectListings({ listingRefs: [TEST_LISTING_REF] });
+    session.inspectListings({ listingRefs: TEST_LISTING_REFS });
     session.recordHypothesis(proposalInput());
     session.completeSearch({ reason: "Persist the qualified tool loop." });
     const result = session.finish({

@@ -2,6 +2,7 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   assertEvidenceDocumentCapture,
   type EvidenceDocumentCapture,
+  type EvidenceDocumentFetchPolicy,
   type EvidenceDocumentFetcher,
 } from "./evidence-document.js";
 import {
@@ -354,7 +355,18 @@ export class EvidenceAcquisitionScheduler {
   }> | null {
     if (requirement.acquisitionRoute !== "DOCUMENT_LOCATOR") return null;
     for (const binding of requirement.eligibleLocators) {
-      const policy = this.#fetcher.policyFor(requirement, binding.locator.locatorIdentity);
+      let policy: EvidenceDocumentFetchPolicy | null;
+      try {
+        policy = this.#fetcher.policyFor(
+          requirement,
+          binding.locator.locatorIdentity,
+        );
+      } catch {
+        // Locator text may originate in untrusted venue or model evidence. A
+        // policy violation makes this route unsupported; it must not make a
+        // projection or scheduler reconciliation fatal.
+        continue;
+      }
       if (policy !== null) return Object.freeze({
         locatorIdentity: binding.locator.locatorIdentity,
         policyIdentity: policy.policyIdentity,

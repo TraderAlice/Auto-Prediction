@@ -394,7 +394,8 @@ export class DiscoveryAgentSession {
       (strategyKind !== "COMPLETE_SET" &&
         strategyKind !== "EXHAUSTIVE_RANGE" &&
         strategyKind !== "SAME_CLAIM_CROSS_VENUE") ||
-      listingRefs === null || claimSearchTerms === null ||
+      listingRefs === null || listingRefs.length < 2 ||
+      claimSearchTerms === null ||
       !Number.isSafeInteger(confidenceBps) || Number(confidenceBps) < 0 ||
       Number(confidenceBps) > 10_000
     ) {
@@ -402,7 +403,7 @@ export class DiscoveryAgentSession {
         "record_hypothesis",
         input,
         "INVALID_INPUT",
-        "Provide a bounded thesis, supported strategyKind, 1-20 listingRefs, 1-12 search terms, and integer confidenceBps 0-10000.",
+        "Provide a bounded relational thesis, supported strategyKind, 2-20 listingRefs, 1-12 search terms, and integer confidenceBps 0-10000. Single-listing pricing belongs to the deterministic venue solver, not this semantic Agent lane.",
       );
     }
     const unknown = listingRefs.filter((listingRef) =>
@@ -808,14 +809,14 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
     }),
     record_hypothesis: tool({
       description:
-        "Record one positive, unverified grounded search hypothesis. Do not use this for a relation you rejected. Input: {thesis, strategyKind: COMPLETE_SET|EXHAUSTIVE_RANGE|SAME_CLAIM_CROSS_VENUE, listingRefs, claimSearchTerms, confidenceBps: 0..10000}. Venue IDs are derived externally. Rejected inputs return guidance and may be corrected in a later step.",
+        "Record one positive, unverified grounded relation between at least two inspected listings. Do not use this for a relation you rejected, an abstention, or a single-listing pricing observation. Input: {thesis, strategyKind: COMPLETE_SET|EXHAUSTIVE_RANGE|SAME_CLAIM_CROSS_VENUE, listingRefs, claimSearchTerms, confidenceBps: 0..10000}. Venue IDs are derived externally. Rejected inputs return guidance and may be corrected in a later step.",
       inputSchema: describedObjectSchema({
         thesis: { description: "Non-empty hypothesis text up to 500 characters." },
         strategyKind: {
           description: "COMPLETE_SET, EXHAUSTIVE_RANGE, or SAME_CLAIM_CROSS_VENUE.",
         },
         listingRefs: {
-          description: "Array of 1-20 exact listingRef strings already inspected.",
+          description: "Array of 2-20 exact listingRef strings already inspected.",
         },
         claimSearchTerms: {
           description: "Array of 1-12 concise claim search strings.",

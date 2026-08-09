@@ -227,6 +227,30 @@ describe("durable evidence acquisition scheduler", () => {
     });
   });
 
+  it("terminalizes a locator outside the first-party host policy without crashing", () => {
+    const time = clock();
+    const invalid = requirement("wrong-host", {
+      url: "https://untrusted.example.net/rules.txt",
+    });
+    const read = vi.fn<EvidenceDocumentFetchLike>();
+    const scheduler = new EvidenceAcquisitionScheduler({
+      fetcher: fetcher(read, time.now),
+      tickIntervalMs: 1_000,
+      now: time.now,
+    });
+
+    expect(() => scheduler.reconcile([invalid])).not.toThrow();
+    expect(scheduler.tick([invalid])).toEqual([]);
+    expect(read).not.toHaveBeenCalled();
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      status: "UNSUPPORTED",
+      locatorIdentity: null,
+      policyIdentity: null,
+      attemptCount: 0,
+      diagnostic: "no first-party document acquisition policy admits this evidence scope",
+    });
+  });
+
   it("bounds transient retries and terminalizes the exhausted fetch budget", async () => {
     const time = clock();
     const input = requirement("retry", {
