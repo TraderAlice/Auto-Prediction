@@ -20,6 +20,28 @@ Trump live-cola contract. The pair is a useful retrieval neighborhood even
 though a non-fatal shooting permits both outcomes. Retrieval must surface the
 pair without claiming hard mutual exclusion, probability, or arbitrage.
 
+A second product failure is now explicit: treating a pre-written claim as the
+default discovery input drives the system toward obvious, well-covered market
+clusters. Those are easy to name precisely but often have the least remaining
+semantic edge. A claim is therefore a useful unit of validation and monitoring,
+not the only or primary source of search inspiration.
+
+## Discovery posture
+
+Default discovery is heuristic-first. The system should generate bounded
+trailheads from observable oddities in the corpus—rare entity/time/mechanism
+intersections, newly listed or materially changed rules, unusual relation
+neighborhoods, cross-venue wording divergence, and price-shape anomalies—then
+let the Agent inspect, branch, falsify, and only afterwards record a candidate
+claim or a durable negative finding.
+
+Claim-first search remains a supported exploitation lane for known semantic
+constraints, scheduled monitoring, regression cases, and operator-supplied
+hypotheses. It must not dominate the exploration queue or be presented as the
+product's primary discovery method. The selection metric is useful retained
+novelty per unit of AI and operator cost, not the number of familiar claims
+matched.
+
 ## Contract
 
 - A first-party deterministic ranker generates at most 64 family-specific
@@ -57,6 +79,12 @@ After the anonymous qualification, revise token/cue weights only from retained
 false-positive and abstention evidence. Do not add embedding or model reranking
 until the deterministic baseline exposes which families need it. Retrieval
 quality and semantic-review quality remain separate metrics.
+
+The next discovery comparison must measure heuristic-origin and claim-origin
+work separately: unique relation neighborhoods reached, useful falsifications,
+review-worthy candidates, repeated/common-market concentration, token cost, and
+operator follow-up. That evidence decides the exploration/exploitation mix; a
+fixed claim queue must not silently become the default again.
 
 ## 2026-08-02 anonymous-corpus checkpoint
 

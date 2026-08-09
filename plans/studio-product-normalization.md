@@ -29,6 +29,21 @@ ordinary application conventions:
 This is a presentation and product-comprehension change. It must not modify
 Agent authority, scheduling, persistence, evidence, or execution behavior.
 
+## Typography and component-system follow-on
+
+The first normalization pass fixed the shell hierarchy but retained the old
+console's typography debt: dozens of one-off sizes below 12 px, monospace used
+as ordinary prose, and native form controls with unrelated browser styling.
+The follow-on establishes a small, reusable shadcn-compatible UI layer:
+
+- Inter is the application face; JetBrains Mono is reserved for identifiers,
+  hashes, protocol values, and other exact machine-readable text;
+- visible interface text has a 12 px floor and uses a bounded type scale;
+- Input, Textarea, Badge, Button, Card, and Radix-backed Select share the same
+  semantic tokens, radius, focus ring, disabled state, and dark surfaces;
+- Overview, Market Archaeologist, Opportunity Lifecycle, Scout Inbox, and the
+  command palette use those primitives without changing their behavior.
+
 ## Qualification
 
 - Existing control-plane and Studio type checks pass.
@@ -43,3 +58,10 @@ Archaeologist; a temporary 390×844 viewport measured equal 375 px body and
 document widths, including the open mobile navigation. No browser console
 warnings or errors were emitted. All workspace type checks, ten Studio tests,
 and the production Studio build pass on the current worktree.
+
+The typography follow-on was visually requalified on Overview, Market
+Archaeologist, and Opportunity Lifecycle at desktop width and on Opportunity
+Lifecycle at 390×844. The computed visible-text audit reports Inter as the body
+face, a 12 px minimum, and no document overflow. The Radix Select portal opens,
+exposes accessible combobox/option roles, and closes without changing the saved
+runtime selection.

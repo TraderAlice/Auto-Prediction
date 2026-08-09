@@ -39,6 +39,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   StudioProjectionProvider,
   resolveReviewIntake,
@@ -2380,34 +2389,40 @@ function Overview({
             </div>
             <label>
               <span>Model</span>
-              <select
-                aria-label="Codex model"
-                value={runtimeConfiguration.configuration.codexModel}
-                disabled={configurationStatus === "SAVING"}
-                onChange={(event) => void updateAiRuntimeConfiguration({
-                  codexModel: event.target.value as AiRuntimeConfiguration["codexModel"],
-                })}
-              >
+            <Select
+              aria-label="Codex model"
+              value={runtimeConfiguration.configuration.codexModel}
+              disabled={configurationStatus === "SAVING"}
+              onValueChange={(value) => void updateAiRuntimeConfiguration({
+                codexModel: value as AiRuntimeConfiguration["codexModel"],
+              })}
+            >
+              <SelectTrigger aria-label="Codex model"><SelectValue /></SelectTrigger>
+              <SelectContent>
                 {runtimeConfiguration.availableCodexModels.map((model) => (
-                  <option key={model} value={model}>{model.replace("gpt-5.6-", "")}</option>
+                  <SelectItem key={model} value={model}>{model.replace("gpt-5.6-", "")}</SelectItem>
                 ))}
-              </select>
-            </label>
-            <label>
-              <span>Reasoning effort</span>
-              <select
-                aria-label="Codex reasoning effort"
-                value={runtimeConfiguration.configuration.codexReasoningEffort}
-                disabled={configurationStatus === "SAVING"}
-                onChange={(event) => void updateAiRuntimeConfiguration({
-                  codexReasoningEffort:
-                    event.target.value as AiRuntimeConfiguration["codexReasoningEffort"],
-                })}
-              >
+              </SelectContent>
+            </Select>
+          </label>
+          <label>
+            <span>Reasoning effort</span>
+            <Select
+              aria-label="Codex reasoning effort"
+              value={runtimeConfiguration.configuration.codexReasoningEffort}
+              disabled={configurationStatus === "SAVING"}
+              onValueChange={(value) => void updateAiRuntimeConfiguration({
+                codexReasoningEffort:
+                  value as AiRuntimeConfiguration["codexReasoningEffort"],
+              })}
+            >
+              <SelectTrigger aria-label="Codex reasoning effort"><SelectValue /></SelectTrigger>
+              <SelectContent>
                 {runtimeConfiguration.availableCodexReasoningEfforts.map((effort) => (
-                  <option key={effort} value={effort}>{effort}</option>
+                  <SelectItem key={effort} value={effort}>{effort}</SelectItem>
                 ))}
-              </select>
+              </SelectContent>
+            </Select>
             </label>
           </div>
           <p className="ai-runtime-description">
@@ -3831,24 +3846,30 @@ function MarketArchaeologistView() {
           <form className="search-issue-form" onSubmit={(event) => { event.preventDefault(); void createIssue(); }}>
             <div>
               <span className="eyebrow"><Plus size={12} /> New bounded search issue</span>
-              <input aria-label="Search issue title" placeholder="Issue title" maxLength={120} required value={newIssueTitle} onChange={(event) => setNewIssueTitle(event.target.value)} />
-              <textarea aria-label="Search issue question" placeholder="What recurring semantic pattern should the agent search and try to falsify?" maxLength={1000} required value={newIssueQuestion} onChange={(event) => setNewIssueQuestion(event.target.value)} />
+              <Input aria-label="Search issue title" placeholder="Issue title" maxLength={120} required value={newIssueTitle} onChange={(event) => setNewIssueTitle(event.target.value)} />
+              <Textarea aria-label="Search issue question" placeholder="What recurring semantic pattern should the agent search and try to falsify?" maxLength={1000} required value={newIssueQuestion} onChange={(event) => setNewIssueQuestion(event.target.value)} />
             </div>
             <label>
               <span>Lens</span>
-              <select value={newIssueLens} onChange={(event) => setNewIssueLens(event.target.value as SearchIssue["lens"])}>
-                {scheduler.lensOrder.map((lens) => <option key={lens} value={lens}>{lens}</option>)}
-              </select>
+              <Select value={newIssueLens} onValueChange={(value) => setNewIssueLens(value as SearchIssue["lens"])}>
+                <SelectTrigger aria-label="Lens"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {scheduler.lensOrder.map((lens) => <SelectItem key={lens} value={lens}>{lens}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </label>
             <label>
               <span>Cadence</span>
-              <select value={newIssueCadenceMinutes} onChange={(event) => setNewIssueCadenceMinutes(Number(event.target.value))}>
-                <option value={5}>5 minutes</option>
-                <option value={15}>15 minutes</option>
-                <option value={30}>30 minutes</option>
-                <option value={60}>1 hour</option>
-                <option value={360}>6 hours</option>
-              </select>
+              <Select value={String(newIssueCadenceMinutes)} onValueChange={(value) => setNewIssueCadenceMinutes(Number(value))}>
+                <SelectTrigger aria-label="Cadence"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5">5 minutes</SelectItem>
+                  <SelectItem value="15">15 minutes</SelectItem>
+                  <SelectItem value="30">30 minutes</SelectItem>
+                  <SelectItem value="60">1 hour</SelectItem>
+                  <SelectItem value="360">6 hours</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
             <Button disabled={issueAction !== null || newIssueTitle.trim() === "" || newIssueQuestion.trim() === ""} type="submit">
               {issueAction === "CREATE" ? <RefreshCw className="is-spinning" size={13} /> : <Plus size={13} />}
@@ -3998,7 +4019,7 @@ function MarketArchaeologistView() {
           </Badge>
         </CardHeader>
         <CardContent>
-          <textarea
+          <Textarea
             aria-label="Market Archaeologist question"
             value={question}
             maxLength={1000}
@@ -5551,7 +5572,7 @@ function OpportunityLifecycleView() {
                           <label htmlFor={`rationale-${item.opportunityId}`}>
                             Research-only operator rationale
                           </label>
-                          <textarea
+                          <Textarea
                             id={`rationale-${item.opportunityId}`}
                             value={rationale}
                             maxLength={2000}
@@ -6527,7 +6548,7 @@ function ScoutInboxView() {
           <CardContent>
             <label className="scout-question">
               <span>Research question</span>
-              <textarea
+              <Textarea
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 maxLength={500}
@@ -7947,7 +7968,7 @@ function CommandPalette({
       <div className="command-palette">
         <div className="command-input">
           <Search size={16} />
-          <input
+          <Input
             autoFocus
             aria-label="Search commands"
             placeholder="Jump to a projection…"

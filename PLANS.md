@@ -26,6 +26,14 @@ trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
 hard-arbitrage compiler.
 
+The discovery posture is now heuristic-first: corpus anomalies and unusual
+semantic neighborhoods generate inspiration, and claims are formed after an
+Agent has inspected a trailhead. Claim-first work remains a validation,
+monitoring, and operator-hypothesis lane rather than the primary discovery
+funnel. Studio normalization now also has a qualified shadcn-compatible
+component layer and a bounded Inter type scale with monospace reserved for exact
+machine values.
+
 ## Planning contract
 
 - `PLANS.md` is the short index and current checkpoint, not an append-only log.
