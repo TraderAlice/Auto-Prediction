@@ -721,6 +721,7 @@ const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler
   },
   records: [],
   findingSummaries: [],
+  findingInbox: [],
   authority: "PROPOSE_ONLY",
   semanticDecisionAuthority: false,
   certificateAuthority: false,
@@ -6576,17 +6577,20 @@ function OpportunityRadarView() {
   );
 }
 
-function ScoutInboxView() {
+function ScoutInboxView({
+  onNavigate,
+}: {
+  onNavigate: (view: View) => void;
+}) {
   const studioProjection = useStudioProjection();
+  const scheduler = studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
   const catalogContext =
     studioProjection.ai.catalogContext ?? EMPTY_CATALOG_CONTEXT;
   const catalogObservation = studioProjection.ai.catalogObservation;
   const eligibleVenues = studioProjection.venues.filter((venue) =>
     venue.capabilities.includes("MARKET_CATALOG"),
   );
-  const [question, setQuestion] = useState(
-    "Highest temperature in Boston on July 31, 2026?",
-  );
+  const [question, setQuestion] = useState("");
   const [selectedVenueIds, setSelectedVenueIds] = useState<readonly string[]>([
     "gemini-predictions",
   ]);
@@ -6602,6 +6606,14 @@ function ScoutInboxView() {
   const [investigationDiagnostic, setInvestigationDiagnostic] = useState<
     string | null
   >(null);
+  const [findingFilter, setFindingFilter] = useState<
+    "ATTENTION" | "POSITIVE" | "NEGATIVE" | "ALL"
+  >("ATTENTION");
+  const [findingAction, setFindingAction] = useState<string | null>(null);
+  const [findingDiagnostic, setFindingDiagnostic] = useState<string | null>(null);
+  const [explorationStatus, setExplorationStatus] = useState<
+    "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
+  >("IDLE");
   const liveContextEligible =
     catalogMode === "VERIFIED_FIXTURES" ||
     selectedVenueIds.every(
@@ -6609,6 +6621,46 @@ function ScoutInboxView() {
         catalogObservation.sources.find((source) => source.venueId === venueId)
           ?.contextEligible === true,
     );
+  const visibleFindings = scheduler.findingInbox.filter((item) => {
+    if (findingFilter === "ALL") return true;
+    if (findingFilter === "ATTENTION") return item.attentionRequired;
+    if (findingFilter === "POSITIVE") {
+      return item.kinds.includes("LEAD") || item.disposition === "PROPOSAL_AVAILABLE";
+    }
+    return item.kinds.includes("FALSIFIED") || item.disposition === "NO_LEAD";
+  });
+  const attentionCount = scheduler.findingInbox.filter((item) => item.attentionRequired).length;
+  const proposalCount = scheduler.findingInbox.filter(
+    (item) => item.disposition === "PROPOSAL_AVAILABLE",
+  ).length;
+  const negativeCount = scheduler.findingInbox.filter(
+    (item) => item.kinds.includes("FALSIFIED"),
+  ).length;
+  const retryCount = scheduler.findingInbox.filter((item) => item.retryAvailable).length;
+
+  async function exploreNext(): Promise<void> {
+    setExplorationStatus("RUNNING");
+    setFindingDiagnostic(null);
+    try {
+      const restored = await requestSearchLease();
+      setExplorationStatus(restored ? "RESTORED" : "DONE");
+    } catch (error) {
+      setExplorationStatus("FAILED");
+      setFindingDiagnostic(error instanceof Error ? error.message : "search lease failed");
+    }
+  }
+
+  async function retryFinding(leaseId: string): Promise<void> {
+    setFindingAction(leaseId);
+    setFindingDiagnostic(null);
+    try {
+      await requestSearchDeepRetry(leaseId);
+    } catch (error) {
+      setFindingDiagnostic(error instanceof Error ? error.message : "deep retry failed");
+    } finally {
+      setFindingAction(null);
+    }
+  }
 
   function toggleVenue(venueId: string): void {
     setSelectedVenueIds((current) =>
@@ -6653,15 +6705,142 @@ function ScoutInboxView() {
   return (
     <section className="page-section">
       <div className="page-heading scout-heading">
-        <span className="eyebrow">Subjective search · bounded authority</span>
-        <h1>Scout inbox</h1>
-        <p>
-          Cheap workers can broaden the search surface and suggest semantic
-          connections. Positive leads land as unreviewed proposals; disproved
-          relations remain separate negative search evidence. Neither can
-          become a claim link, certificate, or order by itself.
-        </p>
+        <div>
+          <span className="eyebrow">Durable search effects · operator attention</span>
+          <h1>Finding inbox</h1>
+          <p>
+            See what scheduled Agents found before inventing another question.
+            Priority means required workflow attention—not confidence, profit,
+            or permission to trade.
+          </p>
+        </div>
+        <Button
+          disabled={scheduler.status === "RUNNING" || explorationStatus === "RUNNING"}
+          onClick={() => void exploreNext()}
+        >
+          {explorationStatus === "RUNNING" ? (
+            <RefreshCw className="is-spinning" size={13} />
+          ) : (
+            <Sparkles size={13} />
+          )}
+          {explorationStatus === "RUNNING"
+            ? "Exploring…"
+            : explorationStatus === "RESTORED"
+              ? "Latest scan restored"
+              : explorationStatus === "FAILED"
+                ? "Retry exploration"
+                : "Explore next"}
+        </Button>
       </div>
+
+      <div className="finding-inbox-summary" aria-label="Finding inbox summary">
+        <Metric label="Needs attention" value={`${attentionCount}`} detail="retry, review, or inspect" />
+        <Metric label="Proposals" value={`${proposalCount}`} detail="Pi artifacts available" />
+        <Metric label="Deep retries" value={`${retryCount}`} detail="fast result preserved" />
+        <Metric label="Negative evidence" value={`${negativeCount}`} detail="reusable falsifications" />
+      </div>
+
+      <section className="finding-inbox" aria-label="Durable finding inbox">
+        <div className="finding-inbox-toolbar">
+          <div>
+            <strong>Scheduled findings</strong>
+            <span>{scheduler.findingInbox.length} retained · source-bound to search leases</span>
+          </div>
+          <div className="finding-filter" role="group" aria-label="Filter findings">
+            {(["ATTENTION", "POSITIVE", "NEGATIVE", "ALL"] as const).map((filter) => (
+              <Button
+                key={filter}
+                size="sm"
+                variant={findingFilter === filter ? "default" : "ghost"}
+                onClick={() => setFindingFilter(filter)}
+              >
+                {filter === "ATTENTION" ? `Attention ${attentionCount}` : filter.toLowerCase()}
+              </Button>
+            ))}
+          </div>
+        </div>
+        {visibleFindings.length === 0 ? (
+          <div className="finding-inbox-empty">
+            <BadgeCheck size={18} />
+            <div>
+              <strong>No findings in this view</strong>
+              <span>Choose another filter or explore the next market neighborhood.</span>
+            </div>
+          </div>
+        ) : (
+          <div className="finding-inbox-list">
+            {visibleFindings.map((item) => {
+              return (
+                <article className={cn("finding-inbox-item", `priority-${item.priority.toLowerCase()}`)} key={item.leaseId}>
+                  <div className="finding-inbox-item-head">
+                    <div>
+                      <Badge variant={item.priority === "HIGH" ? "warning" : item.priority === "MEDIUM" ? "shadow" : "muted"}>
+                        {item.disposition.replaceAll("_", " ")}
+                      </Badge>
+                      {item.kinds.map((kind) => (
+                        <Badge key={kind} variant={kind === "LEAD" ? "verified" : kind === "FALSIFIED" ? "warning" : "muted"}>
+                          {kind.replaceAll("_", " ")}
+                        </Badge>
+                      ))}
+                    </div>
+                    <time>{new Date(item.occurredAt).toLocaleString()}</time>
+                  </div>
+                  <h2>{item.thesis}</h2>
+                  <div className="finding-inbox-context">
+                    <span>{item.discoveryMode === "HEURISTIC_EXPLORATION" ? "Heuristic exploration" : "Claim monitoring"}</span>
+                    <span>{item.semanticFamily?.replaceAll("_", " ") ?? item.lens}</span>
+                    {item.relationKind !== null && <span>{item.relationKind.replaceAll("_", " ")}</span>}
+                    <span>{item.proposalIds.length} proposals · {item.evidenceGapCount} gaps · {item.deepAttemptCount} Pi attempts</span>
+                  </div>
+                  {item.candidateListingRefs.length > 0 && (
+                    <code>{item.candidateListingRefs.join(" · ")}</code>
+                  )}
+                  <div className="finding-inbox-actions">
+                    {item.retryAvailable && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={findingAction !== null}
+                        onClick={() => void retryFinding(item.leaseId)}
+                      >
+                        {findingAction === item.leaseId ? <RefreshCw className="is-spinning" size={13} /> : <SquareTerminal size={13} />}
+                        Retry Pi only
+                      </Button>
+                    )}
+                    {item.disposition === "PROPOSAL_AVAILABLE" && (
+                      <Button size="sm" onClick={() => onNavigate("lifecycle")}>
+                        <GitBranch size={13} /> Open review queue
+                      </Button>
+                    )}
+                    <code title={item.sourceArtifactHash}>source {item.sourceArtifactHash.slice(7, 17)}</code>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {findingDiagnostic !== null && (
+        <div className="radar-diagnostic" role="status"><CircleOff size={14} /><span>{findingDiagnostic}</span></div>
+      )}
+
+      <details className="ad-hoc-workbench">
+        <summary>
+          <div>
+            <strong>Ad-hoc investigation</strong>
+            <span>Ask a bounded question only when you already have one to test.</span>
+          </div>
+          <ChevronRight size={16} />
+        </summary>
+        <div className="ad-hoc-workbench-body">
+          <div className="ad-hoc-workbench-intro">
+            <span className="eyebrow">Secondary claim-monitoring tool</span>
+            <p>
+              Cheap workers can test an operator hypothesis against selected
+              catalogs. This does not redefine the primary discovery funnel.
+            </p>
+          </div>
 
       <div className="scout-summary-grid">
         <Metric
@@ -6768,6 +6947,7 @@ function ScoutInboxView() {
               <Textarea
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
+                placeholder="Describe the hypothesis or constraint you want the Agent to test…"
                 maxLength={500}
                 rows={5}
               />
@@ -7141,6 +7321,8 @@ function ScoutInboxView() {
           </div>
         </div>
       </div>
+        </div>
+      </details>
     </section>
   );
 }
@@ -8256,7 +8438,7 @@ function StudioShell() {
           {view === "lifecycle" && <OpportunityLifecycleView />}
           {view === "radar" && <OpportunityRadarView />}
           {view === "preflight" && <RealCandidatePreflightView />}
-          {view === "scouts" && <ScoutInboxView />}
+          {view === "scouts" && <ScoutInboxView onNavigate={setView} />}
           {view === "cases" && <ResearchCaseDeskView />}
           {view === "venues" && <VenueMatrix />}
           {view === "books" && <BookDeskView />}

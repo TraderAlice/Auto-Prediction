@@ -470,6 +470,143 @@ export function searchLeaseFindingSummary(
   });
 }
 
+export type SearchFindingInboxDisposition =
+  | "RETRY_DEEP"
+  | "PROPOSAL_AVAILABLE"
+  | "DEEP_IN_PROGRESS"
+  | "DEEP_UNAVAILABLE"
+  | "FAST_LEAD"
+  | "INSPIRATION_ROUTED"
+  | "NEGATIVE_EVIDENCE"
+  | "NO_LEAD"
+  | "SCAN_FAILED"
+  | "SCAN_PENDING";
+
+export type SearchFindingInboxItem = Readonly<{
+  schemaVersion: "pmh.search-finding-inbox-item.v1";
+  leaseId: Hash;
+  sourceArtifactHash: Hash;
+  issueId: Hash | null;
+  occurredAt: string;
+  lens: SearchLens;
+  discoveryMode: SearchDiscoveryMode | null;
+  semanticFamily: SearchSemanticFamily | null;
+  relationKind: MarketRelationKind | null;
+  thesis: string;
+  kinds: readonly SearchLeaseFindingKind[];
+  disposition: SearchFindingInboxDisposition;
+  priority: "HIGH" | "MEDIUM" | "LOW" | "ARCHIVE";
+  attentionRequired: boolean;
+  candidateListingRefs: readonly string[];
+  proposalIds: readonly string[];
+  evidenceGapCount: number;
+  deepAttemptCount: number;
+  retryAvailable: boolean;
+  authority: "OPERATOR_ATTENTION_ROUTING_ONLY";
+  semanticDecisionAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+}>;
+
+function searchFindingInboxDisposition(
+  record: SearchLeaseRecord,
+  summary: SearchLeaseFindingSummary,
+): Readonly<{
+  disposition: SearchFindingInboxDisposition;
+  priority: SearchFindingInboxItem["priority"];
+  attentionRequired: boolean;
+  retryAvailable: boolean;
+}> {
+  const retryAvailable = record.status === "PASS" &&
+    record.deepLane.status === "FAILED" &&
+    record.deepLane.inputIdentity != null &&
+    (record.deepLane.attempts?.length ?? 0) <
+      (record.lease.budget.maxDeepAttempts ?? 1);
+  if (retryAvailable) return Object.freeze({
+    disposition: "RETRY_DEEP", priority: "HIGH", attentionRequired: true,
+    retryAvailable,
+  });
+  if (record.deepLane.status === "PASS" && record.deepLane.proposalIds.length > 0) {
+    return Object.freeze({
+      disposition: "PROPOSAL_AVAILABLE", priority: "HIGH",
+      attentionRequired: true, retryAvailable,
+    });
+  }
+  if (record.deepLane.status === "PENDING" || record.deepLane.status === "RUNNING") {
+    return Object.freeze({
+      disposition: "DEEP_IN_PROGRESS", priority: "MEDIUM",
+      attentionRequired: false, retryAvailable,
+    });
+  }
+  if (record.deepLane.status === "FAILED") return Object.freeze({
+    disposition: "DEEP_UNAVAILABLE", priority: "LOW",
+    attentionRequired: false, retryAvailable,
+  });
+  if (summary.kinds.includes("LEAD")) return Object.freeze({
+    disposition: "FAST_LEAD", priority: "LOW",
+    attentionRequired: false, retryAvailable,
+  });
+  if (summary.kinds.includes("INSPIRED")) return Object.freeze({
+    disposition: "INSPIRATION_ROUTED", priority: "LOW",
+    attentionRequired: false, retryAvailable,
+  });
+  if (summary.kinds.includes("FALSIFIED")) return Object.freeze({
+    disposition: "NEGATIVE_EVIDENCE", priority: "LOW",
+    attentionRequired: false, retryAvailable,
+  });
+  if (record.status === "FAILED") return Object.freeze({
+    disposition: "SCAN_FAILED", priority: "LOW",
+    attentionRequired: false, retryAvailable,
+  });
+  if (record.status === "ISSUED") return Object.freeze({
+    disposition: "SCAN_PENDING", priority: "MEDIUM",
+    attentionRequired: false, retryAvailable,
+  });
+  return Object.freeze({
+    disposition: "NO_LEAD", priority: "ARCHIVE",
+    attentionRequired: false, retryAvailable,
+  });
+}
+
+export function buildSearchFindingInbox(
+  records: readonly SearchLeaseRecord[],
+): readonly SearchFindingInboxItem[] {
+  const priorityOrder = Object.freeze({ HIGH: 0, MEDIUM: 1, LOW: 2, ARCHIVE: 3 });
+  return Object.freeze(records.map((record) => {
+    const summary = searchLeaseFindingSummary(record);
+    const routed = searchFindingInboxDisposition(record, summary);
+    return Object.freeze({
+      schemaVersion: "pmh.search-finding-inbox-item.v1" as const,
+      leaseId: record.lease.leaseId,
+      sourceArtifactHash: record.artifactHash,
+      issueId: record.lease.issueId ?? null,
+      occurredAt: record.completedAt ?? record.lease.issuedAt,
+      lens: record.lease.lens,
+      discoveryMode: record.lease.discoveryMode ?? null,
+      semanticFamily: record.lease.semanticFamily ?? null,
+      relationKind: record.fastLane.candidateRelationKind ?? null,
+      thesis: record.lease.thesis,
+      kinds: summary.kinds,
+      disposition: routed.disposition,
+      priority: routed.priority,
+      attentionRequired: routed.attentionRequired,
+      candidateListingRefs: Object.freeze([...record.fastLane.candidateListingRefs]),
+      proposalIds: Object.freeze([...record.deepLane.proposalIds]),
+      evidenceGapCount: record.outcome.evidenceGapCount,
+      deepAttemptCount: record.deepLane.attempts?.length ?? 0,
+      retryAvailable: routed.retryAvailable,
+      authority: "OPERATOR_ATTENTION_ROUTING_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    });
+  }).sort((left, right) =>
+    priorityOrder[left.priority] - priorityOrder[right.priority] ||
+    right.occurredAt.localeCompare(left.occurredAt) ||
+    left.leaseId.localeCompare(right.leaseId)
+  ));
+}
+
 export type SearchLeaseSchedulerProjection = Readonly<{
   schemaVersion: "pmh.search-lease-scheduler.v1";
   algorithmVersion: typeof ALGORITHM_VERSION;
@@ -505,6 +642,7 @@ export type SearchLeaseSchedulerProjection = Readonly<{
   corpusStorage: OperationalStorageProjection<"snapshotIdentity">;
   records: readonly SearchLeaseRecord[];
   findingSummaries: readonly SearchLeaseFindingSummary[];
+  findingInbox: readonly SearchFindingInboxItem[];
   authority: "PROPOSE_ONLY";
   semanticDecisionAuthority: false;
   certificateAuthority: false;
@@ -2873,6 +3011,7 @@ export class SearchLeaseScheduler {
       }),
       records,
       findingSummaries: Object.freeze(records.map(searchLeaseFindingSummary)),
+      findingInbox: buildSearchFindingInbox(records),
       authority: "PROPOSE_ONLY",
       semanticDecisionAuthority: false,
       certificateAuthority: false,

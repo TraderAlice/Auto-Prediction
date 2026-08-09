@@ -485,6 +485,276 @@ main {
   background: #191d22;
 }
 
+.scout-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.scout-heading > div:first-child {
+  min-width: 0;
+}
+
+.scout-heading > [data-slot="button"] {
+  flex: 0 0 auto;
+  margin-bottom: 4px;
+}
+
+.finding-inbox-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.finding-inbox {
+  overflow: hidden;
+  border: 1px solid #292f35;
+  border-radius: 12px;
+  background: #15181c;
+}
+
+.finding-inbox-toolbar {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid #292f35;
+  padding: 14px 18px;
+}
+
+.finding-inbox-toolbar > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.finding-inbox-toolbar strong {
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.finding-inbox-toolbar span {
+  color: #89928f;
+  font-size: 12px;
+}
+
+.finding-filter {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid #292f35;
+  border-radius: 9px;
+  background: #111418;
+  padding: 3px;
+}
+
+.finding-filter [data-slot="button"] {
+  height: 30px;
+  border-radius: 6px;
+  padding-inline: 10px;
+  text-transform: capitalize;
+}
+
+.finding-inbox-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.finding-inbox-item {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 11px;
+  border-bottom: 1px solid #292f35;
+  padding: 18px;
+}
+
+.finding-inbox-item:last-child {
+  border-bottom: 0;
+}
+
+.finding-inbox-item.priority-high::before,
+.finding-inbox-item.priority-medium::before {
+  position: absolute;
+  inset: 18px auto 18px 0;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--warning);
+  content: "";
+}
+
+.finding-inbox-item.priority-medium::before {
+  background: var(--violet);
+}
+
+.finding-inbox-item-head,
+.finding-inbox-item-head > div,
+.finding-inbox-actions,
+.finding-inbox-context {
+  display: flex;
+  align-items: center;
+}
+
+.finding-inbox-item-head {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.finding-inbox-item-head > div,
+.finding-inbox-actions,
+.finding-inbox-context {
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.finding-inbox-item-head time {
+  flex: 0 0 auto;
+  color: #7f8885;
+  font-size: 12px;
+}
+
+.finding-inbox-item h2 {
+  max-width: 920px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.45;
+}
+
+.finding-inbox-context span {
+  color: #929b98;
+  font-size: 12.5px;
+}
+
+.finding-inbox-context span + span::before {
+  margin-right: 7px;
+  color: #454c52;
+  content: "·";
+}
+
+.finding-inbox-item > code {
+  overflow: hidden;
+  color: #9da6a2;
+  font-size: 12px;
+  line-height: 1.55;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finding-inbox-actions {
+  min-height: 30px;
+}
+
+.finding-inbox-actions > code {
+  margin-left: auto;
+  color: #707976;
+  font-size: 12px;
+}
+
+.finding-inbox-empty {
+  display: flex;
+  min-height: 150px;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  color: var(--primary);
+  padding: 28px;
+}
+
+.finding-inbox-empty > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.finding-inbox-empty strong {
+  color: #e7eae8;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.finding-inbox-empty span {
+  color: #89928f;
+  font-size: 12.5px;
+}
+
+.ad-hoc-workbench {
+  margin-top: 20px;
+  border: 1px solid #292f35;
+  border-radius: 12px;
+  background: #111418;
+}
+
+.ad-hoc-workbench > summary {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  list-style: none;
+  padding: 14px 18px;
+}
+
+.ad-hoc-workbench > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ad-hoc-workbench > summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ad-hoc-workbench > summary strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ad-hoc-workbench > summary span {
+  color: #89928f;
+  font-size: 12.5px;
+}
+
+.ad-hoc-workbench > summary svg {
+  color: #89928f;
+  transition: transform 160ms ease;
+}
+
+.ad-hoc-workbench[open] > summary svg {
+  transform: rotate(90deg);
+}
+
+.ad-hoc-workbench-body {
+  border-top: 1px solid #292f35;
+  padding: 20px;
+}
+
+.ad-hoc-workbench-intro {
+  margin-bottom: 14px;
+}
+
+.ad-hoc-workbench-intro p {
+  max-width: 760px;
+  margin: 4px 0 0;
+  color: #929b98;
+  font-size: 13px;
+}
+
+.ad-hoc-workbench .scout-summary-grid {
+  margin-bottom: 16px;
+}
+
+.ad-hoc-workbench .review-pipeline-card {
+  margin-bottom: 16px;
+}
+
 footer {
   color: #737c79;
   font-size: 12px;
@@ -501,6 +771,10 @@ footer {
 
   main {
     padding-inline: 28px;
+  }
+
+  .finding-inbox-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -549,6 +823,7 @@ footer {
   }
 
   .archaeology-heading,
+  .scout-heading,
   .ai-rack-header,
   .ai-rack-footer,
   .ai-runtime-panel-heading {
@@ -568,6 +843,36 @@ footer {
   .discovery-origin-overview,
   .ai-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .finding-inbox-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .finding-inbox-toolbar,
+  .finding-inbox-item-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .finding-filter {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .finding-filter [data-slot="button"] {
+    flex: 1 0 auto;
+  }
+
+  .finding-inbox-actions > code {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .finding-inbox-item > code {
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
   }
 
   .metric {

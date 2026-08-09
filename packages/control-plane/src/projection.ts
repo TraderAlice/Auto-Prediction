@@ -371,6 +371,7 @@ export function buildStudioProjection(input: {
     },
     records: [],
     findingSummaries: [],
+    findingInbox: [],
     authority: "PROPOSE_ONLY" as const,
     semanticDecisionAuthority: false as const,
     certificateAuthority: false as const,

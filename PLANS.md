@@ -10,6 +10,8 @@ and relation-bound positive findings tracked in
 [`plans/probabilistic-semantic-arbitrage.md`](plans/probabilistic-semantic-arbitrage.md),
 with Studio product normalization tracked in
 [`plans/studio-product-normalization.md`](plans/studio-product-normalization.md),
+and the durable human/Agent finding queue tracked in
+[`plans/operator-finding-inbox.md`](plans/operator-finding-inbox.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -48,6 +50,15 @@ Agent hypothesis to name its semantic relation before it can satisfy a typed
 issue policy or launch Pi. First-party finding summaries preserve simultaneous
 lead, falsification, and inspiration effects instead of flattening a mixed scan
 into one misleading outcome.
+
+Findings now consumes those durable effects directly. The primary page is a
+workflow-prioritized inbox bound to search-lease artifacts, exact refs,
+relations, and retained Pi proposals; the legacy claim form is empty and
+collapsed as an ad-hoc monitoring tool. Live qualification exposed 40 retained
+items and only 4-5 actionable proposal artifacts as scheduled work advanced,
+instead of turning every generic lead or exhausted deep run into operator
+attention. Desktop and 390 px browser checks preserved the 12 px text floor and
+showed no horizontal overflow.
 
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls

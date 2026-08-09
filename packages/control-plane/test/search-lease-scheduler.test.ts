@@ -2,6 +2,7 @@ import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertSearchLeaseRecord,
+  buildSearchFindingInbox,
   buildMarketCorpusSnapshot,
   CatalogContextCoverageError,
   SearchLeaseScheduler,
@@ -380,6 +381,12 @@ describe("AI-native search lease scheduler", () => {
     });
     expect(record.fastLane.hypothesisIds).toHaveLength(1);
     expect(runDeep).not.toHaveBeenCalled();
+    expect(buildSearchFindingInbox([record])).toMatchObject([{
+      disposition: "FAST_LEAD",
+      priority: "LOW",
+      attentionRequired: false,
+      retryAvailable: false,
+    }]);
   });
 
   it("retains a falsification-only fast result without launching pi", async () => {
@@ -450,6 +457,12 @@ describe("AI-native search lease scheduler", () => {
     });
     expect(runDeep).not.toHaveBeenCalled();
     expect(() => assertSearchLeaseRecord(record)).not.toThrow();
+    expect(buildSearchFindingInbox([record])).toMatchObject([{
+      disposition: "NEGATIVE_EVIDENCE",
+      kinds: ["FALSIFIED"],
+      priority: "LOW",
+      attentionRequired: false,
+    }]);
   });
 
   it("links duplicate candidate signatures and does not spend a second pi invocation", async () => {
@@ -924,6 +937,13 @@ describe("AI-native search lease scheduler", () => {
       semanticDecisionAuthority: false,
       executionAuthority: false,
     });
+    expect(buildSearchFindingInbox([record])).toMatchObject([{
+      disposition: "PROPOSAL_AVAILABLE",
+      priority: "HIGH",
+      attentionRequired: true,
+      relationKind: "EQUIVALENT",
+      proposalIds: [selectedProposalId],
+    }]);
   });
 
   it("does not let heuristics or invalid model scope satisfy model selection", async () => {
@@ -1024,6 +1044,11 @@ describe("AI-native search lease scheduler", () => {
     expect(record.deepLane.reason).toBe("NO_CANDIDATES");
     expect(record.outcome.novelCandidate).toBe(false);
     expect(runDeep).not.toHaveBeenCalled();
+    expect(buildSearchFindingInbox([record])).toMatchObject([{
+      disposition: "FAST_LEAD",
+      priority: "LOW",
+      attentionRequired: false,
+    }]);
   });
 
   it("enriches only an exact selected pair after the catalog gate is price-unavailable", async () => {
@@ -1199,6 +1224,9 @@ describe("AI-native search lease scheduler", () => {
       storage: { schemaVersion: 29 },
       corpusStorage: { schemaVersion: 29, idempotencyKey: "snapshotIdentity" },
     });
+    expect(restored.projection().findingInbox).toEqual(
+      scheduler.projection().findingInbox,
+    );
     store.close();
   });
 
@@ -1248,6 +1276,12 @@ describe("AI-native search lease scheduler", () => {
     });
     expect(unavailable.deepLane.attempts).toHaveLength(1);
     expect(runFast).toHaveBeenCalledTimes(1);
+    expect(buildSearchFindingInbox([unavailable])).toMatchObject([{
+      disposition: "RETRY_DEEP",
+      priority: "HIGH",
+      attentionRequired: true,
+      retryAvailable: true,
+    }]);
 
     const retry = scheduler.retryDeep(checkpoint.lease.leaseId);
     expect(retry.idempotentReplay).toBe(false);
