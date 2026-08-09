@@ -1135,6 +1135,90 @@ main {
   padding: 12px;
 }
 
+.decision-dossier-routing {
+  border: 1px solid #315548;
+  border-radius: 9px;
+  background: #101915;
+  padding: 12px;
+}
+
+.decision-dossier-routing > p {
+  margin: 4px 0 0;
+  color: #8e9d96;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.premise-route-list {
+  margin-top: 10px;
+  border-top: 1px solid #29443a;
+  padding-top: 9px;
+}
+
+.premise-route-list > summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #d5e3dc;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.premise-route-list > summary::-webkit-details-marker {
+  display: none;
+}
+
+.premise-route-list > summary svg {
+  transition: transform 160ms ease;
+}
+
+.premise-route-list[open] > summary svg {
+  transform: rotate(90deg);
+}
+
+.premise-route-list > div {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.premise-route-list article {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #29443a;
+  border-radius: 8px;
+  background: #121d18;
+  padding: 10px;
+}
+
+.premise-route-list article > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.premise-route-list article > div > span,
+.premise-route-list article p,
+.premise-route-list article small {
+  margin: 0;
+  color: #84938c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.premise-route-list article strong {
+  color: #e2ebe6;
+  font-size: 12.5px;
+}
+
+.premise-route-list article small {
+  color: #79caaa;
+  font-weight: 600;
+}
+
 .decision-dossier-premises > p {
   margin: 4px 0 0;
   color: #9b9587;

@@ -663,6 +663,45 @@ const EMPTY_PREMISE_ANALYSIS_SCHEDULER: StudioProjection["ai"]["premiseAnalysisS
   effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
 };
 
+const EMPTY_PREMISE_EVIDENCE_ROUTING: StudioProjection["ai"]["premiseEvidenceRouting"] = {
+  schemaVersion: "pmh.premise-evidence-routing-scheduler.v1",
+  enabled: false,
+  configured: false,
+  status: "NEEDS_KEY",
+  tickIntervalMs: null,
+  concurrencyLimit: 2,
+  activeCount: 0,
+  dueCount: 0,
+  pendingCount: 0,
+  leasedCount: 0,
+  retryWaitCount: 0,
+  passedCount: 0,
+  exhaustedCount: 0,
+  supersededCount: 0,
+  sourcePremiseCount: 0,
+  routeGroupCount: 0,
+  derivedGroupCount: 0,
+  tradedStateGroupCount: 0,
+  ruleEvidenceGroupCount: 0,
+  externalResearchGroupCount: 0,
+  counterexampleGroupCount: 0,
+  unresolvedGroupCount: 0,
+  exactPotentialGroupCount: 0,
+  budget: {
+    basis: "PROVIDER_ATTEMPTS",
+    maxAttemptsPerJob: 2,
+    maxRequestsPerTick: 2,
+    providerAttemptsStarted: 0,
+  },
+  jobs: [],
+  storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "jobId" },
+  authority: "ADVISORY_PREMISE_EVIDENCE_ORCHESTRATION_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+};
+
 const EMPTY_RULE_EVIDENCE_CLAIMS: StudioProjection["ai"]["ruleEvidenceClaims"] = {
   schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
   enabled: false,
@@ -4723,6 +4762,8 @@ function OpportunityLifecycleView({
     studioProjection.ai.premiseAnalysis ?? EMPTY_PREMISE_ANALYSIS;
   const premiseScheduler =
     studioProjection.ai.premiseAnalysisScheduler ?? EMPTY_PREMISE_ANALYSIS_SCHEDULER;
+  const premiseEvidenceRouting =
+    studioProjection.ai.premiseEvidenceRouting ?? EMPTY_PREMISE_EVIDENCE_ROUTING;
   const ruleEvidenceClaims =
     studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
   const reviewAttention =
@@ -4805,7 +4846,12 @@ function OpportunityLifecycleView({
       },
     );
     return () => { active = false; };
-  }, [focusedProposalKey, studioProjection.identity.stateHash]);
+  // The global projection hash also changes for unrelated scheduler leases and
+  // usage events. Depending on it caused every in-flight handoff read to be
+  // discarded while background Agents were active, leaving the dossier stuck
+  // in LOADING. The handoff is identity-bound to the selected proposal IDs;
+  // live route/job state continues to arrive through studioProjection below.
+  }, [focusedProposalKey]);
   const proposals = new Map(
     studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
       (record.report?.result.proposals ?? []).map((proposal) => [
@@ -5278,6 +5324,22 @@ function OpportunityLifecycleView({
               const indicativeEconomics = item.economicTriage?.indicativeEconomics;
               const canRunReview = item.lifecycleCase?.nextAction === "INDEPENDENT_SEMANTIC_REVIEW" &&
                 item.reviewJob === undefined && item.attention === undefined;
+              const premiseRouteCandidates = premiseEvidenceRouting.jobs
+                .filter((job) => job.proposal.proposalId === item.proposalId &&
+                  (item.premiseOutcome.outcome === null ||
+                    job.outcome.outcomeHash === item.premiseOutcome.outcome.outcomeHash))
+                .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+              const currentRouteIdentity = premiseRouteCandidates[0]?.routerIdentity;
+              const premiseRouteJob = premiseRouteCandidates
+                .filter((job) => job.routerIdentity === currentRouteIdentity)
+                .sort((left, right) => {
+                  const priority = (status: typeof left.status): number =>
+                    status === "PASS" ? 3 : status === "EXHAUSTED" ? 2 : 1;
+                  if (priority(left.status) !== priority(right.status)) {
+                    return priority(right.status) - priority(left.status);
+                  }
+                  return right.createdAt.localeCompare(left.createdAt);
+                })[0];
               return (
                 <article key={item.proposalId}>
                   <div className="focused-review-handoff-topline">
@@ -5431,6 +5493,64 @@ function OpportunityLifecycleView({
                         <span>Hidden-premise audit</span>
                         <strong>{item.premiseOutcome.basis === "NOT_ANALYZED" ? "Premise analysis has not started" : "Premise detail is unavailable"}</strong>
                         <p>{item.premiseOutcome.diagnostic}</p>
+                      </div>
+                    )
+                  )}
+                  {item.premiseOutcome.outcome !== null &&
+                    item.premiseOutcome.outcome.unboundPremiseCount > 0 && (
+                    premiseRouteJob?.status === "PASS" && premiseRouteJob.route !== null ? (
+                      <div className="decision-dossier-routing">
+                        <div className="decision-dossier-review-head">
+                          <span>Evidence route · Agent planned</span>
+                          <Badge variant={premiseRouteJob.route.groups.some((group) =>
+                            group.exactAdmissionPotential === "POTENTIAL_AFTER_REVIEW"
+                          ) ? "verified" : "muted"}>
+                            {premiseRouteJob.route.groups.length} ROUTES
+                          </Badge>
+                        </div>
+                        <strong>
+                          {item.premiseOutcome.outcome.unboundPremiseCount} obligation{item.premiseOutcome.outcome.unboundPremiseCount === 1 ? "" : "s"} compressed into {premiseRouteJob.route.groups.length} evidence action{premiseRouteJob.route.groups.length === 1 ? "" : "s"}
+                        </strong>
+                        <p>
+                          {premiseRouteJob.route.groups.filter((group) => group.exactAdmissionPotential === "POTENTIAL_AFTER_REVIEW").length} may become exact after independent review · {premiseRouteJob.route.groups.filter((group) => group.disposition === "EXTERNAL_FACT_RESEARCH").length} remain probability research
+                        </p>
+                        <details className="premise-route-list">
+                          <summary>
+                            <span>Show the Agent's route plan</span>
+                            <ChevronRight size={13} />
+                          </summary>
+                          <div>
+                            {premiseRouteJob.route.groups.map((group) => (
+                              <article key={group.groupId}>
+                                <div>
+                                  <Badge variant={group.exactAdmissionPotential === "POTENTIAL_AFTER_REVIEW" ? "verified" : group.disposition === "UNRESOLVED" ? "warning" : "muted"}>
+                                    {group.disposition.replaceAll("_", " ")}
+                                  </Badge>
+                                  <span>{group.premiseIds.length} premise{group.premiseIds.length === 1 ? "" : "s"}</span>
+                                </div>
+                                <strong>{group.evidenceQuestion}</strong>
+                                <p>{group.rationale}</p>
+                                <small>NEXT · {group.nextAction.replaceAll("_", " ")}</small>
+                              </article>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+                    ) : premiseRouteJob?.status === "EXHAUSTED" ? (
+                      <div className="decision-dossier-warning" role="status">
+                        <CircleOff size={15} />
+                        <div>
+                          <strong>Evidence routing exhausted its request budget</strong>
+                          <span>{premiseRouteJob.diagnostic ?? "The route remains unresolved."}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="decision-dossier-review is-pending" role="status">
+                        <span>Evidence route · durable Agent job</span>
+                        <strong>{premiseRouteJob === undefined ? "Waiting to create an evidence route" : `Route is ${premiseRouteJob.status.toLowerCase().replaceAll("_", " ")}`}</strong>
+                        <p>
+                          The Agent will deduplicate derived claims, search traded market state, and prefer counterexamples before requesting external evidence.
+                        </p>
                       </div>
                     )
                   )}

@@ -26,6 +26,8 @@ and actionable recovery of physically-rotated semantic-review detail tracked in
 [`plans/semantic-review-detail-recovery.md`](plans/semantic-review-detail-recovery.md),
 with durable premise obligations and deterministic post-review gates tracked in
 [`plans/premise-decision-dossier.md`](plans/premise-decision-dossier.md),
+and obligation deduplication plus evidence-route selection tracked in
+[`plans/premise-evidence-routing.md`](plans/premise-evidence-routing.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in

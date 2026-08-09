@@ -31,6 +31,7 @@ import type { CandidateWatchProjection } from "./candidate-watch.js";
 import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import type { MarketCorpusProjection } from "./market-corpus.js";
 import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
+import type { PremiseEvidenceRoutingSchedulerProjection } from "./premise-evidence-routing-scheduler.js";
 import type { SearchLeaseSchedulerProjection } from "./search-lease-scheduler.js";
 import type { SearchQuoteEnrichmentProjection } from "./search-quote-enrichment.js";
 import type { SearchIssueSchedulerProjection } from "./search-issue-scheduler.js";
@@ -137,6 +138,7 @@ export function buildStudioProjection(input: {
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   premiseAnalysis?: PremiseAnalysisDeskProjection;
   premiseAnalysisScheduler?: PremiseAnalysisSchedulerProjection;
+  premiseEvidenceRouting?: PremiseEvidenceRoutingSchedulerProjection;
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
   ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
@@ -681,6 +683,53 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const premiseEvidenceRouting = input.premiseEvidenceRouting ?? {
+    schemaVersion: "pmh.premise-evidence-routing-scheduler.v1" as const,
+    enabled: false,
+    configured: false,
+    status: "NEEDS_KEY" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 2,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    passedCount: 0,
+    exhaustedCount: 0,
+    supersededCount: 0,
+    sourcePremiseCount: 0,
+    routeGroupCount: 0,
+    derivedGroupCount: 0,
+    tradedStateGroupCount: 0,
+    ruleEvidenceGroupCount: 0,
+    externalResearchGroupCount: 0,
+    counterexampleGroupCount: 0,
+    unresolvedGroupCount: 0,
+    exactPotentialGroupCount: 0,
+    budget: {
+      basis: "PROVIDER_ATTEMPTS" as const,
+      maxAttemptsPerJob: 2,
+      maxRequestsPerTick: 2,
+      providerAttemptsStarted: 0,
+    },
+    jobs: [],
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "jobId" as const,
+    },
+    authority: "ADVISORY_PREMISE_EVIDENCE_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const evidenceAcquisition = input.evidenceAcquisition ?? {
     schemaVersion: "pmh.evidence-acquisition-scheduler.v1" as const,
     enabled: false,
@@ -1192,6 +1241,7 @@ export function buildStudioProjection(input: {
       semanticReviewScheduler,
       premiseAnalysis,
       premiseAnalysisScheduler,
+      premiseEvidenceRouting,
       evidenceAcquisition,
       ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),

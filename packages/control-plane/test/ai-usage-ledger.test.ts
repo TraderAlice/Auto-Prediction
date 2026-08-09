@@ -15,7 +15,7 @@ class MemoryStore implements AiUsageEventStore {
   public readonly aiUsageStorage = Object.freeze({
     mode: "MEMORY" as const,
     durable: false,
-    schemaVersion: 29,
+    schemaVersion: 31,
     idempotencyKey: "eventId" as const,
   });
   loadAiUsageEvents() { return [...this.#events.values()]; }
@@ -139,8 +139,8 @@ describe("AI usage ledger", () => {
       first.record({
         occurredAt: "2026-08-02T12:00:00.000Z",
         durationMs: 1_000,
-        purpose: "PROBABILITY_ESTIMATION",
-        role: "CAUSAL",
+        purpose: "PREMISE_EVIDENCE_ROUTING",
+        role: "PREMISE_EVIDENCE_ROUTER",
         provider: "DEEPSEEK",
         model: "deepseek-v4-flash",
         transport: "VERCEL_AI_SDK",
@@ -156,10 +156,11 @@ describe("AI usage ledger", () => {
       const restored = new AiUsageLedger(20, secondStore).projection();
       expect(restored.eventCount).toBe(1);
       expect(restored.totals.tokens.totalTokens).toBe("60");
+      expect(restored.byPurpose[0]?.key).toBe("PREMISE_EVIDENCE_ROUTING");
       expect(restored.storage).toMatchObject({
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 29,
+        schemaVersion: 31,
       });
       secondStore.close();
     } finally {

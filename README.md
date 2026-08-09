@@ -522,6 +522,24 @@ separately reports original captures, exact-current rebases, and unresolved
 legacy evidence debt. These reports remain advisory: they cannot accept a
 proposal, simulate it, certify it, or route an order.
 
+Passing premise audits with unbound obligations feed a separate AI-native
+evidence router. It does not begin from a global claim list. For each complete
+proposal capsule it first compresses duplicate or derived premises, searches
+the retained semantic market corpus for a traded representation, inspects exact
+proposal listings, and prefers falsifiers over confirmation. Its terminal tool
+must route every unbound premise exactly once to premise rewrite, traded-state
+expansion, rule evidence, probabilistic external-fact research, counterexample
+review, or an explicit unresolved stop. Only traded state, intrinsic contract
+logic, or removal of a derived premise can potentially return to exact review;
+external facts remain probabilistic. Jobs run every 15 seconds by default and
+survive restart. A terminal route spends once per proposal, premise-outcome,
+and router-version scope; price churn or ambient catalog growth cannot silently
+enqueue another provider request. The searched corpus snapshot remains
+content-bound inside the artifact, and a future refresh must be explicit and
+separately attributed. Routes are exposed at
+`GET /api/v1/premise-evidence-routing`. Set
+`PMH_PREMISE_EVIDENCE_ROUTING_TICK_MS=0` to disable automatic dispatch.
+
 Structured document requirements also feed a separate durable acquisition
 queue. Set `PMH_EVIDENCE_ACQUISITION_TICK_MS` to 1000–60000 to enable it. Jobs
 coalesce by content-addressed acquisition scope, lease before network I/O,
