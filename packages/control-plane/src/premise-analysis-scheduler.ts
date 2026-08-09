@@ -28,6 +28,21 @@ const JOB_KEYS_V2 = Object.freeze([
   ...JOB_KEYS_V1,
   "admissionLane", "issueIds", "semanticReviewJobId",
 ]);
+const JOB_KEYS_V3 = Object.freeze([
+  ...JOB_KEYS_V2,
+  "outcomeCapsule", "upgradedFromArtifactHash",
+]);
+const OUTCOME_CAPSULE_KEYS = Object.freeze([
+  "analysisArtifactHash", "analysisId", "authority", "blocker", "certificateAuthority",
+  "classification", "completedAt", "exactCompilerAdmission", "executionAuthority",
+  "obligations", "outcomeHash", "premiseCount", "proposalId", "relationArtifactHash",
+  "schemaVersion", "semanticDecisionAuthority", "semanticReviewArtifactHash",
+  "simulationAuthority", "unboundPremiseCount",
+]);
+const OUTCOME_OBLIGATION_KEYS = Object.freeze([
+  "bindingKind", "counterexampleResult", "evidenceClaimCount", "exactStateAuthority",
+  "kind", "premiseId", "proposition", "truthPosture",
+]);
 const NOTIFICATION_KEYS = Object.freeze([
   "artifactHash", "createdAt", "dedupeIdentity", "jobId", "kind", "notificationId",
   "proposalId", "readAt", "schemaVersion", "status", "summary", "title",
@@ -48,8 +63,51 @@ export type PremiseAnalysisCandidate = Readonly<{
   admissionLane: "AUTO_ARBITRAGE_REVIEW" | "AUTO_PREMISE_REVIEW";
 }>;
 
+export type PremiseAnalysisOutcomeCapsule = Readonly<{
+  schemaVersion: "pmh.premise-analysis-outcome-capsule.v1";
+  outcomeHash: Hash;
+  analysisId: Hash;
+  analysisArtifactHash: Hash;
+  proposalId: Hash;
+  semanticReviewArtifactHash: Hash;
+  completedAt: string;
+  relationArtifactHash: Hash;
+  classification:
+    | "UNCONDITIONAL_HARD"
+    | "CONDITIONAL_TRADED"
+    | "CONDITIONAL_OBSERVED"
+    | "CAUSAL_RESEARCH_ONLY";
+  exactCompilerAdmission: "ELIGIBLE" | "RESEARCH_ONLY";
+  blocker:
+    | null
+    | "BASE_CONSTRAINT_RESEARCH_ONLY"
+    | "PREMISE_RESEARCH_ONLY"
+    | "EXPRESSION_UNRESOLVED"
+    | "EXPRESSION_STATE_MISMATCH";
+  premiseCount: number;
+  unboundPremiseCount: number;
+  obligations: readonly Readonly<{
+    premiseId: Hash;
+    proposition: string;
+    kind: "SETTLEMENT_INTRINSIC" | "TRADED_OUTCOME" | "EXTERNAL_OBSERVATION" | "CAUSAL_HYPOTHESIS";
+    truthPosture: "PROVEN_IN_SCOPE" | "TRADED_VARIABLE" | "OBSERVED" | "UNRESOLVED" | "CONTRADICTED";
+    bindingKind: "LISTING_TRUTH" | "EXTERNAL_OBSERVATION" | "NONE";
+    evidenceClaimCount: number;
+    exactStateAuthority: "BOUND_LISTING_TRUTH" | "NONE";
+    counterexampleResult: "FOUND" | "NOT_FOUND" | "INCONCLUSIVE";
+  }>[];
+  authority: "ADVISORY_SUMMARY_ONLY";
+  semanticDecisionAuthority: false;
+  simulationAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+}>;
+
 export type PremiseAnalysisJobRecord = Readonly<{
-  schemaVersion: "pmh.premise-analysis-job.v1" | "pmh.premise-analysis-job.v2";
+  schemaVersion:
+    | "pmh.premise-analysis-job.v1"
+    | "pmh.premise-analysis-job.v2"
+    | "pmh.premise-analysis-job.v3";
   jobId: Hash;
   analysisId: Hash;
   proposalId: Hash;
@@ -59,6 +117,8 @@ export type PremiseAnalysisJobRecord = Readonly<{
   semanticReviewJobId?: Hash;
   issueIds?: readonly Hash[];
   admissionLane?: "AUTO_ARBITRAGE_REVIEW" | "AUTO_PREMISE_REVIEW";
+  outcomeCapsule?: PremiseAnalysisOutcomeCapsule;
+  upgradedFromArtifactHash?: Hash | null;
   status: PremiseAnalysisJobStatus;
   attemptCount: number;
   maxAttempts: number;
@@ -195,6 +255,124 @@ function withHash(
   return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
 }
 
+function outcomeBody(
+  capsule: PremiseAnalysisOutcomeCapsule,
+): Omit<PremiseAnalysisOutcomeCapsule, "outcomeHash"> {
+  const { outcomeHash: _outcomeHash, ...body } = capsule;
+  return body;
+}
+
+export function assertPremiseAnalysisOutcomeCapsule(
+  value: unknown,
+): PremiseAnalysisOutcomeCapsule {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("premise analysis outcome capsule is malformed");
+  }
+  const capsule = value as PremiseAnalysisOutcomeCapsule;
+  const obligations = capsule.obligations;
+  if (
+    capsule.schemaVersion !== "pmh.premise-analysis-outcome-capsule.v1" ||
+    !exactKeys(capsule, OUTCOME_CAPSULE_KEYS) ||
+    !HASH_PATTERN.test(String(capsule.outcomeHash)) ||
+    !HASH_PATTERN.test(String(capsule.analysisId)) ||
+    !HASH_PATTERN.test(String(capsule.analysisArtifactHash)) ||
+    !HASH_PATTERN.test(String(capsule.proposalId)) ||
+    !HASH_PATTERN.test(String(capsule.semanticReviewArtifactHash)) ||
+    !isIso(capsule.completedAt) ||
+    !HASH_PATTERN.test(String(capsule.relationArtifactHash)) ||
+    ![
+      "UNCONDITIONAL_HARD", "CONDITIONAL_TRADED", "CONDITIONAL_OBSERVED",
+      "CAUSAL_RESEARCH_ONLY",
+    ].includes(capsule.classification) ||
+    !["ELIGIBLE", "RESEARCH_ONLY"].includes(capsule.exactCompilerAdmission) ||
+    ![
+      null, "BASE_CONSTRAINT_RESEARCH_ONLY", "PREMISE_RESEARCH_ONLY",
+      "EXPRESSION_UNRESOLVED", "EXPRESSION_STATE_MISMATCH",
+    ].includes(capsule.blocker) ||
+    (capsule.exactCompilerAdmission === "ELIGIBLE") !== (capsule.blocker === null) ||
+    !Number.isSafeInteger(capsule.premiseCount) || capsule.premiseCount < 1 ||
+    capsule.premiseCount > 8 ||
+    !Number.isSafeInteger(capsule.unboundPremiseCount) ||
+    capsule.unboundPremiseCount < 0 || capsule.unboundPremiseCount > capsule.premiseCount ||
+    !Array.isArray(obligations) || obligations.length !== capsule.premiseCount ||
+    obligations.some((item) =>
+      !exactKeys(item, OUTCOME_OBLIGATION_KEYS) ||
+      !HASH_PATTERN.test(String(item.premiseId)) ||
+      !boundedText(item.proposition, 1_000) ||
+      ![
+        "SETTLEMENT_INTRINSIC", "TRADED_OUTCOME", "EXTERNAL_OBSERVATION",
+        "CAUSAL_HYPOTHESIS",
+      ].includes(item.kind) ||
+      ![
+        "PROVEN_IN_SCOPE", "TRADED_VARIABLE", "OBSERVED", "UNRESOLVED",
+        "CONTRADICTED",
+      ].includes(item.truthPosture) ||
+      !["LISTING_TRUTH", "EXTERNAL_OBSERVATION", "NONE"].includes(item.bindingKind) ||
+      !Number.isSafeInteger(item.evidenceClaimCount) || item.evidenceClaimCount < 0 ||
+      item.evidenceClaimCount > 20 ||
+      !["BOUND_LISTING_TRUTH", "NONE"].includes(item.exactStateAuthority) ||
+      !["FOUND", "NOT_FOUND", "INCONCLUSIVE"].includes(item.counterexampleResult)
+    ) ||
+    obligations.map((item) => item.premiseId).join("\n") !==
+      [...obligations].map((item) => item.premiseId).sort().join("\n") ||
+    new Set(obligations.map((item) => item.premiseId)).size !== obligations.length ||
+    capsule.unboundPremiseCount !== obligations.filter((item) =>
+      item.bindingKind === "NONE" || item.exactStateAuthority === "NONE"
+    ).length ||
+    capsule.authority !== "ADVISORY_SUMMARY_ONLY" ||
+    capsule.semanticDecisionAuthority !== false || capsule.simulationAuthority !== false ||
+    capsule.certificateAuthority !== false || capsule.executionAuthority !== false ||
+    capsule.outcomeHash !== hashCanonical(outcomeBody(capsule))
+  ) throw new Error("premise analysis outcome capsule violates its bounded contract");
+  return Object.freeze(capsule);
+}
+
+export function buildPremiseAnalysisOutcomeCapsule(
+  input: PremiseAnalysisRecord,
+): PremiseAnalysisOutcomeCapsule {
+  const record = assertPremiseAnalysisRecord(input);
+  if (record.status !== "PASS" || record.analysis === null || record.completedAt === null) {
+    throw new Error("premise outcome capsule requires one passing exact analysis");
+  }
+  const analysis = record.analysis;
+  const obligations = Object.freeze(analysis.premises.map((premise) => Object.freeze({
+    premiseId: premise.premiseId,
+    proposition: premise.proposition,
+    kind: premise.kind,
+    truthPosture: premise.truthPosture,
+    bindingKind: premise.binding.kind,
+    evidenceClaimCount: premise.evidenceClaimIds.length,
+    exactStateAuthority: premise.exactStateAuthority,
+    counterexampleResult: premise.counterexample.result,
+  })).sort((left, right) => left.premiseId.localeCompare(right.premiseId)));
+  const body = Object.freeze({
+    schemaVersion: "pmh.premise-analysis-outcome-capsule.v1" as const,
+    analysisId: analysis.analysisId,
+    analysisArtifactHash: analysis.artifactHash,
+    proposalId: analysis.proposalId,
+    semanticReviewArtifactHash: analysis.semanticReviewArtifactHash,
+    completedAt: analysis.completedAt,
+    relationArtifactHash: analysis.relation.artifactHash,
+    classification: analysis.relation.classification,
+    exactCompilerAdmission: analysis.relation.exactCompilerAdmission,
+    blocker: analysis.relation.blocker,
+    premiseCount: obligations.length,
+    unboundPremiseCount: obligations.filter((item) =>
+      item.bindingKind === "NONE" || item.exactStateAuthority === "NONE"
+    ).length,
+    obligations,
+    authority: "ADVISORY_SUMMARY_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    simulationAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return assertPremiseAnalysisOutcomeCapsule(Object.freeze({
+    ...body,
+    outcomeHash: hashCanonical(body),
+  }));
+}
+
 function withoutNotificationHash(
   record: PremiseAnalysisNotificationRecord,
 ): Omit<PremiseAnalysisNotificationRecord, "artifactHash"> {
@@ -217,11 +395,16 @@ export function assertPremiseAnalysisJobRecord(value: unknown): PremiseAnalysisJ
   const terminal = record.status === "PASS" || record.status === "EXHAUSTED";
   const { artifactHash, ...body } = record;
   if (
-    !["pmh.premise-analysis-job.v1", "pmh.premise-analysis-job.v2"]
+    ![
+      "pmh.premise-analysis-job.v1", "pmh.premise-analysis-job.v2",
+      "pmh.premise-analysis-job.v3",
+    ]
       .includes(record.schemaVersion) ||
     !exactKeys(record, record.schemaVersion === "pmh.premise-analysis-job.v1"
       ? JOB_KEYS_V1
-      : JOB_KEYS_V2) ||
+      : record.schemaVersion === "pmh.premise-analysis-job.v2"
+        ? JOB_KEYS_V2
+        : JOB_KEYS_V3) ||
     !HASH_PATTERN.test(String(record.jobId)) || record.jobId !== record.analysisId ||
     !HASH_PATTERN.test(String(record.analysisId)) || !HASH_PATTERN.test(String(record.proposalId)) ||
     !HASH_PATTERN.test(String(record.semanticReviewArtifactHash)) ||
@@ -231,7 +414,8 @@ export function assertPremiseAnalysisJobRecord(value: unknown): PremiseAnalysisJ
       record.semanticReviewJobId !== undefined || record.issueIds !== undefined ||
       record.admissionLane !== undefined
     )) ||
-    (record.schemaVersion === "pmh.premise-analysis-job.v2" && (
+    ((record.schemaVersion === "pmh.premise-analysis-job.v2" ||
+      record.schemaVersion === "pmh.premise-analysis-job.v3") && (
       !HASH_PATTERN.test(String(record.semanticReviewJobId)) ||
       record.semanticReviewJobId !== hashCanonical({
         schemaVersion: "pmh.semantic-review-job-id.v1",
@@ -243,6 +427,23 @@ export function assertPremiseAnalysisJobRecord(value: unknown): PremiseAnalysisJ
       !["AUTO_ARBITRAGE_REVIEW", "AUTO_PREMISE_REVIEW"].includes(
         String(record.admissionLane),
       )
+    )) ||
+    (record.schemaVersion !== "pmh.premise-analysis-job.v3" && (
+      record.outcomeCapsule !== undefined || record.upgradedFromArtifactHash !== undefined
+    )) ||
+    (record.schemaVersion === "pmh.premise-analysis-job.v3" && (
+      record.status !== "PASS" || record.outcomeCapsule === undefined ||
+      assertPremiseAnalysisOutcomeCapsule(record.outcomeCapsule) !== record.outcomeCapsule ||
+      record.outcomeCapsule.analysisId !== record.analysisId ||
+      record.outcomeCapsule.analysisArtifactHash !== record.lastAnalysisArtifactHash ||
+      record.outcomeCapsule.proposalId !== record.proposalId ||
+      record.outcomeCapsule.semanticReviewArtifactHash !== record.semanticReviewArtifactHash ||
+      record.outcomeCapsule.completedAt !== record.completedAt ||
+      record.outcomeCapsule.exactCompilerAdmission !== record.exactCompilerAdmission ||
+      (record.upgradedFromArtifactHash !== null && (
+        !HASH_PATTERN.test(String(record.upgradedFromArtifactHash)) ||
+        record.upgradedFromArtifactHash === record.artifactHash
+      ))
     )) ||
     record.analysisId !== hashCanonical({
       schemaVersion: "pmh.premise-analysis-run.v1",
@@ -407,6 +608,18 @@ export class PremiseAnalysisScheduler {
           updatedAt: timestamp,
         }));
       }
+      if (
+        existing !== undefined && existing.schemaVersion !== "pmh.premise-analysis-job.v3" &&
+        existing.status === "PASS" && completed?.status === "PASS"
+      ) {
+        existing = this.#save(withHash({
+          ...withoutHash(existing),
+          schemaVersion: "pmh.premise-analysis-job.v3",
+          outcomeCapsule: buildPremiseAnalysisOutcomeCapsule(completed),
+          upgradedFromArtifactHash: existing.artifactHash,
+          updatedAt: timestamp,
+        }));
+      }
       if (existing === undefined) {
         const analysis = completed?.status === "PASS" ? completed.analysis : null;
         const created = this.#save(withHash({
@@ -549,6 +762,9 @@ export class PremiseAnalysisScheduler {
     ) throw new Error("premise analysis job completion lineage is inconsistent");
     const completed = this.#save(withHash({
       ...withoutHash(job),
+      schemaVersion: "pmh.premise-analysis-job.v3",
+      outcomeCapsule: buildPremiseAnalysisOutcomeCapsule(record),
+      upgradedFromArtifactHash: null,
       status: "PASS",
       leasedAt: null,
       leaseExpiresAt: null,
@@ -715,7 +931,10 @@ export class PremiseAnalysisScheduler {
       researchOnlyCount: jobs.filter((job) =>
         job.exactCompilerAdmission === "RESEARCH_ONLY"
       ).length,
-      attributedJobCount: jobs.filter((job) => job.schemaVersion === "pmh.premise-analysis-job.v2").length,
+      attributedJobCount: jobs.filter((job) =>
+        job.schemaVersion === "pmh.premise-analysis-job.v2" ||
+        job.schemaVersion === "pmh.premise-analysis-job.v3"
+      ).length,
       legacyAttributionDebtCount: jobs.filter((job) =>
         job.schemaVersion === "pmh.premise-analysis-job.v1"
       ).length,

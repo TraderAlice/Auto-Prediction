@@ -56,6 +56,7 @@ import {
 } from "./proposal-economic-triage.js";
 import {
   deriveProposalDecisionNextGate,
+  resolveProposalPremiseOutcome,
   resolveProposalReviewOutcome,
 } from "./proposal-decision-dossier.js";
 import { buildReviewAttentionProjection } from "./review-attention.js";
@@ -1724,6 +1725,9 @@ export function createControlPlane(options?: {
     const economics = new Map(
       full.ai.proposalEconomicTriage.items.map((item) => [item.proposalId, item] as const),
     );
+    const premiseJobs = new Map(
+      full.ai.premiseAnalysisScheduler.jobs.map((item) => [item.proposalId, item] as const),
+    );
     const items = Object.freeze(proposalIds.map((proposalId) => {
       const proposal = proposals.get(proposalId) ?? null;
       const job = jobs.get(proposalId) ?? null;
@@ -1731,9 +1735,13 @@ export function createControlPlane(options?: {
       const operatorAttention = attention.get(proposalId) ?? null;
       const economicTriage = economics.get(proposalId) ?? null;
       const reviewOutcome = resolveProposalReviewOutcome(job, jobsById);
+      const premiseJob = premiseJobs.get(proposalId) ?? null;
+      const premiseOutcome = resolveProposalPremiseOutcome(premiseJob);
       const nextGate = deriveProposalDecisionNextGate({
         reviewJob: job,
         reviewOutcome,
+        premiseJob,
+        premiseOutcome,
         attention: operatorAttention,
         lifecycleCase,
         economics: economicTriage,
@@ -1759,6 +1767,17 @@ export function createControlPlane(options?: {
           lastFailure: job.lastFailure ?? null,
         }),
         reviewOutcome,
+        premiseJob: premiseJob === null ? null : Object.freeze({
+          schemaVersion: premiseJob.schemaVersion,
+          jobId: premiseJob.jobId,
+          status: premiseJob.status,
+          attemptCount: premiseJob.attemptCount,
+          maxAttempts: premiseJob.maxAttempts,
+          completedAt: premiseJob.completedAt,
+          diagnostic: premiseJob.diagnostic,
+          admissionLane: premiseJob.admissionLane ?? null,
+        }),
+        premiseOutcome,
         economicTriage: economicTriage === null ? null : Object.freeze({
           itemId: economicTriage.itemId,
           status: economicTriage.status,
@@ -1785,12 +1804,18 @@ export function createControlPlane(options?: {
       });
     }));
     const body = Object.freeze({
-      schemaVersion: "pmh.proposal-handoff.v2" as const,
+      schemaVersion: "pmh.proposal-handoff.v3" as const,
       sourceStateHash: full.identity.stateHash,
       requestedProposalIds: Object.freeze([...proposalIds]),
       resolvedProposalCount: items.filter((item) => item.proposal !== null).length,
       reviewJobCount: items.filter((item) => item.reviewJob !== null).length,
       reviewOutcomeCount: items.filter((item) => item.reviewOutcome.outcome !== null).length,
+      premiseJobCount: items.filter((item) => item.premiseJob !== null).length,
+      premiseOutcomeCount: items.filter((item) => item.premiseOutcome.outcome !== null).length,
+      premiseObligationCount: items.reduce(
+        (sum, item) => sum + (item.premiseOutcome.outcome?.premiseCount ?? 0),
+        0,
+      ),
       recoveryPendingCount: items.filter((item) =>
         item.reviewOutcome.basis === "RECOVERY_PENDING"
       ).length,

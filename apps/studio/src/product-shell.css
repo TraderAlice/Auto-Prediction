@@ -1034,6 +1034,11 @@ main {
   border-right: 0;
 }
 
+.focused-review-handoff-list > article:nth-child(odd):last-child {
+  grid-column: 1 / -1;
+  border-right: 0;
+}
+
 .focused-review-handoff-list > article:last-child,
 .focused-review-handoff-list > article:nth-last-child(2):nth-child(odd) {
   border-bottom: 0;
@@ -1121,6 +1126,77 @@ main {
 
 .decision-dossier-review.is-pending {
   border-style: dashed;
+}
+
+.decision-dossier-premises {
+  border: 1px solid #4b422f;
+  border-radius: 9px;
+  background: #191713;
+  padding: 12px;
+}
+
+.decision-dossier-premises > p {
+  margin: 4px 0 0;
+  color: #9b9587;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.premise-obligation-list {
+  margin-top: 10px;
+  border-top: 1px solid #3c372b;
+  padding-top: 9px;
+}
+
+.premise-obligation-list > summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #d9d4c7;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.premise-obligation-list > summary::-webkit-details-marker {
+  display: none;
+}
+
+.premise-obligation-list > summary svg {
+  flex: 0 0 auto;
+  transition: transform 160ms ease;
+}
+
+.premise-obligation-list[open] > summary svg {
+  transform: rotate(90deg);
+}
+
+.premise-obligation-list > div {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.premise-obligation-list article {
+  display: grid;
+  gap: 3px;
+  border-left: 2px solid #715f35;
+  padding: 6px 0 6px 10px;
+}
+
+.premise-obligation-list article strong {
+  color: #e6e1d6;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.premise-obligation-list article span,
+.premise-obligation-list article small {
+  color: #938d7e;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .decision-dossier-warning {

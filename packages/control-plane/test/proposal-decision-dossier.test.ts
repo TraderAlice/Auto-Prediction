@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { Hash } from "@pmh/domain";
 import {
   deriveProposalDecisionNextGate,
+  resolveProposalPremiseOutcome,
   resolveProposalReviewOutcome,
 } from "../src/proposal-decision-dossier.js";
+import type {
+  PremiseAnalysisJobRecord,
+  PremiseAnalysisOutcomeCapsule,
+} from "../src/premise-analysis-scheduler.js";
 import type {
   SemanticReviewJobRecord,
   SemanticReviewOutcomeCapsule,
@@ -75,6 +80,86 @@ function job(
   };
 }
 
+function premiseCapsule(
+  seed: string,
+  exactCompilerAdmission: "ELIGIBLE" | "RESEARCH_ONLY" = "ELIGIBLE",
+): PremiseAnalysisOutcomeCapsule {
+  const researchOnly = exactCompilerAdmission === "RESEARCH_ONLY";
+  return {
+    schemaVersion: "pmh.premise-analysis-outcome-capsule.v1",
+    outcomeHash: hash(`${seed}o`),
+    analysisId: hash(`${seed}a`),
+    analysisArtifactHash: hash(`${seed}b`),
+    proposalId: hash(`${seed}p`),
+    semanticReviewArtifactHash: hash(`${seed}r`),
+    completedAt: "2026-08-10T00:00:01.000Z",
+    relationArtifactHash: hash(`${seed}l`),
+    classification: researchOnly ? "CAUSAL_RESEARCH_ONLY" : "CONDITIONAL_TRADED",
+    exactCompilerAdmission,
+    blocker: researchOnly ? "PREMISE_RESEARCH_ONLY" : null,
+    premiseCount: 1,
+    unboundPremiseCount: researchOnly ? 1 : 0,
+    obligations: [{
+      premiseId: hash(`${seed}m`),
+      proposition: "The decisive premise is explicitly retained.",
+      kind: researchOnly ? "CAUSAL_HYPOTHESIS" : "TRADED_OUTCOME",
+      truthPosture: researchOnly ? "UNRESOLVED" : "TRADED_VARIABLE",
+      bindingKind: researchOnly ? "NONE" : "LISTING_TRUTH",
+      evidenceClaimCount: 0,
+      exactStateAuthority: researchOnly ? "NONE" : "BOUND_LISTING_TRUTH",
+      counterexampleResult: "NOT_FOUND",
+    }],
+    authority: "ADVISORY_SUMMARY_ONLY",
+    semanticDecisionAuthority: false,
+    simulationAuthority: false,
+    certificateAuthority: false,
+    executionAuthority: false,
+  };
+}
+
+function premiseJob(
+  seed: string,
+  status: PremiseAnalysisJobRecord["status"],
+  outcomeCapsule?: PremiseAnalysisOutcomeCapsule,
+): PremiseAnalysisJobRecord {
+  return {
+    schemaVersion: outcomeCapsule === undefined
+      ? "pmh.premise-analysis-job.v2"
+      : "pmh.premise-analysis-job.v3",
+    jobId: hash(`${seed}j`),
+    analysisId: hash(`${seed}j`),
+    proposalId: outcomeCapsule?.proposalId ?? hash(`${seed}p`),
+    semanticReviewArtifactHash: outcomeCapsule?.semanticReviewArtifactHash ?? hash(`${seed}r`),
+    evidenceScopeIdentity: hash(`${seed}s`),
+    interpreterIdentity: hash(`${seed}i`),
+    semanticReviewJobId: hash(`${seed}q`),
+    issueIds: [hash(`${seed}u`)],
+    admissionLane: "AUTO_ARBITRAGE_REVIEW",
+    outcomeCapsule,
+    upgradedFromArtifactHash: outcomeCapsule === undefined ? undefined : null,
+    status,
+    attemptCount: status === "PENDING" ? 0 : 1,
+    maxAttempts: 3,
+    nextAttemptAt: "2026-08-10T00:00:00.000Z",
+    leasedAt: null,
+    leaseExpiresAt: null,
+    completedAt: status === "PASS" || status === "EXHAUSTED"
+      ? "2026-08-10T00:00:01.000Z"
+      : null,
+    lastAnalysisArtifactHash: outcomeCapsule?.analysisArtifactHash ?? null,
+    exactCompilerAdmission: outcomeCapsule?.exactCompilerAdmission ?? null,
+    diagnostic: status === "EXHAUSTED" ? "bounded failure" : null,
+    createdAt: "2026-08-10T00:00:00.000Z",
+    updatedAt: "2026-08-10T00:00:01.000Z",
+    authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
+    providerRequestAuthority: false,
+    semanticDecisionAuthority: false,
+    certificateAuthority: false,
+    executionAuthority: false,
+    artifactHash: hash(`${seed}h`),
+  } as PremiseAnalysisJobRecord;
+}
+
 describe("proposal decision dossier", () => {
   it("distinguishes direct, named canonical reuse, and historical detail gaps", () => {
     const directOutcome = capsule("a");
@@ -117,9 +202,12 @@ describe("proposal decision dossier", () => {
   it("derives gates from evidence, not from a bare PASS label", () => {
     const pass = job("a", "PASS", { reviewOutcome: capsule("b") });
     const direct = resolveProposalReviewOutcome(pass, new Map([[pass.jobId, pass]]));
+    const exactPremiseJob = premiseJob("x", "PASS", premiseCapsule("x"));
     const base = {
       reviewJob: pass,
       reviewOutcome: direct,
+      premiseJob: exactPremiseJob,
+      premiseOutcome: resolveProposalPremiseOutcome(exactPremiseJob),
       attention: null,
       lifecycleCase: null,
       economics: null,
@@ -173,9 +261,50 @@ describe("proposal decision dossier", () => {
     expect(deriveProposalDecisionNextGate({
       reviewJob: canonical,
       reviewOutcome: directResolution,
+      premiseJob: null,
+      premiseOutcome: resolveProposalPremiseOutcome(null),
       attention: null,
       lifecycleCase: null,
       economics: { status: "POSITIVE_GROSS_HINT" },
     })).toBe("AWAIT_REVIEW_RECOVERY");
+  });
+
+  it("turns premise state into explicit deterministic gates", () => {
+    const pass = job("a", "PASS", { reviewOutcome: capsule("b") });
+    const reviewOutcome = resolveProposalReviewOutcome(pass, new Map([[pass.jobId, pass]]));
+    const input = {
+      reviewJob: pass,
+      reviewOutcome,
+      attention: { operatorPosture: "RESEARCH_ONLY" as const },
+      lifecycleCase: null,
+      economics: { status: "POSITIVE_GROSS_HINT" as const },
+    };
+    expect(deriveProposalDecisionNextGate({
+      ...input,
+      premiseJob: null,
+      premiseOutcome: resolveProposalPremiseOutcome(null),
+    })).toBe("HIDDEN_PREMISE_ANALYSIS");
+    const pending = premiseJob("p", "PENDING");
+    expect(deriveProposalDecisionNextGate({
+      ...input,
+      premiseJob: pending,
+      premiseOutcome: resolveProposalPremiseOutcome(pending),
+    })).toBe("AWAIT_PREMISE_ANALYSIS");
+    const exhausted = premiseJob("e", "EXHAUSTED");
+    expect(deriveProposalDecisionNextGate({
+      ...input,
+      premiseJob: exhausted,
+      premiseOutcome: resolveProposalPremiseOutcome(exhausted),
+    })).toBe("RETRY_PREMISE_ANALYSIS");
+    const research = premiseJob("r", "PASS", premiseCapsule("r", "RESEARCH_ONLY"));
+    expect(deriveProposalDecisionNextGate({
+      ...input,
+      premiseJob: research,
+      premiseOutcome: resolveProposalPremiseOutcome(research),
+    })).toBe("BIND_PREMISE_EVIDENCE");
+    expect(resolveProposalPremiseOutcome(research)).toMatchObject({
+      basis: "DIRECT_ANALYSIS",
+      outcome: { unboundPremiseCount: 1, exactCompilerAdmission: "RESEARCH_ONLY" },
+    });
   });
 });

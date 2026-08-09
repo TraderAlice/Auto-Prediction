@@ -24,6 +24,8 @@ with durable proposal-local review evidence and decision dossiers tracked in
 [`plans/durable-decision-dossier.md`](plans/durable-decision-dossier.md),
 and actionable recovery of physically-rotated semantic-review detail tracked in
 [`plans/semantic-review-detail-recovery.md`](plans/semantic-review-detail-recovery.md),
+with durable premise obligations and deterministic post-review gates tracked in
+[`plans/premise-decision-dossier.md`](plans/premise-decision-dossier.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -615,6 +617,22 @@ after invalidation, and shows a neutral loading state before the durable dossier
 arrives. Desktop and 390 px checks have no horizontal overflow or console
 errors. Node 24.14.0 type checks, all 583 workspace tests, and the production
 build pass.
+
+Premise outcomes no longer disappear behind that recovered review. Passing
+premise jobs now retain a bounded, content-addressed outcome capsule containing
+their exact analysis lineage and human-readable evidence obligations. Proposal
+handoff v3 joins that capsule and distinguishes waiting, exhausted, legacy,
+research-only, and exact-admissible premise states before fee/depth work. The
+live Arizona dossier now names six unbound causal premises and advances to
+`BIND_PREMISE_EVIDENCE` instead of the generic `RETAIN_AS_RESEARCH_ONLY` dead
+end. Restart upgraded ten retained v2 PASS jobs with exact analyses to v3 and
+left fifteen rotated-detail PASS jobs unchanged; provider attempts stayed at
+265. Studio renders a single focused dossier at full width and keeps long
+obligation lists collapsed by default. Node 24.14.0 checks, all 584 workspace
+tests (423 control-plane), and the production build pass. The next measured
+product choice is evidence routing per obligation: bind it to another traded
+state when possible, otherwise acquire and quote-verify an allowlisted official
+source. Automatic open-web search for every causal premise is not yet justified.
 
 ## Deferred future campaigns
 

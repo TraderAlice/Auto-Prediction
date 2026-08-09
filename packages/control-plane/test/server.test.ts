@@ -669,11 +669,14 @@ describe("control-plane HTTP surface", () => {
     );
     expect(handoffResponse.status).toBe(200);
     expect(await handoffResponse.json()).toMatchObject({
-      schemaVersion: "pmh.proposal-handoff.v2",
+      schemaVersion: "pmh.proposal-handoff.v3",
       requestedProposalIds: [handoffProposalId],
       resolvedProposalCount: 0,
       reviewJobCount: 0,
       reviewOutcomeCount: 0,
+      premiseJobCount: 0,
+      premiseOutcomeCount: 0,
+      premiseObligationCount: 0,
       recoveryPendingCount: 0,
       legacyDetailUnavailableCount: 0,
       economicTriageCount: 0,

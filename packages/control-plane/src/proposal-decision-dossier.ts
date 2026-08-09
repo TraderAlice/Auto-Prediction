@@ -3,6 +3,10 @@ import type { OpportunityLifecycleProjection } from "@pmh/execution";
 import type { ProposalEconomicTriageItem } from "./proposal-economic-triage.js";
 import type { ReviewAttentionItem } from "./review-attention.js";
 import type {
+  PremiseAnalysisJobRecord,
+  PremiseAnalysisOutcomeCapsule,
+} from "./premise-analysis-scheduler.js";
+import type {
   SemanticReviewJobRecord,
   SemanticReviewOutcomeCapsule,
 } from "./semantic-review-scheduler.js";
@@ -24,9 +28,62 @@ export type ProposalDecisionNextGate =
   | "AWAIT_REVIEW_RECOVERY"
   | "RECOVER_REVIEW_DETAIL"
   | "RESOLVE_EVIDENCE_GAPS"
+  | "HIDDEN_PREMISE_ANALYSIS"
+  | "AWAIT_PREMISE_ANALYSIS"
+  | "RETRY_PREMISE_ANALYSIS"
+  | "BIND_PREMISE_EVIDENCE"
   | "OPERATOR_DECISION"
   | "FEE_DEPTH_QUALIFICATION"
   | "RETAIN_AS_RESEARCH_ONLY";
+
+export type ProposalPremiseOutcomeResolution = Readonly<{
+  basis:
+    | "DIRECT_ANALYSIS"
+    | "ANALYSIS_PENDING"
+    | "ANALYSIS_EXHAUSTED"
+    | "LEGACY_DETAIL_UNAVAILABLE"
+    | "NOT_ANALYZED";
+  outcome: PremiseAnalysisOutcomeCapsule | null;
+  diagnostic: string;
+}>;
+
+export function resolveProposalPremiseOutcome(
+  job: PremiseAnalysisJobRecord | null,
+): ProposalPremiseOutcomeResolution {
+  if (job === null) {
+    return Object.freeze({
+      basis: "NOT_ANALYZED",
+      outcome: null,
+      diagnostic: "No retained hidden-premise analysis job is bound to this proposal.",
+    });
+  }
+  if (job.outcomeCapsule !== undefined) {
+    return Object.freeze({
+      basis: "DIRECT_ANALYSIS",
+      outcome: job.outcomeCapsule,
+      diagnostic: "Premise outcome capsule comes from this proposal's exact retained analysis.",
+    });
+  }
+  if (["PENDING", "LEASED", "RETRY_WAIT"].includes(job.status)) {
+    return Object.freeze({
+      basis: "ANALYSIS_PENDING",
+      outcome: null,
+      diagnostic: `Hidden-premise analysis is ${job.status.toLowerCase().replaceAll("_", " ")}.`,
+    });
+  }
+  if (job.status === "EXHAUSTED") {
+    return Object.freeze({
+      basis: "ANALYSIS_EXHAUSTED",
+      outcome: null,
+      diagnostic: job.diagnostic ?? "Hidden-premise analysis exhausted its bounded request budget.",
+    });
+  }
+  return Object.freeze({
+    basis: "LEGACY_DETAIL_UNAVAILABLE",
+    outcome: null,
+    diagnostic: "This historical premise PASS predates durable outcome capsules; its result is not reconstructed from terminal labels.",
+  });
+}
 
 export function resolveProposalReviewOutcome(
   job: SemanticReviewJobRecord | null,
@@ -103,6 +160,8 @@ export function resolveProposalReviewOutcome(
 type NextGateInput = Readonly<{
   reviewJob: SemanticReviewJobRecord | null;
   reviewOutcome: ProposalReviewOutcomeResolution;
+  premiseJob: PremiseAnalysisJobRecord | null;
+  premiseOutcome: ProposalPremiseOutcomeResolution;
   attention: Pick<ReviewAttentionItem, "operatorPosture"> | null;
   lifecycleCase: Pick<OpportunityLifecycleProjection, "nextAction"> | null;
   economics: Pick<ProposalEconomicTriageItem, "status"> | null;
@@ -130,8 +189,7 @@ export function deriveProposalDecisionNextGate(
   }
   if (
     outcome.recommendation === "REJECT" ||
-    input.attention?.operatorPosture === "REJECT_RECOMMENDED" ||
-    input.attention?.operatorPosture === "RESEARCH_ONLY"
+    input.attention?.operatorPosture === "REJECT_RECOMMENDED"
   ) return "RETAIN_AS_RESEARCH_ONLY";
   if (
     outcome.recommendation === "ESCALATE" ||
@@ -139,6 +197,31 @@ export function deriveProposalDecisionNextGate(
     input.attention?.operatorPosture === "EVIDENCE_ESCALATION"
   ) return "RESOLVE_EVIDENCE_GAPS";
   if (outcome.semanticConstraint?.classification !== "HARD_SETTLEMENT_CONSTRAINT") {
+    return "RETAIN_AS_RESEARCH_ONLY";
+  }
+  if (input.premiseOutcome.basis === "NOT_ANALYZED") {
+    return "HIDDEN_PREMISE_ANALYSIS";
+  }
+  if (input.premiseOutcome.basis === "ANALYSIS_PENDING") {
+    return "AWAIT_PREMISE_ANALYSIS";
+  }
+  if (input.premiseOutcome.basis === "ANALYSIS_EXHAUSTED") {
+    return "RETRY_PREMISE_ANALYSIS";
+  }
+  if (input.premiseOutcome.basis === "LEGACY_DETAIL_UNAVAILABLE") {
+    return "RETAIN_AS_RESEARCH_ONLY";
+  }
+  const premiseOutcome = input.premiseOutcome.outcome!;
+  if (premiseOutcome.exactCompilerAdmission !== "ELIGIBLE") {
+    if (
+      premiseOutcome.unboundPremiseCount > 0 ||
+      premiseOutcome.blocker === "BASE_CONSTRAINT_RESEARCH_ONLY" ||
+      premiseOutcome.blocker === "PREMISE_RESEARCH_ONLY"
+    ) return "BIND_PREMISE_EVIDENCE";
+    if (
+      premiseOutcome.blocker === "EXPRESSION_UNRESOLVED" ||
+      premiseOutcome.blocker === "EXPRESSION_STATE_MISMATCH"
+    ) return "RETRY_PREMISE_ANALYSIS";
     return "RETAIN_AS_RESEARCH_ONLY";
   }
   if (

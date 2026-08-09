@@ -6,6 +6,8 @@ import { hashCanonical } from "@pmh/domain";
 import {
   AiUsageLedger,
   assertPremiseAnalysisArtifact,
+  assertPremiseAnalysisJobRecord,
+  assertPremiseAnalysisOutcomeCapsule,
   assertResearchRelationPayoff,
   buildProposalEvidenceBundle,
   buildPremiseBearingRelationArtifact,
@@ -585,6 +587,37 @@ describe("Agent-native hidden premise analysis", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    const completedJob = scheduler.projection().jobs[0]!;
+    expect(completedJob).toMatchObject({
+      schemaVersion: "pmh.premise-analysis-job.v3",
+      upgradedFromArtifactHash: null,
+      outcomeCapsule: {
+        schemaVersion: "pmh.premise-analysis-outcome-capsule.v1",
+        premiseCount: 1,
+        unboundPremiseCount: 0,
+        exactCompilerAdmission: "ELIGIBLE",
+        blocker: null,
+        obligations: [{
+          kind: "TRADED_OUTCOME",
+          bindingKind: "LISTING_TRUTH",
+          exactStateAuthority: "BOUND_LISTING_TRUTH",
+        }],
+        authority: "ADVISORY_SUMMARY_ONLY",
+        semanticDecisionAuthority: false,
+        simulationAuthority: false,
+        certificateAuthority: false,
+        executionAuthority: false,
+      },
+    });
+    expect(() => assertPremiseAnalysisOutcomeCapsule(completedJob.outcomeCapsule))
+      .not.toThrow();
+    expect(() => assertPremiseAnalysisJobRecord({
+      ...completedJob,
+      outcomeCapsule: {
+        ...completedJob.outcomeCapsule!,
+        unboundPremiseCount: 1,
+      },
+    })).toThrow(/capsule|authority/u);
     expect(scheduler.projection().notifications).toHaveLength(1);
     expect(scheduler.projection().notifications[0]).toMatchObject({
       kind: "EXACT_RELATION_READY",
@@ -664,6 +697,21 @@ describe("Agent-native hidden premise analysis", () => {
       ...tamperedQualificationBody,
       artifactHash: hashCanonical(tamperedQualificationBody),
     })).toThrow(/state|replay/);
+    const {
+      artifactHash: _completedJobHash,
+      outcomeCapsule: _completedCapsule,
+      upgradedFromArtifactHash: _completedUpgrade,
+      ...completedJobBody
+    } = completedJob;
+    const legacyBody = Object.freeze({
+      ...completedJobBody,
+      schemaVersion: "pmh.premise-analysis-job.v2" as const,
+    });
+    const legacyJob = assertPremiseAnalysisJobRecord(Object.freeze({
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    }));
+    store.savePremiseAnalysisJobRecord(legacyJob, 500);
     store.close();
 
     const restartedStore = new SqliteOperationalStore(databasePath);
@@ -692,6 +740,14 @@ describe("Agent-native hidden premise analysis", () => {
     expect(restarted.projection().notifications).toEqual(
       scheduler.projection().notifications,
     );
+    expect(restarted.projection().jobs[0]).toMatchObject({
+      schemaVersion: "pmh.premise-analysis-job.v3",
+      upgradedFromArtifactHash: legacyJob.artifactHash,
+      outcomeCapsule: {
+        analysisArtifactHash: completedAnalysis.artifactHash,
+        exactCompilerAdmission: "ELIGIBLE",
+      },
+    });
     expect(restarted.tick(candidates)).toEqual([]);
     expect(attempts).toBe(2);
     restartedStore.close();

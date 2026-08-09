@@ -76,12 +76,15 @@ type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
 type ProposalHandoffProjection = Readonly<{
-  schemaVersion: "pmh.proposal-handoff.v2";
+  schemaVersion: "pmh.proposal-handoff.v3";
   sourceStateHash: string;
   requestedProposalIds: readonly string[];
   resolvedProposalCount: number;
   reviewJobCount: number;
   reviewOutcomeCount: number;
+  premiseJobCount: number;
+  premiseOutcomeCount: number;
+  premiseObligationCount: number;
   recoveryPendingCount: number;
   legacyDetailUnavailableCount: number;
   economicTriageCount: number;
@@ -136,6 +139,52 @@ type ProposalHandoffProjection = Readonly<{
         executionAuthority: false;
       }>;
     }>;
+    premiseJob: null | Readonly<{
+      schemaVersion: string;
+      jobId: string;
+      status: string;
+      attemptCount: number;
+      maxAttempts: number;
+      completedAt: string | null;
+      diagnostic: string | null;
+      admissionLane: string | null;
+    }>;
+    premiseOutcome: Readonly<{
+      basis:
+        | "DIRECT_ANALYSIS"
+        | "ANALYSIS_PENDING"
+        | "ANALYSIS_EXHAUSTED"
+        | "LEGACY_DETAIL_UNAVAILABLE"
+        | "NOT_ANALYZED";
+      diagnostic: string;
+      outcome: null | Readonly<{
+        outcomeHash: string;
+        analysisId: string;
+        analysisArtifactHash: string;
+        completedAt: string;
+        relationArtifactHash: string;
+        classification: string;
+        exactCompilerAdmission: "ELIGIBLE" | "RESEARCH_ONLY";
+        blocker: string | null;
+        premiseCount: number;
+        unboundPremiseCount: number;
+        obligations: ReadonlyArray<Readonly<{
+          premiseId: string;
+          proposition: string;
+          kind: string;
+          truthPosture: string;
+          bindingKind: string;
+          evidenceClaimCount: number;
+          exactStateAuthority: string;
+          counterexampleResult: string;
+        }>>;
+        authority: "ADVISORY_SUMMARY_ONLY";
+        semanticDecisionAuthority: false;
+        simulationAuthority: false;
+        certificateAuthority: false;
+        executionAuthority: false;
+      }>;
+    }>;
     economicTriage: null | Readonly<{
       itemId: string;
       status: string;
@@ -172,6 +221,10 @@ type ProposalHandoffProjection = Readonly<{
       | "AWAIT_REVIEW_RECOVERY"
       | "RECOVER_REVIEW_DETAIL"
       | "RESOLVE_EVIDENCE_GAPS"
+      | "HIDDEN_PREMISE_ANALYSIS"
+      | "AWAIT_PREMISE_ANALYSIS"
+      | "RETRY_PREMISE_ANALYSIS"
+      | "BIND_PREMISE_EVIDENCE"
       | "OPERATOR_DECISION"
       | "FEE_DEPTH_QUALIFICATION"
       | "RETAIN_AS_RESEARCH_ONLY";
@@ -1638,7 +1691,7 @@ async function requestProposalHandoff(
   };
   if (!response.ok) throw new Error(result.diagnostic ?? "proposal handoff failed");
   if (
-    result.schemaVersion !== "pmh.proposal-handoff.v2" ||
+    result.schemaVersion !== "pmh.proposal-handoff.v3" ||
     result.authority !== "READ_ONLY_WORKFLOW_HANDOFF" ||
     result.semanticDecisionAuthority !== false ||
     result.simulationAuthority !== false ||
@@ -4788,6 +4841,19 @@ function OpportunityLifecycleView({
     const economicTriageItem = economicTriage.items.find((item) =>
       item.proposalId === proposalId
     );
+    const premiseJob = premiseScheduler.jobs.filter((item) =>
+      item.proposalId === proposalId
+    ).at(-1);
+    const premiseCapsule = premiseJob?.outcomeCapsule ?? null;
+    const premiseOutcomeBasis = premiseCapsule !== null
+      ? "DIRECT_ANALYSIS" as const
+      : premiseJob === undefined
+        ? "NOT_ANALYZED" as const
+        : ["PENDING", "LEASED", "RETRY_WAIT"].includes(premiseJob.status)
+          ? "ANALYSIS_PENDING" as const
+          : premiseJob.status === "EXHAUSTED"
+            ? "ANALYSIS_EXHAUSTED" as const
+            : "LEGACY_DETAIL_UNAVAILABLE" as const;
     const outcomeBasis = reviewJob?.reviewOutcome !== undefined
       ? "DIRECT_REVIEW" as const
       : canonicalReviewJob?.reviewOutcome !== undefined
@@ -4815,9 +4881,23 @@ function OpportunityLifecycleView({
               ? "RESOLVE_EVIDENCE_GAPS"
               : retainedOutcome.semanticConstraint?.classification !== "HARD_SETTLEMENT_CONSTRAINT"
                 ? "RETAIN_AS_RESEARCH_ONLY"
-              : economicTriageItem?.status === "POSITIVE_GROSS_HINT"
-                ? "FEE_DEPTH_QUALIFICATION"
-                : "OPERATOR_DECISION";
+                : premiseOutcomeBasis === "NOT_ANALYZED"
+                  ? "HIDDEN_PREMISE_ANALYSIS"
+                  : premiseOutcomeBasis === "ANALYSIS_PENDING"
+                    ? "AWAIT_PREMISE_ANALYSIS"
+                    : premiseOutcomeBasis === "ANALYSIS_EXHAUSTED"
+                      ? "RETRY_PREMISE_ANALYSIS"
+                      : premiseOutcomeBasis === "LEGACY_DETAIL_UNAVAILABLE"
+                        ? "RETAIN_AS_RESEARCH_ONLY"
+                        : premiseCapsule!.exactCompilerAdmission !== "ELIGIBLE"
+                          ? premiseCapsule!.unboundPremiseCount > 0 ||
+                              premiseCapsule!.blocker === "BASE_CONSTRAINT_RESEARCH_ONLY" ||
+                              premiseCapsule!.blocker === "PREMISE_RESEARCH_ONLY"
+                            ? "BIND_PREMISE_EVIDENCE"
+                            : "RETRY_PREMISE_ANALYSIS"
+                          : economicTriageItem?.status === "POSITIVE_GROSS_HINT"
+                            ? "FEE_DEPTH_QUALIFICATION"
+                            : "OPERATOR_DECISION";
     const workflowState = attention !== undefined
       ? attention.operatorPosture
       : reviewJob !== undefined
@@ -4840,6 +4920,20 @@ function OpportunityLifecycleView({
           ? "Live bounded projection fallback; persisted dossier is loading."
           : `Review detail recovery is ${recoveryJob.status.toLowerCase().replaceAll("_", " ")}.`,
       }),
+      premiseJob,
+      premiseOutcome: Object.freeze({
+        basis: premiseOutcomeBasis,
+        outcome: premiseCapsule,
+        diagnostic: premiseOutcomeBasis === "NOT_ANALYZED"
+          ? "No hidden-premise analysis is retained in the bounded live projection."
+          : premiseOutcomeBasis === "ANALYSIS_PENDING"
+            ? `Hidden-premise analysis is ${premiseJob!.status.toLowerCase().replaceAll("_", " ")}.`
+            : premiseOutcomeBasis === "ANALYSIS_EXHAUSTED"
+              ? premiseJob!.diagnostic ?? "Hidden-premise analysis exhausted its bounded request budget."
+              : premiseOutcomeBasis === "LEGACY_DETAIL_UNAVAILABLE"
+                ? "Historical premise detail is unavailable in the bounded live projection."
+                : "Premise outcome capsule comes from this proposal's retained analysis.",
+      }),
       economicTriage: economicTriageItem,
       attention,
       lifecycleCase,
@@ -4853,6 +4947,7 @@ function OpportunityLifecycleView({
       opportunityId: `ai:${item.proposalId}`,
       proposal: item.proposal ?? undefined,
       reviewJob: item.reviewJob ?? undefined,
+      premiseJob: item.premiseJob ?? undefined,
       economicTriage: item.economicTriage ?? undefined,
       attention: item.attention ?? undefined,
       lifecycleCase: item.lifecycleCase ?? undefined,
@@ -5186,7 +5281,7 @@ function OpportunityLifecycleView({
               return (
                 <article key={item.proposalId}>
                   <div className="focused-review-handoff-topline">
-                    <Badge variant={item.nextGate === "OPERATOR_DECISION" || item.nextGate === "FEE_DEPTH_QUALIFICATION" ? "verified" : item.nextGate === "RECOVER_REVIEW_DETAIL" || item.nextGate === "RESOLVE_EVIDENCE_GAPS" ? "warning" : "shadow"}>
+                    <Badge variant={item.nextGate === "OPERATOR_DECISION" || item.nextGate === "FEE_DEPTH_QUALIFICATION" ? "verified" : ["RECOVER_REVIEW_DETAIL", "RESOLVE_EVIDENCE_GAPS", "RETRY_PREMISE_ANALYSIS", "BIND_PREMISE_EVIDENCE"].includes(item.nextGate) ? "warning" : "shadow"}>
                       NEXT · {item.nextGate.replaceAll("_", " ")}
                     </Badge>
                     {item.proposal !== undefined && (
@@ -5276,6 +5371,69 @@ function OpportunityLifecycleView({
                       <p>{item.reviewOutcome.diagnostic}</p>
                     </div>
                   )}
+                  {(reviewOutcome?.semanticConstraint?.classification === "HARD_SETTLEMENT_CONSTRAINT" ||
+                    item.premiseJob !== undefined) && (
+                    item.premiseOutcome.outcome !== null ? (
+                      <div className="decision-dossier-premises">
+                        <div className="decision-dossier-review-head">
+                          <span>Hidden-premise audit · durable outcome</span>
+                          <Badge variant={item.premiseOutcome.outcome.exactCompilerAdmission === "ELIGIBLE" ? "verified" : "warning"}>
+                            {item.premiseOutcome.outcome.exactCompilerAdmission.replaceAll("_", " ")}
+                          </Badge>
+                        </div>
+                        <strong>{item.premiseOutcome.outcome.classification.replaceAll("_", " ")}</strong>
+                        <p>
+                          {item.premiseOutcome.outcome.premiseCount} premises retained · {item.premiseOutcome.outcome.unboundPremiseCount} still lack exact-state binding
+                          {item.premiseOutcome.outcome.blocker === null
+                            ? " · deterministic replay is eligible"
+                            : ` · ${item.premiseOutcome.outcome.blocker.replaceAll("_", " ")}`}
+                        </p>
+                        <details className="premise-obligation-list">
+                          <summary>
+                            <span>
+                              {item.premiseOutcome.outcome.unboundPremiseCount > 0
+                                ? `${item.premiseOutcome.outcome.unboundPremiseCount} premises requiring evidence`
+                                : "Premise bindings"}
+                            </span>
+                            <ChevronRight size={13} />
+                          </summary>
+                          <div>
+                            {item.premiseOutcome.outcome.obligations.map((obligation) => (
+                              <article key={obligation.premiseId}>
+                                <strong>{obligation.proposition}</strong>
+                                <span>
+                                  {obligation.kind.replaceAll("_", " ")} · {obligation.truthPosture.replaceAll("_", " ")} · {obligation.bindingKind.replaceAll("_", " ")}
+                                </span>
+                                <small>
+                                  {obligation.evidenceClaimCount} evidence claims · counterexample {obligation.counterexampleResult.toLowerCase().replaceAll("_", " ")}
+                                </small>
+                              </article>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+                    ) : item.premiseOutcome.basis === "ANALYSIS_PENDING" ? (
+                      <div className="decision-dossier-review is-pending" role="status">
+                        <span>Hidden-premise audit</span>
+                        <strong>Premise analysis is running in the background</strong>
+                        <p>{item.premiseOutcome.diagnostic} This page may be closed safely.</p>
+                      </div>
+                    ) : item.premiseOutcome.basis === "ANALYSIS_EXHAUSTED" ? (
+                      <div className="decision-dossier-warning" role="status">
+                        <CircleOff size={15} />
+                        <div>
+                          <strong>Hidden-premise analysis exhausted its request budget</strong>
+                          <span>{item.premiseOutcome.diagnostic}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="decision-dossier-review is-pending">
+                        <span>Hidden-premise audit</span>
+                        <strong>{item.premiseOutcome.basis === "NOT_ANALYZED" ? "Premise analysis has not started" : "Premise detail is unavailable"}</strong>
+                        <p>{item.premiseOutcome.diagnostic}</p>
+                      </div>
+                    )
+                  )}
                   <div className="focused-review-handoff-facts">
                     {item.reviewJob !== undefined && (
                       <span>
@@ -5283,11 +5441,14 @@ function OpportunityLifecycleView({
                         {item.reviewJob.duplicateOfJobId == null ? "" : ` · reuses ${item.reviewJob.duplicateOfJobId.slice(7, 19)}`}
                       </span>
                     )}
+                    {item.premiseJob !== undefined && (
+                      <span>premise {item.premiseJob.status.toLowerCase().replaceAll("_", " ")} · attempt {item.premiseJob.attemptCount}/{item.premiseJob.maxAttempts}</span>
+                    )}
                     {item.lifecycleCase !== undefined && (
                       <span>case {item.lifecycleCase.state.replaceAll("_", " ")}</span>
                     )}
                     {item.attention !== undefined && (
-                      <span>next {item.attention.nextAction.replaceAll("_", " ")} · {item.attention.missingEvidenceCount} evidence gaps</span>
+                      <span>operator posture {item.attention.nextAction.replaceAll("_", " ")} · {item.attention.missingEvidenceCount} evidence gaps</span>
                     )}
                     {item.reviewOutcome.canonicalJobId !== null && item.reviewOutcome.basis === "CANONICAL_SCOPE_REUSE" && (
                       <span>canonical review {item.reviewOutcome.canonicalJobId.slice(7, 19)}</span>
