@@ -3747,11 +3747,11 @@ function MarketArchaeologistView() {
     <section className="page-section archaeology-page">
       <div className="page-heading archaeology-heading">
         <div>
-          <span className="eyebrow">Discovery</span>
-          <h1>Find overlooked relationships</h1>
+          <span className="eyebrow">Heuristic discovery</span>
+          <h1>Explore before deciding what matters</h1>
           <p>
-            Start from unusual market neighborhoods. Agents inspect exact contracts,
-            form a hypothesis, and try to break it before it reaches review.
+            Agents start from rare signals and unusual market neighborhoods, then earn
+            a claim by reading exact contracts and trying to break the idea.
           </p>
         </div>
         <div className="archaeology-heading-badges">
@@ -3769,7 +3769,7 @@ function MarketArchaeologistView() {
             ) : (
               <Sparkles size={13} />
             )}
-            {leaseStatus === "RUNNING" ? "Exploring…" : "Explore a new neighborhood"}
+            {leaseStatus === "RUNNING" ? "Exploring…" : "Start heuristic scan"}
           </Button>
         </div>
       </div>
@@ -3778,15 +3778,15 @@ function MarketArchaeologistView() {
         <Metric
           label="Live markets"
           value={`${corpus.listingCount}`}
-          detail="fresh public contracts"
+          detail="public contracts in view"
         />
         <Metric
-          label="Active briefs"
+          label="Search briefs"
           value={`${issueScheduler.enabledIssueCount}`}
           detail={`${currentExplorationCount} exploratory · ${currentMonitoringCount} focused`}
         />
         <Metric
-          label="Completed searches"
+          label="Searches run"
           value={`${explorationPerformance.terminalLeaseCount + monitoringPerformance.terminalLeaseCount}`}
           detail={`${explorationPerformance.falsificationCount + monitoringPerformance.falsificationCount} hypotheses rejected`}
         />
@@ -3800,8 +3800,8 @@ function MarketArchaeologistView() {
       <Card className="issue-scheduler-console">
         <CardHeader>
           <div>
-            <span className="eyebrow">Search briefs</span>
-            <h2>What the Agents are looking for</h2>
+            <span className="eyebrow">Exploration desk</span>
+            <h2>Let the search produce the question</h2>
           </div>
           <div className="issue-scheduler-badges">
             <Badge variant={issueScheduler.enabled ? "shadow" : "muted"}>
@@ -3816,11 +3816,11 @@ function MarketArchaeologistView() {
           <div className="discovery-origin-overview" aria-label="Discovery origin yield">
             <article className="is-primary">
               <div>
-                <Badge variant="verified">Primary</Badge>
-                <span>{currentExplorationCount} exploration briefs</span>
+                <Badge variant="verified">Default lane</Badge>
+                <span>{currentExplorationCount} active exploration briefs</span>
               </div>
-              <h3>Explore before forming a claim</h3>
-              <p>Rare entities, timing conflicts, rule changes, and unusual semantic neighborhoods become trailheads. The Agent decides what might matter only after reading the contracts.</p>
+              <h3>Scan for surprises, then form a claim</h3>
+              <p>Rare entities, timing conflicts, rule changes, and odd semantic neighborhoods become trailheads. The Agent decides what matters only after reading the contracts.</p>
               <dl>
                 <div><dt>scans</dt><dd>{explorationPerformance.terminalLeaseCount}</dd></div>
                 <div><dt>novel</dt><dd>{explorationPerformance.novelCandidateCount}</dd></div>
@@ -3828,22 +3828,6 @@ function MarketArchaeologistView() {
                 <div><dt>proposals</dt><dd>{explorationPerformance.proposalCount}</dd></div>
                 <div><dt>AI requests</dt><dd>{explorationPerformance.providerRequestAttemptCount}</dd></div>
                 <div><dt>Pi</dt><dd>{explorationPerformance.piEscalationCount}</dd></div>
-              </dl>
-            </article>
-            <article>
-              <div>
-                <Badge variant="muted">Focused watch</Badge>
-                <span>{currentMonitoringCount} saved hypotheses</span>
-              </div>
-              <h3>Revisit something already suspected</h3>
-              <p>Useful for operator questions and regression checks. This lane validates a known idea; it is not the default source of new opportunities.</p>
-              <dl>
-                <div><dt>scans</dt><dd>{monitoringPerformance.terminalLeaseCount}</dd></div>
-                <div><dt>novel</dt><dd>{monitoringPerformance.novelCandidateCount}</dd></div>
-                <div><dt>falsified</dt><dd>{monitoringPerformance.falsificationCount}</dd></div>
-                <div><dt>proposals</dt><dd>{monitoringPerformance.proposalCount}</dd></div>
-                <div><dt>AI requests</dt><dd>{monitoringPerformance.providerRequestAttemptCount}</dd></div>
-                <div><dt>Pi</dt><dd>{monitoringPerformance.piEscalationCount}</dd></div>
               </dl>
             </article>
           </div>
@@ -3948,7 +3932,28 @@ function MarketArchaeologistView() {
               <ChevronRight size={16} />
             </summary>
             <div className="discovery-operations-body">
-          <div className="issue-scheduler-strip">
+              <section className="discovery-watch-summary" aria-label="Focused claim monitoring">
+                <div>
+                  <Badge variant="muted">Secondary lane</Badge>
+                  <span>{currentMonitoringCount} saved hypotheses</span>
+                </div>
+                <div>
+                  <h3>Focused claim monitoring</h3>
+                  <p>
+                    Revisit an operator question or regression case. This validates a
+                    known idea; it does not drive discovery.
+                  </p>
+                </div>
+                <dl>
+                  <div><dt>scans</dt><dd>{monitoringPerformance.terminalLeaseCount}</dd></div>
+                  <div><dt>novel</dt><dd>{monitoringPerformance.novelCandidateCount}</dd></div>
+                  <div><dt>falsified</dt><dd>{monitoringPerformance.falsificationCount}</dd></div>
+                  <div><dt>proposals</dt><dd>{monitoringPerformance.proposalCount}</dd></div>
+                  <div><dt>AI requests</dt><dd>{monitoringPerformance.providerRequestAttemptCount}</dd></div>
+                  <div><dt>Pi</dt><dd>{monitoringPerformance.piEscalationCount}</dd></div>
+                </dl>
+              </section>
+              <div className="issue-scheduler-strip">
             <div><strong>{issueScheduler.inspirationCount}</strong><span>inspirations</span></div>
             <div><strong>{issueScheduler.dueIssueCount}</strong><span>due now</span></div>
             <div><strong>{issueScheduler.activeCount}/{issueScheduler.concurrencyLimit}</strong><span>active slots</span></div>

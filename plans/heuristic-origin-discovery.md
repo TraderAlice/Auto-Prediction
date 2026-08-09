@@ -144,3 +144,18 @@ lease, allowing the scheduler to choose a fresh corpus trailhead before the
 Agent forms a claim. Operator-authored questions remain available as explicit
 claim monitors and ad-hoc investigations, but neither is presented as the
 default way to find an opportunity.
+
+## 2026-08-10 selection-pressure clarification
+
+Operator review sharpened the reason this separation matters. Claim-first is
+not merely one more discovery input: it systematically selects markets that are
+easy for many participants to name, search, and monitor. Those crowded semantic
+neighbourhoods can still contain opportunities, but the product should not
+spend its default search budget reproducing the market's most obvious queries.
+
+The default lane therefore remains heuristic-origin in both architecture and
+presentation. Corpus rarity, odd co-occurrence, timing tension, rule changes,
+and cross-lens inspirations produce trailheads; an Agent earns a claim only
+after reading the exact contracts. Claim monitoring is explicitly secondary
+and lives with search operations, where it remains useful for operator ideas,
+regression cases, and scheduled re-checks.

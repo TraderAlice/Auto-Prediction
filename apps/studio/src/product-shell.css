@@ -1644,26 +1644,26 @@ footer {
  */
 
 :root {
-  --background: #0b0d0f;
-  --foreground: #f1f3f2;
-  --card: #121518;
-  --card-foreground: #f1f3f2;
-  --popover: #171a1e;
-  --popover-foreground: #f1f3f2;
-  --primary: #78d9b5;
+  --background: #111318;
+  --foreground: #f5f7f6;
+  --card: #191c22;
+  --card-foreground: #f5f7f6;
+  --popover: #20242b;
+  --popover-foreground: #f5f7f6;
+  --primary: #8cdec0;
   --primary-foreground: #06231a;
-  --secondary: #1a1e22;
+  --secondary: #242830;
   --secondary-foreground: #e4e7e5;
-  --muted: #181c20;
-  --muted-foreground: #929b98;
-  --accent: #1d2226;
+  --muted: #23272e;
+  --muted-foreground: #a5ada9;
+  --accent: #282d35;
   --accent-foreground: #f7f8f7;
-  --border: #252a2f;
-  --input: #30363c;
-  --ring: #78d9b5;
-  --sidebar: #0e1012;
-  --radius: 0.625rem;
-  --studio-content: 1160px;
+  --border: #30353d;
+  --input: #3b424c;
+  --ring: #8cdec0;
+  --sidebar: #15171c;
+  --radius: 0.75rem;
+  --studio-content: 1240px;
 }
 
 html,
@@ -1683,29 +1683,29 @@ body {
 .app-shell {
   background: var(--background);
   color: var(--foreground);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .sidebar {
-  width: 232px;
+  width: 240px;
   border-right: 1px solid var(--border);
   background: var(--sidebar);
   padding: 0 12px 14px;
 }
 
 .workspace {
-  margin-left: 232px;
+  margin-left: 240px;
 }
 
 .brand {
-  height: 64px;
+  height: 72px;
   gap: 10px;
   border-bottom: 0;
   padding: 0 10px;
 }
 
 .brand span {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.015em;
 }
@@ -1713,7 +1713,7 @@ body {
 .brand small {
   margin-top: 2px;
   color: #747d79;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .signal-mark {
@@ -1727,13 +1727,13 @@ body {
 
 .sidebar nav {
   overflow-y: auto;
-  padding-top: 12px;
+  padding-top: 16px;
 }
 
 .nav-label {
   padding: 12px 10px 5px;
   color: #68716e;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 550;
   letter-spacing: 0;
   text-transform: none;
@@ -1746,12 +1746,12 @@ body {
 }
 
 .nav-item {
-  height: 38px;
+  height: 42px;
   gap: 10px;
   border-radius: 7px;
   color: #939c98;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 450;
 }
 
@@ -1795,18 +1795,18 @@ body {
 
 .sidebar-status strong,
 .authority-note strong {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 550;
 }
 
 .sidebar-status span:last-child,
 .authority-note span {
   color: #6f7874;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .topbar {
-  height: 56px;
+  height: 64px;
   border-bottom: 1px solid rgba(37, 42, 47, 0.9);
   background: rgba(11, 13, 15, 0.9);
   padding: 0 28px;
@@ -1818,7 +1818,7 @@ body {
 }
 
 .topbar-title strong {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 570;
   letter-spacing: -0.01em;
 }
@@ -1829,7 +1829,7 @@ body {
 
 .command-button {
   width: 224px;
-  height: 34px;
+  height: 38px;
   border-color: #272c31;
   border-radius: 7px;
   background: #111417;
@@ -1851,8 +1851,8 @@ body {
 }
 
 [data-slot="button"] {
-  border-radius: 7px;
-  font-size: 13px;
+  border-radius: 9px;
+  font-size: 14px;
   font-weight: 570;
   letter-spacing: 0;
   box-shadow: none;
@@ -1867,10 +1867,10 @@ body {
 }
 
 [data-slot="badge"] {
-  min-height: 22px;
+  min-height: 24px;
   border-radius: 999px;
   padding-inline: 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 530;
   letter-spacing: 0;
   text-transform: none;
@@ -1879,23 +1879,23 @@ body {
 
 [data-slot="card"] {
   border-color: var(--border);
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--card);
-  box-shadow: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 12px 32px rgba(0, 0, 0, 0.08);
 }
 
 [data-slot="card-header"] {
-  padding: 18px 20px;
+  padding: 22px 24px;
 }
 
 [data-slot="card-content"] {
-  padding: 0 20px 20px;
+  padding: 0 24px 24px;
 }
 
 [data-slot="card-header"] h2,
 .section-heading h2 {
   margin-top: 3px;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 610;
   letter-spacing: -0.018em;
 }
@@ -1903,24 +1903,24 @@ body {
 main {
   width: min(var(--studio-content), 100%);
   margin: 0 auto;
-  padding: 32px 32px 64px;
+  padding: 44px 40px 80px;
 }
 
 .page-heading {
   max-width: none;
-  margin: 0 0 24px;
+  margin: 0 0 32px;
   padding: 2px 0 0;
 }
 
 .page-heading > div:first-child,
 .hero-copy {
-  max-width: 720px;
+  max-width: 780px;
 }
 
 .hero-copy h1,
 .page-heading h1 {
-  margin: 6px 0 8px;
-  font-size: clamp(28px, 3vw, 34px);
+  margin: 8px 0 12px;
+  font-size: clamp(34px, 3.5vw, 44px);
   font-weight: 640;
   letter-spacing: -0.038em;
   line-height: 1.12;
@@ -1930,14 +1930,14 @@ main {
 .page-heading p {
   max-width: 700px;
   margin: 0;
-  color: #9aa3a0;
-  font-size: 14px;
-  line-height: 1.6;
+  color: #b1b8b5;
+  font-size: 16px;
+  line-height: 1.65;
 }
 
 .eyebrow {
-  color: #7d8682;
-  font-size: 12px;
+  color: #919a96;
+  font-size: 13px;
   font-weight: 550;
   letter-spacing: 0;
   text-transform: none;
@@ -1955,8 +1955,8 @@ main {
 
 .archaeology-heading-badges [data-slot="button"],
 .scout-heading > [data-slot="button"] {
-  min-height: 38px;
-  padding-inline: 16px;
+  min-height: 44px;
+  padding-inline: 20px;
 }
 
 .metric-grid,
@@ -2476,5 +2476,407 @@ footer {
     align-items: flex-start;
     flex-direction: column;
     gap: 3px;
+  }
+}
+
+/*
+ * Operator review, 2026-08-10 — readable research desk.
+ *
+ * The default Discover surface should feel like an editorial workbench, not a
+ * protocol telemetry wall. Four sizes carry the page: 13px metadata, 15px
+ * body, 20px section headings, and a 34–44px page title.
+ */
+
+.topbar {
+  background: rgba(17, 19, 24, 0.9);
+}
+
+.command-button {
+  border-color: var(--border);
+  background: #191c22;
+  color: #a3aca8;
+}
+
+.command-button:hover {
+  border-color: #444b55;
+  background: #20242b;
+  color: #e1e5e3;
+}
+
+.nav-item:hover {
+  background: #20232a;
+}
+
+.nav-item.is-active {
+  background: #222a27;
+}
+
+.archaeology-page {
+  --discovery-body: 15px;
+  --discovery-secondary: 14px;
+  --discovery-meta: 13px;
+}
+
+.archaeology-summary-grid {
+  display: grid;
+  overflow: hidden;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 12px 32px rgba(0, 0, 0, 0.08);
+}
+
+.archaeology-summary-grid .metric {
+  min-height: 112px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  padding: 20px 22px;
+}
+
+.archaeology-summary-grid .metric:last-child {
+  border-right: 0;
+}
+
+.archaeology-summary-grid .metric .eyebrow {
+  color: #9ba4a0;
+  font-size: var(--discovery-meta);
+}
+
+.archaeology-summary-grid .metric strong {
+  margin-top: 4px;
+  font-size: 28px;
+  font-weight: 650;
+}
+
+.archaeology-summary-grid .metric-detail {
+  margin-top: 3px;
+  color: #9ba4a0;
+  font-size: var(--discovery-secondary);
+}
+
+.issue-scheduler-console {
+  margin-top: 20px;
+}
+
+.issue-scheduler-console [data-slot="card-header"] {
+  min-height: 82px;
+  border-bottom: 1px solid var(--border);
+}
+
+.issue-scheduler-console [data-slot="card-header"] .eyebrow {
+  font-size: var(--discovery-meta);
+}
+
+.issue-scheduler-console [data-slot="card-content"] {
+  padding-top: 24px;
+}
+
+.discovery-origin-overview {
+  display: block;
+  padding-bottom: 24px;
+}
+
+.discovery-origin-overview article.is-primary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(520px, 1.8fr);
+  align-items: start;
+  gap: 10px 40px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.discovery-origin-overview article.is-primary > div:first-child {
+  grid-column: 1;
+}
+
+.discovery-origin-overview article.is-primary > div:first-child > span,
+.latest-discovery-trailhead-copy > div:first-child,
+.latest-discovery-trailhead-copy > div:first-child > span,
+.issue-column-heading > span,
+.issue-scheduler-strip span,
+.archaeology-page [data-slot="badge"] {
+  font-size: var(--discovery-meta);
+}
+
+.discovery-origin-overview article.is-primary > h3,
+.discovery-origin-overview article.is-primary > p {
+  grid-column: 1;
+}
+
+.discovery-origin-overview article.is-primary > dl {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  align-self: stretch;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #15181d;
+}
+
+.discovery-origin-overview article.is-primary > dl > div {
+  min-height: 76px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+}
+
+.discovery-origin-overview article.is-primary > dl > div:nth-child(3n) {
+  border-right: 0;
+}
+
+.discovery-origin-overview article.is-primary > dl > div:nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+
+.discovery-origin-overview article.is-primary h3 {
+  margin: 6px 0 0;
+  font-size: 20px;
+  font-weight: 640;
+  line-height: 1.35;
+}
+
+.discovery-origin-overview article.is-primary p {
+  margin: 0;
+  color: #aab2ae;
+  font-size: var(--discovery-body);
+  line-height: 1.65;
+}
+
+.discovery-origin-overview article.is-primary dt,
+.latest-discovery-trailhead dt,
+.inspiration-card dt {
+  color: #8e9793;
+  font-size: var(--discovery-meta);
+}
+
+.discovery-origin-overview article.is-primary dd,
+.latest-discovery-trailhead dd,
+.inspiration-card dd {
+  margin-top: 4px;
+  font-size: 17px;
+  font-weight: 630;
+}
+
+.latest-discovery-trailhead,
+.inspiration-inbox {
+  border-color: var(--border);
+  border-radius: 12px;
+  background: #15181d;
+}
+
+.latest-discovery-trailhead {
+  padding: 22px;
+}
+
+.latest-discovery-trailhead h3,
+.inspiration-card h3 {
+  color: #edf0ee;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.latest-discovery-trailhead p,
+.inspiration-card p {
+  color: #a8b0ac;
+  font-size: var(--discovery-secondary);
+  line-height: 1.65;
+}
+
+.latest-discovery-trailhead code,
+.latest-discovery-signals span,
+.inspiration-card-footer,
+.inspiration-route {
+  font-size: var(--discovery-meta);
+}
+
+.latest-discovery-signals span {
+  border-color: #363c44;
+  background: #22262d;
+  color: #b3bbb7;
+  padding: 5px 9px;
+}
+
+.inspiration-inbox {
+  margin-top: 16px;
+}
+
+.inspiration-card {
+  padding: 20px;
+}
+
+.inspiration-card + .inspiration-card {
+  border-top-color: var(--border);
+}
+
+.inspiration-card-footer {
+  color: #8f9894;
+}
+
+.discovery-operations {
+  margin-top: 10px;
+}
+
+.discovery-operations > summary {
+  padding-top: 18px;
+}
+
+.discovery-operations > summary strong,
+.discovery-operations > summary small {
+  font-size: var(--discovery-meta);
+}
+
+.discovery-watch-summary {
+  display: grid;
+  grid-template-columns: 160px minmax(240px, 1fr) minmax(460px, 1.5fr);
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #171a20;
+  padding: 18px;
+}
+
+.discovery-watch-summary > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.discovery-watch-summary > div:first-child > span {
+  color: #959e9a;
+  font-size: var(--discovery-meta);
+}
+
+.discovery-watch-summary h3 {
+  margin: 0 0 3px;
+  font-size: 16px;
+  font-weight: 620;
+}
+
+.discovery-watch-summary p {
+  margin: 0;
+  color: #9fa7a3;
+  font-size: var(--discovery-secondary);
+  line-height: 1.55;
+}
+
+.discovery-watch-summary dl {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.discovery-watch-summary dt {
+  color: #89928e;
+  font-size: var(--discovery-meta);
+}
+
+.discovery-watch-summary dd {
+  margin: 3px 0 0;
+  font-size: 15px;
+  font-weight: 620;
+}
+
+@media (max-width: 1180px) {
+  .discovery-origin-overview article.is-primary {
+    grid-template-columns: 1fr;
+  }
+
+  .discovery-origin-overview article.is-primary > dl {
+    grid-column: 1;
+    grid-row: auto;
+    margin-top: 8px;
+  }
+
+  .discovery-watch-summary {
+    grid-template-columns: 150px 1fr;
+  }
+
+  .discovery-watch-summary dl {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    margin-left: 0;
+  }
+
+  .archaeology-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .archaeology-summary-grid .metric:nth-child(2) {
+    border-right: 0;
+  }
+
+  .archaeology-summary-grid .metric:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 28px 16px 56px;
+  }
+
+  .hero-copy h1,
+  .page-heading h1 {
+    font-size: 32px;
+  }
+
+  .hero-copy p,
+  .page-heading p {
+    font-size: 15px;
+  }
+
+  .archaeology-summary-grid .metric {
+    min-height: 98px;
+    padding: 16px;
+  }
+
+  .archaeology-summary-grid .metric strong {
+    font-size: 24px;
+  }
+
+  .discovery-origin-overview article.is-primary > dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .discovery-origin-overview article.is-primary > dl > div:nth-child(3n) {
+    border-right: 1px solid var(--border);
+  }
+
+  .discovery-origin-overview article.is-primary > dl > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .discovery-origin-overview article.is-primary > dl > div:nth-last-child(-n + 3) {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .discovery-origin-overview article.is-primary > dl > div:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .discovery-watch-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .discovery-watch-summary dl {
+    grid-column: auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

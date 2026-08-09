@@ -1,6 +1,6 @@
 # Studio product normalization
 
-Status: implemented; operator re-review pending
+Status: third operator-led visual pass implemented; final re-review pending
 
 ## Evidence
 
@@ -121,3 +121,34 @@ regions opened and closed without losing their contents. The live browser log
 contained no warnings or errors. All 578 workspace tests, all workspace type
 checks, the Studio production build, and `git diff --check` pass. A legacy live
 projection missing `findingSummaries` also no longer crashes the Discover view.
+
+## 2026-08-10 readable research-desk pass
+
+A second direct operator rejection showed that the previous normalization was
+still too close to a telemetry console. A nominal 12 px floor left most of the
+screen in low-contrast 12–14 px text, four separate metric cards competed with
+nested status surfaces, and claim monitoring still received equal visual weight
+to open-ended exploration.
+
+The Discover surface now uses the shadcn-compatible Card, Button, and Badge
+primitives as one visible system rather than as wrappers around console-era
+styling. The shell moves to higher-contrast graphite surfaces and a bounded
+13/15/20/34–44 px type hierarchy. Key metrics form one divided summary surface;
+the exploration thesis and its yield share one readable card; focused claim
+monitoring moves into the secondary operations disclosure; and the primary
+action is named “Start heuristic scan.”
+
+Fresh browser qualification must cover the 1280 px live page, the lower
+trailhead/inspiration region, and a 390 px viewport with the navigation closed.
+No horizontal overflow, console errors, or visible Discover text below 13 px is
+acceptable.
+
+The retained 799-market projection passed that qualification. At 1280×720 the
+body, document, and viewport are all 1,280 px wide; the page title, divided
+summary, exploration card, latest trailhead, and inspiration rows were inspected
+in separate viewports. At 390×844 the closed-drawer body and document are both
+390 px wide, the primary action spans the content column, and the exploration
+yield grid reduces to two columns without clipping. The real first viewport has
+no visible text below 13 px and the browser log contains no warnings or errors.
+All workspace type checks, all 596 workspace tests, the Studio production
+build, and `git diff --check` pass.

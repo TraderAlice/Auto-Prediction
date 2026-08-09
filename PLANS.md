@@ -57,11 +57,12 @@ Agent has inspected a trailhead. Claim-first work remains a validation,
 monitoring, and operator-hypothesis lane rather than the primary discovery
 funnel. Studio normalization uses a shadcn-compatible component layer and a
 bounded Inter type scale with monospace reserved for exact machine values.
-Direct operator review reopened its visual qualification: mechanical font-floor
-and overflow checks did not prevent the product from reading like a dense
-protocol console. The second pass now simplifies hierarchy, copy, and surfaces,
-and collapses secondary diagnostics by default; final aesthetic acceptance
-remains with the operator rather than another mechanical audit.
+Direct operator review reopened its visual qualification twice: mechanical
+font-floor and overflow checks did not prevent the product from reading like a
+dense protocol console. The current pass uses a 13/15/20/34–44 px hierarchy,
+one divided status surface, a readable exploration card, and claim monitoring
+inside secondary operations. Final aesthetic acceptance remains with the
+operator rather than another mechanical audit.
 
 The first traded-state reformulation portfolio is a measured `HOLD`, not a new
 default Agent loop. Three exact groups produced one honest zero-result and two
