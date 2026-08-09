@@ -200,6 +200,40 @@ const MAX_BODY_BYTES = 64 * 1024;
 class DiscoveryScopeConflictError extends Error {}
 class ResearchContextUnavailableError extends Error {}
 
+function localStudioOrigin(request: IncomingMessage): string | undefined {
+  const origin = request.headers.origin;
+  if (origin === undefined) return undefined;
+  try {
+    const parsed = new URL(origin);
+    const port = Number(parsed.port);
+    if (
+      parsed.protocol !== "http:" ||
+      !["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname) ||
+      parsed.port.length === 0 ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65_535
+    ) {
+      return undefined;
+    }
+    return origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function localStudioCorsHeaders(
+  request: IncomingMessage,
+): Readonly<Record<string, string>> {
+  const origin = localStudioOrigin(request);
+  return origin === undefined
+    ? Object.freeze({})
+    : Object.freeze({
+        "access-control-allow-origin": origin,
+        vary: "origin",
+      });
+}
+
 function writeJson(
   response: ServerResponse,
   status: number,
@@ -208,7 +242,7 @@ function writeJson(
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
-    "access-control-allow-origin": "http://localhost:5173",
+    ...localStudioCorsHeaders(response.req),
   });
   response.end(`${JSON.stringify(value)}\n`);
 }
@@ -1636,7 +1670,7 @@ export function createControlPlane(options?: {
     const url = new URL(request.url ?? "/", "http://control-plane.local");
     if (request.method === "OPTIONS") {
       response.writeHead(204, {
-        "access-control-allow-origin": "http://localhost:5173",
+        ...localStudioCorsHeaders(request),
         "access-control-allow-methods": "GET,POST,OPTIONS",
         "access-control-allow-headers": "content-type",
       });
@@ -2426,7 +2460,7 @@ export function createControlPlane(options?: {
         "content-type": "text/event-stream",
         "cache-control": "no-cache, no-transform",
         connection: "keep-alive",
-        "access-control-allow-origin": "http://localhost:5173",
+        ...localStudioCorsHeaders(request),
       });
       response.write(
         `event: projection\ndata: ${JSON.stringify(await liveProjection())}\n\n`,

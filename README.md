@@ -261,6 +261,11 @@ DeepSeek tool loop over a bounded local rule capture. It reports only artifact
 identities, disposition, citation/read counts, and authority flags; it never
 prints the API key, document text, citation text, or provider reasoning.
 
+The Studio binds `127.0.0.1`, starts at port `5173`, and lets Vite increment to
+`5174`, `5175`, and later ports when another local workspace already owns the
+earlier port. Its same-origin development proxy continues to target the control
+plane on `127.0.0.1:4100`.
+
 `pnpm studio` stores bounded Scout Inbox state in
 `.data/control-plane.sqlite` using WAL mode. Set `PMH_STATE_DB` to an alternate
 path when a different local operational volume is required. The database is

@@ -88,6 +88,25 @@ async function closeTracked(
 }
 
 describe("control-plane HTTP surface", () => {
+  it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
+    const baseUrl = await listen();
+
+    const incremented = await fetch(`${baseUrl}/health`, {
+      headers: { origin: "http://127.0.0.1:5174" },
+    });
+    expect(incremented.status).toBe(200);
+    expect(incremented.headers.get("access-control-allow-origin")).toBe(
+      "http://127.0.0.1:5174",
+    );
+    expect(incremented.headers.get("vary")).toBe("origin");
+
+    const remote = await fetch(`${baseUrl}/health`, {
+      headers: { origin: "https://example.test" },
+    });
+    expect(remote.status).toBe(200);
+    expect(remote.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
   it("loses a port race without starting catalog or lease mutations", async () => {
     const blocker = createServer((_request, response) => response.end("occupied"));
     servers.push(blocker);
