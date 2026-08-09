@@ -2,8 +2,10 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   assertProbabilisticSemanticBound,
   type ProbabilisticSemanticBoundArtifact,
+  type ProbabilitySearchOrigin,
   type ProbabilityEstimationMethod,
 } from "./probabilistic-semantic-arbitrage.js";
+import type { SearchSemanticFamily } from "./search-semantic-family.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const PROBABILITY_SCALE = 1_000_000n;
@@ -18,7 +20,9 @@ export type ProbabilityResolutionEvidence = Readonly<{
 }>;
 
 export type ProbabilityCalibrationObservation = Readonly<{
-  schemaVersion: "pmh.probability-calibration-observation.v1";
+  schemaVersion:
+    | "pmh.probability-calibration-observation.v1"
+    | "pmh.probability-calibration-observation.v2";
   artifactHash: Hash;
   boundArtifactHash: Hash;
   bound: ProbabilisticSemanticBoundArtifact;
@@ -30,6 +34,7 @@ export type ProbabilityCalibrationObservation = Readonly<{
   resolvedAt: string;
   horizonBucket: "LE_1D" | "LE_7D" | "LE_30D" | "GT_30D";
   resolutionEvidence: readonly ProbabilityResolutionEvidence[];
+  searchOrigin?: ProbabilitySearchOrigin;
   authority: "SHADOW_CALIBRATION_ONLY";
   probabilityCertificateAuthority: false;
   executionAuthority: false;
@@ -44,6 +49,7 @@ export type ProbabilityCalibrationGroup = Readonly<{
   groupId: Hash;
   estimator: string;
   method: ProbabilityEstimationMethod;
+  semanticFamily?: SearchSemanticFamily | null;
   relationKind: ProbabilityCalibrationObservation["relationKind"];
   horizonBucket: ProbabilityCalibrationObservation["horizonBucket"];
   upperBucketStartPpm: string;
@@ -60,7 +66,7 @@ export type ProbabilityCalibrationGroup = Readonly<{
 }>;
 
 export type ProbabilityCalibrationArtifact = Readonly<{
-  schemaVersion: "pmh.probability-calibration.v1";
+  schemaVersion: "pmh.probability-calibration.v1" | "pmh.probability-calibration.v2";
   artifactHash: Hash;
   createdAt: string;
   minimumSampleSize: string;
@@ -144,7 +150,9 @@ function observationBody(input: Readonly<{
     throw new Error("probability outcome state is outside the retained truth matrix");
   }
   const body = Object.freeze({
-    schemaVersion: "pmh.probability-calibration-observation.v1" as const,
+    schemaVersion: bound.searchOrigin === undefined
+      ? "pmh.probability-calibration-observation.v1" as const
+      : "pmh.probability-calibration-observation.v2" as const,
     boundArtifactHash: bound.artifactHash,
     bound,
     proposalId: bound.proposalId,
@@ -155,6 +163,7 @@ function observationBody(input: Readonly<{
     resolvedAt,
     horizonBucket: horizonBucket(bound.validFrom, resolvedAt),
     resolutionEvidence,
+    ...(bound.searchOrigin === undefined ? {} : { searchOrigin: bound.searchOrigin }),
     authority: "SHADOW_CALIBRATION_ONLY" as const,
     probabilityCertificateAuthority: false as const,
     executionAuthority: false as const,
@@ -187,7 +196,7 @@ export function assertProbabilityCalibrationObservation(
     resolutionEvidence: observation.resolutionEvidence,
   });
   const { artifactHash: _artifactHash, ...body } = observation;
-  if (observation.schemaVersion !== "pmh.probability-calibration-observation.v1" ||
+  if (observation.schemaVersion !== expected.schemaVersion ||
     observation.artifactHash !== hashCanonical(expected) ||
     hashCanonical(expected) !== hashCanonical(body)) {
     throw new Error("probability calibration observation does not replay");
@@ -199,6 +208,7 @@ type GroupMember = Readonly<{
   observation: ProbabilityCalibrationObservation;
   estimator: string;
   method: ProbabilityEstimationMethod;
+  semanticFamily: SearchSemanticFamily | null;
   lower: bigint;
   upper: bigint;
 }>;
@@ -216,6 +226,7 @@ function probabilityBucket(upper: bigint): Readonly<{ start: bigint; end: bigint
 function buildGroup(
   members: readonly GroupMember[],
   minimumSampleSize: bigint,
+  schemaVersion: ProbabilityCalibrationArtifact["schemaVersion"],
 ): ProbabilityCalibrationGroup {
   const first = members[0]!;
   const bucket = probabilityBucket(first.upper);
@@ -240,19 +251,33 @@ function buildGroup(
       : lowerShortfall > 0n
         ? "OVERPREDICTED" as const
         : "WITHIN_INTERVAL" as const;
-  const identity = Object.freeze({
-    schemaVersion: "pmh.probability-calibration-group-id.v1" as const,
-    estimator: first.estimator,
-    method: first.method,
-    relationKind: first.observation.relationKind,
-    horizonBucket: first.observation.horizonBucket,
-    upperBucketStartPpm: bucket.start.toString(),
-    upperBucketEndPpm: bucket.end.toString(),
-  });
+  const identity = schemaVersion === "pmh.probability-calibration.v1"
+    ? Object.freeze({
+      schemaVersion: "pmh.probability-calibration-group-id.v1" as const,
+      estimator: first.estimator,
+      method: first.method,
+      relationKind: first.observation.relationKind,
+      horizonBucket: first.observation.horizonBucket,
+      upperBucketStartPpm: bucket.start.toString(),
+      upperBucketEndPpm: bucket.end.toString(),
+    })
+    : Object.freeze({
+      schemaVersion: "pmh.probability-calibration-group-id.v2" as const,
+      estimator: first.estimator,
+      method: first.method,
+      semanticFamily: first.semanticFamily,
+      relationKind: first.observation.relationKind,
+      horizonBucket: first.observation.horizonBucket,
+      upperBucketStartPpm: bucket.start.toString(),
+      upperBucketEndPpm: bucket.end.toString(),
+    });
   return Object.freeze({
     groupId: hashCanonical(identity),
     estimator: first.estimator,
     method: first.method,
+    ...(schemaVersion === "pmh.probability-calibration.v1"
+      ? {}
+      : { semanticFamily: first.semanticFamily }),
     relationKind: first.observation.relationKind,
     horizonBucket: first.observation.horizonBucket,
     upperBucketStartPpm: bucket.start.toString(),
@@ -289,34 +314,48 @@ function calibrationBody(input: Readonly<{
   if (observations.some((item) => Date.parse(item.resolvedAt) > Date.parse(input.createdAt))) {
     throw new Error("probability calibration snapshot predates one of its outcomes");
   }
+  const schemaVersion = observations.some((item) =>
+      item.schemaVersion === "pmh.probability-calibration-observation.v2"
+    )
+    ? "pmh.probability-calibration.v2" as const
+    : "pmh.probability-calibration.v1" as const;
   const grouped = new Map<string, GroupMember[]>();
   for (const observation of observations) {
     for (const estimate of observation.bound.estimates) {
       const upper = ppm(estimate.upperPpm, "calibration estimate upper bound");
       const bucket = probabilityBucket(upper);
-      const key = [
-        estimate.estimator,
-        estimate.method,
-        observation.relationKind,
-        observation.horizonBucket,
-        bucket.start.toString(),
-      ].join("\u0000");
-      const members = grouped.get(key) ?? [];
-      members.push(Object.freeze({
-        observation,
-        estimator: estimate.estimator,
-        method: estimate.method,
-        lower: ppm(estimate.lowerPpm, "calibration estimate lower bound"),
-        upper,
-      }));
-      grouped.set(key, members);
+      const semanticFamilies = schemaVersion === "pmh.probability-calibration.v1"
+        ? [null] as const
+        : observation.searchOrigin?.semanticFamilies ?? [null] as const;
+      for (const semanticFamily of semanticFamilies) {
+        const key = [
+          estimate.estimator,
+          estimate.method,
+          ...(schemaVersion === "pmh.probability-calibration.v1"
+            ? []
+            : [semanticFamily ?? "UNATTRIBUTED"]),
+          observation.relationKind,
+          observation.horizonBucket,
+          bucket.start.toString(),
+        ].join("\u0000");
+        const members = grouped.get(key) ?? [];
+        members.push(Object.freeze({
+          observation,
+          estimator: estimate.estimator,
+          method: estimate.method,
+          semanticFamily,
+          lower: ppm(estimate.lowerPpm, "calibration estimate lower bound"),
+          upper,
+        }));
+        grouped.set(key, members);
+      }
     }
   }
   const groups = Object.freeze([...grouped.values()]
-    .map((members) => buildGroup(members, BigInt(minimumSampleSize)))
+    .map((members) => buildGroup(members, BigInt(minimumSampleSize), schemaVersion))
     .sort((left, right) => left.groupId.localeCompare(right.groupId)));
   const body = Object.freeze({
-    schemaVersion: "pmh.probability-calibration.v1" as const,
+    schemaVersion,
     createdAt: input.createdAt,
     minimumSampleSize: String(minimumSampleSize),
     observationArtifactHashes: Object.freeze(observations.map((item) => item.artifactHash)),
@@ -356,7 +395,7 @@ export function assertProbabilityCalibrationArtifact(value: unknown): Probabilit
     minimumSampleSize: Number(artifact.minimumSampleSize),
   });
   const { artifactHash: _artifactHash, ...body } = artifact;
-  if (artifact.schemaVersion !== "pmh.probability-calibration.v1" ||
+  if (artifact.schemaVersion !== expected.schemaVersion ||
     artifact.artifactHash !== hashCanonical(expected) ||
     hashCanonical(expected) !== hashCanonical(body)) {
     throw new Error("probability calibration artifact does not replay");

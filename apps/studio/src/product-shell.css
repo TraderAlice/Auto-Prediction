@@ -916,6 +916,45 @@ main {
   border-top: 1px solid #29443a;
 }
 
+.lifecycle-case-window-status {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lifecycle-case-window-status > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.lifecycle-case-window-status > code {
+  margin: 0;
+}
+
+.lifecycle-case-window-controls {
+  align-items: center;
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.lifecycle-case-window-controls > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.lifecycle-case-window-controls > div {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 footer {
   color: #737c79;
   font-size: 12px;
@@ -1044,6 +1083,20 @@ footer {
 
   .focused-review-handoff-heading-actions > [data-slot="button"] {
     width: 100%;
+  }
+
+  .lifecycle-case-heading,
+  .lifecycle-case-window-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lifecycle-case-window-status {
+    align-items: flex-start;
+  }
+
+  .lifecycle-case-window-controls > div > [data-slot="button"] {
+    flex: 1 1 0;
   }
 
   .finding-filter {

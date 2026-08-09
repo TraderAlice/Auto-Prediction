@@ -14,6 +14,8 @@ and the durable human/Agent finding queue tracked in
 [`plans/operator-finding-inbox.md`](plans/operator-finding-inbox.md),
 with its URL-stable review transition tracked in
 [`plans/finding-review-handoff.md`](plans/finding-review-handoff.md),
+and search-origin probability calibration tracked in
+[`plans/search-origin-probability-calibration.md`](plans/search-origin-probability-calibration.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -71,6 +73,14 @@ The live House-control specimen restores both proposal statements, both
 duplicate-scope reuse jobs, and both awaiting-review cases after the ordinary
 live window has already evicted them. Desktop and 390 px checks preserve the
 same typography and overflow bounds.
+
+The attribution loop now survives semantic review. Contemporary probability
+jobs and bounds retain first-party durable issue/family origin through
+settlement, and calibration v2 builds family cohorts while keeping legacy
+observations explicit as `UNATTRIBUTED`. Historical v1 jobs, bounds,
+observations, and calibration snapshots retain their original identities and
+replay unchanged; a dedicated reconcile test prevents later origin evidence
+from rewriting retained v1 jobs.
 
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  buildProbabilitySearchOrigin,
   buildProbabilisticSemanticBound,
   buildSemanticConstraintArtifact,
   ProbabilityCalibrationDesk,
@@ -60,7 +61,7 @@ const constraint = buildSemanticConstraintArtifact({
   },
 });
 
-function bound(tag: string): ProbabilisticSemanticBoundArtifact {
+function bound(tag: string, attributed = false): ProbabilisticSemanticBoundArtifact {
   return buildProbabilisticSemanticBound({
     semanticConstraint: constraint,
     adverseStateIds: ["TT"],
@@ -87,6 +88,12 @@ function bound(tag: string): ProbabilisticSemanticBoundArtifact {
       },
     ],
     counterScenarios: ["Both events settle true.", `cohort:${tag}`],
+    ...(attributed ? {
+      searchOrigin: buildProbabilitySearchOrigin({
+        issueIds: [hashCanonical({ issue: tag })],
+        semanticFamilies: ["PHYSICAL_CO_OCCURRENCE"],
+      }),
+    } : {}),
   });
 }
 
@@ -178,7 +185,7 @@ describe("probability calibration desk", () => {
 
   it("survives SQLite restart without duplicating observations or milestone snapshots", () => {
     const path = join(mkdtempSync(join(tmpdir(), "pmh-calibration-")), "state.sqlite");
-    const registered = bound("durable");
+    const registered = bound("durable", true);
     const firstStore = new SqliteOperationalStore(path);
     const firstDesk = new ProbabilityCalibrationDesk({
       boundSource: () => [registered],
@@ -204,7 +211,10 @@ describe("probability calibration desk", () => {
       snapshotInterval: 2,
     });
     expect(secondDesk.projection()).toMatchObject({
+      registeredAttributedBoundCount: 1,
       observationCount: 1,
+      attributedObservationCount: 1,
+      attributedGroupCount: 2,
       snapshotCount: 1,
       currentArtifactHash: currentHash,
       storage: {

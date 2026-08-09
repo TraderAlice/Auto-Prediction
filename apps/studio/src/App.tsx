@@ -275,9 +275,11 @@ const EMPTY_PROBABILITY_CALIBRATION:
     schemaVersion: "pmh.probability-calibration-desk.v1",
     status: "EMPTY",
     registeredBoundCount: 0,
+    registeredAttributedBoundCount: 0,
     registeredObservedBoundCount: 0,
     pendingResolutionBoundCount: 0,
     observationCount: 0,
+    attributedObservationCount: 0,
     adverseObservationCount: 0,
     snapshotCount: 0,
     minimumSampleSize: 20,
@@ -287,6 +289,7 @@ const EMPTY_PROBABILITY_CALIBRATION:
     currentCreatedAt: null,
     measuredGroupCount: 0,
     insufficientGroupCount: 0,
+    attributedGroupCount: 0,
     groups: [],
     observations: [],
     snapshots: [],
@@ -4580,6 +4583,7 @@ function OpportunityLifecycleView({
   const [resolutionRunState, setResolutionRunState] = useState<
     "IDLE" | "RUNNING" | "FAILED"
   >("IDLE");
+  const [lifecycleCaseLimit, setLifecycleCaseLimit] = useState(12);
   const [focusedProjection, setFocusedProjection] =
     useState<ProposalHandoffProjection | null>(null);
   const [focusedProjectionStatus, setFocusedProjectionStatus] = useState<
@@ -4681,6 +4685,27 @@ function OpportunityLifecycleView({
   const rejected = desk.cases.filter((item) =>
     item.state.startsWith("REJECTED"),
   ).length;
+  const lifecycleActionPriority: Readonly<Record<string, number>> = Object.freeze({
+    WAIT_FOR_HUMAN_APPROVAL: 0,
+    RUN_EXACT_VERIFIER: 1,
+    RUN_EXCHANGE_SIMULATION: 2,
+    CALIBRATE_VENUE_MODEL: 3,
+    DISPLAY_NOTIFICATION: 4,
+    START_SHADOW_EXECUTION: 5,
+    MONITOR_SHADOW_EXECUTION: 6,
+    INDEPENDENT_SEMANTIC_REVIEW: 7,
+    NONE: 8,
+  });
+  const orderedLifecycleCases = [...desk.cases].sort((left, right) => {
+    const actionOrder = (lifecycleActionPriority[left.nextAction] ?? 99) -
+      (lifecycleActionPriority[right.nextAction] ?? 99);
+    if (actionOrder !== 0) return actionOrder;
+    const leftAt = left.events.at(-1)?.occurredAt ?? "";
+    const rightAt = right.events.at(-1)?.occurredAt ?? "";
+    return rightAt.localeCompare(leftAt) ||
+      left.opportunityId.localeCompare(right.opportunityId);
+  });
+  const visibleLifecycleCases = orderedLifecycleCases.slice(0, lifecycleCaseLimit);
 
   async function acknowledgeReviewNotification(notificationId: string): Promise<void> {
     setReviewNotificationAction(notificationId);
@@ -5094,6 +5119,13 @@ function OpportunityLifecycleView({
               </div>
               <strong>Adverse states {bound.adverseStateIds.join(" + ")} ≤ {bound.epsilonPpm} ppm</strong>
               <p>Conservative envelope {bound.lowerPpm}–{bound.epsilonPpm} ppm; expires {new Date(bound.expiresAt).toLocaleString()}.</p>
+              {bound.searchOrigin !== undefined && (
+                <div className="attention-item-facts">
+                  <span>{bound.searchOrigin.semanticFamilies.map((family) => family.replaceAll("_", " ")).join(" + ")}</span>
+                  <span>{bound.searchOrigin.issueIds.length} durable issue{bound.searchOrigin.issueIds.length === 1 ? "" : "s"}</span>
+                  <span>origin {bound.searchOrigin.originIdentity.slice(7, 19)}</span>
+                </div>
+              )}
               <small>Uncalibrated estimate · price/risk compiler required · not guaranteed profit</small>
             </article>
           ))}
@@ -5143,11 +5175,12 @@ function OpportunityLifecycleView({
         </div>
         <div className="attention-queue-stats">
           <div><strong>{probabilityCalibration.observationCount}</strong><span>resolved bounds</span></div>
+          <div><strong>{probabilityCalibration.attributedObservationCount}</strong><span>origin-linked</span></div>
           <div><strong>{probabilityCalibration.adverseObservationCount}</strong><span>adverse outcomes</span></div>
           <div><strong>{probabilityCalibration.pendingResolutionBoundCount}</strong><span>registered pending</span></div>
           <div><strong>{probabilityCalibration.measuredGroupCount}</strong><span>measured cohorts</span></div>
           <div><strong>{probabilityCalibration.insufficientGroupCount}</strong><span>collecting cohorts</span></div>
-          <div><strong>{probabilityCalibration.snapshotCount}</strong><span>milestone snapshots</span></div>
+          <div><strong>{probabilityCalibration.attributedGroupCount}</strong><span>family cohorts</span></div>
         </div>
         <div className="attention-item-list">
           <article className="resolution-acquisition-card">
@@ -5202,6 +5235,9 @@ function OpportunityLifecycleView({
                   {group.status.replaceAll("_", " ")}
                 </Badge>
                 <Badge variant="muted">{group.horizonBucket.replaceAll("_", " ")}</Badge>
+                <Badge variant={group.semanticFamily == null ? "muted" : "shadow"}>
+                  {group.semanticFamily?.replaceAll("_", " ") ?? "UNATTRIBUTED"}
+                </Badge>
               </div>
               <strong>{group.estimator} · {group.method.replaceAll("_", " ")}</strong>
               <p>Observed adverse rate {group.empiricalRatePpm} ppm versus mean interval {group.meanLowerPpm}–{group.meanUpperPpm} ppm.</p>
@@ -5224,6 +5260,12 @@ function OpportunityLifecycleView({
               </div>
               <strong>{observation.observedStateId} · {observation.relationKind.replaceAll("_", " ")}</strong>
               <p>{observation.listingRefs.join(" ↔ ")}</p>
+              {observation.semanticFamilies.length > 0 && (
+                <div className="attention-item-facts">
+                  <span>{observation.semanticFamilies.map((family) => family.replaceAll("_", " ")).join(" + ")}</span>
+                  <span>{observation.issueIds.length} source issue{observation.issueIds.length === 1 ? "" : "s"}</span>
+                </div>
+              )}
               <small>Bound {observation.boundArtifactHash.slice(0, 23)}… · immutable settlement observation</small>
             </article>
           ))}
@@ -5833,7 +5875,12 @@ function OpportunityLifecycleView({
             <h2>Lifecycle cases</h2>
           </div>
         </div>
-        <code>{desk.defaultPolicy.routeAfterCertificate}</code>
+        <div className="lifecycle-case-window-status">
+          <span>
+            Showing {Math.min(lifecycleCaseLimit, desk.cases.length)} of {desk.cases.length} live · {desk.caseCount} durable
+          </span>
+          <code>{desk.defaultPolicy.routeAfterCertificate}</code>
+        </div>
       </div>
 
       {desk.cases.length === 0 ? (
@@ -5844,7 +5891,7 @@ function OpportunityLifecycleView({
         </div>
       ) : (
         <div className="lifecycle-case-list">
-          {desk.cases.map((item) => {
+          {visibleLifecycleCases.map((item) => {
             const proposal = proposals.get(item.discoveryArtifactHash);
             const latest = item.events.at(-1);
             const review = semanticReview.records.find(
@@ -6471,6 +6518,29 @@ function OpportunityLifecycleView({
               </article>
             );
           })}
+          <div className="lifecycle-case-window-controls">
+            <span>
+              Actionable states first, then newest evidence. Durable history stays in SQLite.
+            </span>
+            <div>
+              {lifecycleCaseLimit > 12 && (
+                <Button variant="ghost" size="sm" onClick={() => setLifecycleCaseLimit(12)}>
+                  Collapse to 12
+                </Button>
+              )}
+              {lifecycleCaseLimit < desk.cases.length && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLifecycleCaseLimit((current) =>
+                    Math.min(current + 12, desk.cases.length)
+                  )}
+                >
+                  Show next {Math.min(12, desk.cases.length - lifecycleCaseLimit)}
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

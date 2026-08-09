@@ -7,6 +7,7 @@ import {
   AiUsageLedger,
   assertProbabilityEstimationRunRecord,
   buildMarketCorpusSnapshot,
+  buildProbabilitySearchOrigin,
   buildProbabilisticSemanticBound,
   buildSemanticConstraintArtifact,
   createProbabilityEstimationDesk,
@@ -590,7 +591,12 @@ describe("durable probability estimation scheduling", () => {
       concurrencyLimit: 3,
       now: () => Date.parse("2026-08-02T00:10:00.000Z"),
     });
-    const runs = scheduler.tick([{ review }], snapshot);
+    const issueId = hashCanonical({ issue: "physical co-occurrence scheduler" });
+    const searchOrigin = buildProbabilitySearchOrigin({
+      issueIds: [issueId],
+      semanticFamilies: ["PHYSICAL_CO_OCCURRENCE"],
+    });
+    const runs = scheduler.tick([{ review, searchOrigin }], snapshot);
     expect(runs).toHaveLength(3);
     await Promise.all(runs);
 
@@ -607,11 +613,20 @@ describe("durable probability estimation scheduling", () => {
       executionAuthority: false,
     });
     expect(projection.bounds[0]).toMatchObject({
+      schemaVersion: "pmh.probabilistic-semantic-bound.v2",
       adverseStateIds: ["TT"],
       epsilonPpm: "60000",
+      searchOrigin: {
+        issueIds: [issueId],
+        semanticFamilies: ["PHYSICAL_CO_OCCURRENCE"],
+      },
       authority: "ESTIMATE_ONLY",
       probabilityCertificateAuthority: false,
     });
+    expect(projection.jobs.every((job) =>
+      job.schemaVersion === "pmh.probability-estimation-job.v2" &&
+      job.searchOrigin?.originIdentity === searchOrigin.originIdentity
+    )).toBe(true);
     expect(projection.bounds[0]!.estimates.map((item) => item.method).sort()).toEqual([
       "INDEPENDENT_JUDGMENT",
       "REFERENCE_CLASS",
@@ -625,10 +640,47 @@ describe("durable probability estimation scheduling", () => {
     expect(scheduler.projection().unreadNotificationCount).toBe(0);
   });
 
+  it("does not rewrite retained v1 jobs when search origin becomes available", () => {
+    const desk = createProbabilityEstimationDesk(
+      { DEEPSEEK_API_KEY: "ignored-by-injected-port" },
+      {
+        estimator: {
+          async estimate() {
+            throw new Error("compatibility replay must not call the estimator");
+          },
+        },
+      },
+    );
+    const scheduler = new ProbabilityEstimationScheduler({ desk });
+    scheduler.reconcile([{ review }], snapshot);
+    const retainedJobIds = scheduler.projection().jobs.map((job) => job.jobId);
+    expect(scheduler.projection().jobs.every((job) =>
+      job.schemaVersion === "pmh.probability-estimation-job.v1" &&
+      job.searchOrigin === undefined
+    )).toBe(true);
+
+    scheduler.reconcile([{
+      review,
+      searchOrigin: buildProbabilitySearchOrigin({
+        issueIds: [hashCanonical({ issue: "late origin" })],
+        semanticFamilies: ["PHYSICAL_CO_OCCURRENCE"],
+      }),
+    }], snapshot);
+    expect(scheduler.projection().jobs.map((job) => job.jobId)).toEqual(retainedJobIds);
+    expect(scheduler.projection().jobs.every((job) =>
+      job.schemaVersion === "pmh.probability-estimation-job.v1" &&
+      job.searchOrigin === undefined
+    )).toBe(true);
+  });
+
   it("rebuilds deterministic bounds from SQLite jobs and estimator runs", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-probability-scheduler-"));
     const path = join(directory, "operations.sqlite");
     const evidenceHash = constraint.ruleEvidence[0]!.sourceRawHash;
+    const searchOrigin = buildProbabilitySearchOrigin({
+      issueIds: [hashCanonical({ issue: "durable probability origin" })],
+      semanticFamilies: ["PHYSICAL_CO_OCCURRENCE"],
+    });
     const makeEstimator = () => ({
       async estimate(input: { role: "REFERENCE_CLASS" | "CAUSAL" | "INDEPENDENT" }) {
         return Object.freeze({
@@ -675,7 +727,7 @@ describe("durable probability estimation scheduling", () => {
         concurrencyLimit: 2,
         now: () => Date.parse("2026-08-02T00:11:00.000Z"),
       });
-      await Promise.all(firstScheduler.tick([{ review }], snapshot));
+      await Promise.all(firstScheduler.tick([{ review, searchOrigin }], snapshot));
       expect(firstScheduler.projection().boundReadyCount).toBe(1);
       firstStore.close();
 
@@ -689,7 +741,7 @@ describe("durable probability estimation scheduling", () => {
         store: secondStore,
         tickIntervalMs: 1_000,
       });
-      secondScheduler.reconcile([{ review }], snapshot);
+      secondScheduler.reconcile([{ review, searchOrigin }], snapshot);
       expect(secondScheduler.projection()).toMatchObject({
         boundReadyCount: 1,
         passedCount: 2,
@@ -698,6 +750,14 @@ describe("durable probability estimation scheduling", () => {
           jobs: { durable: true, schemaVersion: 29 },
           notifications: { durable: true, schemaVersion: 29 },
         },
+      });
+      expect(secondScheduler.projection().jobs.every((job) =>
+        job.schemaVersion === "pmh.probability-estimation-job.v2" &&
+        job.searchOrigin?.originIdentity === searchOrigin.originIdentity
+      )).toBe(true);
+      expect(secondScheduler.projection().bounds[0]).toMatchObject({
+        schemaVersion: "pmh.probabilistic-semantic-bound.v2",
+        searchOrigin: { originIdentity: searchOrigin.originIdentity },
       });
       secondStore.close();
     } finally {

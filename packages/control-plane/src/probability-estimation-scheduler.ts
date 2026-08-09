@@ -8,8 +8,10 @@ import {
   type ProbabilityEstimatorRole,
 } from "./probability-estimation-agent.js";
 import {
+  assertProbabilitySearchOrigin,
   assertProbabilisticSemanticBound,
   buildProbabilisticSemanticBound,
+  type ProbabilitySearchOrigin,
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
 import {
@@ -43,10 +45,13 @@ export type ProbabilityAdverseStateDerivation = Readonly<{
 
 export type ProbabilityEstimationCandidate = Readonly<{
   review: SemanticReviewRecord;
+  searchOrigin?: ProbabilitySearchOrigin;
 }>;
 
 export type ProbabilityEstimationJobRecord = Readonly<{
-  schemaVersion: "pmh.probability-estimation-job.v1";
+  schemaVersion:
+    | "pmh.probability-estimation-job.v1"
+    | "pmh.probability-estimation-job.v2";
   jobId: Hash;
   caseIdentity: Hash;
   proposalId: Hash;
@@ -55,6 +60,7 @@ export type ProbabilityEstimationJobRecord = Readonly<{
   semanticConstraint: SemanticConstraintArtifact;
   evidenceScopeIdentity: Hash;
   adverseStateIds: readonly string[];
+  searchOrigin?: ProbabilitySearchOrigin;
   role: ProbabilityEstimatorRole;
   model: string;
   status: ProbabilityEstimationJobStatus;
@@ -291,6 +297,9 @@ export function assertProbabilityEstimationJobRecord(
   const record = value as ProbabilityEstimationJobRecord;
   const { artifactHash, ...body } = record;
   const constraint = assertSemanticConstraintArtifact(record.semanticConstraint);
+  const searchOrigin = record.searchOrigin === undefined
+    ? undefined
+    : assertProbabilitySearchOrigin(record.searchOrigin);
   const terminal = ["PASS", "ABSTAINED", "EXHAUSTED"].includes(record.status);
   const leased = record.status === "LEASED";
   const expectedCaseIdentity = caseIdentity({
@@ -301,7 +310,12 @@ export function assertProbabilityEstimationJobRecord(
     model: record.model,
   });
   if (
-    record.schemaVersion !== "pmh.probability-estimation-job.v1" ||
+    ![
+      "pmh.probability-estimation-job.v1",
+      "pmh.probability-estimation-job.v2",
+    ].includes(record.schemaVersion) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v1") !==
+      (searchOrigin === undefined) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
     record.jobId !== jobId(record.caseIdentity, record.role) ||
     !HASH_PATTERN.test(String(record.caseIdentity)) ||
@@ -457,7 +471,13 @@ export class ProbabilityEstimationScheduler {
         review.status !== "PASS" || review.report === null || constraint === undefined ||
         constraint.classification !== "PROBABILISTIC_DEPENDENCE"
       ) return [];
-      return [[review.report.artifactHash, Object.freeze({ review })] as const];
+      const searchOrigin = candidate.searchOrigin === undefined
+        ? undefined
+        : assertProbabilitySearchOrigin(candidate.searchOrigin);
+      return [[review.report.artifactHash, Object.freeze({
+        review,
+        ...(searchOrigin === undefined ? {} : { searchOrigin }),
+      })] as const];
     })).values()].sort((left, right) =>
       left.review.report!.artifactHash.localeCompare(right.review.report!.artifactHash)
     );
@@ -488,7 +508,9 @@ export class ProbabilityEstimationScheduler {
         let job = this.#jobs.find((item) => item.jobId === id);
         if (job === undefined) {
           job = this.#save(withHash({
-            schemaVersion: "pmh.probability-estimation-job.v1",
+            schemaVersion: candidate.searchOrigin === undefined
+              ? "pmh.probability-estimation-job.v1"
+              : "pmh.probability-estimation-job.v2",
             jobId: id,
             caseIdentity: caseId,
             proposalId: constraint.proposalId,
@@ -497,6 +519,9 @@ export class ProbabilityEstimationScheduler {
             semanticConstraint: constraint,
             evidenceScopeIdentity: review.corpusSnapshotIdentity,
             adverseStateIds: derived.adverseStateIds,
+            ...(candidate.searchOrigin === undefined
+              ? {}
+              : { searchOrigin: candidate.searchOrigin }),
             role,
             model,
             status: exactEvidence ? "PENDING" : "BLOCKED_EVIDENCE",
@@ -748,6 +773,7 @@ export class ProbabilityEstimationScheduler {
         counterScenarios: [...new Set(passingRuns.flatMap((run) =>
           run.counterScenarios.map((scenario) => scenario.narrative)
         ))],
+        ...(first.searchOrigin === undefined ? {} : { searchOrigin: first.searchOrigin }),
       });
       return [assertProbabilisticSemanticBound(bound)];
     }).sort((left, right) => right.validFrom.localeCompare(left.validFrom) ||

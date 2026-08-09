@@ -14,6 +14,7 @@ import {
   assertProbabilisticSemanticBound,
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
+import type { SearchSemanticFamily } from "./search-semantic-family.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
@@ -42,6 +43,8 @@ export type ProbabilityCalibrationObservationSummary = Readonly<{
   resolvedAt: string;
   horizonBucket: ProbabilityCalibrationObservation["horizonBucket"];
   listingRefs: readonly string[];
+  issueIds: readonly Hash[];
+  semanticFamilies: readonly SearchSemanticFamily[];
 }>;
 
 export type ProbabilityCalibrationSnapshotSummary = Readonly<{
@@ -57,9 +60,11 @@ export type ProbabilityCalibrationDeskProjection = Readonly<{
   schemaVersion: "pmh.probability-calibration-desk.v1";
   status: "EMPTY" | "COLLECTING" | "MEASURED";
   registeredBoundCount: number;
+  registeredAttributedBoundCount: number;
   registeredObservedBoundCount: number;
   pendingResolutionBoundCount: number;
   observationCount: number;
+  attributedObservationCount: number;
   adverseObservationCount: number;
   snapshotCount: number;
   minimumSampleSize: number;
@@ -69,6 +74,7 @@ export type ProbabilityCalibrationDeskProjection = Readonly<{
   currentCreatedAt: string | null;
   measuredGroupCount: number;
   insufficientGroupCount: number;
+  attributedGroupCount: number;
   groups: readonly ProbabilityCalibrationGroup[];
   observations: readonly ProbabilityCalibrationObservationSummary[];
   snapshots: readonly ProbabilityCalibrationSnapshotSummary[];
@@ -292,6 +298,8 @@ export class ProbabilityCalibrationDesk {
         resolvedAt: item.resolvedAt,
         horizonBucket: item.horizonBucket,
         listingRefs: Object.freeze(item.bound.listingRefs.slice()),
+        issueIds: Object.freeze(item.searchOrigin?.issueIds.slice() ?? []),
+        semanticFamilies: Object.freeze(item.searchOrigin?.semanticFamilies.slice() ?? []),
       }),
     ));
     const snapshots = Object.freeze(this.#snapshots.slice(0, this.#snapshotDetailLimit).map(
@@ -317,9 +325,15 @@ export class ProbabilityCalibrationDesk {
           ? "MEASURED" as const
           : "COLLECTING" as const,
       registeredBoundCount: bounds.length,
+      registeredAttributedBoundCount: bounds.filter((item) =>
+        item.searchOrigin !== undefined
+      ).length,
       registeredObservedBoundCount,
       pendingResolutionBoundCount: bounds.length - registeredObservedBoundCount,
       observationCount: this.#observations.length,
+      attributedObservationCount: this.#observations.filter((item) =>
+        item.searchOrigin !== undefined
+      ).length,
       adverseObservationCount: this.#observations.filter((item) => item.adverseOccurred).length,
       snapshotCount: this.#snapshots.length,
       minimumSampleSize: this.#minimumSampleSize,
@@ -329,6 +343,7 @@ export class ProbabilityCalibrationDesk {
       currentCreatedAt: current?.createdAt ?? null,
       measuredGroupCount: Number(current?.measuredGroupCount ?? "0"),
       insufficientGroupCount: Number(current?.insufficientGroupCount ?? "0"),
+      attributedGroupCount: groups.filter((item) => item.semanticFamily != null).length,
       groups,
       observations,
       snapshots,

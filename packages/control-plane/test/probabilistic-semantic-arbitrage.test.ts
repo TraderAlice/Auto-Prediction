@@ -7,6 +7,7 @@ import {
   assertProbabilisticSemanticBound,
   buildProbabilityCalibrationArtifact,
   buildProbabilityCalibrationObservation,
+  buildProbabilitySearchOrigin,
   buildProbabilisticSemanticBound,
   buildSemanticConstraintArtifact,
   compileProbabilisticSemanticArbitrage,
@@ -258,7 +259,10 @@ describe("probabilistic semantic arbitrage", () => {
 });
 
 describe("resolved-outcome probability calibration", () => {
-  function calibrationBound(tag: string) {
+  function calibrationBound(
+    tag: string,
+    searchOrigin?: ReturnType<typeof buildProbabilitySearchOrigin>,
+  ) {
     return buildProbabilisticSemanticBound({
       semanticConstraint: constraint,
       adverseStateIds: ["TT"],
@@ -267,6 +271,7 @@ describe("resolved-outcome probability calibration", () => {
         "A non-fatal shooting permits the later appearance.",
         `Calibration cohort case ${tag}.`,
       ],
+      ...(searchOrigin === undefined ? {} : { searchOrigin }),
     });
   }
 
@@ -364,5 +369,58 @@ describe("resolved-outcome probability calibration", () => {
       ...sufficient,
       groups: [{ ...sufficient.groups[0]!, empiricalRatePpm: "0" }, ...sufficient.groups.slice(1)],
     })).toThrow(/does not replay/u);
+  });
+
+  it("retains first-party search origin and builds family-aware mixed-history cohorts", () => {
+    const issueId = hashCanonical({ issue: "physical co-occurrence exploration" });
+    const origin = buildProbabilitySearchOrigin({
+      issueIds: [issueId],
+      semanticFamilies: ["PHYSICAL_CO_OCCURRENCE"],
+    });
+    const currentBound = calibrationBound("origin-linked", origin);
+    expect(currentBound).toMatchObject({
+      schemaVersion: "pmh.probabilistic-semantic-bound.v2",
+      searchOrigin: {
+        issueIds: [issueId],
+        semanticFamilies: ["PHYSICAL_CO_OCCURRENCE"],
+        attributionBasis: "SEMANTIC_REVIEW_DURABLE_ISSUES",
+        authority: "ATTRIBUTION_ONLY",
+      },
+    });
+    const currentObservation = buildProbabilityCalibrationObservation({
+      bound: currentBound,
+      resolutionEvidence: listingRefs.map((listingRef) => ({
+        listingRef,
+        truthValue: false,
+        resolvedAt: "2026-08-02T08:00:00.000Z",
+        sourceRawHash: hashCanonical({ current: listingRef }),
+        protocolIdentity: `resolution:${listingRef}`,
+      })),
+    });
+    const legacyObservation = observation("legacy-unattributed", true);
+    const calibration = buildProbabilityCalibrationArtifact({
+      observations: [legacyObservation, currentObservation],
+      createdAt: "2026-08-03T00:00:00.000Z",
+      minimumSampleSize: 2,
+    });
+    expect(currentObservation.schemaVersion).toBe(
+      "pmh.probability-calibration-observation.v2",
+    );
+    expect(calibration.schemaVersion).toBe("pmh.probability-calibration.v2");
+    expect(new Set(calibration.groups.map((group) => group.semanticFamily))).toEqual(
+      new Set([null, "PHYSICAL_CO_OCCURRENCE"]),
+    );
+    expect(() => assertProbabilityCalibrationArtifact(calibration)).not.toThrow();
+
+    const malformedOriginBody = {
+      ...origin,
+      issueIds: [issueId, issueId],
+    };
+    expect(() => calibrationBound("tampered-origin", {
+      ...malformedOriginBody,
+      originIdentity: hashCanonical((({ originIdentity: _identity, ...body }) => body)(
+        malformedOriginBody,
+      )),
+    })).toThrow(/search origin/u);
   });
 });

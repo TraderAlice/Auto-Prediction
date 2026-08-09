@@ -3,6 +3,10 @@ import {
   assertSemanticConstraintArtifact,
   type SemanticConstraintArtifact,
 } from "./semantic-constraint.js";
+import {
+  isSearchSemanticFamily,
+  type SearchSemanticFamily,
+} from "./search-semantic-family.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const UNSIGNED_INTEGER = /^(?:0|[1-9]\d*)$/u;
@@ -37,8 +41,22 @@ export type ProbabilityEstimate = ProbabilityEstimateInput & Readonly<{
   estimateIdentity: Hash;
 }>;
 
+export type ProbabilitySearchOrigin = Readonly<{
+  schemaVersion: "pmh.probability-search-origin.v1";
+  originIdentity: Hash;
+  issueIds: readonly Hash[];
+  semanticFamilies: readonly SearchSemanticFamily[];
+  attributionBasis: "SEMANTIC_REVIEW_DURABLE_ISSUES";
+  authority: "ATTRIBUTION_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityCertificateAuthority: false;
+  executionAuthority: false;
+}>;
+
 export type ProbabilisticSemanticBoundArtifact = Readonly<{
-  schemaVersion: "pmh.probabilistic-semantic-bound.v1";
+  schemaVersion:
+    | "pmh.probabilistic-semantic-bound.v1"
+    | "pmh.probabilistic-semantic-bound.v2";
   artifactHash: Hash;
   proposalId: Hash;
   semanticConstraintArtifactHash: Hash;
@@ -53,6 +71,7 @@ export type ProbabilisticSemanticBoundArtifact = Readonly<{
   counterScenarios: readonly string[];
   validFrom: string;
   expiresAt: string;
+  searchOrigin?: ProbabilitySearchOrigin;
   calibration: Readonly<{
     status: "UNCALIBRATED" | "CALIBRATED";
     calibrationArtifactHash: Hash | null;
@@ -68,6 +87,53 @@ export type ProbabilisticSemanticBoundArtifact = Readonly<{
     liveExecutionEnabled: false;
   }>;
 }>;
+
+export function buildProbabilitySearchOrigin(input: Readonly<{
+  issueIds: readonly Hash[];
+  semanticFamilies: readonly SearchSemanticFamily[];
+}>): ProbabilitySearchOrigin {
+  const body = Object.freeze({
+    schemaVersion: "pmh.probability-search-origin.v1" as const,
+    issueIds: Object.freeze([...new Set(input.issueIds)].sort()),
+    semanticFamilies: Object.freeze([...new Set(input.semanticFamilies)].sort()),
+    attributionBasis: "SEMANTIC_REVIEW_DURABLE_ISSUES" as const,
+    authority: "ATTRIBUTION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityCertificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return assertProbabilitySearchOrigin(Object.freeze({
+    ...body,
+    originIdentity: hashCanonical(body),
+  }));
+}
+
+export function assertProbabilitySearchOrigin(value: unknown): ProbabilitySearchOrigin {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("probability search origin is malformed");
+  }
+  const origin = value as ProbabilitySearchOrigin;
+  const { originIdentity, ...body } = origin;
+  if (
+    origin.schemaVersion !== "pmh.probability-search-origin.v1" ||
+    !HASH_PATTERN.test(String(originIdentity)) || originIdentity !== hashCanonical(body) ||
+    !Array.isArray(origin.issueIds) || origin.issueIds.length < 1 ||
+    origin.issueIds.length > 20 ||
+    origin.issueIds.some((item) => !HASH_PATTERN.test(String(item))) ||
+    new Set(origin.issueIds).size !== origin.issueIds.length ||
+    [...origin.issueIds].sort().join("\n") !== origin.issueIds.join("\n") ||
+    !Array.isArray(origin.semanticFamilies) || origin.semanticFamilies.length < 1 ||
+    origin.semanticFamilies.length > 5 ||
+    origin.semanticFamilies.some((item) => !isSearchSemanticFamily(item)) ||
+    new Set(origin.semanticFamilies).size !== origin.semanticFamilies.length ||
+    [...origin.semanticFamilies].sort().join("\n") !== origin.semanticFamilies.join("\n") ||
+    origin.attributionBasis !== "SEMANTIC_REVIEW_DURABLE_ISSUES" ||
+    origin.authority !== "ATTRIBUTION_ONLY" ||
+    origin.semanticDecisionAuthority !== false ||
+    origin.probabilityCertificateAuthority !== false || origin.executionAuthority !== false
+  ) throw new Error("probability search origin violates its attribution contract");
+  return origin;
+}
 
 export type ProbabilisticPortfolioQuote = Readonly<{
   listingRef: string;
@@ -252,6 +318,7 @@ export function buildProbabilisticSemanticBound(input: Readonly<{
   adverseStateIds: readonly string[];
   estimates: readonly ProbabilityEstimateInput[];
   counterScenarios: readonly string[];
+  searchOrigin?: ProbabilitySearchOrigin;
   calibration?: Readonly<{
     status: "UNCALIBRATED" | "CALIBRATED";
     calibrationArtifactHash: Hash | null;
@@ -295,8 +362,13 @@ export function buildProbabilisticSemanticBound(input: Readonly<{
     (calibration.calibrationArtifactHash !== null &&
       !HASH_PATTERN.test(calibration.calibrationArtifactHash))
   ) throw new Error("probability bound calibration lineage is inconsistent");
+  const searchOrigin = input.searchOrigin === undefined
+    ? undefined
+    : assertProbabilitySearchOrigin(input.searchOrigin);
   const body = Object.freeze({
-    schemaVersion: "pmh.probabilistic-semantic-bound.v1" as const,
+    schemaVersion: searchOrigin === undefined
+      ? "pmh.probabilistic-semantic-bound.v1" as const
+      : "pmh.probabilistic-semantic-bound.v2" as const,
     proposalId: constraint.proposalId,
     semanticConstraintArtifactHash: constraint.artifactHash,
     semanticConstraint: constraint,
@@ -310,6 +382,7 @@ export function buildProbabilisticSemanticBound(input: Readonly<{
     counterScenarios: Object.freeze(input.counterScenarios.map((item) => item.trim())),
     validFrom: envelope.validFrom,
     expiresAt: envelope.expiresAt,
+    ...(searchOrigin === undefined ? {} : { searchOrigin }),
     calibration: Object.freeze({ ...calibration }),
     authority: "ESTIMATE_ONLY" as const,
     semanticDecisionAuthority: false as const,
@@ -338,11 +411,19 @@ export function assertProbabilisticSemanticBound(
   const { artifactHash, ...body } = artifact;
   const constraint = assertSemanticConstraintArtifact(artifact.semanticConstraint);
   const estimates = artifact.estimates.map(assertProbabilityEstimate);
+  const searchOrigin = artifact.searchOrigin === undefined
+    ? undefined
+    : assertProbabilitySearchOrigin(artifact.searchOrigin);
   const envelope = expectedEnvelope(estimates);
   const expectedStates = expectedStateIds(artifact.listingRefs.length);
   const actualStates = constraint.truthTable.map((item) => item.stateId).sort();
   if (
-    artifact.schemaVersion !== "pmh.probabilistic-semantic-bound.v1" ||
+    ![
+      "pmh.probabilistic-semantic-bound.v1",
+      "pmh.probabilistic-semantic-bound.v2",
+    ].includes(artifact.schemaVersion) ||
+    (artifact.schemaVersion === "pmh.probabilistic-semantic-bound.v1") !==
+      (searchOrigin === undefined) ||
     !HASH_PATTERN.test(String(artifactHash)) || artifactHash !== hashCanonical(body) ||
     artifact.proposalId !== constraint.proposalId ||
     artifact.semanticConstraintArtifactHash !== constraint.artifactHash ||

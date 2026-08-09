@@ -95,6 +95,7 @@ import {
   type ProbabilityEstimationCandidate,
   type ProbabilityEstimationSchedulerStore,
 } from "./probability-estimation-scheduler.js";
+import { buildProbabilitySearchOrigin } from "./probabilistic-semantic-arbitrage.js";
 import {
   ProbabilityCalibrationDesk,
   type ProbabilityCalibrationStore,
@@ -1408,13 +1409,73 @@ export function createControlPlane(options?: {
       left.review.reviewId.localeCompare(right.review.reviewId)
     ));
   };
-  const probabilityEstimationCandidates = (): readonly ProbabilityEstimationCandidate[] =>
-    Object.freeze(semanticReviewDesk.projection().records.flatMap((review) =>
+  const probabilitySearchOriginByReview = new Map<Hash,
+    ReturnType<typeof buildProbabilitySearchOrigin> | null>();
+  const probabilityEstimationCandidates = (): readonly ProbabilityEstimationCandidate[] => {
+    const reviews = semanticReviewDesk.projection().records.filter((review) =>
       review.status === "PASS" && review.report !== null &&
-          review.report.result.semanticConstraint?.classification === "PROBABILISTIC_DEPENDENCE"
-        ? [Object.freeze({ review })]
-        : []
+      review.report.result.semanticConstraint?.classification === "PROBABILISTIC_DEPENDENCE"
+    );
+    const missingReviews = reviews.filter((review) =>
+      !probabilitySearchOriginByReview.has(review.reviewId)
+    );
+    if (missingReviews.length === 0) {
+      return Object.freeze(reviews.map((review) => {
+        const searchOrigin = probabilitySearchOriginByReview.get(review.reviewId) ?? null;
+        return Object.freeze({
+          review,
+          ...(searchOrigin === null ? {} : { searchOrigin }),
+        });
+      }));
+    }
+    const issues = new Map(searchIssueScheduler.projection().issues.map((issue) =>
+      [issue.issueId, issue] as const
     ));
+    const liveJobs = semanticReviewScheduler.projection().jobs;
+    const liveJobKeys = new Set(liveJobs.map((job) =>
+      `${job.lastReviewId ?? "none"}\u0000${job.proposalId}`
+    ));
+    const needsDurableFallback = missingReviews.some((review) => {
+      const proposalId = review.report!.result.semanticConstraint!.proposalId;
+      return !liveJobKeys.has(`${review.reviewId}\u0000${proposalId}`);
+    });
+    const reviewJobs = needsDurableFallback
+      ? semanticReviewScheduler.attributionSource().jobs
+      : liveJobs;
+    const jobsByReviewProposal = new Map<string, (typeof reviewJobs)[number][]>();
+    for (const job of reviewJobs) {
+      if (job.lastReviewId === null) continue;
+      const key = `${job.lastReviewId}\u0000${job.proposalId}`;
+      const matching = jobsByReviewProposal.get(key) ?? [];
+      matching.push(job);
+      jobsByReviewProposal.set(key, matching);
+    }
+    for (const review of missingReviews) {
+      const constraint = review.report?.result.semanticConstraint;
+      if (constraint === undefined) continue;
+      const matchingJobs = jobsByReviewProposal.get(
+        `${review.reviewId}\u0000${constraint.proposalId}`,
+      ) ?? [];
+      const issueIds = Object.freeze([...new Set(matchingJobs.flatMap((job) =>
+        job.issueIds
+      ))].sort());
+      const semanticFamilies = Object.freeze([...new Set(issueIds.flatMap((issueId) => {
+        const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
+        return family === undefined ? [] : [family];
+      }))].sort());
+      const searchOrigin = issueIds.length === 0 || semanticFamilies.length === 0
+        ? null
+        : buildProbabilitySearchOrigin({ issueIds, semanticFamilies });
+      probabilitySearchOriginByReview.set(review.reviewId, searchOrigin);
+    }
+    return Object.freeze(reviews.map((review) => {
+      const searchOrigin = probabilitySearchOriginByReview.get(review.reviewId) ?? null;
+      return Object.freeze({
+        review,
+        ...(searchOrigin === null ? {} : { searchOrigin }),
+      });
+    }));
+  };
   const evidenceRequirements = (): readonly EvidenceRequirement[] => Object.freeze([
     ...marketArchaeologistDesk.projection().records.flatMap((record) =>
       record.status === "PASS" && record.report !== null
