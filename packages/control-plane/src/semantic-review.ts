@@ -35,6 +35,22 @@ const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_RETENTION_LIMIT = 50;
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/u;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const TERMINAL_REPAIR_CODES = Object.freeze([
+  "MALFORMED_INPUT",
+  "INVALID_ENUM",
+  "INVALID_TEXT",
+  "INVALID_ARRAY",
+  "INVALID_TRUTH_STATE",
+  "DUPLICATE_TRUTH_STATE",
+  "OUT_OF_SCOPE_LISTING",
+  "MISSING_EVIDENCE_REQUIREMENT",
+  "MISSING_COUNTEREXAMPLE",
+] as const);
+type TerminalRepairCode = (typeof TERMINAL_REPAIR_CODES)[number];
+type SemanticReviewTerminalEffect =
+  | "SUBMITTED"
+  | "ABSTAINED"
+  | "RECOVERED_ABSTENTION";
 
 export type SemanticReviewRecommendation =
   | "REJECT"
@@ -115,7 +131,9 @@ export type SemanticReviewReport = Readonly<{
     maximumSteps: 12;
     counterexampleEffectCount: number;
     submittedEffectHash: Hash;
-    terminalEffect?: "SUBMITTED" | "ABSTAINED";
+    terminalEffect?: SemanticReviewTerminalEffect;
+    rejectedTerminalEffectCount?: number;
+    lastRejectedTerminalDiagnostic?: string;
     wholeResponseSchemaParsing: false;
     structuredEvidenceRequirements?: true;
     structuredRuleEvidenceClaims?: true;
@@ -184,7 +202,9 @@ type RawSemanticReview = Readonly<{
   toolTrace?: Readonly<{
     counterexampleEffectCount: number;
     submittedEffectHash: Hash;
-    terminalEffect?: "SUBMITTED" | "ABSTAINED";
+    terminalEffect?: SemanticReviewTerminalEffect;
+    rejectedTerminalEffectCount?: number;
+    lastRejectedTerminalDiagnostic?: string;
   }>;
 }>;
 
@@ -209,6 +229,24 @@ type SemanticReviewAbstention = Readonly<{
   missingEvidence: readonly string[];
   evidenceRequirements: readonly EvidenceRequirementDraft[];
 }>;
+
+class SemanticReviewRepairError extends Error {
+  public constructor(
+    readonly code: TerminalRepairCode,
+    readonly fieldPath: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+function repairFailure(
+  code: TerminalRepairCode,
+  fieldPath: string,
+  message: string,
+): never {
+  throw new SemanticReviewRepairError(code, fieldPath, message);
+}
 
 export type SemanticReviewModelInput = Readonly<{
   proposal: MarketRelationProposal;
@@ -518,16 +556,19 @@ function validateRawReview(value: unknown): RawSemanticReview {
   });
 }
 
-function validateCounterexampleEffect(value: unknown): CounterexampleEffect {
+function validateCounterexampleEffect(
+  value: unknown,
+  expectedTruthArity: number,
+): CounterexampleEffect {
   if (value === null || typeof value !== "object") {
     throw new Error("counterexample effect is malformed");
   }
   const raw = value as Record<string, unknown>;
   if (
     !["FOUND", "NOT_FOUND", "INCONCLUSIVE"].includes(String(raw.result)) ||
-    !boundedText(raw.narrative, 2_000) ||
+    !boundedText(raw.narrative, 1_000) ||
     (raw.truths !== null && (
-      !Array.isArray(raw.truths) || raw.truths.length < 2 || raw.truths.length > 8 ||
+      !Array.isArray(raw.truths) || raw.truths.length !== expectedTruthArity ||
       raw.truths.some((truth: unknown) => typeof truth !== "boolean")
     ))
   ) throw new Error("counterexample effect violates its bounded contract");
@@ -540,31 +581,235 @@ function validateCounterexampleEffect(value: unknown): CounterexampleEffect {
   });
 }
 
-function validateSubmission(value: unknown): SemanticReviewSubmission {
-  if (value === null || typeof value !== "object") {
-    throw new Error("semantic review submission is malformed");
+const EVIDENCE_REQUIREMENT_KINDS = Object.freeze([
+  "RESOLUTION_RULE",
+  "VOID_CANCELLATION",
+  "ORACLE_SOURCE",
+  "TIME_BOUNDARY",
+  "OUTCOME_MAPPING",
+  "FEE_SCHEDULE",
+  "QUOTE_DEPTH",
+] as const);
+
+function validateTerminalEvidenceRequirements(
+  value: unknown,
+  proposalListingRefs: readonly string[],
+  fieldPath = "evidenceRequirements",
+): readonly EvidenceRequirementDraft[] {
+  if (!Array.isArray(value) || value.length > 20) {
+    repairFailure("INVALID_ARRAY", fieldPath, `${fieldPath} must be an array with at most 20 items`);
+  }
+  const allowedRefs = new Set(proposalListingRefs);
+  for (let index = 0; index < value.length; index += 1) {
+    const itemPath = `${fieldPath}[${index}]`;
+    const item = value[index];
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      repairFailure("MALFORMED_INPUT", itemPath, `${itemPath} must be an object`);
+    }
+    const raw = item as Record<string, unknown>;
+    if (!EVIDENCE_REQUIREMENT_KINDS.includes(raw.kind as typeof EVIDENCE_REQUIREMENT_KINDS[number])) {
+      repairFailure("INVALID_ENUM", `${itemPath}.kind`, `${itemPath}.kind is not supported`);
+    }
+    if (
+      !Array.isArray(raw.listingRefs) || raw.listingRefs.length < 1 ||
+      raw.listingRefs.length > 8 ||
+      new Set(raw.listingRefs).size !== raw.listingRefs.length
+    ) {
+      repairFailure(
+        "INVALID_ARRAY",
+        `${itemPath}.listingRefs`,
+        `${itemPath}.listingRefs must contain 1-8 unique proposal listing refs`,
+      );
+    }
+    const outOfScope = raw.listingRefs.find(
+      (listingRef) => typeof listingRef !== "string" || !allowedRefs.has(listingRef),
+    );
+    if (outOfScope !== undefined) {
+      repairFailure(
+        "OUT_OF_SCOPE_LISTING",
+        `${itemPath}.listingRefs`,
+        `${itemPath}.listingRefs may reference only the proposal listings`,
+      );
+    }
+    for (const field of [
+      "claim", "reason", "satisfyingObservation", "contradictingObservation",
+    ] as const) {
+      if (!boundedText(raw[field], 1_000)) {
+        repairFailure(
+          "INVALID_TEXT",
+          `${itemPath}.${field}`,
+          `${itemPath}.${field} must contain 1-1000 characters`,
+        );
+      }
+    }
+    if (![
+      "CURRENT", "HISTORICAL_AT_SOURCE_OBSERVATION",
+    ].includes(String(raw.temporalPosture))) {
+      repairFailure(
+        "INVALID_ENUM",
+        `${itemPath}.temporalPosture`,
+        `${itemPath}.temporalPosture must be CURRENT or HISTORICAL_AT_SOURCE_OBSERVATION`,
+      );
+    }
+  }
+  return validateEvidenceRequirementDrafts(value);
+}
+
+function validateSubmission(
+  value: unknown,
+  proposalListingRefs: readonly string[],
+): SemanticReviewSubmission {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    repairFailure("MALFORMED_INPUT", "$", "semantic review submission must be an object");
   }
   const raw = value as Record<string, unknown>;
-  const constraint = raw.constraint as Record<string, unknown> | undefined;
-  const validated = validateRawReview({
-    ...raw,
-    counterexamples: [],
-  });
-  const evidenceRequirements = validateEvidenceRequirementDrafts(
+  if (![
+    "REJECT", "ESCALATE", "ACCEPT_FOR_RESEARCH_SIMULATION",
+  ].includes(String(raw.recommendation))) {
+    repairFailure("INVALID_ENUM", "recommendation", "recommendation is not supported");
+  }
+  if (!relationKinds.includes(raw.relationConclusion as MarketRelationKind)) {
+    repairFailure("INVALID_ENUM", "relationConclusion", "relationConclusion is not supported");
+  }
+  if (raw.assessments === null || typeof raw.assessments !== "object" ||
+    Array.isArray(raw.assessments)) {
+    repairFailure("MALFORMED_INPUT", "assessments", "assessments must be an object");
+  }
+  const assessments = raw.assessments as Record<string, unknown>;
+  for (const field of [
+    "outcomeMapping", "timingAndClose", "voidAndCancellation", "resolutionSources",
+  ] as const) {
+    if (!boundedText(assessments[field], 1_500)) {
+      repairFailure(
+        "INVALID_TEXT",
+        `assessments.${field}`,
+        `assessments.${field} must contain 1-1500 characters`,
+      );
+    }
+  }
+  if (!boundedTextArray(raw.missingEvidence, 20, 1_000)) {
+    repairFailure(
+      "INVALID_ARRAY",
+      "missingEvidence",
+      "missingEvidence must contain at most 20 non-empty strings of at most 1000 characters",
+    );
+  }
+  if (!boundedText(raw.rationale, 2_000)) {
+    repairFailure("INVALID_TEXT", "rationale", "rationale must contain 1-2000 characters");
+  }
+  const evidenceRequirements = validateTerminalEvidenceRequirements(
     raw.evidenceRequirements,
+    proposalListingRefs,
   );
-  if (
-    constraint === undefined ||
-    ![
-      "HARD_SETTLEMENT_CONSTRAINT",
-      "PROBABILISTIC_DEPENDENCE",
-      "TEXTUAL_RELATEDNESS",
-    ].includes(String(constraint.classification)) ||
-    !boundedTextArray(constraint.assumptions, 20, 1_000) ||
-    !Array.isArray(constraint.truthTable) || constraint.truthTable.length > 16 ||
-    !boundedTextArray(constraint.unresolvedEvidence, 30, 2_000) ||
-    (validated.missingEvidence.length > 0 && evidenceRequirements.length === 0)
-  ) throw new Error("semantic review constraint submission is invalid");
+  const constraint = raw.constraint;
+  if (constraint === null || typeof constraint !== "object" || Array.isArray(constraint)) {
+    repairFailure("MALFORMED_INPUT", "constraint", "constraint must be an object");
+  }
+  const constraintRaw = constraint as Record<string, unknown>;
+  if (![
+    "HARD_SETTLEMENT_CONSTRAINT",
+    "PROBABILISTIC_DEPENDENCE",
+    "TEXTUAL_RELATEDNESS",
+  ].includes(String(constraintRaw.classification))) {
+    repairFailure(
+      "INVALID_ENUM",
+      "constraint.classification",
+      "constraint.classification is not supported",
+    );
+  }
+  if (!boundedTextArray(constraintRaw.assumptions, 20, 1_000)) {
+    repairFailure(
+      "INVALID_ARRAY",
+      "constraint.assumptions",
+      "constraint.assumptions must contain at most 20 bounded non-empty strings",
+    );
+  }
+  if (!Array.isArray(constraintRaw.truthTable) || constraintRaw.truthTable.length > 16) {
+    repairFailure(
+      "INVALID_ARRAY",
+      "constraint.truthTable",
+      "constraint.truthTable must contain at most 16 states",
+    );
+  }
+  const allowedRefs = new Set(proposalListingRefs);
+  const seenStates = new Set<string>();
+  for (let index = 0; index < constraintRaw.truthTable.length; index += 1) {
+    const statePath = `constraint.truthTable[${index}]`;
+    const state = constraintRaw.truthTable[index];
+    if (state === null || typeof state !== "object" || Array.isArray(state)) {
+      repairFailure("MALFORMED_INPUT", statePath, `${statePath} must be an object`);
+    }
+    const stateRaw = state as Record<string, unknown>;
+    if (
+      !Array.isArray(stateRaw.truths) ||
+      stateRaw.truths.length !== proposalListingRefs.length ||
+      stateRaw.truths.some((truth) => typeof truth !== "boolean")
+    ) {
+      repairFailure(
+        "INVALID_TRUTH_STATE",
+        `${statePath}.truths`,
+        `${statePath}.truths must contain exactly ${proposalListingRefs.length} booleans`,
+      );
+    }
+    const stateKey = (stateRaw.truths as boolean[]).map((truth) => truth ? "T" : "F").join("");
+    if (seenStates.has(stateKey)) {
+      repairFailure(
+        "DUPLICATE_TRUTH_STATE",
+        `${statePath}.truths`,
+        `${statePath}.truths duplicates state ${stateKey}`,
+      );
+    }
+    seenStates.add(stateKey);
+    if (!["FEASIBLE", "IMPOSSIBLE", "UNRESOLVED"].includes(String(stateRaw.disposition))) {
+      repairFailure(
+        "INVALID_ENUM",
+        `${statePath}.disposition`,
+        `${statePath}.disposition is not supported`,
+      );
+    }
+    if (!boundedText(stateRaw.rationale, 2_000)) {
+      repairFailure(
+        "INVALID_TEXT",
+        `${statePath}.rationale`,
+        `${statePath}.rationale must contain 1-2000 characters`,
+      );
+    }
+    if (
+      !Array.isArray(stateRaw.evidenceListingRefs) ||
+      stateRaw.evidenceListingRefs.length > proposalListingRefs.length ||
+      new Set(stateRaw.evidenceListingRefs).size !== stateRaw.evidenceListingRefs.length
+    ) {
+      repairFailure(
+        "INVALID_ARRAY",
+        `${statePath}.evidenceListingRefs`,
+        `${statePath}.evidenceListingRefs must contain unique proposal listing refs`,
+      );
+    }
+    if (stateRaw.evidenceListingRefs.some(
+      (listingRef) => typeof listingRef !== "string" || !allowedRefs.has(listingRef),
+    )) {
+      repairFailure(
+        "OUT_OF_SCOPE_LISTING",
+        `${statePath}.evidenceListingRefs`,
+        `${statePath}.evidenceListingRefs may reference only the proposal listings`,
+      );
+    }
+  }
+  if (!boundedTextArray(constraintRaw.unresolvedEvidence, 30, 2_000)) {
+    repairFailure(
+      "INVALID_ARRAY",
+      "constraint.unresolvedEvidence",
+      "constraint.unresolvedEvidence must contain at most 30 bounded non-empty strings",
+    );
+  }
+  if ((raw.missingEvidence as string[]).length > 0 && evidenceRequirements.length === 0) {
+    repairFailure(
+      "MISSING_EVIDENCE_REQUIREMENT",
+      "evidenceRequirements",
+      "each non-empty missingEvidence set requires at least one structured evidence requirement",
+    );
+  }
+  const validated = validateRawReview({ ...raw, counterexamples: [] });
   return Object.freeze({
     recommendation: validated.recommendation,
     relationConclusion: validated.relationConclusion,
@@ -573,28 +818,47 @@ function validateSubmission(value: unknown): SemanticReviewSubmission {
     evidenceRequirements,
     rationale: validated.rationale,
     constraint: Object.freeze({
-      classification: constraint.classification as SemanticConstraintDraft["classification"],
-      assumptions: Object.freeze([...(constraint.assumptions as string[])]),
-      truthTable: Object.freeze([...(constraint.truthTable as SemanticConstraintDraft["truthTable"])]),
-      unresolvedEvidence: Object.freeze([...(constraint.unresolvedEvidence as string[])]),
+      classification:
+        constraintRaw.classification as SemanticConstraintDraft["classification"],
+      assumptions: Object.freeze([...(constraintRaw.assumptions as string[])]),
+      truthTable: Object.freeze([
+        ...(constraintRaw.truthTable as SemanticConstraintDraft["truthTable"]),
+      ]),
+      unresolvedEvidence: Object.freeze([
+        ...(constraintRaw.unresolvedEvidence as string[]),
+      ]),
     }),
   });
 }
 
-function validateAbstention(value: unknown): SemanticReviewAbstention {
-  if (value === null || typeof value !== "object") {
-    throw new Error("semantic review abstention is malformed");
+function validateAbstention(
+  value: unknown,
+  proposalListingRefs: readonly string[],
+): SemanticReviewAbstention {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    repairFailure("MALFORMED_INPUT", "$", "semantic review abstention must be an object");
   }
   const raw = value as Record<string, unknown>;
-  if (
-    !boundedText(raw.reason, 2_000) ||
-    !boundedTextArray(raw.missingEvidence, 20, 1_000)
-  ) throw new Error("semantic review abstention violates its bounded contract");
-  const evidenceRequirements = validateEvidenceRequirementDrafts(
+  if (!boundedText(raw.reason, 2_000)) {
+    repairFailure("INVALID_TEXT", "reason", "reason must contain 1-2000 characters");
+  }
+  if (!boundedTextArray(raw.missingEvidence, 20, 1_000)) {
+    repairFailure(
+      "INVALID_ARRAY",
+      "missingEvidence",
+      "missingEvidence must contain at most 20 bounded non-empty strings",
+    );
+  }
+  const evidenceRequirements = validateTerminalEvidenceRequirements(
     raw.evidenceRequirements,
+    proposalListingRefs,
   );
   if ((raw.missingEvidence as string[]).length > 0 && evidenceRequirements.length === 0) {
-    throw new Error("semantic review abstention evidence gap lacks a structured requirement");
+    repairFailure(
+      "MISSING_EVIDENCE_REQUIREMENT",
+      "evidenceRequirements",
+      "an abstention with missingEvidence requires a structured evidence requirement",
+    );
   }
   return Object.freeze({
     reason: (raw.reason as string).trim(),
@@ -621,10 +885,16 @@ function counterexampleAttemptDraft(
   effects: readonly CounterexampleEffect[],
 ): SemanticConstraintDraft["counterexampleAttempt"] {
   const governing = governingCounterexample(effects);
+  const combinedNarrative = effects
+    .map((effect) => effect.narrative)
+    .join(" | ");
+  const narrative = combinedNarrative.length <= 2_000
+    ? combinedNarrative
+    : `${combinedNarrative.slice(0, 1_999).trimEnd()}…`;
   return Object.freeze({
     attempted: true,
     result: governing.result,
-    narrative: effects.map((effect) => effect.narrative).join(" | "),
+    narrative,
     truths: governing.truths,
   });
 }
@@ -767,7 +1037,18 @@ export function assertSemanticReviewRecord(
         report.trace.counterexampleEffectCount < 0 ||
         !HASH_PATTERN.test(report.trace.submittedEffectHash) ||
         (report.trace.terminalEffect !== undefined &&
-          !["SUBMITTED", "ABSTAINED"].includes(report.trace.terminalEffect)) ||
+          ![
+            "SUBMITTED", "ABSTAINED", "RECOVERED_ABSTENTION",
+          ].includes(report.trace.terminalEffect)) ||
+        (report.trace.rejectedTerminalEffectCount !== undefined && (
+          !Number.isSafeInteger(report.trace.rejectedTerminalEffectCount) ||
+          report.trace.rejectedTerminalEffectCount < 1 ||
+          report.trace.rejectedTerminalEffectCount > 12
+        )) ||
+        (report.trace.lastRejectedTerminalDiagnostic !== undefined && (
+          !boundedText(report.trace.lastRejectedTerminalDiagnostic, 500) ||
+          report.trace.rejectedTerminalEffectCount === undefined
+        )) ||
         report.trace.wholeResponseSchemaParsing !== false
       ) throw new Error("stored semantic review report violates agent tool trace");
       const constraint = assertSemanticConstraintArtifact(
@@ -901,8 +1182,57 @@ export class DeepSeekSemanticReviewModelPort
       });
       const counterexampleEffects: CounterexampleEffect[] = [];
       let submitted: RawSemanticReview | null = null;
-      let terminalEffect: "SUBMITTED" | "ABSTAINED" | null = null;
+      let terminalEffect: SemanticReviewTerminalEffect | null = null;
       let rejectedTerminalEffectCount = 0;
+      let lastRejectedTerminalDiagnostic: string | null = null;
+      const proposalListingRefs = input.proposal.listingRefs;
+      const rejectTerminalEffect = (
+        error: unknown,
+        requestedTool:
+          | "record_counterexample"
+          | "submit_semantic_review"
+          | "abstain_semantic_review",
+      ) => {
+        const repair = error instanceof SemanticReviewRepairError
+          ? error
+          : new SemanticReviewRepairError(
+              "MALFORMED_INPUT",
+              "$",
+              error instanceof Error ? error.message : String(error),
+            );
+        rejectedTerminalEffectCount += 1;
+        lastRejectedTerminalDiagnostic = compactDiagnostic(
+          `${repair.fieldPath}: ${repair.message}`,
+        );
+        return Object.freeze({
+          accepted: false,
+          proposalOnly: true,
+          repair: Object.freeze({
+            code: repair.code,
+            fieldPath: repair.fieldPath,
+            diagnostic: lastRejectedTerminalDiagnostic,
+            requestedTool,
+            instruction:
+              `Repair ${repair.fieldPath} and call ${requestedTool} again.`,
+          }),
+          rejectedTerminalEffectCount,
+          exactCompilerAdmission: "DETERMINED_EXTERNALLY" as const,
+        });
+      };
+      const terminalTrace = (
+        submittedEffectHash: Hash,
+        effect: SemanticReviewTerminalEffect,
+      ) => Object.freeze({
+        counterexampleEffectCount: counterexampleEffects.length,
+        submittedEffectHash,
+        terminalEffect: effect,
+        ...(rejectedTerminalEffectCount === 0
+          ? {}
+          : { rejectedTerminalEffectCount }),
+        ...(lastRejectedTerminalDiagnostic === null
+          ? {}
+          : { lastRejectedTerminalDiagnostic }),
+      });
       const tools = {
         record_counterexample: tool({
           description:
@@ -910,7 +1240,10 @@ export class DeepSeekSemanticReviewModelPort
             "Call this before submitting the review, even when no counterexample survives.",
           inputSchema: jsonSchema<CounterexampleEffect>(counterexampleToolJsonSchema),
           execute: async (input) => {
-            const effect = validateCounterexampleEffect(input);
+            const effect = validateCounterexampleEffect(
+              input,
+              proposalListingRefs.length,
+            );
             counterexampleEffects.push(effect);
             return Object.freeze({
               accepted: true,
@@ -926,28 +1259,22 @@ export class DeepSeekSemanticReviewModelPort
           inputSchema: jsonSchema<SemanticReviewSubmission>(
             semanticReviewSubmissionJsonSchema,
           ),
-          execute: async (input) => {
+          execute: async (toolInput) => {
             if (counterexampleEffects.length === 0) {
-              rejectedTerminalEffectCount += 1;
-              return Object.freeze({
-                accepted: false,
-                proposalOnly: true,
-                diagnostic: "semantic review requires a recorded counterexample attempt",
-                exactCompilerAdmission: "DETERMINED_EXTERNALLY" as const,
-              });
+              return rejectTerminalEffect(
+                new SemanticReviewRepairError(
+                  "MISSING_COUNTEREXAMPLE",
+                  "counterexampleEffects",
+                  "semantic review requires a recorded counterexample attempt",
+                ),
+                "record_counterexample",
+              );
             }
             let submission: SemanticReviewSubmission;
             try {
-              submission = validateSubmission(input);
+              submission = validateSubmission(toolInput, proposalListingRefs);
             } catch (error) {
-              return Object.freeze({
-                accepted: false,
-                proposalOnly: true,
-                diagnostic: compactDiagnostic(
-                  error instanceof Error ? error.message : String(error),
-                ),
-                exactCompilerAdmission: "DETERMINED_EXTERNALLY" as const,
-              });
+              return rejectTerminalEffect(error, "submit_semantic_review");
             }
             const constraintDraft: SemanticConstraintDraft = Object.freeze({
               ...submission.constraint,
@@ -965,11 +1292,7 @@ export class DeepSeekSemanticReviewModelPort
                 .map((effect) => effect.narrative),
               constraintDraft,
               evidenceRequirementDrafts: submission.evidenceRequirements,
-              toolTrace: Object.freeze({
-                counterexampleEffectCount: counterexampleEffects.length,
-                submittedEffectHash: hashCanonical(effectBody),
-                terminalEffect: "SUBMITTED" as const,
-              }),
+              toolTrace: terminalTrace(hashCanonical(effectBody), "SUBMITTED"),
             });
             terminalEffect = "SUBMITTED";
             return Object.freeze({
@@ -990,26 +1313,22 @@ export class DeepSeekSemanticReviewModelPort
           inputSchema: jsonSchema<SemanticReviewAbstention>(
             semanticReviewAbstentionJsonSchema,
           ),
-          execute: async (input) => {
+          execute: async (toolInput) => {
             if (counterexampleEffects.length === 0) {
-              rejectedTerminalEffectCount += 1;
-              return Object.freeze({
-                accepted: false,
-                proposalOnly: true,
-                diagnostic: "semantic review abstention requires a recorded counterexample attempt",
-              });
+              return rejectTerminalEffect(
+                new SemanticReviewRepairError(
+                  "MISSING_COUNTEREXAMPLE",
+                  "counterexampleEffects",
+                  "semantic review abstention requires a recorded counterexample attempt",
+                ),
+                "record_counterexample",
+              );
             }
             let abstention: SemanticReviewAbstention;
             try {
-              abstention = validateAbstention(input);
+              abstention = validateAbstention(toolInput, proposalListingRefs);
             } catch (error) {
-              return Object.freeze({
-                accepted: false,
-                proposalOnly: true,
-                diagnostic: compactDiagnostic(
-                  error instanceof Error ? error.message : String(error),
-                ),
-              });
+              return rejectTerminalEffect(error, "abstain_semantic_review");
             }
             const unresolvedEvidence = Object.freeze([
               ...abstention.missingEvidence,
@@ -1045,11 +1364,7 @@ export class DeepSeekSemanticReviewModelPort
               ...(abstention.evidenceRequirements.length === 0
                 ? {}
                 : { evidenceRequirementDrafts: abstention.evidenceRequirements }),
-              toolTrace: Object.freeze({
-                counterexampleEffectCount: counterexampleEffects.length,
-                submittedEffectHash: hashCanonical(effectBody),
-                terminalEffect: "ABSTAINED" as const,
-              }),
+              toolTrace: terminalTrace(hashCanonical(effectBody), "ABSTAINED"),
             });
             terminalEffect = "ABSTAINED";
             return Object.freeze({
@@ -1125,7 +1440,7 @@ export class DeepSeekSemanticReviewModelPort
               toolChoice: "required" as const,
             });
           }
-          if (stepNumber >= 10) {
+          if (stepNumber >= 10 || rejectedTerminalEffectCount >= 3) {
             return Object.freeze({
               activeTools: ["abstain_semantic_review"] as const,
               toolChoice: Object.freeze({
@@ -1144,6 +1459,49 @@ export class DeepSeekSemanticReviewModelPort
           });
         },
       });
+      if (submitted === null && counterexampleEffects.length > 0) {
+        const recoveryReason = compactDiagnostic(
+          "First-party terminal recovery: the reviewer recorded a counterexample " +
+          "attempt but did not produce a valid terminal tool effect within the bounded loop" +
+          (lastRejectedTerminalDiagnostic === null
+            ? "."
+            : `; last rejected field was ${lastRejectedTerminalDiagnostic}.`),
+        );
+        const effectBody = Object.freeze({
+          counterexampleEffects: Object.freeze([...counterexampleEffects]),
+          recoveryReason,
+          terminalEffect: "RECOVERED_ABSTENTION" as const,
+        });
+        submitted = validateRawReview({
+          recommendation: "ESCALATE",
+          relationConclusion: "RELATED",
+          assessments: Object.freeze({
+            outcomeMapping: "Not established; the terminal effect required recovery.",
+            timingAndClose: "Not established; the terminal effect required recovery.",
+            voidAndCancellation:
+              "Not established; the terminal effect required recovery.",
+            resolutionSources: "Not established; the terminal effect required recovery.",
+          }),
+          counterexamples: counterexampleEffects
+            .filter((effect) => effect.result === "FOUND")
+            .map((effect) => effect.narrative),
+          missingEvidence: Object.freeze([]),
+          rationale: recoveryReason,
+          constraintDraft: Object.freeze({
+            classification: "TEXTUAL_RELATEDNESS" as const,
+            relationKind: "RELATED" as const,
+            assumptions: Object.freeze([]),
+            counterexampleAttempt: counterexampleAttemptDraft(counterexampleEffects),
+            truthTable: Object.freeze([]),
+            unresolvedEvidence: Object.freeze([recoveryReason]),
+          }),
+          toolTrace: terminalTrace(
+            hashCanonical(effectBody),
+            "RECOVERED_ABSTENTION",
+          ),
+        });
+        terminalEffect = "RECOVERED_ABSTENTION";
+      }
       if (submitted === null) {
         this.usageRecorder?.record({
           durationMs: Math.max(0, Date.now() - startedAtMs),
@@ -1169,7 +1527,9 @@ export class DeepSeekSemanticReviewModelPort
         model: this.model,
         transport: "VERCEL_AI_SDK",
         operationIdentity: `proposal:${input.proposal.proposalId}`,
-        outcome: terminalEffect === "ABSTAINED" ? "ABSTAINED" : "SUCCEEDED",
+        outcome: submitted.toolTrace?.terminalEffect === "SUBMITTED"
+          ? "SUCCEEDED"
+          : "ABSTAINED",
         durableEffect: true,
         providerRequestCount: result.steps.length,
         usage: result.usage,
@@ -1447,6 +1807,18 @@ export class SemanticReviewDesk {
                     ...(rawToolTrace?.terminalEffect === undefined
                       ? {}
                       : { terminalEffect: rawToolTrace.terminalEffect }),
+                    ...(rawToolTrace?.rejectedTerminalEffectCount === undefined
+                      ? {}
+                      : {
+                          rejectedTerminalEffectCount:
+                            rawToolTrace.rejectedTerminalEffectCount,
+                        }),
+                    ...(rawToolTrace?.lastRejectedTerminalDiagnostic === undefined
+                      ? {}
+                      : {
+                          lastRejectedTerminalDiagnostic:
+                            rawToolTrace.lastRejectedTerminalDiagnostic,
+                        }),
                     wholeResponseSchemaParsing: false as const,
                     ...(evidenceRequirements === undefined
                       ? {}

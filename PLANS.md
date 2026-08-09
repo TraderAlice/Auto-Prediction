@@ -65,6 +65,23 @@ exposed the next bottleneck: terminal tool submissions can still be rejected
 without enough repair guidance, causing safe abstention/retry even when the
 semantic argument is largely sound. This is a distinct follow-on slice.
 
+That follow-on is now qualified. Terminal rejection carries bounded field-level
+repair envelopes; repeated invalid calls are counted; and a run that already
+recorded a counterexample can end in a clearly labelled first-party recovered
+abstention instead of losing all work and consuming three scheduler attempts.
+The recovered artifact remains `RELATED`, research-only, and structurally
+ineligible for exact compilation. The complete House mutual-exclusion proposal
+was manually rerun: after an initial live run exposed an overlong accumulated
+counterexample narrative accepted ahead of the artifact builder, counterexample
+arity and the combined 2,000-character bound were moved fully inside the tool
+contract. The next run ended `PASS` through a model-submitted `ABSTAINED` effect
+with three counterexample attempts, zero claimed truth states, and explicit
+reasoning-budget—not evidence—exhaustion. Studio desktop and 390 px inspection
+show the durable House issue at 5/5 reviewed without layout regression. Retry
+policy classification and resolved-outcome quality remain the active measured
+checkpoints. Node 24.14.0 checks, all 543 workspace tests, and the production
+build pass.
+
 Live north-star measurement exposed two nested retention-window attribution
 bugs. The issue funnel originally forgot terminal reviews as they left the
 50-record detail window, and the scheduler's 250-job interactive projection was
@@ -170,8 +187,10 @@ ended without a terminal tool effect, while returned provider usage could be
 misclassified as unavailable. Semantic review now supports an explicit,
 counterexample-gated abstention that persists a research-only artifact instead
 of throwing away bounded reasoning. Step preparation forces a safe terminal
-effect near exhaustion, but plain prose still fails as a tool-protocol
-violation. Every AI SDK loop now retains returned usage before terminal
+effect near exhaustion. Plain prose with no counterexample still fails as a
+tool-protocol violation; once a counterexample is durable, exhaustion becomes a
+clearly labelled research-only recovered abstention. Every AI SDK loop now
+retains returned usage before terminal
 validation throws, so protocol failures are complete failed events rather than
 lost or double-counted invocations. Focused regression coverage spans semantic
 review, evidence interpretation, premise analysis, and probability estimation;

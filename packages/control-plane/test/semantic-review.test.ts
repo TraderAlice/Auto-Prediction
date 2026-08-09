@@ -298,9 +298,123 @@ describe("adversarial semantic review", () => {
     expect(record).toMatchObject({
       status: "PASS",
       report: {
-        trace: { counterexampleEffectCount: 1 },
+        trace: {
+          counterexampleEffectCount: 1,
+          rejectedTerminalEffectCount: 1,
+          lastRejectedTerminalDiagnostic: expect.stringContaining(
+            "counterexampleEffects",
+          ),
+        },
       },
     });
+  });
+
+  it("returns a field-level repair and accepts the corrected terminal effect", async () => {
+    let requestCount = 0;
+    const requestBodies: string[] = [];
+    const invalidSubmission = {
+      ...submissionPayload,
+      constraint: {
+        ...submissionPayload.constraint,
+        truthTable: submissionPayload.constraint.truthTable.map((state, index) =>
+          index === 0
+            ? { ...state, evidenceListingRefs: ["venue-z:outside"] }
+            : state
+        ),
+      },
+    };
+    const desk = createSemanticReviewDesk(
+      {
+        DEEPSEEK_API_KEY: "test-only-key",
+        PMH_SEMANTIC_REVIEW_TIMEOUT_MS: "3000",
+      },
+      {
+        async fetcher(_input, init) {
+          requestCount += 1;
+          requestBodies.push(String(init?.body));
+          if (requestCount === 1) {
+            return toolCompletion("record_counterexample", {
+              result: "FOUND",
+              narrative: reviewPayload.counterexamples[0],
+              truths: [false, true],
+            }, "call-repair-counterexample");
+          }
+          return requestCount === 2
+            ? toolCompletion(
+                "submit_semantic_review",
+                invalidSubmission,
+                "call-invalid-submit",
+              )
+            : toolCompletion(
+                "submit_semantic_review",
+                submissionPayload,
+                "call-repaired-submit",
+              );
+        },
+      },
+    );
+
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+
+    expect(requestCount).toBe(3);
+    expect(requestBodies[2]).toContain("OUT_OF_SCOPE_LISTING");
+    expect(requestBodies[2]).toContain(
+      "constraint.truthTable[0].evidenceListingRefs",
+    );
+    expect(record).toMatchObject({
+      status: "PASS",
+      report: {
+        trace: {
+          terminalEffect: "SUBMITTED",
+          rejectedTerminalEffectCount: 1,
+          lastRejectedTerminalDiagnostic: expect.stringContaining(
+            "constraint.truthTable[0].evidenceListingRefs",
+          ),
+        },
+      },
+    });
+  });
+
+  it("bounds the accumulated counterexample narrative before artifact construction", async () => {
+    let requestCount = 0;
+    const longNarrative = (label: string) =>
+      `${label}: ${"bounded falsification detail ".repeat(34)}`;
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        async fetcher() {
+          requestCount += 1;
+          if (requestCount <= 3) {
+            return toolCompletion("record_counterexample", {
+              result: requestCount === 1 ? "FOUND" : "INCONCLUSIVE",
+              narrative: longNarrative(`attempt-${requestCount}`),
+              truths: [false, true],
+            }, `call-long-counterexample-${requestCount}`);
+          }
+          return toolCompletion(
+            "submit_semantic_review",
+            submissionPayload,
+            "call-after-long-counterexamples",
+          );
+        },
+      },
+    );
+
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+
+    expect(record.status).toBe("PASS");
+    expect(
+      record.report?.result.semanticConstraint?.counterexampleAttempt.narrative.length,
+    ).toBeLessThanOrEqual(2_000);
+    expect(record.report?.trace?.counterexampleEffectCount).toBe(3);
   });
 
   it("retains an explicit abstention as research instead of retryable technical failure", async () => {
@@ -369,7 +483,7 @@ describe("adversarial semantic review", () => {
     });
   });
 
-  it("retains provider usage when a model violates the terminal tool protocol", async () => {
+  it("recovers a research-only abstention after a terminal tool protocol violation", async () => {
     let requestCount = 0;
     const usageLedger = new AiUsageLedger();
     const desk = createSemanticReviewDesk(
@@ -402,17 +516,62 @@ describe("adversarial semantic review", () => {
     ).promise;
 
     expect(record).toMatchObject({
+      status: "PASS",
+      report: {
+        result: {
+          recommendation: "ESCALATE",
+          relationConclusion: "RELATED",
+          semanticConstraint: {
+            classification: "TEXTUAL_RELATEDNESS",
+            exactCompilerAdmission: "RESEARCH_ONLY",
+          },
+        },
+        trace: { terminalEffect: "RECOVERED_ABSTENTION" },
+      },
+    });
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      coverage: { complete: 1, unavailable: 0 },
+      byOutcome: [{ key: "ABSTAINED", invocationCount: "1" }],
+      totals: {
+        durableEffectCount: "1",
+        tokens: { inputTokens: "400", outputTokens: "200", totalTokens: "600" },
+      },
+    });
+  });
+
+  it("still fails closed when no counterexample effect was recorded", async () => {
+    const usageLedger = new AiUsageLedger();
+    const desk = createSemanticReviewDesk(
+      {
+        DEEPSEEK_API_KEY: "test-only-key",
+        PMH_SEMANTIC_REVIEW_TIMEOUT_MS: "3000",
+      },
+      {
+        usageRecorder: usageLedger,
+        async fetcher() {
+          return textCompletion(
+            "I cannot inspect the proposed relation.",
+            "no-counterexample-protocol-violation",
+          );
+        },
+      },
+    );
+
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+
+    expect(record).toMatchObject({
       status: "FAILED",
       diagnostic: expect.stringContaining("without submitting its tool effect"),
     });
     expect(usageLedger.projection()).toMatchObject({
       eventCount: 1,
-      coverage: { complete: 1, unavailable: 0 },
       byOutcome: [{ key: "FAILED", invocationCount: "1" }],
-      totals: {
-        durableEffectCount: "0",
-        tokens: { inputTokens: "400", outputTokens: "200", totalTokens: "600" },
-      },
+      totals: { durableEffectCount: "0" },
     });
   });
 

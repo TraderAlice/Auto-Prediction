@@ -1,6 +1,6 @@
 # Semantic review loop efficiency
 
-Status: implemented locally; live-provider requalification and calibration remain
+Status: terminal-recovery qualified; retry-policy measurement active
 
 Created: 2026-08-02
 
@@ -12,6 +12,16 @@ effect. Nine newly observed invocations also appeared as `UNAVAILABLE`, even
 though a provider response can contain aggregated usage before first-party code
 detects the missing terminal effect. Retrying that protocol failure consumes
 tokens without producing a durable research artifact.
+
+Live House-control qualification on 2026-08-09 supplied complete 1,890-character
+rules and exposed the remaining protocol loss. The conditional reviewer built a
+sound `(No, No)` boundary analysis but reported five rejected
+`submit_semantic_review` calls before safely abstaining. The mutual-exclusion
+reviewer recorded counterexample work, then exhausted all three scheduler
+attempts because each invocation ended without an accepted terminal effect.
+Current tool failures return one compact generic diagnostic, do not consistently
+increment terminal rejection state, and discard already-recorded counterexample
+work when the final call is still malformed.
 
 The failure conflated two different outcomes:
 
@@ -32,8 +42,31 @@ The failure conflated two different outcomes:
 - Near the end of the bounded loop, first-party step preparation forces the
   abstention tool. A rejected premature terminal call forces the next step back
   through `record_counterexample`.
-- Plain prose or exhaustion without either accepted terminal effect remains a
-  retryable technical failure.
+- Plain prose or exhaustion with no recorded counterexample remains a retryable
+  technical failure. Once a bounded counterexample effect exists, exhaustion
+  retains that work as a conservative recovered abstention.
+
+## Active recovery contract
+
+- A rejected terminal call returns a bounded machine-readable repair envelope:
+  stable error code, exact field path, compact diagnostic, requested next tool,
+  and resubmission instruction. It never echoes the submitted payload.
+- Submission validation covers every terminal field before accepting the tool,
+  including truth-state arity/uniqueness, in-scope evidence refs, structured
+  evidence requirement scope, and the missing-evidence/requirement invariant.
+- Every rejected terminal call increments bounded rejection telemetry. Repeated
+  invalid submissions force the remaining loop toward explicit abstention
+  rather than allowing unlimited near-identical repair attempts.
+- If the model has recorded at least one counterexample effect but reaches the
+  hard step boundary without an accepted terminal call, first-party code emits
+  a `RECOVERED_ABSTENTION`: a `RELATED`, research-only artifact containing the
+  counterexample and last repair diagnostic. It cannot assert the attempted
+  relation, enter the exact compiler, or grant semantic/certificate/execution
+  authority. A run with no counterexample effect remains a technical failure.
+- Trace telemetry separates model-submitted abstention from recovered
+  abstention and records rejected terminal count plus the last bounded repair
+  diagnostic, so scheduler retry policy and token efficiency can be calibrated
+  from durable evidence.
 
 ## Usage attribution
 
@@ -58,12 +91,38 @@ tests proving one event rather than a lost or double-counted invocation.
 - historical report versions replay because `terminalEffect` is additive and
   optional.
 
+The active upgrade adds:
+
+- malformed nested truth-state and evidence-requirement inputs receive exact
+  field-level repair feedback and can be corrected within the same invocation;
+- prose or repeated invalid terminal calls after a valid counterexample end as
+  one durable recovered abstention rather than three scheduler attempts;
+- a terminal-less run with no counterexample still fails;
+- the live House mutual-exclusion proposal is manually re-reviewed against its
+  complete evidence bundle and no longer exhausts solely on terminal protocol.
+
+Live qualification on 2026-08-09 exposed and closed one final validator/builder
+gap. The reviewer can record several individually bounded counterexample
+narratives whose concatenation exceeds the semantic-constraint builder's
+2,000-character bound. The tool previously accepted that terminal effect and
+the first-party artifact builder failed afterward. Counterexample effects now
+bind truth-vector arity to proposal arity and deterministically bound the
+combined narrative before terminal acceptance. A focused three-counterexample
+regression proves the builder cannot rediscover this error after the tool says
+`accepted`.
+
+The same content-addressed House `MUTUALLY_EXCLUSIVE` proposal was then rerun
+against the live 1,890-character complete rules. It ended `PASS` with a
+model-submitted `ABSTAINED` terminal effect, three retained counterexample
+attempts, zero claimed truth states, and a `RELATED` /
+`TEXTUAL_RELATEDNESS` / `RESEARCH_ONLY` artifact. Its rationale distinguishes
+reasoning-budget exhaustion from missing rule evidence. The previous scheduler
+exhaustion is therefore no longer reproducible as a terminal-protocol failure,
+and no recovered abstention was needed for this natural run.
+
 ## Next checkpoint
 
-1. Requalify one real DeepSeek semantic-review job after the running service is
-   restarted onto this code and compare steps/tokens with the retained failure
-   cohort.
-2. Separate scheduler retry policy for provider/transport failures from stable
+1. Separate scheduler retry policy for provider/transport failures from stable
    tool-protocol violations once enough classified observations exist.
-3. Add resolved-outcome calibration before using token efficiency as a quality
+2. Add resolved-outcome calibration before using token efficiency as a quality
    signal; cheaper abstention is not automatically better semantic work.
