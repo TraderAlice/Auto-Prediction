@@ -674,6 +674,7 @@ describe("control-plane HTTP surface", () => {
       resolvedProposalCount: 0,
       reviewJobCount: 0,
       reviewOutcomeCount: 0,
+      recoveryPendingCount: 0,
       legacyDetailUnavailableCount: 0,
       economicTriageCount: 0,
       lifecycleCaseCount: 0,
@@ -701,6 +702,23 @@ describe("control-plane HTTP surface", () => {
     });
     expect((await fetch(`${baseUrl}/api/v1/proposal-handoff?ids=nope`)).status)
       .toBe(400);
+    const missingRecoveryResponse = await fetch(
+      `${baseUrl}/api/v1/proposals/${handoffProposalId}/semantic-review-detail-recovery`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    expect(missingRecoveryResponse.status).toBe(400);
+    expect(await missingRecoveryResponse.json()).toMatchObject({
+      ok: false,
+      diagnostic: "semantic review detail recovery proposal was not found",
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
     const overBoundHandoffIds = Array.from(
       { length: 6 },
       (_, index) => `sha256:${index.toString(16).repeat(64)}`,

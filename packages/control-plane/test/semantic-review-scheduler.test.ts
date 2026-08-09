@@ -463,6 +463,162 @@ describe("persistent semantic review scheduler", () => {
     });
   });
 
+  it("durably recovers one exact canonical legacy review for duplicate proposals", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-review-detail-recovery-"));
+    const path = join(directory, "control-plane.sqlite");
+    const firstProposal = proposal("recovery-canonical", "EQUIVALENT");
+    const duplicateProposal = proposal(
+      "recovery-duplicate",
+      "EQUIVALENT",
+      ["venue-b:event", "venue-a:event"],
+    );
+    const first = candidate(
+      firstProposal,
+      5,
+      undefined,
+      buildProposalEvidenceBundle(firstProposal, snapshot),
+    );
+    const duplicate = candidate(
+      duplicateProposal,
+      4,
+      undefined,
+      buildProposalEvidenceBundle(duplicateProposal, snapshot),
+    );
+    const sourceDesk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => reviewResult("ESCALATE") } },
+    );
+    const source = new SemanticReviewScheduler({
+      reviewDesk: sourceDesk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+    await Promise.all(source.tick([first, duplicate], snapshot));
+    const contemporary = source.projection().jobs.find((job) => job.status === "PASS")!;
+    const duplicateJob = source.projection().jobs.find(
+      (job) => job.status === "DUPLICATE_SCOPE",
+    )!;
+    expect(() => source.requestOutcomeRecovery(firstProposal.proposalId))
+      .toThrow(/already retains outcome detail/u);
+    const {
+      artifactHash: _artifactHash,
+      reviewOutcome: _reviewOutcome,
+      ...contemporaryBody
+    } = contemporary;
+    const legacyBody = {
+      ...contemporaryBody,
+      schemaVersion: "pmh.semantic-review-job.v1" as const,
+    };
+    const legacy = assertSemanticReviewJobRecord({
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    });
+
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      firstStore.saveSemanticReviewJobRecord(legacy);
+      firstStore.saveSemanticReviewJobRecord(duplicateJob);
+      const queuedScheduler = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store: firstStore }),
+        tickIntervalMs: 1_000,
+        store: firstStore,
+        now: () => Date.parse("2026-08-02T00:01:00.000Z"),
+      });
+      const queued = queuedScheduler.requestOutcomeRecovery(duplicateProposal.proposalId);
+      expect(queued).toMatchObject({
+        requestedProposalId: duplicateProposal.proposalId,
+        targetJobId: legacy.jobId,
+        idempotentReplay: false,
+        authority: "REVIEW_DETAIL_RECOVERY_ONLY",
+        semanticDecisionAuthority: false,
+        executionAuthority: false,
+        job: {
+          schemaVersion: "pmh.semantic-review-job.v4",
+          status: "PENDING",
+          lastReviewId: null,
+          recommendation: null,
+          detailRecovery: {
+            requestedForProposalId: duplicateProposal.proposalId,
+            targetJobId: legacy.jobId,
+            priorJobArtifactHash: legacy.artifactHash,
+            priorReviewId: legacy.lastReviewId,
+            priorRecommendation: legacy.recommendation,
+            effects: { schedulerRequestAdded: true, modelCallsAtEnqueue: false },
+          },
+        },
+      });
+      expect(
+        queuedScheduler.requestOutcomeRecovery(firstProposal.proposalId),
+      ).toMatchObject({ idempotentReplay: true, targetJobId: legacy.jobId });
+      expect(() => assertSemanticReviewJobRecord({
+        ...queued.job,
+        detailRecovery: {
+          ...queued.job.detailRecovery!,
+          priorJobArtifactHash: hashCanonical({ tampered: true }),
+        },
+      })).toThrow(/bounded contract/u);
+      firstStore.close();
+
+      let calls = 0;
+      const secondStore = new SqliteOperationalStore(path);
+      const restored = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk(
+          { DEEPSEEK_API_KEY: "test-only" },
+          {
+            store: secondStore,
+            reviewer: {
+              review: async () => {
+                calls += 1;
+                return reviewResult("ACCEPT_FOR_RESEARCH_SIMULATION");
+              },
+            },
+          },
+        ),
+        tickIntervalMs: 1_000,
+        store: secondStore,
+        now: () => Date.parse("2026-08-02T00:02:00.000Z"),
+      });
+      expect(restored.projection()).toMatchObject({
+        recoveryRequestedCount: 1,
+        recoveryInFlightCount: 1,
+        recoveryCompletedCount: 0,
+        jobs: expect.arrayContaining([expect.objectContaining({
+          jobId: legacy.jobId,
+          schemaVersion: "pmh.semantic-review-job.v4",
+          status: "PENDING",
+        })]),
+      });
+      const currentWindowCandidate = Object.freeze({
+        ...first,
+        proposalCorpusSnapshotIdentity: hashCanonical({ currentWindow: true }),
+        evidenceBundle: null,
+      });
+      await Promise.all(restored.tick([currentWindowCandidate], snapshot));
+      expect(calls).toBe(1);
+      const recoveredProjection = restored.projection();
+      expect(recoveredProjection).toMatchObject({
+        recoveryRequestedCount: 1,
+        recoveryInFlightCount: 0,
+        recoveryCompletedCount: 1,
+      });
+      expect(recoveredProjection.jobs.find((job) => job.jobId === legacy.jobId))
+        .toMatchObject({
+          jobId: legacy.jobId,
+          schemaVersion: "pmh.semantic-review-job.v4",
+          status: "PASS",
+          detailRecovery: {
+            priorJobArtifactHash: legacy.artifactHash,
+          },
+          reviewOutcome: {
+            recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION",
+          },
+        });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reviews one canonical job for an unchanged symmetric semantic scope", async () => {
     let calls = 0;
     const firstProposal = proposal("scope-first", "EQUIVALENT");

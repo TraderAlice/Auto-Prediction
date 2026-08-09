@@ -18,6 +18,7 @@ import {
   Inbox,
   LayoutDashboard,
   Lightbulb,
+  LoaderCircle,
   Menu,
   Network,
   PanelRightClose,
@@ -81,6 +82,7 @@ type ProposalHandoffProjection = Readonly<{
   resolvedProposalCount: number;
   reviewJobCount: number;
   reviewOutcomeCount: number;
+  recoveryPendingCount: number;
   legacyDetailUnavailableCount: number;
   economicTriageCount: number;
   lifecycleCaseCount: number;
@@ -108,6 +110,7 @@ type ProposalHandoffProjection = Readonly<{
       basis:
         | "DIRECT_REVIEW"
         | "CANONICAL_SCOPE_REUSE"
+        | "RECOVERY_PENDING"
         | "LEGACY_DETAIL_UNAVAILABLE"
         | "NOT_REVIEWED";
       canonicalJobId: string | null;
@@ -166,6 +169,7 @@ type ProposalHandoffProjection = Readonly<{
     }>;
     nextGate:
       | "INDEPENDENT_SEMANTIC_REVIEW"
+      | "AWAIT_REVIEW_RECOVERY"
       | "RECOVER_REVIEW_DETAIL"
       | "RESOLVE_EVIDENCE_GAPS"
       | "OPERATOR_DECISION"
@@ -515,6 +519,10 @@ const EMPTY_SEMANTIC_REVIEW_SCHEDULER: StudioProjection["ai"]["semanticReviewSch
   legacyEvidenceDebtCount: 0,
   passedCount: 0,
   exhaustedCount: 0,
+  recoveryRequestedCount: 0,
+  recoveryInFlightCount: 0,
+  recoveryCompletedCount: 0,
+  recoveryBlockedCount: 0,
   classifiedFailureJobCount: 0,
   unclassifiedFailureJobCount: 0,
   failureClassCounts: [],
@@ -1643,6 +1651,37 @@ async function requestProposalHandoff(
     throw new Error("proposal handoff crossed its read-only boundary");
   }
   return result as ProposalHandoffProjection;
+}
+
+async function requestSemanticReviewDetailRecovery(
+  proposalId: string,
+): Promise<void> {
+  const response = await fetch(
+    `/api/v1/proposals/${proposalId}/semantic-review-detail-recovery`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    authority?: string;
+    semanticDecisionAuthority?: boolean;
+    simulationAuthority?: boolean;
+    certificateAuthority?: boolean;
+    executionAuthority?: boolean;
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "semantic review detail recovery failed");
+  }
+  if (
+    result.authority !== "REVIEW_DETAIL_RECOVERY_ONLY" ||
+    result.semanticDecisionAuthority !== false ||
+    result.simulationAuthority !== false ||
+    result.certificateAuthority !== false ||
+    result.executionAuthority !== false
+  ) throw new Error("semantic review detail recovery crossed its authority boundary");
 }
 
 async function requestSemanticReview(opportunityId: string): Promise<boolean> {
@@ -4667,6 +4706,9 @@ function OpportunityLifecycleView({
   const [diagnostics, setDiagnostics] = useState<
     Readonly<Record<string, string>>
   >({});
+  const [reviewRecoveryStates, setReviewRecoveryStates] = useState<
+    Readonly<Record<string, "RUNNING" | "QUEUED" | "FAILED">>
+  >({});
   const [reviewNotificationAction, setReviewNotificationAction] = useState<string | null>(null);
   const [premiseNotificationAction, setPremiseNotificationAction] = useState<string | null>(null);
   const [probabilityNotificationAction, setProbabilityNotificationAction] =
@@ -4710,7 +4752,7 @@ function OpportunityLifecycleView({
       },
     );
     return () => { active = false; };
-  }, [focusedProposalKey]);
+  }, [focusedProposalKey, studioProjection.identity.stateHash]);
   const proposals = new Map(
     studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
       (record.report?.result.proposals ?? []).map((proposal) => [
@@ -4736,6 +4778,11 @@ function OpportunityLifecycleView({
       ? undefined
       : reviewScheduler.jobs.find((job) => job.jobId === reviewJob.duplicateOfJobId);
     const retainedOutcome = reviewJob?.reviewOutcome ?? canonicalReviewJob?.reviewOutcome;
+    const recoveryJob = reviewJob?.detailRecovery !== undefined
+      ? reviewJob
+      : canonicalReviewJob?.detailRecovery !== undefined
+        ? canonicalReviewJob
+        : undefined;
     const attention = reviewAttention.items.find((item) => item.proposalId === proposalId);
     const lifecycleCase = desk.cases.find((item) => item.opportunityId === opportunityId);
     const economicTriageItem = economicTriage.items.find((item) =>
@@ -4745,12 +4792,16 @@ function OpportunityLifecycleView({
       ? "DIRECT_REVIEW" as const
       : canonicalReviewJob?.reviewOutcome !== undefined
         ? "CANONICAL_SCOPE_REUSE" as const
+        : recoveryJob !== undefined
+          ? "RECOVERY_PENDING" as const
         : reviewJob?.status === "PASS" || reviewJob?.status === "DUPLICATE_SCOPE"
           ? "LEGACY_DETAIL_UNAVAILABLE" as const
           : "NOT_REVIEWED" as const;
     const nextGate: ProposalHandoffProjection["items"][number]["nextGate"] =
       outcomeBasis === "LEGACY_DETAIL_UNAVAILABLE"
         ? "RECOVER_REVIEW_DETAIL"
+        : outcomeBasis === "RECOVERY_PENDING"
+          ? "AWAIT_REVIEW_RECOVERY"
         : retainedOutcome === undefined
           ? reviewJob?.status === "BLOCKED_EVIDENCE"
             ? "RESOLVE_EVIDENCE_GAPS"
@@ -4785,7 +4836,9 @@ function OpportunityLifecycleView({
         basis: outcomeBasis,
         canonicalJobId: canonicalReviewJob?.jobId ?? reviewJob?.jobId ?? null,
         outcome: retainedOutcome ?? null,
-        diagnostic: "Live bounded projection fallback; persisted dossier is loading.",
+        diagnostic: recoveryJob === undefined
+          ? "Live bounded projection fallback; persisted dossier is loading."
+          : `Review detail recovery is ${recoveryJob.status.toLowerCase().replaceAll("_", " ")}.`,
       }),
       economicTriage: economicTriageItem,
       attention,
@@ -4794,24 +4847,30 @@ function OpportunityLifecycleView({
       workflowState,
     });
   });
-  const focusedHandoff = focusedProjection?.items.map((item) => Object.freeze({
-    ...item,
-    opportunityId: `ai:${item.proposalId}`,
-    proposal: item.proposal ?? undefined,
-    reviewJob: item.reviewJob ?? undefined,
-    economicTriage: item.economicTriage ?? undefined,
-    attention: item.attention ?? undefined,
-    lifecycleCase: item.lifecycleCase ?? undefined,
-    workflowState: item.attention !== null
-      ? item.attention.operatorPosture
-      : item.reviewJob !== null
-        ? `REVIEW_${item.reviewJob.status}`
-        : item.lifecycleCase !== null
-          ? item.lifecycleCase.nextAction
-          : item.proposal !== null
-            ? "PROPOSAL_DETAIL_RETAINED"
-            : "OUTSIDE_PERSISTED_HANDOFF",
-  })) ?? liveFocusedHandoff;
+  const persistedFocusedHandoff = focusedProjection?.requestedProposalIds.join(",") === focusedProposalKey
+    ? focusedProjection.items.map((item) => Object.freeze({
+      ...item,
+      opportunityId: `ai:${item.proposalId}`,
+      proposal: item.proposal ?? undefined,
+      reviewJob: item.reviewJob ?? undefined,
+      economicTriage: item.economicTriage ?? undefined,
+      attention: item.attention ?? undefined,
+      lifecycleCase: item.lifecycleCase ?? undefined,
+      workflowState: item.attention !== null
+        ? item.attention.operatorPosture
+        : item.reviewJob !== null
+          ? `REVIEW_${item.reviewJob.status}`
+          : item.lifecycleCase !== null
+            ? item.lifecycleCase.nextAction
+            : item.proposal !== null
+              ? "PROPOSAL_DETAIL_RETAINED"
+              : "OUTSIDE_PERSISTED_HANDOFF",
+    }))
+    : null;
+  const focusedHandoff = persistedFocusedHandoff ??
+    (focusedProjectionStatus === "FAILED" ? liveFocusedHandoff : []);
+  const focusedHandoffLoading = focusedProposalIds.length > 0 &&
+    focusedProjectionStatus === "LOADING" && persistedFocusedHandoff === null;
   const focusedDetailCount = focusedHandoff.filter((item) => item.proposal !== undefined).length;
   const focusedCaseCount = focusedHandoff.filter((item) => item.lifecycleCase !== undefined).length;
   const focusedOperatorCount = focusedHandoff.filter((item) => item.attention !== undefined).length;
@@ -4893,6 +4952,23 @@ function OpportunityLifecycleView({
         ...current,
         [opportunityId]:
           error instanceof Error ? error.message : "semantic review failed",
+      }));
+    }
+  }
+
+  async function recoverReviewDetail(proposalId: string): Promise<void> {
+    setReviewRecoveryStates((current) => ({ ...current, [proposalId]: "RUNNING" }));
+    setDiagnostics((current) => ({ ...current, [`ai:${proposalId}`]: "" }));
+    try {
+      await requestSemanticReviewDetailRecovery(proposalId);
+      setReviewRecoveryStates((current) => ({ ...current, [proposalId]: "QUEUED" }));
+    } catch (error) {
+      setReviewRecoveryStates((current) => ({ ...current, [proposalId]: "FAILED" }));
+      setDiagnostics((current) => ({
+        ...current,
+        [`ai:${proposalId}`]: error instanceof Error
+          ? error.message
+          : "semantic review detail recovery failed",
       }));
     }
   }
@@ -5065,14 +5141,16 @@ function OpportunityLifecycleView({
         </div>
       </div>
 
-      {focusedHandoff.length > 0 && (
+      {focusedProposalIds.length > 0 && (
         <section className="focused-review-handoff" aria-label="Focused finding review handoff">
           <div className="focused-review-handoff-heading">
             <div>
               <span className="eyebrow">Finding context retained</span>
               <h2>Review this discovery result</h2>
               <p>
-                {focusedHandoff.length} exact proposal IDs · {focusedDetailCount} proposal details · {focusedCaseCount} lifecycle cases · {focusedOperatorCount} operator postures resolved from the persisted handoff.
+                {focusedHandoffLoading
+                  ? `Resolving ${focusedProposalIds.length} exact proposal IDs from the durable handoff.`
+                  : `${focusedHandoff.length} exact proposal IDs · ${focusedDetailCount} proposal details · ${focusedCaseCount} lifecycle cases · ${focusedOperatorCount} operator postures resolved from the persisted handoff.`}
               </p>
             </div>
             <div className="focused-review-handoff-heading-actions">
@@ -5089,9 +5167,18 @@ function OpportunityLifecycleView({
               <CircleOff size={14} /> {focusedProjectionDiagnostic}
             </div>
           )}
-          <div className="focused-review-handoff-list">
+          {focusedHandoffLoading ? (
+            <div className="focused-review-handoff-loading" role="status" aria-live="polite">
+              <LoaderCircle size={16} />
+              <div>
+                <strong>Resolving persisted dossier</strong>
+                <span>Review lineage, recovery state, economics, and the next deterministic gate are loading together.</span>
+              </div>
+            </div>
+          ) : <div className="focused-review-handoff-list">
             {focusedHandoff.map((item) => {
               const reviewState = reviewStates[item.opportunityId] ?? "IDLE";
+              const recoveryState = reviewRecoveryStates[item.proposalId] ?? "IDLE";
               const reviewOutcome = item.reviewOutcome.outcome;
               const indicativeEconomics = item.economicTriage?.indicativeEconomics;
               const canRunReview = item.lifecycleCase?.nextAction === "INDEPENDENT_SEMANTIC_REVIEW" &&
@@ -5139,7 +5226,32 @@ function OpportunityLifecycleView({
                       <div>
                         <strong>Historical review detail is unavailable</strong>
                         <span>{item.reviewOutcome.diagnostic}</span>
+                        <div className="decision-dossier-warning-actions">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={recoveryState === "RUNNING" || recoveryState === "QUEUED"}
+                            onClick={() => void recoverReviewDetail(item.proposalId)}
+                          >
+                            {recoveryState === "RUNNING"
+                              ? <RefreshCw className="is-spinning" size={13} />
+                              : <ShieldCheck size={13} />}
+                            {recoveryState === "RUNNING"
+                              ? "Queueing…"
+                              : recoveryState === "QUEUED"
+                                ? "Recovery queued"
+                                : recoveryState === "FAILED"
+                                  ? "Retry recovery"
+                                  : "Recover review detail"}
+                          </Button>
+                        </div>
                       </div>
+                    </div>
+                  ) : item.reviewOutcome.basis === "RECOVERY_PENDING" ? (
+                    <div className="decision-dossier-review is-pending" role="status">
+                      <span>Semantic outcome · durable recovery</span>
+                      <strong>Independent review is running in the background</strong>
+                      <p>{item.reviewOutcome.diagnostic} This page may be closed safely.</p>
                     </div>
                   ) : reviewOutcome !== null ? (
                     <div className="decision-dossier-review">
@@ -5209,7 +5321,7 @@ function OpportunityLifecycleView({
                 </article>
               );
             })}
-          </div>
+          </div>}
           <div className="attention-authority-lock">
             <CircleOff size={14} />
             <span>Focus changes navigation only. Semantic review, operator decisions, simulation, certificates, and execution retain their existing independent gates.</span>

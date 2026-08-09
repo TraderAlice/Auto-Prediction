@@ -22,6 +22,8 @@ and the primary price-positive opportunity frontier tracked in
 [`plans/opportunity-frontier.md`](plans/opportunity-frontier.md),
 with durable proposal-local review evidence and decision dossiers tracked in
 [`plans/durable-decision-dossier.md`](plans/durable-decision-dossier.md),
+and actionable recovery of physically-rotated semantic-review detail tracked in
+[`plans/semantic-review-detail-recovery.md`](plans/semantic-review-detail-recovery.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -595,6 +597,24 @@ Studio presents gross economics, capsule provenance, evidence posture, and one
 deterministic next gate above the older lifecycle console. Desktop and 390 px
 browser checks pass without overflow or console diagnostics, and Node 24.14.0
 passes all 581 workspace tests and the production build.
+
+Historical review rotation is no longer a dead end. A proposal-local recovery
+request now turns the exact legacy canonical job into a content-addressed v4
+scheduler item, preserves its prior artifact/review lineage, survives restart,
+and uses the ordinary retry and notification machinery. Duplicate proposals
+target only their named canonical job, so the live five-gap frontier required
+three—not five—new DeepSeek requests. All three completed on attempt one and
+all six positive-gross dossiers now have retained outcome capsules. The most
+promising recovered case, the Arizona governor mutually-exclusive pair, has a
+hard settlement constraint and no missing review evidence but correctly stops
+at `RETAIN_AS_RESEARCH_ONLY`: its decisive premise is still free-form rather
+than bound to venue rules or a traded outcome. That structured premise/evidence
+binding is now the next product bottleneck; fee/depth work would be premature.
+Studio exposes enqueue and background progress, refreshes the persisted handoff
+after invalidation, and shows a neutral loading state before the durable dossier
+arrives. Desktop and 390 px checks have no horizontal overflow or console
+errors. Node 24.14.0 type checks, all 583 workspace tests, and the production
+build pass.
 
 ## Deferred future campaigns
 

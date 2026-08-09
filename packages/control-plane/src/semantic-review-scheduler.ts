@@ -84,11 +84,34 @@ export type SemanticReviewOutcomeCapsule = Readonly<{
   executionAuthority: false;
 }>;
 
+export type SemanticReviewDetailRecovery = Readonly<{
+  schemaVersion: "pmh.semantic-review-detail-recovery.v1";
+  recoveryHash: Hash;
+  requestedAt: string;
+  requestedForProposalId: Hash;
+  targetJobId: Hash;
+  priorJobArtifactHash: Hash;
+  priorReviewId: Hash;
+  priorRecommendation: SemanticReviewRecommendation;
+  authority: "REVIEW_DETAIL_RECOVERY_ONLY";
+  semanticDecisionAuthority: false;
+  simulationAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  effects: Readonly<{
+    schedulerRequestAdded: true;
+    modelCallsAtEnqueue: false;
+    valueMovingActions: false;
+    liveExecutionEnabled: false;
+  }>;
+}>;
+
 export type SemanticReviewJobRecord = Readonly<{
   schemaVersion:
     | "pmh.semantic-review-job.v1"
     | "pmh.semantic-review-job.v2"
-    | "pmh.semantic-review-job.v3";
+    | "pmh.semantic-review-job.v3"
+    | "pmh.semantic-review-job.v4";
   jobId: Hash;
   opportunityId: string;
   proposalId: Hash;
@@ -109,6 +132,7 @@ export type SemanticReviewJobRecord = Readonly<{
   lastReviewId: Hash | null;
   recommendation: SemanticReviewRecommendation | null;
   reviewOutcome?: SemanticReviewOutcomeCapsule;
+  detailRecovery?: SemanticReviewDetailRecovery;
   diagnostic: string | null;
   lastFailure?: SemanticReviewFailure | null;
   createdAt: string;
@@ -178,6 +202,10 @@ export type SemanticReviewSchedulerProjection = Readonly<{
   legacyEvidenceDebtCount: number;
   passedCount: number;
   exhaustedCount: number;
+  recoveryRequestedCount: number;
+  recoveryInFlightCount: number;
+  recoveryCompletedCount: number;
+  recoveryBlockedCount: number;
   classifiedFailureJobCount: number;
   unclassifiedFailureJobCount: number;
   failureClassCounts: readonly Readonly<{
@@ -385,6 +413,74 @@ export function assertSemanticReviewOutcomeCapsule(
   return Object.freeze(capsule);
 }
 
+function buildSemanticReviewDetailRecovery(input: Readonly<{
+  requestedAt: string;
+  requestedForProposalId: Hash;
+  target: SemanticReviewJobRecord;
+}>): SemanticReviewDetailRecovery {
+  if (
+    input.target.status !== "PASS" ||
+    input.target.lastReviewId === null ||
+    input.target.recommendation === null ||
+    input.target.reviewOutcome !== undefined ||
+    input.target.detailRecovery !== undefined
+  ) throw new Error("semantic review detail recovery requires one legacy passing job");
+  const body = Object.freeze({
+    schemaVersion: "pmh.semantic-review-detail-recovery.v1" as const,
+    requestedAt: input.requestedAt,
+    requestedForProposalId: input.requestedForProposalId,
+    targetJobId: input.target.jobId,
+    priorJobArtifactHash: input.target.artifactHash,
+    priorReviewId: input.target.lastReviewId,
+    priorRecommendation: input.target.recommendation,
+    authority: "REVIEW_DETAIL_RECOVERY_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    simulationAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: Object.freeze({
+      schedulerRequestAdded: true as const,
+      modelCallsAtEnqueue: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    }),
+  });
+  return Object.freeze({ ...body, recoveryHash: hashCanonical(body) });
+}
+
+export function assertSemanticReviewDetailRecovery(
+  value: unknown,
+): SemanticReviewDetailRecovery {
+  if (value === null || typeof value !== "object") {
+    throw new Error("semantic review detail recovery is malformed");
+  }
+  const recovery = value as SemanticReviewDetailRecovery;
+  if (
+    recovery.schemaVersion !== "pmh.semantic-review-detail-recovery.v1" ||
+    !HASH_PATTERN.test(String(recovery.recoveryHash)) ||
+    !isIso(recovery.requestedAt) ||
+    !HASH_PATTERN.test(String(recovery.requestedForProposalId)) ||
+    !HASH_PATTERN.test(String(recovery.targetJobId)) ||
+    !HASH_PATTERN.test(String(recovery.priorJobArtifactHash)) ||
+    !HASH_PATTERN.test(String(recovery.priorReviewId)) ||
+    !["REJECT", "ESCALATE", "ACCEPT_FOR_RESEARCH_SIMULATION"]
+      .includes(recovery.priorRecommendation) ||
+    recovery.authority !== "REVIEW_DETAIL_RECOVERY_ONLY" ||
+    recovery.semanticDecisionAuthority !== false ||
+    recovery.simulationAuthority !== false ||
+    recovery.certificateAuthority !== false ||
+    recovery.executionAuthority !== false ||
+    recovery.effects?.schedulerRequestAdded !== true ||
+    recovery.effects.modelCallsAtEnqueue !== false ||
+    recovery.effects.valueMovingActions !== false ||
+    recovery.effects.liveExecutionEnabled !== false ||
+    recovery.recoveryHash !== hashCanonical(
+      (({ recoveryHash: _recoveryHash, ...body }) => body)(recovery),
+    )
+  ) throw new Error("semantic review detail recovery violates its bounded contract");
+  return Object.freeze(recovery);
+}
+
 function withNotificationHash(
   body: Omit<SemanticReviewNotificationRecord, "artifactHash">,
 ): SemanticReviewNotificationRecord {
@@ -395,12 +491,13 @@ function withoutJobHashAndClaims(
   record: SemanticReviewJobRecord,
 ): Omit<
   SemanticReviewJobRecord,
-  "artifactHash" | "evidenceClaims" | "reviewOutcome"
+  "artifactHash" | "evidenceClaims" | "reviewOutcome" | "detailRecovery"
 > {
   const {
     artifactHash: _artifactHash,
     evidenceClaims: _evidenceClaims,
     reviewOutcome: _reviewOutcome,
+    detailRecovery: _detailRecovery,
     ...body
   } = record;
   return body;
@@ -408,10 +505,14 @@ function withoutJobHashAndClaims(
 
 function withoutJobHashAndOutcome(
   record: SemanticReviewJobRecord,
-): Omit<SemanticReviewJobRecord, "artifactHash" | "reviewOutcome"> {
+): Omit<
+  SemanticReviewJobRecord,
+  "artifactHash" | "reviewOutcome" | "detailRecovery"
+> {
   const {
     artifactHash: _artifactHash,
     reviewOutcome: _reviewOutcome,
+    detailRecovery: _detailRecovery,
     ...body
   } = record;
   return body;
@@ -443,11 +544,13 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
   const duplicateOfJobId = record.duplicateOfJobId ?? null;
   const lastFailure = record.lastFailure ?? null;
   const reviewOutcome = record.reviewOutcome ?? null;
+  const detailRecovery = record.detailRecovery ?? null;
   if (
     ![
       "pmh.semantic-review-job.v1",
       "pmh.semantic-review-job.v2",
       "pmh.semantic-review-job.v3",
+      "pmh.semantic-review-job.v4",
     ]
       .includes(record.schemaVersion) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
@@ -467,6 +570,12 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
       evidenceBundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2"
     )) ||
     (record.schemaVersion === "pmh.semantic-review-job.v3" &&
+      record.evidenceClaims !== undefined && (
+        !Array.isArray(record.evidenceClaims) || evidenceClaims.length < 1 ||
+        evidenceClaims.length > 100 ||
+        evidenceBundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2"
+      )) ||
+    (record.schemaVersion === "pmh.semantic-review-job.v4" &&
       record.evidenceClaims !== undefined && (
         !Array.isArray(record.evidenceClaims) || evidenceClaims.length < 1 ||
         evidenceClaims.length > 100 ||
@@ -523,8 +632,32 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
           reviewOutcome.corpusSnapshotIdentity !== reviewScopeIdentity
         : reviewOutcome.reportSchemaVersion === "pmh.semantic-review-report.v4")
     )) ||
+    (record.schemaVersion === "pmh.semantic-review-job.v4" && (
+      detailRecovery === null ||
+      assertSemanticReviewDetailRecovery(detailRecovery) !== detailRecovery ||
+      detailRecovery.targetJobId !== record.jobId ||
+      detailRecovery.priorJobArtifactHash === record.artifactHash ||
+      Date.parse(detailRecovery.requestedAt) < Date.parse(record.createdAt) ||
+      Date.parse(detailRecovery.requestedAt) > Date.parse(record.updatedAt) ||
+      record.status === "DUPLICATE_SCOPE" ||
+      (record.status === "PASS" ? (
+        reviewOutcome === null ||
+        assertSemanticReviewOutcomeCapsule(reviewOutcome) !== reviewOutcome ||
+        reviewOutcome.proposalId !== record.proposalId ||
+        reviewOutcome.reviewId !== record.lastReviewId ||
+        reviewOutcome.completedAt !== record.completedAt ||
+        reviewOutcome.recommendation !== record.recommendation ||
+        ((record.evidenceClaims?.length ?? 0) > 0
+          ? reviewOutcome.reportSchemaVersion !== "pmh.semantic-review-report.v4" ||
+            reviewOutcome.corpusSnapshotIdentity !== reviewScopeIdentity
+          : reviewOutcome.reportSchemaVersion === "pmh.semantic-review-report.v4")
+      ) : record.reviewOutcome !== undefined)
+    )) ||
     (record.schemaVersion !== "pmh.semantic-review-job.v3" &&
+      record.schemaVersion !== "pmh.semantic-review-job.v4" &&
       record.reviewOutcome !== undefined) ||
+    (record.schemaVersion !== "pmh.semantic-review-job.v4" &&
+      record.detailRecovery !== undefined) ||
     (record.status === "RESEARCH_ONLY" && (
       record.lastReviewId !== null || record.recommendation !== null ||
       !boundedText(record.diagnostic, 500)
@@ -654,7 +787,10 @@ export class SemanticReviewScheduler {
     );
     for (const job of [...this.#jobs]) {
       if (job.status === "PASS") {
-        if (job.schemaVersion === "pmh.semantic-review-job.v3") continue;
+        if (
+          job.schemaVersion === "pmh.semantic-review-job.v3" ||
+          job.schemaVersion === "pmh.semantic-review-job.v4"
+        ) continue;
         const exactReview = passedReviews.find((item) =>
           item.reviewId === job.lastReviewId &&
           item.proposalId === job.proposalId &&
@@ -783,6 +919,20 @@ export class SemanticReviewScheduler {
           createdAt: now,
           updatedAt: now,
         }));
+        continue;
+      }
+      if (existing.detailRecovery !== undefined && existing.status !== "PASS") {
+        if (
+          existing.issueIds.join("\n") !== issueIds.join("\n") ||
+          existing.priority !== candidate.priority
+        ) {
+          this.#saveJob(withJobHash({
+            ...this.#withoutJobHash(existing),
+            issueIds,
+            priority: candidate.priority,
+            updatedAt: now,
+          }));
+        }
         continue;
       }
       const scopeChanged = (existing.reviewScopeIdentity ?? null) !== reviewScopeIdentity;
@@ -915,7 +1065,9 @@ export class SemanticReviewScheduler {
             : {
               schemaVersion: existing.schemaVersion === "pmh.semantic-review-job.v3"
                 ? "pmh.semantic-review-job.v3" as const
-                : "pmh.semantic-review-job.v2" as const,
+                : existing.schemaVersion === "pmh.semantic-review-job.v4"
+                  ? "pmh.semantic-review-job.v4" as const
+                  : "pmh.semantic-review-job.v2" as const,
               evidenceClaims,
             }),
           reviewScopeIdentity,
@@ -961,6 +1113,87 @@ export class SemanticReviewScheduler {
     ));
   }
 
+  public requestOutcomeRecovery(requestedProposalId: Hash): Readonly<{
+    requestedProposalId: Hash;
+    targetJobId: Hash;
+    idempotentReplay: boolean;
+    job: SemanticReviewJobRecord;
+    authority: "REVIEW_DETAIL_RECOVERY_ONLY";
+    semanticDecisionAuthority: false;
+    simulationAuthority: false;
+    certificateAuthority: false;
+    executionAuthority: false;
+  }> {
+    const requested = this.#jobs.find((job) => job.proposalId === requestedProposalId);
+    if (requested === undefined) {
+      throw new Error("semantic review detail recovery proposal was not found");
+    }
+    const target = requested.status === "DUPLICATE_SCOPE"
+      ? this.#jobs.find((job) => job.jobId === requested.duplicateOfJobId)
+      : requested;
+    if (target === undefined) {
+      throw new Error("semantic review detail recovery canonical job was not found");
+    }
+    if (target.detailRecovery !== undefined) {
+      return Object.freeze({
+        requestedProposalId,
+        targetJobId: target.jobId,
+        idempotentReplay: true,
+        job: target,
+        authority: "REVIEW_DETAIL_RECOVERY_ONLY",
+        semanticDecisionAuthority: false,
+        simulationAuthority: false,
+        certificateAuthority: false,
+        executionAuthority: false,
+      });
+    }
+    if (target.reviewOutcome !== undefined) {
+      throw new Error("semantic review already retains outcome detail");
+    }
+    if (
+      target.status !== "PASS" ||
+      target.lastReviewId === null ||
+      target.recommendation === null
+    ) throw new Error("semantic review detail recovery requires a legacy passing job");
+    const requestedAt = new Date(this.#now()).toISOString();
+    const detailRecovery = buildSemanticReviewDetailRecovery({
+      requestedAt,
+      requestedForProposalId: requestedProposalId,
+      target,
+    });
+    const hasDurableEvidence = target.evidenceBundle?.schemaVersion ===
+      "pmh.proposal-evidence-bundle.v2";
+    const job = this.#saveJob(withJobHash({
+      ...this.#withoutJobHash(target),
+      schemaVersion: "pmh.semantic-review-job.v4",
+      detailRecovery,
+      status: hasDurableEvidence ? "PENDING" : "BLOCKED_EVIDENCE",
+      attemptCount: 0,
+      nextAttemptAt: requestedAt,
+      leasedAt: null,
+      leaseExpiresAt: null,
+      completedAt: null,
+      lastReviewId: null,
+      recommendation: null,
+      diagnostic: hasDurableEvidence
+        ? null
+        : "review detail recovery requires the original durable proposal evidence bundle",
+      lastFailure: null,
+      updatedAt: requestedAt,
+    }));
+    return Object.freeze({
+      requestedProposalId,
+      targetJobId: target.jobId,
+      idempotentReplay: false,
+      job,
+      authority: "REVIEW_DETAIL_RECOVERY_ONLY",
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+  }
+
   #dispatch(
     job: SemanticReviewJobRecord,
     candidate: SemanticReviewCandidate,
@@ -970,9 +1203,16 @@ export class SemanticReviewScheduler {
     const evidenceBundle = storedBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
       ? storedBundle
       : candidate.evidenceBundle;
+    const proposal = storedBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
+      ? storedBundle.proposal
+      : candidate.proposal;
+    const proposalCorpusSnapshotIdentity =
+      storedBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
+        ? storedBundle.proposalCorpusSnapshotIdentity
+        : candidate.proposalCorpusSnapshotIdentity;
     const evidenceClaims = job.evidenceClaims ?? candidate.evidenceClaims ?? [];
     const missingListingRefs = evidenceBundle === null || evidenceBundle === undefined
-      ? candidate.proposal.listingRefs.filter(
+      ? proposal.listingRefs.filter(
         (listingRef) => !snapshot.listings.some((listing) => listing.listingRef === listingRef),
       )
       : [];
@@ -995,9 +1235,9 @@ export class SemanticReviewScheduler {
     try {
       invocation = this.#reviewDesk.begin(
         leased.opportunityId,
-        candidate.proposal,
+        proposal,
         snapshot,
-        candidate.proposalCorpusSnapshotIdentity,
+        proposalCorpusSnapshotIdentity,
         evidenceBundle ?? undefined,
         evidenceClaims,
       );
@@ -1183,7 +1423,9 @@ export class SemanticReviewScheduler {
     }
     const completed = this.#saveJob(withJobHash({
       ...this.#withoutJobHash(job),
-      schemaVersion: "pmh.semantic-review-job.v3",
+      schemaVersion: job.detailRecovery === undefined
+        ? "pmh.semantic-review-job.v3"
+        : "pmh.semantic-review-job.v4",
       duplicateOfJobId: null,
       status: "PASS",
       leasedAt: null,
@@ -1394,6 +1636,20 @@ export class SemanticReviewScheduler {
       ).length,
       passedCount: jobs.filter((job) => job.status === "PASS").length,
       exhaustedCount: jobs.filter((job) => job.status === "EXHAUSTED").length,
+      recoveryRequestedCount: jobs.filter(
+        (job) => job.detailRecovery !== undefined,
+      ).length,
+      recoveryInFlightCount: jobs.filter((job) =>
+        job.detailRecovery !== undefined &&
+        ["PENDING", "LEASED", "RETRY_WAIT"].includes(job.status)
+      ).length,
+      recoveryCompletedCount: jobs.filter((job) =>
+        job.detailRecovery !== undefined && job.status === "PASS"
+      ).length,
+      recoveryBlockedCount: jobs.filter((job) =>
+        job.detailRecovery !== undefined &&
+        ["BLOCKED_EVIDENCE", "EXHAUSTED"].includes(job.status)
+      ).length,
       classifiedFailureJobCount: retainedFailures.filter(
         (failure) => failure.failureClass !== "UNKNOWN",
       ).length,

@@ -1791,6 +1791,9 @@ export function createControlPlane(options?: {
       resolvedProposalCount: items.filter((item) => item.proposal !== null).length,
       reviewJobCount: items.filter((item) => item.reviewJob !== null).length,
       reviewOutcomeCount: items.filter((item) => item.reviewOutcome.outcome !== null).length,
+      recoveryPendingCount: items.filter((item) =>
+        item.reviewOutcome.basis === "RECOVERY_PENDING"
+      ).length,
       legacyDetailUnavailableCount: items.filter((item) =>
         item.reviewOutcome.basis === "LEGACY_DETAIL_UNAVAILABLE"
       ).length,
@@ -3124,6 +3127,36 @@ export function createControlPlane(options?: {
             executionAuthority: false,
           },
         );
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      /^\/api\/v1\/proposals\/sha256:[0-9a-f]{64}\/semantic-review-detail-recovery$/u
+        .test(url.pathname)
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 0
+        ) throw new Error("semantic review detail recovery accepts only an empty object");
+        const proposalId = url.pathname.split("/")[4] as Hash;
+        const result = semanticReviewScheduler.requestOutcomeRecovery(proposalId);
+        await broadcastProjection();
+        writeJson(response, result.idempotentReplay ? 200 : 202, result);
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "semantic review detail recovery failed",
+          semanticDecisionAuthority: false,
+          simulationAuthority: false,
+          certificateAuthority: false,
+          executionAuthority: false,
+        });
       }
       return;
     }

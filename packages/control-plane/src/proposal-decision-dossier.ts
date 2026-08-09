@@ -11,6 +11,7 @@ export type ProposalReviewOutcomeResolution = Readonly<{
   basis:
     | "DIRECT_REVIEW"
     | "CANONICAL_SCOPE_REUSE"
+    | "RECOVERY_PENDING"
     | "LEGACY_DETAIL_UNAVAILABLE"
     | "NOT_REVIEWED";
   canonicalJobId: Hash | null;
@@ -20,6 +21,7 @@ export type ProposalReviewOutcomeResolution = Readonly<{
 
 export type ProposalDecisionNextGate =
   | "INDEPENDENT_SEMANTIC_REVIEW"
+  | "AWAIT_REVIEW_RECOVERY"
   | "RECOVER_REVIEW_DETAIL"
   | "RESOLVE_EVIDENCE_GAPS"
   | "OPERATOR_DECISION"
@@ -46,6 +48,14 @@ export function resolveProposalReviewOutcome(
       diagnostic: "Outcome capsule comes from this proposal's exact retained review.",
     });
   }
+  if (job.detailRecovery !== undefined) {
+    return Object.freeze({
+      basis: "RECOVERY_PENDING",
+      canonicalJobId: job.jobId,
+      outcome: null,
+      diagnostic: `Review detail recovery is ${job.status.toLowerCase().replaceAll("_", " ")}.`,
+    });
+  }
   if (job.status === "DUPLICATE_SCOPE") {
     const canonicalJobId = job.duplicateOfJobId ?? null;
     const canonical = canonicalJobId === null ? undefined : jobsById.get(canonicalJobId);
@@ -55,6 +65,14 @@ export function resolveProposalReviewOutcome(
         canonicalJobId,
         outcome: canonical.reviewOutcome,
         diagnostic: "Outcome capsule is reused only from the explicitly named canonical review job.",
+      });
+    }
+    if (canonical?.detailRecovery !== undefined) {
+      return Object.freeze({
+        basis: "RECOVERY_PENDING",
+        canonicalJobId,
+        outcome: null,
+        diagnostic: `Named canonical review recovery is ${canonical.status.toLowerCase().replaceAll("_", " ")}.`,
       });
     }
     return Object.freeze({
@@ -95,6 +113,9 @@ export function deriveProposalDecisionNextGate(
 ): ProposalDecisionNextGate {
   if (input.reviewOutcome.basis === "LEGACY_DETAIL_UNAVAILABLE") {
     return "RECOVER_REVIEW_DETAIL";
+  }
+  if (input.reviewOutcome.basis === "RECOVERY_PENDING") {
+    return "AWAIT_REVIEW_RECOVERY";
   }
   const outcome = input.reviewOutcome.outcome;
   if (outcome === null) {

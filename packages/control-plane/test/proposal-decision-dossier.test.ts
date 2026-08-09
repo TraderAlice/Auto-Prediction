@@ -148,4 +148,34 @@ describe("proposal decision dossier", () => {
       },
     })).toBe("RETAIN_AS_RESEARCH_ONLY");
   });
+
+  it("shows direct and named canonical recovery as one in-flight gate", () => {
+    const canonical = {
+      ...job("a", "PENDING"),
+      detailRecovery: {} as NonNullable<SemanticReviewJobRecord["detailRecovery"]>,
+    } as SemanticReviewJobRecord;
+    const duplicate = job("b", "DUPLICATE_SCOPE", {
+      duplicateOfJobId: canonical.jobId,
+    });
+    const jobs = new Map([[canonical.jobId, canonical]]);
+
+    const directResolution = resolveProposalReviewOutcome(canonical, jobs);
+    expect(directResolution).toMatchObject({
+      basis: "RECOVERY_PENDING",
+      canonicalJobId: canonical.jobId,
+      outcome: null,
+    });
+    expect(resolveProposalReviewOutcome(duplicate, jobs)).toMatchObject({
+      basis: "RECOVERY_PENDING",
+      canonicalJobId: canonical.jobId,
+      outcome: null,
+    });
+    expect(deriveProposalDecisionNextGate({
+      reviewJob: canonical,
+      reviewOutcome: directResolution,
+      attention: null,
+      lifecycleCase: null,
+      economics: { status: "POSITIVE_GROSS_HINT" },
+    })).toBe("AWAIT_REVIEW_RECOVERY");
+  });
 });

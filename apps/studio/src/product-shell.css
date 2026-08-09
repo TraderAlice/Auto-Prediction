@@ -983,6 +983,38 @@ main {
   font-size: 12px;
 }
 
+.focused-review-handoff-loading {
+  display: flex;
+  min-height: 132px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: #9ba8a2;
+}
+
+.focused-review-handoff-loading > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+  animation: spin 1s linear infinite;
+}
+
+.focused-review-handoff-loading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.focused-review-handoff-loading strong {
+  color: #e7eeeb;
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.focused-review-handoff-loading span {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .focused-review-handoff-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1109,6 +1141,15 @@ main {
   display: flex;
   min-width: 0;
   flex-direction: column;
+}
+
+.decision-dossier-warning-actions {
+  margin-top: 10px;
+}
+
+.decision-dossier-warning-actions > [data-slot="button"] {
+  border-color: #806b3d;
+  background: #2a2417;
 }
 
 .focused-proposal-thesis > summary {
