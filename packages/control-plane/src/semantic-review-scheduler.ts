@@ -10,6 +10,7 @@ import {
   SemanticReviewBusyError,
   SemanticReviewDesk,
   SemanticReviewNotConfiguredError,
+  SEMANTIC_REVIEW_PROTOCOL_IDENTITY,
   assertSemanticReviewRecord,
   assertSemanticReviewFailure,
   classifySemanticReviewFailureDiagnostic,
@@ -784,13 +785,29 @@ export class SemanticReviewScheduler {
     ] as const));
     const passedReviews = reviews.filter((review) =>
       review.status === "PASS" && review.report !== null
+    ).sort((left, right) =>
+      Number(right.protocolIdentity === SEMANTIC_REVIEW_PROTOCOL_IDENTITY) -
+        Number(left.protocolIdentity === SEMANTIC_REVIEW_PROTOCOL_IDENTITY) ||
+      (right.completedAt ?? "").localeCompare(left.completedAt ?? "")
     );
     for (const job of [...this.#jobs]) {
       if (job.status === "PASS") {
         if (
           job.schemaVersion === "pmh.semantic-review-job.v3" ||
           job.schemaVersion === "pmh.semantic-review-job.v4"
-        ) continue;
+        ) {
+          const protocolReplacement = passedReviews.find((item) =>
+            item.protocolIdentity === SEMANTIC_REVIEW_PROTOCOL_IDENTITY &&
+            item.reviewId !== job.lastReviewId &&
+            item.proposalId === job.proposalId &&
+            reviewMatchesJobScope(job, item)
+          );
+          if (protocolReplacement !== undefined) {
+            const completed = this.#completeFromReview(job, protocolReplacement);
+            existingByProposal.set(job.proposalId, completed);
+          }
+          continue;
+        }
         const exactReview = passedReviews.find((item) =>
           item.reviewId === job.lastReviewId &&
           item.proposalId === job.proposalId &&

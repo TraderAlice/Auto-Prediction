@@ -142,8 +142,6 @@ const reviewPayload = {
 } as const;
 
 const submissionPayload = {
-  recommendation: reviewPayload.recommendation,
-  relationConclusion: reviewPayload.relationConclusion,
   assessments: reviewPayload.assessments,
   missingEvidence: reviewPayload.missingEvidence,
   evidenceRequirements: [{
@@ -169,10 +167,62 @@ const submissionPayload = {
   },
 } as const;
 
+const assessmentEffectPayload = submissionPayload.assessments;
+const truthStateEffectPayloads = submissionPayload.constraint.truthTable;
+const evidenceGapEffectPayload = {
+  missingEvidence: submissionPayload.missingEvidence[0],
+  requirement: submissionPayload.evidenceRequirements[0],
+} as const;
+const finalizationPayload = {
+  classification: submissionPayload.constraint.classification,
+  assumptions: submissionPayload.constraint.assumptions,
+  rationale: submissionPayload.rationale,
+} as const;
+
+function incrementalCompletionSequence(options: Readonly<{
+  counterexampleResult: "FOUND" | "NOT_FOUND" | "INCONCLUSIVE";
+  includeEvidenceGap?: boolean;
+}>): Response[] {
+  return [
+    toolCompletion("record_counterexample", {
+      result: options.counterexampleResult,
+      narrative: options.counterexampleResult === "FOUND"
+        ? reviewPayload.counterexamples[0]
+        : options.counterexampleResult === "INCONCLUSIVE"
+          ? "The supplied evidence does not settle the attempted joint state."
+          : "No state in the supplied matrix falsifies the relation.",
+      truths: [false, true],
+    }, `call-counterexample-${options.counterexampleResult}`),
+    toolCompletion(
+      "record_semantic_assessment",
+      assessmentEffectPayload,
+      "call-assessment",
+    ),
+    ...truthStateEffectPayloads.map((state, index) =>
+      toolCompletion("record_truth_state", state, `call-truth-${index}`)
+    ),
+    ...(options.includeEvidenceGap === false
+      ? []
+      : [toolCompletion(
+          "record_evidence_gap",
+          evidenceGapEffectPayload,
+          "call-evidence-gap",
+        )]),
+    toolCompletion(
+      "submit_semantic_review",
+      finalizationPayload,
+      "call-submit",
+    ),
+  ];
+}
+
 describe("adversarial semantic review", () => {
   it("runs one bounded AI SDK review and preserves advisory-only authority", async () => {
     let requestBody = "";
     let requestCount = 0;
+    const responses = incrementalCompletionSequence({
+      counterexampleResult: "FOUND",
+    });
     const desk = createSemanticReviewDesk(
       {
         DEEPSEEK_API_KEY: "test-only-key",
@@ -182,17 +232,7 @@ describe("adversarial semantic review", () => {
         async fetcher(_input, init) {
           requestBody += String(init?.body);
           requestCount += 1;
-          return requestCount === 1
-            ? toolCompletion("record_counterexample", {
-                result: "FOUND",
-                narrative: reviewPayload.counterexamples[0],
-                truths: [false, true],
-              }, "call-counterexample")
-            : toolCompletion(
-                "submit_semantic_review",
-                submissionPayload,
-                "call-submit",
-              );
+          return responses[requestCount - 1]!;
         },
       },
     );
@@ -213,6 +253,7 @@ describe("adversarial semantic review", () => {
         },
         result: {
           recommendation: "ESCALATE",
+          relationConclusion: "RELATED",
           semanticConstraint: {
             classification: "PROBABILISTIC_DEPENDENCE",
             exactCompilerAdmission: "RESEARCH_ONLY",
@@ -232,6 +273,7 @@ describe("adversarial semantic review", () => {
         trace: {
           protocol: "AI_SDK_TOOL_LOOP",
           counterexampleEffectCount: 1,
+          recommendationPolicy: "FIRST_PARTY_CONSERVATIVE_V1",
           wholeResponseSchemaParsing: false,
           structuredEvidenceRequirements: true,
         },
@@ -247,7 +289,9 @@ describe("adversarial semantic review", () => {
     expect(requestBody).toContain("adversarial semantic reviewer");
     expect(requestBody).toContain("untrusted data");
     expect(requestBody).toContain("submit_semantic_review");
-    expect(requestCount).toBe(2);
+    expect(requestBody).not.toContain('"recommendation"');
+    expect(requestBody).not.toContain('"relationConclusion"');
+    expect(requestCount).toBe(responses.length);
     expect(JSON.stringify(record)).not.toContain("test-only-key");
 
     const replay = desk.begin(opportunityId, proposal, snapshot);
@@ -255,8 +299,71 @@ describe("adversarial semantic review", () => {
     expect((await replay.promise).reviewId).toBe(record.reviewId);
   });
 
+  it.each([
+    {
+      counterexampleResult: "NOT_FOUND" as const,
+      expectedRecommendation: "ACCEPT_FOR_RESEARCH_SIMULATION" as const,
+      expectedRelationConclusion: "CONDITIONAL" as const,
+    },
+    {
+      counterexampleResult: "FOUND" as const,
+      expectedRecommendation: "REJECT" as const,
+      expectedRelationConclusion: "CONFLICTING" as const,
+    },
+  ])(
+    "derives $expectedRecommendation outside the Agent tool payload",
+    async ({
+      counterexampleResult,
+      expectedRecommendation,
+      expectedRelationConclusion,
+    }) => {
+      let requestCount = 0;
+      const responses = incrementalCompletionSequence({
+        counterexampleResult,
+        includeEvidenceGap: false,
+      });
+      const desk = createSemanticReviewDesk(
+        { DEEPSEEK_API_KEY: "test-only-key" },
+        {
+          async fetcher() {
+            requestCount += 1;
+            return responses[requestCount - 1]!;
+          },
+        },
+      );
+
+      const record = await desk.begin(
+        `ai:${proposal.proposalId}`,
+        proposal,
+        snapshot,
+      ).promise;
+
+      expect(record).toMatchObject({
+        status: "PASS",
+        report: {
+          result: {
+            recommendation: expectedRecommendation,
+            relationConclusion: expectedRelationConclusion,
+          },
+          trace: {
+            terminalEffect: "SUBMITTED",
+            recommendationPolicy: "FIRST_PARTY_CONSERVATIVE_V1",
+          },
+        },
+      });
+    },
+  );
+
   it("keeps the tool loop alive after a premature terminal submission", async () => {
     let requestCount = 0;
+    const responses = [
+      toolCompletion(
+        "submit_semantic_review",
+        finalizationPayload,
+        "call-premature-submit",
+      ),
+      ...incrementalCompletionSequence({ counterexampleResult: "FOUND" }),
+    ];
     const desk = createSemanticReviewDesk(
       {
         DEEPSEEK_API_KEY: "test-only-key",
@@ -265,25 +372,7 @@ describe("adversarial semantic review", () => {
       {
         async fetcher() {
           requestCount += 1;
-          if (requestCount === 1) {
-            return toolCompletion(
-              "submit_semantic_review",
-              submissionPayload,
-              "call-premature-submit",
-            );
-          }
-          if (requestCount === 2) {
-            return toolCompletion("record_counterexample", {
-              result: "FOUND",
-              narrative: reviewPayload.counterexamples[0],
-              truths: [false, true],
-            }, "call-corrective-counterexample");
-          }
-          return toolCompletion(
-            "submit_semantic_review",
-            submissionPayload,
-            "call-corrected-submit",
-          );
+          return responses[requestCount - 1]!;
         },
       },
     );
@@ -294,7 +383,7 @@ describe("adversarial semantic review", () => {
       snapshot,
     ).promise;
 
-    expect(requestCount).toBe(3);
+    expect(requestCount).toBe(responses.length);
     expect(record).toMatchObject({
       status: "PASS",
       report: {
@@ -312,17 +401,40 @@ describe("adversarial semantic review", () => {
   it("returns a field-level repair and accepts the corrected terminal effect", async () => {
     let requestCount = 0;
     const requestBodies: string[] = [];
-    const invalidSubmission = {
-      ...submissionPayload,
-      constraint: {
-        ...submissionPayload.constraint,
-        truthTable: submissionPayload.constraint.truthTable.map((state, index) =>
-          index === 0
-            ? { ...state, evidenceListingRefs: ["venue-z:outside"] }
-            : state
-        ),
-      },
+    const invalidTruthState = {
+      ...truthStateEffectPayloads[0],
+      evidenceListingRefs: ["venue-z:outside"],
     };
+    const responses = [
+      toolCompletion("record_counterexample", {
+        result: "FOUND",
+        narrative: reviewPayload.counterexamples[0],
+        truths: [false, true],
+      }, "call-repair-counterexample"),
+      toolCompletion(
+        "record_semantic_assessment",
+        assessmentEffectPayload,
+        "call-repair-assessment",
+      ),
+      toolCompletion(
+        "record_truth_state",
+        invalidTruthState,
+        "call-invalid-truth",
+      ),
+      ...truthStateEffectPayloads.map((state, index) =>
+        toolCompletion("record_truth_state", state, `call-repaired-truth-${index}`)
+      ),
+      toolCompletion(
+        "record_evidence_gap",
+        evidenceGapEffectPayload,
+        "call-repair-gap",
+      ),
+      toolCompletion(
+        "submit_semantic_review",
+        finalizationPayload,
+        "call-repaired-submit",
+      ),
+    ];
     const desk = createSemanticReviewDesk(
       {
         DEEPSEEK_API_KEY: "test-only-key",
@@ -332,24 +444,7 @@ describe("adversarial semantic review", () => {
         async fetcher(_input, init) {
           requestCount += 1;
           requestBodies.push(String(init?.body));
-          if (requestCount === 1) {
-            return toolCompletion("record_counterexample", {
-              result: "FOUND",
-              narrative: reviewPayload.counterexamples[0],
-              truths: [false, true],
-            }, "call-repair-counterexample");
-          }
-          return requestCount === 2
-            ? toolCompletion(
-                "submit_semantic_review",
-                invalidSubmission,
-                "call-invalid-submit",
-              )
-            : toolCompletion(
-                "submit_semantic_review",
-                submissionPayload,
-                "call-repaired-submit",
-              );
+          return responses[requestCount - 1]!;
         },
       },
     );
@@ -360,10 +455,10 @@ describe("adversarial semantic review", () => {
       snapshot,
     ).promise;
 
-    expect(requestCount).toBe(3);
-    expect(requestBodies[2]).toContain("OUT_OF_SCOPE_LISTING");
-    expect(requestBodies[2]).toContain(
-      "constraint.truthTable[0].evidenceListingRefs",
+    expect(requestCount).toBe(responses.length);
+    expect(requestBodies[3]).toContain("OUT_OF_SCOPE_LISTING");
+    expect(requestBodies[3]).toContain(
+      "truthState.evidenceListingRefs",
     );
     expect(record).toMatchObject({
       status: "PASS",
@@ -372,7 +467,7 @@ describe("adversarial semantic review", () => {
           terminalEffect: "SUBMITTED",
           rejectedTerminalEffectCount: 1,
           lastRejectedTerminalDiagnostic: expect.stringContaining(
-            "constraint.truthTable[0].evidenceListingRefs",
+            "truthState.evidenceListingRefs",
           ),
         },
       },
@@ -383,6 +478,9 @@ describe("adversarial semantic review", () => {
     let requestCount = 0;
     const longNarrative = (label: string) =>
       `${label}: ${"bounded falsification detail ".repeat(34)}`;
+    const incremental = incrementalCompletionSequence({
+      counterexampleResult: "FOUND",
+    }).slice(1);
     const desk = createSemanticReviewDesk(
       { DEEPSEEK_API_KEY: "test-only-key" },
       {
@@ -395,11 +493,7 @@ describe("adversarial semantic review", () => {
               truths: [false, true],
             }, `call-long-counterexample-${requestCount}`);
           }
-          return toolCompletion(
-            "submit_semantic_review",
-            submissionPayload,
-            "call-after-long-counterexamples",
-          );
+          return incremental[requestCount - 4]!;
         },
       },
     );
@@ -438,8 +532,6 @@ describe("adversarial semantic review", () => {
             : toolCompletion("abstain_semantic_review", {
                 reason:
                   "The bounded review cannot classify the complete state space without inventing feed semantics.",
-                missingEvidence: [],
-                evidenceRequirements: [],
               }, "call-abstain-terminal");
         },
       },

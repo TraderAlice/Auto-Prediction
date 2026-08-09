@@ -113,24 +113,26 @@ async function reviewed() {
             truths: [true, true, true],
           }, count);
         }
-        return deepSeekToolResponse("submit_semantic_review", {
-          recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION",
-          relationConclusion: "CONDITIONAL",
-          assessments: {
+        if (count === 2) {
+          return deepSeekToolResponse("record_semantic_assessment", {
             outcomeMapping: "Each listing is an explicit binary truth.",
             timingAndClose: "The August condition precedes the September appearance.",
             voidAndCancellation: "The retained rules provide the scoped binary outcomes.",
             resolutionSources: "Each truth is retained as its own listing settlement.",
-          },
-          missingEvidence: [],
-          evidenceRequirements: [],
+          }, count);
+        }
+        const states = truthTable();
+        if (count <= 2 + states.length) {
+          return deepSeekToolResponse(
+            "record_truth_state",
+            states[count - 3],
+            count,
+          );
+        }
+        return deepSeekToolResponse("submit_semantic_review", {
+          classification: "HARD_SETTLEMENT_CONSTRAINT",
+          assumptions: [],
           rationale: "The third traded outcome makes the hidden fatality premise explicit.",
-          constraint: {
-            classification: "HARD_SETTLEMENT_CONSTRAINT",
-            assumptions: [],
-            truthTable: truthTable(),
-            unresolvedEvidence: [],
-          },
         }, count);
       },
     },

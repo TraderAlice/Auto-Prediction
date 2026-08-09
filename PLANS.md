@@ -645,6 +645,23 @@ product choice is evidence routing per obligation: bind it to another traded
 state when possible, otherwise acquire and quote-verify an allowlisted official
 source. Automatic open-web search for every causal premise is not yet justified.
 
+The first traded-state evidence-routing portfolio is a measured `HOLD`: its two
+positive outputs were duplicate-scope restatements. Live funnel inspection
+instead exposed a preventable review-protocol loss on the canonical
+House-control pair. Semantic review now uses
+`pmh.semantic-review-agent-effects.v2`: counterexamples, assessment lenses,
+individual truth states, and evidence obligations are durable incremental tool
+effects, while a small terminal call merely seals the journal. Relation and
+workflow posture are both derived by `FIRST_PARTY_CONSERVATIVE_V1`; protocol
+identity is part of review idempotency, and scheduler reconciliation upgrades a
+legacy PASS capsule when the new protocol produces a durable result. The live
+House review recorded a complete four-state matrix and zero evidence gaps,
+yielding `HARD_SETTLEMENT_CONSTRAINT` / `MUTUALLY_EXCLUSIVE` /
+`ACCEPT_FOR_RESEARCH_SIMULATION`. Its 190 bps gross hint remains non-executable
+and now correctly stops at `BIND_PREMISE_EVIDENCE`: four propositions in the
+separate premise audit are still unbound. Premise binding—not more discovery
+volume and not premature fee/depth work—is the next measured gate.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

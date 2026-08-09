@@ -4824,6 +4824,11 @@ function OpportunityLifecycleView({
   const exactVerifications = desk.exactVerifications ?? [];
   const shadowRuns = desk.shadowRuns ?? [];
   const shadowObservations = desk.shadowObservations ?? [];
+  const firstPartyReviewDispositionCount = semanticReview.records.filter(
+    (record) =>
+      record.report?.trace?.recommendationPolicy ===
+        "FIRST_PARTY_CONSERVATIVE_V1",
+  ).length;
   const [reviewStates, setReviewStates] = useState<
     Readonly<Record<string, "RUNNING" | "DONE" | "RESTORED" | "FAILED">>
   >({});
@@ -5366,6 +5371,11 @@ function OpportunityLifecycleView({
               const reviewState = reviewStates[item.opportunityId] ?? "IDLE";
               const recoveryState = reviewRecoveryStates[item.proposalId] ?? "IDLE";
               const reviewOutcome = item.reviewOutcome.outcome;
+              const reviewRecommendationPolicy = reviewOutcome === null
+                ? null
+                : semanticReview.records.find(
+                    (record) => record.reviewId === reviewOutcome.reviewId,
+                  )?.report?.trace?.recommendationPolicy ?? null;
               const indicativeEconomics = item.economicTriage?.indicativeEconomics;
               const canRunReview = item.lifecycleCase?.nextAction === "INDEPENDENT_SEMANTIC_REVIEW" &&
                 item.reviewJob === undefined && item.attention === undefined;
@@ -5469,6 +5479,9 @@ function OpportunityLifecycleView({
                           ? "No hard settlement constraint was retained."
                           : reviewOutcome.semanticConstraint.classification.replaceAll("_", " ")}
                         {` · ${reviewOutcome.missingEvidenceCount} evidence gaps · ${reviewOutcome.counterexampleCount} counterexamples`}
+                        {reviewRecommendationPolicy === null
+                          ? " · legacy model workflow posture"
+                          : " · relation and workflow derived by first-party policy"}
                       </p>
                     </div>
                   ) : (
@@ -6292,6 +6305,10 @@ function OpportunityLifecycleView({
           </div>
           <div><strong>{reviewScheduler.passedCount}</strong><span>reviewed</span></div>
           <div><strong>{reviewScheduler.exhaustedCount}</strong><span>exhausted</span></div>
+          <div>
+            <strong>{firstPartyReviewDispositionCount}/{semanticReview.passCount}</strong>
+            <span>first-party semantic dispositions / retained passes</span>
+          </div>
           <div>
             <strong>{reviewScheduler.classifiedFailureJobCount}/{reviewScheduler.classifiedFailureJobCount + reviewScheduler.unclassifiedFailureJobCount}</strong>
             <span>classified failures</span>

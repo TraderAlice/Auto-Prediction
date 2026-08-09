@@ -395,6 +395,50 @@ describe("persistent semantic review scheduler", () => {
     expect(calls).toBe(1);
   });
 
+  it("replaces a durable legacy PASS capsule when the current Agent protocol arrives", async () => {
+    const item = candidate(proposal("protocol-upgrade"), 5);
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => reviewResult("ESCALATE") } },
+    );
+    const current = await desk.begin(
+      `ai:${item.proposal.proposalId}`,
+      item.proposal,
+      snapshot,
+      item.proposalCorpusSnapshotIdentity,
+    ).promise;
+    const { protocolIdentity: _protocolIdentity, ...legacyBody } = current;
+    const legacy = Object.freeze({
+      ...legacyBody,
+      reviewId: hashCanonical({
+        schemaVersion: "pmh.semantic-review-run.v1",
+        opportunityId: current.opportunityId,
+        proposalId: current.proposalId,
+        proposalCorpusSnapshotIdentity: current.proposalCorpusSnapshotIdentity,
+        corpusSnapshotIdentity: current.corpusSnapshotIdentity,
+        model: current.model,
+      }),
+    });
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    scheduler.reconcile([item], [legacy]);
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      status: "PASS",
+      lastReviewId: legacy.reviewId,
+    });
+
+    scheduler.reconcile([item], [legacy, current]);
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      status: "PASS",
+      lastReviewId: current.reviewId,
+      reviewOutcome: { reviewId: current.reviewId },
+    });
+  });
+
   it("replays legacy PASS jobs and upgrades only from their exact retained review", async () => {
     const item = candidate(proposal("legacy-pass"), 4);
     const desk = createSemanticReviewDesk(
