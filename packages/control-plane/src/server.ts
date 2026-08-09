@@ -1574,6 +1574,87 @@ export function createControlPlane(options?: {
     });
   };
   const liveProjection = async () => buildLiveStudioProjection(await projection());
+  const proposalHandoff = async (proposalIds: readonly Hash[]) => {
+    const full = await projection();
+    const proposals = new Map(
+      full.ai.marketArchaeologist.records.flatMap((record) =>
+        (record.report?.result.proposals ?? []).map((proposal) =>
+          [proposal.proposalId, proposal] as const
+        )
+      ),
+    );
+    for (const job of full.ai.semanticReviewScheduler.jobs) {
+      const proposal = job.evidenceBundle?.schemaVersion ===
+          "pmh.proposal-evidence-bundle.v2"
+        ? job.evidenceBundle.proposal
+        : null;
+      if (proposal !== null && !proposals.has(proposal.proposalId)) {
+        proposals.set(proposal.proposalId, proposal);
+      }
+    }
+    const jobs = new Map(
+      full.ai.semanticReviewScheduler.jobs.map((job) => [job.proposalId, job] as const),
+    );
+    const cases = new Map(
+      full.opportunityLifecycle.cases.map((item) => [item.opportunityId, item] as const),
+    );
+    const attention = new Map(
+      full.ai.reviewAttention.items.map((item) => [item.proposalId, item] as const),
+    );
+    const items = Object.freeze(proposalIds.map((proposalId) => {
+      const proposal = proposals.get(proposalId) ?? null;
+      const job = jobs.get(proposalId) ?? null;
+      const lifecycleCase = cases.get(`ai:${proposalId}`) ?? null;
+      const operatorAttention = attention.get(proposalId) ?? null;
+      return Object.freeze({
+        proposalId,
+        proposal: proposal === null ? null : Object.freeze({
+          proposalId: proposal.proposalId,
+          relationKind: proposal.relationKind,
+          statement: proposal.statement,
+          listingRefs: Object.freeze([...proposal.listingRefs]),
+        }),
+        reviewJob: job === null ? null : Object.freeze({
+          jobId: job.jobId,
+          status: job.status,
+          attemptCount: job.attemptCount,
+          maxAttempts: job.maxAttempts,
+          duplicateOfJobId: job.duplicateOfJobId ?? null,
+          issueIds: Object.freeze([...job.issueIds]),
+          lastFailure: job.lastFailure ?? null,
+        }),
+        lifecycleCase: lifecycleCase === null ? null : Object.freeze({
+          opportunityId: lifecycleCase.opportunityId,
+          state: lifecycleCase.state,
+          nextAction: lifecycleCase.nextAction,
+          discoveryArtifactHash: lifecycleCase.discoveryArtifactHash,
+        }),
+        attention: operatorAttention === null ? null : Object.freeze({
+          itemId: operatorAttention.itemId,
+          operatorPosture: operatorAttention.operatorPosture,
+          nextAction: operatorAttention.nextAction,
+          relationConclusion: operatorAttention.relationConclusion,
+          missingEvidenceCount: operatorAttention.missingEvidenceCount,
+          counterexampleCount: operatorAttention.counterexampleCount,
+        }),
+      });
+    }));
+    const body = Object.freeze({
+      schemaVersion: "pmh.proposal-handoff.v1" as const,
+      sourceStateHash: full.identity.stateHash,
+      requestedProposalIds: Object.freeze([...proposalIds]),
+      resolvedProposalCount: items.filter((item) => item.proposal !== null).length,
+      reviewJobCount: items.filter((item) => item.reviewJob !== null).length,
+      lifecycleCaseCount: items.filter((item) => item.lifecycleCase !== null).length,
+      operatorAttentionCount: items.filter((item) => item.attention !== null).length,
+      items,
+      authority: "READ_ONLY_WORKFLOW_HANDOFF" as const,
+      semanticDecisionAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    });
+    return Object.freeze({ ...body, contentHash: hashCanonical(body) });
+  };
 
   const broadcastProjection = async (): Promise<void> => {
     const payload = `event: projection\ndata: ${JSON.stringify(
@@ -1738,6 +1819,24 @@ export function createControlPlane(options?: {
           executionAuthority: false,
         });
       }
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/proposal-handoff") {
+      const rawIds = url.searchParams.get("ids")?.split(",").filter(Boolean) ?? [];
+      const proposalIds = [...new Set(rawIds)];
+      if (
+        proposalIds.length === 0 || proposalIds.length > 5 ||
+        proposalIds.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(item))
+      ) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: "ids must contain one to five unique sha256 proposal IDs",
+          semanticDecisionAuthority: false,
+          executionAuthority: false,
+        });
+        return;
+      }
+      writeJson(response, 200, await proposalHandoff(proposalIds as Hash[]));
       return;
     }
     if (

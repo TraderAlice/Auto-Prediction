@@ -57,18 +57,13 @@ import {
   type StudioProjection,
 } from "@/data/studio-projection";
 import { cn } from "@/lib/utils";
+import {
+  parseWorkspaceRoute,
+  serializeWorkspaceRoute,
+  type WorkspaceView,
+} from "@/lib/workspace-route";
 
-type View =
-  | "overview"
-  | "archaeologist"
-  | "lifecycle"
-  | "radar"
-  | "preflight"
-  | "scouts"
-  | "cases"
-  | "venues"
-  | "books"
-  | "evidence";
+type View = WorkspaceView;
 type Opportunity = StudioProjection["opportunities"][number];
 type ResearchCase = StudioProjection["ai"]["researchDesk"]["cases"][number];
 type RadarCandidate = StudioProjection["ai"]["opportunityRadar"]["candidates"][number];
@@ -77,6 +72,51 @@ type SearchAttentionMessage = StudioProjection["ai"]["searchAttention"]["message
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
+type ProposalHandoffProjection = Readonly<{
+  schemaVersion: "pmh.proposal-handoff.v1";
+  sourceStateHash: string;
+  requestedProposalIds: readonly string[];
+  resolvedProposalCount: number;
+  reviewJobCount: number;
+  lifecycleCaseCount: number;
+  operatorAttentionCount: number;
+  items: ReadonlyArray<Readonly<{
+    proposalId: string;
+    proposal: null | Readonly<{
+      proposalId: string;
+      relationKind: string;
+      statement: string;
+      listingRefs: readonly string[];
+    }>;
+    reviewJob: null | Readonly<{
+      jobId: string;
+      status: string;
+      attemptCount: number;
+      maxAttempts: number;
+      duplicateOfJobId: string | null;
+      issueIds: readonly string[];
+    }>;
+    lifecycleCase: null | Readonly<{
+      opportunityId: string;
+      state: string;
+      nextAction: string;
+      discoveryArtifactHash: string;
+    }>;
+    attention: null | Readonly<{
+      itemId: string;
+      operatorPosture: string;
+      nextAction: string;
+      relationConclusion: string;
+      missingEvidenceCount: number;
+      counterexampleCount: number;
+    }>;
+  }>>;
+  authority: "READ_ONLY_WORKFLOW_HANDOFF";
+  semanticDecisionAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  contentHash: string;
+}>;
 
 function formatRateBps(value: number | null): string {
   if (value === null) return "—";
@@ -1501,6 +1541,30 @@ async function requestProbabilityNotificationAcknowledgement(
   if (!response.ok) {
     throw new Error(result.diagnostic ?? "probability notification acknowledgement failed");
   }
+}
+
+async function requestProposalHandoff(
+  proposalIds: readonly string[],
+): Promise<ProposalHandoffProjection> {
+  const params = new URLSearchParams({ ids: proposalIds.join(",") });
+  const response = await fetch(`/api/v1/proposal-handoff?${params.toString()}`);
+  const result = (await response.json()) as Partial<ProposalHandoffProjection> & {
+    diagnostic?: string;
+  };
+  if (!response.ok) throw new Error(result.diagnostic ?? "proposal handoff failed");
+  if (
+    result.schemaVersion !== "pmh.proposal-handoff.v1" ||
+    result.authority !== "READ_ONLY_WORKFLOW_HANDOFF" ||
+    result.semanticDecisionAuthority !== false ||
+    result.certificateAuthority !== false ||
+    result.executionAuthority !== false ||
+    !Array.isArray(result.items) ||
+    !Array.isArray(result.requestedProposalIds) ||
+    result.requestedProposalIds.join(",") !== proposalIds.join(",")
+  ) {
+    throw new Error("proposal handoff crossed its read-only boundary");
+  }
+  return result as ProposalHandoffProjection;
 }
 
 async function requestSemanticReview(opportunityId: string): Promise<boolean> {
@@ -4443,7 +4507,13 @@ function MarketArchaeologistView() {
   );
 }
 
-function OpportunityLifecycleView() {
+function OpportunityLifecycleView({
+  focusedProposalIds,
+  onClearFocus,
+}: {
+  focusedProposalIds: readonly string[];
+  onClearFocus: () => void;
+}) {
   const studioProjection = useStudioProjection();
   const desk = studioProjection.opportunityLifecycle;
   const semanticReview =
@@ -4510,6 +4580,42 @@ function OpportunityLifecycleView() {
   const [resolutionRunState, setResolutionRunState] = useState<
     "IDLE" | "RUNNING" | "FAILED"
   >("IDLE");
+  const [focusedProjection, setFocusedProjection] =
+    useState<ProposalHandoffProjection | null>(null);
+  const [focusedProjectionStatus, setFocusedProjectionStatus] = useState<
+    "IDLE" | "LOADING" | "READY" | "FAILED"
+  >(focusedProposalIds.length === 0 ? "IDLE" : "LOADING");
+  const [focusedProjectionDiagnostic, setFocusedProjectionDiagnostic] =
+    useState<string | null>(null);
+  const focusedProposalKey = focusedProposalIds.join(",");
+
+  useEffect(() => {
+    let active = true;
+    if (focusedProposalIds.length === 0) {
+      setFocusedProjection(null);
+      setFocusedProjectionStatus("IDLE");
+      setFocusedProjectionDiagnostic(null);
+      return () => { active = false; };
+    }
+    setFocusedProjectionStatus("LOADING");
+    setFocusedProjectionDiagnostic(null);
+    void requestProposalHandoff(focusedProposalIds).then(
+      (projection) => {
+        if (!active) return;
+        setFocusedProjection(projection);
+        setFocusedProjectionStatus("READY");
+      },
+      (error) => {
+        if (!active) return;
+        setFocusedProjection(null);
+        setFocusedProjectionStatus("FAILED");
+        setFocusedProjectionDiagnostic(
+          error instanceof Error ? error.message : "proposal handoff failed",
+        );
+      },
+    );
+    return () => { active = false; };
+  }, [focusedProposalKey]);
   const proposals = new Map(
     studioProjection.ai.marketArchaeologist.records.flatMap((record) =>
       (record.report?.result.proposals ?? []).map((proposal) => [
@@ -4526,6 +4632,51 @@ function OpportunityLifecycleView() {
       proposals.set(proposal.proposalId, proposal);
     }
   }
+  const liveFocusedHandoff = focusedProposalIds.map((proposalId) => {
+    const opportunityId = `ai:${proposalId}`;
+    const proposal = proposals.get(proposalId as Parameters<typeof proposals.get>[0]);
+    const reviewJob = reviewScheduler.jobs.find((job) => job.proposalId === proposalId);
+    const attention = reviewAttention.items.find((item) => item.proposalId === proposalId);
+    const lifecycleCase = desk.cases.find((item) => item.opportunityId === opportunityId);
+    const workflowState = attention !== undefined
+      ? attention.operatorPosture
+      : reviewJob !== undefined
+        ? `REVIEW_${reviewJob.status}`
+        : lifecycleCase !== undefined
+          ? lifecycleCase.nextAction
+          : proposal !== undefined
+            ? "PROPOSAL_DETAIL_RETAINED"
+            : "OUTSIDE_PROJECTION_WINDOW";
+    return Object.freeze({
+      proposalId,
+      opportunityId,
+      proposal,
+      reviewJob,
+      attention,
+      lifecycleCase,
+      workflowState,
+    });
+  });
+  const focusedHandoff = focusedProjection?.items.map((item) => Object.freeze({
+    ...item,
+    opportunityId: `ai:${item.proposalId}`,
+    proposal: item.proposal ?? undefined,
+    reviewJob: item.reviewJob ?? undefined,
+    attention: item.attention ?? undefined,
+    lifecycleCase: item.lifecycleCase ?? undefined,
+    workflowState: item.attention !== null
+      ? item.attention.operatorPosture
+      : item.reviewJob !== null
+        ? `REVIEW_${item.reviewJob.status}`
+        : item.lifecycleCase !== null
+          ? item.lifecycleCase.nextAction
+          : item.proposal !== null
+            ? "PROPOSAL_DETAIL_RETAINED"
+            : "OUTSIDE_PERSISTED_HANDOFF",
+  })) ?? liveFocusedHandoff;
+  const focusedDetailCount = focusedHandoff.filter((item) => item.proposal !== undefined).length;
+  const focusedCaseCount = focusedHandoff.filter((item) => item.lifecycleCase !== undefined).length;
+  const focusedOperatorCount = focusedHandoff.filter((item) => item.attention !== undefined).length;
   const awaiting = desk.cases.filter((item) => item.nextAction !== "NONE").length;
   const rejected = desk.cases.filter((item) =>
     item.state.startsWith("REJECTED"),
@@ -4754,6 +4905,107 @@ function OpportunityLifecycleView() {
           <Badge variant="warning">LIVE ROUTE ABSENT</Badge>
         </div>
       </div>
+
+      {focusedHandoff.length > 0 && (
+        <section className="focused-review-handoff" aria-label="Focused finding review handoff">
+          <div className="focused-review-handoff-heading">
+            <div>
+              <span className="eyebrow">Finding context retained</span>
+              <h2>Review this discovery result</h2>
+              <p>
+                {focusedHandoff.length} exact proposal IDs · {focusedDetailCount} proposal details · {focusedCaseCount} lifecycle cases · {focusedOperatorCount} operator postures resolved from the persisted handoff.
+              </p>
+            </div>
+            <div className="focused-review-handoff-heading-actions">
+              <Badge variant={focusedProjectionStatus === "FAILED" ? "warning" : focusedProjectionStatus === "READY" ? "verified" : "muted"}>
+                {focusedProjectionStatus === "READY" ? "PERSISTED CONTEXT" : focusedProjectionStatus}
+              </Badge>
+              <Button variant="outline" size="sm" onClick={onClearFocus}>
+                <X size={13} /> Clear focus
+              </Button>
+            </div>
+          </div>
+          {focusedProjectionDiagnostic !== null && (
+            <div className="focused-review-handoff-diagnostic" role="status">
+              <CircleOff size={14} /> {focusedProjectionDiagnostic}
+            </div>
+          )}
+          <div className="focused-review-handoff-list">
+            {focusedHandoff.map((item) => {
+              const reviewState = reviewStates[item.opportunityId] ?? "IDLE";
+              const canRunReview = item.lifecycleCase?.nextAction === "INDEPENDENT_SEMANTIC_REVIEW" &&
+                item.reviewJob === undefined && item.attention === undefined;
+              return (
+                <article key={item.proposalId}>
+                  <div className="focused-review-handoff-topline">
+                    <Badge variant={item.attention?.operatorPosture === "DECISION_READY" ? "verified" : item.workflowState.startsWith("OUTSIDE_") ? "muted" : "shadow"}>
+                      {item.workflowState.replaceAll("_", " ")}
+                    </Badge>
+                    {item.proposal !== undefined && (
+                      <Badge variant="muted">{item.proposal.relationKind.replaceAll("_", " ")}</Badge>
+                    )}
+                    <code>{item.proposalId.slice(7, 19)}</code>
+                  </div>
+                  {item.proposal === undefined ? (
+                    <strong>Proposal detail is unavailable from retained handoff sources</strong>
+                  ) : (
+                    <details className="focused-proposal-thesis">
+                      <summary>
+                        <strong>{item.proposal.statement}</strong>
+                        <span>Show full thesis <ChevronRight size={13} /></span>
+                      </summary>
+                      <code>{item.proposal.listingRefs.join(" ↔ ")}</code>
+                    </details>
+                  )}
+                  <div className="focused-review-handoff-facts">
+                    {item.reviewJob !== undefined && (
+                      <span>
+                        review {item.reviewJob.status.replaceAll("_", " ")} · attempt {item.reviewJob.attemptCount}/{item.reviewJob.maxAttempts}
+                        {item.reviewJob.duplicateOfJobId == null ? "" : ` · reuses ${item.reviewJob.duplicateOfJobId.slice(7, 19)}`}
+                      </span>
+                    )}
+                    {item.lifecycleCase !== undefined && (
+                      <span>case {item.lifecycleCase.state.replaceAll("_", " ")}</span>
+                    )}
+                    {item.attention !== undefined && (
+                      <span>next {item.attention.nextAction.replaceAll("_", " ")} · {item.attention.missingEvidenceCount} evidence gaps</span>
+                    )}
+                    {item.proposal === undefined && item.lifecycleCase === undefined && item.reviewJob === undefined && item.attention === undefined && (
+                      <span>The durable proposal ID is retained by the Finding; no proposal detail or workflow state is claimed when the persisted handoff cannot resolve it.</span>
+                    )}
+                  </div>
+                  <div className="focused-review-handoff-actions">
+                    {canRunReview && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={reviewState === "RUNNING" || !semanticReview.configured}
+                        onClick={() => void runReview(item.opportunityId)}
+                      >
+                        {reviewState === "RUNNING" ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
+                        {reviewState === "RUNNING" ? "Reviewing…" : reviewState === "RESTORED" ? "Review restored" : "Run independent review"}
+                      </Button>
+                    )}
+                    {item.attention !== undefined && (
+                      <Button
+                        size="sm"
+                        onClick={() => document.querySelector('[aria-label="Operator review attention queue"]')?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                      >
+                        <Inbox size={13} /> Open operator posture
+                      </Button>
+                    )}
+                  </div>
+                  {diagnostics[item.opportunityId] && <small className="is-warning">{diagnostics[item.opportunityId]}</small>}
+                </article>
+              );
+            })}
+          </div>
+          <div className="attention-authority-lock">
+            <CircleOff size={14} />
+            <span>Focus changes navigation only. Semantic review, operator decisions, simulation, certificates, and execution retain their existing independent gates.</span>
+          </div>
+        </section>
+      )}
 
       <div className="radar-summary-grid lifecycle-summary-grid">
         <Metric label="Tracked cases" value={`${desk.caseCount}`} detail="AI + deterministic leads" />
@@ -6578,9 +6830,9 @@ function OpportunityRadarView() {
 }
 
 function ScoutInboxView({
-  onNavigate,
+  onOpenReview,
 }: {
-  onNavigate: (view: View) => void;
+  onOpenReview: (proposalIds: readonly string[]) => void;
 }) {
   const studioProjection = useStudioProjection();
   const scheduler = studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
@@ -6808,8 +7060,8 @@ function ScoutInboxView({
                       </Button>
                     )}
                     {item.disposition === "PROPOSAL_AVAILABLE" && (
-                      <Button size="sm" onClick={() => onNavigate("lifecycle")}>
-                        <GitBranch size={13} /> Open review queue
+                      <Button size="sm" onClick={() => onOpenReview(item.proposalIds)}>
+                        <GitBranch size={13} /> Review {item.proposalIds.length} proposal{item.proposalIds.length === 1 ? "" : "s"}
                       </Button>
                     )}
                     <code title={item.sourceArtifactHash}>source {item.sourceArtifactHash.slice(7, 17)}</code>
@@ -8397,10 +8649,35 @@ function CommandPalette({
 }
 
 function StudioShell() {
-  const [view, setView] = useState<View>("archaeologist");
+  const [view, setView] = useState<View>(() =>
+    parseWorkspaceRoute(window.location.search).view
+  );
+  const [focusedProposalIds, setFocusedProposalIds] = useState<readonly string[]>(() =>
+    parseWorkspaceRoute(window.location.search).proposalIds
+  );
   const [mobileOpen, setMobileOpen] = useState(false);
   const [opportunity, setOpportunity] = useState<Opportunity | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
+
+  function navigate(nextView: View, proposalIds: readonly string[] = []): void {
+    const search = serializeWorkspaceRoute(nextView, proposalIds);
+    window.history.pushState(null, "", `${window.location.pathname}${search}`);
+    const route = parseWorkspaceRoute(search);
+    setView(route.view);
+    setFocusedProposalIds(route.proposalIds);
+    setMobileOpen(false);
+  }
+
+  useEffect(() => {
+    function restoreRoute() {
+      const route = parseWorkspaceRoute(window.location.search);
+      setView(route.view);
+      setFocusedProposalIds(route.proposalIds);
+      setMobileOpen(false);
+    }
+    window.addEventListener("popstate", restoreRoute);
+    return () => window.removeEventListener("popstate", restoreRoute);
+  }, []);
 
   useEffect(() => {
     function handleKeyboard(event: KeyboardEvent) {
@@ -8422,7 +8699,7 @@ function StudioShell() {
     <div className="app-shell">
       <Sidebar
         view={view}
-        onViewChange={setView}
+        onViewChange={(nextView) => navigate(nextView)}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
       />
@@ -8435,10 +8712,19 @@ function StudioShell() {
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
           {view === "archaeologist" && <MarketArchaeologistView />}
-          {view === "lifecycle" && <OpportunityLifecycleView />}
+          {view === "lifecycle" && (
+            <OpportunityLifecycleView
+              focusedProposalIds={focusedProposalIds}
+              onClearFocus={() => navigate("lifecycle")}
+            />
+          )}
           {view === "radar" && <OpportunityRadarView />}
           {view === "preflight" && <RealCandidatePreflightView />}
-          {view === "scouts" && <ScoutInboxView onNavigate={setView} />}
+          {view === "scouts" && (
+            <ScoutInboxView
+              onOpenReview={(proposalIds) => navigate("lifecycle", proposalIds)}
+            />
+          )}
           {view === "cases" && <ResearchCaseDeskView />}
           {view === "venues" && <VenueMatrix />}
           {view === "books" && <BookDeskView />}
@@ -8459,7 +8745,7 @@ function StudioShell() {
       <CommandPalette
         open={commandOpen}
         onClose={() => setCommandOpen(false)}
-        onNavigate={setView}
+        onNavigate={(nextView) => navigate(nextView)}
       />
     </div>
   );

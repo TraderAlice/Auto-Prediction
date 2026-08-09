@@ -12,6 +12,8 @@ with Studio product normalization tracked in
 [`plans/studio-product-normalization.md`](plans/studio-product-normalization.md),
 and the durable human/Agent finding queue tracked in
 [`plans/operator-finding-inbox.md`](plans/operator-finding-inbox.md),
+with its URL-stable review transition tracked in
+[`plans/finding-review-handoff.md`](plans/finding-review-handoff.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -59,6 +61,16 @@ items and only 4-5 actionable proposal artifacts as scheduled work advanced,
 instead of turning every generic lead or exhausted deep run into operator
 attention. Desktop and 390 px browser checks preserved the 12 px text floor and
 showed no horizontal overflow.
+
+The Findings-to-Review transition is now proposal-addressable rather than a
+generic page jump. Stable `?view=` routes and at most five validated proposal
+IDs survive refresh and browser history. A proposal-local read-only endpoint
+resolves focused details, durable review jobs, lifecycle cases, and operator
+postures from full retained state without shipping the 8.2 MB full projection.
+The live House-control specimen restores both proposal statements, both
+duplicate-scope reuse jobs, and both awaiting-review cases after the ordinary
+live window has already evicted them. Desktop and 390 px checks preserve the
+same typography and overflow bounds.
 
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls

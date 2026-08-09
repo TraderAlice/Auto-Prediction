@@ -654,6 +654,40 @@ describe("control-plane HTTP surface", () => {
       fullProjection.identity.stateHash,
     );
     expect((await fetch(`${baseUrl}/api/v1/projection?view=unknown`)).status).toBe(400);
+    const handoffProposalId = `sha256:${"0".repeat(64)}`;
+    const handoffResponse = await fetch(
+      `${baseUrl}/api/v1/proposal-handoff?ids=${handoffProposalId}`,
+    );
+    expect(handoffResponse.status).toBe(200);
+    expect(await handoffResponse.json()).toMatchObject({
+      schemaVersion: "pmh.proposal-handoff.v1",
+      requestedProposalIds: [handoffProposalId],
+      resolvedProposalCount: 0,
+      reviewJobCount: 0,
+      lifecycleCaseCount: 0,
+      operatorAttentionCount: 0,
+      items: [{
+        proposalId: handoffProposalId,
+        proposal: null,
+        reviewJob: null,
+        lifecycleCase: null,
+        attention: null,
+      }],
+      authority: "READ_ONLY_WORKFLOW_HANDOFF",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      contentHash: expect.stringMatching(/^sha256:/),
+    });
+    expect((await fetch(`${baseUrl}/api/v1/proposal-handoff?ids=nope`)).status)
+      .toBe(400);
+    const overBoundHandoffIds = Array.from(
+      { length: 6 },
+      (_, index) => `sha256:${index.toString(16).repeat(64)}`,
+    ).join(",");
+    expect((await fetch(
+      `${baseUrl}/api/v1/proposal-handoff?ids=${overBoundHandoffIds}`,
+    )).status).toBe(400);
     expect(projection.system).toMatchObject({
       liveExecutionEnabled: false,
       controlPlaneConnected: true,

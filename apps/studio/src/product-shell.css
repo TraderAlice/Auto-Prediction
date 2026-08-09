@@ -755,6 +755,167 @@ main {
   margin-bottom: 16px;
 }
 
+.focused-review-handoff {
+  overflow: hidden;
+  margin-bottom: 18px;
+  border: 1px solid #315548;
+  border-radius: 12px;
+  background: #131b18;
+}
+
+.focused-review-handoff-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid #29443a;
+  padding: 18px;
+}
+
+.focused-review-handoff-heading > div:first-child {
+  min-width: 0;
+}
+
+.focused-review-handoff-heading h2 {
+  margin: 4px 0 3px;
+  font-size: 19px;
+  font-weight: 630;
+  letter-spacing: -0.025em;
+}
+
+.focused-review-handoff-heading p {
+  max-width: 820px;
+  margin: 0;
+  color: #9ba8a2;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.focused-review-handoff-heading-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.focused-review-handoff-diagnostic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #29443a;
+  color: var(--warning);
+  padding: 10px 18px;
+  font-size: 12px;
+}
+
+.focused-review-handoff-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.focused-review-handoff-list > article {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  border-right: 1px solid #29443a;
+  border-bottom: 1px solid #29443a;
+  padding: 18px;
+}
+
+.focused-review-handoff-list > article:nth-child(2n) {
+  border-right: 0;
+}
+
+.focused-review-handoff-list > article:last-child,
+.focused-review-handoff-list > article:nth-last-child(2):nth-child(odd) {
+  border-bottom: 0;
+}
+
+.focused-review-handoff-topline,
+.focused-review-handoff-facts,
+.focused-review-handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.focused-review-handoff-topline > code {
+  margin-left: auto;
+  color: #75827c;
+  font-size: 12px;
+}
+
+.focused-review-handoff-list strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.focused-proposal-thesis > summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.focused-proposal-thesis > summary::-webkit-details-marker {
+  display: none;
+}
+
+.focused-proposal-thesis > summary strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.focused-proposal-thesis[open] > summary strong {
+  display: block;
+  overflow: visible;
+}
+
+.focused-proposal-thesis > summary span {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.focused-proposal-thesis > summary svg {
+  transition: transform 160ms ease;
+}
+
+.focused-proposal-thesis[open] > summary svg {
+  transform: rotate(90deg);
+}
+
+.focused-proposal-thesis > code {
+  display: block;
+  margin-top: 9px;
+  overflow-wrap: anywhere;
+  color: #98a59f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.focused-review-handoff-facts span {
+  color: #89968f;
+  font-size: 12px;
+}
+
+.focused-review-handoff-actions {
+  min-height: 32px;
+  margin-top: auto;
+}
+
+.focused-review-handoff > .attention-authority-lock {
+  border-top: 1px solid #29443a;
+}
+
 footer {
   color: #737c79;
   font-size: 12px;
@@ -789,6 +950,21 @@ footer {
 
   main {
     padding: 28px 22px 48px;
+  }
+
+  .focused-review-handoff-list {
+    grid-template-columns: 1fr;
+  }
+
+  .focused-review-handoff-list > article,
+  .focused-review-handoff-list > article:nth-child(2n),
+  .focused-review-handoff-list > article:nth-last-child(-n + 2) {
+    border-right: 0;
+    border-bottom: 1px solid #29443a;
+  }
+
+  .focused-review-handoff-list > article:last-child {
+    border-bottom: 0;
   }
 }
 
@@ -850,9 +1026,24 @@ footer {
   }
 
   .finding-inbox-toolbar,
-  .finding-inbox-item-head {
+  .finding-inbox-item-head,
+  .focused-review-handoff-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .focused-review-handoff-heading > [data-slot="button"] {
+    width: 100%;
+  }
+
+  .focused-review-handoff-heading-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .focused-review-handoff-heading-actions > [data-slot="button"] {
+    width: 100%;
   }
 
   .finding-filter {
