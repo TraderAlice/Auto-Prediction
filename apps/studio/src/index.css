@@ -2317,6 +2317,102 @@ main {
   margin: 3px 0 0;
 }
 
+.inspiration-inbox {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 0 0 14px;
+  overflow: hidden;
+}
+
+.inspiration-inbox > .issue-column-heading {
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  padding: 11px 14px;
+}
+
+.inspiration-empty {
+  align-items: flex-start;
+  color: var(--muted-foreground);
+  display: flex;
+  gap: 10px;
+  padding: 16px;
+}
+
+.inspiration-empty strong {
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.inspiration-empty p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 3px 0 0;
+}
+
+.inspiration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.inspiration-card {
+  border-right: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  min-width: 0;
+  padding: 14px;
+}
+
+.inspiration-card:nth-child(2n) {
+  border-right: 0;
+}
+
+.inspiration-card-head {
+  align-items: center;
+  color: var(--muted-foreground);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  gap: 8px;
+}
+
+.inspiration-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 10px 0 5px;
+}
+
+.inspiration-card > p {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+
+.inspiration-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px 0 8px;
+}
+
+.inspiration-card dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.inspiration-card dd {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  margin: 2px 0 0;
+}
+
+.inspiration-card > code {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .issue-scheduler-strip {
   border-bottom: 1px solid var(--border);
   border-top: 1px solid var(--border);
@@ -7268,6 +7364,7 @@ footer span:first-child {
   .issue-scheduler-strip,
   .discovery-origin-overview,
   .latest-discovery-trailhead,
+  .inspiration-grid,
   .search-attention-summary,
   .search-attention-list,
   .search-outcome-stages,
@@ -7286,6 +7383,10 @@ footer span:first-child {
     border-top: 1px solid var(--border);
     grid-template-columns: repeat(3, minmax(0, 1fr));
     padding-top: 8px;
+  }
+
+  .inspiration-card {
+    border-right: 0;
   }
 
   .issue-scheduler-console [data-slot="card-header"],

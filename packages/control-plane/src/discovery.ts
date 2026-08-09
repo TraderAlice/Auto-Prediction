@@ -4,6 +4,7 @@ import type {
   DiscoveryAgentPort,
   DiscoveryAgentRunResult,
   DiscoveryFalsification,
+  DiscoveryInspiration,
   DiscoveryRun,
   DiscoveryTask,
   DiscoveryWorker,
@@ -135,6 +136,22 @@ export function assertDiscoveryTask(task: DiscoveryTask): void {
       throw new Error("discovery catalog context is invalid or unbounded");
     }
   }
+  if (task.searchAssignment !== undefined) {
+    const assignment = task.searchAssignment;
+    if (
+      !["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"]
+        .includes(assignment.lens) ||
+      (assignment.semanticFamily !== null &&
+        ![
+          "TEMPORAL_IMPOSSIBILITY", "EVENT_CONTAINMENT",
+          "PARTITION_COMPLETENESS", "IDENTITY_SUCCESSION",
+          "PHYSICAL_CO_OCCURRENCE",
+        ].includes(assignment.semanticFamily)) ||
+      (assignment.sourceTrailheadIdentity !== null &&
+        !/^sha256:[0-9a-f]{64}$/u.test(assignment.sourceTrailheadIdentity)) ||
+      (assignment.inspirationDepth !== 0 && assignment.inspirationDepth !== 1)
+    ) throw new Error("discovery search assignment is invalid or unbounded");
+  }
 }
 
 function assertHypothesis(
@@ -244,6 +261,51 @@ function assertFalsification(
   ) {
     throw new Error(`worker ${workerId} returned an unsafe falsification`);
   }
+}
+
+function assertInspiration(
+  inspiration: DiscoveryInspiration,
+  workerId: string,
+  task: DiscoveryTask,
+): void {
+  const assignment = task.searchAssignment;
+  const allowedListingRefs = new Set(
+    task.catalogContext?.listings.map((listing) => listing.listingRef) ?? [],
+  );
+  const { inspirationId: _inspirationId, ...body } = inspiration;
+  const expectedContentIdentity = hashCanonical({
+    schemaVersion: "pmh.discovery-inspiration-content.v1",
+    listingRefs: inspiration.listingRefs,
+    suggestedLens: inspiration.suggestedLens,
+    suggestedSemanticFamily: inspiration.suggestedSemanticFamily,
+    sourceTrailheadIdentity: inspiration.sourceTrailheadIdentity,
+  });
+  if (
+    assignment === undefined || assignment.inspirationDepth >= 1 ||
+    inspiration.schemaVersion !== "pmh.discovery-inspiration.v1" ||
+    inspiration.inspirationId !== hashCanonical(body) ||
+    inspiration.contentIdentity !== expectedContentIdentity ||
+    inspiration.workerId !== workerId || inspiration.taskId !== task.taskId ||
+    inspiration.observation.trim() === "" || inspiration.observation.length > 500 ||
+    inspiration.listingRefs.length < 2 || inspiration.listingRefs.length > 6 ||
+    new Set(inspiration.listingRefs).size !== inspiration.listingRefs.length ||
+    inspiration.listingRefs.some((listingRef) => !allowedListingRefs.has(listingRef)) ||
+    inspiration.searchSignals.length < 1 || inspiration.searchSignals.length > 8 ||
+    inspiration.searchSignals.some((signal) => signal.trim() === "" || signal.length > 80) ||
+    inspiration.sourceLens !== assignment.lens ||
+    inspiration.sourceSemanticFamily !== assignment.semanticFamily ||
+    inspiration.sourceTrailheadIdentity !== assignment.sourceTrailheadIdentity ||
+    inspiration.inspirationDepth !== assignment.inspirationDepth ||
+    (inspiration.suggestedLens === assignment.lens &&
+      inspiration.suggestedSemanticFamily === assignment.semanticFamily) ||
+    inspiration.authority !== "SEARCH_ROUTING_ONLY" ||
+    inspiration.semanticDecisionAuthority !== false ||
+    inspiration.probabilityAuthority !== false ||
+    inspiration.certificateAuthority !== false ||
+    inspiration.executionAuthority !== false ||
+    inspiration.externalWriteAuthority !== false ||
+    inspiration.valueMovingAuthority !== false
+  ) throw new Error(`worker ${workerId} returned an unsafe inspiration`);
 }
 
 export class HeuristicDiscoveryWorker implements DiscoveryWorker {
@@ -421,16 +483,19 @@ export class DiscoveryPool {
             ? Object.freeze({
                 hypotheses: await worker.discover(task),
                 falsifications: Object.freeze([]),
+                inspirations: Object.freeze([]),
                 trace: undefined,
               })
             : await worker.runWithTrace(task);
           const hypotheses = execution.hypotheses;
           const falsifications = execution.falsifications;
+          const inspirations = execution.inspirations;
           const workerCompletedAtMs = Math.max(this.now(), workerStartedAtMs);
           return {
             worker,
             hypotheses,
             falsifications,
+            inspirations,
             report: Object.freeze({
               workerId: worker.workerId,
               kind: worker.kind,
@@ -441,6 +506,7 @@ export class DiscoveryPool {
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: hypotheses.length,
               falsificationCount: falsifications.length,
+              inspirationCount: inspirations.length,
               diagnostic: null,
               providerRequestAttemptCount:
                 execution.trace?.providerRequestAttemptCount ??
@@ -462,6 +528,7 @@ export class DiscoveryPool {
             worker,
             hypotheses: Object.freeze([]),
             falsifications: Object.freeze([]),
+            inspirations: Object.freeze([]),
             report: Object.freeze({
               workerId: worker.workerId,
               kind: worker.kind,
@@ -472,6 +539,7 @@ export class DiscoveryPool {
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: 0,
               falsificationCount: agentTrace?.acceptedFalsificationCount ?? 0,
+              inspirationCount: agentTrace?.acceptedInspirationCount ?? 0,
               diagnostic,
               providerRequestAttemptCount:
                 providerTelemetry.requestAttemptCount,
@@ -485,6 +553,7 @@ export class DiscoveryPool {
     const diagnostics: string[] = [];
     const hypotheses = new Map<string, OpportunityHypothesis>();
     const falsifications = new Map<string, DiscoveryFalsification>();
+    const inspirations = new Map<string, DiscoveryInspiration>();
     for (const result of results) {
       if (result.report.status === "FAILED") {
         diagnostics.push(result.report.diagnostic ?? "discovery worker failed");
@@ -508,6 +577,12 @@ export class DiscoveryPool {
           falsifications.set(falsification.falsificationId, falsification);
         }
       }
+      for (const inspiration of result.inspirations) {
+        assertInspiration(inspiration, result.worker.workerId, task);
+        if (!inspirations.has(inspiration.contentIdentity)) {
+          inspirations.set(inspiration.contentIdentity, inspiration);
+        }
+      }
     }
     const completedAtMs = this.now();
     return Object.freeze({
@@ -527,6 +602,7 @@ export class DiscoveryPool {
         [...hypotheses.values()].slice(0, task.maxHypotheses),
       ),
       falsifications: Object.freeze([...falsifications.values()]),
+      inspirations: Object.freeze([...inspirations.values()]),
       diagnostics: Object.freeze(diagnostics),
       executionAuthority: false,
     });

@@ -40,7 +40,7 @@ machine values.
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls
 back to a rotating rare-seed neighborhood when no family pair qualifies.
-Operator questions remain `CLAIM_MONITORING`. Search issue v3, lease v8, and
+Operator questions remain `CLAIM_MONITORING`. Search issue v3, lease v9, and
 family-retrieval v4 preserve the origin and typed trailhead through SQLite
 restart, while graph refs outside the assigned context remain lineage-only.
 Studio shows separate scans, findings, provider requests, Pi escalations, seed
@@ -49,7 +49,15 @@ the unrelated rarity sample with one Hormuz seed plus ten related deadline
 contracts and completed without an unknown-ref rejection or false proposal.
 That scan exposed the next active design problem: inspirations that imply a
 different relation family than the scheduled lens need their own durable effect
-and follow-up path.
+and follow-up path. Agent trace v4 now records that routing-only effect, and the
+SQLite-backed lease ledger derives one deterministic exact-ref follow-up at
+depth one. Studio presents it as an inspiration inbox rather than pretending it
+is already a claim. Live traffic has now qualified the path: a Temporal
+Impossibility UFC neighborhood routed two exact Polymarket US champion refs to
+a Partition follow-up, which retained one hypothesis and one falsification with
+zero nested inspirations. SQLite restart spent no extra Agent request, and
+1280/390 px Studio inspection has no overflow, sub-12 px main text, or console
+errors.
 
 ## Planning contract
 

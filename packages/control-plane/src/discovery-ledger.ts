@@ -4,6 +4,7 @@ import type {
   DiscoveryAgentEffect,
   DiscoveryAgentTrace,
   DiscoveryFalsification,
+  DiscoveryInspiration,
   DiscoveryDeskProjection,
   DiscoveryRun,
   DiscoveryRunRecord,
@@ -36,6 +37,7 @@ const AGENT_TOOL_NAMES = Object.freeze([
   "inspect_listings",
   "record_hypothesis",
   "record_falsification",
+  "record_inspiration",
   "complete_search",
   "unknown_tool",
 ] as const);
@@ -49,6 +51,7 @@ const AGENT_EFFECT_REASONS = Object.freeze([
   "LISTINGS_INSPECTED",
   "HYPOTHESIS_RECORDED",
   "FALSIFICATION_RECORDED",
+  "INSPIRATION_RECORDED",
   "SEARCH_COMPLETED",
   "INVALID_INPUT",
   "INPUT_TOO_LARGE",
@@ -83,6 +86,7 @@ function freezeAgentEffect(value: unknown, ordinal: number): DiscoveryAgentEffec
     effect.reason === "LISTINGS_INSPECTED" ||
     effect.reason === "HYPOTHESIS_RECORDED" ||
     effect.reason === "FALSIFICATION_RECORDED" ||
+    effect.reason === "INSPIRATION_RECORDED" ||
     effect.reason === "SEARCH_COMPLETED";
   if (
     effect.ordinal !== ordinal ||
@@ -96,16 +100,24 @@ function freezeAgentEffect(value: unknown, ordinal: number): DiscoveryAgentEffec
     (effect.hypothesisId !== null && !isNonEmptyString(effect.hypothesisId)) ||
     (effect.falsificationId !== undefined && effect.falsificationId !== null &&
       !/^sha256:[0-9a-f]{64}$/.test(String(effect.falsificationId))) ||
+    (effect.inspirationId !== undefined && effect.inspirationId !== null &&
+      !/^sha256:[0-9a-f]{64}$/.test(String(effect.inspirationId))) ||
     (effect.status === "ACCEPTED") !== successfulReason ||
     (effect.status === "IDEMPOTENT_REPLAY" && effect.reason !== "DUPLICATE") ||
     (effect.status === "REJECTED" && successfulReason) ||
     (effect.hypothesisId !== null && effect.toolName !== "record_hypothesis") ||
     (effect.falsificationId !== undefined && effect.falsificationId !== null &&
       effect.toolName !== "record_falsification") ||
+    (effect.inspirationId !== undefined && effect.inspirationId !== null &&
+      effect.toolName !== "record_inspiration") ||
     (effect.toolName === "record_falsification" &&
       effect.status === "ACCEPTED" &&
       (effect.reason !== "FALSIFICATION_RECORDED" ||
         effect.falsificationId === undefined || effect.falsificationId === null))
+    || (effect.toolName === "record_inspiration" &&
+      effect.status === "ACCEPTED" &&
+      (effect.reason !== "INSPIRATION_RECORDED" ||
+        effect.inspirationId === undefined || effect.inspirationId === null))
   ) {
     throw new Error("stored discovery agent effect violates its contract");
   }
@@ -121,6 +133,9 @@ function freezeAgentEffect(value: unknown, ordinal: number): DiscoveryAgentEffec
     ...(effect.falsificationId === undefined
       ? {}
       : { falsificationId: effect.falsificationId }),
+    ...(effect.inspirationId === undefined
+      ? {}
+      : { inspirationId: effect.inspirationId }),
   }) as DiscoveryAgentEffect;
 }
 
@@ -158,10 +173,17 @@ function freezeAgentTrace(value: unknown): DiscoveryAgentTrace {
   const rejectedFalsificationCount = effects.filter((effect) =>
     effect.toolName === "record_falsification" && effect.status === "REJECTED"
   ).length;
+  const acceptedInspirationCount = effects.filter((effect) =>
+    effect.toolName === "record_inspiration" && effect.status === "ACCEPTED"
+  ).length;
+  const rejectedInspirationCount = effects.filter((effect) =>
+    effect.toolName === "record_inspiration" && effect.status === "REJECTED"
+  ).length;
   if (
     (trace.schemaVersion !== "pmh.discovery-agent-trace.v1" &&
       trace.schemaVersion !== "pmh.discovery-agent-trace.v2" &&
-      trace.schemaVersion !== "pmh.discovery-agent-trace.v3") ||
+      trace.schemaVersion !== "pmh.discovery-agent-trace.v3" &&
+      trace.schemaVersion !== "pmh.discovery-agent-trace.v4") ||
     trace.protocol !== "PMH_BOUNDED_TOOL_LOOP_V1" ||
     !Number.isSafeInteger(trace.stepCount) || Number(trace.stepCount) < 0 ||
     Number(trace.stepCount) > 20 ||
@@ -173,13 +195,22 @@ function freezeAgentTrace(value: unknown): DiscoveryAgentTrace {
     trace.catalogReadCount !== catalogReadCount ||
     trace.acceptedProposalCount !== acceptedProposalCount ||
     trace.rejectedProposalCount !== rejectedProposalCount ||
-    (trace.schemaVersion === "pmh.discovery-agent-trace.v3" &&
+    ((trace.schemaVersion === "pmh.discovery-agent-trace.v3" ||
+      trace.schemaVersion === "pmh.discovery-agent-trace.v4") &&
       (trace.acceptedFalsificationCount !== acceptedFalsificationCount ||
         trace.rejectedFalsificationCount !== rejectedFalsificationCount)) ||
     (trace.schemaVersion !== "pmh.discovery-agent-trace.v3" &&
+      trace.schemaVersion !== "pmh.discovery-agent-trace.v4" &&
       (acceptedFalsificationCount !== 0 ||
         trace.acceptedFalsificationCount !== undefined ||
         trace.rejectedFalsificationCount !== undefined)) ||
+    (trace.schemaVersion === "pmh.discovery-agent-trace.v4" &&
+      (trace.acceptedInspirationCount !== acceptedInspirationCount ||
+        trace.rejectedInspirationCount !== rejectedInspirationCount)) ||
+    (trace.schemaVersion !== "pmh.discovery-agent-trace.v4" &&
+      (acceptedInspirationCount !== 0 ||
+        trace.acceptedInspirationCount !== undefined ||
+        trace.rejectedInspirationCount !== undefined)) ||
     !AGENT_TERMINATION_REASONS.includes(trace.terminationReason as never) ||
     trace.semanticDecisionAuthority !== false ||
     trace.certificateAuthority !== false ||
@@ -198,8 +229,12 @@ function freezeAgentTrace(value: unknown): DiscoveryAgentTrace {
     catalogReadCount,
     acceptedProposalCount,
     rejectedProposalCount,
-    ...(trace.schemaVersion === "pmh.discovery-agent-trace.v3"
+    ...(trace.schemaVersion === "pmh.discovery-agent-trace.v3" ||
+      trace.schemaVersion === "pmh.discovery-agent-trace.v4"
       ? { acceptedFalsificationCount, rejectedFalsificationCount }
+      : {}),
+    ...(trace.schemaVersion === "pmh.discovery-agent-trace.v4"
+      ? { acceptedInspirationCount, rejectedInspirationCount }
       : {}),
     terminationReason: trace.terminationReason,
     effects,
@@ -223,6 +258,10 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
     Number.isSafeInteger(report.falsificationCount) &&
     Number(report.falsificationCount) >= 0 &&
     Number(report.falsificationCount) <= 64;
+  const inspirationTelemetryAbsent = report.inspirationCount === undefined;
+  const inspirationTelemetryPresent =
+    Number.isSafeInteger(report.inspirationCount) &&
+    Number(report.inspirationCount) >= 0 && Number(report.inspirationCount) <= 64;
   const telemetryPresent = Number.isSafeInteger(report.providerRequestAttemptCount) &&
     Number(report.providerRequestAttemptCount) >= 0 &&
     Number(report.providerRequestAttemptCount) <= 20 &&
@@ -262,7 +301,8 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
     (report.status === "FAILED" &&
       (report.diagnostic === null || report.hypothesisCount !== 0)) ||
     (!telemetryAbsent && !telemetryPresent) ||
-    (!falsificationTelemetryAbsent && !falsificationTelemetryPresent)
+    (!falsificationTelemetryAbsent && !falsificationTelemetryPresent) ||
+    (!inspirationTelemetryAbsent && !inspirationTelemetryPresent)
   ) {
     throw new Error("stored discovery worker report violates its contract");
   }
@@ -276,9 +316,12 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
         agentTrace.providerRequestAttemptCount ||
       (report.status === "PASS" &&
         (report.hypothesisCount !== agentTrace.acceptedProposalCount ||
-          (agentTrace.schemaVersion === "pmh.discovery-agent-trace.v3" &&
+          ((agentTrace.schemaVersion === "pmh.discovery-agent-trace.v3" ||
+            agentTrace.schemaVersion === "pmh.discovery-agent-trace.v4") &&
             report.falsificationCount !==
-              agentTrace.acceptedFalsificationCount))))
+              agentTrace.acceptedFalsificationCount) ||
+          (agentTrace.schemaVersion === "pmh.discovery-agent-trace.v4" &&
+            report.inspirationCount !== agentTrace.acceptedInspirationCount))))
   ) {
     throw new Error("stored discovery worker report does not bind its agent trace");
   }
@@ -294,6 +337,9 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
     ...(falsificationTelemetryAbsent
       ? {}
       : { falsificationCount: report.falsificationCount }),
+    ...(inspirationTelemetryAbsent
+      ? {}
+      : { inspirationCount: report.inspirationCount }),
     diagnostic: report.diagnostic,
     ...(telemetryPresent
       ? {
@@ -380,6 +426,53 @@ function freezeFalsification(value: unknown): DiscoveryFalsification {
   }) as DiscoveryFalsification;
 }
 
+function freezeInspiration(value: unknown): DiscoveryInspiration {
+  if (value === null || typeof value !== "object") {
+    throw new Error("stored discovery inspiration is malformed");
+  }
+  const inspiration = value as DiscoveryInspiration;
+  const { inspirationId: _inspirationId, ...body } = inspiration;
+  const contentIdentity = hashCanonical({
+    schemaVersion: "pmh.discovery-inspiration-content.v1",
+    listingRefs: inspiration.listingRefs,
+    suggestedLens: inspiration.suggestedLens,
+    suggestedSemanticFamily: inspiration.suggestedSemanticFamily,
+    sourceTrailheadIdentity: inspiration.sourceTrailheadIdentity,
+  });
+  if (
+    inspiration.schemaVersion !== "pmh.discovery-inspiration.v1" ||
+    inspiration.inspirationId !== hashCanonical(body) ||
+    inspiration.contentIdentity !== contentIdentity ||
+    !isNonEmptyString(inspiration.workerId) || !isNonEmptyString(inspiration.taskId) ||
+    !isNonEmptyString(inspiration.observation) || inspiration.observation.length > 500 ||
+    !isStringArray(inspiration.listingRefs) || inspiration.listingRefs.length < 2 ||
+    inspiration.listingRefs.length > 6 ||
+    new Set(inspiration.listingRefs).size !== inspiration.listingRefs.length ||
+    !isStringArray(inspiration.searchSignals) || inspiration.searchSignals.length < 1 ||
+    inspiration.searchSignals.length > 8 ||
+    inspiration.searchSignals.some((item) => item.length > 80) ||
+    !["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"]
+      .includes(inspiration.sourceLens) ||
+    !["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"]
+      .includes(inspiration.suggestedLens) ||
+    (inspiration.sourceTrailheadIdentity !== null &&
+      !/^sha256:[0-9a-f]{64}$/u.test(inspiration.sourceTrailheadIdentity)) ||
+    (inspiration.inspirationDepth !== 0 && inspiration.inspirationDepth !== 1) ||
+    inspiration.authority !== "SEARCH_ROUTING_ONLY" ||
+    inspiration.semanticDecisionAuthority !== false ||
+    inspiration.probabilityAuthority !== false ||
+    inspiration.certificateAuthority !== false ||
+    inspiration.executionAuthority !== false ||
+    inspiration.externalWriteAuthority !== false ||
+    inspiration.valueMovingAuthority !== false
+  ) throw new Error("stored discovery inspiration violates its authority boundary");
+  return Object.freeze({
+    ...inspiration,
+    listingRefs: Object.freeze([...inspiration.listingRefs]),
+    searchSignals: Object.freeze([...inspiration.searchSignals]),
+  });
+}
+
 function freezeHypothesis(value: unknown): OpportunityHypothesis {
   if (value === null || typeof value !== "object") {
     throw new Error("stored discovery hypothesis is malformed");
@@ -461,6 +554,7 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
     !Array.isArray(record.hypotheses) ||
     (record.falsifications !== undefined &&
       !Array.isArray(record.falsifications)) ||
+    (record.inspirations !== undefined && !Array.isArray(record.inspirations)) ||
     !isStringArray(record.diagnostics) ||
     record.executionAuthority !== false ||
     !isNonEmptyString(record.question) ||
@@ -539,6 +633,33 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
   ) {
     throw new Error("stored discovery falsifications do not bind the run");
   }
+  const inspirations = record.inspirations === undefined
+    ? undefined
+    : Object.freeze(record.inspirations.map(freezeInspiration));
+  if (
+    inspirations !== undefined &&
+    (new Set(inspirations.map((item) => item.contentIdentity)).size !==
+        inspirations.length ||
+      inspirations.some((item) =>
+        item.taskId !== record.taskId || !workerIds.includes(item.workerId)
+      ))
+  ) throw new Error("stored discovery inspirations do not bind the run");
+  if (inspirations !== undefined && workerReports !== undefined) {
+    const tracedIds = workerReports.flatMap((report) =>
+      report.status !== "PASS" || report.agentTrace === undefined
+        ? []
+        : report.agentTrace.effects.flatMap((effect) =>
+            effect.toolName === "record_inspiration" &&
+              effect.status === "ACCEPTED" && effect.inspirationId != null
+              ? [effect.inspirationId]
+              : []
+          )
+    );
+    if (
+      new Set(tracedIds).size !== inspirations.length ||
+      inspirations.some((item) => !tracedIds.includes(item.inspirationId))
+    ) throw new Error("stored discovery inspirations do not bind agent effects");
+  }
   if (falsifications !== undefined && workerReports !== undefined) {
     const tracedIds = workerReports.flatMap((report) =>
       report.status !== "PASS" || report.agentTrace === undefined
@@ -567,6 +688,7 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
     ...(workerReports === undefined ? {} : { workerReports }),
     hypotheses: Object.freeze(record.hypotheses.map(freezeHypothesis)),
     ...(falsifications === undefined ? {} : { falsifications }),
+    ...(inspirations === undefined ? {} : { inspirations }),
     diagnostics: Object.freeze([...record.diagnostics]),
     executionAuthority: false,
     question: record.question,
@@ -677,12 +799,17 @@ export class DiscoveryLedger {
       (total, run) => total + (run.falsifications?.length ?? 0),
       0,
     );
+    const inspirationCount = this.#runs.reduce(
+      (total, run) => total + (run.inspirations?.length ?? 0),
+      0,
+    );
     return Object.freeze({
       retentionLimit: this.#retentionLimit,
       runCount: this.#runs.length,
       hypothesisCount,
       unreviewedCount: hypothesisCount,
       falsificationCount,
+      inspirationCount,
       storage:
         this.#store?.storage ??
         Object.freeze({

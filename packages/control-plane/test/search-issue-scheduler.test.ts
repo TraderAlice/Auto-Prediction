@@ -267,7 +267,7 @@ describe("issue-driven concurrent search scheduler", () => {
       lease: {
         semanticFamily: "TEMPORAL_IMPOSSIBILITY",
         discoveryMode: "HEURISTIC_EXPLORATION",
-        algorithmVersion: "pmh.ai-search-leases.v8",
+        algorithmVersion: "pmh.ai-search-leases.v9",
       },
       fastLane: { candidateListingRefs: selectedRefs },
       deepLane: { status: "PASS", proposalIds: [hashCanonical({ proposal: "family" })] },
@@ -416,7 +416,7 @@ describe("issue-driven concurrent search scheduler", () => {
       });
       expect(secondLeases.projection().records[0]?.lease).toMatchObject({
         issueId: issue.issueId,
-        algorithmVersion: "pmh.ai-search-leases.v8",
+        algorithmVersion: "pmh.ai-search-leases.v9",
         discoveryMode: "HEURISTIC_EXPLORATION",
       });
       secondStore.close();
@@ -1122,6 +1122,146 @@ describe("issue-driven concurrent search scheduler", () => {
       title: "Falsification notice: relation falsified",
     });
     expect(projection.notifications[0]?.summary).toContain("no proposal or Pi work");
+  });
+
+  it("persists one exact-ref inspiration follow-up and exhausts it without recursion", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-inspiration-restart-"));
+    const databasePath = join(directory, "operational.sqlite");
+    const store = new SqliteOperationalStore(databasePath);
+    const seenTasks: DiscoveryTask[] = [];
+    const leases = new SearchLeaseScheduler({
+      intervalMs: 60_000,
+      context,
+      maxPiInvocations: 0,
+      registeredVenueIds: ["venue-a", "venue-b"],
+      store,
+      runFast: async (task) => {
+        seenTasks.push(task);
+        const inspirationBody = Object.freeze({
+          schemaVersion: "pmh.discovery-inspiration.v1" as const,
+          contentIdentity: hashCanonical({
+            schemaVersion: "pmh.discovery-inspiration-content.v1",
+            listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
+            suggestedLens: "IMPLICATION",
+            suggestedSemanticFamily: "EVENT_CONTAINMENT",
+            sourceTrailheadIdentity: task.searchAssignment?.sourceTrailheadIdentity ?? null,
+          }),
+          workerId: "model:fast",
+          taskId: task.taskId,
+          observation: "The same named event is expressed through nested deadlines.",
+          listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
+          searchSignals: Object.freeze(["nested deadline", "same event"]),
+          sourceLens: task.searchAssignment!.lens,
+          sourceSemanticFamily: task.searchAssignment!.semanticFamily,
+          sourceTrailheadIdentity: task.searchAssignment!.sourceTrailheadIdentity,
+          suggestedLens: "IMPLICATION" as const,
+          suggestedSemanticFamily: "EVENT_CONTAINMENT" as const,
+          inspirationDepth: task.searchAssignment!.inspirationDepth,
+          authority: "SEARCH_ROUTING_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          probabilityAuthority: false as const,
+          certificateAuthority: false as const,
+          executionAuthority: false as const,
+          externalWriteAuthority: false as const,
+          valueMovingAuthority: false as const,
+        });
+        const inspiration = Object.freeze({
+          ...inspirationBody,
+          inspirationId: hashCanonical(inspirationBody),
+        });
+        return Object.freeze({
+          runId: hashCanonical({ taskId: task.taskId }),
+          taskId: task.taskId,
+          startedAt: "2026-08-01T00:00:01.000Z",
+          completedAt: "2026-08-01T00:00:02.000Z",
+          workerIds: Object.freeze(["model:fast"]),
+          hypotheses: Object.freeze([]),
+          falsifications: Object.freeze([]),
+          inspirations: task.searchAssignment?.inspirationDepth === 0
+            ? Object.freeze([inspiration])
+            : Object.freeze([]),
+          diagnostics: Object.freeze([]),
+          executionAuthority: false,
+          question: task.question,
+          venueIds: task.venueIds,
+        });
+      },
+      now: () => nowMs,
+    });
+    const scheduler = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      tickIntervalMs: 60_000,
+      seedDefaults: false,
+      store,
+      now: () => nowMs,
+    });
+    const issue = scheduler.create({
+      title: "Physical event exploration",
+      question: "Explore a rare physical-event neighborhood.",
+      lens: "MECHANISM",
+      family: {
+        semanticFamily: "PHYSICAL_CO_OCCURRENCE",
+        intendedRelationKinds: ["RELATED"],
+        falsifiers: ["Different subjects or event windows"],
+        expectedListingCount: { minimum: 2, maximum: 2 },
+        maxCorpusListings: 8,
+        acceptablePremiseKinds: ["TRADED_OUTCOME"],
+      },
+      discoveryMode: "HEURISTIC_EXPLORATION",
+      cadenceMs: 60_000,
+    });
+    await scheduler.runNow(issue.issueId, snapshot()).promise;
+    expect(scheduler.projection()).toMatchObject({
+      inspirationCount: 1,
+      queuedInspirationCount: 1,
+      notifications: [{ kind: "INSPIRATION_RECORDED" }],
+    });
+    const followups = scheduler.tick(snapshot());
+    expect(followups).toHaveLength(1);
+    await followups[0];
+    const inbox = scheduler.projection().inspirations;
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]).toMatchObject({
+      status: "EXHAUSTED",
+      downstreamHypothesisCount: 0,
+      downstreamFalsificationCount: 0,
+    });
+    expect(seenTasks).toHaveLength(2);
+    expect(seenTasks[1]?.searchAssignment).toMatchObject({
+      lens: "IMPLICATION",
+      semanticFamily: "EVENT_CONTAINMENT",
+      inspirationDepth: 1,
+    });
+    expect(seenTasks[1]?.catalogContext?.listings.map((item) => item.listingRef))
+      .toEqual(["venue-a:pizza", "venue-b:pizza"]);
+    expect(scheduler.tick(snapshot())).toHaveLength(0);
+    store.close();
+
+    const reopenedStore = new SqliteOperationalStore(databasePath);
+    const reopenedLeases = new SearchLeaseScheduler({
+      intervalMs: 60_000,
+      context,
+      maxPiInvocations: 0,
+      registeredVenueIds: ["venue-a", "venue-b"],
+      runFast: async () => {
+        throw new Error("restart replay must not spend another Agent request");
+      },
+      store: reopenedStore,
+      now: () => nowMs,
+    });
+    const reopenedScheduler = new SearchIssueScheduler({
+      leaseScheduler: reopenedLeases,
+      tickIntervalMs: 60_000,
+      seedDefaults: false,
+      store: reopenedStore,
+      now: () => nowMs,
+    });
+    expect(reopenedScheduler.projection().inspirations).toMatchObject([
+      { status: "EXHAUSTED", followupLeaseId: expect.stringMatching(/^sha256:/u) },
+    ]);
+    expect(reopenedScheduler.tick(snapshot())).toHaveLength(0);
+    reopenedStore.close();
+    await rm(directory, { recursive: true, force: true });
   });
 
   it("reconciles missing defaults without overwriting durable operator issue state", async () => {

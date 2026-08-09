@@ -1904,13 +1904,13 @@ describe("AI-native search lease scheduler", () => {
       "SCHEDULE",
     ).promise;
     expect(currentRecord.lease).toMatchObject({
-      algorithmVersion: "pmh.ai-search-leases.v8",
+      algorithmVersion: "pmh.ai-search-leases.v9",
       lens: "EQUIVALENCE",
     });
     expect(scheduler.projection().records.map(
       (record) => record.lease.algorithmVersion,
     )).toEqual([
-      "pmh.ai-search-leases.v8",
+      "pmh.ai-search-leases.v9",
       "pmh.ai-search-leases.v2",
       "pmh.ai-search-leases.v1",
     ]);

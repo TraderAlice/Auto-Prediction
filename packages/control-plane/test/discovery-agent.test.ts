@@ -259,10 +259,58 @@ describe("bounded discovery agent session", () => {
       executionAuthority: false,
     });
     expect(result.trace).toMatchObject({
-      schemaVersion: "pmh.discovery-agent-trace.v3",
+      schemaVersion: "pmh.discovery-agent-trace.v4",
       acceptedProposalCount: 0,
       acceptedFalsificationCount: 1,
       rejectedFalsificationCount: 1,
+    });
+  });
+
+  it("records a grounded cross-lens inspiration without creating a proposal", () => {
+    const inspiredTask = Object.freeze({
+      ...task,
+      searchAssignment: Object.freeze({
+        lens: "MECHANISM" as const,
+        semanticFamily: "PHYSICAL_CO_OCCURRENCE" as const,
+        sourceTrailheadIdentity: `sha256:${"a".repeat(64)}` as const,
+        inspirationDepth: 0 as const,
+      }),
+    });
+    const session = new DiscoveryAgentSession("model:inspiration", inspiredTask, 24);
+    const refs = inspiredTask.catalogContext!.listings.slice(0, 2).map((item) => item.listingRef);
+    session.inspectListings({ listingRefs: refs });
+    expect(session.recordInspiration({
+      observation: "The same subject is expressed through nested event deadlines.",
+      listingRefs: refs,
+      searchSignals: ["nested deadline", "same subject"],
+      suggestedLens: "MECHANISM",
+      suggestedSemanticFamily: "PHYSICAL_CO_OCCURRENCE",
+    })).toMatchObject({ status: "REJECTED", reason: "OUT_OF_SCOPE" });
+    const accepted = session.recordInspiration({
+      observation: "The same subject is expressed through nested event deadlines.",
+      listingRefs: refs,
+      searchSignals: ["nested deadline", "same subject"],
+      suggestedLens: "IMPLICATION",
+      suggestedSemanticFamily: "EVENT_CONTAINMENT",
+    });
+    expect(accepted).toMatchObject({
+      status: "ACCEPTED",
+      reason: "INSPIRATION_RECORDED",
+      listingRefs: refs,
+    });
+    expect(accepted.inspirationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    const result = session.finish({
+      stepCount: 3,
+      providerRequestAttemptCount: 3,
+      toolCallCount: 3,
+      terminationReason: "MODEL_FINISHED",
+    });
+    expect(result.hypotheses).toEqual([]);
+    expect(result.inspirations).toHaveLength(1);
+    expect(result.trace).toMatchObject({
+      schemaVersion: "pmh.discovery-agent-trace.v4",
+      acceptedInspirationCount: 1,
+      rejectedInspirationCount: 1,
     });
   });
 });

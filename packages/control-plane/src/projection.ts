@@ -319,7 +319,7 @@ export function buildStudioProjection(input: {
   };
   const searchLeaseScheduler = input.searchLeaseScheduler ?? {
     schemaVersion: "pmh.search-lease-scheduler.v1" as const,
-    algorithmVersion: "pmh.ai-search-leases.v8" as const,
+    algorithmVersion: "pmh.ai-search-leases.v9" as const,
     enabled: false,
     configured: { fastLane: true, deepLane: false },
     status: "IDLE" as const,
@@ -396,6 +396,9 @@ export function buildStudioProjection(input: {
     supersededIssueCount: 0,
     dueIssueCount: 0,
     unreadNotificationCount: 0,
+    inspirationCount: 0,
+    queuedInspirationCount: 0,
+    runningInspirationCount: 0,
     performance: {
       measurementWindow: "RETAINED_TERMINAL_LEASES" as const,
       retainedLeaseLimit: 40,
@@ -468,6 +471,7 @@ export function buildStudioProjection(input: {
     },
     issues: [],
     notifications: [],
+    inspirations: [],
     storage: {
       issues: {
         mode: "MEMORY" as const,
@@ -961,6 +965,7 @@ export function buildStudioProjection(input: {
     hypothesisCount: 0,
     unreviewedCount: 0,
     falsificationCount: 0,
+    inspirationCount: 0,
     storage: {
       mode: "MEMORY" as const,
       durable: false,

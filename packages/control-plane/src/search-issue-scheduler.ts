@@ -78,13 +78,30 @@ export type SearchNotificationRecord = Readonly<{
   dedupeIdentity: Hash;
   issueId: Hash;
   leaseId: Hash;
-  kind: "NOVEL_CANDIDATE" | "FALSIFICATION_RECORDED" | "RUN_FAILED";
+  kind:
+    | "NOVEL_CANDIDATE"
+    | "FALSIFICATION_RECORDED"
+    | "INSPIRATION_RECORDED"
+    | "INSPIRATION_FOLLOWUP_COMPLETE"
+    | "RUN_FAILED";
   status: "UNREAD" | "READ";
   title: string;
   summary: string;
   createdAt: string;
   readAt: string | null;
   artifactHash: Hash;
+}>;
+
+export type SearchInspirationInboxItem = Readonly<{
+  inspiration: NonNullable<SearchLeaseRecord["fastLane"]["inspirations"]>[number];
+  sourceLeaseId: Hash;
+  sourceIssueId: Hash | null;
+  followupLeaseId: Hash | null;
+  status: "QUEUED" | "RUNNING" | "EXHAUSTED" | "COMPLETE" | "FAILED";
+  providerRequestAttemptCount: number;
+  downstreamHypothesisCount: number;
+  downstreamFalsificationCount: number;
+  terminalDiagnostic: string | null;
 }>;
 
 export interface SearchIssueRecordStore {
@@ -115,6 +132,9 @@ export type SearchIssueSchedulerProjection = Readonly<{
   supersededIssueCount: number;
   dueIssueCount: number;
   unreadNotificationCount: number;
+  inspirationCount: number;
+  queuedInspirationCount: number;
+  runningInspirationCount: number;
   performance: Readonly<{
     measurementWindow: "RETAINED_TERMINAL_LEASES";
     retainedLeaseLimit: number;
@@ -281,6 +301,7 @@ export type SearchIssueSchedulerProjection = Readonly<{
   }>;
   issues: readonly SearchIssueRecord[];
   notifications: readonly SearchNotificationRecord[];
+  inspirations: readonly SearchInspirationInboxItem[];
   storage: Readonly<{
     issues: OperationalStorageProjection<"issueId">;
     notifications: OperationalStorageProjection<"notificationId">;
@@ -879,6 +900,8 @@ export function assertSearchNotificationRecord(
     !HASH_PATTERN.test(String(record.leaseId)) ||
     (record.kind !== "NOVEL_CANDIDATE" &&
       record.kind !== "FALSIFICATION_RECORDED" &&
+      record.kind !== "INSPIRATION_RECORDED" &&
+      record.kind !== "INSPIRATION_FOLLOWUP_COMPLETE" &&
       record.kind !== "RUN_FAILED") ||
     (record.status !== "UNREAD" && record.status !== "READ") ||
     !boundedText(record.title, 160) || !boundedText(record.summary, 500) ||
@@ -1085,6 +1108,7 @@ export class SearchIssueScheduler {
   readonly #issues: SearchIssueRecord[];
   readonly #notifications: SearchNotificationRecord[];
   readonly #active = new Map<Hash, Promise<SearchLeaseRecord>>();
+  readonly #activeInspirations = new Map<Hash, Promise<SearchLeaseRecord>>();
   readonly #leaseScheduler: SearchLeaseScheduler;
   readonly #store: SearchIssueRecordStore | undefined;
   readonly #now: () => number;
@@ -1363,6 +1387,110 @@ export class SearchIssueScheduler {
     return this.#dispatch(this.#requireIssue(issueId), snapshot, "OPERATOR");
   }
 
+  #inspirationInbox(): readonly SearchInspirationInboxItem[] {
+    const records = this.#leaseScheduler.projection().records;
+    return Object.freeze(records.flatMap((source) =>
+      source.status === "ISSUED" || source.lease.inspirationFollowup != null
+        ? []
+        : (source.fastLane.inspirations ?? []).map((inspiration) => {
+            const followup = records.find((record) =>
+              record.lease.inspirationFollowup?.sourceInspirationId ===
+                inspiration.inspirationId
+            );
+            const status: SearchInspirationInboxItem["status"] = followup === undefined
+              ? "QUEUED"
+              : followup.status === "ISSUED"
+                ? "RUNNING"
+                : followup.status === "FAILED"
+                  ? "FAILED"
+                  : followup.outcome.hypothesisCount > 0 ||
+                      (followup.outcome.falsificationCount ?? 0) > 0
+                    ? "COMPLETE"
+                    : "EXHAUSTED";
+            return Object.freeze({
+              inspiration,
+              sourceLeaseId: source.lease.leaseId,
+              sourceIssueId: source.lease.issueId ?? null,
+              followupLeaseId: followup?.lease.leaseId ?? null,
+              status,
+              providerRequestAttemptCount:
+                followup?.fastLane.providerTelemetry?.requestAttemptCount ?? 0,
+              downstreamHypothesisCount: followup?.outcome.hypothesisCount ?? 0,
+              downstreamFalsificationCount:
+                followup?.outcome.falsificationCount ?? 0,
+              terminalDiagnostic: followup?.diagnostic ?? null,
+            });
+          })
+    ).sort((left, right) =>
+      right.inspiration.inspirationId.localeCompare(left.inspiration.inspirationId)
+    ));
+  }
+
+  #dispatchPendingInspirations(
+    snapshot: MarketCorpusSnapshot,
+  ): readonly Promise<SearchLeaseRecord>[] {
+    const promises: Promise<SearchLeaseRecord>[] = [];
+    for (const item of this.#inspirationInbox()) {
+      if (item.status !== "QUEUED" ||
+        this.#activeInspirations.has(item.inspiration.inspirationId)) continue;
+      const inspiration = item.inspiration;
+      try {
+        const invocation = this.#leaseScheduler.begin(
+          snapshot,
+          inspiration.suggestedLens,
+          "SCHEDULE",
+          Object.freeze({
+            issueId: null,
+            question: [
+              `Follow up one grounded inspiration: ${inspiration.observation}`,
+              `Start from exact refs ${inspiration.listingRefs.join(", ")}.`,
+              `Signals: ${inspiration.searchSignals.join(", ")}.`,
+              "Test the suggested relation; record a hypothesis, falsification, or explicit no-lead completion.",
+            ].join(" ").slice(0, 500),
+            venueIds: Object.freeze([]),
+            discoveryMode: "HEURISTIC_EXPLORATION",
+            semanticFamily: inspiration.suggestedSemanticFamily,
+            candidatePolicy: null,
+            inspirationFollowup: Object.freeze({
+              schemaVersion: "pmh.search-inspiration-followup.v1" as const,
+              sourceInspirationId: inspiration.inspirationId,
+              sourceLeaseId: item.sourceLeaseId,
+              sourceIssueId: item.sourceIssueId,
+              sourceTrailheadIdentity: inspiration.sourceTrailheadIdentity,
+              listingRefs: Object.freeze([...inspiration.listingRefs]),
+              depth: 1 as const,
+            }),
+          }),
+        );
+        const promise = invocation.promise.then((record) => {
+          const sourceIssue = item.sourceIssueId === null
+            ? undefined
+            : this.#issues.find((issue) => issue.issueId === item.sourceIssueId);
+          if (sourceIssue !== undefined && record.status !== "ISSUED") {
+            this.#notify(
+              sourceIssue,
+              record,
+              "INSPIRATION_FOLLOWUP_COMPLETE",
+              inspiration.inspirationId,
+              record.status === "FAILED"
+                ? `The bounded inspiration follow-up failed: ${record.diagnostic ?? "unknown failure"}`
+                : `${record.outcome.hypothesisCount} hypothesis and ${record.outcome.falsificationCount ?? 0} falsification effects were retained from the exact-ref follow-up.`,
+            );
+          }
+          return record;
+        }).finally(() => {
+          this.#activeInspirations.delete(inspiration.inspirationId);
+        });
+        this.#activeInspirations.set(inspiration.inspirationId, promise);
+        promises.push(promise);
+      } catch (error) {
+        if (error instanceof SearchLeaseBusyError) break;
+        throw error;
+      }
+    }
+    return Object.freeze(promises);
+  }
+
   public tick(snapshot: MarketCorpusSnapshot): readonly Promise<SearchLeaseRecord>[] {
     if (this.tickIntervalMs === null || snapshot.listingCount === 0) return Object.freeze([]);
     const now = this.#now();
@@ -1381,8 +1509,9 @@ export class SearchIssueScheduler {
         nextRunAt: new Date(now).toISOString(),
       }));
     }
+    const inspirationPromises = this.#dispatchPendingInspirations(snapshot);
     const available = this.#concurrencyLimit - this.#active.size;
-    if (available <= 0) return Object.freeze([]);
+    if (available <= 0) return inspirationPromises;
     const rankedDue = this.#issues
       .filter((issue) =>
         issue.enabled &&
@@ -1422,7 +1551,7 @@ export class SearchIssueScheduler {
         throw error;
       }
     }
-    return Object.freeze(promises);
+    return Object.freeze([...inspirationPromises, ...promises]);
   }
 
   #hasIssuedLease(issue: SearchIssueRecord): boolean {
@@ -1504,6 +1633,15 @@ export class SearchIssueScheduler {
       passCount: issue.passCount + (!alreadyCounted && !recoveryOnly && lease.status === "PASS" ? 1 : 0),
       failedCount: issue.failedCount + (!alreadyCounted && !recoveryOnly && lease.status === "FAILED" ? 1 : 0),
     }));
+    for (const inspiration of lease.fastLane.inspirations ?? []) {
+      this.#notify(
+        issue,
+        lease,
+        "INSPIRATION_RECORDED",
+        inspiration.contentIdentity,
+        `The Agent found a grounded ${inspiration.sourceLens.toLowerCase()} neighborhood that should be tested as ${inspiration.suggestedLens.toLowerCase()} from ${inspiration.listingRefs.length} exact inspected refs. One bounded follow-up is queued; no claim or Pi work was created by this effect.`,
+      );
+    }
     if (lease.status === "FAILED" && !recoveryOnly) {
       this.#notify(issue, lease, "RUN_FAILED", lease.lease.leaseId,
         lease.diagnostic ?? "Scheduled search failed before producing a bounded result.");
@@ -1565,7 +1703,11 @@ export class SearchIssueScheduler {
         ? `${issue.title}: new candidate`
         : kind === "FALSIFICATION_RECORDED"
           ? `${issue.title}: relation falsified`
-          : `${issue.title}: search failed`,
+          : kind === "INSPIRATION_RECORDED"
+            ? `${issue.title}: new search direction`
+            : kind === "INSPIRATION_FOLLOWUP_COMPLETE"
+              ? `${issue.title}: inspiration follow-up complete`
+              : `${issue.title}: search failed`,
       summary: summary.slice(0, 500),
       createdAt,
       readAt: null,
@@ -1631,6 +1773,7 @@ export class SearchIssueScheduler {
     const now = this.#now();
     const issues = Object.freeze([...this.#issues]);
     const notifications = Object.freeze([...this.#notifications]);
+    const inspirations = this.#inspirationInbox();
     const leaseProjection = this.#leaseScheduler.projection();
     const terminalIssueLeases = leaseProjection.records.filter(
       (record) => record.status !== "ISSUED" && record.lease.issueId !== null &&
@@ -1676,6 +1819,9 @@ export class SearchIssueScheduler {
         ),
       ).length,
       unreadNotificationCount: notifications.filter((item) => item.status === "UNREAD").length,
+      inspirationCount: inspirations.length,
+      queuedInspirationCount: inspirations.filter((item) => item.status === "QUEUED").length,
+      runningInspirationCount: inspirations.filter((item) => item.status === "RUNNING").length,
       performance: Object.freeze({
         measurementWindow: "RETAINED_TERMINAL_LEASES" as const,
         retainedLeaseLimit: leaseProjection.retentionLimit,
@@ -1754,6 +1900,7 @@ export class SearchIssueScheduler {
       }),
       issues,
       notifications,
+      inspirations,
       storage: Object.freeze({
         issues: this.#store?.searchIssueStorage ?? Object.freeze({
           mode: "MEMORY" as const,

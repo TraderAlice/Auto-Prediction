@@ -248,7 +248,7 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
     expect(result.hypotheses).toEqual([]);
     expect(result.falsifications).toHaveLength(1);
     expect(result.trace).toMatchObject({
-      schemaVersion: "pmh.discovery-agent-trace.v3",
+      schemaVersion: "pmh.discovery-agent-trace.v4",
       acceptedProposalCount: 0,
       acceptedFalsificationCount: 1,
       terminationReason: "EXPLICIT_COMPLETION",

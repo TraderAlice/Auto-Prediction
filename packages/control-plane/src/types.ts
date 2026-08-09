@@ -68,6 +68,12 @@ export type DiscoveryTask = Readonly<{
   maxHypotheses: number;
   deadlineEpochMs: number;
   catalogContext?: DiscoveryCatalogContext;
+  searchAssignment?: Readonly<{
+    lens: "EQUIVALENCE" | "IMPLICATION" | "PARTITION" | "MECHANISM";
+    semanticFamily: import("./search-semantic-family.js").SearchSemanticFamily | null;
+    sourceTrailheadIdentity: Hash | null;
+    inspirationDepth: 0 | 1;
+  }>;
 }>;
 
 export type OpportunityHypothesis = Readonly<{
@@ -112,6 +118,30 @@ export type DiscoveryFalsification = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type DiscoveryInspiration = Readonly<{
+  schemaVersion: "pmh.discovery-inspiration.v1";
+  inspirationId: Hash;
+  contentIdentity: Hash;
+  workerId: string;
+  taskId: string;
+  observation: string;
+  listingRefs: readonly string[];
+  searchSignals: readonly string[];
+  sourceLens: "EQUIVALENCE" | "IMPLICATION" | "PARTITION" | "MECHANISM";
+  sourceSemanticFamily: import("./search-semantic-family.js").SearchSemanticFamily | null;
+  sourceTrailheadIdentity: Hash | null;
+  suggestedLens: "EQUIVALENCE" | "IMPLICATION" | "PARTITION" | "MECHANISM";
+  suggestedSemanticFamily: import("./search-semantic-family.js").SearchSemanticFamily | null;
+  inspirationDepth: 0 | 1;
+  authority: "SEARCH_ROUTING_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type DiscoveryWorkerReport = Readonly<{
   workerId: string;
   kind: "HEURISTIC" | "MODEL";
@@ -122,6 +152,7 @@ export type DiscoveryWorkerReport = Readonly<{
   durationMs: number;
   hypothesisCount: number;
   falsificationCount?: number;
+  inspirationCount?: number;
   diagnostic: string | null;
   providerRequestAttemptCount?: number;
   providerFailureCategory?: import("./model-failure.js").ModelFailureCategory | null;
@@ -133,6 +164,7 @@ export type DiscoveryAgentToolName =
   | "inspect_listings"
   | "record_hypothesis"
   | "record_falsification"
+  | "record_inspiration"
   | "complete_search"
   | "unknown_tool";
 
@@ -146,6 +178,7 @@ export type DiscoveryAgentEffectReason =
   | "LISTINGS_INSPECTED"
   | "HYPOTHESIS_RECORDED"
   | "FALSIFICATION_RECORDED"
+  | "INSPIRATION_RECORDED"
   | "SEARCH_COMPLETED"
   | "INVALID_INPUT"
   | "INPUT_TOO_LARGE"
@@ -169,6 +202,7 @@ export type DiscoveryAgentEffect = Readonly<{
   listingRefs: readonly string[];
   hypothesisId: string | null;
   falsificationId?: Hash | null;
+  inspirationId?: Hash | null;
 }>;
 
 export type DiscoveryAgentTerminationReason =
@@ -186,7 +220,8 @@ export type DiscoveryAgentTrace = Readonly<{
   schemaVersion:
     | "pmh.discovery-agent-trace.v1"
     | "pmh.discovery-agent-trace.v2"
-    | "pmh.discovery-agent-trace.v3";
+    | "pmh.discovery-agent-trace.v3"
+    | "pmh.discovery-agent-trace.v4";
   protocol: "PMH_BOUNDED_TOOL_LOOP_V1";
   stepCount: number;
   providerRequestAttemptCount: number;
@@ -196,6 +231,8 @@ export type DiscoveryAgentTrace = Readonly<{
   rejectedProposalCount: number;
   acceptedFalsificationCount?: number;
   rejectedFalsificationCount?: number;
+  acceptedInspirationCount?: number;
+  rejectedInspirationCount?: number;
   terminationReason: DiscoveryAgentTerminationReason;
   effects: readonly DiscoveryAgentEffect[];
   semanticDecisionAuthority: false;
@@ -208,6 +245,7 @@ export type DiscoveryAgentTrace = Readonly<{
 export type DiscoveryAgentRunResult = Readonly<{
   hypotheses: readonly OpportunityHypothesis[];
   falsifications: readonly DiscoveryFalsification[];
+  inspirations: readonly DiscoveryInspiration[];
   trace: DiscoveryAgentTrace;
 }>;
 
@@ -220,6 +258,7 @@ export type DiscoveryRun = Readonly<{
   workerReports?: readonly DiscoveryWorkerReport[];
   hypotheses: readonly OpportunityHypothesis[];
   falsifications?: readonly DiscoveryFalsification[];
+  inspirations?: readonly DiscoveryInspiration[];
   diagnostics: readonly string[];
   executionAuthority: false;
 }>;
@@ -241,6 +280,7 @@ export type DiscoveryDeskProjection = Readonly<{
   hypothesisCount: number;
   unreviewedCount: number;
   falsificationCount: number;
+  inspirationCount: number;
   storage: OperationalStorageProjection;
   runs: readonly DiscoveryRunRecord[];
 }>;

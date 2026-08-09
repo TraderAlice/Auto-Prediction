@@ -155,6 +155,8 @@ describe("discovery ledger", () => {
     const legacy = JSON.parse(JSON.stringify(record));
     delete legacy.workerReports[0].agentTrace.acceptedFalsificationCount;
     delete legacy.workerReports[0].agentTrace.rejectedFalsificationCount;
+    delete legacy.workerReports[0].agentTrace.acceptedInspirationCount;
+    delete legacy.workerReports[0].agentTrace.rejectedInspirationCount;
     for (const effect of legacy.workerReports[0].agentTrace.effects) {
       delete effect.falsificationId;
     }
@@ -235,7 +237,7 @@ describe("discovery ledger", () => {
       hypothesisCount: 0,
       falsificationCount: 1,
       agentTrace: {
-        schemaVersion: "pmh.discovery-agent-trace.v3",
+        schemaVersion: "pmh.discovery-agent-trace.v4",
         acceptedFalsificationCount: 1,
       },
     });

@@ -17,6 +17,7 @@ import {
 import type {
   DiscoveryCatalogContext,
   DiscoveryRunRecord,
+  DiscoveryInspiration,
   DiscoveryTask,
   OperationalStorageProjection,
   OpportunityHypothesis,
@@ -56,8 +57,9 @@ const SEARCH_LEASE_ALGORITHM_VERSIONS = Object.freeze([
   "pmh.ai-search-leases.v6",
   "pmh.ai-search-leases.v7",
   "pmh.ai-search-leases.v8",
+  "pmh.ai-search-leases.v9",
 ] as const);
-const ALGORITHM_VERSION = "pmh.ai-search-leases.v8" as const;
+const ALGORITHM_VERSION = "pmh.ai-search-leases.v9" as const;
 const DEFAULT_RETENTION_LIMIT = 40;
 const DEFAULT_FAST_DEADLINE_MS = 300_000;
 const DEFAULT_DEEP_DEADLINE_MS = 300_000;
@@ -71,7 +73,8 @@ function hasStagedLaneContractVersion(version: SearchLeaseAlgorithmVersion): boo
   return version === "pmh.ai-search-leases.v5" ||
     version === "pmh.ai-search-leases.v6" ||
     version === "pmh.ai-search-leases.v7" ||
-    version === "pmh.ai-search-leases.v8";
+    version === "pmh.ai-search-leases.v8" ||
+    version === "pmh.ai-search-leases.v9";
 }
 
 export const SEARCH_LENSES = Object.freeze([
@@ -234,6 +237,15 @@ export type SearchLease = Readonly<{
   issuedAt: string;
   deadlineAt: string;
   graphContext?: SemanticGraphSearchContext | null;
+  inspirationFollowup?: Readonly<{
+    schemaVersion: "pmh.search-inspiration-followup.v1";
+    sourceInspirationId: Hash;
+    sourceLeaseId: Hash;
+    sourceIssueId: Hash | null;
+    sourceTrailheadIdentity: Hash | null;
+    listingRefs: readonly string[];
+    depth: 1;
+  }> | null;
   authority: "PROPOSE_ONLY";
   semanticDecisionAuthority: false;
   certificateAuthority: false;
@@ -258,6 +270,7 @@ export type SearchLeaseFastLane = Readonly<{
   hypothesisIds: readonly string[];
   falsificationIds?: readonly Hash[];
   falsificationFindingIdentities?: readonly Hash[];
+  inspirations?: readonly DiscoveryInspiration[];
   candidateListingRefs: readonly string[];
   semanticScope?: SearchScopeIdentity;
   economicGate?: SearchLeaseEconomicGate;
@@ -288,6 +301,8 @@ export type SearchLeaseAgentTelemetry = Readonly<{
   rejectedProposalEffectCount: number;
   acceptedFalsificationEffectCount?: number;
   rejectedFalsificationEffectCount?: number;
+  acceptedInspirationEffectCount?: number;
+  rejectedInspirationEffectCount?: number;
   terminationReasons: readonly Readonly<{
     reason: import("./types.js").DiscoveryAgentTerminationReason;
     count: number;
@@ -499,12 +514,13 @@ type SearchLeaseOptions = Readonly<{
 }>;
 
 export type SearchLeaseIssueInput = Readonly<{
-  issueId: Hash;
+  issueId?: Hash | null;
   question: string;
   venueIds: readonly string[];
   discoveryMode?: SearchDiscoveryMode;
   semanticFamily?: SearchSemanticFamily | null;
   candidatePolicy?: SearchCandidatePolicy | null;
+  inspirationFollowup?: NonNullable<SearchLease["inspirationFollowup"]>;
 }>;
 
 const LENS_SPEC: Readonly<Record<SearchLens, Readonly<{
@@ -831,7 +847,15 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
   const { artifactHash, ...body } = record;
   const lease = record.lease;
   const expectedLeaseId = lease === undefined ? "" : hashCanonical(
-    lease.issueId === undefined || lease.issueId === null
+    lease.inspirationFollowup !== undefined && lease.inspirationFollowup !== null
+      ? {
+          schemaVersion: "pmh.search-lease-id.v3",
+          algorithmVersion: lease.algorithmVersion,
+          snapshotIdentity: lease.snapshotIdentity,
+          sourceInspirationId: lease.inspirationFollowup.sourceInspirationId,
+          lens: lease.lens,
+        }
+      : lease.issueId === undefined || lease.issueId === null
       ? {
           schemaVersion: "pmh.search-lease-id.v1",
           algorithmVersion: lease.algorithmVersion,
@@ -905,6 +929,30 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     )
   );
   const agentTelemetry = record.fastLane?.agentTelemetry;
+  const inspirations = record.fastLane?.inspirations;
+  const inspirationsValid = inspirations === undefined || (
+    Array.isArray(inspirations) && inspirations.length <= 64 &&
+    new Set(inspirations.map((item) => item.contentIdentity)).size === inspirations.length &&
+    inspirations.every((item) => {
+      const { inspirationId: _inspirationId, ...body } = item;
+      return item.schemaVersion === "pmh.discovery-inspiration.v1" &&
+        item.inspirationId === hashCanonical(body) &&
+        item.contentIdentity === hashCanonical({
+          schemaVersion: "pmh.discovery-inspiration-content.v1",
+          listingRefs: item.listingRefs,
+          suggestedLens: item.suggestedLens,
+          suggestedSemanticFamily: item.suggestedSemanticFamily,
+          sourceTrailheadIdentity: item.sourceTrailheadIdentity,
+        }) &&
+        nonEmptyStrings(item.listingRefs, 6) && item.listingRefs.length >= 2 &&
+        nonEmptyStrings(item.searchSignals, 8) && item.searchSignals.length >= 1 &&
+        item.authority === "SEARCH_ROUTING_ONLY" &&
+        item.semanticDecisionAuthority === false &&
+        item.probabilityAuthority === false && item.certificateAuthority === false &&
+        item.executionAuthority === false && item.externalWriteAuthority === false &&
+        item.valueMovingAuthority === false;
+    })
+  );
   const agentTelemetryValid = agentTelemetry === undefined || (
     agentTelemetry.schemaVersion === "pmh.discovery-agent-telemetry.v1" &&
     Number.isSafeInteger(agentTelemetry.agentRunCount) &&
@@ -930,6 +978,14 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
       (Number.isSafeInteger(agentTelemetry.rejectedFalsificationEffectCount) &&
         agentTelemetry.rejectedFalsificationEffectCount >= 0 &&
         agentTelemetry.rejectedFalsificationEffectCount <= 256)) &&
+    (agentTelemetry.acceptedInspirationEffectCount === undefined ||
+      (Number.isSafeInteger(agentTelemetry.acceptedInspirationEffectCount) &&
+        agentTelemetry.acceptedInspirationEffectCount >= 0 &&
+        agentTelemetry.acceptedInspirationEffectCount <= 80)) &&
+    (agentTelemetry.rejectedInspirationEffectCount === undefined ||
+      (Number.isSafeInteger(agentTelemetry.rejectedInspirationEffectCount) &&
+        agentTelemetry.rejectedInspirationEffectCount >= 0 &&
+        agentTelemetry.rejectedInspirationEffectCount <= 256)) &&
     Array.isArray(agentTelemetry.terminationReasons) &&
     agentTelemetry.terminationReasons.length <= 9 &&
     new Set(agentTelemetry.terminationReasons.map((item) => item.reason)).size ===
@@ -950,17 +1006,35 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
   const hasStagedLaneContract = lease?.algorithmVersion === "pmh.ai-search-leases.v5" ||
     lease?.algorithmVersion === "pmh.ai-search-leases.v6" ||
     lease?.algorithmVersion === "pmh.ai-search-leases.v7" ||
-    lease?.algorithmVersion === "pmh.ai-search-leases.v8";
+    lease?.algorithmVersion === "pmh.ai-search-leases.v8" ||
+    lease?.algorithmVersion === "pmh.ai-search-leases.v9";
   const discoveryMode = lease?.discoveryMode;
   const discoveryModeValid = lease?.algorithmVersion === "pmh.ai-search-leases.v7" ||
-      lease?.algorithmVersion === "pmh.ai-search-leases.v8"
-    ? lease.issueId === undefined || lease.issueId === null
-      ? discoveryMode === null
+      lease?.algorithmVersion === "pmh.ai-search-leases.v8" ||
+      lease?.algorithmVersion === "pmh.ai-search-leases.v9"
+    ? lease.inspirationFollowup !== undefined && lease.inspirationFollowup !== null
+      ? discoveryMode === "HEURISTIC_EXPLORATION"
+      : lease.issueId === undefined || lease.issueId === null
+        ? discoveryMode === null
       : discoveryMode === "HEURISTIC_EXPLORATION" || discoveryMode === "CLAIM_MONITORING"
     : discoveryMode === undefined;
   const semanticFamily = lease?.semanticFamily;
   const semanticFamilyValid = semanticFamily === undefined || semanticFamily === null ||
     isSearchSemanticFamily(semanticFamily);
+  const inspirationFollowup = lease?.inspirationFollowup;
+  const inspirationFollowupValid = inspirationFollowup === undefined ||
+    inspirationFollowup === null || (
+      lease.algorithmVersion === "pmh.ai-search-leases.v9" &&
+      inspirationFollowup.schemaVersion === "pmh.search-inspiration-followup.v1" &&
+      HASH_PATTERN.test(String(inspirationFollowup.sourceInspirationId)) &&
+      HASH_PATTERN.test(String(inspirationFollowup.sourceLeaseId)) &&
+      validHashOrNull(inspirationFollowup.sourceIssueId) &&
+      validHashOrNull(inspirationFollowup.sourceTrailheadIdentity) &&
+      nonEmptyStrings(inspirationFollowup.listingRefs, 6) &&
+      inspirationFollowup.listingRefs.length >= 2 &&
+      new Set(inspirationFollowup.listingRefs).size === inspirationFollowup.listingRefs.length &&
+      inspirationFollowup.depth === 1
+    );
   const retrievalPlan = record.fastLane?.retrievalPlan;
   let retrievalPlanValid = retrievalPlan === undefined;
   if (retrievalPlan !== undefined) {
@@ -1090,8 +1164,10 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     !candidatePolicyValid ||
     !discoveryModeValid ||
     !semanticFamilyValid ||
+    !inspirationFollowupValid ||
     !providerTelemetryValid ||
     !agentTelemetryValid ||
+    !inspirationsValid ||
     !retrievalPlanValid ||
     !stagedLaneValid ||
     !corpusCoverageValid(
@@ -1550,7 +1626,15 @@ export class SearchLeaseScheduler {
       throw new SearchLeaseUnavailableError("search lease lens is invalid");
     }
     const leaseId = hashCanonical(
-      issue === undefined
+      issue?.inspirationFollowup !== undefined
+        ? {
+            schemaVersion: "pmh.search-lease-id.v3",
+            algorithmVersion: ALGORITHM_VERSION,
+            snapshotIdentity: snapshot.snapshotIdentity,
+            sourceInspirationId: issue.inspirationFollowup.sourceInspirationId,
+            lens: selectedLens,
+          }
+        : issue === undefined
         ? {
             schemaVersion: "pmh.search-lease-id.v1",
             algorithmVersion: ALGORITHM_VERSION,
@@ -1615,6 +1699,7 @@ export class SearchLeaseScheduler {
         issuedAt: new Date(issuedAtMs).toISOString(),
         deadlineAt: new Date(issuedAtMs + this.#budget.deadlineMs).toISOString(),
         graphContext,
+        inspirationFollowup: issue?.inspirationFollowup ?? null,
         authority: "PROPOSE_ONLY" as const,
         semanticDecisionAuthority: false as const,
         certificateAuthority: false as const,
@@ -1718,16 +1803,32 @@ export class SearchLeaseScheduler {
   ): Promise<SearchLeaseRecord> {
     let selectedRetrievalPlan: SemanticFamilyRetrievalPlan | undefined;
     try {
-      const contextResult = this.#context(
-        issued.trace.querySummary,
-        issued.lease.scope.venueIds,
-        issued.lease.lens,
-        snapshot,
-        this.#contextFeedback(issued),
-        issued.lease.candidatePolicy ?? null,
-        issued.lease.semanticFamily ?? null,
-        issued.lease.discoveryMode ?? null,
-      );
+      const followup = issued.lease.inspirationFollowup ?? null;
+      const contextResult = followup === null
+        ? this.#context(
+            issued.trace.querySummary,
+            issued.lease.scope.venueIds,
+            issued.lease.lens,
+            snapshot,
+            this.#contextFeedback(issued),
+            issued.lease.candidatePolicy ?? null,
+            issued.lease.semanticFamily ?? null,
+            issued.lease.discoveryMode ?? null,
+          )
+        : buildExactDiscoveryCatalogContext(
+            snapshot.listings.some((listing) => listing.sourceKind === "LIVE_OBSERVATION")
+              ? "QUALIFIED_LIVE_OBSERVATIONS"
+              : "VERIFIED_FIXTURE_CATALOGS",
+            followup.listingRefs.map((listingRef) => {
+              const listing = snapshot.listings.find((item) => item.listingRef === listingRef);
+              if (listing === undefined) {
+                throw new SearchLeaseUnavailableError(
+                  `inspiration follow-up listing is absent: ${listingRef}`,
+                );
+              }
+              return listing;
+            }),
+          );
       const unboundedContext = "catalogContext" in contextResult
         ? contextResult.catalogContext
         : contextResult;
@@ -1787,6 +1888,14 @@ export class SearchLeaseScheduler {
         deadlineEpochMs: Date.parse(issued.lease.issuedAt) +
           (issued.lease.budget.fastDeadlineMs ?? issued.lease.budget.deadlineMs),
         catalogContext: context,
+        searchAssignment: Object.freeze({
+          lens: issued.lease.lens,
+          semanticFamily: issued.lease.semanticFamily ?? null,
+          sourceTrailheadIdentity:
+            followup?.sourceTrailheadIdentity ??
+            selectedRetrievalPlan?.heuristicTrailhead?.trailheadIdentity ?? null,
+          inspirationDepth: followup?.depth ?? 0,
+        }),
       });
       const run = await this.#runFast(task, issued.lease.budget.maxFastModelRequests);
       const modelReports = run.workerReports?.filter((report) => report.kind === "MODEL") ?? [];
@@ -1838,6 +1947,14 @@ export class SearchLeaseScheduler {
         ),
         rejectedFalsificationEffectCount: agentTraces.reduce(
           (sum, trace) => sum + (trace.rejectedFalsificationCount ?? 0),
+          0,
+        ),
+        acceptedInspirationEffectCount: agentTraces.reduce(
+          (sum, trace) => sum + (trace.acceptedInspirationCount ?? 0),
+          0,
+        ),
+        rejectedInspirationEffectCount: agentTraces.reduce(
+          (sum, trace) => sum + (trace.rejectedInspirationCount ?? 0),
           0,
         ),
         terminationReasons: Object.freeze(terminationReasons.flatMap((reason) => {
@@ -1978,6 +2095,7 @@ export class SearchLeaseScheduler {
             item.findingIdentity ?? item.falsificationId
           ),
         ),
+        inspirations: Object.freeze([...(run.inspirations ?? [])]),
         candidateListingRefs: listingRefs,
         semanticScope,
         economicGate,

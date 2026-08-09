@@ -1,6 +1,6 @@
 # Cross-lens inspiration effects
 
-Status: active design after live heuristic-trailhead qualification
+Status: qualified with live model, SQLite restart, and browser evidence
 
 Created: 2026-08-09
 
@@ -32,6 +32,26 @@ An inspiration cannot launch Pi, semantic review, probability estimation,
 certification, simulation, or execution. It enters a durable inspiration inbox
 and may create a bounded follow-up search assignment without becoming an
 operator claim.
+
+## Implemented contract
+
+Discovery Agent trace v4 now exposes `record_inspiration` beside positive and
+negative findings. First-party validation derives content identity from the
+sorted exact refs, suggested lens/family, and source trailhead; same-assignment,
+uninspected, unknown, duplicate, oversized, and depth-two effects fail within
+the tool loop. The effect has search-routing authority only.
+
+Search lease v9 copies accepted inspirations into its durable fast-lane record.
+The issue scheduler derives its inbox from those SQLite-backed leases rather
+than a mutable side table. A deterministic v3 lease identity permits at most
+one follow-up per inspiration. The follow-up bypasses lexical and family
+retrieval and constructs its Agent context from the original exact refs; its
+assignment depth is one, so it cannot spawn an autonomous issue tree.
+
+Studio now gives these effects a separate cross-lens inbox with queued,
+running, exhausted, complete, and failed states plus exact refs, search signals,
+provider requests, and downstream positive/negative effects. Claim monitoring
+remains a visibly separate operator lane.
 
 ## Follow-up topology
 
@@ -68,3 +88,23 @@ whether a follow-up is queued, running, exhausted, or complete.
   falsifications, and terminal outcome back to the source inspiration.
 - Desktop and 390 px browser QA show the inbox and status without overflow.
 - Full workspace checks, tests, build, and authority-boundary proofs pass.
+
+Deterministic Agent, scheduler, exact-context, no-recursion, and lease replay
+tests pass, including reopening the same SQLite database without spending
+another Agent request or dispatching a second follow-up.
+
+Natural live traffic produced inspiration
+`sha256:5db6e9f56cf6e9a7e705906a88f72de7dbb4adc22a74e71dcefbf6b2fc1fd365`:
+the temporal-impossibility program inspected the Jan Bachowicz and Alex Pereira
+Polymarket US light-heavyweight champion contracts, then routed the unexpected
+same-role structure from `IMPLICATION` / `TEMPORAL_IMPOSSIBILITY` to
+`PARTITION` / `PARTITION_COMPLETENESS`. The source lease retained the effect
+with `NO_CANDIDATES` and no Pi invocation. Its sole depth-one follow-up received
+exactly those two refs, made four provider requests, retained one hypothesis
+and one falsification, completed its independent deep investigation, and
+recorded zero nested inspirations.
+
+Studio browser inspection at 1280 and emulated 390 px shows one readable inbox
+card with no horizontal overflow, a 12 px minimum main-content font size, and
+no console errors. The loaded Market Archaeologist page remains the deliverable
+browser tab.

@@ -17,6 +17,7 @@ import {
   Hexagon,
   Inbox,
   LayoutDashboard,
+  Lightbulb,
   Menu,
   Network,
   PanelRightClose,
@@ -668,7 +669,7 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
 
 const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler"] = {
   schemaVersion: "pmh.search-lease-scheduler.v1",
-  algorithmVersion: "pmh.ai-search-leases.v8",
+  algorithmVersion: "pmh.ai-search-leases.v9",
   enabled: false,
   configured: { fastLane: true, deepLane: false },
   status: "IDLE",
@@ -746,6 +747,9 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   supersededIssueCount: 0,
   dueIssueCount: 0,
   unreadNotificationCount: 0,
+  inspirationCount: 0,
+  queuedInspirationCount: 0,
+  runningInspirationCount: 0,
   performance: {
     measurementWindow: "RETAINED_TERMINAL_LEASES",
     retainedLeaseLimit: 40,
@@ -818,6 +822,7 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   },
   issues: [],
   notifications: [],
+  inspirations: [],
   storage: {
     issues: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "issueId" },
     notifications: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "notificationId" },
@@ -3560,8 +3565,49 @@ function MarketArchaeologistView() {
               </dl>
             </section>
           )}
+          <section className="inspiration-inbox" aria-label="Cross-lens inspiration inbox">
+            <div className="issue-column-heading">
+              <div><Lightbulb size={14} /><strong>Cross-lens inspirations</strong></div>
+              <span>
+                {issueScheduler.queuedInspirationCount} queued · {issueScheduler.runningInspirationCount} running · exact-ref follow-ups only
+              </span>
+            </div>
+            {issueScheduler.inspirations.length === 0 ? (
+              <div className="inspiration-empty">
+                <Sparkles size={18} />
+                <div>
+                  <strong>No useful detours yet</strong>
+                  <p>When a heuristic scan finds a grounded relation outside its assignment, it appears here instead of being forced into a claim.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="inspiration-grid">
+                {issueScheduler.inspirations.slice(0, 6).map((item) => (
+                  <article className="inspiration-card" key={item.inspiration.inspirationId}>
+                    <div className="inspiration-card-head">
+                      <Badge variant={item.status === "COMPLETE" ? "verified" : item.status === "FAILED" ? "warning" : item.status === "RUNNING" ? "shadow" : "muted"}>
+                        {item.status}
+                      </Badge>
+                      <span>{item.inspiration.sourceLens} → {item.inspiration.suggestedLens}</span>
+                    </div>
+                    <h3>{item.inspiration.observation}</h3>
+                    <p>{item.inspiration.listingRefs.length} inspected contracts · {item.inspiration.suggestedSemanticFamily?.replaceAll("_", " ") ?? "lens-only follow-up"}</p>
+                    <div className="latest-discovery-signals">
+                      {item.inspiration.searchSignals.map((signal) => <span key={signal}>{signal}</span>)}
+                    </div>
+                    <dl>
+                      <div><dt>requests</dt><dd>{item.providerRequestAttemptCount}</dd></div>
+                      <div><dt>leads</dt><dd>{item.downstreamHypothesisCount}</dd></div>
+                      <div><dt>falsified</dt><dd>{item.downstreamFalsificationCount}</dd></div>
+                    </dl>
+                    <code>{item.inspiration.listingRefs.join(" · ")}</code>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
           <div className="issue-scheduler-strip">
-            <div><strong>{issueScheduler.issueCount}</strong><span>durable issues</span></div>
+            <div><strong>{issueScheduler.inspirationCount}</strong><span>inspirations</span></div>
             <div><strong>{issueScheduler.dueIssueCount}</strong><span>due now</span></div>
             <div><strong>{issueScheduler.activeCount}/{issueScheduler.concurrencyLimit}</strong><span>active slots</span></div>
             <div>

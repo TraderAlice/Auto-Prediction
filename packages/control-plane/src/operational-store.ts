@@ -3840,11 +3840,13 @@ export class SqliteOperationalStore
           (prior.lease.algorithmVersion === "pmh.ai-search-leases.v5" ||
             prior.lease.algorithmVersion === "pmh.ai-search-leases.v6" ||
             prior.lease.algorithmVersion === "pmh.ai-search-leases.v7" ||
-            prior.lease.algorithmVersion === "pmh.ai-search-leases.v8") &&
+            prior.lease.algorithmVersion === "pmh.ai-search-leases.v8" ||
+            prior.lease.algorithmVersion === "pmh.ai-search-leases.v9") &&
           (validated.lease.algorithmVersion === "pmh.ai-search-leases.v5" ||
             validated.lease.algorithmVersion === "pmh.ai-search-leases.v6" ||
             validated.lease.algorithmVersion === "pmh.ai-search-leases.v7" ||
-            validated.lease.algorithmVersion === "pmh.ai-search-leases.v8") &&
+            validated.lease.algorithmVersion === "pmh.ai-search-leases.v8" ||
+            validated.lease.algorithmVersion === "pmh.ai-search-leases.v9") &&
           prior.status === "PASS" && validated.status === "PASS" &&
           prior.completedAt === validated.completedAt &&
           prior.diagnostic === validated.diagnostic &&
