@@ -116,6 +116,7 @@ import {
 import {
   parseSemanticReviewTickInterval,
   SemanticReviewScheduler,
+  type SemanticReviewAttributionSource,
   type SemanticReviewCandidate,
   type SemanticReviewSchedulerStore,
 } from "./semantic-review-scheduler.js";
@@ -1455,7 +1456,9 @@ export function createControlPlane(options?: {
       left.proposal.proposalId.localeCompare(right.proposal.proposalId)
     ));
   };
-  const semanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
+  const semanticReviewCandidates = (
+    baseCandidates: readonly SemanticReviewCandidate[] = baseSemanticReviewCandidates(),
+  ): readonly SemanticReviewCandidate[] => {
     const recordsById = new Map(ruleEvidenceClaimDesk.projection().records.map((record) =>
       [record.interpretationId, record] as const
     ));
@@ -1463,7 +1466,7 @@ export function createControlPlane(options?: {
     const existingClaims = new Map(semanticReviewScheduler.projection().jobs.map((job) =>
       [job.proposalId, job.evidenceClaims ?? []] as const
     ));
-    const candidates = baseSemanticReviewCandidates().map((candidate) => {
+    const candidates = baseCandidates.map((candidate) => {
       const proposalInputs = inputs.filter((input) =>
         input.requirement.proposalId === candidate.proposal.proposalId
       );
@@ -1497,9 +1500,11 @@ export function createControlPlane(options?: {
       }),
     );
   };
-  const premiseAnalysisCandidates = (): readonly PremiseAnalysisCandidate[] => {
+  const premiseAnalysisCandidates = (
+    semanticCandidates: readonly SemanticReviewCandidate[] = semanticReviewCandidates(),
+  ): readonly PremiseAnalysisCandidate[] => {
     const proposals = new Map(
-      semanticReviewCandidates().map((candidate) =>
+      semanticCandidates.map((candidate) =>
         [candidate.proposal.proposalId, candidate.proposal] as const
       ),
     );
@@ -1533,10 +1538,12 @@ export function createControlPlane(options?: {
       left.review.reviewId.localeCompare(right.review.reviewId)
     ));
   };
-  const premiseEvidenceRoutingCandidates = ():
+  const premiseEvidenceRoutingCandidates = (
+    semanticCandidates: readonly SemanticReviewCandidate[] = semanticReviewCandidates(),
+  ):
     readonly PremiseEvidenceRoutingCandidate[] => {
     const sources = new Map(
-      semanticReviewCandidates().map((candidate) =>
+      semanticCandidates.map((candidate) =>
         [candidate.proposal.proposalId, candidate] as const
       ),
     );
@@ -1632,7 +1639,9 @@ export function createControlPlane(options?: {
   };
   const probabilitySearchOriginByReview = new Map<Hash,
     ReturnType<typeof buildProbabilitySearchOrigin> | null>();
-  const probabilityEstimationCandidates = (): readonly ProbabilityEstimationCandidate[] => {
+  const probabilityEstimationCandidates = (
+    retainedAttribution?: SemanticReviewAttributionSource,
+  ): readonly ProbabilityEstimationCandidate[] => {
     const reviews = semanticReviewDesk.projection().records.filter((review) =>
       review.status === "PASS" && review.report !== null &&
       review.report.result.semanticConstraint?.classification === "PROBABILISTIC_DEPENDENCE"
@@ -1661,7 +1670,7 @@ export function createControlPlane(options?: {
       return !liveJobKeys.has(`${review.reviewId}\u0000${proposalId}`);
     });
     const reviewJobs = needsDurableFallback
-      ? semanticReviewScheduler.attributionSource().jobs
+      ? (retainedAttribution ?? semanticReviewScheduler.attributionSource()).jobs
       : liveJobs;
     const jobsByReviewProposal = new Map<string, (typeof reviewJobs)[number][]>();
     for (const job of reviewJobs) {
@@ -1763,21 +1772,24 @@ export function createControlPlane(options?: {
       candidates: baseReviewCandidates,
       corpus: catalogObservationDesk.corpus(),
     });
+    const enrichedReviewCandidates = semanticReviewCandidates(baseReviewCandidates);
     semanticReviewScheduler.reconcile(
-      semanticReviewCandidates(),
+      enrichedReviewCandidates,
       semanticReviewProjection.records,
     );
+    const semanticReviewAttributionSource = semanticReviewScheduler.attributionSource();
     probabilityEstimationScheduler.reconcile(
-      probabilityEstimationCandidates(),
+      probabilityEstimationCandidates(semanticReviewAttributionSource),
       catalogObservationDesk.corpus(),
     );
-    premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
-    premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
+    premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates(enrichedReviewCandidates));
+    premiseEvidenceRoutingScheduler.reconcile(
+      premiseEvidenceRoutingCandidates(enrichedReviewCandidates),
+    );
     premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
     evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
-    const semanticReviewAttributionSource = semanticReviewScheduler.attributionSource();
     const premiseAnalysisProjection = premiseAnalysisDesk.projection();
     const premiseAnalysisSchedulerProjection = premiseAnalysisScheduler.projection();
     const premiseEvidenceRoutingProjection = premiseEvidenceRoutingScheduler.projection();
@@ -1886,7 +1898,10 @@ export function createControlPlane(options?: {
       liveProjectionCache !== null &&
       liveProjectionCache.revision === revision
     ) return Promise.resolve(liveProjectionCache);
-    if (liveProjectionBuild?.revision === revision) return liveProjectionBuild.promise;
+    // A newer invalidation may arrive while the bounded view is still being
+    // materialized. Reuse that in-flight snapshot instead of launching a
+    // second full derivation; the next request advances to the latest revision.
+    if (liveProjectionBuild !== null) return liveProjectionBuild.promise;
     let pending: Promise<LiveProjectionSnapshot>;
     pending = liveProjection().then((current) => {
       const snapshot = Object.freeze({

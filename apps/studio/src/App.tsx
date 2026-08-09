@@ -738,10 +738,14 @@ const EMPTY_PREMISE_ROUTE_EXPANSION: StudioProjection["ai"]["premiseRouteExpansi
 };
 
 const EMPTY_RULE_EVIDENCE_CLAIMS: StudioProjection["ai"]["ruleEvidenceClaims"] = {
-  schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
+  schemaVersion: "pmh.rule-evidence-claim-scheduler.v2",
   enabled: false,
   configured: false,
   status: "NEEDS_KEY",
+  currentInterpreterIdentity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  currentJobCount: 0,
+  legacyJobCount: 0,
+  historicalPassedCount: 0,
   tickIntervalMs: null,
   concurrencyLimit: 3,
   activeCount: 0,
@@ -4862,6 +4866,9 @@ function OpportunityLifecycleView({
     studioProjection.ai.premiseRouteExpansion ?? EMPTY_PREMISE_ROUTE_EXPANSION;
   const ruleEvidenceClaims =
     studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
+  const currentRuleEvidenceJobs = ruleEvidenceClaims.jobs.filter((job) =>
+    job.interpreterIdentity === ruleEvidenceClaims.currentInterpreterIdentity
+  );
   const reviewAttention =
     studioProjection.ai.reviewAttention ?? EMPTY_REVIEW_ATTENTION;
   const economicTriage =
@@ -6233,12 +6240,15 @@ function OpportunityLifecycleView({
           <div><strong>{ruleEvidenceClaims.exhaustedCount}</strong><span>exhausted</span></div>
         </div>
         <div className="attention-item-list">
-          {ruleEvidenceClaims.jobs.length === 0 ? (
+          {currentRuleEvidenceJobs.length === 0 ? (
             <div className="review-operation-empty">
-              <strong>No rule-evidence interpretation jobs retained</strong>
-              <span>Captured documents are fanned out across proposal-local evidence requirements here.</span>
+              <strong>No current-protocol interpretation jobs retained</strong>
+              <span>
+                Captured documents are fanned out across proposal-local evidence requirements here.
+                {ruleEvidenceClaims.legacyJobCount > 0 ? ` ${ruleEvidenceClaims.legacyJobCount} legacy jobs remain as history.` : ""}
+              </span>
             </div>
-          ) : ruleEvidenceClaims.jobs.slice(0, 8).map((job) => (
+          ) : currentRuleEvidenceJobs.slice(0, 8).map((job) => (
             <article key={job.jobId}>
               <div className="attention-item-topline">
                 <Badge variant={job.status === "PASS" ? "verified" : job.status === "EXHAUSTED" ? "warning" : "muted"}>
@@ -6264,7 +6274,7 @@ function OpportunityLifecycleView({
             Tool-mediated reading is advisory: exact quote validation prevents fabricated passages, while semantic decisions and certificates remain separate gates.
           </span>
           <code>
-            {ruleEvidenceClaims.storage.durable ? "SQLite WAL" : "memory"} · {ruleEvidenceClaims.budget.providerAttemptsStarted} attempts
+            {ruleEvidenceClaims.storage.durable ? "SQLite WAL" : "memory"} · {ruleEvidenceClaims.legacyJobCount} legacy retained · {ruleEvidenceClaims.budget.providerAttemptsStarted} attempts
           </code>
         </div>
       </section>

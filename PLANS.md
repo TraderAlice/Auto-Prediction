@@ -679,14 +679,30 @@ price and capture-time churn is ignored. With local anonymous acquisition and
 claim schedules enabled, the retained corpus captured eight official documents,
 rebound ten review jobs, and drained forty-one legacy-format interpretations as
 conservative `INCONCLUSIVE` claims with zero exhausted or retrying jobs.
-Live traffic also exposed and closed a nonterminal Agent-loop failure:
-late steps must submit or abstain, and exhausted inspected loops persist an
-explicit first-party `INCONCLUSIVE` effect instead of consuming every retry.
-The remaining citation failures confirmed that asking a model to reproduce
-exact quote bytes was itself the wrong abstraction. Claim tools now accept
-only previously inspected start/end ranges; first-party code copies the quote.
-A natural DeepSeek smoke produced `SUPPORTS` with one externally verified
-74-character citation after one read.
+Interpreter behavior is now a durable protocol identity rather than an
+unversioned property of the model name. Historical generations remain readable,
+but only the current generation can satisfy current scheduling or Studio counts.
+Live migration showed that both quote copying and absolute-offset arithmetic
+were machine work incorrectly assigned to the Agent. Search/read tools now mint
+content-addressed `passageId` handles; the terminal tool returns only those
+handles, and first-party code resolves start/end, copies the retained quote, and
+verifies the artifact. Caveated quoted support is valid, while late loop states
+force submit and then explicit abstention instead of silently spending all
+steps. The scheduler hot path also stopped re-hashing captured PDF/DOCX bytes
+for identity-only lookups, and concurrent live-projection builds are now
+single-flight.
+
+The first live passage-handle claim retained an exact 2,000-character Contract
+Rules passage without model-authored quote bytes or offsets. Its
+`INCONCLUSIVE` disposition is substantive: the generic CFTC venue rulebook says
+contract specifications live in each contract's governing rules, but contains
+none of the House-control, UFC-champion, or named-market semantics requested by
+the current evidence requirements. The next evidence milestone is therefore
+contract-specific official locator discovery and capture, with the venue-level
+rulebook retained as a separate fallback/appeal layer—not more prompting over
+the wrong document. An independent natural DeepSeek V4 Flash smoke confirmed
+the protocol itself: one read plus one terminal passage handle produced
+`SUPPORTS` with a first-party verified 160-character citation.
 The House specimen remains historical because its exact refs are absent from
 the current 659-listing corpus; no current locator is grafted onto old source
 time. Studio now exposes this as a readable four-stage evidence funnel. The

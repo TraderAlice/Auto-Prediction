@@ -22,8 +22,17 @@ const MAX_STEPS = 20;
 const MAX_CITATIONS = 8;
 const MAX_CITATION_CHARACTERS = 2_000;
 const MAX_UNRESOLVED_ITEMS = 10;
-const MAX_TOOL_READ_CHARACTERS = 4_000;
+const MAX_TOOL_READ_CHARACTERS = 2_000;
 const MAX_SEARCH_MATCHES = 20;
+
+export type RuleEvidenceInterpreterProtocol =
+  | "LEGACY_V1"
+  | "RANGE_CITATIONS_V2"
+  | "CAVEATED_RANGE_CITATIONS_V3"
+  | "FORCED_TERMINAL_V4"
+  | "PASSAGE_HANDLES_V5";
+export const CURRENT_RULE_EVIDENCE_INTERPRETER_PROTOCOL =
+  "PASSAGE_HANDLES_V5" as const satisfies RuleEvidenceInterpreterProtocol;
 
 const CLAIM_KEYS = Object.freeze([
   "acquisitionScopeIdentity", "artifactHash", "authority", "certificateAuthority",
@@ -109,7 +118,7 @@ export type RuleEvidenceClaimDraft = Readonly<{
 type RuleEvidenceClaimSubmission = Readonly<{
   disposition: RuleEvidenceClaimDisposition;
   rationale: string;
-  citations: readonly Readonly<{ start: number; end: number }>[];
+  citations: readonly Readonly<{ passageId: Hash }>[];
   unresolvedEvidence: readonly string[];
 }>;
 
@@ -221,10 +230,9 @@ const submissionJsonSchema = Object.freeze({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["start", "end"],
+        required: ["passageId"],
         properties: {
-          start: { type: "integer", minimum: 0 },
-          end: { type: "integer", minimum: 1 },
+          passageId: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
         },
       },
     },
@@ -271,39 +279,123 @@ function sortedCitations(
   ));
 }
 
-function draftFromRangeSubmission(
+export function ruleEvidencePassageIdentity(
+  extractionId: Hash,
+  start: number,
+  end: number,
+): Hash {
+  if (
+    !HASH_PATTERN.test(extractionId) || !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) || start < 0 || end <= start
+  ) throw new Error("rule evidence passage identity input is invalid");
+  return hashCanonical({
+    schemaVersion: "pmh.rule-evidence-passage.v1",
+    extractionId,
+    start,
+    end,
+  });
+}
+
+function draftFromPassageSubmission(
   value: RuleEvidenceClaimSubmission,
   extractedText: string,
-  inspectedRanges: readonly Readonly<{ start: number; end: number }>[],
+  passages: ReadonlyMap<Hash, Readonly<{ start: number; end: number }>>,
 ): RuleEvidenceClaimDraft {
   const citations = value.citations.map((citation) => {
-    if (
-      !Number.isSafeInteger(citation.start) || !Number.isSafeInteger(citation.end) ||
-      citation.start < 0 || citation.end <= citation.start ||
-      citation.end > extractedText.length
-    ) throw new Error("rule evidence citation range is invalid");
-    if (!inspectedRanges.some((range) =>
-      citation.start >= range.start && citation.end <= range.end
-    )) throw new Error("rule evidence citation range was not inspected by a text tool");
+    const passage = passages.get(citation.passageId);
+    if (passage === undefined) {
+      throw new Error("rule evidence citation passageId was not returned by a text tool");
+    }
     return Object.freeze({
-      start: citation.start,
-      end: citation.end,
-      quote: extractedText.slice(citation.start, citation.end),
+      start: passage.start,
+      end: passage.end,
+      quote: extractedText.slice(passage.start, passage.end),
     });
   });
   return validateRuleEvidenceClaimDraft({ ...value, citations }, extractedText);
 }
 
-function interpreterIdentity(model: string): Hash {
+export function ruleEvidenceInterpreterIdentity(
+  model: string,
+  protocol: RuleEvidenceInterpreterProtocol = CURRENT_RULE_EVIDENCE_INTERPRETER_PROTOCOL,
+): Hash {
+  if (!MODEL_PATTERN.test(model)) {
+    throw new Error("rule evidence interpreter model is invalid");
+  }
+  if (protocol === "LEGACY_V1") {
+    return hashCanonical({
+      schemaVersion: "pmh.rule-evidence-interpreter.v1",
+      transport: "VERCEL_AI_SDK",
+      provider: "deepseek",
+      model,
+      role: "RULE_EVIDENCE_INTERPRETER",
+      toolProtocol: "BOUNDED_TEXT_SEARCH_READ_AND_TERMINAL_CLAIM",
+      maximumSteps: MAX_STEPS,
+    });
+  }
+  if (protocol === "RANGE_CITATIONS_V2") {
+    return hashCanonical({
+      schemaVersion: "pmh.rule-evidence-interpreter.v2",
+      transport: "VERCEL_AI_SDK",
+      provider: "deepseek",
+      model,
+      role: "RULE_EVIDENCE_INTERPRETER",
+      toolProtocol: "BOUNDED_SEARCH_READ_RANGE_CITATIONS_AND_TERMINAL_ABSTENTION",
+      citationAuthority: "FIRST_PARTY_EXACT_SLICE",
+      terminalRecovery: "FIRST_PARTY_INCONCLUSIVE",
+      maximumSteps: MAX_STEPS,
+    });
+  }
+  if (protocol === "CAVEATED_RANGE_CITATIONS_V3") {
+    return hashCanonical({
+      schemaVersion: "pmh.rule-evidence-interpreter.v3",
+      transport: "VERCEL_AI_SDK",
+      provider: "deepseek",
+      model,
+      role: "RULE_EVIDENCE_INTERPRETER",
+      toolProtocol: "BOUNDED_SEARCH_READ_RANGE_CITATIONS_AND_TERMINAL_ABSTENTION",
+      citationAuthority: "FIRST_PARTY_EXACT_SLICE",
+      claimPosture: "CITATIONS_AND_UNRESOLVED_CAVEATS_MAY_COEXIST",
+      terminalRecovery: "FIRST_PARTY_INCONCLUSIVE",
+      maximumSteps: MAX_STEPS,
+    });
+  }
+  if (protocol === "FORCED_TERMINAL_V4") {
+    return hashCanonical({
+      schemaVersion: "pmh.rule-evidence-interpreter.v4",
+      transport: "VERCEL_AI_SDK",
+      provider: "deepseek",
+      model,
+      role: "RULE_EVIDENCE_INTERPRETER",
+      toolProtocol: "BOUNDED_SEARCH_READ_RANGE_CITATIONS_AND_TERMINAL_ABSTENTION",
+      citationAuthority: "FIRST_PARTY_EXACT_SLICE",
+      claimPosture: "CITATIONS_AND_UNRESOLVED_CAVEATS_MAY_COEXIST",
+      terminalChoice: "FORCED_SUBMIT_THEN_FORCED_ABSTAIN",
+      terminalRecovery: "FIRST_PARTY_INCONCLUSIVE",
+      maximumSteps: MAX_STEPS,
+    });
+  }
   return hashCanonical({
-    schemaVersion: "pmh.rule-evidence-interpreter.v1",
+    schemaVersion: "pmh.rule-evidence-interpreter.v5",
     transport: "VERCEL_AI_SDK",
     provider: "deepseek",
     model,
     role: "RULE_EVIDENCE_INTERPRETER",
-    toolProtocol: "BOUNDED_TEXT_SEARCH_READ_AND_TERMINAL_CLAIM",
+    toolProtocol: "BOUNDED_SEARCH_READ_PASSAGE_HANDLES_AND_TERMINAL_ABSTENTION",
+    citationAuthority: "FIRST_PARTY_EXACT_SLICE",
+    claimPosture: "CITATIONS_AND_UNRESOLVED_CAVEATS_MAY_COEXIST",
+    terminalChoice: "FORCED_SUBMIT_THEN_FORCED_ABSTAIN",
+    terminalRecovery: "FIRST_PARTY_INCONCLUSIVE",
     maximumSteps: MAX_STEPS,
   });
+}
+
+function isSupportedInterpreterIdentity(model: string, identity: Hash): boolean {
+  return identity === ruleEvidenceInterpreterIdentity(model, "LEGACY_V1") ||
+    identity === ruleEvidenceInterpreterIdentity(model, "RANGE_CITATIONS_V2") ||
+    identity === ruleEvidenceInterpreterIdentity(model, "CAVEATED_RANGE_CITATIONS_V3") ||
+    identity === ruleEvidenceInterpreterIdentity(model, "FORCED_TERMINAL_V4") ||
+    identity === ruleEvidenceInterpreterIdentity(model, "PASSAGE_HANDLES_V5");
 }
 
 function interpretationId(input: Readonly<{
@@ -328,6 +420,26 @@ function validateInput(input: RuleEvidenceClaimModelInput): RuleEvidenceClaimMod
     ) ||
     capture.document.record.documentId !== capture.observation.documentId ||
     capture.extraction.record.documentId !== capture.document.record.documentId
+  ) throw new Error("rule evidence interpretation input lineage is inconsistent");
+  return Object.freeze({ requirement, capture });
+}
+
+function validateInputLineage(input: RuleEvidenceClaimModelInput): RuleEvidenceClaimModelInput {
+  const requirement = assertEvidenceRequirement(input.requirement);
+  const capture = input.capture;
+  if (
+    capture === null || typeof capture !== "object" ||
+    capture.observation === null || typeof capture.observation !== "object" ||
+    capture.document === null || typeof capture.document !== "object" ||
+    capture.extraction === null || typeof capture.extraction !== "object" ||
+    requirement.acquisitionScopeIdentity !== capture.observation.acquisitionScopeIdentity ||
+    !requirement.eligibleLocators.some((binding) =>
+      binding.locator.locatorIdentity === capture.observation.locatorIdentity
+    ) ||
+    capture.document.record.documentId !== capture.observation.documentId ||
+    capture.extraction.record.documentId !== capture.document.record.documentId ||
+    !HASH_PATTERN.test(String(capture.document.record.documentId)) ||
+    !HASH_PATTERN.test(String(capture.extraction.record.extractionId))
   ) throw new Error("rule evidence interpretation input lineage is inconsistent");
   return Object.freeze({ requirement, capture });
 }
@@ -376,10 +488,12 @@ export function validateRuleEvidenceClaimDraft(
   const unresolvedEvidence = Object.freeze(
     (raw.unresolvedEvidence as string[]).map((item) => item.trim()),
   );
-  if (
-    (disposition === "INCONCLUSIVE" && unresolvedEvidence.length === 0) ||
-    (disposition !== "INCONCLUSIVE" && (ordered.length === 0 || unresolvedEvidence.length > 0))
-  ) throw new Error("rule evidence claim disposition lacks the required support posture");
+  if (disposition === "INCONCLUSIVE" && unresolvedEvidence.length === 0) {
+    throw new Error("an INCONCLUSIVE rule evidence claim requires at least one unresolved item");
+  }
+  if (disposition !== "INCONCLUSIVE" && ordered.length === 0) {
+    throw new Error("a SUPPORTS or CONTRADICTS rule evidence claim requires an exact citation");
+  }
   return Object.freeze({
     disposition,
     rationale: (raw.rationale as string).trim(),
@@ -399,7 +513,7 @@ export function buildRuleEvidenceClaim(input: Readonly<{
   if (!MODEL_PATTERN.test(input.model) || !isIso(input.completedAt)) {
     throw new Error("rule evidence claim interpreter metadata is invalid");
   }
-  const identity = interpreterIdentity(input.model);
+  const identity = ruleEvidenceInterpreterIdentity(input.model);
   const draft = validateRuleEvidenceClaimDraft(
     input.result.draft,
     validated.capture.extraction.text,
@@ -495,12 +609,10 @@ export function assertRuleEvidenceClaim(value: unknown): RuleEvidenceClaim {
     claim.unresolvedEvidence.length > MAX_UNRESOLVED_ITEMS ||
     claim.unresolvedEvidence.some((item) => !boundedText(item, 1_000)) ||
     (claim.disposition === "INCONCLUSIVE" && claim.unresolvedEvidence.length === 0) ||
-    (claim.disposition !== "INCONCLUSIVE" && (
-      claim.citations.length === 0 || claim.unresolvedEvidence.length > 0
-    )) ||
+    (claim.disposition !== "INCONCLUSIVE" && claim.citations.length === 0) ||
     !exactKeys(claim.interpreter, INTERPRETER_KEYS) ||
     !HASH_PATTERN.test(String(claim.interpreter.identity)) ||
-    claim.interpreter.identity !== interpreterIdentity(claim.interpreter.model) ||
+    !isSupportedInterpreterIdentity(claim.interpreter.model, claim.interpreter.identity) ||
     claim.interpreter.transport !== "VERCEL_AI_SDK" ||
     claim.interpreter.provider !== "deepseek" ||
     !MODEL_PATTERN.test(claim.interpreter.model) ||
@@ -563,7 +675,7 @@ export function assertRuleEvidenceClaimRecord(value: unknown): RuleEvidenceClaim
   });
   if (
     record.interpretationId !== expectedId ||
-    record.interpreterIdentity !== interpreterIdentity(record.model)
+    !isSupportedInterpreterIdentity(record.model, record.interpreterIdentity)
   ) throw new Error("stored rule evidence claim record identity is inconsistent");
   if (record.claim !== null) {
     const claim = assertRuleEvidenceClaim(record.claim);
@@ -628,7 +740,7 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
     let readEffectCount = 0;
     let submitted: RuleEvidenceClaimDraft | null = null;
     let submittedEffectHash: Hash | null = null;
-    const inspectedRanges: { start: number; end: number }[] = [];
+    const inspectedPassages = new Map<Hash, Readonly<{ start: number; end: number }>>();
     let rejectedSubmissionCount = 0;
     let lastRejectedSubmissionDiagnostic: string | null = null;
     const startedAtMs = Date.now();
@@ -669,12 +781,20 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
                 matches.push(Object.freeze({ start, end, text: text.slice(start, end) }));
                 cursor = found + Math.max(1, lowerQuery.length);
               }
-              inspectedRanges.push(...matches.map(({ start, end }) => ({ start, end })));
+              const identifiedMatches = matches.map(({ start, end, text: passageText }) => {
+                const passageId = ruleEvidencePassageIdentity(
+                  validated.capture.extraction.record.extractionId,
+                  start,
+                  end,
+                );
+                inspectedPassages.set(passageId, Object.freeze({ start, end }));
+                return Object.freeze({ passageId, start, end, text: passageText });
+              });
               return Object.freeze({
                 query,
                 matchCount: matches.length,
                 truncated: matches.length === MAX_SEARCH_MATCHES,
-                matches: Object.freeze(matches),
+                matches: Object.freeze(identifiedMatches),
               });
             },
           }),
@@ -690,8 +810,14 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
               ) throw new Error("evidence read range is invalid or unbounded");
               readEffectCount += 1;
               const end = Math.min(text.length, raw.start + raw.length);
-              inspectedRanges.push({ start: raw.start, end });
+              const passageId = ruleEvidencePassageIdentity(
+                validated.capture.extraction.record.extractionId,
+                raw.start,
+                end,
+              );
+              inspectedPassages.set(passageId, Object.freeze({ start: raw.start, end }));
               return Object.freeze({
+                passageId,
                 start: raw.start,
                 end,
                 text: text.slice(raw.start, end),
@@ -701,8 +827,8 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
           }),
           submit_rule_evidence_claim: tool({
             description:
-              "Submit one advisory requirement-specific claim using start/end ranges from " +
-              "text already returned by a tool. The harness copies the exact quote. " +
+              "Submit one advisory requirement-specific claim using passageId handles from " +
+              "text already returned by a tool. The harness resolves offsets and copies the exact quote. " +
               "This terminal effect cannot certify a semantic relation or authorize trading.",
             inputSchema: jsonSchema<RuleEvidenceClaimSubmission>(submissionJsonSchema),
             execute: async (raw) => {
@@ -718,7 +844,7 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
               }
               let draft: RuleEvidenceClaimDraft;
               try {
-                draft = draftFromRangeSubmission(raw, text, inspectedRanges);
+                draft = draftFromPassageSubmission(raw, text, inspectedPassages);
               } catch (error) {
                 rejectedSubmissionCount += 1;
                 lastRejectedSubmissionDiagnostic = compactDiagnostic(error);
@@ -813,8 +939,10 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
           "search indefinitely. SUPPORTS means the cited document passage " +
           "supports the requirement claim; CONTRADICTS means it supplies the stated " +
           "contradicting observation; INCONCLUSIVE means the document cannot settle the gap. " +
-          "For citations, submit only start/end ranges inside text returned by a tool. The " +
-          "harness copies and verifies the exact quote; never reproduce quote text yourself. " +
+          "SUPPORTS and CONTRADICTS may retain honest unresolvedEvidence caveats as long as " +
+          "at least one exact citation supports the disposition. " +
+          "For citations, copy only passageId handles returned by a search/read tool. The " +
+          "harness resolves offsets and verifies the exact quote; never reproduce quote text yourself. " +
           "Do not infer market equivalence, profitability, certificate validity, or trading action.",
         prompt: JSON.stringify({
           schemaVersion: "pmh.rule-evidence-interpretation-input.v1",
@@ -840,13 +968,22 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
               toolChoice: "required" as const,
             });
           }
-          if (stepNumber >= 16 || rejectedSubmissionCount >= 2) {
+          if (stepNumber >= 17 || rejectedSubmissionCount >= 3) {
             return Object.freeze({
-              activeTools: [
-                "submit_rule_evidence_claim",
-                "abstain_rule_evidence_claim",
-              ] as const,
-              toolChoice: "required" as const,
+              activeTools: ["abstain_rule_evidence_claim"] as const,
+              toolChoice: Object.freeze({
+                type: "tool" as const,
+                toolName: "abstain_rule_evidence_claim" as const,
+              }),
+            });
+          }
+          if (stepNumber >= 14 || rejectedSubmissionCount >= 1) {
+            return Object.freeze({
+              activeTools: ["submit_rule_evidence_claim"] as const,
+              toolChoice: Object.freeze({
+                type: "tool" as const,
+                toolName: "submit_rule_evidence_claim" as const,
+              }),
             });
           }
           return Object.freeze({
@@ -961,7 +1098,7 @@ export class RuleEvidenceClaimDesk {
       !MODEL_PATTERN.test(model) || !Number.isSafeInteger(retentionLimit) || retentionLimit < 1 ||
       !Number.isSafeInteger(concurrencyLimit) || concurrencyLimit < 1 || concurrencyLimit > 8
     ) throw new Error("rule evidence claim desk configuration is invalid or unbounded");
-    this.interpreterIdentity = interpreterIdentity(model);
+    this.interpreterIdentity = ruleEvidenceInterpreterIdentity(model);
     this.#records = [...(
       store?.loadRuleEvidenceClaimRecords(retentionLimit) ?? []
     )].map(assertRuleEvidenceClaimRecord);
@@ -1059,7 +1196,9 @@ export class RuleEvidenceClaimDesk {
     requirementInput: EvidenceRequirement,
     captureInput: EvidenceDocumentCapture,
   ): Hash {
-    const input = validateInput({ requirement: requirementInput, capture: captureInput });
+    // This hot-path lookup consumes captures already authenticated by the acquisition desk.
+    // begin() still performs byte-for-byte and extracted-text validation before provider use.
+    const input = validateInputLineage({ requirement: requirementInput, capture: captureInput });
     return interpretationId({
       requirementId: input.requirement.requirementId,
       documentId: input.capture.document.record.documentId,

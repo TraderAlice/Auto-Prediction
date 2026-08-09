@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
   AiUsageLedger,
+  assertRuleEvidenceClaim,
+  assertRuleEvidenceClaimRecord,
   buildDiscoveryEvidenceLocator,
   buildEvidenceDocumentFetchPolicy,
   buildEvidenceRequirements,
@@ -10,11 +12,14 @@ import {
   DeepSeekRuleEvidenceClaimModelPort,
   EvidenceDocumentFetcher,
   RuleEvidenceClaimDesk,
+  ruleEvidenceInterpreterIdentity,
+  ruleEvidencePassageIdentity,
   type DiscoveryCatalogListing,
   type EvidenceDocumentCapture,
   type EvidenceDocumentFetchLike,
   type EvidenceRequirement,
   type RuleEvidenceClaimModelPort,
+  type RuleEvidenceClaimRecordStore,
 } from "../src/index.js";
 import { deepSeekTextResponse, deepSeekToolResponse } from "./model-agent-fixtures.js";
 
@@ -149,6 +154,29 @@ describe("Agent-native rule evidence claims", () => {
       },
     });
     expect(claim.citations[0]).toMatchObject({ start, end: start + quote.length, quote });
+    expect(buildRuleEvidenceClaim({
+      requirement: input,
+      capture: observed,
+      model: "deepseek-v4-flash",
+      completedAt: "2026-08-02T08:00:02.000Z",
+      result: {
+        draft: {
+          disposition: "SUPPORTS",
+          rationale: "The clause supports cancellation resolution while retaining a caveat.",
+          citations: [{ start, end: start + quote.length, quote }],
+          unresolvedEvidence: ["The generic rule does not identify a specific listing."],
+        },
+        trace: {
+          searchEffectCount: 1,
+          readEffectCount: 0,
+          submittedEffectHash: hashCanonical({ effect: "caveated-support" }),
+        },
+      },
+    })).toMatchObject({
+      disposition: "SUPPORTS",
+      citations: [{ quote }],
+      unresolvedEvidence: ["The generic rule does not identify a specific listing."],
+    });
     expect(() => buildRuleEvidenceClaim({
       requirement: input,
       capture: observed,
@@ -177,11 +205,22 @@ describe("Agent-native rule evidence claims", () => {
     const observed = await capture(uniqueText);
     const quote = "If the event is cancelled, this contract resolves No.";
     const start = observed.extraction.text.indexOf(quote);
+    const queryStart = observed.extraction.text.toLocaleLowerCase("en-US").indexOf("cancelled");
+    const passageStart = Math.max(0, queryStart - 240);
+    const passageEnd = Math.min(
+      observed.extraction.text.length,
+      queryStart + "cancelled".length + 240,
+    );
+    const passageId = ruleEvidencePassageIdentity(
+      observed.extraction.record.extractionId,
+      passageStart,
+      passageEnd,
+    );
     const bodies: Record<string, unknown>[] = [];
     const validSubmission = {
       disposition: "SUPPORTS",
       rationale: "The exact official clause supplies the satisfying observation.",
-      citations: [{ start, end: start + quote.length }],
+      citations: [{ passageId }],
       unresolvedEvidence: [],
     };
     const fetcher = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
@@ -205,10 +244,7 @@ describe("Agent-native rule evidence claims", () => {
           "submit_rule_evidence_claim",
           {
             ...validSubmission,
-            citations: [{
-              start: observed.extraction.text.length,
-              end: observed.extraction.text.length + 1,
-            }],
+            citations: [{ passageId: hashCanonical({ unknown: "passage" }) }],
           },
           bodies.length,
         );
@@ -232,12 +268,16 @@ describe("Agent-native rule evidence claims", () => {
     expect(JSON.stringify(bodies[0])).not.toContain("UNTRUSTED-DO-NOT-OBEY");
     expect(JSON.stringify(bodies[1])).not.toContain("UNTRUSTED-DO-NOT-OBEY");
     expect(JSON.stringify(bodies[2])).toContain("UNTRUSTED-DO-NOT-OBEY");
-    expect(JSON.stringify(bodies[3])).toContain("citation range is invalid");
+    expect(JSON.stringify(bodies[3])).toContain("passageId was not returned");
     expect(bodies.every((body) => !("response_format" in body))).toBe(true);
     expect(result).toMatchObject({
       draft: {
         disposition: "SUPPORTS",
-        citations: [{ start, end: start + quote.length, quote }],
+        citations: [{
+          start: passageStart,
+          end: passageEnd,
+          quote: observed.extraction.text.slice(passageStart, passageEnd),
+        }],
       },
       trace: { searchEffectCount: 1, readEffectCount: 0 },
     });
@@ -271,7 +311,7 @@ describe("Agent-native rule evidence claims", () => {
     });
   });
 
-  it("fails closed to a durable inconclusive claim after a bounded non-terminal tool loop", async () => {
+  it("forces a terminal claim after a bounded document-reading loop", async () => {
     const input = requirement();
     const observed = await capture();
     let requests = 0;
@@ -282,6 +322,18 @@ describe("Agent-native rule evidence claims", () => {
       3_000,
       async () => {
         requests += 1;
+        if (requests === 15) {
+          return deepSeekToolResponse(
+            "submit_rule_evidence_claim",
+            {
+              disposition: "INCONCLUSIVE",
+              rationale: "The retained document does not settle the requirement.",
+              citations: [],
+              unresolvedEvidence: ["A requirement-specific clause was not found."],
+            },
+            requests,
+          );
+        }
         return deepSeekToolResponse(
           "search_evidence_text",
           { query: "cancelled" },
@@ -291,14 +343,14 @@ describe("Agent-native rule evidence claims", () => {
     );
 
     const result = await port.interpret({ requirement: input, capture: observed });
-    expect(requests).toBe(20);
+    expect(requests).toBe(15);
     expect(result).toMatchObject({
       draft: {
         disposition: "INCONCLUSIVE",
         citations: [],
-        unresolvedEvidence: [expect.stringContaining("terminal recovery")],
+        unresolvedEvidence: ["A requirement-specific clause was not found."],
       },
-      trace: { searchEffectCount: 16, readEffectCount: 0 },
+      trace: { searchEffectCount: 14, readEffectCount: 0 },
     });
   });
 
@@ -343,6 +395,108 @@ describe("Agent-native rule evidence claims", () => {
       passCount: 1,
       failedCount: 0,
     });
+  });
+
+  it("retains legacy protocol records while scheduling the current range-citation protocol", async () => {
+    const input = requirement();
+    const observed = await capture();
+    const quote = "if the event is cancelled, this contract resolves No.";
+    const start = observed.extraction.text.indexOf(quote);
+    const currentClaim = buildRuleEvidenceClaim({
+      requirement: input,
+      capture: observed,
+      model: "deepseek-v4-flash",
+      completedAt: "2026-08-02T08:00:01.000Z",
+      result: {
+        draft: {
+          disposition: "SUPPORTS",
+          rationale: "Exact clause supports the requirement.",
+          citations: [{ start, end: start + quote.length, quote }],
+          unresolvedEvidence: [],
+        },
+        trace: {
+          searchEffectCount: 1,
+          readEffectCount: 0,
+          submittedEffectHash: hashCanonical({ effect: "legacy" }),
+        },
+      },
+    });
+    const legacyIdentity = ruleEvidenceInterpreterIdentity(
+      "deepseek-v4-flash",
+      "LEGACY_V1",
+    );
+    const legacyClaimId = hashCanonical({
+      schemaVersion: "pmh.rule-evidence-interpretation-run.v1",
+      requirementId: input.requirementId,
+      documentId: observed.document.record.documentId,
+      extractionId: observed.extraction.record.extractionId,
+      interpreterIdentity: legacyIdentity,
+    });
+    const { artifactHash: _currentHash, ...currentBody } = currentClaim;
+    const legacyBody = Object.freeze({
+      ...currentBody,
+      claimId: legacyClaimId,
+      interpreter: Object.freeze({ ...currentClaim.interpreter, identity: legacyIdentity }),
+    });
+    const legacyClaim = assertRuleEvidenceClaim(Object.freeze({
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    }));
+    const legacyRecord = assertRuleEvidenceClaimRecord(Object.freeze({
+      interpretationId: legacyClaimId,
+      requirementId: input.requirementId,
+      proposalId: input.proposalId,
+      documentId: observed.document.record.documentId,
+      extractionId: observed.extraction.record.extractionId,
+      interpreterIdentity: legacyIdentity,
+      model: "deepseek-v4-flash",
+      status: "PASS" as const,
+      startedAt: "2026-08-02T08:00:00.000Z",
+      completedAt: legacyClaim.completedAt,
+      diagnostic: null,
+      claim: legacyClaim,
+    }));
+    const retained = [legacyRecord];
+    const store: RuleEvidenceClaimRecordStore = {
+      ruleEvidenceClaimStorage: Object.freeze({
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "interpretationId",
+      }),
+      loadRuleEvidenceClaimRecords: () => retained,
+      saveRuleEvidenceClaimRecord: (record) => record,
+    };
+    const interpret = vi.fn<RuleEvidenceClaimModelPort["interpret"]>(async () => ({
+      draft: {
+        disposition: currentClaim.disposition,
+        rationale: currentClaim.rationale,
+        citations: currentClaim.citations.map(({ start, end, quote }) => ({ start, end, quote })),
+        unresolvedEvidence: currentClaim.unresolvedEvidence,
+      },
+      trace: {
+        searchEffectCount: 1,
+        readEffectCount: 0,
+        submittedEffectHash: hashCanonical({ effect: "current" }),
+      },
+    }));
+    const desk = new RuleEvidenceClaimDesk(
+      { interpret },
+      "deepseek-v4-flash",
+      10,
+      store,
+      3,
+      () => Date.parse("2026-08-02T08:00:02.000Z"),
+    );
+
+    expect(desk.projection()).toMatchObject({ runCount: 1, passCount: 1 });
+    expect(desk.interpreterIdentity).not.toBe(legacyIdentity);
+    const currentRun = desk.begin(input, observed);
+    expect(currentRun.idempotentReplay).toBe(false);
+    const currentRecord = await currentRun.promise;
+    expect(interpret).toHaveBeenCalledOnce();
+    expect(currentRecord.interpreterIdentity).toBe(desk.interpreterIdentity);
+    expect(currentRecord.interpretationId).not.toBe(legacyRecord.interpretationId);
   });
 
   it("defaults to a five-minute configurable DeepSeek desk without requiring a key", () => {

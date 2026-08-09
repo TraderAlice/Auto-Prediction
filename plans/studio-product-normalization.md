@@ -1,6 +1,6 @@
 # Studio product normalization
 
-Status: third operator-led visual pass implemented; final re-review pending
+Status: third operator-led visual pass implemented and browser-qualified
 
 ## Evidence
 
@@ -152,3 +152,11 @@ yield grid reduces to two columns without clipping. The real first viewport has
 no visible text below 13 px and the browser log contains no warnings or errors.
 All workspace type checks, all 596 workspace tests, the Studio production
 build, and `git diff --check` pass.
+
+The 2026-08-10 follow-up reloaded the operator's actual `5174` session after
+the retained projection completed, then inspected the same Discover surface at
+desktop and 390×844. The heuristic-first title, action, divided summary, and
+exploration desk remain legible at both widths; the mobile summary collapses to
+two columns and no console-era typography returned. This closes the visual
+re-review while leaving final aesthetic acceptance, as always, with the
+operator.

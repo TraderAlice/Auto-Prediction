@@ -977,7 +977,7 @@ describe("control-plane HTTP surface", () => {
     const claimResponse = await fetch(`${baseUrl}/api/v1/rule-evidence-claims`);
     expect(claimResponse.status).toBe(200);
     expect(await claimResponse.json()).toMatchObject({
-      schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
+      schemaVersion: "pmh.rule-evidence-claim-scheduler.v2",
       passedCount: 0,
       authority: "ADVISORY_EVIDENCE_INTERPRETATION_ORCHESTRATION_ONLY",
       executionAuthority: false,

@@ -1,6 +1,6 @@
 # Venue-level rulebook evidence
 
-Status: automatic evidence refresh and interpretation live-qualified
+Status: passage-handle interpretation live; contract-specific locator gap measured
 
 Created: 2026-08-10
 
@@ -73,6 +73,46 @@ Fixed-schema byte copying is no longer part of the model's job.
 The legacy-format queue then drained completely: 41 PASS artifacts, zero
 exhausted jobs, and zero remaining retries, all conservative rather than
 silently promoted.
+
+Persistent interpreter identity is now a first-class migration boundary. The
+range-only and forced-terminal experiments remain readable as historical
+protocol generations, but only the current identity can satisfy a current
+requirement or count as a current Studio result. Scheduler projection v2 names
+the current interpreter, separates current jobs from retained legacy jobs, and
+keeps historical PASS totals explicit. This prevents a safe but low-yield
+`INCONCLUSIVE` run from permanently deduplicating a materially improved Agent
+tool protocol.
+
+Live traffic then exposed two places where the harness was still assigning
+machine work to the model. First, valid supporting citations were rejected
+when the Agent also retained honest unresolved caveats; current claims allow
+quoted `SUPPORTS`/`CONTRADICTS` and unresolved items to coexist. Second,
+absolute character offsets remained brittle even after quote copying moved
+outside the model. Search/read effects now mint content-addressed `passageId`
+handles. The terminal tool accepts only handles previously returned in the
+same loop; first-party code resolves their offsets, copies the retained quote,
+and verifies the final artifact. Late loop states force one submit attempt and
+then force explicit abstention, so parallel search calls cannot consume the
+entire bounded loop without a terminal effect.
+
+The first live passage-handle artifacts prove that exact citation transfer is
+working: a current claim retained a first-party 2,000-character Contract Rules
+passage without model-authored quote bytes or offsets. It remained
+`INCONCLUSIVE` for a substantive reason. The captured CFTC venue rulebook says
+that each contract's specifications live in the rules governing that contract,
+but does not contain the House-control, UFC-champion, or individual market
+definitions requested by the current requirements. The next evidence slice is
+therefore not more generic-rulebook prompting. It is contract-specific official
+locator discovery and capture, with venue policy retained as a separate
+fallback/appeal layer.
+
+An independent natural DeepSeek V4 Flash smoke over a controlled retained rule
+then completed `SUPPORTS` in one read plus one terminal effect. The model
+returned one passage handle; first-party resolution produced a verified
+160-character citation and a content-addressed claim, with no whole-response
+schema parse and no semantic, certificate, or execution authority. This
+separates protocol capability from the low yield of the currently misrouted
+generic venue document.
 
 The retained House-control proposal itself cannot yet be rebound: its exact
 Polymarket US refs are absent from the current 659-listing corpus, and attaching

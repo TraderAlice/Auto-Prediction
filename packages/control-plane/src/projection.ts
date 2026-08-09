@@ -819,10 +819,14 @@ export function buildStudioProjection(input: {
     },
   };
   const ruleEvidenceClaims = input.ruleEvidenceClaims ?? {
-    schemaVersion: "pmh.rule-evidence-claim-scheduler.v1" as const,
+    schemaVersion: "pmh.rule-evidence-claim-scheduler.v2" as const,
     enabled: false,
     configured: false,
     status: "NEEDS_KEY" as const,
+    currentInterpreterIdentity: "sha256:0000000000000000000000000000000000000000000000000000000000000000" as const,
+    currentJobCount: 0,
+    legacyJobCount: 0,
+    historicalPassedCount: 0,
     tickIntervalMs: null,
     concurrencyLimit: 3,
     activeCount: 0,
@@ -1456,7 +1460,12 @@ export function buildStudioProjection(input: {
       mode: "CONTROL_PLANE" as const,
       view: "FULL" as const,
       stateHash,
-      viewHash: hashCanonical(viewState),
+      viewHash: hashCanonical({
+        schemaVersion: "pmh.studio-projection-view-identity.v1",
+        view: "FULL",
+        stateHash,
+        projectionWindow,
+      }),
     },
     ...viewState,
   });

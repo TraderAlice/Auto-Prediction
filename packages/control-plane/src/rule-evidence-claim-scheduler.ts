@@ -86,10 +86,14 @@ export interface RuleEvidenceClaimSchedulerStore {
 }
 
 export type RuleEvidenceClaimSchedulerProjection = Readonly<{
-  schemaVersion: "pmh.rule-evidence-claim-scheduler.v1";
+  schemaVersion: "pmh.rule-evidence-claim-scheduler.v2";
   enabled: boolean;
   configured: boolean;
   status: "IDLE" | "RUNNING" | "NEEDS_KEY";
+  currentInterpreterIdentity: Hash;
+  currentJobCount: number;
+  legacyJobCount: number;
+  historicalPassedCount: number;
   tickIntervalMs: number | null;
   concurrencyLimit: number;
   activeCount: number;
@@ -284,9 +288,21 @@ export class RuleEvidenceClaimScheduler {
   }
 
   public reconcile(inputs: readonly RuleEvidenceClaimInput[]): void {
+    const existingById = new Map(this.#jobs.map((job) => [job.jobId, job] as const));
     const validated = [...new Map(inputs.map((raw) => {
-      const input = validateInput(raw);
-      return [this.#desk.interpretationIdFor(input.requirement, input.capture), input] as const;
+      const jobId = this.#desk.interpretationIdFor(raw.requirement, raw.capture);
+      const existing = existingById.get(jobId);
+      const input = existing === undefined ? validateInput(raw) : Object.freeze(raw);
+      if (existing !== undefined && (
+        existing.requirementId !== input.requirement.requirementId ||
+        existing.proposalId !== input.requirement.proposalId ||
+        existing.observationId !== input.capture.observation.observationId ||
+        existing.documentId !== input.capture.document.record.documentId ||
+        existing.extractionId !== input.capture.extraction.record.extractionId ||
+        existing.documentRawHash !== input.capture.document.record.rawHash ||
+        existing.extractionTextHash !== input.capture.extraction.record.textHash
+      )) throw new Error("retained rule evidence claim input no longer matches its job lineage");
+      return [jobId, input] as const;
     })).entries()].sort(([left], [right]) => left.localeCompare(right));
     const completedById = new Map(
       this.#desk.projection().records
@@ -492,32 +508,40 @@ export class RuleEvidenceClaimScheduler {
 
   public projection(): RuleEvidenceClaimSchedulerProjection {
     const jobs = Object.freeze([...this.#jobs]);
-    const records = new Map(this.#desk.projection().records.map((record) =>
+    const deskProjection = this.#desk.projection();
+    const records = new Map(deskProjection.records.map((record) =>
       [record.interpretationId, record] as const
     ));
-    const dispositions = jobs.flatMap((job) => {
+    const currentJobs = jobs.filter((job) =>
+      job.interpreterIdentity === deskProjection.interpreterIdentity
+    );
+    const dispositions = currentJobs.flatMap((job) => {
       const claim = records.get(job.jobId)?.claim;
       return claim === null || claim === undefined ? [] : [claim.disposition];
     });
-    const configured = this.#desk.projection().configured;
+    const configured = deskProjection.configured;
     const now = this.#now();
     return Object.freeze({
-      schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
+      schemaVersion: "pmh.rule-evidence-claim-scheduler.v2",
       enabled: this.tickIntervalMs !== null,
       configured,
       status: !configured ? "NEEDS_KEY" : this.#active.size === 0 ? "IDLE" : "RUNNING",
+      currentInterpreterIdentity: deskProjection.interpreterIdentity,
+      currentJobCount: currentJobs.length,
+      legacyJobCount: jobs.length - currentJobs.length,
+      historicalPassedCount: jobs.filter((job) => job.status === "PASS").length,
       tickIntervalMs: this.tickIntervalMs,
       concurrencyLimit: this.#concurrencyLimit,
       activeCount: this.#active.size,
-      dueCount: jobs.filter((job) =>
+      dueCount: currentJobs.filter((job) =>
         ["PENDING", "RETRY_WAIT"].includes(job.status) &&
         Date.parse(job.nextAttemptAt) <= now
       ).length,
-      pendingCount: jobs.filter((job) => job.status === "PENDING").length,
-      leasedCount: jobs.filter((job) => job.status === "LEASED").length,
-      retryWaitCount: jobs.filter((job) => job.status === "RETRY_WAIT").length,
-      passedCount: jobs.filter((job) => job.status === "PASS").length,
-      exhaustedCount: jobs.filter((job) => job.status === "EXHAUSTED").length,
+      pendingCount: currentJobs.filter((job) => job.status === "PENDING").length,
+      leasedCount: currentJobs.filter((job) => job.status === "LEASED").length,
+      retryWaitCount: currentJobs.filter((job) => job.status === "RETRY_WAIT").length,
+      passedCount: currentJobs.filter((job) => job.status === "PASS").length,
+      exhaustedCount: currentJobs.filter((job) => job.status === "EXHAUSTED").length,
       supportedCount: dispositions.filter((item) => item === "SUPPORTS").length,
       contradictedCount: dispositions.filter((item) => item === "CONTRADICTS").length,
       inconclusiveCount: dispositions.filter((item) => item === "INCONCLUSIVE").length,

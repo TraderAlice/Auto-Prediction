@@ -732,6 +732,7 @@ export class SemanticReviewScheduler {
   readonly #jobs: SemanticReviewJobRecord[];
   readonly #notifications: SemanticReviewNotificationRecord[];
   readonly #active = new Map<Hash, Promise<SemanticReviewJobRecord>>();
+  readonly #attributionCache = new Map<number, SemanticReviewAttributionSource>();
   readonly #reviewDesk: SemanticReviewDesk;
   readonly #store: SemanticReviewSchedulerStore | undefined;
   readonly #now: () => number;
@@ -1585,6 +1586,7 @@ export class SemanticReviewScheduler {
       this.#jobs.length = this.#retentionLimit;
       if (this.#store === undefined) this.#inMemoryHistoryTruncated = true;
     }
+    this.#attributionCache.clear();
     return stored;
   }
 
@@ -1743,13 +1745,15 @@ export class SemanticReviewScheduler {
     ) {
       throw new Error("semantic review attribution job limit is invalid or unbounded");
     }
+    const cached = this.#attributionCache.get(maximumJobCount);
+    if (cached !== undefined) return cached;
     const loaded = this.#store === undefined
       ? [...this.#jobs]
       : [...this.#store.loadSemanticReviewJobRecords(maximumJobCount + 1)];
     const jobs = Object.freeze(loaded.slice(0, maximumJobCount).map(
       assertSemanticReviewJobRecord,
     ));
-    return Object.freeze({
+    const source = Object.freeze({
       schemaVersion: "pmh.semantic-review-attribution-source.v1",
       basis: this.#store === undefined
         ? "IN_MEMORY_RETAINED_WINDOW"
@@ -1758,6 +1762,8 @@ export class SemanticReviewScheduler {
       truncated: loaded.length > maximumJobCount || this.#inMemoryHistoryTruncated,
       jobs,
     });
+    this.#attributionCache.set(maximumJobCount, source);
+    return source;
   }
 }
 
