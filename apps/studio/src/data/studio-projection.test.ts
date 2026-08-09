@@ -5,7 +5,10 @@ import {
   RealCandidatePreflightDesk,
   ReplayBookDesk,
 } from "@pmh/control-plane";
-import { resolveReviewIntake } from "./studio-projection.js";
+import {
+  parseProjectionInvalidation,
+  resolveReviewIntake,
+} from "./studio-projection.js";
 
 describe("Studio projection safety", () => {
   const studioProjection = buildStudioProjection({
@@ -23,6 +26,25 @@ describe("Studio projection safety", () => {
       caseId: "research-case:legacy-before-review-intake",
     } as (typeof studioProjection.ai.researchDesk.cases)[number];
     expect(resolveReviewIntake(legacyCase)).toBeNull();
+  });
+
+  it("accepts only bounded presentation invalidations", () => {
+    expect(parseProjectionInvalidation({
+      schemaVersion: "pmh.studio-projection-invalidation.v1",
+      revision: "42",
+      projectionResource: "/api/v1/projection",
+      projectionView: "LIVE_BOUNDED",
+      refreshRequired: true,
+      authority: "PRESENTATION_INVALIDATION_ONLY",
+    })).toMatchObject({ revision: "42" });
+    expect(() => parseProjectionInvalidation({
+      schemaVersion: "pmh.studio-projection-invalidation.v1",
+      revision: "042",
+      projectionResource: "/api/v1/projection",
+      projectionView: "LIVE_BOUNDED",
+      refreshRequired: true,
+      authority: "PRESENTATION_INVALIDATION_ONLY",
+    })).toThrow(/refresh contract/u);
   });
 
   it("shows the fail-closed model budget without exposing credentials", () => {
@@ -86,7 +108,7 @@ describe("Studio projection safety", () => {
       records: [],
     });
     expect(studioProjection.ai.searchOutcomeAttribution).toMatchObject({
-      measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+      measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES",
       attributedProposalCount: 0,
       attributionCoverageBps: null,
       modelConfidenceUsed: false,
@@ -116,10 +138,57 @@ describe("Studio projection safety", () => {
       bundledJobCount: 0,
       legacyEvidenceDebtCount: 0,
       exhaustedCount: 0,
+      classifiedFailureJobCount: 0,
+      unclassifiedFailureJobCount: 0,
+      failureClassCounts: [],
       budget: {
         basis: "REQUEST_ATTEMPTS",
         maxAttemptsPerJob: 3,
         requestAttemptsStarted: 0,
+      },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    expect(studioProjection.ai.premiseAnalysis).toMatchObject({
+      configured: false,
+      runCount: 0,
+      exactEligibleCount: 0,
+      researchOnlyCount: 0,
+      authority: "PROPOSE_ONLY",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(studioProjection.ai.premiseAnalysisScheduler).toMatchObject({
+      enabled: false,
+      pendingCount: 0,
+      exactEligibleCount: 0,
+      budget: { basis: "PROVIDER_ATTEMPTS", maxAttemptsPerJob: 3 },
+      authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(studioProjection.ai.ruleEvidenceClaims).toMatchObject({
+      configured: false,
+      status: "NEEDS_KEY",
+      pendingCount: 0,
+      leasedCount: 0,
+      passedCount: 0,
+      exhaustedCount: 0,
+      supportedCount: 0,
+      contradictedCount: 0,
+      inconclusiveCount: 0,
+      budget: {
+        basis: "PROVIDER_ATTEMPTS",
+        maxAttemptsPerJob: 3,
+        providerAttemptsStarted: 0,
       },
       semanticDecisionAuthority: false,
       certificateAuthority: false,

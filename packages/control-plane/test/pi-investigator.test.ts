@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
   createPiInvestigatorRuntime,
+  AiUsageLedger,
   runBoundedPiProcess,
   runPiInvestigatorSmoke,
   type DiscoveryTask,
@@ -91,9 +92,10 @@ describe("pi investigator", () => {
         outputLimitExceeded: false,
       };
     };
+    const usageLedger = new AiUsageLedger();
     const runtime = createPiInvestigatorRuntime(
       { DEEPSEEK_API_KEY: secret },
-      { command: "/test/pi", cwd: "/test/repository", runner },
+      { command: "/test/pi", cwd: "/test/repository", runner, usageRecorder: usageLedger },
     );
     const report = await runtime.investigator?.investigate(task());
 
@@ -145,6 +147,12 @@ describe("pi investigator", () => {
     expect(JSON.stringify(report)).not.toContain("MODEL_ASSERTED");
     const { artifactHash, ...body } = report!;
     expect(artifactHash).toBe(hashCanonical(body));
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      coverage: { partial: 1 },
+      byPurpose: [{ key: "PI_INVESTIGATION", invocationCount: "1" }],
+      totals: { tokens: { totalTokens: null } },
+    });
   });
 
   it("rejects listing references outside the bounded task", async () => {

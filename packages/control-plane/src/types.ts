@@ -27,6 +27,8 @@ export type DiscoveryCatalogListing = Readonly<{
   mechanism: string;
   closesAt: string | null;
   rulesText: string | null;
+  rulesTextPosture?: "COMPLETE" | "TRUNCATED";
+  rulesTextSourceCharacterCount?: number;
   evidenceLocators?: readonly DiscoveryEvidenceLocator[];
   outcomes: readonly Readonly<{
     venueOutcomeId: string;
@@ -66,7 +68,23 @@ export type DiscoveryTask = Readonly<{
   maxHypotheses: number;
   deadlineEpochMs: number;
   catalogContext?: DiscoveryCatalogContext;
+  searchAssignment?: Readonly<{
+    lens: "EQUIVALENCE" | "IMPLICATION" | "PARTITION" | "MECHANISM";
+    semanticFamily: import("./search-semantic-family.js").SearchSemanticFamily | null;
+    sourceTrailheadIdentity: Hash | null;
+    inspirationDepth: 0 | 1;
+  }>;
 }>;
+
+export type DiscoveryRelationKind =
+  | "EQUIVALENT"
+  | "IMPLIES"
+  | "SUBSET"
+  | "MUTUALLY_EXCLUSIVE"
+  | "EXHAUSTIVE"
+  | "CONDITIONAL"
+  | "RELATED"
+  | "CONFLICTING";
 
 export type OpportunityHypothesis = Readonly<{
   hypothesisId: string;
@@ -76,12 +94,63 @@ export type OpportunityHypothesis = Readonly<{
     | "COMPLETE_SET"
     | "EXHAUSTIVE_RANGE"
     | "SAME_CLAIM_CROSS_VENUE";
+  relationKind?: DiscoveryRelationKind;
   venueIds: readonly string[];
   claimSearchTerms: readonly string[];
   listingRefs?: readonly string[];
   confidenceBps: number;
   authority: "PROPOSE_ONLY";
   reviewStatus: "UNREVIEWED";
+}>;
+
+export type DiscoveryFalsification = Readonly<{
+  schemaVersion:
+    | "pmh.discovery-falsification.v1"
+    | "pmh.discovery-falsification.v2";
+  falsificationId: Hash;
+  findingIdentity?: Hash;
+  workerId: string;
+  taskId: string;
+  claim: string;
+  reason: string;
+  relationKind?:
+    | "EQUIVALENCE"
+    | "IMPLICATION"
+    | "MUTUAL_EXCLUSION"
+    | "EXHAUSTIVENESS"
+    | "MECHANISM";
+  listingRefs: readonly string[];
+  claimSearchTerms: readonly string[];
+  authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY";
+  semanticDecisionAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type DiscoveryInspiration = Readonly<{
+  schemaVersion: "pmh.discovery-inspiration.v1";
+  inspirationId: Hash;
+  contentIdentity: Hash;
+  workerId: string;
+  taskId: string;
+  observation: string;
+  listingRefs: readonly string[];
+  searchSignals: readonly string[];
+  sourceLens: "EQUIVALENCE" | "IMPLICATION" | "PARTITION" | "MECHANISM";
+  sourceSemanticFamily: import("./search-semantic-family.js").SearchSemanticFamily | null;
+  sourceTrailheadIdentity: Hash | null;
+  suggestedLens: "EQUIVALENCE" | "IMPLICATION" | "PARTITION" | "MECHANISM";
+  suggestedSemanticFamily: import("./search-semantic-family.js").SearchSemanticFamily | null;
+  inspirationDepth: 0 | 1;
+  authority: "SEARCH_ROUTING_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
 }>;
 
 export type DiscoveryWorkerReport = Readonly<{
@@ -93,6 +162,8 @@ export type DiscoveryWorkerReport = Readonly<{
   completedAt: string;
   durationMs: number;
   hypothesisCount: number;
+  falsificationCount?: number;
+  inspirationCount?: number;
   diagnostic: string | null;
   providerRequestAttemptCount?: number;
   providerFailureCategory?: import("./model-failure.js").ModelFailureCategory | null;
@@ -103,6 +174,8 @@ export type DiscoveryAgentToolName =
   | "search_catalog"
   | "inspect_listings"
   | "record_hypothesis"
+  | "record_falsification"
+  | "record_inspiration"
   | "complete_search"
   | "unknown_tool";
 
@@ -115,6 +188,8 @@ export type DiscoveryAgentEffectReason =
   | "CATALOG_RESULTS"
   | "LISTINGS_INSPECTED"
   | "HYPOTHESIS_RECORDED"
+  | "FALSIFICATION_RECORDED"
+  | "INSPIRATION_RECORDED"
   | "SEARCH_COMPLETED"
   | "INVALID_INPUT"
   | "INPUT_TOO_LARGE"
@@ -137,6 +212,8 @@ export type DiscoveryAgentEffect = Readonly<{
   outputIdentity: string;
   listingRefs: readonly string[];
   hypothesisId: string | null;
+  falsificationId?: Hash | null;
+  inspirationId?: Hash | null;
 }>;
 
 export type DiscoveryAgentTerminationReason =
@@ -153,7 +230,9 @@ export type DiscoveryAgentTerminationReason =
 export type DiscoveryAgentTrace = Readonly<{
   schemaVersion:
     | "pmh.discovery-agent-trace.v1"
-    | "pmh.discovery-agent-trace.v2";
+    | "pmh.discovery-agent-trace.v2"
+    | "pmh.discovery-agent-trace.v3"
+    | "pmh.discovery-agent-trace.v4";
   protocol: "PMH_BOUNDED_TOOL_LOOP_V1";
   stepCount: number;
   providerRequestAttemptCount: number;
@@ -161,6 +240,10 @@ export type DiscoveryAgentTrace = Readonly<{
   catalogReadCount: number;
   acceptedProposalCount: number;
   rejectedProposalCount: number;
+  acceptedFalsificationCount?: number;
+  rejectedFalsificationCount?: number;
+  acceptedInspirationCount?: number;
+  rejectedInspirationCount?: number;
   terminationReason: DiscoveryAgentTerminationReason;
   effects: readonly DiscoveryAgentEffect[];
   semanticDecisionAuthority: false;
@@ -172,6 +255,8 @@ export type DiscoveryAgentTrace = Readonly<{
 
 export type DiscoveryAgentRunResult = Readonly<{
   hypotheses: readonly OpportunityHypothesis[];
+  falsifications: readonly DiscoveryFalsification[];
+  inspirations: readonly DiscoveryInspiration[];
   trace: DiscoveryAgentTrace;
 }>;
 
@@ -183,6 +268,8 @@ export type DiscoveryRun = Readonly<{
   workerIds: readonly string[];
   workerReports?: readonly DiscoveryWorkerReport[];
   hypotheses: readonly OpportunityHypothesis[];
+  falsifications?: readonly DiscoveryFalsification[];
+  inspirations?: readonly DiscoveryInspiration[];
   diagnostics: readonly string[];
   executionAuthority: false;
 }>;
@@ -203,6 +290,8 @@ export type DiscoveryDeskProjection = Readonly<{
   runCount: number;
   hypothesisCount: number;
   unreviewedCount: number;
+  falsificationCount: number;
+  inspirationCount: number;
   storage: OperationalStorageProjection;
   runs: readonly DiscoveryRunRecord[];
 }>;
@@ -235,18 +324,30 @@ export interface DiscoveryAgentPort {
 }
 
 export type ModelProviderProjection = Readonly<{
-  provider: "OPENAI_RESPONSES" | "DEEPSEEK_CHAT_COMPLETIONS";
+  provider:
+    | "OPENAI_RESPONSES"
+    | "CODEX_RESPONSES"
+    | "DEEPSEEK_CHAT_COMPLETIONS";
   transport: "VERCEL_AI_SDK";
   configured: boolean;
-  credentialEnv: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY";
+  credentialEnv: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY" | "CODEX_OAUTH";
   model: string;
   maxOutputTokens: number;
+  maxOutputTokensEnforced: boolean;
   timeoutMs: number;
   maxSteps: number;
   maxToolCalls: number;
   fanout: number;
   workerRoles: readonly ModelScoutRole[];
-  reasoningEffort: "minimal" | "disabled";
+  reasoningEffort:
+    | "none"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max"
+    | "disabled";
   responseStorage: false | "PROVIDER_POLICY";
   authority: "PROPOSE_ONLY";
 }>;
@@ -311,10 +412,31 @@ export type BookDeskProjection = Readonly<{
 
 export type StudioProjection = Readonly<{
   identity: Readonly<{
-    schemaVersion: "pmh.studio-projection.v1";
+    schemaVersion: "pmh.studio-projection.v2";
     campaign: string;
     mode: "CONTROL_PLANE";
+    view: "FULL" | "LIVE_BOUNDED";
     stateHash: string;
+    viewHash: string;
+  }>;
+  projectionWindow: Readonly<{
+    schemaVersion: "pmh.studio-projection-window.v1";
+    mode: "FULL" | "LIVE_BOUNDED";
+    sourceStateHash: string;
+    collections: readonly Readonly<{
+      path: string;
+      totalCount: number;
+      includedCount: number;
+      limit: number;
+      selection:
+        | "ACTIVE_THEN_RETAINED_ORDER"
+        | "RETAINED_ORDER"
+        | "OMITTED_FROM_LIVE_VIEW"
+        | "LINKED_TO_INCLUDED_CASES";
+      fullResource: "/api/v1/projection?view=full";
+    }>[];
+    authority: "PRESENTATION_WINDOW_ONLY";
+    historyDeleted: false;
   }>;
   system: Readonly<{
     lifecycle: "PRE_ALPHA";
@@ -341,8 +463,20 @@ export type StudioProjection = Readonly<{
     searchIssueScheduler: import("./search-issue-scheduler.js").SearchIssueSchedulerProjection;
     searchOutcomeAttribution: import("./search-outcome-attribution.js").SearchOutcomeAttributionProjection;
     semanticReview: import("./semantic-review.js").SemanticReviewDeskProjection;
+    probabilityEstimation: import("./probability-estimation-agent.js").ProbabilityEstimationDeskProjection;
+    probabilityEstimationScheduler: import("./probability-estimation-scheduler.js").ProbabilityEstimationSchedulerProjection;
+    probabilityCalibration: import("./probability-calibration-desk.js").ProbabilityCalibrationDeskProjection;
+    probabilityResolutionAcquisition: import("./probability-resolution-acquisition.js").ProbabilityResolutionAcquisitionProjection;
+    aiUsage: import("./ai-usage-ledger.js").AiUsageProjection;
+    runtimeConfiguration: import("./ai-runtime-configuration.js").AiRuntimeConfigurationProjection;
     semanticReviewAdmission: import("./semantic-review-admission.js").SemanticReviewAdmissionProjection;
     semanticReviewScheduler: import("./semantic-review-scheduler.js").SemanticReviewSchedulerProjection;
+    premiseAnalysis: import("./premise-analysis.js").PremiseAnalysisDeskProjection;
+    premiseAnalysisScheduler: import("./premise-analysis-scheduler.js").PremiseAnalysisSchedulerProjection;
+    premiseEvidenceRouting: import("./premise-evidence-routing-scheduler.js").PremiseEvidenceRoutingSchedulerProjection;
+    premiseRouteExpansion: import("./premise-route-expansion-scheduler.js").PremiseRouteExpansionSchedulerProjection;
+    evidenceAcquisition: import("./evidence-acquisition-scheduler.js").EvidenceAcquisitionSchedulerProjection;
+    ruleEvidenceClaims: import("./rule-evidence-claim-scheduler.js").RuleEvidenceClaimSchedulerProjection;
     reviewAttention: import("./review-attention.js").ReviewAttentionProjection;
     proposalEconomicTriage: import("./proposal-economic-triage.js").ProposalEconomicTriageProjection;
     semanticRelationGraph: import("./semantic-relation-graph.js").SemanticRelationGraphProjection;

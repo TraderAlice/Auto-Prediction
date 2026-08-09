@@ -43,11 +43,22 @@ import {
   radarTriageTaskId,
 } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
+import { buildLiveStudioProjection } from "./studio-projection-window.js";
+import { buildStudioProjectionInvalidation } from "./studio-projection-stream.js";
+import {
+  AiUsageLedger,
+  type AiUsageEventStore,
+} from "./ai-usage-ledger.js";
 import {
   applyProposalEconomicPriority,
   buildProposalEconomicTriage,
   recoverBaseReviewPriority,
 } from "./proposal-economic-triage.js";
+import {
+  deriveProposalDecisionNextGate,
+  resolveProposalPremiseOutcome,
+  resolveProposalReviewOutcome,
+} from "./proposal-decision-dossier.js";
 import { buildReviewAttentionProjection } from "./review-attention.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
@@ -59,6 +70,7 @@ import {
   type MarketArchaeologistRecordStore,
 } from "./market-archaeologist.js";
 import {
+  buildMarketCorpusSnapshot,
   projectMarketCorpus,
   searchMarketCorpus,
   type MarketCorpusSnapshot,
@@ -78,12 +90,84 @@ import {
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
 import {
+  createProbabilityEstimationDesk,
+  ProbabilityEstimationDesk,
+  PROBABILITY_ESTIMATOR_ROLES,
+  type ProbabilityEstimationRunStore,
+  type ProbabilityEstimatorRole,
+} from "./probability-estimation-agent.js";
+import {
+  parseProbabilityEstimationTickInterval,
+  ProbabilityEstimationScheduler,
+  type ProbabilityEstimationCandidate,
+  type ProbabilityEstimationSchedulerStore,
+} from "./probability-estimation-scheduler.js";
+import { buildProbabilitySearchOrigin } from "./probabilistic-semantic-arbitrage.js";
+import {
+  ProbabilityCalibrationDesk,
+  type ProbabilityCalibrationStore,
+} from "./probability-calibration-desk.js";
+import type { ProbabilityResolutionEvidence } from "./probability-calibration.js";
+import {
+  parseProbabilityResolutionInterval,
+  ProbabilityResolutionAcquisitionScheduler,
+  type ProbabilityResolutionCaptureStore,
+} from "./probability-resolution-acquisition.js";
+import {
   parseSemanticReviewTickInterval,
   SemanticReviewScheduler,
   type SemanticReviewCandidate,
   type SemanticReviewSchedulerStore,
 } from "./semantic-review-scheduler.js";
-import { buildSemanticReviewAdmissionProjection } from "./semantic-review-admission.js";
+import {
+  createPremiseAnalysisDesk,
+  type PremiseAnalysisRecordStore,
+} from "./premise-analysis.js";
+import {
+  parsePremiseAnalysisTickInterval,
+  PremiseAnalysisScheduler,
+  type PremiseAnalysisCandidate,
+  type PremiseAnalysisSchedulerStore,
+} from "./premise-analysis-scheduler.js";
+import {
+  createPremiseEvidenceRouter,
+  type PremiseEvidenceRouterPort,
+} from "./premise-evidence-router.js";
+import {
+  parsePremiseEvidenceRoutingTickInterval,
+  PremiseEvidenceRoutingScheduler,
+  type PremiseEvidenceRoutingCandidate,
+  type PremiseEvidenceRoutingSchedulerStore,
+} from "./premise-evidence-routing-scheduler.js";
+import {
+  buildPremiseRouteExpansionCandidate,
+  derivePremiseRouteExpansionReviewLineage,
+  parsePremiseRouteExpansionTickInterval,
+  PremiseRouteExpansionScheduler,
+  type PremiseRouteExpansionCandidate,
+  type PremiseRouteExpansionSchedulerStore,
+} from "./premise-route-expansion-scheduler.js";
+import {
+  EvidenceAcquisitionScheduler,
+  parseEvidenceAcquisitionTickInterval,
+  type EvidenceAcquisitionSchedulerStore,
+} from "./evidence-acquisition-scheduler.js";
+import { EvidenceDocumentFetcher } from "./evidence-document.js";
+import type { EvidenceRequirement } from "./evidence-requirement.js";
+import {
+  createRuleEvidenceClaimDesk,
+  type RuleEvidenceClaimRecordStore,
+} from "./rule-evidence-claim.js";
+import {
+  parseRuleEvidenceClaimTickInterval,
+  RuleEvidenceClaimScheduler,
+  type RuleEvidenceClaimInput,
+  type RuleEvidenceClaimSchedulerStore,
+} from "./rule-evidence-claim-scheduler.js";
+import {
+  buildSemanticReviewAdmissionProjection,
+  classifySemanticReviewAdmission,
+} from "./semantic-review-admission.js";
 import { deriveRelationPayoffProjection } from "./relation-payoff.js";
 import { parseOpportunitySimulationIntake } from "./simulation-intake.js";
 import type { OpportunityLifecycleJournalStore } from "./opportunity-lifecycle-desk.js";
@@ -109,8 +193,13 @@ import {
 import {
   parseSearchIssueTickInterval,
   SearchIssueScheduler,
+  type CreateSearchIssueInput,
   type SearchIssueRecordStore,
 } from "./search-issue-scheduler.js";
+import {
+  buildSemanticFamilyCatalogSelection,
+  type SemanticFamilyRetrievalPlan,
+} from "./semantic-family-retrieval.js";
 import {
   parseSearchAttentionWebhook,
   SearchAttentionOutbox,
@@ -122,23 +211,77 @@ import {
   searchSemanticGraphNeighborhood,
   type SemanticGraphSearchContext,
 } from "./semantic-relation-graph.js";
+import {
+  AiRuntimeConfigurationConflictError,
+  AiRuntimeConfigurationDesk,
+  AI_RUNTIME_PROVIDERS,
+  CODEX_REASONING_EFFORTS,
+  CODEX_RUNTIME_MODELS,
+  type AiRuntimeConfiguration,
+  type AiRuntimeConfigurationStore,
+} from "./ai-runtime-configuration.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
 class DiscoveryScopeConflictError extends Error {}
 class ResearchContextUnavailableError extends Error {}
 
+function localStudioOrigin(request: IncomingMessage): string | undefined {
+  const origin = request.headers.origin;
+  if (origin === undefined) return undefined;
+  try {
+    const parsed = new URL(origin);
+    const port = Number(parsed.port);
+    if (
+      parsed.protocol !== "http:" ||
+      !["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname) ||
+      parsed.port.length === 0 ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65_535
+    ) {
+      return undefined;
+    }
+    return origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function localStudioCorsHeaders(
+  request: IncomingMessage,
+): Readonly<Record<string, string>> {
+  const origin = localStudioOrigin(request);
+  return origin === undefined
+    ? Object.freeze({})
+    : Object.freeze({
+        "access-control-allow-origin": origin,
+        vary: "origin",
+      });
+}
+
 function writeJson(
   response: ServerResponse,
   status: number,
   value: unknown,
+  headers: Readonly<Record<string, string>> = {},
 ): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
-    "access-control-allow-origin": "http://localhost:5173",
+    ...localStudioCorsHeaders(response.req),
+    ...headers,
   });
   response.end(`${JSON.stringify(value)}\n`);
+}
+
+function requestAcceptsEtag(request: IncomingMessage, etag: string): boolean {
+  const value = request.headers["if-none-match"];
+  if (value === undefined) return false;
+  const candidates = (Array.isArray(value) ? value.join(",") : value)
+    .split(",")
+    .map((item) => item.trim());
+  return candidates.includes("*") || candidates.includes(etag);
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
@@ -382,6 +525,57 @@ function supportsSemanticReviewRecords(
   );
 }
 
+function supportsProbabilityEstimationRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ProbabilityEstimationRunStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ProbabilityEstimationRunStore>;
+  return candidate.probabilityEstimationStorage !== undefined &&
+    typeof candidate.loadProbabilityEstimationRunRecords === "function" &&
+    typeof candidate.saveProbabilityEstimationRunRecord === "function";
+}
+
+function supportsProbabilityEstimationSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ProbabilityEstimationSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ProbabilityEstimationSchedulerStore>;
+  return candidate.probabilityEstimationJobStorage !== undefined &&
+    candidate.probabilityEstimationNotificationStorage !== undefined &&
+    typeof candidate.loadProbabilityEstimationJobRecords === "function" &&
+    typeof candidate.saveProbabilityEstimationJobRecord === "function" &&
+    typeof candidate.loadProbabilityEstimationNotificationRecords === "function" &&
+    typeof candidate.saveProbabilityEstimationNotificationRecord === "function";
+}
+
+function supportsProbabilityCalibrationRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ProbabilityCalibrationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ProbabilityCalibrationStore>;
+  return candidate.probabilityCalibrationBoundStorage !== undefined &&
+    candidate.probabilityCalibrationObservationStorage !== undefined &&
+    candidate.probabilityCalibrationSnapshotStorage !== undefined &&
+    typeof candidate.loadProbabilityCalibrationBounds === "function" &&
+    typeof candidate.saveProbabilityCalibrationBound === "function" &&
+    typeof candidate.loadProbabilityCalibrationObservations === "function" &&
+    typeof candidate.saveProbabilityCalibrationObservation === "function" &&
+    typeof candidate.loadProbabilityCalibrationSnapshots === "function" &&
+    typeof candidate.saveProbabilityCalibrationSnapshot === "function";
+}
+
+function supportsProbabilityResolutionCaptures(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ProbabilityResolutionCaptureStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ProbabilityResolutionCaptureStore>;
+  return candidate.probabilityResolutionCaptureStorage !== undefined &&
+    candidate.probabilityResolutionSourceStorage !== undefined &&
+    typeof candidate.loadProbabilityResolutionCaptures === "function" &&
+    typeof candidate.saveProbabilityResolutionCapture === "function" &&
+    typeof candidate.loadProbabilityResolutionSource === "function";
+}
+
 function supportsSemanticReviewSchedulerRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & SemanticReviewSchedulerStore {
@@ -395,6 +589,86 @@ function supportsSemanticReviewSchedulerRecords(
     typeof candidate.loadSemanticReviewNotificationRecords === "function" &&
     typeof candidate.saveSemanticReviewNotificationRecord === "function"
   );
+}
+
+function supportsPremiseAnalysisRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & PremiseAnalysisRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<PremiseAnalysisRecordStore>;
+  return candidate.premiseAnalysisStorage !== undefined &&
+    typeof candidate.loadPremiseAnalysisRecords === "function" &&
+    typeof candidate.savePremiseAnalysisRecord === "function";
+}
+
+function supportsPremiseAnalysisSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & PremiseAnalysisSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<PremiseAnalysisSchedulerStore>;
+  return candidate.premiseAnalysisJobStorage !== undefined &&
+    candidate.premiseAnalysisNotificationStorage !== undefined &&
+    typeof candidate.loadPremiseAnalysisJobRecords === "function" &&
+    typeof candidate.savePremiseAnalysisJobRecord === "function" &&
+    typeof candidate.loadPremiseAnalysisNotificationRecords === "function" &&
+    typeof candidate.savePremiseAnalysisNotificationRecord === "function";
+}
+
+function supportsPremiseEvidenceRoutingSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & PremiseEvidenceRoutingSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<PremiseEvidenceRoutingSchedulerStore>;
+  return candidate.premiseEvidenceRoutingJobStorage !== undefined &&
+    typeof candidate.loadPremiseEvidenceRoutingJobRecords === "function" &&
+    typeof candidate.savePremiseEvidenceRoutingJobRecord === "function";
+}
+
+function supportsPremiseRouteExpansionSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & PremiseRouteExpansionSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<PremiseRouteExpansionSchedulerStore>;
+  return candidate.premiseRouteExpansionJobStorage !== undefined &&
+    typeof candidate.loadPremiseRouteExpansionJobRecords === "function" &&
+    typeof candidate.savePremiseRouteExpansionJobRecord === "function";
+}
+
+function supportsEvidenceAcquisitionRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & EvidenceAcquisitionSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<EvidenceAcquisitionSchedulerStore>;
+  return (
+    candidate.evidenceAcquisitionJobStorage !== undefined &&
+    candidate.evidenceDocumentStorage !== undefined &&
+    candidate.evidenceDocumentTextStorage !== undefined &&
+    candidate.evidenceDocumentObservationStorage !== undefined &&
+    typeof candidate.loadEvidenceAcquisitionJobRecords === "function" &&
+    typeof candidate.saveEvidenceAcquisitionJobRecord === "function" &&
+    typeof candidate.loadEvidenceDocumentCapture === "function" &&
+    typeof candidate.saveEvidenceAcquisitionCompletion === "function"
+  );
+}
+
+function supportsRuleEvidenceClaimRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & RuleEvidenceClaimRecordStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<RuleEvidenceClaimRecordStore>;
+  return candidate.ruleEvidenceClaimStorage !== undefined &&
+    typeof candidate.loadRuleEvidenceClaimRecords === "function" &&
+    typeof candidate.saveRuleEvidenceClaimRecord === "function";
+}
+
+function supportsRuleEvidenceClaimSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & RuleEvidenceClaimSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<RuleEvidenceClaimSchedulerStore>;
+  return candidate.ruleEvidenceClaimJobStorage !== undefined &&
+    typeof candidate.loadRuleEvidenceClaimJobRecords === "function" &&
+    typeof candidate.saveRuleEvidenceClaimJobRecord === "function";
 }
 
 function supportsOpportunityLifecycleJournals(
@@ -448,6 +722,105 @@ function supportsSearchAttentionRecords(
   );
 }
 
+function supportsAiUsageEvents(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & AiUsageEventStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<AiUsageEventStore>;
+  return candidate.aiUsageStorage !== undefined &&
+    typeof candidate.loadAiUsageEvents === "function" &&
+    typeof candidate.saveAiUsageEvent === "function";
+}
+
+function supportsAiRuntimeConfiguration(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & AiRuntimeConfigurationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<AiRuntimeConfigurationStore>;
+  return candidate.aiRuntimeConfigurationStorage !== undefined &&
+    typeof candidate.loadAiRuntimeConfiguration === "function" &&
+    typeof candidate.saveAiRuntimeConfiguration === "function";
+}
+
+function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
+  expectedRevision: number;
+  provider: (typeof AI_RUNTIME_PROVIDERS)[number];
+  codexModel: (typeof CODEX_RUNTIME_MODELS)[number];
+  codexReasoningEffort: (typeof CODEX_REASONING_EFFORTS)[number];
+}> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("AI runtime configuration update must be an object");
+  }
+  const body = value as Record<string, unknown>;
+  const keys = Object.keys(body).sort();
+  const expectedKeys = [
+    "codexModel",
+    "codexReasoningEffort",
+    "expectedRevision",
+    "provider",
+  ];
+  if (
+    JSON.stringify(keys) !== JSON.stringify(expectedKeys) ||
+    !Number.isSafeInteger(body.expectedRevision) ||
+    !AI_RUNTIME_PROVIDERS.includes(body.provider as never) ||
+    !CODEX_RUNTIME_MODELS.includes(body.codexModel as never) ||
+    !CODEX_REASONING_EFFORTS.includes(body.codexReasoningEffort as never)
+  ) {
+    throw new Error("AI runtime configuration update is invalid");
+  }
+  return Object.freeze({
+    expectedRevision: body.expectedRevision as number,
+    provider: body.provider as (typeof AI_RUNTIME_PROVIDERS)[number],
+    codexModel: body.codexModel as (typeof CODEX_RUNTIME_MODELS)[number],
+    codexReasoningEffort:
+      body.codexReasoningEffort as (typeof CODEX_REASONING_EFFORTS)[number],
+  });
+}
+
+function parseProbabilityCalibrationResolution(value: unknown): Readonly<{
+  boundArtifactHash: Hash;
+  resolutionEvidence: readonly ProbabilityResolutionEvidence[];
+}> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("probability calibration resolution request is malformed");
+  }
+  const body = value as Record<string, unknown>;
+  if (
+    JSON.stringify(Object.keys(body).sort()) !==
+      JSON.stringify(["boundArtifactHash", "resolutionEvidence"]) ||
+    typeof body.boundArtifactHash !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/u.test(body.boundArtifactHash) ||
+    !Array.isArray(body.resolutionEvidence) ||
+    body.resolutionEvidence.length < 1 || body.resolutionEvidence.length > 16
+  ) throw new Error("probability calibration resolution request is invalid");
+  const resolutionEvidence = Object.freeze(body.resolutionEvidence.map((value) => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("probability calibration resolution evidence is malformed");
+    }
+    const item = value as Record<string, unknown>;
+    if (
+      JSON.stringify(Object.keys(item).sort()) !== JSON.stringify([
+        "listingRef", "protocolIdentity", "resolvedAt", "sourceRawHash", "truthValue",
+      ]) ||
+      typeof item.listingRef !== "string" || typeof item.truthValue !== "boolean" ||
+      typeof item.resolvedAt !== "string" || typeof item.sourceRawHash !== "string" ||
+      !/^sha256:[0-9a-f]{64}$/u.test(item.sourceRawHash) ||
+      typeof item.protocolIdentity !== "string"
+    ) throw new Error("probability calibration resolution evidence is invalid");
+    return Object.freeze({
+      listingRef: item.listingRef,
+      truthValue: item.truthValue,
+      resolvedAt: item.resolvedAt,
+      sourceRawHash: item.sourceRawHash as Hash,
+      protocolIdentity: item.protocolIdentity,
+    });
+  }));
+  return Object.freeze({
+    boundArtifactHash: body.boundArtifactHash as Hash,
+    resolutionEvidence,
+  });
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -469,7 +842,22 @@ export function createControlPlane(options?: {
   searchIssueScheduler?: SearchIssueScheduler;
   searchAttentionOutbox?: SearchAttentionOutbox;
   semanticReviewDesk?: SemanticReviewDesk;
+  probabilityEstimationDesk?: ProbabilityEstimationDesk;
+  probabilityEstimationScheduler?: ProbabilityEstimationScheduler;
+  probabilityCalibrationDesk?: ProbabilityCalibrationDesk;
+  probabilityResolutionAcquisitionScheduler?: ProbabilityResolutionAcquisitionScheduler;
+  aiUsageLedger?: AiUsageLedger;
+  aiRuntimeConfigurationDesk?: AiRuntimeConfigurationDesk;
+  modelRuntimeFactory?: (configuration: AiRuntimeConfiguration) => DiscoveryModelRuntime;
   semanticReviewScheduler?: SemanticReviewScheduler;
+  premiseAnalysisDesk?: ReturnType<typeof createPremiseAnalysisDesk>;
+  premiseAnalysisScheduler?: PremiseAnalysisScheduler;
+  premiseEvidenceRouter?: PremiseEvidenceRouterPort | null;
+  premiseEvidenceRoutingScheduler?: PremiseEvidenceRoutingScheduler;
+  premiseRouteExpansionScheduler?: PremiseRouteExpansionScheduler;
+  evidenceAcquisitionScheduler?: EvidenceAcquisitionScheduler;
+  ruleEvidenceClaimDesk?: ReturnType<typeof createRuleEvidenceClaimDesk>;
+  ruleEvidenceClaimScheduler?: RuleEvidenceClaimScheduler;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
   simulationMaterializerDesk?: AnonymousSimulationMaterializerDesk;
   /**
@@ -493,11 +881,31 @@ export function createControlPlane(options?: {
       "provide either investigationDesk or investigationStore, not both",
     );
   }
-  const modelRuntime =
-    options?.modelRuntime ?? createDiscoveryModelRuntime();
-  const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime();
+  const aiUsageLedger = options?.aiUsageLedger ?? new AiUsageLedger(
+    200,
+    supportsAiUsageEvents(options?.discoveryStore)
+      ? options.discoveryStore
+      : undefined,
+  );
+  const aiRuntimeConfigurationDesk = options?.aiRuntimeConfigurationDesk ??
+    new AiRuntimeConfigurationDesk(
+      process.env,
+      supportsAiRuntimeConfiguration(options?.discoveryStore)
+        ? options.discoveryStore
+        : undefined,
+    );
+  const modelRuntimeFactory = options?.modelRuntimeFactory ??
+    ((configuration: AiRuntimeConfiguration) => createDiscoveryModelRuntime(
+      process.env,
+      { usageRecorder: aiUsageLedger, runtimeConfiguration: configuration },
+    ));
+  let modelRuntime = options?.modelRuntime ??
+    modelRuntimeFactory(aiRuntimeConfigurationDesk.current());
+  const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime(process.env, {
+    usageRecorder: aiUsageLedger,
+  });
   const worker = new HeuristicDiscoveryWorker();
-  const pool =
+  let pool =
     options?.discoveryPool ??
     new DiscoveryPool([
       worker,
@@ -543,6 +951,7 @@ export function createControlPlane(options?: {
   const marketArchaeologistDesk =
     options?.marketArchaeologistDesk ??
     createMarketArchaeologistDesk(process.env, {
+      usageRecorder: aiUsageLedger,
       ...(supportsMarketArchaeologistRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -574,18 +983,39 @@ export function createControlPlane(options?: {
         question,
         venueIds,
         lens,
-        _snapshot,
+        snapshot,
         feedback,
         candidatePolicy,
+        semanticFamily,
+        discoveryMode,
       ) => {
         const minimumEligibleVenueCount =
-          lens === "PARTITION" && candidatePolicy?.requireDistinctVenues !== true
+          semanticFamily !== null ||
+            (lens === "PARTITION" && candidatePolicy?.requireDistinctVenues !== true)
             ? 1
             : 2;
-        return catalogObservationDesk.resilientContext(
+        let retrievalPlan: SemanticFamilyRetrievalPlan | undefined;
+        const selection = catalogObservationDesk.resilientContext(
           venueIds,
           minimumEligibleVenueCount,
           (eligibleVenueIds) => {
+            if (semanticFamily !== null) {
+              const familySelection = buildSemanticFamilyCatalogSelection({
+                source: "QUALIFIED_LIVE_OBSERVATIONS",
+                corpusIdentity: snapshot.snapshotIdentity,
+                listings: snapshot.listings,
+                question,
+                eligibleVenueIds,
+                semanticFamily,
+                maxContextListings: candidatePolicy?.maxCorpusListings ?? 30,
+                feedback,
+                routingMode: discoveryMode === "HEURISTIC_EXPLORATION"
+                  ? "HEURISTIC_FIRST"
+                  : "QUERY_FIRST",
+              });
+              retrievalPlan = familySelection.retrievalPlan;
+              return familySelection.catalogContext;
+            }
             if (lens === "EQUIVALENCE") {
               if (candidatePolicy?.candidateSelection === "MODEL_HYPOTHESIS") {
                 try {
@@ -623,6 +1053,9 @@ export function createControlPlane(options?: {
             );
           },
         );
+        return retrievalPlan === undefined
+          ? selection
+          : Object.freeze({ ...selection, retrievalPlan });
       },
       graphContext: (snapshot, lens) => {
         if (graphContextForLease === undefined) {
@@ -693,7 +1126,43 @@ export function createControlPlane(options?: {
   const semanticReviewDesk =
     options?.semanticReviewDesk ??
     createSemanticReviewDesk(process.env, {
+      usageRecorder: aiUsageLedger,
       ...(supportsSemanticReviewRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const probabilityEstimationDesk =
+    options?.probabilityEstimationDesk ??
+    createProbabilityEstimationDesk(process.env, {
+      usageRecorder: aiUsageLedger,
+      ...(supportsProbabilityEstimationRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const probabilityEstimationScheduler =
+    options?.probabilityEstimationScheduler ??
+    new ProbabilityEstimationScheduler({
+      desk: probabilityEstimationDesk,
+      tickIntervalMs: parseProbabilityEstimationTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsProbabilityEstimationSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const probabilityCalibrationDesk = options?.probabilityCalibrationDesk ??
+    new ProbabilityCalibrationDesk({
+      boundSource: () => probabilityEstimationScheduler.projection().bounds,
+      ...(supportsProbabilityCalibrationRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const probabilityResolutionAcquisitionScheduler =
+    options?.probabilityResolutionAcquisitionScheduler ??
+    new ProbabilityResolutionAcquisitionScheduler({
+      sink: probabilityCalibrationDesk,
+      intervalMs: parseProbabilityResolutionInterval(process.env),
+      ...(supportsProbabilityResolutionCaptures(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -705,6 +1174,102 @@ export function createControlPlane(options?: {
       concurrencyLimit: 3,
       maxRequestsPerTick: 3,
       ...(supportsSemanticReviewSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const premiseAnalysisDesk = options?.premiseAnalysisDesk ??
+    createPremiseAnalysisDesk(process.env, {
+      usageRecorder: aiUsageLedger,
+      ...(supportsPremiseAnalysisRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const premiseAnalysisScheduler = options?.premiseAnalysisScheduler ??
+    new PremiseAnalysisScheduler({
+      desk: premiseAnalysisDesk,
+      tickIntervalMs: parsePremiseAnalysisTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsPremiseAnalysisSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const premiseEvidenceRouter = options?.premiseEvidenceRouter === undefined
+    ? createPremiseEvidenceRouter(process.env, { usageRecorder: aiUsageLedger })
+    : options.premiseEvidenceRouter;
+  const premiseEvidenceRoutingScheduler = options?.premiseEvidenceRoutingScheduler ??
+    new PremiseEvidenceRoutingScheduler({
+      router: premiseEvidenceRouter,
+      tickIntervalMs: parsePremiseEvidenceRoutingTickInterval(process.env),
+      concurrencyLimit: 2,
+      maxRequestsPerTick: 2,
+      ...(supportsPremiseEvidenceRoutingSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const expansionArchaeologist = marketArchaeologistDesk.projection();
+  const premiseRouteExpander = Object.freeze({
+    configured: expansionArchaeologist.configured,
+    model: expansionArchaeologist.model,
+    expanderIdentity: hashCanonical({
+      schemaVersion: "pmh.premise-route-expander.v2",
+      engine: "PI_MARKET_ARCHAEOLOGIST",
+      model: expansionArchaeologist.model,
+      mode: "EXACT_TRADED_STATE_REBINDING",
+    }),
+    expand: async (candidate: PremiseRouteExpansionCandidate) => {
+      const record = await marketArchaeologistDesk.begin(
+        candidate.corpus,
+        candidate.question,
+        "SCHEDULE",
+      ).promise;
+      if (record.status !== "PASS" || record.report === null) {
+        throw new Error(record.diagnostic ?? "traded-state expansion produced no report");
+      }
+      return Object.freeze({
+        marketArchaeologistRunId: record.runId,
+        reportArtifactHash: record.report.artifactHash,
+        generatedProposalIds: Object.freeze(
+          record.report.result.proposals.map((proposal) => proposal.proposalId),
+        ),
+      });
+    },
+  });
+  const premiseRouteExpansionScheduler = options?.premiseRouteExpansionScheduler ??
+    new PremiseRouteExpansionScheduler({
+      expander: premiseRouteExpander,
+      tickIntervalMs: parsePremiseRouteExpansionTickInterval(process.env),
+      ...(supportsPremiseRouteExpansionSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const evidenceAcquisitionScheduler =
+    options?.evidenceAcquisitionScheduler ??
+    new EvidenceAcquisitionScheduler({
+      fetcher: new EvidenceDocumentFetcher({
+        trustClashFakeIp: process.env.PMH_EVIDENCE_TRUST_CLASH_FAKE_IP === "1",
+      }),
+      tickIntervalMs: parseEvidenceAcquisitionTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsEvidenceAcquisitionRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const ruleEvidenceClaimDesk = options?.ruleEvidenceClaimDesk ??
+    createRuleEvidenceClaimDesk(process.env, {
+      usageRecorder: aiUsageLedger,
+      ...(supportsRuleEvidenceClaimRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const ruleEvidenceClaimScheduler = options?.ruleEvidenceClaimScheduler ??
+    new RuleEvidenceClaimScheduler({
+      desk: ruleEvidenceClaimDesk,
+      tickIntervalMs: parseRuleEvidenceClaimTickInterval(process.env),
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      ...(supportsRuleEvidenceClaimSchedulerRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -723,6 +1288,23 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const relationPayoffProposalAttributions = () => {
+    const issues = new Map(searchIssueScheduler.projection().issues.map((issue) =>
+      [issue.issueId, issue] as const
+    ));
+    return Object.freeze(semanticReviewScheduler.projection().jobs.flatMap((job) => {
+      if (job.issueIds.length === 0) return [];
+      const semanticFamilies = Object.freeze([...new Set(job.issueIds.flatMap((issueId) => {
+        const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
+        return family === undefined ? [] : [family];
+      }))].sort());
+      return [Object.freeze({
+        proposalId: job.proposalId,
+        issueIds: Object.freeze([...job.issueIds].sort()),
+        semanticFamilies,
+      })];
+    }));
+  };
   const semanticGraph = (snapshot: MarketCorpusSnapshot) => {
     const archaeologist = marketArchaeologistDesk.projection();
     opportunityLifecycleDesk.syncMarketArchaeologist(archaeologist);
@@ -732,6 +1314,8 @@ export function createControlPlane(options?: {
       archaeologist,
       semanticReviews: semanticReviews.records,
       semanticDecisions: lifecycle.semanticDecisions,
+      premiseAnalyses: premiseAnalysisDesk.projection().records,
+      proposalAttributions: relationPayoffProposalAttributions(),
     });
     return buildSemanticRelationGraph({
       corpus: snapshot,
@@ -783,6 +1367,29 @@ export function createControlPlane(options?: {
           retainedJobPriority: current?.priority ?? job.priority,
         }),
       });
+    }
+    const retainedReviewJobs = semanticReviewScheduler.projection().jobs;
+    for (const inherited of derivePremiseRouteExpansionReviewLineage(
+      premiseRouteExpansionScheduler.projection().jobs,
+      retainedReviewJobs.map((job) => Object.freeze({
+        proposalId: job.proposalId,
+        issueIds: job.issueIds,
+        priority: recoverBaseReviewPriority({
+          issuePriorities: job.issueIds.flatMap((issueId) => {
+            const issue = issues.get(issueId);
+            return issue === undefined ? [] : [issue.priority];
+          }),
+          retainedJobPriority: job.priority,
+        }),
+      })),
+    )) {
+      const current = lineage.get(inherited.proposalId) ?? {
+        issueIds: new Set<Hash>(),
+        priority: 1 as const,
+      };
+      for (const issueId of inherited.issueIds) current.issueIds.add(issueId);
+      if (inherited.priority > current.priority) current.priority = inherited.priority;
+      lineage.set(inherited.proposalId, current);
     }
     const sources = new Map<Hash, {
       proposal: SemanticReviewCandidate["proposal"];
@@ -857,13 +1464,275 @@ export function createControlPlane(options?: {
     ));
   };
   const semanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
-    const candidates = baseSemanticReviewCandidates();
+    const recordsById = new Map(ruleEvidenceClaimDesk.projection().records.map((record) =>
+      [record.interpretationId, record] as const
+    ));
+    const inputs = ruleEvidenceClaimInputs();
+    const existingClaims = new Map(semanticReviewScheduler.projection().jobs.map((job) =>
+      [job.proposalId, job.evidenceClaims ?? []] as const
+    ));
+    const candidates = baseSemanticReviewCandidates().map((candidate) => {
+      const proposalInputs = inputs.filter((input) =>
+        input.requirement.proposalId === candidate.proposal.proposalId
+      );
+      const claims = proposalInputs.length === 0
+        ? []
+        : proposalInputs.flatMap((input) => {
+            const id = ruleEvidenceClaimDesk.interpretationIdFor(
+              input.requirement,
+              input.capture,
+            );
+            const record = recordsById.get(id);
+            return record?.status === "PASS" && record.claim !== null ? [record.claim] : [];
+          });
+      const completeCurrentSet = proposalInputs.length > 0 &&
+        claims.length === proposalInputs.length;
+      const retainedClaims = completeCurrentSet
+        ? claims
+        : existingClaims.get(candidate.proposal.proposalId) ?? [];
+      return Object.freeze({
+        ...candidate,
+        ...(retainedClaims.length === 0
+          ? {}
+          : { evidenceClaims: Object.freeze(retainedClaims) }),
+      });
+    });
     return applyProposalEconomicPriority(
       candidates,
       buildProposalEconomicTriage({
         candidates,
         corpus: catalogObservationDesk.corpus(),
       }),
+    );
+  };
+  const premiseAnalysisCandidates = (): readonly PremiseAnalysisCandidate[] => {
+    const proposals = new Map(
+      semanticReviewCandidates().map((candidate) =>
+        [candidate.proposal.proposalId, candidate.proposal] as const
+      ),
+    );
+    const reviewJobs = new Map(semanticReviewScheduler.projection().jobs.flatMap((job) =>
+      job.status === "PASS" && job.lastReviewId !== null
+        ? [[job.lastReviewId, job] as const]
+        : []
+    ));
+    return Object.freeze(semanticReviewDesk.projection().records.flatMap((review) => {
+      const proposal = proposals.get(review.proposalId);
+      const reviewJob = reviewJobs.get(review.reviewId);
+      const admission = proposal === undefined
+        ? null
+        : classifySemanticReviewAdmission(proposal);
+      if (
+        proposal === undefined || review.status !== "PASS" || review.report === null ||
+        review.report.result.semanticConstraint === undefined ||
+        proposal.listingRefs.length < 2 || proposal.listingRefs.length > 4 ||
+        reviewJob === undefined || admission === null ||
+        admission.lane !== "AUTO_PREMISE_REVIEW"
+      ) return [];
+      return [Object.freeze({
+        proposal,
+        review,
+        semanticReviewJobId: reviewJob.jobId,
+        issueIds: reviewJob.issueIds,
+        admissionLane: admission.lane,
+      })];
+    }).sort((left, right) =>
+      left.review.completedAt!.localeCompare(right.review.completedAt!) ||
+      left.review.reviewId.localeCompare(right.review.reviewId)
+    ));
+  };
+  const premiseEvidenceRoutingCandidates = ():
+    readonly PremiseEvidenceRoutingCandidate[] => {
+    const sources = new Map(
+      semanticReviewCandidates().map((candidate) =>
+        [candidate.proposal.proposalId, candidate] as const
+      ),
+    );
+    const currentCorpus = catalogObservationDesk.corpus();
+    return Object.freeze(premiseAnalysisScheduler.projection().jobs.flatMap((job) => {
+      const source = sources.get(job.proposalId);
+      if (
+        source === undefined || job.status !== "PASS" ||
+        job.schemaVersion !== "pmh.premise-analysis-job.v3" ||
+        job.outcomeCapsule === undefined || job.outcomeCapsule.unboundPremiseCount < 1
+      ) return [];
+      const retainedListings = source.evidenceBundle?.listings ?? [];
+      const listings = [...new Map([
+        ...currentCorpus.listings.map((listing) => [listing.listingRef, listing] as const),
+        ...retainedListings.map((listing) => [listing.listingRef, listing] as const),
+      ]).values()];
+      if (source.proposal.listingRefs.some((listingRef) =>
+        !listings.some((listing) => listing.listingRef === listingRef)
+      )) return [];
+      const corpus = buildMarketCorpusSnapshot({
+        sourceSetIdentity: hashCanonical({
+          schemaVersion: "pmh.premise-evidence-routing-corpus-source.v1",
+          currentSourceSetIdentity: currentCorpus.sourceSetIdentity,
+          evidenceBundleId: source.evidenceBundle?.bundleId ?? null,
+        }),
+        eligibleSourceCount: currentCorpus.eligibleSourceCount,
+        excludedSourceCount: currentCorpus.excludedSourceCount,
+        listings,
+      });
+      return [Object.freeze({
+        proposal: source.proposal,
+        outcome: job.outcomeCapsule,
+        corpus,
+      })];
+    }));
+  };
+  const premiseRouteExpansionCandidates = ():
+    readonly PremiseRouteExpansionCandidate[] => {
+    const currentCorpus = catalogObservationDesk.corpus();
+    const retainedListingsByProposal = new Map<string, readonly import("./types.js").DiscoveryCatalogListing[]>();
+    for (const reviewJob of semanticReviewScheduler.projection().jobs) {
+      if (reviewJob.evidenceBundle === null || reviewJob.evidenceBundle === undefined) continue;
+      const retained = retainedListingsByProposal.get(reviewJob.proposalId) ?? [];
+      retainedListingsByProposal.set(reviewJob.proposalId, Object.freeze([
+        ...new Map([
+          ...retained.map((listing) => [listing.listingRef, listing] as const),
+          ...reviewJob.evidenceBundle.listings.map((listing) =>
+            [listing.listingRef, listing] as const
+          ),
+        ]).values(),
+      ]));
+    }
+    const routeJobs = premiseEvidenceRoutingScheduler.projection().jobs;
+    const currentRouterIdentity = [...routeJobs].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || right.jobId.localeCompare(left.jobId)
+    )[0]?.routerIdentity;
+    if (currentRouterIdentity === undefined) return Object.freeze([]);
+    return Object.freeze(routeJobs.flatMap((sourceJob) => {
+      if (
+        sourceJob.routerIdentity !== currentRouterIdentity ||
+        sourceJob.status !== "PASS" || sourceJob.route === null
+      ) return [];
+      const retained = retainedListingsByProposal.get(sourceJob.proposal.proposalId) ?? [];
+      const availableCorpus = buildMarketCorpusSnapshot({
+        sourceSetIdentity: hashCanonical({
+          schemaVersion: "pmh.premise-route-expansion-available-source.v1",
+          currentSourceSetIdentity: currentCorpus.sourceSetIdentity,
+          sourceRoutingArtifactHash: sourceJob.route.artifactHash,
+          retainedListingHashes: retained.map((listing) => hashCanonical(listing)).sort(),
+        }),
+        eligibleSourceCount: currentCorpus.eligibleSourceCount,
+        excludedSourceCount: currentCorpus.excludedSourceCount,
+        listings: [...new Map([
+          ...currentCorpus.listings.map((listing) => [listing.listingRef, listing] as const),
+          ...retained.map((listing) => [listing.listingRef, listing] as const),
+        ]).values()],
+      });
+      return sourceJob.route.groups.flatMap((group) => {
+        if (group.disposition !== "TRADED_STATE_CANDIDATE") return [];
+        try {
+          return [buildPremiseRouteExpansionCandidate({
+            sourceJob,
+            availableCorpus,
+            routeGroupId: group.groupId,
+          })];
+        } catch {
+          // The source route remains visible. Missing or oversized exact refs
+          // cannot silently become a provider request.
+          return [];
+        }
+      });
+    }));
+  };
+  const probabilitySearchOriginByReview = new Map<Hash,
+    ReturnType<typeof buildProbabilitySearchOrigin> | null>();
+  const probabilityEstimationCandidates = (): readonly ProbabilityEstimationCandidate[] => {
+    const reviews = semanticReviewDesk.projection().records.filter((review) =>
+      review.status === "PASS" && review.report !== null &&
+      review.report.result.semanticConstraint?.classification === "PROBABILISTIC_DEPENDENCE"
+    );
+    const missingReviews = reviews.filter((review) =>
+      !probabilitySearchOriginByReview.has(review.reviewId)
+    );
+    if (missingReviews.length === 0) {
+      return Object.freeze(reviews.map((review) => {
+        const searchOrigin = probabilitySearchOriginByReview.get(review.reviewId) ?? null;
+        return Object.freeze({
+          review,
+          ...(searchOrigin === null ? {} : { searchOrigin }),
+        });
+      }));
+    }
+    const issues = new Map(searchIssueScheduler.projection().issues.map((issue) =>
+      [issue.issueId, issue] as const
+    ));
+    const liveJobs = semanticReviewScheduler.projection().jobs;
+    const liveJobKeys = new Set(liveJobs.map((job) =>
+      `${job.lastReviewId ?? "none"}\u0000${job.proposalId}`
+    ));
+    const needsDurableFallback = missingReviews.some((review) => {
+      const proposalId = review.report!.result.semanticConstraint!.proposalId;
+      return !liveJobKeys.has(`${review.reviewId}\u0000${proposalId}`);
+    });
+    const reviewJobs = needsDurableFallback
+      ? semanticReviewScheduler.attributionSource().jobs
+      : liveJobs;
+    const jobsByReviewProposal = new Map<string, (typeof reviewJobs)[number][]>();
+    for (const job of reviewJobs) {
+      if (job.lastReviewId === null) continue;
+      const key = `${job.lastReviewId}\u0000${job.proposalId}`;
+      const matching = jobsByReviewProposal.get(key) ?? [];
+      matching.push(job);
+      jobsByReviewProposal.set(key, matching);
+    }
+    for (const review of missingReviews) {
+      const constraint = review.report?.result.semanticConstraint;
+      if (constraint === undefined) continue;
+      const matchingJobs = jobsByReviewProposal.get(
+        `${review.reviewId}\u0000${constraint.proposalId}`,
+      ) ?? [];
+      const issueIds = Object.freeze([...new Set(matchingJobs.flatMap((job) =>
+        job.issueIds
+      ))].sort());
+      const semanticFamilies = Object.freeze([...new Set(issueIds.flatMap((issueId) => {
+        const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
+        return family === undefined ? [] : [family];
+      }))].sort());
+      const searchOrigin = issueIds.length === 0 || semanticFamilies.length === 0
+        ? null
+        : buildProbabilitySearchOrigin({ issueIds, semanticFamilies });
+      probabilitySearchOriginByReview.set(review.reviewId, searchOrigin);
+    }
+    return Object.freeze(reviews.map((review) => {
+      const searchOrigin = probabilitySearchOriginByReview.get(review.reviewId) ?? null;
+      return Object.freeze({
+        review,
+        ...(searchOrigin === null ? {} : { searchOrigin }),
+      });
+    }));
+  };
+  const evidenceRequirements = (): readonly EvidenceRequirement[] => Object.freeze([
+    ...marketArchaeologistDesk.projection().records.flatMap((record) =>
+      record.status === "PASS" && record.report !== null
+        ? record.report.result.evidenceRequirements ?? []
+        : []
+    ),
+    ...semanticReviewDesk.projection().records.flatMap((record) =>
+      record.status === "PASS" && record.report !== null
+        ? record.report.result.evidenceRequirements ?? []
+        : []
+    ),
+  ].filter((requirement, index, all) =>
+    all.findIndex((candidate) => candidate.requirementId === requirement.requirementId) === index
+  ));
+  const ruleEvidenceClaimInputs = (): readonly RuleEvidenceClaimInput[] => Object.freeze(
+    evidenceAcquisitionScheduler.projection().jobs.flatMap((job) => {
+      if (job.status !== "CAPTURED") return [];
+      const capture = evidenceAcquisitionScheduler.captureForJob(job.jobId);
+      if (capture === null) return [];
+      return job.requirements.map((requirement) => Object.freeze({ requirement, capture }));
+    }),
+  );
+  const synchronizeLifecycleSources = (): void => {
+    opportunityLifecycleDesk.syncMarketArchaeologist(
+      marketArchaeologistDesk.projection(),
+    );
+    opportunityLifecycleDesk.syncRealCandidate(
+      realCandidatePreflightDesk.dispositionProjection(),
     );
   };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
@@ -877,6 +1746,7 @@ export function createControlPlane(options?: {
         ? [catalogRefreshScheduler.runNow("STARTUP").promise]
         : []),
     ]);
+    synchronizeLifecycleSources();
   });
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
@@ -892,8 +1762,6 @@ export function createControlPlane(options?: {
     const archaeologistProjection = marketArchaeologistDesk.projection();
     const realCandidateDisposition =
       realCandidatePreflightDesk.dispositionProjection();
-    opportunityLifecycleDesk.syncMarketArchaeologist(archaeologistProjection);
-    opportunityLifecycleDesk.syncRealCandidate(realCandidateDisposition);
     const semanticReviewProjection = semanticReviewDesk.projection();
     const baseReviewCandidates = baseSemanticReviewCandidates();
     const semanticReviewAdmission = buildSemanticReviewAdmissionProjection(
@@ -904,10 +1772,26 @@ export function createControlPlane(options?: {
       corpus: catalogObservationDesk.corpus(),
     });
     semanticReviewScheduler.reconcile(
-      applyProposalEconomicPriority(baseReviewCandidates, economicTriageProjection),
+      semanticReviewCandidates(),
       semanticReviewProjection.records,
     );
+    probabilityEstimationScheduler.reconcile(
+      probabilityEstimationCandidates(),
+      catalogObservationDesk.corpus(),
+    );
+    premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
+    premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
+    premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
+    evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+    ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
+    const semanticReviewAttributionSource = semanticReviewScheduler.attributionSource();
+    const premiseAnalysisProjection = premiseAnalysisDesk.projection();
+    const premiseAnalysisSchedulerProjection = premiseAnalysisScheduler.projection();
+    const premiseEvidenceRoutingProjection = premiseEvidenceRoutingScheduler.projection();
+    const premiseRouteExpansionProjection = premiseRouteExpansionScheduler.projection();
+    const evidenceAcquisitionProjection = evidenceAcquisitionScheduler.projection();
+    const ruleEvidenceClaimProjection = ruleEvidenceClaimScheduler.projection();
     const lifecycleProjection = opportunityLifecycleDesk.projection();
     const searchLeaseProjection = searchLeaseScheduler.projection();
     const searchIssueProjection = searchIssueScheduler.projection();
@@ -916,6 +1800,8 @@ export function createControlPlane(options?: {
       archaeologist: archaeologistProjection,
       semanticReviews: semanticReviewProjection.records,
       semanticDecisions: lifecycleProjection.semanticDecisions,
+      premiseAnalyses: premiseAnalysisProjection.records,
+      proposalAttributions: relationPayoffProposalAttributions(),
     });
     const reviewAttention = buildReviewAttentionProjection({
       archaeologist: archaeologistProjection,
@@ -932,11 +1818,12 @@ export function createControlPlane(options?: {
       lifecycle: lifecycleProjection,
       relationPayoff,
       materializations: materializerProjection,
+      discoveryDesk: discoveryLedger.projection(),
     });
     const searchOutcomeAttribution = buildSearchOutcomeAttribution({
       issues: searchIssueProjection.issues,
       searchLeases: searchLeaseProjection.records,
-      semanticReviewJobs: semanticReviewSchedulerProjection.jobs,
+      semanticReviewJobSource: semanticReviewAttributionSource,
       semanticReviews: semanticReviewProjection.records,
       lifecycle: lifecycleProjection,
       materializations: materializerProjection.records,
@@ -960,8 +1847,20 @@ export function createControlPlane(options?: {
       searchIssueScheduler: searchIssueProjection,
       searchOutcomeAttribution,
       semanticReview: semanticReviewProjection,
+      probabilityEstimation: probabilityEstimationDesk.projection(),
+      probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
+      probabilityCalibration: probabilityCalibrationDesk.projection(),
+      probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
+      aiUsage: aiUsageLedger.projection(),
+      runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
+      premiseAnalysis: premiseAnalysisProjection,
+      premiseAnalysisScheduler: premiseAnalysisSchedulerProjection,
+      premiseEvidenceRouting: premiseEvidenceRoutingProjection,
+      premiseRouteExpansion: premiseRouteExpansionProjection,
+      evidenceAcquisition: evidenceAcquisitionProjection,
+      ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
       semanticRelationGraph,
@@ -977,10 +1876,195 @@ export function createControlPlane(options?: {
       candidateWatch: candidateWatchDesk.projection(),
     });
   };
+  const liveProjection = async () => buildLiveStudioProjection(await projection());
+  type LiveProjectionSnapshot = Readonly<{
+    revision: bigint;
+    projection: Awaited<ReturnType<typeof liveProjection>>;
+    etag: string;
+  }>;
+  let projectionRevision = 0n;
+  let liveProjectionCache: LiveProjectionSnapshot | null = null;
+  let liveProjectionBuild: Readonly<{
+    revision: bigint;
+    promise: Promise<LiveProjectionSnapshot>;
+  }> | null = null;
+  const liveProjectionSnapshot = (): Promise<LiveProjectionSnapshot> => {
+    const revision = projectionRevision;
+    if (
+      liveProjectionCache !== null &&
+      liveProjectionCache.revision === revision
+    ) return Promise.resolve(liveProjectionCache);
+    if (liveProjectionBuild?.revision === revision) return liveProjectionBuild.promise;
+    let pending: Promise<LiveProjectionSnapshot>;
+    pending = liveProjection().then((current) => {
+      const snapshot = Object.freeze({
+        revision,
+        projection: current,
+        etag: `"${current.identity.viewHash}"`,
+      });
+      if (projectionRevision === revision) liveProjectionCache = snapshot;
+      return snapshot;
+    }).finally(() => {
+      if (liveProjectionBuild?.promise === pending) liveProjectionBuild = null;
+    });
+    liveProjectionBuild = Object.freeze({ revision, promise: pending });
+    return pending;
+  };
+  const proposalHandoff = async (proposalIds: readonly Hash[]) => {
+    const full = await projection();
+    const proposals = new Map(
+      full.ai.marketArchaeologist.records.flatMap((record) =>
+        (record.report?.result.proposals ?? []).map((proposal) =>
+          [proposal.proposalId, proposal] as const
+        )
+      ),
+    );
+    for (const job of full.ai.semanticReviewScheduler.jobs) {
+      const proposal = job.evidenceBundle?.schemaVersion ===
+          "pmh.proposal-evidence-bundle.v2"
+        ? job.evidenceBundle.proposal
+        : null;
+      if (proposal !== null && !proposals.has(proposal.proposalId)) {
+        proposals.set(proposal.proposalId, proposal);
+      }
+    }
+    const jobs = new Map(
+      full.ai.semanticReviewScheduler.jobs.map((job) => [job.proposalId, job] as const),
+    );
+    const jobsById = new Map(
+      full.ai.semanticReviewScheduler.jobs.map((job) => [job.jobId, job] as const),
+    );
+    const cases = new Map(
+      full.opportunityLifecycle.cases.map((item) => [item.opportunityId, item] as const),
+    );
+    const attention = new Map(
+      full.ai.reviewAttention.items.map((item) => [item.proposalId, item] as const),
+    );
+    const economics = new Map(
+      full.ai.proposalEconomicTriage.items.map((item) => [item.proposalId, item] as const),
+    );
+    const premiseJobs = new Map(
+      full.ai.premiseAnalysisScheduler.jobs.map((item) => [item.proposalId, item] as const),
+    );
+    const items = Object.freeze(proposalIds.map((proposalId) => {
+      const proposal = proposals.get(proposalId) ?? null;
+      const job = jobs.get(proposalId) ?? null;
+      const lifecycleCase = cases.get(`ai:${proposalId}`) ?? null;
+      const operatorAttention = attention.get(proposalId) ?? null;
+      const economicTriage = economics.get(proposalId) ?? null;
+      const reviewOutcome = resolveProposalReviewOutcome(job, jobsById);
+      const premiseJob = premiseJobs.get(proposalId) ?? null;
+      const premiseOutcome = resolveProposalPremiseOutcome(premiseJob);
+      const premiseAuditRequired = proposal === null ||
+        classifySemanticReviewAdmission(proposal).lane === "AUTO_PREMISE_REVIEW";
+      const nextGate = deriveProposalDecisionNextGate({
+        reviewJob: job,
+        reviewOutcome,
+        premiseAuditRequired,
+        premiseJob,
+        premiseOutcome,
+        attention: operatorAttention,
+        lifecycleCase,
+        economics: economicTriage,
+      });
+      return Object.freeze({
+        proposalId,
+        proposal: proposal === null ? null : Object.freeze({
+          proposalId: proposal.proposalId,
+          relationKind: proposal.relationKind,
+          statement: proposal.statement,
+          listingRefs: Object.freeze([...proposal.listingRefs]),
+        }),
+        reviewJob: job === null ? null : Object.freeze({
+          schemaVersion: job.schemaVersion,
+          jobId: job.jobId,
+          status: job.status,
+          attemptCount: job.attemptCount,
+          maxAttempts: job.maxAttempts,
+          duplicateOfJobId: job.duplicateOfJobId ?? null,
+          issueIds: Object.freeze([...job.issueIds]),
+          completedAt: job.completedAt,
+          recommendation: job.recommendation,
+          lastFailure: job.lastFailure ?? null,
+        }),
+        reviewOutcome,
+        premiseJob: premiseJob === null ? null : Object.freeze({
+          schemaVersion: premiseJob.schemaVersion,
+          jobId: premiseJob.jobId,
+          status: premiseJob.status,
+          attemptCount: premiseJob.attemptCount,
+          maxAttempts: premiseJob.maxAttempts,
+          completedAt: premiseJob.completedAt,
+          diagnostic: premiseJob.diagnostic,
+          admissionLane: premiseJob.admissionLane ?? null,
+        }),
+        premiseOutcome,
+        economicTriage: economicTriage === null ? null : Object.freeze({
+          itemId: economicTriage.itemId,
+          status: economicTriage.status,
+          diagnostic: economicTriage.diagnostic,
+          currentContractMatchCount: economicTriage.currentContractMatchCount,
+          settlementStatus: economicTriage.settlementPosture.status,
+          indicativeEconomics: economicTriage.indicativeEconomics,
+        }),
+        lifecycleCase: lifecycleCase === null ? null : Object.freeze({
+          opportunityId: lifecycleCase.opportunityId,
+          state: lifecycleCase.state,
+          nextAction: lifecycleCase.nextAction,
+          discoveryArtifactHash: lifecycleCase.discoveryArtifactHash,
+        }),
+        attention: operatorAttention === null ? null : Object.freeze({
+          itemId: operatorAttention.itemId,
+          operatorPosture: operatorAttention.operatorPosture,
+          nextAction: operatorAttention.nextAction,
+          relationConclusion: operatorAttention.relationConclusion,
+          missingEvidenceCount: operatorAttention.missingEvidenceCount,
+          counterexampleCount: operatorAttention.counterexampleCount,
+        }),
+        nextGate,
+      });
+    }));
+    const body = Object.freeze({
+      schemaVersion: "pmh.proposal-handoff.v3" as const,
+      sourceStateHash: full.identity.stateHash,
+      requestedProposalIds: Object.freeze([...proposalIds]),
+      resolvedProposalCount: items.filter((item) => item.proposal !== null).length,
+      reviewJobCount: items.filter((item) => item.reviewJob !== null).length,
+      reviewOutcomeCount: items.filter((item) => item.reviewOutcome.outcome !== null).length,
+      premiseJobCount: items.filter((item) => item.premiseJob !== null).length,
+      premiseOutcomeCount: items.filter((item) => item.premiseOutcome.outcome !== null).length,
+      premiseObligationCount: items.reduce(
+        (sum, item) => sum + (item.premiseOutcome.outcome?.premiseCount ?? 0),
+        0,
+      ),
+      recoveryPendingCount: items.filter((item) =>
+        item.reviewOutcome.basis === "RECOVERY_PENDING"
+      ).length,
+      legacyDetailUnavailableCount: items.filter((item) =>
+        item.reviewOutcome.basis === "LEGACY_DETAIL_UNAVAILABLE"
+      ).length,
+      economicTriageCount: items.filter((item) => item.economicTriage !== null).length,
+      lifecycleCaseCount: items.filter((item) => item.lifecycleCase !== null).length,
+      operatorAttentionCount: items.filter((item) => item.attention !== null).length,
+      items,
+      authority: "READ_ONLY_WORKFLOW_HANDOFF" as const,
+      semanticDecisionAuthority: false as const,
+      simulationAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    });
+    return Object.freeze({ ...body, contentHash: hashCanonical(body) });
+  };
 
-  const broadcastProjection = async (): Promise<void> => {
-    const payload = `event: projection\ndata: ${JSON.stringify(
-      await projection(),
+  let invalidationFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushProjectionInvalidation = (): void => {
+    invalidationFlushTimer = null;
+    const payload = `event: projection-invalidated\ndata: ${JSON.stringify(
+      buildStudioProjectionInvalidation({
+        revision: projectionRevision,
+        emittedAt: new Date().toISOString(),
+        reason: "STATE_CHANGED",
+      }),
     )}\n\n`;
     for (const subscriber of subscribers) {
       if (subscriber.destroyed) {
@@ -989,6 +2073,14 @@ export function createControlPlane(options?: {
         subscriber.write(payload);
       }
     }
+  };
+  const broadcastProjection = async (): Promise<void> => {
+    await ready;
+    synchronizeLifecycleSources();
+    projectionRevision += 1n;
+    if (subscribers.size === 0 || invalidationFlushTimer !== null) return;
+    invalidationFlushTimer = setTimeout(flushProjectionInvalidation, 25);
+    invalidationFlushTimer.unref();
   };
   publishSearchLeaseChange = () => {
     void broadcastProjection();
@@ -1077,7 +2169,7 @@ export function createControlPlane(options?: {
     const url = new URL(request.url ?? "/", "http://control-plane.local");
     if (request.method === "OPTIONS") {
       response.writeHead(204, {
-        "access-control-allow-origin": "http://localhost:5173",
+        ...localStudioCorsHeaders(request),
         "access-control-allow-methods": "GET,POST,OPTIONS",
         "access-control-allow-headers": "content-type",
       });
@@ -1105,6 +2197,18 @@ export function createControlPlane(options?: {
         searchAttention: searchAttentionOutbox.projection(),
         semanticRelationGraph: semanticGraph(catalogObservationDesk.corpus()),
         semanticReview: semanticReviewDesk.projection(),
+        probabilityEstimation: probabilityEstimationDesk.projection(),
+        probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
+        probabilityCalibration: probabilityCalibrationDesk.projection(),
+        probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
+        aiUsage: aiUsageLedger.projection(),
+        runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+        premiseAnalysis: premiseAnalysisDesk.projection(),
+        premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
+        premiseEvidenceRouting: premiseEvidenceRoutingScheduler.projection(),
+        premiseRouteExpansion: premiseRouteExpansionScheduler.projection(),
+        evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
+        ruleEvidenceClaims: ruleEvidenceClaimScheduler.projection(),
         semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
           baseSemanticReviewCandidates().map((candidate) => candidate.proposal),
         ),
@@ -1119,7 +2223,88 @@ export function createControlPlane(options?: {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/projection") {
-      writeJson(response, 200, await projection());
+      const view = url.searchParams.get("view") ?? "live";
+      if (view === "live") {
+        const snapshot = await liveProjectionSnapshot();
+        const headers = Object.freeze({
+          "access-control-expose-headers": "etag, x-pmh-projection-revision",
+          "cache-control": "no-cache, private",
+          etag: snapshot.etag,
+          "x-pmh-projection-revision": snapshot.revision.toString(),
+        });
+        if (requestAcceptsEtag(request, snapshot.etag)) {
+          response.writeHead(304, {
+            ...localStudioCorsHeaders(request),
+            ...headers,
+          });
+          response.end();
+        } else {
+          writeJson(response, 200, snapshot.projection, headers);
+        }
+      } else if (view === "full") {
+        writeJson(response, 200, await projection());
+      } else {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: "projection view must be live or full",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/proposal-handoff") {
+      const rawIds = url.searchParams.get("ids")?.split(",").filter(Boolean) ?? [];
+      const proposalIds = [...new Set(rawIds)];
+      if (
+        proposalIds.length === 0 || proposalIds.length > 5 ||
+        proposalIds.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(item))
+      ) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: "ids must contain one to five unique sha256 proposal IDs",
+          semanticDecisionAuthority: false,
+          executionAuthority: false,
+        });
+        return;
+      }
+      writeJson(response, 200, await proposalHandoff(proposalIds as Hash[]));
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/ai-runtime/configuration"
+    ) {
+      try {
+        const update = parseAiRuntimeConfigurationUpdate(await readJson(request));
+        const configuration = aiRuntimeConfigurationDesk.update(update);
+        if (options?.modelRuntime === undefined) {
+          modelRuntime = modelRuntimeFactory(configuration);
+          if (options?.discoveryPool === undefined) {
+            pool = new DiscoveryPool([
+              worker,
+              ...modelRuntime.workers,
+            ]);
+          }
+        }
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+          modelProvider: modelRuntime.projection,
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(
+          response,
+          error instanceof AiRuntimeConfigurationConflictError ? 409 : 400,
+          {
+            ok: false,
+            diagnostic: error instanceof Error ? error.message : "configuration update failed",
+            runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+            executionAuthority: false,
+          },
+        );
+      }
       return;
     }
     if (
@@ -1128,6 +2313,73 @@ export function createControlPlane(options?: {
     ) {
       const current = await projection();
       writeJson(response, 200, current.ai.searchOutcomeAttribution);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/probability-calibration"
+    ) {
+      await ready;
+      writeJson(response, 200, probabilityCalibrationDesk.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/probability-resolution-acquisition"
+    ) {
+      await ready;
+      writeJson(response, 200, probabilityResolutionAcquisitionScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/probability-resolution-acquisition/runs"
+    ) {
+      try {
+        await ready;
+        await probabilityResolutionAcquisitionScheduler.runNow();
+        await broadcastProjection();
+        writeJson(response, 200, Object.freeze({
+          ok: true,
+          probabilityResolutionAcquisition:
+            probabilityResolutionAcquisitionScheduler.projection(),
+          probabilityCalibration: probabilityCalibrationDesk.projection(),
+          executionAuthority: false as const,
+        }));
+      } catch (error) {
+        writeJson(response, 502, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "resolution acquisition failed",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/probability-calibration/observations"
+    ) {
+      try {
+        await ready;
+        const result = probabilityCalibrationDesk.recordResolution(
+          parseProbabilityCalibrationResolution(await readJson(request)),
+        );
+        await broadcastProjection();
+        writeJson(response, result.idempotentReplay ? 200 : 201, Object.freeze({
+          ok: true,
+          ...result,
+          probabilityCalibration: probabilityCalibrationDesk.projection(),
+          executionAuthority: false as const,
+        }));
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "probability calibration resolution failed",
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (
@@ -1150,6 +2402,57 @@ export function createControlPlane(options?: {
       writeJson(response, 200, semanticReviewScheduler.projection());
       return;
     }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/premise-analysis"
+    ) {
+      await ready;
+      premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
+      writeJson(response, 200, Object.freeze({
+        desk: premiseAnalysisDesk.projection(),
+        scheduler: premiseAnalysisScheduler.projection(),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/premise-evidence-routing"
+    ) {
+      await ready;
+      premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
+      premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
+      writeJson(response, 200, premiseEvidenceRoutingScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/premise-route-expansion"
+    ) {
+      await ready;
+      premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
+      premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
+      writeJson(response, 200, premiseRouteExpansionScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/evidence-acquisition"
+    ) {
+      await ready;
+      evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+      writeJson(response, 200, evidenceAcquisitionScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/rule-evidence-claims"
+    ) {
+      await ready;
+      evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+      ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
+      writeJson(response, 200, ruleEvidenceClaimScheduler.projection());
+      return;
+    }
     const reviewNotificationAckMatch = url.pathname.match(
       /^\/api\/v1\/semantic-review-notifications\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
     );
@@ -1166,6 +2469,48 @@ export function createControlPlane(options?: {
           diagnostic: error instanceof Error
             ? error.message
             : "semantic review notification acknowledgement failed",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    const premiseNotificationAckMatch = url.pathname.match(
+      /^\/api\/v1\/premise-analysis-notifications\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
+    );
+    if (request.method === "POST" && premiseNotificationAckMatch !== null) {
+      try {
+        const notification = premiseAnalysisScheduler.acknowledge(
+          premiseNotificationAckMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, notification);
+      } catch (error) {
+        writeJson(response, 404, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "premise analysis notification acknowledgement failed",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    const probabilityNotificationAckMatch = url.pathname.match(
+      /^\/api\/v1\/probability-estimation-notifications\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
+    );
+    if (request.method === "POST" && probabilityNotificationAckMatch !== null) {
+      try {
+        const notification = probabilityEstimationScheduler.acknowledge(
+          probabilityNotificationAckMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, notification);
+      } catch (error) {
+        writeJson(response, 404, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "probability estimation notification acknowledgement failed",
           executionAuthority: false,
         });
       }
@@ -1232,6 +2577,8 @@ export function createControlPlane(options?: {
           archaeologist,
           semanticReviews: semanticReviews.records,
           semanticDecisions: lifecycle.semanticDecisions,
+          premiseAnalyses: premiseAnalysisDesk.projection().records,
+          proposalAttributions: relationPayoffProposalAttributions(),
         });
         const opportunityId = (body as { opportunityId: string }).opportunityId.trim();
         const qualification = relationPayoff.qualifications.find(
@@ -1391,6 +2738,8 @@ export function createControlPlane(options?: {
           archaeologist,
           semanticReviews: semanticReviews.records,
           semanticDecisions: lifecycle.semanticDecisions,
+          premiseAnalyses: premiseAnalysisDesk.projection().records,
+          proposalAttributions: relationPayoffProposalAttributions(),
         });
         const qualification = relationPayoff.qualifications.find(
           (item) => item.opportunityId === opportunityId,
@@ -1456,6 +2805,8 @@ export function createControlPlane(options?: {
           archaeologist,
           semanticReviews: semanticReviews.records,
           semanticDecisions: lifecycle.semanticDecisions,
+          premiseAnalyses: premiseAnalysisDesk.projection().records,
+          proposalAttributions: relationPayoffProposalAttributions(),
         });
         const opportunityId =
           body !== null &&
@@ -1612,6 +2963,25 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/probability-estimation"
+    ) {
+      await ready;
+      probabilityEstimationScheduler.reconcile(
+        probabilityEstimationCandidates(),
+        catalogObservationDesk.corpus(),
+      );
+      writeJson(response, 200, Object.freeze({
+        desk: probabilityEstimationDesk.projection(),
+        scheduler: probabilityEstimationScheduler.projection(),
+      }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/ai-usage") {
+      writeJson(response, 200, aiUsageLedger.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/research-cases/review-intake"
     ) {
       const caseId = url.searchParams.get("caseId")?.trim() ?? "";
@@ -1644,10 +3014,16 @@ export function createControlPlane(options?: {
         "content-type": "text/event-stream",
         "cache-control": "no-cache, no-transform",
         connection: "keep-alive",
-        "access-control-allow-origin": "http://localhost:5173",
+        ...localStudioCorsHeaders(request),
       });
       response.write(
-        `event: projection\ndata: ${JSON.stringify(await projection())}\n\n`,
+        `event: projection-invalidated\ndata: ${JSON.stringify(
+          buildStudioProjectionInvalidation({
+            revision: projectionRevision,
+            emittedAt: new Date().toISOString(),
+            reason: "SUBSCRIBER_CONNECTED",
+          }),
+        )}\n\n`,
       );
       subscribers.add(response);
       const heartbeat = setInterval(() => {
@@ -1734,9 +3110,12 @@ export function createControlPlane(options?: {
           cadenceMs?: unknown;
           priority?: unknown;
           enabled?: unknown;
+          discoveryMode?: unknown;
+          family?: unknown;
         };
         const allowed = new Set([
           "title", "question", "lens", "venueIds", "cadenceMs", "priority", "enabled",
+          "discoveryMode", "family",
         ]);
         if (
           Object.keys(input).some((key) => !allowed.has(key)) ||
@@ -1750,7 +3129,12 @@ export function createControlPlane(options?: {
               input.venueIds.some((item) => typeof item !== "string"))) ||
           (input.priority !== undefined &&
             (typeof input.priority !== "number" || ![1, 2, 3, 4, 5].includes(input.priority))) ||
-          (input.enabled !== undefined && typeof input.enabled !== "boolean")
+          (input.enabled !== undefined && typeof input.enabled !== "boolean") ||
+          (input.discoveryMode !== undefined && input.discoveryMode !== "HEURISTIC_EXPLORATION" &&
+            input.discoveryMode !== "CLAIM_MONITORING") ||
+          (input.discoveryMode !== undefined && input.family === undefined) ||
+          (input.family !== undefined &&
+            (input.family === null || typeof input.family !== "object" || Array.isArray(input.family)))
         ) {
           throw new Error("search issue fields are invalid or unbounded");
         }
@@ -1762,6 +3146,12 @@ export function createControlPlane(options?: {
           venueIds: (input.venueIds as readonly string[] | undefined) ?? [],
           priority: (input.priority as 1 | 2 | 3 | 4 | 5 | undefined) ?? 3,
           ...(input.enabled === undefined ? {} : { enabled: input.enabled as boolean }),
+          ...(input.discoveryMode === undefined
+            ? {}
+            : { discoveryMode: input.discoveryMode as NonNullable<CreateSearchIssueInput["discoveryMode"]> }),
+          ...(input.family === undefined
+            ? {}
+            : { family: input.family as NonNullable<CreateSearchIssueInput["family"]> }),
         });
         await broadcastProjection();
         writeJson(response, 201, issue);
@@ -1895,6 +3285,10 @@ export function createControlPlane(options?: {
         );
         await broadcastProjection();
         const record = await invocation.promise;
+        probabilityEstimationScheduler.reconcile(
+          probabilityEstimationCandidates(),
+          catalogObservationDesk.corpus(),
+        );
         await broadcastProjection();
         writeJson(response, record.status === "PASS" ? 200 : 422, {
           ...record,
@@ -2006,6 +3400,36 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "POST" &&
+      /^\/api\/v1\/proposals\/sha256:[0-9a-f]{64}\/semantic-review-detail-recovery$/u
+        .test(url.pathname)
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 0
+        ) throw new Error("semantic review detail recovery accepts only an empty object");
+        const proposalId = url.pathname.split("/")[4] as Hash;
+        const result = semanticReviewScheduler.requestOutcomeRecovery(proposalId);
+        await broadcastProjection();
+        writeJson(response, result.idempotentReplay ? 200 : 202, result);
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "semantic review detail recovery failed",
+          semanticDecisionAuthority: false,
+          simulationAuthority: false,
+          certificateAuthority: false,
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
       url.pathname === "/api/v1/semantic-reviews/runs"
     ) {
       try {
@@ -2067,6 +3491,55 @@ export function createControlPlane(options?: {
             executionAuthority: false,
           },
         );
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/probability-estimation/runs"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body)) {
+          throw new Error("probability estimation request is malformed");
+        }
+        const raw = body as {
+          semanticReviewArtifactHash?: unknown;
+          adverseStateIds?: unknown;
+          role?: unknown;
+        };
+        if (
+          Object.keys(body).sort().join("\n") !==
+            ["adverseStateIds", "role", "semanticReviewArtifactHash"].sort().join("\n") ||
+          typeof raw.semanticReviewArtifactHash !== "string" ||
+          !Array.isArray(raw.adverseStateIds) ||
+          raw.adverseStateIds.some((item) => typeof item !== "string") ||
+          !PROBABILITY_ESTIMATOR_ROLES.includes(raw.role as ProbabilityEstimatorRole)
+        ) throw new Error("probability estimation requires review hash, adverse states, and role");
+        const review = semanticReviewDesk.projection().records.find((record) =>
+          record.report?.artifactHash === raw.semanticReviewArtifactHash
+        );
+        if (review === undefined) throw new Error("probabilistic semantic review was not found");
+        const invocation = probabilityEstimationDesk.begin(
+          review,
+          catalogObservationDesk.corpus(),
+          raw.adverseStateIds as string[],
+          raw.role as ProbabilityEstimatorRole,
+        );
+        await broadcastProjection();
+        const record = await invocation.promise;
+        await broadcastProjection();
+        writeJson(response, record.status === "PASS" || record.status === "ABSTAINED" ? 200 : 422, {
+          ...record,
+          idempotentReplay: invocation.idempotentReplay,
+        });
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "probability estimation failed",
+          executionAuthority: false,
+        });
       }
       return;
     }
@@ -2308,6 +3781,13 @@ export function createControlPlane(options?: {
   let searchIssueTimer: ReturnType<typeof setInterval> | null = null;
   let searchAttentionTimer: ReturnType<typeof setInterval> | null = null;
   let semanticReviewTimer: ReturnType<typeof setInterval> | null = null;
+  let probabilityEstimationTimer: ReturnType<typeof setInterval> | null = null;
+  let probabilityResolutionTimer: ReturnType<typeof setInterval> | null = null;
+  let premiseAnalysisTimer: ReturnType<typeof setInterval> | null = null;
+  let premiseEvidenceRoutingTimer: ReturnType<typeof setInterval> | null = null;
+  let premiseRouteExpansionTimer: ReturnType<typeof setInterval> | null = null;
+  let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
+  let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
   if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
@@ -2415,11 +3895,162 @@ export function createControlPlane(options?: {
       semanticReviewTimer.unref();
     });
   }
+  const probabilityEstimationTickMs = probabilityEstimationScheduler.tickIntervalMs;
+  if (probabilityEstimationTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = probabilityEstimationScheduler.tick(
+            probabilityEstimationCandidates(),
+            catalogObservationDesk.corpus(),
+          );
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted role-estimation work.
+        }
+      };
+      tick();
+      probabilityEstimationTimer = setInterval(tick, probabilityEstimationTickMs);
+      probabilityEstimationTimer.unref();
+    });
+  }
+  const probabilityResolutionTickMs = probabilityResolutionAcquisitionScheduler.intervalMs;
+  if (probabilityResolutionTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const run = probabilityResolutionAcquisitionScheduler.tick();
+          if (run === null) return;
+          void broadcastProjection();
+          void run.then(() => broadcastProjection(), () => broadcastProjection());
+        } catch {
+          // The next bounded tick retries anonymous resolution acquisition.
+        }
+      };
+      tick();
+      probabilityResolutionTimer = setInterval(tick, probabilityResolutionTickMs);
+      probabilityResolutionTimer.unref();
+    });
+  }
+  const premiseAnalysisTickMs = premiseAnalysisScheduler.tickIntervalMs;
+  if (premiseAnalysisTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = premiseAnalysisScheduler.tick(premiseAnalysisCandidates());
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted premise-audit work.
+        }
+      };
+      tick();
+      premiseAnalysisTimer = setInterval(tick, premiseAnalysisTickMs);
+      premiseAnalysisTimer.unref();
+    });
+  }
+  const premiseEvidenceRoutingTickMs = premiseEvidenceRoutingScheduler.tickIntervalMs;
+  if (premiseEvidenceRoutingTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
+          const runs = premiseEvidenceRoutingScheduler.tick(
+            premiseEvidenceRoutingCandidates(),
+          );
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted premise-evidence routing work.
+        }
+      };
+      tick();
+      premiseEvidenceRoutingTimer = setInterval(tick, premiseEvidenceRoutingTickMs);
+      premiseEvidenceRoutingTimer.unref();
+    });
+  }
+  const premiseRouteExpansionTickMs = premiseRouteExpansionScheduler.tickIntervalMs;
+  if (premiseRouteExpansionTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
+          const runs = premiseRouteExpansionScheduler.tick(
+            premiseRouteExpansionCandidates(),
+          );
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) {
+            void run.then(() => {
+              semanticReviewScheduler.reconcile(
+                semanticReviewCandidates(),
+                semanticReviewDesk.projection().records,
+              );
+              return broadcastProjection();
+            });
+          }
+        } catch {
+          // The next bounded tick retries exact-ref reformulation work.
+        }
+      };
+      tick();
+      premiseRouteExpansionTimer = setInterval(tick, premiseRouteExpansionTickMs);
+      premiseRouteExpansionTimer.unref();
+    });
+  }
+  const evidenceAcquisitionTickMs = evidenceAcquisitionScheduler.tickIntervalMs;
+  if (evidenceAcquisitionTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = evidenceAcquisitionScheduler.tick(evidenceRequirements());
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted acquisition work.
+        }
+      };
+      tick();
+      evidenceAcquisitionTimer = setInterval(tick, evidenceAcquisitionTickMs);
+      evidenceAcquisitionTimer.unref();
+    });
+  }
+  const ruleEvidenceClaimTickMs = ruleEvidenceClaimScheduler.tickIntervalMs;
+  if (ruleEvidenceClaimTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          const runs = ruleEvidenceClaimScheduler.tick(ruleEvidenceClaimInputs());
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) void run.then(() => broadcastProjection());
+        } catch {
+          // The next bounded tick retries persisted interpretation work.
+        }
+      };
+      tick();
+      ruleEvidenceClaimTimer = setInterval(tick, ruleEvidenceClaimTickMs);
+      ruleEvidenceClaimTimer.unref();
+    });
+  }
   server.once("close", () => {
+    if (invalidationFlushTimer !== null) clearTimeout(invalidationFlushTimer);
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
     if (searchAttentionTimer !== null) clearInterval(searchAttentionTimer);
     if (semanticReviewTimer !== null) clearInterval(semanticReviewTimer);
+    if (probabilityEstimationTimer !== null) clearInterval(probabilityEstimationTimer);
+    if (probabilityResolutionTimer !== null) clearInterval(probabilityResolutionTimer);
+    if (premiseAnalysisTimer !== null) clearInterval(premiseAnalysisTimer);
+    if (premiseEvidenceRoutingTimer !== null) clearInterval(premiseEvidenceRoutingTimer);
+    if (premiseRouteExpansionTimer !== null) clearInterval(premiseRouteExpansionTimer);
+    if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
+    if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
     discoveryLedger.close();
   });
@@ -2441,7 +4072,20 @@ export function createControlPlane(options?: {
     searchIssueScheduler,
     searchAttentionOutbox,
     semanticReviewDesk,
+    probabilityEstimationDesk,
+    probabilityEstimationScheduler,
+    probabilityCalibrationDesk,
+    probabilityResolutionAcquisitionScheduler,
+    aiUsageLedger,
     semanticReviewScheduler,
+    premiseAnalysisDesk,
+    premiseAnalysisScheduler,
+    premiseEvidenceRouter,
+    premiseEvidenceRoutingScheduler,
+    premiseRouteExpansionScheduler,
+    evidenceAcquisitionScheduler,
+    ruleEvidenceClaimDesk,
+    ruleEvidenceClaimScheduler,
     opportunityLifecycleDesk,
     projection,
     ready,

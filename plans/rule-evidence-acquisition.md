@@ -82,6 +82,170 @@ incomplete corpus is poor use of provider budget.
 - Node 24.14.0 type checks, all 448 workspace tests (299 control-plane), and the
   production build pass for this slice.
 
+## Implemented stacked checkpoint — structured requirements
+
+- Both Agent effect paths now submit bounded, proposal-scoped evidence
+  requirements instead of leaving acquisition intent only in prose. Pi's
+  `submit_market_findings` requires them on every proposal; the Vercel AI SDK
+  `submit_semantic_review` effect requires them whenever `missingEvidence` is
+  non-empty. Neither schema accepts a URL.
+- First-party code derives `pmh.evidence-requirement.v1` artifacts from the
+  immutable proposal listings. Each artifact binds its claim, satisfying and
+  contradicting observations, historical/current posture, source listing/raw
+  hashes, venue/protocol identity, and adapter-issued locator identities. It
+  explicitly carries no fetch, provider-request, semantic-decision,
+  certificate, or execution authority.
+- Requirements route deterministically to `DOCUMENT_LOCATOR`, `MARKET_DATA`,
+  or `UNSUPPORTED`. Unsupported requests remain represented instead of causing
+  an improvised fetch or another model request.
+- A shared official document is represented once with all affected listing
+  refs. Its acquisition scope excludes proposal-local listing membership, so
+  two Agents asking the same evidence kind and historical posture for the same
+  Gemini PDF can share one future fetch while retaining distinct requirement
+  IDs and claims.
+- New Pi and semantic-review reports use v3 and persist requirements through
+  SQLite restart. Historical v1/v2 reports remain valid and cannot be silently
+  extended with v3 fields. Rehashed locator substitution and cross-listing
+  rebinding fail closed against adapter/source lineage.
+- Node 24.14.0 full workspace checks, all 452 tests (303 control-plane), and the
+  production build pass on the unpublished stacked branch.
+- That full qualification also exposed a pre-existing millisecond race in the
+  search-lease failure path: the record and its fast lane sampled completion
+  time separately even though v5 requires them to match. They now share one
+  sampled timestamp, with an advancing-clock regression test, so overloaded
+  parallel suites no longer turn an expected pre-Agent rejection into a
+  malformed record.
+
+## Implemented stacked checkpoint — constrained document capture
+
+- Added a first-party `EvidenceDocumentFetcher` that accepts only a validated
+  requirement plus an exact offered locator identity. A content-addressed
+  adapter policy must independently match venue, protocol, locator role,
+  hostname, and response content type before any request is admitted. The only
+  built-in route is the currently evidenced Gemini contract-rule policy for
+  `assets.gemini.com`; external Myriad resolution sources do not inherit it.
+- Every hop is HTTPS-only, credential-free, manually redirected, revalidated
+  against the exact host policy, DNS-resolved before use, and pinned into the
+  TLS socket so a second lookup cannot rebind it to a private address. Public,
+  private, link-local, documentation, benchmark, multicast, and reserved
+  address postures are distinguished before network I/O.
+- This host uses Clash fake-IP DNS (`198.18.0.0/15`). That range remains denied
+  by default. An explicit `trustClashFakeIp` option admits only that range while
+  retaining exact hostname allowlisting, pinned destination, normal TLS
+  certificate/SNI verification, and an auditable `CLASH_FAKE_IP_PINNED` field
+  in both capture and observation artifacts.
+- `pmh.rule-document.v1` preserves exact bytes, requested and final locator
+  identities, redirect trace, response metadata, receive time, raw hash, byte
+  length, policy identity, and an authority-free anonymous acquisition record.
+  `pmh.rule-document-observation.v1` represents both `200` and a later `304`;
+  the latter points to the retained immutable document instead of duplicating
+  its bytes.
+- `pmh.rule-document-text.v1` binds derived text to its parent raw/document
+  hashes and versioned extractor identity. Plain UTF-8, JSON, HTML, XHTML, and
+  PDF are supported only when the adapter policy declares their type. PDF.js
+  receives in-memory bytes only, performs no range/stream/worker fetches, and
+  is bounded by raw bytes, time, pages, declared direct/compressed objects,
+  images, and extracted characters. Venue text remains explicitly untrusted;
+  prompt instructions have no authority.
+- Focused tests prove public-address capture, default-denied and explicitly
+  recorded Clash fake IP, private-address rejection before fetch, same-policy
+  and off-policy redirects, advertised and streamed byte bounds, compressed
+  response rejection, type policy, PDF object/page posture, conditional ETag
+  reuse, byte/text tamper detection, and closed authority schemas.
+- Live anonymous qualification through the configured Clash path captured the
+  historical Gemini BTC rule PDF at 87,279 bytes (`sha256:a6c0ab29827e5552…`),
+  extracted 5,116 characters from two pages, bound the selected route to
+  `198.18.0.55`/IPv4, then received HTTP `304` on the conditional request and
+  reused the same document identity. No credential,
+  browser state, provider request, semantic decision, or value-moving action
+  was involved.
+- Node 24.14.0 full workspace checks, all 457 tests (308 control-plane), and the
+  production build pass for the stacked checkpoint.
+
+## Implemented stacked checkpoint — durable acquisition scheduling
+
+- Added a content-addressed acquisition job per evidence scope. Requirements
+  from multiple proposals are retained separately but share one fetch, lease,
+  retry budget, and current-document freshness cycle. Requirements arriving
+  while a shared fetch is already leased are merged into the durable completion
+  instead of being overwritten by the older dispatch snapshot.
+- SQLite schema v19 independently retains acquisition jobs, exact document
+  bytes, bounded text extractions, and every document observation. Jobs lease
+  before network I/O, recover expired leases after restart, bound concurrency
+  and requests per tick, and distinguish retry wait, exhaustion, unsupported,
+  captured, and stale states. Unsupported routes spend neither fetch nor model
+  budget.
+- A successful current-document capture resets only its retry-cycle attempt
+  count. Lifetime attempts and conditional-reuse counts remain auditable, so
+  repeated freshness checks can continue past one cycle's maximum without
+  erasing their cost. Historical captures never refresh.
+- Current documents revalidate with retained ETag or Last-Modified metadata.
+  `304` creates a new immutable observation over the prior document; changed
+  bytes create a new document and extraction while preserving the old
+  observation. After a fetch-policy change, the old observation remains
+  immutable but the current job deliberately drops its conditional cursor and
+  performs a full request under the new policy.
+- The control-plane runtime collects requirements from both discovery and
+  semantic-review reports, exposes bounded queue/accounting data at
+  `/api/v1/evidence-acquisition`, and starts scheduled reads only after the HTTP
+  listener wins startup admission. The Studio projection includes the queue but
+  never embeds untrusted extracted text.
+- A live Gemini qualification captured the shared PDF once for two requirements,
+  restored the job and artifacts from SQLite, reached its freshness boundary,
+  and received HTTP `304` while reusing the same 87,279-byte document identity.
+  The recorded route remained Clash fake-IP `198.18.0.55`/IPv4, and no model,
+  credential, semantic-decision, certificate, or execution authority was used.
+- Node 24.14.0 full workspace checks, all 467 tests (318 control-plane), and the
+  production build pass for this scheduler checkpoint.
+
+## Implemented stacked checkpoint — Agent interpretation and review re-entry
+
+- Added a bounded Vercel AI SDK tool loop for each exact
+  requirement×document×extraction tuple. The initial request receives document
+  metadata but not the full untrusted body; the Agent can perform literal
+  searches and bounded reads before terminating through
+  `submit_rule_evidence_claim`. Whole-response schema parsing is not used.
+- `pmh.rule-evidence-claim.v1` binds the proposal-local requirement, immutable
+  document and extraction hashes, interpreter identity, disposition, exact
+  passage offsets, quotes, and quote hashes. First-party validation requires
+  every quote to equal the retained text slice. Fabricated, overlapping,
+  out-of-bounds, cross-proposal, or authority-bearing claims fail closed.
+  Supporting and contradicting claims require citations and no unresolved gap;
+  inconclusive claims must preserve unresolved evidence.
+- A separate durable scheduler leases one interpretation job per requirement
+  and current captured document, bounds concurrency, attempts, and requests per
+  tick, retries transient model failures, restores expired work after restart,
+  and reuses an already-persisted PASS without another provider call. SQLite
+  schema v20 retains jobs and immutable claim records independently from raw
+  documents and extracted text.
+- Complete current claim sets create
+  `pmh.evidence-enriched-semantic-scope.v1` artifacts. The semantic-review
+  scheduler reruns the same proposal under a new v2 scope and emits a v4 report
+  without mutating the original review. Any resulting hard constraint binds the
+  enriched scope identity; partial claim sets do not silently rebind a review.
+- The control plane reconciles acquisition, claim interpretation, and enriched
+  semantic review in order. `/api/v1/rule-evidence-claims`, `/health`, SSE, and
+  Studio expose bounded scheduling and disposition counts without returning
+  retained document text or granting claims semantic-decision authority.
+- Focused qualification proves exact citation rejection, no full document in
+  the first provider request, correction-capable tool iteration, independent
+  claims over a coalesced document, bounded exhaustion, SQLite restart without
+  duplicate model work, tamper rejection, and automatic evidence-enriched
+  review re-entry while retaining the original report.
+- A rejected terminal submission no longer ends either the evidence interpreter
+  or semantic reviewer merely because the model called the submit tool. The
+  first-party tool returns a bounded diagnostic and the loop continues until an
+  effect is actually accepted or the step budget is exhausted. Regression tests
+  cover premature submission, required evidence inspection, invalid exact
+  quotes, and subsequent correction.
+- A live DeepSeek V4 Flash interpretation passed in 14.4 seconds over a bounded
+  local rule capture: two passage reads, one verified 160-character citation,
+  `SUPPORTS`, no whole-response parsing, and no semantic-decision, certificate,
+  or execution authority. Node 24.14.0 full workspace checks, all 477 tests
+  (328 control-plane), and the production build pass. The dev server also
+  admitted both Vite and the control plane; desktop/390 px visual inspection
+  remains unclaimed because the browser-control URL policy rejected localhost.
+
 ## Evidence contract
 
 1. Preserve adapter-owned typed locators in a backward-compatible discovery
@@ -195,19 +359,33 @@ official evidence to reach a deterministic accept/reject decision.
 1. **Implemented on PR #80:** preserve and hash adapter-owned typed evidence
    locators through catalog observation, discovery context, MarketFS, proposal
    evidence bundles, and SQLite replay.
-2. Define structured evidence requirements and migrate semantic review to emit
-   them without invalidating v1/v2 reports.
-3. Implement the policy-constrained anonymous fetcher and raw/extracted
-   evidence artifacts with SSRF and resource-bound tests.
-4. Add the durable coalescing acquisition scheduler, restart recovery,
-   freshness, retention, and terminal-state accounting.
-5. Add the Agent tool loop for requesting eligible documents and submitting
-   bounded evidence claims; preserve partial fetch success across model failure.
-6. Build enriched semantic scopes and automatically resume blocked review jobs
-   without repeating discovery or spending duplicate review attempts.
-7. Surface the queue, provenance, coverage, and conversion funnel in Studio.
-8. Qualify against live anonymous official sources, SQLite restart, desktop and
-   390 px layouts, then publish as the next serial PR.
+2. **Implemented on the unpublished serial stack:** define structured evidence
+   requirements and migrate both Pi discovery and AI SDK semantic review to
+   emit them without invalidating v1/v2 reports.
+3. **Implemented on the unpublished serial stack:** implement the
+   policy-constrained anonymous fetcher and raw/extracted evidence artifacts
+   with SSRF, DNS rebinding, proxy-posture, redirect, conditional request, and
+   resource-bound tests plus a live Gemini PDF qualification.
+4. **Implemented on the unpublished serial stack:** add the durable coalescing
+   acquisition scheduler, restart recovery, freshness, retention, policy-change
+   invalidation, and terminal-state accounting.
+5. **Implemented on the unpublished serial stack:** add the Agent tool loop for
+   bounded search/read over eligible captured documents and terminal evidence
+   claims; preserve captured artifacts across model failure.
+6. **Implemented on the unpublished serial stack:** build enriched semantic
+   scopes and automatically resume the same proposal's review without repeating
+   discovery or reusing a PASS from another evidence scope.
+7. **Implemented on the unpublished serial stack:** expose the interpretation
+   queue, durable posture, disposition counts, attempt budget, and jobs in
+   Studio without exposing raw document text.
+   Live Studio use later found a retained model-origin locator whose hostname
+   violated the adapter policy. Reconciliation now classifies that locator as
+   `UNSUPPORTED` with zero fetch attempts instead of letting policy validation
+   terminate the control-plane process; a regression test covers the stored
+   untrusted-locator path.
+8. Qualify against live anonymous official sources and the configured model,
+   SQLite restart, desktop and 390 px layouts, then publish after serial PR #80
+   merges.
 
 ## Qualification gates
 

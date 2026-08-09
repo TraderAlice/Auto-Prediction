@@ -7,6 +7,10 @@ import {
   type ProposalEvidenceBundle,
 } from "./market-archaeologist.js";
 import type { DiscoveryCatalogListing } from "./types.js";
+import {
+  buildEvidenceEnrichedSemanticScope,
+} from "./evidence-enriched-semantic-scope.js";
+import type { RuleEvidenceClaim } from "./rule-evidence-claim.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
@@ -17,13 +21,14 @@ export const SYMMETRIC_REVIEW_RELATIONS = Object.freeze([
 ] as const);
 
 export type SemanticReviewScopeRecord = Readonly<{
-  schemaVersion: "pmh.semantic-review-scope.v1";
+  schemaVersion: "pmh.semantic-review-scope.v1" | "pmh.semantic-review-scope.v2";
   proposalId: Hash;
   status: "SCOPED" | "UNSCOPED_EVIDENCE";
   relationKind: MarketRelationKind;
   canonicalListingRefs: readonly string[];
   contractSemanticIdentity: Hash | null;
   scopeIdentity: Hash | null;
+  evidenceEnrichmentIdentity?: Hash;
   priceIndependent: true;
   modelConfidenceUsed: false;
   semanticDecisionAuthority: false;
@@ -101,7 +106,8 @@ export function assertSemanticReviewScopeRecord(
   const record = value as SemanticReviewScopeRecord;
   const scoped = record.status === "SCOPED";
   if (
-    record.schemaVersion !== "pmh.semantic-review-scope.v1" ||
+    !["pmh.semantic-review-scope.v1", "pmh.semantic-review-scope.v2"]
+      .includes(record.schemaVersion) ||
     !HASH_PATTERN.test(String(record.proposalId)) ||
     !["SCOPED", "UNSCOPED_EVIDENCE"].includes(record.status) ||
     ![
@@ -117,6 +123,10 @@ export function assertSemanticReviewScopeRecord(
     ) ||
     scoped !== HASH_PATTERN.test(String(record.contractSemanticIdentity)) ||
     scoped !== HASH_PATTERN.test(String(record.scopeIdentity)) ||
+    (record.schemaVersion === "pmh.semantic-review-scope.v1" &&
+      record.evidenceEnrichmentIdentity !== undefined) ||
+    (record.schemaVersion === "pmh.semantic-review-scope.v2" &&
+      !HASH_PATTERN.test(String(record.evidenceEnrichmentIdentity))) ||
     record.priceIndependent !== true ||
     record.modelConfidenceUsed !== false ||
     record.semanticDecisionAuthority !== false ||
@@ -136,12 +146,21 @@ export function assertSemanticReviewScopeRecord(
   ) {
     throw new Error("symmetric semantic review scope refs are not canonical");
   }
-  if (scoped && record.scopeIdentity !== hashCanonical({
-    schemaVersion: "pmh.semantic-review-scope-identity.v1",
-    relationKind: record.relationKind,
-    canonicalListingRefs: record.canonicalListingRefs,
-    contractSemanticIdentity: record.contractSemanticIdentity,
-  })) {
+  const expectedScopeIdentity = record.schemaVersion === "pmh.semantic-review-scope.v1"
+    ? hashCanonical({
+        schemaVersion: "pmh.semantic-review-scope-identity.v1",
+        relationKind: record.relationKind,
+        canonicalListingRefs: record.canonicalListingRefs,
+        contractSemanticIdentity: record.contractSemanticIdentity,
+      })
+    : hashCanonical({
+        schemaVersion: "pmh.semantic-review-scope-identity.v2",
+        relationKind: record.relationKind,
+        canonicalListingRefs: record.canonicalListingRefs,
+        contractSemanticIdentity: record.contractSemanticIdentity,
+        evidenceEnrichmentIdentity: record.evidenceEnrichmentIdentity,
+      });
+  if (scoped && record.scopeIdentity !== expectedScopeIdentity) {
     throw new Error("semantic review scope identity is inconsistent");
   }
   return Object.freeze(record);
@@ -150,6 +169,7 @@ export function assertSemanticReviewScopeRecord(
 export function deriveSemanticReviewScope(
   proposal: MarketRelationProposal,
   evidenceBundle: ProposalEvidenceBundle | null | undefined,
+  evidenceClaims: readonly RuleEvidenceClaim[] = [],
 ): SemanticReviewScopeRecord {
   const refs = canonicalListingRefs(proposal);
   const durable = evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
@@ -161,16 +181,32 @@ export function deriveSemanticReviewScope(
   const contractSemanticIdentity = durable === null
     ? null
     : buildContractSemanticIdentity(durable.listings);
+  if (evidenceClaims.length > 0 && durable === null) {
+    throw new Error("evidence-enriched semantic review requires a durable evidence bundle");
+  }
+  const evidenceEnrichment = evidenceClaims.length === 0 || durable === null
+    ? null
+    : buildEvidenceEnrichedSemanticScope({ evidenceBundle: durable, claims: evidenceClaims });
   const scopeIdentity = contractSemanticIdentity === null
     ? null
-    : hashCanonical({
-        schemaVersion: "pmh.semantic-review-scope-identity.v1",
-        relationKind: proposal.relationKind,
-        canonicalListingRefs: refs,
-        contractSemanticIdentity,
-      });
+    : evidenceEnrichment === null
+      ? hashCanonical({
+          schemaVersion: "pmh.semantic-review-scope-identity.v1",
+          relationKind: proposal.relationKind,
+          canonicalListingRefs: refs,
+          contractSemanticIdentity,
+        })
+      : hashCanonical({
+          schemaVersion: "pmh.semantic-review-scope-identity.v2",
+          relationKind: proposal.relationKind,
+          canonicalListingRefs: refs,
+          contractSemanticIdentity,
+          evidenceEnrichmentIdentity: evidenceEnrichment.scopeIdentity,
+        });
   const body = Object.freeze({
-    schemaVersion: "pmh.semantic-review-scope.v1" as const,
+    schemaVersion: evidenceEnrichment === null
+      ? "pmh.semantic-review-scope.v1" as const
+      : "pmh.semantic-review-scope.v2" as const,
     proposalId: proposal.proposalId,
     status: scopeIdentity === null
       ? "UNSCOPED_EVIDENCE" as const
@@ -179,6 +215,9 @@ export function deriveSemanticReviewScope(
     canonicalListingRefs: refs,
     contractSemanticIdentity,
     scopeIdentity,
+    ...(evidenceEnrichment === null
+      ? {}
+      : { evidenceEnrichmentIdentity: evidenceEnrichment.scopeIdentity }),
     priceIndependent: true as const,
     modelConfidenceUsed: false as const,
     semanticDecisionAuthority: false as const,

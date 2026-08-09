@@ -216,7 +216,7 @@ describe("research relation payoff compiler", () => {
     });
     expect(artifact.canonicalStates).toHaveLength(states);
     expect(artifact.portfolios).toHaveLength(portfolios);
-    expect(artifact.schemaVersion).toBe("pmh.research-relation-payoff.v2");
+    expect(artifact.schemaVersion).toBe("pmh.research-relation-payoff.v3");
     expect(artifact.portfolios.every((item) => BigInt(item.minimumPayoutUnits) >= 1n)).toBe(true);
     expect(artifact.portfolios.every((item) =>
       Object.values(item.payoutUnitsByState).every((value) => typeof value === "string")
@@ -279,7 +279,9 @@ describe("research relation payoff compiler", () => {
     const quotes = portfolio.legs.map((leg) => ({
       listingRef: leg.listingRef,
       outcome: leg.outcome,
-      askPriceUnits: leg.legId === "left" ? "300" : "400",
+      askPriceUnits: leg.listingRef === qualification.listingBindings[0]!.listingRef
+        ? "300"
+        : "400",
       feeUnitsPerContract: "10",
       priceScale: "1000",
       availableQuantityUnits: "5000",

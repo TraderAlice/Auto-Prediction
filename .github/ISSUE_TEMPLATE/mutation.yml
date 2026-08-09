@@ -1,0 +1,59 @@
+name: Mutation candidate
+description: Record a problem or product proposition that may justify a divergent candidate.
+title: "[mutation]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A mutation issue records the pressure for change, not a pre-approved implementation.
+
+  - type: textarea
+    id: observed-problem
+    attributes:
+      label: Observed problem or product proposition
+      description: What did we observe, or what deeper product claim should we test?
+      placeholder: Include concrete product, operator, runtime, or measurement evidence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: local-optimum
+    attributes:
+      label: Why the current local optimum may be insufficient
+      description: Explain why an incremental improvement may not expose the useful variation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: mutation-space
+    attributes:
+      label: Mutation space
+      description: What could be added, removed, replaced, simplified, or restructured? Competing directions are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: selection-signals
+    attributes:
+      label: Selection signals
+      description: What evidence would make us adopt, partially adopt, hold, or abandon a candidate?
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and non-goals
+      description: Include authority, evidence, safety, cost, compatibility, or timing boundaries.
+      value: |
+        - No live orders, signing, credential capture, or value movement.
+    validations:
+      required: true
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related evidence and candidates
+      description: Link issues, plans, measurements, prior attempts, or competing mutation PRs.
+    validations:
+      required: false

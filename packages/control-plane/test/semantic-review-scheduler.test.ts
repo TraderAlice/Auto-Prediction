@@ -5,12 +5,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertSemanticReviewJobRecord,
+  assertSemanticReviewOutcomeCapsule,
   buildMarketCorpusSnapshot,
   buildProposalEvidenceBundle,
   createSemanticReviewDesk,
   SemanticReviewScheduler,
   type MarketRelationProposal,
   type SemanticReviewCandidate,
+  type SemanticReviewJobRecord,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
@@ -185,7 +187,29 @@ describe("persistent semantic review scheduler", () => {
       "REVIEW_COMPLETE",
       "REVIEW_ESCALATED",
     ]);
-    completed.jobs.forEach((job) => expect(() => assertSemanticReviewJobRecord(job)).not.toThrow());
+    completed.jobs.forEach((job) => {
+      expect(job).toMatchObject({
+        schemaVersion: "pmh.semantic-review-job.v3",
+        reviewOutcome: {
+          schemaVersion: "pmh.semantic-review-outcome-capsule.v1",
+          proposalId: job.proposalId,
+          missingEvidenceCount: 1,
+          counterexampleCount: 1,
+          semanticConstraint: null,
+          authority: "ADVISORY_SUMMARY_ONLY",
+          semanticDecisionAuthority: false,
+          simulationAuthority: false,
+          certificateAuthority: false,
+          executionAuthority: false,
+        },
+      });
+      expect(() => assertSemanticReviewJobRecord(job)).not.toThrow();
+    });
+    const capsule = completed.jobs[0]!.reviewOutcome!;
+    expect(() => assertSemanticReviewOutcomeCapsule({
+      ...capsule,
+      missingEvidenceCount: capsule.missingEvidenceCount + 1,
+    })).toThrow(/outcome capsule/u);
   });
 
   it("retries on a bounded clock and emits one durable terminal notification", async () => {
@@ -215,6 +239,12 @@ describe("persistent semantic review scheduler", () => {
     expect(scheduler.projection()).toMatchObject({
       retryWaitCount: 1,
       exhaustedCount: 0,
+      classifiedFailureJobCount: 1,
+      unclassifiedFailureJobCount: 0,
+      failureClassCounts: [{
+        failureClass: "PROVIDER_RETRYABLE",
+        jobCount: 1,
+      }],
       budget: { requestAttemptsStarted: 1 },
     });
     expect(scheduler.tick([item], snapshot)).toHaveLength(0);
@@ -224,8 +254,15 @@ describe("persistent semantic review scheduler", () => {
     expect(scheduler.projection()).toMatchObject({
       retryWaitCount: 0,
       exhaustedCount: 1,
+      classifiedFailureJobCount: 1,
       unreadNotificationCount: 1,
       budget: { requestAttemptsStarted: 2 },
+    });
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      lastFailure: {
+        failureClass: "PROVIDER_RETRYABLE",
+        retryPolicy: "STANDARD_RETRY",
+      },
     });
     const notification = scheduler.projection().notifications[0]!;
     expect(notification.kind).toBe("JOB_EXHAUSTED");
@@ -233,6 +270,99 @@ describe("persistent semantic review scheduler", () => {
     scheduler.reconcile([item], desk.projection().records);
     expect(scheduler.projection().notifications).toHaveLength(1);
     expect(scheduler.projection().unreadNotificationCount).toBe(0);
+  });
+
+  it("allows one repair retry for a stable model protocol failure", async () => {
+    let now = Date.parse("2026-08-02T00:00:00.000Z");
+    let calls = 0;
+    const item = candidate(proposal("protocol-retry"), 4);
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      {
+        reviewer: {
+          review: async () => {
+            calls += 1;
+            throw new Error(
+              "semantic reviewer completed without submitting its tool effect",
+            );
+          },
+        },
+      },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      maxAttempts: 3,
+      retryDelayMs: 1_000,
+      now: () => now,
+    });
+
+    await Promise.all(scheduler.tick([item], snapshot));
+    expect(scheduler.projection()).toMatchObject({
+      retryWaitCount: 1,
+      exhaustedCount: 0,
+      failureClassCounts: [{ failureClass: "MODEL_PROTOCOL", jobCount: 1 }],
+      budget: { requestAttemptsStarted: 1 },
+    });
+    now += 1_000;
+    await Promise.all(scheduler.tick([item], snapshot));
+    expect(calls).toBe(2);
+    expect(scheduler.projection()).toMatchObject({
+      retryWaitCount: 0,
+      exhaustedCount: 1,
+      budget: { maxAttemptsPerJob: 3, requestAttemptsStarted: 2 },
+    });
+    expect(scheduler.tick([item], snapshot)).toHaveLength(0);
+  });
+
+  it("does not spend a second model request on a first-party contract failure", async () => {
+    let calls = 0;
+    const item = candidate(proposal("first-party-contract"), 5);
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      {
+        reviewer: {
+          review: async () => {
+            calls += 1;
+            return {
+              ...reviewResult("ESCALATE"),
+              constraintDraft: {
+                classification: "HARD_SETTLEMENT_CONSTRAINT" as const,
+                relationKind: "EQUIVALENT" as const,
+                assumptions: [],
+                counterexampleAttempt: {
+                  attempted: false,
+                  result: "INCONCLUSIVE" as const,
+                  narrative: "No valid first-party counterexample effect was retained.",
+                  truths: null,
+                },
+                truthTable: [],
+                unresolvedEvidence: [],
+              },
+            };
+          },
+        },
+      },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      maxAttempts: 3,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    await Promise.all(scheduler.tick([item], snapshot));
+    expect(calls).toBe(1);
+    expect(scheduler.projection()).toMatchObject({
+      retryWaitCount: 0,
+      exhaustedCount: 1,
+      failureClassCounts: [{
+        failureClass: "FIRST_PARTY_CONTRACT",
+        jobCount: 1,
+      }],
+      budget: { maxAttemptsPerJob: 3, requestAttemptsStarted: 1 },
+    });
+    expect(scheduler.tick([item], snapshot)).toHaveLength(0);
   });
 
   it("reconciles a passed review without spending another request", async () => {
@@ -263,6 +393,274 @@ describe("persistent semantic review scheduler", () => {
     });
     expect(scheduler.tick([item], snapshot)).toHaveLength(0);
     expect(calls).toBe(1);
+  });
+
+  it("replaces a durable legacy PASS capsule when the current Agent protocol arrives", async () => {
+    const item = candidate(proposal("protocol-upgrade"), 5);
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => reviewResult("ESCALATE") } },
+    );
+    const current = await desk.begin(
+      `ai:${item.proposal.proposalId}`,
+      item.proposal,
+      snapshot,
+      item.proposalCorpusSnapshotIdentity,
+    ).promise;
+    const { protocolIdentity: _protocolIdentity, ...legacyBody } = current;
+    const legacy = Object.freeze({
+      ...legacyBody,
+      reviewId: hashCanonical({
+        schemaVersion: "pmh.semantic-review-run.v1",
+        opportunityId: current.opportunityId,
+        proposalId: current.proposalId,
+        proposalCorpusSnapshotIdentity: current.proposalCorpusSnapshotIdentity,
+        corpusSnapshotIdentity: current.corpusSnapshotIdentity,
+        model: current.model,
+      }),
+    });
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    scheduler.reconcile([item], [legacy]);
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      status: "PASS",
+      lastReviewId: legacy.reviewId,
+    });
+
+    scheduler.reconcile([item], [legacy, current]);
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      status: "PASS",
+      lastReviewId: current.reviewId,
+      reviewOutcome: { reviewId: current.reviewId },
+    });
+  });
+
+  it("replays legacy PASS jobs and upgrades only from their exact retained review", async () => {
+    const item = candidate(proposal("legacy-pass"), 4);
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => reviewResult("ESCALATE") } },
+    );
+    const source = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+    await Promise.all(source.tick([item], snapshot));
+    const contemporary = source.projection().jobs[0]!;
+    const {
+      artifactHash: _artifactHash,
+      reviewOutcome: _reviewOutcome,
+      ...contemporaryBody
+    } = contemporary;
+    const legacyBody = {
+      ...contemporaryBody,
+      schemaVersion: "pmh.semantic-review-job.v1" as const,
+    };
+    let storedJob: SemanticReviewJobRecord = assertSemanticReviewJobRecord({
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    });
+    const legacyStore = {
+      semanticReviewJobStorage: Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "jobId" as const,
+      }),
+      semanticReviewNotificationStorage: Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "notificationId" as const,
+      }),
+      loadSemanticReviewJobRecords: () => [storedJob],
+      saveSemanticReviewJobRecord: (record: SemanticReviewJobRecord) => {
+        storedJob = record;
+        return record;
+      },
+      loadSemanticReviewNotificationRecords: () => [],
+      saveSemanticReviewNotificationRecord: (record: never) => record,
+    };
+    const restored = new SemanticReviewScheduler({
+      reviewDesk: createSemanticReviewDesk({}),
+      store: legacyStore,
+    });
+
+    restored.reconcile([item], []);
+    expect(restored.projection().jobs[0]).toMatchObject({
+      schemaVersion: "pmh.semantic-review-job.v1",
+      status: "PASS",
+    });
+    expect(restored.projection().jobs[0]!.reviewOutcome).toBeUndefined();
+
+    restored.reconcile([item], desk.projection().records);
+    expect(restored.projection().jobs[0]).toMatchObject({
+      schemaVersion: "pmh.semantic-review-job.v3",
+      status: "PASS",
+      lastReviewId: contemporary.lastReviewId,
+      reviewOutcome: { reviewId: contemporary.lastReviewId },
+    });
+  });
+
+  it("durably recovers one exact canonical legacy review for duplicate proposals", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-review-detail-recovery-"));
+    const path = join(directory, "control-plane.sqlite");
+    const firstProposal = proposal("recovery-canonical", "EQUIVALENT");
+    const duplicateProposal = proposal(
+      "recovery-duplicate",
+      "EQUIVALENT",
+      ["venue-b:event", "venue-a:event"],
+    );
+    const first = candidate(
+      firstProposal,
+      5,
+      undefined,
+      buildProposalEvidenceBundle(firstProposal, snapshot),
+    );
+    const duplicate = candidate(
+      duplicateProposal,
+      4,
+      undefined,
+      buildProposalEvidenceBundle(duplicateProposal, snapshot),
+    );
+    const sourceDesk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => reviewResult("ESCALATE") } },
+    );
+    const source = new SemanticReviewScheduler({
+      reviewDesk: sourceDesk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+    await Promise.all(source.tick([first, duplicate], snapshot));
+    const contemporary = source.projection().jobs.find((job) => job.status === "PASS")!;
+    const duplicateJob = source.projection().jobs.find(
+      (job) => job.status === "DUPLICATE_SCOPE",
+    )!;
+    expect(() => source.requestOutcomeRecovery(firstProposal.proposalId))
+      .toThrow(/already retains outcome detail/u);
+    const {
+      artifactHash: _artifactHash,
+      reviewOutcome: _reviewOutcome,
+      ...contemporaryBody
+    } = contemporary;
+    const legacyBody = {
+      ...contemporaryBody,
+      schemaVersion: "pmh.semantic-review-job.v1" as const,
+    };
+    const legacy = assertSemanticReviewJobRecord({
+      ...legacyBody,
+      artifactHash: hashCanonical(legacyBody),
+    });
+
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      firstStore.saveSemanticReviewJobRecord(legacy);
+      firstStore.saveSemanticReviewJobRecord(duplicateJob);
+      const queuedScheduler = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store: firstStore }),
+        tickIntervalMs: 1_000,
+        store: firstStore,
+        now: () => Date.parse("2026-08-02T00:01:00.000Z"),
+      });
+      const queued = queuedScheduler.requestOutcomeRecovery(duplicateProposal.proposalId);
+      expect(queued).toMatchObject({
+        requestedProposalId: duplicateProposal.proposalId,
+        targetJobId: legacy.jobId,
+        idempotentReplay: false,
+        authority: "REVIEW_DETAIL_RECOVERY_ONLY",
+        semanticDecisionAuthority: false,
+        executionAuthority: false,
+        job: {
+          schemaVersion: "pmh.semantic-review-job.v4",
+          status: "PENDING",
+          lastReviewId: null,
+          recommendation: null,
+          detailRecovery: {
+            requestedForProposalId: duplicateProposal.proposalId,
+            targetJobId: legacy.jobId,
+            priorJobArtifactHash: legacy.artifactHash,
+            priorReviewId: legacy.lastReviewId,
+            priorRecommendation: legacy.recommendation,
+            effects: { schedulerRequestAdded: true, modelCallsAtEnqueue: false },
+          },
+        },
+      });
+      expect(
+        queuedScheduler.requestOutcomeRecovery(firstProposal.proposalId),
+      ).toMatchObject({ idempotentReplay: true, targetJobId: legacy.jobId });
+      expect(() => assertSemanticReviewJobRecord({
+        ...queued.job,
+        detailRecovery: {
+          ...queued.job.detailRecovery!,
+          priorJobArtifactHash: hashCanonical({ tampered: true }),
+        },
+      })).toThrow(/bounded contract/u);
+      firstStore.close();
+
+      let calls = 0;
+      const secondStore = new SqliteOperationalStore(path);
+      const restored = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk(
+          { DEEPSEEK_API_KEY: "test-only" },
+          {
+            store: secondStore,
+            reviewer: {
+              review: async () => {
+                calls += 1;
+                return reviewResult("ACCEPT_FOR_RESEARCH_SIMULATION");
+              },
+            },
+          },
+        ),
+        tickIntervalMs: 1_000,
+        store: secondStore,
+        now: () => Date.parse("2026-08-02T00:02:00.000Z"),
+      });
+      expect(restored.projection()).toMatchObject({
+        recoveryRequestedCount: 1,
+        recoveryInFlightCount: 1,
+        recoveryCompletedCount: 0,
+        jobs: expect.arrayContaining([expect.objectContaining({
+          jobId: legacy.jobId,
+          schemaVersion: "pmh.semantic-review-job.v4",
+          status: "PENDING",
+        })]),
+      });
+      const currentWindowCandidate = Object.freeze({
+        ...first,
+        proposalCorpusSnapshotIdentity: hashCanonical({ currentWindow: true }),
+        evidenceBundle: null,
+      });
+      await Promise.all(restored.tick([currentWindowCandidate], snapshot));
+      expect(calls).toBe(1);
+      const recoveredProjection = restored.projection();
+      expect(recoveredProjection).toMatchObject({
+        recoveryRequestedCount: 1,
+        recoveryInFlightCount: 0,
+        recoveryCompletedCount: 1,
+      });
+      expect(recoveredProjection.jobs.find((job) => job.jobId === legacy.jobId))
+        .toMatchObject({
+          jobId: legacy.jobId,
+          schemaVersion: "pmh.semantic-review-job.v4",
+          status: "PASS",
+          detailRecovery: {
+            priorJobArtifactHash: legacy.artifactHash,
+          },
+          reviewOutcome: {
+            recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION",
+          },
+        });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("reviews one canonical job for an unchanged symmetric semantic scope", async () => {
@@ -466,7 +864,7 @@ describe("persistent semantic review scheduler", () => {
     });
   });
 
-  it("persists non-compilable proposals as research-only without an automatic request", async () => {
+  it("automatically reviews premise-bearing relations before exact admission", async () => {
     let calls = 0;
     const researchProposal = proposal("research-only", "RELATED");
     const item = candidate(
@@ -485,27 +883,70 @@ describe("persistent semantic review scheduler", () => {
       now: () => Date.parse("2026-08-02T00:00:00.000Z"),
     });
 
+    await Promise.all(scheduler.tick([item], snapshot));
     expect(scheduler.tick([item], snapshot)).toHaveLength(0);
-    expect(scheduler.tick([item], snapshot)).toHaveLength(0);
-    expect(calls).toBe(0);
+    expect(calls).toBe(1);
     expect(scheduler.projection()).toMatchObject({
-      researchOnlyCount: 1,
+      researchOnlyCount: 0,
       pendingCount: 0,
       dueCount: 0,
-      budget: { requestAttemptsStarted: 0 },
+      passedCount: 1,
+      budget: { requestAttemptsStarted: 1 },
     });
     expect(scheduler.projection().jobs[0]).toMatchObject({
-      status: "RESEARCH_ONLY",
-      recommendation: null,
-      lastReviewId: null,
-      completedAt: "2026-08-02T00:00:00.000Z",
-      diagnostic: expect.stringContaining("not a current automatic payoff-compiler relation"),
+      status: "PASS",
+      recommendation: "REJECT",
+      lastReviewId: expect.stringMatching(/^sha256:/u),
+      completedAt: expect.stringMatching(/^2026-/u),
+      diagnostic: null,
     });
   });
 
   it("allows an explicitly requested manual review to complete a research-only job", async () => {
     let calls = 0;
-    const researchProposal = proposal("manual-research", "CONFLICTING");
+    const researchProposal = proposal(
+      "manual-research",
+      "CONFLICTING",
+      [
+        "venue-a:event",
+        "venue-b:event",
+        "venue-c:event",
+        "venue-d:event",
+        "venue-e:event",
+      ],
+    );
+    const manualSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ sources: "manual-research" }),
+      eligibleSourceCount: 5,
+      excludedSourceCount: 0,
+      listings: [
+        ...listings,
+        {
+          ...listings[1]!,
+          listingRef: "venue-c:event",
+          venueId: "venue-c",
+          venueInstrumentId: "event",
+          sourceRawHash: hashCanonical({ source: "c" }),
+          protocolIdentity: hashCanonical({ protocol: "c" }),
+        },
+        {
+          ...listings[1]!,
+          listingRef: "venue-d:event",
+          venueId: "venue-d",
+          venueInstrumentId: "event",
+          sourceRawHash: hashCanonical({ source: "d" }),
+          protocolIdentity: hashCanonical({ protocol: "d" }),
+        },
+        {
+          ...listings[1]!,
+          listingRef: "venue-e:event",
+          venueId: "venue-e",
+          venueInstrumentId: "event",
+          sourceRawHash: hashCanonical({ source: "e" }),
+          protocolIdentity: hashCanonical({ protocol: "e" }),
+        },
+      ],
+    });
     const item = candidate(researchProposal, 3);
     const desk = createSemanticReviewDesk(
       { DEEPSEEK_API_KEY: "test-only" },
@@ -522,7 +963,7 @@ describe("persistent semantic review scheduler", () => {
     await desk.begin(
       `ai:${researchProposal.proposalId}`,
       researchProposal,
-      snapshot,
+      manualSnapshot,
       snapshot.snapshotIdentity,
     ).promise;
     scheduler.reconcile([item], desk.projection().records);
@@ -649,6 +1090,52 @@ describe("persistent semantic review scheduler", () => {
     })).not.toThrow();
   });
 
+  it("loads durable attribution beyond the bounded scheduler projection", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-review-attribution-"));
+    const path = join(directory, "control-plane.sqlite");
+    const items = Array.from({ length: 12 }, (_, index) => candidate(
+      proposal(`attribution-${index}`),
+      4,
+      [hashCanonical({ issue: `attribution-${index}` })],
+    ));
+    try {
+      const store = new SqliteOperationalStore(path);
+      const scheduler = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store }),
+        retentionLimit: 10,
+        store,
+      });
+      scheduler.reconcile(items, []);
+
+      expect(scheduler.projection().jobs).toHaveLength(10);
+      expect(scheduler.attributionSource(20)).toMatchObject({
+        basis: "DURABLE_STORE_RECORDS",
+        maximumJobCount: 20,
+        truncated: false,
+      });
+      expect(scheduler.attributionSource(20).jobs).toHaveLength(12);
+      expect(scheduler.attributionSource(11)).toMatchObject({
+        maximumJobCount: 11,
+        truncated: true,
+      });
+      expect(scheduler.attributionSource(11).jobs).toHaveLength(11);
+      store.close();
+
+      const memoryScheduler = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}),
+        retentionLimit: 10,
+      });
+      memoryScheduler.reconcile(items, []);
+      expect(memoryScheduler.attributionSource(20)).toMatchObject({
+        basis: "IN_MEMORY_RETAINED_WINDOW",
+        truncated: true,
+      });
+      expect(memoryScheduler.attributionSource(20).jobs).toHaveLength(10);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("recovers an expired SQLite lease and retains the result across restart", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-review-scheduler-"));
     const path = join(directory, "control-plane.sqlite");
@@ -689,7 +1176,7 @@ describe("persistent semantic review scheduler", () => {
       expect(firstScheduler.tick([item], snapshot)).toHaveLength(1);
       expect(firstScheduler.projection()).toMatchObject({
         leasedCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 18 } },
+        storage: { jobs: { durable: true, schemaVersion: 32 } },
       });
       firstStore.close();
 
@@ -731,11 +1218,108 @@ describe("persistent semantic review scheduler", () => {
         passedCount: 1,
         bundledJobCount: 1,
         unreadNotificationCount: 1,
+        jobs: [{
+          schemaVersion: "pmh.semantic-review-job.v3",
+          status: "PASS",
+          reviewOutcome: {
+            schemaVersion: "pmh.semantic-review-outcome-capsule.v1",
+            recommendation: "REJECT",
+            authority: "ADVISORY_SUMMARY_ONLY",
+          },
+        }],
         storage: {
-          jobs: { durable: true, schemaVersion: 18 },
-          notifications: { durable: true, schemaVersion: 18 },
+          jobs: { durable: true, schemaVersion: 32 },
+          notifications: { durable: true, schemaVersion: 32 },
         },
       });
+      thirdStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retains the one-retry protocol policy across SQLite restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-review-failure-policy-"));
+    const path = join(directory, "control-plane.sqlite");
+    const item = candidate(
+      proposal("restart-protocol-policy"),
+      5,
+    );
+    let now = Date.parse("2026-08-02T00:00:00.000Z");
+    let calls = 0;
+    const failingReviewer = {
+      review: async () => {
+        calls += 1;
+        throw new Error(
+          "semantic reviewer completed without submitting its tool effect",
+        );
+      },
+    };
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const first = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk(
+          { DEEPSEEK_API_KEY: "test-only" },
+          { reviewer: failingReviewer, store: firstStore },
+        ),
+        tickIntervalMs: 1_000,
+        retryDelayMs: 1_000,
+        maxAttempts: 3,
+        store: firstStore,
+        now: () => now,
+      });
+      await Promise.all(first.tick([item], snapshot));
+      expect(first.projection().jobs[0]).toMatchObject({
+        status: "RETRY_WAIT",
+        attemptCount: 1,
+        lastFailure: {
+          failureClass: "MODEL_PROTOCOL",
+          retryPolicy: "ONE_RETRY",
+        },
+      });
+      firstStore.close();
+
+      now += 1_000;
+      const secondStore = new SqliteOperationalStore(path);
+      const second = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk(
+          { DEEPSEEK_API_KEY: "test-only" },
+          { reviewer: failingReviewer, store: secondStore },
+        ),
+        tickIntervalMs: 1_000,
+        retryDelayMs: 1_000,
+        maxAttempts: 3,
+        store: secondStore,
+        now: () => now,
+      });
+      await Promise.all(second.tick([item], snapshot));
+      expect(calls).toBe(2);
+      expect(second.projection()).toMatchObject({
+        retryWaitCount: 0,
+        exhaustedCount: 1,
+        classifiedFailureJobCount: 1,
+        failureClassCounts: [{ failureClass: "MODEL_PROTOCOL", jobCount: 1 }],
+        budget: { requestAttemptsStarted: 2 },
+      });
+      secondStore.close();
+
+      const thirdStore = new SqliteOperationalStore(path);
+      const restored = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store: thirdStore }),
+        store: thirdStore,
+        now: () => now,
+      }).projection();
+      expect(restored.jobs[0]).toMatchObject({
+        status: "EXHAUSTED",
+        lastFailure: {
+          failureClass: "MODEL_PROTOCOL",
+          retryPolicy: "ONE_RETRY",
+        },
+      });
+      expect(restored.failureClassCounts).toEqual([{
+        failureClass: "MODEL_PROTOCOL",
+        jobCount: 1,
+      }]);
       thirdStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -748,7 +1332,7 @@ describe("persistent semantic review scheduler", () => {
     const researchProposal = proposal(
       "restart-research-only",
       "EXHAUSTIVE",
-      ["venue-a:event", "venue-b:event", "venue-c:event"],
+      ["venue-a:event"],
     );
     const item = candidate(researchProposal, 2);
     const now = () => Date.parse("2026-08-02T00:00:00.000Z");
@@ -764,7 +1348,7 @@ describe("persistent semantic review scheduler", () => {
       expect(first.projection()).toMatchObject({
         researchOnlyCount: 1,
         dueCount: 0,
-        storage: { jobs: { durable: true, schemaVersion: 18 } },
+        storage: { jobs: { durable: true, schemaVersion: 32 } },
       });
       firstStore.close();
 
@@ -825,7 +1409,7 @@ describe("persistent semantic review scheduler", () => {
         passedCount: 1,
         duplicateScopeCount: 1,
         uniqueReviewScopeCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 18 } },
+        storage: { jobs: { durable: true, schemaVersion: 32 } },
       });
       firstStore.close();
 

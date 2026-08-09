@@ -9,6 +9,7 @@ import {
   openAiRawToolResponse,
   proposalInput,
   TEST_LISTING_REF,
+  TEST_LISTING_REFS,
 } from "./model-agent-fixtures.js";
 
 describe("Vercel AI SDK OpenAI Responses discovery agent", () => {
@@ -22,6 +23,7 @@ describe("Vercel AI SDK OpenAI Responses discovery agent", () => {
       credentialEnv: "OPENAI_API_KEY",
       model: "gpt-5.6-luna",
       maxOutputTokens: 800,
+      maxOutputTokensEnforced: true,
       timeoutMs: 300_000,
       maxSteps: 8,
       maxToolCalls: 24,
@@ -57,7 +59,7 @@ describe("Vercel AI SDK OpenAI Responses discovery agent", () => {
         if (ordinal === 2) {
           return openAiToolResponse(
             "inspect_listings",
-            { listingRefs: [TEST_LISTING_REF] },
+            { listingRefs: TEST_LISTING_REFS },
             ordinal,
           );
         }

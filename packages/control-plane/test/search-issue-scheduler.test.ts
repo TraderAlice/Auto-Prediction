@@ -107,6 +107,9 @@ function runRecord(task: DiscoveryTask): DiscoveryRunRecord {
     workerId: "model:fast",
     thesis: "The two listings may resolve to the same claim.",
     strategyKind: "SAME_CLAIM_CROSS_VENUE",
+    relationKind: task.question.includes("TEMPORAL_IMPOSSIBILITY")
+      ? "CONDITIONAL"
+      : "EQUIVALENT",
     venueIds: Object.freeze(["venue-a", "venue-b"]),
     claimSearchTerms: Object.freeze(["Trump", "pizza", "August"]),
     listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
@@ -144,6 +147,287 @@ function runRecord(task: DiscoveryTask): DiscoveryRunRecord {
 }
 
 describe("issue-driven concurrent search scheduler", () => {
+  it("runs an immutable semantic family issue through a bounded three-listing scope", async () => {
+    const wideListings = Object.freeze(Array.from({ length: 5 }, (_, index) => {
+      const base = listings[index % listings.length]!;
+      return Object.freeze({
+        ...base,
+        listingRef: `${base.venueId}:temporal-${index}`,
+        venueInstrumentId: `temporal-${index}`,
+        title: index === 0
+          ? "Will Trump be unable to appear before September?"
+          : `Will Trump perform public act ${index} in September?`,
+        sourceRawHash: hashCanonical({ temporal: index }),
+      });
+    }));
+    const wideSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "family-bounded-context" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: wideListings,
+    });
+    let selectedRefs: readonly string[] = [];
+    let observedQuestion = "";
+    const runDeep = vi.fn(async () => Object.freeze({
+      runId: hashCanonical({ deep: "family" }),
+      status: "PASS" as const,
+      proposalIds: Object.freeze([hashCanonical({ proposal: "family" })]),
+      proposalDetails: Object.freeze([Object.freeze({
+        proposalId: hashCanonical({ proposal: "family" }),
+        relationKind: "CONDITIONAL" as const,
+        listingRefs: selectedRefs,
+      })]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    }));
+    const leases = new SearchLeaseScheduler({
+      context: (question) => {
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+          source: "QUALIFIED_LIVE_OBSERVATIONS" as const,
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+          listings: wideListings,
+        });
+        observedQuestion = question;
+        return Object.freeze({ ...body, contextIdentity: hashCanonical(body) });
+      },
+      runFast: async (task) => {
+        expect(task.catalogContext?.listings).toHaveLength(3);
+        selectedRefs = Object.freeze(task.catalogContext!.listings
+          .map((item) => item.listingRef).sort());
+        const base = runRecord(task);
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([Object.freeze({
+            ...base.hypotheses[0]!,
+            listingRefs: selectedRefs,
+            venueIds: Object.freeze([...new Set(
+              task.catalogContext!.listings.map((item) => item.venueId),
+            )]),
+          })]),
+        });
+      },
+      runDeep,
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      seedDefaults: false,
+      now: () => nowMs,
+    });
+    const family = Object.freeze({
+      semanticFamily: "TEMPORAL_IMPOSSIBILITY" as const,
+      intendedRelationKinds: Object.freeze(["CONDITIONAL"] as const),
+      falsifiers: Object.freeze([
+        "the earlier outcome does not prevent the later act",
+        "a recording or proxy satisfies the later contract",
+      ]),
+      expectedListingCount: Object.freeze({ minimum: 2 as const, maximum: 3 as const }),
+      maxCorpusListings: 3,
+      acceptablePremiseKinds: Object.freeze([
+        "SETTLEMENT_INTRINSIC", "CAUSAL_HYPOTHESIS",
+      ] as const),
+    });
+    const createInput = Object.freeze({
+      title: "Temporal contradiction probe",
+      question: "Search a bounded temporal neighborhood and distinguish impossibility from likelihood.",
+      lens: "IMPLICATION" as const,
+      family,
+      discoveryMode: "HEURISTIC_EXPLORATION" as const,
+      cadenceMs: 300_000,
+      priority: 5 as const,
+    });
+    const issue = issues.create(createInput);
+    const replay = issues.create(createInput);
+    const revised = issues.create(Object.freeze({
+      ...createInput,
+      question: `${createInput.question} Also test postponement.`,
+    }));
+    expect(issue).toMatchObject({
+      schemaVersion: "pmh.search-issue.v3",
+      discoveryMode: "HEURISTIC_EXPLORATION",
+      issueId: replay.issueId,
+      familyDefinition: {
+        semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+        maxCorpusListings: 3,
+      },
+      candidatePolicy: {
+        minimumListingRefCount: 2,
+        maximumListingRefCount: 3,
+        maxCorpusListings: 3,
+        candidateSelection: "MODEL_HYPOTHESIS",
+      },
+    });
+    expect(revised.issueId).not.toBe(issue.issueId);
+
+    const checkpoint = await issues.runNow(issue.issueId, wideSnapshot).promise;
+    const completed = await leases.awaitDeep(checkpoint.lease.leaseId);
+    expect(observedQuestion).toContain("Issue topic: Search a bounded temporal neighborhood");
+    expect(observedQuestion).toContain("Semantic family TEMPORAL_IMPOSSIBILITY");
+    expect(observedQuestion).toContain("Try to falsify first");
+    expect(completed).toMatchObject({
+      status: "PASS",
+      lease: {
+        semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+        discoveryMode: "HEURISTIC_EXPLORATION",
+        algorithmVersion: "pmh.ai-search-leases.v10",
+      },
+      fastLane: { candidateListingRefs: selectedRefs },
+      deepLane: { status: "PASS", proposalIds: [hashCanonical({ proposal: "family" })] },
+      outcome: { proposalCount: 1 },
+    });
+    expect(runDeep).toHaveBeenCalledTimes(1);
+    expect(issues.projection().performance.byFamily).toContainEqual(expect.objectContaining({
+      semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+      issueCount: 2,
+      terminalLeaseCount: 1,
+      proposalCount: 1,
+      providerRequestAttemptCount: 1,
+    }));
+    expect(issues.projection()).toMatchObject({
+      explorationIssueCount: 2,
+      claimMonitoringIssueCount: 0,
+      performance: {
+        byDiscoveryMode: expect.arrayContaining([expect.objectContaining({
+          discoveryMode: "HEURISTIC_EXPLORATION",
+          issueCount: 2,
+          terminalLeaseCount: 1,
+          proposalCount: 1,
+          piEscalationCount: 1,
+        })]),
+      },
+    });
+  });
+
+  it("enforces a per-family concurrency budget without blocking another family", async () => {
+    const pending: Array<{ task: DiscoveryTask; resolve: (record: DiscoveryRunRecord) => void }> = [];
+    const leases = new SearchLeaseScheduler({
+      context,
+      maxPiInvocations: 0,
+      concurrencyLimit: 3,
+      runFast: (task) => new Promise<DiscoveryRunRecord>((resolve) => {
+        pending.push({ task, resolve });
+      }),
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      seedDefaults: false,
+      tickIntervalMs: 1_000,
+      concurrencyLimit: 3,
+      familyConcurrencyLimit: 1,
+      now: () => nowMs,
+    });
+    const familyInput = (
+      semanticFamily: "TEMPORAL_IMPOSSIBILITY" | "EVENT_CONTAINMENT",
+      title: string,
+    ) => Object.freeze({
+      title,
+      question: `Search ${title} and try to falsify it.`,
+      lens: "IMPLICATION" as const,
+      cadenceMs: 300_000,
+      priority: 5 as const,
+      discoveryMode: "HEURISTIC_EXPLORATION" as const,
+      family: Object.freeze({
+        semanticFamily,
+        intendedRelationKinds: Object.freeze(["CONDITIONAL"] as const),
+        falsifiers: Object.freeze(["the apparent relationship has a valid counterexample"]),
+        expectedListingCount: Object.freeze({ minimum: 2 as const, maximum: 2 as const }),
+        maxCorpusListings: 2,
+        acceptablePremiseKinds: Object.freeze(["CAUSAL_HYPOTHESIS"] as const),
+      }),
+    });
+    const temporalA = issues.create(familyInput("TEMPORAL_IMPOSSIBILITY", "temporal A"));
+    const temporalB = issues.create(familyInput("TEMPORAL_IMPOSSIBILITY", "temporal B"));
+    const containment = issues.create(familyInput("EVENT_CONTAINMENT", "containment"));
+
+    const runs = issues.tick(snapshot("family-concurrency"));
+    expect(runs).toHaveLength(2);
+    expect(pending).toHaveLength(2);
+    const activeIssueIds = new Set(leases.projection().records
+      .filter((record) => record.status === "ISSUED")
+      .map((record) => record.lease.issueId));
+    expect(activeIssueIds.has(containment.issueId)).toBe(true);
+    expect(Number(activeIssueIds.has(temporalA.issueId)) +
+      Number(activeIssueIds.has(temporalB.issueId))).toBe(1);
+    expect(issues.projection()).toMatchObject({
+      activeCount: 2,
+      concurrencyLimit: 3,
+      familyConcurrencyLimit: 1,
+    });
+    for (const item of pending) item.resolve(runRecord(item.task));
+    await Promise.all(runs);
+  });
+
+  it("preserves exploration origin across SQLite restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-search-origin-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstLeases = new SearchLeaseScheduler({
+        context,
+        maxPiInvocations: 0,
+        runFast: async (task) => Object.freeze({
+          ...runRecord(task),
+          hypotheses: Object.freeze([]),
+        }),
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const firstIssues = new SearchIssueScheduler({
+        leaseScheduler: firstLeases,
+        seedDefaults: false,
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const issue = firstIssues.create({
+        title: "Restart-safe exploration",
+        question: "Explore an uncommon temporal neighborhood before forming a claim.",
+        lens: "IMPLICATION",
+        cadenceMs: 300_000,
+        discoveryMode: "HEURISTIC_EXPLORATION",
+        family: {
+          semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+          intendedRelationKinds: ["CONDITIONAL"],
+          falsifiers: ["both events can occur without conflict"],
+          expectedListingCount: { minimum: 2, maximum: 2 },
+          maxCorpusListings: 2,
+          acceptablePremiseKinds: ["CAUSAL_HYPOTHESIS"],
+        },
+      });
+      await firstIssues.runNow(issue.issueId, snapshot("origin-restart")).promise;
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const secondLeases = new SearchLeaseScheduler({
+        context,
+        maxPiInvocations: 0,
+        runFast: async () => { throw new Error("retained terminal lease must not rerun"); },
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      const restored = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        seedDefaults: false,
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      expect(restored.projection().issues[0]).toMatchObject({
+        issueId: issue.issueId,
+        schemaVersion: "pmh.search-issue.v3",
+        discoveryMode: "HEURISTIC_EXPLORATION",
+      });
+      expect(secondLeases.projection().records[0]?.lease).toMatchObject({
+        issueId: issue.issueId,
+        algorithmVersion: "pmh.ai-search-leases.v10",
+        discoveryMode: "HEURISTIC_EXPLORATION",
+      });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("counts degraded productive scans and omitted venues separately", async () => {
     const leases = new SearchLeaseScheduler({
       context: (question) => Object.freeze({
@@ -329,18 +613,20 @@ describe("issue-driven concurrent search scheduler", () => {
     store.close();
   });
 
-  it("seeds durable issues, fills three priority slots, and notifies only a novel signature", async () => {
+  it("seeds durable issues, fills three priority slots, and notifies only novel signatures", async () => {
     const pending: Array<{ task: DiscoveryTask; resolve: (record: DiscoveryRunRecord) => void }> = [];
     const runFast = vi.fn((task: DiscoveryTask) => new Promise<DiscoveryRunRecord>((resolve) => {
       pending.push({ task, resolve });
     }));
-    const runDeep = vi.fn(async () => Object.freeze({
+    const runDeep = vi.fn(async (_snapshot: unknown, question: string) => Object.freeze({
       runId: hashCanonical({ deep: 1 }),
       status: "PASS" as const,
       proposalIds: Object.freeze([hashCanonical({ proposal: 1 })]),
       proposalDetails: Object.freeze([Object.freeze({
         proposalId: hashCanonical({ proposal: 1 }),
-        relationKind: "EQUIVALENT" as const,
+        relationKind: question.includes("Semantic family TEMPORAL_IMPOSSIBILITY")
+          ? "CONDITIONAL" as const
+          : "EQUIVALENT" as const,
         listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
       })]),
       evidenceGaps: Object.freeze([]),
@@ -366,8 +652,8 @@ describe("issue-driven concurrent search scheduler", () => {
     const runs = issues.tick(snapshot());
     expect(runs).toHaveLength(3);
     expect(issues.projection()).toMatchObject({
-      issueCount: 5,
-      enabledIssueCount: 5,
+      issueCount: 10,
+      enabledIssueCount: 10,
       activeCount: 3,
       concurrencyLimit: 3,
     });
@@ -391,22 +677,22 @@ describe("issue-driven concurrent search scheduler", () => {
     const completed = issues.projection();
     expect(completed.activeCount).toBe(0);
     expect(completed.issues.reduce((sum, issue) => sum + issue.runCount, 0)).toBe(3);
-    expect(completed.unreadNotificationCount).toBe(1);
-    expect(runDeep).toHaveBeenCalledTimes(1);
+    expect(completed.unreadNotificationCount).toBe(2);
+    expect(runDeep).toHaveBeenCalledTimes(2);
     expect(completed.performance).toMatchObject({
       measurementWindow: "RETAINED_TERMINAL_LEASES",
       retainedLeaseLimit: 40,
       terminalLeaseCount: 3,
-      novelCandidateCount: 1,
-      duplicateCount: 1,
-      piEscalationCount: 1,
+      novelCandidateCount: 2,
+      duplicateCount: 0,
+      piEscalationCount: 2,
       economicGateRequiredCount: 1,
       economicGatePositiveCount: 0,
       economicGateBlockedCount: 1,
       piAvoidedCount: 1,
-      modelSelectionRequiredCount: 1,
+      modelSelectionRequiredCount: 2,
       modelSelectedCandidateCount: 1,
-      modelSelectionMissCount: 0,
+      modelSelectionMissCount: 1,
       quoteEnrichmentAttemptCount: 0,
       quoteEnrichmentReadyCount: 0,
       quoteEnrichmentPartialCount: 0,
@@ -420,19 +706,19 @@ describe("issue-driven concurrent search scheduler", () => {
       boundedScopeRevisitCount: 0,
       noLeadBoundedScopeCount: 0,
       hypothesisCount: 3,
-      proposalCount: 1,
+      proposalCount: 2,
       evidenceGapCount: 0,
       providerRequestAttemptCount: 3,
       providerFailureCount: 0,
       providerFailureRateBps: 0,
       providerNativeTelemetryLeaseCount: 3,
       providerLegacyDerivedLeaseCount: 0,
-      novelCandidateRateBps: 3_333,
-      duplicateRateBps: 3_333,
-      piEscalationRateBps: 3_333,
+      novelCandidateRateBps: 6_666,
+      duplicateRateBps: 0,
+      piEscalationRateBps: 6_666,
       economicGatePositiveRateBps: 0,
     });
-    expect(completed.performance.byIssue).toHaveLength(5);
+    expect(completed.performance.byIssue).toHaveLength(10);
     expect(completed.performance.byIssue.reduce(
       (sum, item) => sum + item.terminalLeaseCount,
       0,
@@ -452,12 +738,12 @@ describe("issue-driven concurrent search scheduler", () => {
       candidateSelection: "MODEL_HYPOTHESIS",
       requireDistinctVenues: true,
     });
-    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 18 });
+    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 32 });
     expect(leases.projection()).toMatchObject({
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      corpusStorage: { durable: false, schemaVersion: 18 },
+      corpusStorage: { durable: false, schemaVersion: 32 },
     });
 
     const restored = new SearchIssueScheduler({
@@ -467,12 +753,13 @@ describe("issue-driven concurrent search scheduler", () => {
       now: () => nowMs + 1_000,
     });
     expect(restored.projection()).toMatchObject({
-      issueCount: 5,
-      unreadNotificationCount: 1,
-      performance: { terminalLeaseCount: 3, duplicateCount: 1 },
+      issueCount: 10,
+      unreadNotificationCount: 2,
+      performance: { terminalLeaseCount: 3, duplicateCount: 0 },
     });
-    const notification = restored.projection().notifications[0]!;
-    restored.acknowledge(notification.notificationId);
+    for (const notification of restored.projection().notifications) {
+      restored.acknowledge(notification.notificationId);
+    }
     expect(restored.projection().unreadNotificationCount).toBe(0);
     store.close();
   });
@@ -724,6 +1011,18 @@ describe("issue-driven concurrent search scheduler", () => {
 
     await issues.runNow(issue.issueId, snapshot()).promise;
 
+    expect(issue.discoveryMode).toBeUndefined();
+    expect(leases.projection().records[0]?.lease.discoveryMode).toBe("CLAIM_MONITORING");
+    expect(issues.projection()).toMatchObject({
+      explorationIssueCount: 0,
+      claimMonitoringIssueCount: 1,
+      performance: {
+        byDiscoveryMode: expect.arrayContaining([expect.objectContaining({
+          discoveryMode: "CLAIM_MONITORING",
+          terminalLeaseCount: 1,
+        })]),
+      },
+    });
     expect(dispatched?.question).toHaveLength(500);
     expect(dispatched?.question).toMatch(/^Find a grounded pair\./u);
   });
@@ -753,6 +1052,219 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(issues.projection().notifications.some((item) => item.kind === "RUN_FAILED")).toBe(true);
     expect(issues.projection().issues.find((item) => item.issueId === paused.issueId)?.runCount).toBe(0);
     store.close();
+  });
+
+  it("notifies a grounded falsification without presenting it as a candidate", async () => {
+    const leases = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => {
+        const base = runRecord(task);
+        const findingIdentity = hashCanonical({
+          schemaVersion: "pmh.discovery-falsification-finding.v1",
+          relationKind: "EQUIVALENCE",
+          listingRefs: ["venue-a:pizza", "venue-b:pizza"],
+        });
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-falsification.v2" as const,
+          findingIdentity,
+          workerId: "model:fast",
+          taskId: task.taskId,
+          claim: "The two pizza contracts are equivalent.",
+          reason: "Their settlement windows differ.",
+          relationKind: "EQUIVALENCE" as const,
+          listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
+          claimSearchTerms: Object.freeze(["Trump pizza", "August"]),
+          authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          certificateAuthority: false as const,
+          executionAuthority: false as const,
+          externalWriteAuthority: false as const,
+          valueMovingAuthority: false as const,
+        });
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([]),
+          falsifications: Object.freeze([Object.freeze({
+            ...body,
+            falsificationId: hashCanonical(body),
+          })]),
+          workerReports: Object.freeze(base.workerReports!.map((report) =>
+            Object.freeze({ ...report, hypothesisCount: 0, falsificationCount: 1 })
+          )),
+        });
+      },
+      maxPiInvocations: 0,
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      seedDefaults: false,
+      now: () => nowMs,
+    });
+    const issue = issues.create({
+      title: "Falsification notice",
+      question: "Test the pizza equivalence claim.",
+      lens: "EQUIVALENCE",
+      cadenceMs: 300_000,
+    });
+
+    const record = await issues.runNow(issue.issueId, snapshot("falsification-notice")).promise;
+    const projection = issues.projection();
+
+    expect(record.outcome).toMatchObject({ hypothesisCount: 0, falsificationCount: 1 });
+    expect(projection.performance).toMatchObject({
+      hypothesisCount: 0,
+      falsificationCount: 1,
+      novelCandidateCount: 0,
+      piEscalationCount: 0,
+    });
+    expect(projection.notifications).toHaveLength(1);
+    expect(projection.notifications[0]).toMatchObject({
+      kind: "FALSIFICATION_RECORDED",
+      status: "UNREAD",
+      title: "Falsification notice: relation falsified",
+    });
+    expect(projection.notifications[0]?.summary).toContain("no proposal or Pi work");
+  });
+
+  it("persists one exact-ref inspiration follow-up and exhausts it without recursion", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-inspiration-restart-"));
+    const databasePath = join(directory, "operational.sqlite");
+    const store = new SqliteOperationalStore(databasePath);
+    const seenTasks: DiscoveryTask[] = [];
+    const leases = new SearchLeaseScheduler({
+      intervalMs: 60_000,
+      context,
+      maxPiInvocations: 0,
+      registeredVenueIds: ["venue-a", "venue-b"],
+      store,
+      runFast: async (task) => {
+        seenTasks.push(task);
+        const inspirationBody = Object.freeze({
+          schemaVersion: "pmh.discovery-inspiration.v1" as const,
+          contentIdentity: hashCanonical({
+            schemaVersion: "pmh.discovery-inspiration-content.v1",
+            listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
+            suggestedLens: "IMPLICATION",
+            suggestedSemanticFamily: "EVENT_CONTAINMENT",
+            sourceTrailheadIdentity: task.searchAssignment?.sourceTrailheadIdentity ?? null,
+          }),
+          workerId: "model:fast",
+          taskId: task.taskId,
+          observation: "The same named event is expressed through nested deadlines.",
+          listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
+          searchSignals: Object.freeze(["nested deadline", "same event"]),
+          sourceLens: task.searchAssignment!.lens,
+          sourceSemanticFamily: task.searchAssignment!.semanticFamily,
+          sourceTrailheadIdentity: task.searchAssignment!.sourceTrailheadIdentity,
+          suggestedLens: "IMPLICATION" as const,
+          suggestedSemanticFamily: "EVENT_CONTAINMENT" as const,
+          inspirationDepth: task.searchAssignment!.inspirationDepth,
+          authority: "SEARCH_ROUTING_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          probabilityAuthority: false as const,
+          certificateAuthority: false as const,
+          executionAuthority: false as const,
+          externalWriteAuthority: false as const,
+          valueMovingAuthority: false as const,
+        });
+        const inspiration = Object.freeze({
+          ...inspirationBody,
+          inspirationId: hashCanonical(inspirationBody),
+        });
+        return Object.freeze({
+          runId: hashCanonical({ taskId: task.taskId }),
+          taskId: task.taskId,
+          startedAt: "2026-08-01T00:00:01.000Z",
+          completedAt: "2026-08-01T00:00:02.000Z",
+          workerIds: Object.freeze(["model:fast"]),
+          hypotheses: Object.freeze([]),
+          falsifications: Object.freeze([]),
+          inspirations: task.searchAssignment?.inspirationDepth === 0
+            ? Object.freeze([inspiration])
+            : Object.freeze([]),
+          diagnostics: Object.freeze([]),
+          executionAuthority: false,
+          question: task.question,
+          venueIds: task.venueIds,
+        });
+      },
+      now: () => nowMs,
+    });
+    const scheduler = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      tickIntervalMs: 60_000,
+      seedDefaults: false,
+      store,
+      now: () => nowMs,
+    });
+    const issue = scheduler.create({
+      title: "Physical event exploration",
+      question: "Explore a rare physical-event neighborhood.",
+      lens: "MECHANISM",
+      family: {
+        semanticFamily: "PHYSICAL_CO_OCCURRENCE",
+        intendedRelationKinds: ["RELATED"],
+        falsifiers: ["Different subjects or event windows"],
+        expectedListingCount: { minimum: 2, maximum: 2 },
+        maxCorpusListings: 8,
+        acceptablePremiseKinds: ["TRADED_OUTCOME"],
+      },
+      discoveryMode: "HEURISTIC_EXPLORATION",
+      cadenceMs: 60_000,
+    });
+    await scheduler.runNow(issue.issueId, snapshot()).promise;
+    expect(scheduler.projection()).toMatchObject({
+      inspirationCount: 1,
+      queuedInspirationCount: 1,
+      notifications: [{ kind: "INSPIRATION_RECORDED" }],
+    });
+    const followups = scheduler.tick(snapshot());
+    expect(followups).toHaveLength(1);
+    await followups[0];
+    const inbox = scheduler.projection().inspirations;
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]).toMatchObject({
+      status: "EXHAUSTED",
+      downstreamHypothesisCount: 0,
+      downstreamFalsificationCount: 0,
+    });
+    expect(seenTasks).toHaveLength(2);
+    expect(seenTasks[1]?.searchAssignment).toMatchObject({
+      lens: "IMPLICATION",
+      semanticFamily: "EVENT_CONTAINMENT",
+      inspirationDepth: 1,
+    });
+    expect(seenTasks[1]?.catalogContext?.listings.map((item) => item.listingRef))
+      .toEqual(["venue-a:pizza", "venue-b:pizza"]);
+    expect(scheduler.tick(snapshot())).toHaveLength(0);
+    store.close();
+
+    const reopenedStore = new SqliteOperationalStore(databasePath);
+    const reopenedLeases = new SearchLeaseScheduler({
+      intervalMs: 60_000,
+      context,
+      maxPiInvocations: 0,
+      registeredVenueIds: ["venue-a", "venue-b"],
+      runFast: async () => {
+        throw new Error("restart replay must not spend another Agent request");
+      },
+      store: reopenedStore,
+      now: () => nowMs,
+    });
+    const reopenedScheduler = new SearchIssueScheduler({
+      leaseScheduler: reopenedLeases,
+      tickIntervalMs: 60_000,
+      seedDefaults: false,
+      store: reopenedStore,
+      now: () => nowMs,
+    });
+    expect(reopenedScheduler.projection().inspirations).toMatchObject([
+      { status: "EXHAUSTED", followupLeaseId: expect.stringMatching(/^sha256:/u) },
+    ]);
+    expect(reopenedScheduler.tick(snapshot())).toHaveLength(0);
+    reopenedStore.close();
+    await rm(directory, { recursive: true, force: true });
   });
 
   it("reconciles missing defaults without overwriting durable operator issue state", async () => {
@@ -795,9 +1307,9 @@ describe("issue-driven concurrent search scheduler", () => {
         store: secondStore,
       });
       expect(restored.projection()).toMatchObject({
-        issueCount: 6,
-        enabledIssueCount: 5,
-        storage: { issues: { durable: true, schemaVersion: 18 } },
+        issueCount: 11,
+        enabledIssueCount: 10,
+        storage: { issues: { durable: true, schemaVersion: 32 } },
       });
       expect(restored.projection().issues.find((issue) => issue.issueId === created.issueId))
         .toMatchObject({ enabled: false, title: created.title });
@@ -822,8 +1334,8 @@ describe("issue-driven concurrent search scheduler", () => {
         store: secondStore,
       });
       expect(restarted.projection()).toMatchObject({
-        issueCount: 6,
-        enabledIssueCount: 4,
+        issueCount: 11,
+        enabledIssueCount: 9,
       });
       expect(restarted.projection().issues.find((issue) => issue.issueId === focusedDefault.issueId))
         .toMatchObject({
@@ -835,6 +1347,113 @@ describe("issue-driven concurrent search scheduler", () => {
             requirePositiveGrossHint: true,
           },
         });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retires obsolete default family revisions without pausing operator-owned issues", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-search-family-supersession-"));
+    const path = join(directory, "control-plane.sqlite");
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstLeases = new SearchLeaseScheduler({
+        context,
+        runFast: async (task) => runRecord(task),
+        maxPiInvocations: 0,
+        store: firstStore,
+      });
+      const first = new SearchIssueScheduler({
+        leaseScheduler: firstLeases,
+        store: firstStore,
+        seedDefaults: false,
+        now: () => nowMs,
+      });
+      const family = Object.freeze({
+        semanticFamily: "TEMPORAL_IMPOSSIBILITY" as const,
+        intendedRelationKinds: Object.freeze([
+          "MUTUALLY_EXCLUSIVE", "IMPLIES", "CONDITIONAL", "CONFLICTING",
+        ] as const),
+        falsifiers: Object.freeze([
+          "the earlier event need not prevent the later act",
+          "the later contract permits a proxy, recording, postponement, or changed identity",
+          "the settlement windows overlap differently than the titles imply",
+        ]),
+        expectedListingCount: Object.freeze({ minimum: 2 as const, maximum: 4 as const }),
+        maxCorpusListings: 18,
+        acceptablePremiseKinds: Object.freeze([
+          "SETTLEMENT_INTRINSIC", "TRADED_OUTCOME", "EXTERNAL_OBSERVATION", "CAUSAL_HYPOTHESIS",
+        ] as const),
+      });
+      const obsolete = first.create({
+        title: "Temporal impossibility",
+        question: "Find contracts where one settled outcome would make a later required appearance, publication, certification, office-holding, or personal act impossible. Separate logical impossibility from merely reduced likelihood.",
+        lens: "IMPLICATION",
+        cadenceMs: 20 * 60_000,
+        priority: 4,
+        family,
+      });
+      const operatorIssue = first.create({
+        title: "Operator temporal trailhead",
+        question: "Search a named operator-owned temporal hypothesis without adopting default lifecycle management.",
+        lens: "IMPLICATION",
+        cadenceMs: 20 * 60_000,
+        priority: 3,
+        family,
+      });
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const secondLeases = new SearchLeaseScheduler({
+        context,
+        runFast: async () => { throw new Error("must not run while reconciling defaults"); },
+        maxPiInvocations: 0,
+        store: secondStore,
+      });
+      const restored = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      const projection = restored.projection();
+      const current = projection.issues.find((issue) =>
+        issue.defaultKey === "temporal-impossibility-v1" &&
+        issue.supersededByIssueId === null
+      )!;
+      expect(current).toMatchObject({ enabled: true, priority: 5 });
+      expect(projection.issues.find((issue) => issue.issueId === obsolete.issueId)).toMatchObject({
+        enabled: false,
+        defaultKey: "temporal-impossibility-v1",
+        supersededByIssueId: current.issueId,
+      });
+      const retainedOperatorIssue = projection.issues.find(
+        (issue) => issue.issueId === operatorIssue.issueId,
+      )!;
+      expect(retainedOperatorIssue.enabled).toBe(true);
+      expect(retainedOperatorIssue.defaultKey).toBeUndefined();
+      expect(retainedOperatorIssue.supersededByIssueId).toBeUndefined();
+      expect(projection).toMatchObject({
+        issueCount: 12,
+        enabledIssueCount: 11,
+        defaultManagedIssueCount: 6,
+        supersededIssueCount: 1,
+      });
+      expect(() => restored.setEnabled(obsolete.issueId, true)).toThrow(
+        "superseded default search issue cannot be re-enabled",
+      );
+
+      const supersededHash = restored.projection().issues.find(
+        (issue) => issue.issueId === obsolete.issueId,
+      )!.artifactHash;
+      const restarted = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        store: secondStore,
+        now: () => nowMs + 2_000,
+      });
+      expect(restarted.projection().issues.find(
+        (issue) => issue.issueId === obsolete.issueId,
+      )?.artifactHash).toBe(supersededHash);
       secondStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -1056,7 +1675,7 @@ describe("issue-driven concurrent search scheduler", () => {
       ).get() as { record_hash: string }).record_hash).toBe(retainedLeaseHash);
       expect((migrated.prepare("PRAGMA user_version").get() as {
         user_version: number;
-      }).user_version).toBe(18);
+      }).user_version).toBe(32);
       migrated.close();
       const secondLeases = new SearchLeaseScheduler({
         context,

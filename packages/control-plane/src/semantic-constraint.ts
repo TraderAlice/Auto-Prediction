@@ -27,7 +27,10 @@ export type SemanticCounterexampleAttempt = Readonly<{
 }>;
 
 export type SemanticConstraintArtifact = Readonly<{
-  schemaVersion: "pmh.semantic-constraint-proposal.v1";
+  schemaVersion:
+    | "pmh.semantic-constraint-proposal.v1"
+    | "pmh.semantic-constraint-proposal.v2"
+    | "pmh.semantic-constraint-proposal.v3";
   artifactHash: Hash;
   proposalId: Hash;
   proposalCorpusSnapshotIdentity: Hash;
@@ -86,7 +89,9 @@ export type SemanticConstraintAdmission = Readonly<{
     | "INCOMPLETE_STATE_SPACE"
     | "NO_FEASIBLE_STATE"
     | "NO_FORBIDDEN_STATE"
-    | "MISSING_RULE_EVIDENCE";
+    | "UNVERIFIED_ASSUMPTION"
+    | "MISSING_RULE_EVIDENCE"
+    | "MISSING_STATE_RULE_EVIDENCE";
   diagnostic: string | null;
 }>;
 
@@ -121,10 +126,12 @@ function allStateIds(listingCount: number): readonly string[] {
 export function inspectSemanticConstraintAdmission(
   artifact: Pick<
     SemanticConstraintArtifact,
+    | "schemaVersion"
     | "classification"
     | "listingRefs"
     | "counterexampleAttempt"
     | "truthTable"
+    | "assumptions"
     | "unresolvedEvidence"
     | "ruleEvidence"
   >,
@@ -177,6 +184,20 @@ export function inspectSemanticConstraintAdmission(
     });
   }
   if (
+    [
+      "pmh.semantic-constraint-proposal.v2",
+      "pmh.semantic-constraint-proposal.v3",
+    ].includes(artifact.schemaVersion) &&
+    artifact.assumptions.length > 0
+  ) {
+    return Object.freeze({
+      status: "RESEARCH_ONLY",
+      blocker: "UNVERIFIED_ASSUMPTION",
+      diagnostic:
+        "Free-form assumptions are not settlement evidence. Bind the premise to market rules, another traded outcome, or retain it as research-only.",
+    });
+  }
+  if (
     artifact.unresolvedEvidence.length > 0 ||
     artifact.ruleEvidence.length !== artifact.listingRefs.length
   ) {
@@ -184,6 +205,19 @@ export function inspectSemanticConstraintAdmission(
       status: "RESEARCH_ONLY",
       blocker: "MISSING_RULE_EVIDENCE",
       diagnostic: "Exact semantic admission requires complete rule evidence and no unresolved evidence item.",
+    });
+  }
+  if (
+    artifact.schemaVersion === "pmh.semantic-constraint-proposal.v3" &&
+    artifact.truthTable.some((state) =>
+      state.disposition === "IMPOSSIBLE" && state.evidenceListingRefs.length === 0
+    )
+  ) {
+    return Object.freeze({
+      status: "RESEARCH_ONLY",
+      blocker: "MISSING_STATE_RULE_EVIDENCE",
+      diagnostic:
+        "Every impossible settlement state must cite at least one in-scope listing rule before exact compilation.",
     });
   }
   return Object.freeze({ status: "ELIGIBLE", blocker: null, diagnostic: null });
@@ -277,15 +311,17 @@ export function buildSemanticConstraintArtifact(input: {
       : stateId(attemptedTruths),
   });
   const admission = inspectSemanticConstraintAdmission({
+    schemaVersion: "pmh.semantic-constraint-proposal.v3",
     classification: draft.classification,
     listingRefs,
     counterexampleAttempt,
     truthTable,
+    assumptions: draft.assumptions,
     unresolvedEvidence: draft.unresolvedEvidence,
     ruleEvidence,
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.semantic-constraint-proposal.v1" as const,
+    schemaVersion: "pmh.semantic-constraint-proposal.v3" as const,
     proposalId: proposal.proposalId,
     proposalCorpusSnapshotIdentity: input.proposalCorpusSnapshotIdentity,
     evidenceCorpusSnapshotIdentity: input.evidenceCorpusSnapshotIdentity,
@@ -321,7 +357,11 @@ export function assertSemanticConstraintArtifact(value: unknown): SemanticConstr
   const artifact = value as SemanticConstraintArtifact;
   const { artifactHash, ...body } = artifact;
   if (
-    artifact.schemaVersion !== "pmh.semantic-constraint-proposal.v1" ||
+    ![
+      "pmh.semantic-constraint-proposal.v1",
+      "pmh.semantic-constraint-proposal.v2",
+      "pmh.semantic-constraint-proposal.v3",
+    ].includes(artifact.schemaVersion) ||
     !HASH_PATTERN.test(artifactHash) || artifactHash !== hashCanonical(body) ||
     !HASH_PATTERN.test(artifact.proposalId) ||
     !HASH_PATTERN.test(artifact.proposalCorpusSnapshotIdentity) ||

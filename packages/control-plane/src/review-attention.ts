@@ -45,7 +45,10 @@ export type ReviewAttentionItem = Readonly<{
   statement: string;
   recommendation: SemanticReviewRecommendation;
   relationConclusion: string;
-  evidencePosture: "ORIGINAL_CORPUS" | "REBASED_CURRENT_CORPUS";
+  evidencePosture:
+    | "ORIGINAL_CORPUS"
+    | "REBASED_CURRENT_CORPUS"
+    | "ENRICHED_EVIDENCE_SCOPE";
   operatorPosture: ReviewAttentionPosture;
   payoffReadiness: RelationPayoffReadiness;
   listingRefs: readonly string[];

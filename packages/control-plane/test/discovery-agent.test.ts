@@ -72,6 +72,24 @@ const task: DiscoveryTask = {
 };
 
 describe("bounded discovery agent session", () => {
+  it("requires an explicit semantic relation for every new hypothesis", () => {
+    const session = new DiscoveryAgentSession("model-agent", task, 12);
+    session.inspectListings({
+      listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
+    });
+    expect(session.recordHypothesis({
+      thesis: "These contracts may use the same gauge and threshold.",
+      strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
+      claimSearchTerms: ["rainfall"],
+      confidenceBps: 6_000,
+    })).toMatchObject({
+      status: "REJECTED",
+      reason: "INVALID_INPUT",
+      guidance: expect.stringContaining("relationKind"),
+    });
+  });
+
   it("rejects premature completion and proposals until the required reads occur", () => {
     const session = new DiscoveryAgentSession("model-agent", task, 12);
     expect(session.completeSearch({ reason: "Skip the catalog." })).toMatchObject({
@@ -81,6 +99,7 @@ describe("bounded discovery agent session", () => {
     expect(session.recordHypothesis({
       thesis: "These contracts might match.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      relationKind: "EQUIVALENT",
       listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
       claimSearchTerms: ["rainfall"],
       confidenceBps: 5_000,
@@ -116,7 +135,8 @@ describe("bounded discovery agent session", () => {
     expect(session.recordHypothesis({
       thesis: "An ungrounded guess.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
-      listingRefs: ["venue-c:invented"],
+      relationKind: "EQUIVALENT",
+      listingRefs: ["venue-a:rain-yes", "venue-c:invented"],
       claimSearchTerms: ["rain"],
       confidenceBps: 5_000,
     })).toMatchObject({ status: "REJECTED", reason: "UNKNOWN_LISTING" });
@@ -126,6 +146,7 @@ describe("bounded discovery agent session", () => {
     const accepted = session.recordHypothesis({
       thesis: "These contracts may use the same gauge and threshold.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      relationKind: "EQUIVALENT",
       listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
       claimSearchTerms: ["rainfall", "central park"],
       confidenceBps: 7_000,
@@ -160,6 +181,31 @@ describe("bounded discovery agent session", () => {
     });
   });
 
+  it("keeps single-listing observations out of the semantic proposal lane", () => {
+    const session = new DiscoveryAgentSession("model-agent", task, 12);
+    session.inspectListings({ listingRefs: ["venue-a:rain-yes"] });
+    expect(session.recordHypothesis({
+      thesis: "No grounded relation was found, but retain this contract.",
+      strategyKind: "COMPLETE_SET",
+      relationKind: "RELATED",
+      listingRefs: ["venue-a:rain-yes"],
+      claimSearchTerms: ["rainfall"],
+      confidenceBps: 9_000,
+    })).toMatchObject({
+      status: "REJECTED",
+      reason: "INVALID_INPUT",
+      guidance: expect.stringContaining("2-20 listingRefs"),
+    });
+    expect(session.completeSearch({ reason: "No relational lead survived inspection." }))
+      .toMatchObject({ status: "ACCEPTED", reason: "SEARCH_COMPLETED" });
+    expect(session.finish({
+      stepCount: 2,
+      providerRequestAttemptCount: 2,
+      toolCallCount: 3,
+      terminationReason: "EXPLICIT_COMPLETION",
+    }).hypotheses).toEqual([]);
+  });
+
   it("makes exact repeated tool inputs idempotent", () => {
     const session = new DiscoveryAgentSession("model-agent", task, 12);
     session.inspectListings({
@@ -168,6 +214,7 @@ describe("bounded discovery agent session", () => {
     const input = {
       thesis: "These contracts may use the same gauge and threshold.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      relationKind: "EQUIVALENT",
       listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
       claimSearchTerms: ["rainfall"],
       confidenceBps: 6_000,
@@ -186,5 +233,152 @@ describe("bounded discovery agent session", () => {
       toolCallCount: 2,
       terminationReason: "MODEL_FINISHED",
     }).hypotheses).toHaveLength(1);
+  });
+
+  it("retains inspected falsifications without creating a hypothesis", () => {
+    const session = new DiscoveryAgentSession("model-agent", task, 12);
+    const input = {
+      claim: "The two rain contracts settle the same event.",
+      reason:
+        "The first uses daily accumulation while the second uses an hourly observation window.",
+      relationKind: "EQUIVALENCE" as const,
+      listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
+      claimSearchTerms: ["NYC rainfall", "Central Park"],
+    };
+    expect(session.recordFalsification({
+      ...input,
+      claim: "An uninspected equivalence claim.",
+    })).toMatchObject({
+      status: "REJECTED",
+      reason: "INSPECTION_REQUIRED",
+    });
+    session.inspectListings({ listingRefs: input.listingRefs });
+    const accepted = session.recordFalsification(input);
+    expect(accepted).toMatchObject({
+      status: "ACCEPTED",
+      reason: "FALSIFICATION_RECORDED",
+      hypothesisId: null,
+      falsificationId: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    });
+    expect(session.recordFalsification(input)).toMatchObject({
+      status: "IDEMPOTENT_REPLAY",
+      reason: "DUPLICATE",
+      falsificationId: accepted.falsificationId,
+    });
+    session.completeSearch({ reason: "The inspected relation was disproved." });
+    const result = session.finish({
+      stepCount: 3,
+      providerRequestAttemptCount: 3,
+      toolCallCount: 4,
+      terminationReason: "EXPLICIT_COMPLETION",
+    });
+    expect(result.hypotheses).toEqual([]);
+    expect(result.falsifications).toHaveLength(1);
+    expect(result.falsifications[0]).toMatchObject({
+      claim: input.claim,
+      listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
+      authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY",
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
+    expect(result.trace).toMatchObject({
+      schemaVersion: "pmh.discovery-agent-trace.v4",
+      acceptedProposalCount: 0,
+      acceptedFalsificationCount: 1,
+      rejectedFalsificationCount: 1,
+    });
+  });
+
+  it("requires partition searches to account for exclusion and exhaustiveness separately", () => {
+    const partitionTask = Object.freeze({
+      ...task,
+      maxHypotheses: 1,
+      searchAssignment: Object.freeze({
+        lens: "PARTITION" as const,
+        semanticFamily: "PARTITION_COMPLETENESS" as const,
+        sourceTrailheadIdentity: null,
+        inspirationDepth: 0 as const,
+      }),
+    });
+    const session = new DiscoveryAgentSession("model:partition", partitionTask, 16);
+    const listingRefs = ["venue-a:rain-yes", "venue-b:nyc-rain"];
+    session.inspectListings({ listingRefs });
+
+    expect(session.recordFalsification({
+      claim: "The two outcomes exhaust the possible rainfall states.",
+      reason: "The thresholds leave an uncovered interval between the contracts.",
+      relationKind: "EXHAUSTIVENESS",
+      listingRefs,
+      claimSearchTerms: ["rainfall partition"],
+    })).toMatchObject({
+      status: "ACCEPTED",
+      guidance: expect.stringContaining("mutual exclusion"),
+    });
+    expect(session.completeSearch({ reason: "Exhaustiveness failed." })).toMatchObject({
+      status: "REJECTED",
+      reason: "SEARCH_REQUIRED",
+      guidance: expect.stringContaining("mutual exclusion"),
+    });
+
+    expect(session.recordHypothesis({
+      thesis: "The inspected contracts cannot both resolve Yes.",
+      strategyKind: "COMPLETE_SET",
+      relationKind: "MUTUALLY_EXCLUSIVE",
+      listingRefs,
+      claimSearchTerms: ["rainfall threshold"],
+      confidenceBps: 7_000,
+    })).toMatchObject({ status: "ACCEPTED" });
+    expect(session.partitionCoverageComplete).toBe(true);
+    expect(session.completeSearch({
+      reason: "Both partition axes now have grounded findings.",
+    })).toMatchObject({ status: "ACCEPTED", reason: "SEARCH_COMPLETED" });
+  });
+
+  it("records a grounded cross-lens inspiration without creating a proposal", () => {
+    const inspiredTask = Object.freeze({
+      ...task,
+      searchAssignment: Object.freeze({
+        lens: "MECHANISM" as const,
+        semanticFamily: "PHYSICAL_CO_OCCURRENCE" as const,
+        sourceTrailheadIdentity: `sha256:${"a".repeat(64)}` as const,
+        inspirationDepth: 0 as const,
+      }),
+    });
+    const session = new DiscoveryAgentSession("model:inspiration", inspiredTask, 24);
+    const refs = inspiredTask.catalogContext!.listings.slice(0, 2).map((item) => item.listingRef);
+    session.inspectListings({ listingRefs: refs });
+    expect(session.recordInspiration({
+      observation: "The same subject is expressed through nested event deadlines.",
+      listingRefs: refs,
+      searchSignals: ["nested deadline", "same subject"],
+      suggestedLens: "MECHANISM",
+      suggestedSemanticFamily: "PHYSICAL_CO_OCCURRENCE",
+    })).toMatchObject({ status: "REJECTED", reason: "OUT_OF_SCOPE" });
+    const accepted = session.recordInspiration({
+      observation: "The same subject is expressed through nested event deadlines.",
+      listingRefs: refs,
+      searchSignals: ["nested deadline", "same subject"],
+      suggestedLens: "IMPLICATION",
+      suggestedSemanticFamily: "EVENT_CONTAINMENT",
+    });
+    expect(accepted).toMatchObject({
+      status: "ACCEPTED",
+      reason: "INSPIRATION_RECORDED",
+      listingRefs: refs,
+    });
+    expect(accepted.inspirationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    const result = session.finish({
+      stepCount: 3,
+      providerRequestAttemptCount: 3,
+      toolCallCount: 3,
+      terminationReason: "MODEL_FINISHED",
+    });
+    expect(result.hypotheses).toEqual([]);
+    expect(result.inspirations).toHaveLength(1);
+    expect(result.trace).toMatchObject({
+      schemaVersion: "pmh.discovery-agent-trace.v4",
+      acceptedInspirationCount: 1,
+      rejectedInspirationCount: 1,
+    });
   });
 });

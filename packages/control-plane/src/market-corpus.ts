@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { DiscoveryCatalogListing } from "./types.js";
 import { hasBoundedDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
+import {
+  hasBoundedRulesEvidence,
+  MAX_RETAINED_RULE_CHARACTERS,
+} from "./catalog-discovery.js";
 
 const MAX_PATTERNS = 12;
 const MAX_PATTERN_LENGTH = 160;
@@ -144,6 +148,11 @@ export function buildMarketCorpusSnapshot(input: Readonly<{
   ) {
     throw new Error("market corpus listing refs must be unique");
   }
+  if (listings.some((listing) =>
+    !hasBoundedRulesEvidence(listing, MAX_RETAINED_RULE_CHARACTERS)
+  )) {
+    throw new Error("market corpus rules evidence violates its bounded contract");
+  }
   if (listings.some((listing) => !hasBoundedDiscoveryEvidenceLocators(listing))) {
     throw new Error("market corpus evidence locators violate their bounded contract");
   }
@@ -191,6 +200,7 @@ export function assertMarketCorpusSnapshot(value: unknown): MarketCorpusSnapshot
       typeof listing.venueInstrumentId !== "string" ||
       typeof listing.title !== "string" ||
       typeof listing.description !== "string" ||
+      !hasBoundedRulesEvidence(listing, MAX_RETAINED_RULE_CHARACTERS) ||
       !hasBoundedDiscoveryEvidenceLocators(listing) ||
       !Array.isArray(listing.outcomes)
     ) ||

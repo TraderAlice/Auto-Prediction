@@ -3,9 +3,10 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  AiRuntimeConfigurationDesk,
   AnonymousSimulationMaterializerDesk,
   CandidateWatchDesk,
   candidateWatchSources,
@@ -14,12 +15,18 @@ import {
   CatalogRefreshScheduler,
   catalogObservationSources,
   createMarketArchaeologistDesk,
+  createCodexDiscoveryRuntime,
+  createDeepSeekDiscoveryRuntime,
   type CatalogObservationSource,
   createOpenAiDiscoveryRuntime,
   createPiInvestigatorRuntime,
   createSemanticReviewDesk,
   DiscoveryPool,
+  EvidenceAcquisitionScheduler,
+  EvidenceDocumentFetcher,
   RealCandidatePreflightDesk,
+  RuleEvidenceClaimDesk,
+  RuleEvidenceClaimScheduler,
   SearchIssueScheduler,
   SearchLeaseScheduler,
   startControlPlane,
@@ -27,7 +34,9 @@ import {
   type DiscoveryRunRecord,
   type DiscoveryTask,
   type DiscoveryWorker,
+  type AiRuntimeConfiguration,
   type StudioProjection,
+  codexCredentialForTest,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
@@ -52,7 +61,9 @@ async function listenControlPlane(
   options?: Parameters<typeof createControlPlane>[0],
 ) {
   const controlPlane = createControlPlane({
-    modelRuntime: createOpenAiDiscoveryRuntime({}),
+    ...(options?.modelRuntime === undefined && options?.modelRuntimeFactory === undefined
+      ? { modelRuntime: createOpenAiDiscoveryRuntime({}) }
+      : {}),
     ...options,
   });
   servers.push(controlPlane.server);
@@ -77,6 +88,25 @@ async function closeTracked(
 }
 
 describe("control-plane HTTP surface", () => {
+  it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
+    const baseUrl = await listen();
+
+    const incremented = await fetch(`${baseUrl}/health`, {
+      headers: { origin: "http://127.0.0.1:5174" },
+    });
+    expect(incremented.status).toBe(200);
+    expect(incremented.headers.get("access-control-allow-origin")).toBe(
+      "http://127.0.0.1:5174",
+    );
+    expect(incremented.headers.get("vary")).toBe("origin");
+
+    const remote = await fetch(`${baseUrl}/health`, {
+      headers: { origin: "https://example.test" },
+    });
+    expect(remote.status).toBe(200);
+    expect(remote.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
   it("loses a port race without starting catalog or lease mutations", async () => {
     const blocker = createServer((_request, response) => response.end("occupied"));
     servers.push(blocker);
@@ -130,10 +160,27 @@ describe("control-plane HTTP surface", () => {
       desk: catalogDesk,
       intervalMs: null,
     });
+    const evidenceAcquisitionScheduler = new EvidenceAcquisitionScheduler({
+      fetcher: new EvidenceDocumentFetcher({ policies: [] }),
+      tickIntervalMs: 1_000,
+    });
+    const evidenceTick = vi.spyOn(evidenceAcquisitionScheduler, "tick");
+    const ruleEvidenceClaimDesk = new RuleEvidenceClaimDesk(
+      null,
+      "deepseek-v4-flash",
+    );
+    const ruleEvidenceClaimScheduler = new RuleEvidenceClaimScheduler({
+      desk: ruleEvidenceClaimDesk,
+      tickIntervalMs: 1_000,
+    });
+    const ruleEvidenceClaimTick = vi.spyOn(ruleEvidenceClaimScheduler, "tick");
     const controlPlane = createControlPlane({
       modelRuntime: createOpenAiDiscoveryRuntime({}),
       catalogObservationDesk: catalogDesk,
       catalogRefreshScheduler,
+      evidenceAcquisitionScheduler,
+      ruleEvidenceClaimDesk,
+      ruleEvidenceClaimScheduler,
       refreshCatalogOnReady: true,
       startupGate,
     });
@@ -142,16 +189,22 @@ describe("control-plane HTTP surface", () => {
     await Promise.resolve();
     expect(fetchCount).toBe(0);
     expect(catalogRefreshScheduler.projection().runCount).toBe(0);
+    expect(evidenceTick).not.toHaveBeenCalled();
+    expect(ruleEvidenceClaimTick).not.toHaveBeenCalled();
 
     await new Promise<void>((resolveListen) =>
       controlPlane.server.listen(0, "127.0.0.1", resolveListen),
     );
     expect(fetchCount).toBe(0);
+    expect(evidenceTick).not.toHaveBeenCalled();
+    expect(ruleEvidenceClaimTick).not.toHaveBeenCalled();
 
     releaseStartup?.();
     await controlPlane.ready;
     expect(fetchCount).toBe(1);
     expect(catalogRefreshScheduler.projection().runCount).toBe(1);
+    expect(evidenceTick).toHaveBeenCalledOnce();
+    expect(ruleEvidenceClaimTick).toHaveBeenCalledOnce();
   });
 
   it("holds due issues during refresh and dispatches them on the new corpus", async () => {
@@ -332,7 +385,7 @@ describe("control-plane HTTP surface", () => {
     expect(response.status).toBe(200);
     const record = await response.json() as {
       status: string;
-      lease: { scope: { venueIds: string[] } };
+      lease: { semanticFamily: string; scope: { venueIds: string[] } };
       fastLane: {
         corpusCoverage: {
           status: string;
@@ -341,11 +394,19 @@ describe("control-plane HTTP surface", () => {
           contextVenueIds: string[];
           omittedSources: { venueId: string; reason: string }[];
         };
+        retrievalPlan: {
+          semanticFamily: string;
+          selectionReason: string;
+          authority: string;
+          semanticDecisionAuthority: boolean;
+          probabilityAuthority: boolean;
+        };
       };
     };
     expect(record).toMatchObject({
       status: "PASS",
       lease: {
+        semanticFamily: "IDENTITY_SUCCESSION",
         scope: { venueIds: ["venue-a", "venue-b", "venue-c"] },
       },
       fastLane: {
@@ -358,6 +419,13 @@ describe("control-plane HTTP surface", () => {
             reason: "LATEST_REFRESH_FAILED",
           }],
         },
+        retrievalPlan: {
+          semanticFamily: "IDENTITY_SUCCESSION",
+          selectionReason: "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD",
+          authority: "SEARCH_ROUTING_ONLY",
+          semanticDecisionAuthority: false,
+          probabilityAuthority: false,
+        },
       },
     });
     expect(record.fastLane.corpusCoverage.contextVenueIds.every(
@@ -369,7 +437,13 @@ describe("control-plane HTTP surface", () => {
     const baseUrl = await listen();
     const response = await fetch(`${baseUrl}/api/v1/projection`);
     const projection = (await response.json()) as {
-      identity: { mode: string; stateHash: string };
+      identity: { mode: string; view: string; stateHash: string; viewHash: string };
+      projectionWindow: {
+        mode: string;
+        sourceStateHash: string;
+        collections: readonly { path: string; totalCount: number; includedCount: number }[];
+        historyDeleted: boolean;
+      };
       system: { liveExecutionEnabled: boolean; controlPlaneConnected: boolean };
       ai: {
         architecture: string;
@@ -442,6 +516,73 @@ describe("control-plane HTTP surface", () => {
           certificateAuthority: boolean;
           executionAuthority: boolean;
         };
+        probabilityEstimation: {
+          configured: boolean;
+          runCount: number;
+          passCount: number;
+          abstainedCount: number;
+          roles: string[];
+          storage: { durable: boolean; idempotencyKey: string };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
+        probabilityEstimationScheduler: {
+          enabled: boolean;
+          caseCount: number;
+          boundReadyCount: number;
+          unreadNotificationCount: number;
+          budget: { basis: string; maxAttemptsPerRole: number };
+          storage: { jobs: { durable: boolean; idempotencyKey: string } };
+          semanticDecisionAuthority: boolean;
+          probabilityCertificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
+        aiUsage: {
+          schemaVersion: string;
+          eventCount: number;
+          promptTextRetained: boolean;
+          outputTextRetained: boolean;
+          currencyCostEstimated: boolean;
+        };
+        premiseAnalysis: {
+          configured: boolean;
+          runCount: number;
+          exactEligibleCount: number;
+          researchOnlyCount: number;
+          storage: { durable: boolean; idempotencyKey: string };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
+        premiseAnalysisScheduler: {
+          enabled: boolean;
+          pendingCount: number;
+          exactEligibleCount: number;
+          budget: { basis: string; maxAttemptsPerJob: number };
+          storage: { durable: boolean; idempotencyKey: string };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
+        evidenceAcquisition: {
+          enabled: boolean;
+          pendingCount: number;
+          requirementCount: number;
+          budget: { basis: string; maxAttemptsPerJob: number };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
+        ruleEvidenceClaims: {
+          enabled: boolean;
+          configured: boolean;
+          pendingCount: number;
+          budget: { basis: string; maxAttemptsPerJob: number };
+          semanticDecisionAuthority: boolean;
+          certificateAuthority: boolean;
+          executionAuthority: boolean;
+        };
         reviewAttention: {
           contentHash: string;
           itemCount: number;
@@ -476,8 +617,118 @@ describe("control-plane HTTP surface", () => {
       };
     };
     expect(response.status).toBe(200);
+    const liveEtag = response.headers.get("etag");
+    expect(liveEtag).toBe(`"${projection.identity.viewHash}"`);
+    expect(response.headers.get("x-pmh-projection-revision")).toBe("0");
+    const unchanged = await fetch(`${baseUrl}/api/v1/projection`, {
+      headers: { "if-none-match": liveEtag! },
+    });
+    expect(unchanged.status).toBe(304);
+    expect(unchanged.headers.get("etag")).toBe(liveEtag);
+    expect(await unchanged.text()).toBe("");
     expect(projection.identity.mode).toBe("CONTROL_PLANE");
+    expect(projection.identity.view).toBe("LIVE_BOUNDED");
     expect(projection.identity.stateHash).toMatch(/^sha256:/);
+    expect(projection.identity.viewHash).toMatch(/^sha256:/);
+    expect(projection.projectionWindow).toMatchObject({
+      mode: "LIVE_BOUNDED",
+      sourceStateHash: projection.identity.stateHash,
+      historyDeleted: false,
+    });
+    expect(projection.projectionWindow.collections).toContainEqual(
+      expect.objectContaining({ path: "ai.semanticReviewScheduler.jobs" }),
+    );
+    const fullResponse = await fetch(`${baseUrl}/api/v1/projection?view=full`);
+    expect(fullResponse.status).toBe(200);
+    const fullProjection = await fullResponse.json() as {
+      identity: { view: string; stateHash: string };
+      projectionWindow: {
+        mode: string;
+        sourceStateHash: string;
+        collections: unknown[];
+        historyDeleted: boolean;
+      };
+    };
+    expect(fullProjection).toMatchObject({
+      identity: {
+        view: "FULL",
+      },
+      projectionWindow: {
+        mode: "FULL",
+        collections: [],
+        historyDeleted: false,
+      },
+    });
+    expect(fullProjection.projectionWindow.sourceStateHash).toBe(
+      fullProjection.identity.stateHash,
+    );
+    expect((await fetch(`${baseUrl}/api/v1/projection?view=unknown`)).status).toBe(400);
+    const handoffProposalId = `sha256:${"0".repeat(64)}`;
+    const handoffResponse = await fetch(
+      `${baseUrl}/api/v1/proposal-handoff?ids=${handoffProposalId}`,
+    );
+    expect(handoffResponse.status).toBe(200);
+    expect(await handoffResponse.json()).toMatchObject({
+      schemaVersion: "pmh.proposal-handoff.v3",
+      requestedProposalIds: [handoffProposalId],
+      resolvedProposalCount: 0,
+      reviewJobCount: 0,
+      reviewOutcomeCount: 0,
+      premiseJobCount: 0,
+      premiseOutcomeCount: 0,
+      premiseObligationCount: 0,
+      recoveryPendingCount: 0,
+      legacyDetailUnavailableCount: 0,
+      economicTriageCount: 0,
+      lifecycleCaseCount: 0,
+      operatorAttentionCount: 0,
+      items: [{
+        proposalId: handoffProposalId,
+        proposal: null,
+        reviewJob: null,
+        reviewOutcome: {
+          basis: "NOT_REVIEWED",
+          canonicalJobId: null,
+          outcome: null,
+        },
+        economicTriage: null,
+        lifecycleCase: null,
+        attention: null,
+        nextGate: "INDEPENDENT_SEMANTIC_REVIEW",
+      }],
+      authority: "READ_ONLY_WORKFLOW_HANDOFF",
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      contentHash: expect.stringMatching(/^sha256:/),
+    });
+    expect((await fetch(`${baseUrl}/api/v1/proposal-handoff?ids=nope`)).status)
+      .toBe(400);
+    const missingRecoveryResponse = await fetch(
+      `${baseUrl}/api/v1/proposals/${handoffProposalId}/semantic-review-detail-recovery`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    expect(missingRecoveryResponse.status).toBe(400);
+    expect(await missingRecoveryResponse.json()).toMatchObject({
+      ok: false,
+      diagnostic: "semantic review detail recovery proposal was not found",
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const overBoundHandoffIds = Array.from(
+      { length: 6 },
+      (_, index) => `sha256:${index.toString(16).repeat(64)}`,
+    ).join(",");
+    expect((await fetch(
+      `${baseUrl}/api/v1/proposal-handoff?ids=${overBoundHandoffIds}`,
+    )).status).toBe(400);
     expect(projection.system).toMatchObject({
       liveExecutionEnabled: false,
       controlPlaneConnected: true,
@@ -557,7 +808,7 @@ describe("control-plane HTTP surface", () => {
     expect(attributionResponse.status).toBe(200);
     expect(await attributionResponse.json()).toMatchObject({
       attributionIdentity: projection.ai.searchOutcomeAttribution.attributionIdentity,
-      measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+      measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES",
       authority: "DERIVED_RESEARCH_EVIDENCE_ONLY",
       executionAuthority: false,
       effects: { liveExecutionEnabled: false },
@@ -577,10 +828,165 @@ describe("control-plane HTTP surface", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    expect(projection.ai.probabilityEstimation).toMatchObject({
+      configured: false,
+      runCount: 0,
+      passCount: 0,
+      abstainedCount: 0,
+      roles: ["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"],
+      storage: { durable: false, idempotencyKey: "runId" },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.probabilityEstimationScheduler).toMatchObject({
+      enabled: false,
+      caseCount: 0,
+      boundReadyCount: 0,
+      unreadNotificationCount: 0,
+      budget: { basis: "PROVIDER_ATTEMPTS", maxAttemptsPerRole: 3 },
+      storage: { jobs: { durable: false, idempotencyKey: "jobId" } },
+      semanticDecisionAuthority: false,
+      probabilityCertificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.probabilityCalibration).toMatchObject({
+      schemaVersion: "pmh.probability-calibration-desk.v1",
+      status: "EMPTY",
+      observationCount: 0,
+      snapshotCount: 0,
+      authority: "CALIBRATION_ORCHESTRATION_ONLY",
+      probabilityCertificateAuthority: false,
+      executionAuthority: false,
+    });
+    const calibrationResponse = await fetch(`${baseUrl}/api/v1/probability-calibration`);
+    expect(calibrationResponse.status).toBe(200);
+    expect(await calibrationResponse.json()).toMatchObject({
+      status: "EMPTY",
+      storage: { observations: { durable: false, idempotencyKey: "artifactHash" } },
+      executionAuthority: false,
+    });
+    const invalidCalibrationResponse = await fetch(
+      `${baseUrl}/api/v1/probability-calibration/observations`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ boundArtifactHash: hashCanonical({ missing: true }) }),
+      },
+    );
+    expect(invalidCalibrationResponse.status).toBe(400);
+    expect(await invalidCalibrationResponse.json()).toMatchObject({
+      ok: false,
+      executionAuthority: false,
+    });
+    const probabilityResponse = await fetch(`${baseUrl}/api/v1/probability-estimation`);
+    expect(probabilityResponse.status).toBe(200);
+    expect(await probabilityResponse.json()).toMatchObject({
+      desk: {
+        schemaVersion: "pmh.probability-estimation-desk.v1",
+        authority: "ESTIMATION_ORCHESTRATION_ONLY",
+        executionAuthority: false,
+      },
+      scheduler: {
+        schemaVersion: "pmh.probability-estimation-scheduler.v1",
+        authority: "ESTIMATION_ORCHESTRATION_ONLY",
+        executionAuthority: false,
+      },
+    });
+    expect(projection.ai.aiUsage).toMatchObject({
+      schemaVersion: "pmh.ai-usage-ledger.v1",
+      eventCount: 0,
+      promptTextRetained: false,
+      outputTextRetained: false,
+      currencyCostEstimated: false,
+    });
+    const usageResponse = await fetch(`${baseUrl}/api/v1/ai-usage`);
+    expect(usageResponse.status).toBe(200);
+    expect(await usageResponse.json()).toMatchObject({
+      schemaVersion: "pmh.ai-usage-ledger.v1",
+      totals: { invocationCount: "0", tokens: { totalTokens: null } },
+      storage: { durable: false, idempotencyKey: "eventId" },
+    });
+    expect(projection.ai.premiseAnalysis).toMatchObject({
+      configured: false,
+      runCount: 0,
+      exactEligibleCount: 0,
+      researchOnlyCount: 0,
+      storage: { durable: false, idempotencyKey: "analysisId" },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(projection.ai.premiseAnalysisScheduler).toMatchObject({
+      enabled: false,
+      pendingCount: 0,
+      exactEligibleCount: 0,
+      budget: { basis: "PROVIDER_ATTEMPTS", maxAttemptsPerJob: 3 },
+      storage: { durable: false, idempotencyKey: "jobId" },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const premiseResponse = await fetch(`${baseUrl}/api/v1/premise-analysis`);
+    expect(premiseResponse.status).toBe(200);
+    expect(await premiseResponse.json()).toMatchObject({
+      desk: { configured: false, authority: "PROPOSE_ONLY" },
+      scheduler: {
+        enabled: false,
+        authority: "ADVISORY_PREMISE_ANALYSIS_ORCHESTRATION_ONLY",
+        executionAuthority: false,
+      },
+    });
+    expect(projection.ai.evidenceAcquisition).toMatchObject({
+      enabled: false,
+      pendingCount: 0,
+      requirementCount: 0,
+      budget: { basis: "FETCH_ATTEMPTS", maxAttemptsPerJob: 3 },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        anonymousReadsOnly: true,
+        credentialsUsed: false,
+        providerRequests: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    const evidenceResponse = await fetch(`${baseUrl}/api/v1/evidence-acquisition`);
+    expect(evidenceResponse.status).toBe(200);
+    expect(await evidenceResponse.json()).toMatchObject({
+      schemaVersion: "pmh.evidence-acquisition-scheduler.v1",
+      requirementCount: 0,
+      authority: "ANONYMOUS_EVIDENCE_ORCHESTRATION_ONLY",
+      executionAuthority: false,
+    });
+    expect(projection.ai.ruleEvidenceClaims).toMatchObject({
+      enabled: false,
+      configured: false,
+      pendingCount: 0,
+      passedCount: 0,
+      supportedCount: 0,
+      contradictedCount: 0,
+      inconclusiveCount: 0,
+      budget: { basis: "PROVIDER_ATTEMPTS", maxAttemptsPerJob: 3 },
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    const claimResponse = await fetch(`${baseUrl}/api/v1/rule-evidence-claims`);
+    expect(claimResponse.status).toBe(200);
+    expect(await claimResponse.json()).toMatchObject({
+      schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
+      passedCount: 0,
+      authority: "ADVISORY_EVIDENCE_INTERPRETATION_ORCHESTRATION_ONLY",
+      executionAuthority: false,
+    });
     expect(projection.ai.semanticReviewAdmission).toMatchObject({
-      policy: "TWO_DISTINCT_LISTINGS_AND_COMPILABLE_RELATION_V1",
+      policy: "TWO_TO_FOUR_DISTINCT_LISTINGS_WITH_PREMISE_LANE_V2",
       candidateCount: 0,
       autoReviewCount: 0,
+      premiseReviewCount: 0,
       researchOnlyCount: 0,
       manualReviewAvailable: true,
       modelConfidenceUsed: false,
@@ -626,7 +1032,7 @@ describe("control-plane HTTP surface", () => {
     );
     expect(reviewAdmissionResponse.status).toBe(200);
     expect(await reviewAdmissionResponse.json()).toMatchObject({
-      policy: "TWO_DISTINCT_LISTINGS_AND_COMPILABLE_RELATION_V1",
+      policy: "TWO_TO_FOUR_DISTINCT_LISTINGS_WITH_PREMISE_LANE_V2",
       candidateCount: 0,
       authority: "AUTOMATIC_REVIEW_ADMISSION_ONLY",
       effects: { modelCalls: false, liveExecutionEnabled: false },
@@ -678,13 +1084,95 @@ describe("control-plane HTTP surface", () => {
     });
   });
 
+  it("hot-switches the discovery runtime with revision-safe configuration", async () => {
+    const configurationDesk = new AiRuntimeConfigurationDesk({}, undefined, () =>
+      Date.parse("2026-08-09T01:00:00.000Z")
+    );
+    const modelRuntimeFactory = (configuration: AiRuntimeConfiguration) =>
+      configuration.provider === "CODEX"
+        ? createCodexDiscoveryRuntime({}, {
+            model: configuration.codexModel,
+            reasoningEffort: configuration.codexReasoningEffort,
+            credentialProvider: codexCredentialForTest(
+              "test-only-codex-token",
+              "account-test-only",
+            ),
+          })
+        : createDeepSeekDiscoveryRuntime({});
+    const { baseUrl } = await listenControlPlane({
+      aiRuntimeConfigurationDesk: configurationDesk,
+      modelRuntimeFactory,
+    });
+
+    const switched = await fetch(`${baseUrl}/api/v1/ai-runtime/configuration`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        expectedRevision: 1,
+        provider: "CODEX",
+        codexModel: "gpt-5.6-terra",
+        codexReasoningEffort: "max",
+      }),
+    });
+    expect(switched.status).toBe(200);
+    await expect(switched.json()).resolves.toMatchObject({
+      ok: true,
+      runtimeConfiguration: {
+        configuration: {
+          revision: 2,
+          provider: "CODEX",
+          codexModel: "gpt-5.6-terra",
+          codexReasoningEffort: "max",
+        },
+        credentialTextRetained: false,
+      },
+      modelProvider: {
+        provider: "CODEX_RESPONSES",
+        configured: true,
+        model: "gpt-5.6-terra",
+        reasoningEffort: "max",
+      },
+      executionAuthority: false,
+    });
+
+    const projection = await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
+      response.json() as Promise<StudioProjection>
+    );
+    expect(projection.ai.runtimeConfiguration.configuration).toMatchObject({
+      revision: 2,
+      provider: "CODEX",
+    });
+    expect(projection.ai.modelProvider).toMatchObject({
+      provider: "CODEX_RESPONSES",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "max",
+    });
+
+    const stale = await fetch(`${baseUrl}/api/v1/ai-runtime/configuration`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        expectedRevision: 1,
+        provider: "DEEPSEEK",
+        codexModel: "gpt-5.6-luna",
+        codexReasoningEffort: "low",
+      }),
+    });
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "AI runtime configuration revision is stale",
+      executionAuthority: false,
+    });
+  });
+
   it("creates and pauses search issues and rejects dispatch without a qualified corpus", async () => {
     const baseUrl = await listen();
     const initial = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
       response.json())) as StudioProjection;
     expect(initial.ai.searchIssueScheduler).toMatchObject({
-      issueCount: 5,
-      enabledIssueCount: 5,
+      issueCount: 10,
+      enabledIssueCount: 10,
       activeCount: 0,
       concurrencyLimit: 3,
       semanticDecisionAuthority: false,
@@ -732,8 +1220,8 @@ describe("control-plane HTTP surface", () => {
     const finalProjection = (await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
       response.json())) as StudioProjection;
     expect(finalProjection.ai.searchIssueScheduler).toMatchObject({
-      issueCount: 6,
-      enabledIssueCount: 5,
+      issueCount: 11,
+      enabledIssueCount: 10,
     });
     expect(finalProjection.ai.searchIssueScheduler.issues.find(
       (issue) => issue.issueId === created.issueId,
@@ -797,6 +1285,7 @@ describe("control-plane HTTP surface", () => {
                   "A Limitless Up outcome implies an Opinion Up outcome under the reviewed scope.",
                 rationale: "The left event is a strict subset of the right event.",
                 falsifiers: ["Limitless Up while Opinion resolves Down."],
+                evidenceRequirements: [],
               },
             ],
             missingEvidence: [],
@@ -916,8 +1405,9 @@ describe("control-plane HTTP surface", () => {
         }),
       },
     );
-    expect(decisionResponse.status).toBe(200);
-    expect(await decisionResponse.json()).toMatchObject({
+    const decisionResult = await decisionResponse.json();
+    expect(decisionResponse.status, JSON.stringify(decisionResult)).toBe(200);
+    expect(decisionResult).toMatchObject({
       decision: {
         authority: "LOCAL_OPERATOR_RESEARCH_ONLY",
         productionPromotionEligible: false,
@@ -1524,9 +2014,7 @@ describe("control-plane HTTP surface", () => {
       catalogContextSource: "QUALIFIED_LIVE_OBSERVATIONS",
       catalogListingCount: 1,
       executionAuthority: false,
-      hypotheses: [
-        { authority: "PROPOSE_ONLY", reviewStatus: "UNREVIEWED" },
-      ],
+      hypotheses: [],
     });
     const current = await fetch(
       `${baseUrl}/api/v1/catalog/observations`,
@@ -1928,7 +2416,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 18,
+          schemaVersion: 32,
         },
         records: [{ investigationId: created.investigationId }],
       });
@@ -2281,7 +2769,7 @@ describe("control-plane HTTP surface", () => {
     );
   });
 
-  it("broadcasts the replayed projection to connected SSE clients", async () => {
+  it("publishes small invalidations and rebuilds a projection only on demand", async () => {
     const baseUrl = await listen();
     const abort = new AbortController();
     const eventResponse = await fetch(`${baseUrl}/api/v1/events`, {
@@ -2302,17 +2790,36 @@ describe("control-plane HTTP surface", () => {
       buffered = buffered.slice(boundary + 2);
       return event;
     };
-    expect(await readEvent()).toContain("event: projection");
+    const initialEvent = await readEvent();
+    expect(initialEvent).toContain("event: projection-invalidated");
+    expect(initialEvent).toContain('"schemaVersion":"pmh.studio-projection-invalidation.v1"');
+    expect(initialEvent).toContain('"reason":"SUBSCRIBER_CONNECTED"');
+    expect(initialEvent).not.toContain("projectionWindow");
+    expect(initialEvent.length).toBeLessThan(1_000);
+    const beforeReplay = await fetch(`${baseUrl}/api/v1/projection`);
+    const beforeReplayEtag = beforeReplay.headers.get("etag");
+    await beforeReplay.body?.cancel();
 
     await fetch(`${baseUrl}/api/v1/books/replay`, { method: "POST" });
     const event = await readEvent();
-    expect(event).toContain("event: projection");
-    expect(event).toContain('"replayCount":2');
+    expect(event).toContain("event: projection-invalidated");
+    expect(event).toContain('"reason":"STATE_CHANGED"');
+    expect(event).not.toContain('"replayCount"');
+    expect(event.length).toBeLessThan(1_000);
+    const refreshed = await fetch(`${baseUrl}/api/v1/projection`, {
+      headers: { "if-none-match": beforeReplayEtag! },
+    });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.headers.get("etag")).not.toBe(beforeReplayEtag);
+    expect(await refreshed.json()).toMatchObject({
+      bookDesk: { replayCount: 2 },
+    });
+    expect(Number(refreshed.headers.get("x-pmh-projection-revision"))).toBeGreaterThan(0);
     await reader.cancel();
     abort.abort();
   });
 
-  it("broadcasts active and completed discovery ledger state", async () => {
+  it("coalesces discovery effects behind durable projection invalidations", async () => {
     const baseUrl = await listen();
     const abort = new AbortController();
     const eventResponse = await fetch(`${baseUrl}/api/v1/events`, {
@@ -2320,7 +2827,20 @@ describe("control-plane HTTP surface", () => {
     });
     const reader = eventResponse.body?.getReader();
     if (reader === undefined) throw new Error("event stream has no body");
-    await reader.read();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    const readEvent = async (): Promise<string> => {
+      while (!buffered.includes("\n\n")) {
+        const next = await reader.read();
+        if (next.done) throw new Error("event stream ended before a complete event");
+        buffered += decoder.decode(next.value, { stream: true });
+      }
+      const boundary = buffered.indexOf("\n\n");
+      const event = buffered.slice(0, boundary);
+      buffered = buffered.slice(boundary + 2);
+      return event;
+    };
+    await readEvent();
 
     await fetch(`${baseUrl}/api/v1/discovery/runs`, {
       method: "POST",
@@ -2330,15 +2850,22 @@ describe("control-plane HTTP surface", () => {
         venueIds: ["kalshi", "polymarket-global"],
       }),
     });
-    const decoder = new TextDecoder();
-    let events = "";
-    for (let index = 0; index < 4 && !events.includes('"runCount":1'); index += 1) {
-      const chunk = await reader.read();
-      events += decoder.decode(chunk.value);
+    let durableState: {
+      activeRuns: number;
+      discoveryDesk: { runCount: number };
+      system: { liveExecutionEnabled: boolean };
+    } | null = null;
+    for (let index = 0; index < 4 && durableState?.discoveryDesk.runCount !== 1; index += 1) {
+      const invalidation = await readEvent();
+      expect(invalidation).toContain("event: projection-invalidated");
+      expect(invalidation).not.toContain('"runCount"');
+      durableState = await (await fetch(`${baseUrl}/api/v1/projection`)).json() as
+        typeof durableState;
     }
-    expect(events).toContain('"activeRuns":1');
-    expect(events).toContain('"runCount":1');
-    expect(events).toContain('"executionAuthority":false');
+    expect(durableState).toMatchObject({
+      discoveryDesk: { runCount: 1 },
+      system: { liveExecutionEnabled: false },
+    });
     await reader.cancel();
     abort.abort();
   });

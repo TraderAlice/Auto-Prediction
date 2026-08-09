@@ -74,7 +74,7 @@ describe("anonymous catalog observation desk", () => {
       catalogObservationStorage: {
         mode: "MEMORY",
         durable: false,
-        schemaVersion: 18,
+        schemaVersion: 32,
         idempotencyKey: "observationId",
       },
       loadCatalogObservations: (limit) => observations.slice(0, limit),
@@ -143,6 +143,79 @@ describe("anonymous catalog observation desk", () => {
     })).toThrow(/normalizer identity mismatch/);
   });
 
+  it("retires the pre-rulebook Polymarket US normalization until a fresh capture", async () => {
+    const currentSource = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "polymarket-us",
+    );
+    if (currentSource === undefined) throw new Error("missing Polymarket US source");
+    const observations: StoredCatalogObservation[] = [];
+    const store: CatalogObservationStore = {
+      catalogObservationStorage: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 32,
+        idempotencyKey: "observationId",
+      },
+      loadCatalogObservations: (limit) => observations.slice(0, limit),
+      saveCatalogObservation: (observation) => {
+        observations.unshift(observation);
+        return observation;
+      },
+    };
+    const legacySource = {
+      ...currentSource,
+      normalizerIdentity: hashCanonical({
+        schemaVersion: "pmh.catalog-normalizer-identity.v1",
+        venueId: "polymarket-us",
+        revision: "gateway-catalog.v1",
+      }),
+      decode: (fixture: Parameters<typeof currentSource.decode>[0]) =>
+        currentSource.decode(fixture).map((listing) => {
+          const { rulesUrl: _rulesUrl, ...legacyListing } = listing;
+          return legacyListing;
+        }),
+    };
+    await new CatalogObservationDesk({
+      sources: [legacySource],
+      fetcher: fixtureFetcher(),
+      store,
+      now: () => Date.parse("2026-08-02T03:59:00.000Z"),
+    }).refresh();
+
+    const restored = new CatalogObservationDesk({
+      sources: [currentSource],
+      fetcher: fixtureFetcher(),
+      store,
+      now: () => Date.parse("2026-08-02T04:00:00.000Z"),
+    });
+    expect(restored.projection()).toMatchObject({
+      status: "DEGRADED",
+      listingCount: 0,
+      sources: [{
+        venueId: "polymarket-us",
+        status: "FAILED",
+        diagnostic: "stored observation uses retired normalization; fresh capture required",
+        contextEligible: false,
+      }],
+    });
+    await restored.refresh();
+    expect(restored.projection()).toMatchObject({
+      status: "READY",
+      listingCount: 20,
+      sources: [{
+        venueId: "polymarket-us",
+        status: "CURRENT",
+        diagnostic: null,
+        contextEligible: true,
+      }],
+    });
+    expect(restored.corpus().listings.every((listing) =>
+      listing.evidenceLocators?.some((locator) =>
+        locator.url.endsWith("rules0519263672.docx")
+      ) === true
+    )).toBe(true);
+  });
+
   it("replays pre-role normalizations from raw evidence into the current projection", async () => {
     const source = catalogObservationSources.find(
       (candidate) => candidate.venueId === "myriad",
@@ -153,7 +226,7 @@ describe("anonymous catalog observation desk", () => {
       catalogObservationStorage: {
         mode: "MEMORY",
         durable: false,
-        schemaVersion: 18,
+        schemaVersion: 32,
         idempotencyKey: "observationId",
       },
       loadCatalogObservations: (limit) => observations.slice(0, limit),

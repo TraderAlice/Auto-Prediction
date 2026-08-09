@@ -2,9 +2,11 @@ import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertSearchLeaseRecord,
+  buildSearchFindingInbox,
   buildMarketCorpusSnapshot,
   CatalogContextCoverageError,
   SearchLeaseScheduler,
+  searchLeaseFindingSummary,
   parseSearchLeaseStageBudget,
   SqliteOperationalStore,
   type DiscoveryCatalogContext,
@@ -103,6 +105,7 @@ function hypothesis(task: DiscoveryTask): OpportunityHypothesis {
     workerId: "model:fast",
     thesis: "The two listings may resolve to the same claim.",
     strategyKind: "SAME_CLAIM_CROSS_VENUE" as const,
+    relationKind: "EQUIVALENT" as const,
     venueIds: Object.freeze(["venue-a", "venue-b"]),
     claimSearchTerms: Object.freeze(["Trump", "pizza", "August"]),
     listingRefs: Object.freeze(["venue-a:pizza-a", "venue-b:pizza-b"]),
@@ -244,7 +247,8 @@ describe("AI-native search lease scheduler", () => {
     expect(record.deepLane.permittedTools).toEqual(["read", "grep", "find", "ls"]);
     expect(record.trace.chainOfThoughtStored).toBe(false);
     expect(record.lease.graphContext?.feedbackCount).toBe(1);
-    expect(record.trace.querySummary).toContain("Graph neighborhood:");
+    expect(record.trace.querySummary).not.toContain("Graph neighborhood:");
+    expect(runFast.mock.calls[0]?.[0].question).toContain("Readable prior graph refs");
     expect(runFast.mock.calls[0]?.[0].question).toContain("MISSING_RULE");
     expect(record.semanticDecisionAuthority).toBe(false);
     expect(record.certificateAuthority).toBe(false);
@@ -272,6 +276,61 @@ describe("AI-native search lease scheduler", () => {
     await expect(replay.promise).resolves.toEqual(record);
     expect(runFast).toHaveBeenCalledTimes(1);
     expect(runDeep).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps graph refs outside the assigned context as lineage-only evidence", async () => {
+    const runFast = vi.fn(async (task: DiscoveryTask) => {
+      expect(task.question).not.toContain("venue-z:historical-a");
+      expect(task.question).not.toContain("Readable prior graph refs");
+      return Object.freeze({
+        ...runRecord(task),
+        hypotheses: Object.freeze([]),
+      });
+    });
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      graphContext: (_snapshot, lens) => {
+        const graphIdentity = hashCanonical({ graph: "outside-context" });
+        const items = Object.freeze([Object.freeze({
+          proposalId: hashCanonical({ proposal: "outside-context" }),
+          relationKind: "EQUIVALENT" as const,
+          listingRefs: Object.freeze([
+            "venue-z:historical-a",
+            "venue-z:historical-b",
+          ]),
+          outcomeCodes: Object.freeze(["MISSING_RULE" as const]),
+          summary: "Historical refs are not in this immutable context.",
+        })]);
+        return Object.freeze({
+          schemaVersion: "pmh.semantic-graph-search-context.v1" as const,
+          graphIdentity,
+          neighborhoodIdentity: hashCanonical({ graphIdentity, lens, items }),
+          lens,
+          relationCount: 1,
+          feedbackCount: 1,
+          items,
+          searchBrief: "Revisit graph refs venue-z:historical-a and venue-z:historical-b.",
+          priorityBasis: "EMPIRICAL_OUTCOMES_THEN_EVIDENCE_FRESHNESS" as const,
+          modelConfidenceUsed: false as const,
+          authority: "SEARCH_EVIDENCE_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          executionAuthority: false as const,
+        });
+      },
+      maxPiInvocations: 0,
+      runFast,
+    });
+
+    const record = await scheduler.begin(snapshot("graph-lineage-only"), "EQUIVALENCE").promise;
+    expect(record.lease.graphContext?.items[0]?.listingRefs).toEqual([
+      "venue-z:historical-a",
+      "venue-z:historical-b",
+    ]);
+    expect(record.fastLane.semanticScope?.listingRefs).toEqual([
+      "venue-a:pizza-a",
+      "venue-b:pizza-b",
+    ]);
+    expect(runFast).toHaveBeenCalledTimes(1);
   });
 
   it("retains a single-listing lead without assigning candidate novelty or spending pi", async () => {
@@ -322,6 +381,88 @@ describe("AI-native search lease scheduler", () => {
     });
     expect(record.fastLane.hypothesisIds).toHaveLength(1);
     expect(runDeep).not.toHaveBeenCalled();
+    expect(buildSearchFindingInbox([record])).toMatchObject([{
+      disposition: "FAST_LEAD",
+      priority: "LOW",
+      attentionRequired: false,
+      retryAvailable: false,
+    }]);
+  });
+
+  it("retains a falsification-only fast result without launching pi", async () => {
+    const runDeep = vi.fn();
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => {
+        const base = runRecord(task);
+        const findingIdentity = hashCanonical({
+          schemaVersion: "pmh.discovery-falsification-finding.v1",
+          relationKind: "EQUIVALENCE",
+          listingRefs: ["venue-a:pizza-a", "venue-b:pizza-b"],
+        });
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-falsification.v2" as const,
+          findingIdentity,
+          workerId: "model:fast",
+          taskId: task.taskId,
+          claim: "The two pizza listings settle the same claim.",
+          reason: "Their positive resolution windows end on different dates.",
+          relationKind: "EQUIVALENCE" as const,
+          listingRefs: Object.freeze(["venue-a:pizza-a", "venue-b:pizza-b"]),
+          claimSearchTerms: Object.freeze(["Trump pizza", "August"]),
+          authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          certificateAuthority: false as const,
+          executionAuthority: false as const,
+          externalWriteAuthority: false as const,
+          valueMovingAuthority: false as const,
+        });
+        const falsification = Object.freeze({
+          ...body,
+          falsificationId: hashCanonical(body),
+        });
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([]),
+          falsifications: Object.freeze([falsification]),
+          workerReports: Object.freeze(base.workerReports!.map((report) =>
+            Object.freeze({
+              ...report,
+              hypothesisCount: 0,
+              falsificationCount: report.kind === "MODEL" ? 1 : 0,
+            })
+          )),
+        });
+      },
+      runDeep,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+
+    const record = await scheduler.begin(snapshot("falsification-only"), "EQUIVALENCE").promise;
+
+    expect(record).toMatchObject({
+      status: "PASS",
+      fastLane: {
+        status: "PASS",
+        hypothesisIds: [],
+        falsificationIds: [expect.stringMatching(/^sha256:/)],
+      },
+      deepLane: { status: "NOT_RUN", reason: "NO_CANDIDATES" },
+      outcome: {
+        novelCandidate: false,
+        hypothesisCount: 0,
+        falsificationCount: 1,
+        proposalCount: 0,
+      },
+    });
+    expect(runDeep).not.toHaveBeenCalled();
+    expect(() => assertSearchLeaseRecord(record)).not.toThrow();
+    expect(buildSearchFindingInbox([record])).toMatchObject([{
+      disposition: "NEGATIVE_EVIDENCE",
+      kinds: ["FALSIFIED"],
+      priority: "LOW",
+      attentionRequired: false,
+    }]);
   });
 
   it("links duplicate candidate signatures and does not spend a second pi invocation", async () => {
@@ -771,6 +912,7 @@ describe("AI-native search lease scheduler", () => {
 
     expect(record.fastLane).toMatchObject({
       candidateListingRefs: selectedRefs,
+      candidateRelationKind: "EQUIVALENT",
       semanticScope: { kind: "BOUNDED_CONTEXT" },
       economicGate: {
         status: "POSITIVE_GROSS_HINT",
@@ -786,6 +928,22 @@ describe("AI-native search lease scheduler", () => {
     expect(record.outcome.novelCandidate).toBe(true);
     expect(runDeep).toHaveBeenCalledTimes(1);
     expect(runDeep.mock.calls[0]?.[1]).toContain(selectedRefs.join(", "));
+    expect(runDeep.mock.calls[0]?.[1]).toContain("Fast-lane asserted relation: EQUIVALENT");
+    expect(searchLeaseFindingSummary(record)).toMatchObject({
+      state: "COMPLETE",
+      kinds: ["LEAD"],
+      leadCount: 2,
+      authority: "SEARCH_RESULT_SUMMARY_ONLY",
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
+    expect(buildSearchFindingInbox([record])).toMatchObject([{
+      disposition: "PROPOSAL_AVAILABLE",
+      priority: "HIGH",
+      attentionRequired: true,
+      relationKind: "EQUIVALENT",
+      proposalIds: [selectedProposalId],
+    }]);
   });
 
   it("does not let heuristics or invalid model scope satisfy model selection", async () => {
@@ -843,11 +1001,17 @@ describe("AI-native search lease scheduler", () => {
                 "venue-z:not-in-context",
               ]),
             }),
+            Object.freeze({
+              ...hypothesis(task),
+              hypothesisId: "hypothesis:model-wrong-relation",
+              workerId: "model:fast",
+              relationKind: "CONFLICTING" as const,
+            }),
           ]),
           workerReports: Object.freeze(base.workerReports!.map((report) =>
             Object.freeze({
               ...report,
-              hypothesisCount: report.kind === "MODEL" ? 2 : 1,
+              hypothesisCount: report.kind === "MODEL" ? 3 : 1,
             })
           )),
         });
@@ -880,6 +1044,11 @@ describe("AI-native search lease scheduler", () => {
     expect(record.deepLane.reason).toBe("NO_CANDIDATES");
     expect(record.outcome.novelCandidate).toBe(false);
     expect(runDeep).not.toHaveBeenCalled();
+    expect(buildSearchFindingInbox([record])).toMatchObject([{
+      disposition: "FAST_LEAD",
+      priority: "LOW",
+      attentionRequired: false,
+    }]);
   });
 
   it("enriches only an exact selected pair after the catalog gate is price-unavailable", async () => {
@@ -1052,9 +1221,12 @@ describe("AI-native search lease scheduler", () => {
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      storage: { schemaVersion: 18 },
-      corpusStorage: { schemaVersion: 18, idempotencyKey: "snapshotIdentity" },
+      storage: { schemaVersion: 32 },
+      corpusStorage: { schemaVersion: 32, idempotencyKey: "snapshotIdentity" },
     });
+    expect(restored.projection().findingInbox).toEqual(
+      scheduler.projection().findingInbox,
+    );
     store.close();
   });
 
@@ -1104,6 +1276,12 @@ describe("AI-native search lease scheduler", () => {
     });
     expect(unavailable.deepLane.attempts).toHaveLength(1);
     expect(runFast).toHaveBeenCalledTimes(1);
+    expect(buildSearchFindingInbox([unavailable])).toMatchObject([{
+      disposition: "RETRY_DEEP",
+      priority: "HIGH",
+      attentionRequired: true,
+      retryAvailable: true,
+    }]);
 
     const retry = scheduler.retryDeep(checkpoint.lease.leaseId);
     expect(retry.idempotentReplay).toBe(false);
@@ -1615,6 +1793,7 @@ describe("AI-native search lease scheduler", () => {
 
   it("rejects a context that represents fewer venues than its v3 minimum before AI", async () => {
     const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+    let nowMs = Date.parse("2026-08-02T00:00:00.000Z");
     const body = Object.freeze({
       schemaVersion: "pmh.catalog-context-coverage.v1" as const,
       status: "FULL" as const,
@@ -1639,6 +1818,7 @@ describe("AI-native search lease scheduler", () => {
       }),
       maxPiInvocations: 0,
       runFast,
+      now: () => nowMs++,
     });
 
     const record = await scheduler.begin(
@@ -1680,7 +1860,7 @@ describe("AI-native search lease scheduler", () => {
     expect(scheduler.projection().runCount).toBe(4);
   });
 
-  it("replays historical v1-v4 leases but does not let them suppress a v5 scan", async () => {
+  it("replays historical leases but does not let them suppress a v8 scan", async () => {
     const current = snapshot("historical-v1");
     const completed = await new SearchLeaseScheduler({
       context,
@@ -1697,10 +1877,11 @@ describe("AI-native search lease scheduler", () => {
       lens: completed.lease.lens,
     });
     const { artifactHash: _artifactHash, ...completedBody } = completed;
+    const { discoveryMode: _discoveryMode, ...legacyLease } = completed.lease;
     const legacyBody = Object.freeze({
       ...completedBody,
       lease: Object.freeze({
-        ...completed.lease,
+        ...legacyLease,
         leaseId: legacyLeaseId,
         algorithmVersion: "pmh.ai-search-leases.v1" as const,
       }),
@@ -1736,7 +1917,7 @@ describe("AI-native search lease scheduler", () => {
     const v2Body = Object.freeze({
       ...completedBody,
       lease: Object.freeze({
-        ...completed.lease,
+        ...legacyLease,
         leaseId: v2LeaseId,
         algorithmVersion: "pmh.ai-search-leases.v2" as const,
       }),
@@ -1775,13 +1956,13 @@ describe("AI-native search lease scheduler", () => {
       "SCHEDULE",
     ).promise;
     expect(currentRecord.lease).toMatchObject({
-      algorithmVersion: "pmh.ai-search-leases.v5",
+      algorithmVersion: "pmh.ai-search-leases.v10",
       lens: "EQUIVALENCE",
     });
     expect(scheduler.projection().records.map(
       (record) => record.lease.algorithmVersion,
     )).toEqual([
-      "pmh.ai-search-leases.v5",
+      "pmh.ai-search-leases.v10",
       "pmh.ai-search-leases.v2",
       "pmh.ai-search-leases.v1",
     ]);

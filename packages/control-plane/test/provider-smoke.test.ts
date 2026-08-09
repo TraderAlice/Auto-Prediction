@@ -8,6 +8,10 @@ import {
 
 const SMOKE_LISTING_REF =
   "gemini-predictions:GEMI-WXHIGH-BOS-2608010359-80TO81";
+const SMOKE_LISTING_REFS = Object.freeze([
+  SMOKE_LISTING_REF,
+  "gemini-predictions:GEMI-WXHIGH-BOS-2608010359-82TO83",
+]);
 
 describe("OpenAI provider qualification smoke", () => {
   it("qualifies the production adapter with a hash-bound multi-step trace", async () => {
@@ -26,14 +30,14 @@ describe("OpenAI provider qualification smoke", () => {
         if (ordinal === 1) {
           return openAiToolResponse(
             "inspect_listings",
-            { listingRefs: [SMOKE_LISTING_REF] },
+            { listingRefs: SMOKE_LISTING_REFS },
             ordinal,
           );
         }
         if (ordinal === 2) {
           return openAiToolResponse(
             "record_hypothesis",
-            proposalInput(SMOKE_LISTING_REF),
+            proposalInput(SMOKE_LISTING_REFS),
             ordinal,
           );
         }

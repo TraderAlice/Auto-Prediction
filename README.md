@@ -53,6 +53,20 @@ This is not a trading bot and it has no live-trading authority. The repository d
   changed economic posture can still reactivate an economically blocked pair,
   while raw price motion inside the same posture does not restart semantic work.
 - A bounded Scout Inbox that retains proposal-only runs, questions, venue scope, diagnostics, and unreviewed hypotheses in the control-plane projection.
+- Content-addressed structured evidence requirements emitted through both Pi
+  and Vercel AI SDK tool effects. Agents describe the missing claim, its exact
+  listing scope, falsifying observations, and historical posture; first-party
+  code alone derives adapter-owned document locators and deterministic
+  `DOCUMENT_LOCATOR`, `MARKET_DATA`, or `UNSUPPORTED` routing. Shared official
+  documents coalesce to one acquisition scope without granting network,
+  provider-request, review, certificate, or execution authority.
+- A policy-constrained anonymous rule-document reader that admits only an exact
+  adapter-issued locator under a separately content-addressed
+  venue/protocol/role/host/content-type policy. DNS answers are rejected or
+  explicitly classified, pinned into the TLS socket, and rechecked on every
+  manual redirect. Exact raw bytes, `200`/`304` observations, and bounded
+  untrusted text/PDF extractions have separate hashes; no document text can
+  become a prompt instruction or semantic verdict.
 - A deterministic Opportunity Radar that reduces fresh anonymous catalogs into at most 25 evidence-bound cross-venue pairs using rare-term weighting plus cadence/close-time rejection. It prices both canonical equivalent-claim portfolios with `bigint`, ranks positive gross search hints first, and still treats every pair as an unreviewed semantic lead rather than an opportunity. The focused two-leg issue requires a positive current hint before pi; for an AI-selected pair only, missing Opinion catalog prices can be enriched from bounded anonymous token books whose raw bytes are retained. Fees, common depth, fillability, and executability remain absent.
 - A content-addressed real-candidate preflight that parses fixture prices and anonymous book depth lexically into `bigint`, binds a common five-share route, and rejects the current book snapshot when a non-positive gross floor plus official non-negative taker fees make strict post-fee positivity impossible; changed books require a fresh screen.
 - A hash-linked real-candidate rescreen lineage that invalidates an earlier snapshot disposition when raw book content or a venue generation changes, rebuilds current economics from fresh anonymous fixtures, and proves that an unchanged conclusion was recomputed rather than inherited.
@@ -178,7 +192,10 @@ promotion remain active campaign work.
    semantic-review scope with prior jobs. An unchanged scope reuses its
    canonical job; changed contract semantics or directional order get a fresh
    review. The reviewer must bind exact listing refs, rule identities, outcome
-   mapping, time windows, and counterexamples. The **Operator attention queue** then
+   mapping, time windows, and counterexamples. Missing evidence is also emitted
+   as a structured acquisition requirement: the model cannot invent a URL, and
+   unsupported requirements are classified without spending fetch or model
+   budget. The **Operator attention queue** then
    tells you whether that advisory result defines a canonical payoff partition,
    whether current contract semantics still match the retained evidence, and
    whether the implemented anonymous adapters can reach its legs. Its
@@ -224,11 +241,30 @@ pnpm install
 pnpm check
 pnpm test
 pnpm fixtures:capture:streams
+PMH_EVIDENCE_TRUST_CLASH_FAKE_IP=1 pnpm evidence-document:smoke
+pnpm rule-evidence-claim:smoke
 pnpm pmh system status
 pnpm pmh venue list
 pnpm pmh venue inspect polymarket-global
 pnpm studio
 ```
+
+The evidence-document smoke uses the checked-in Gemini catalog locator and an
+anonymous public GET. `PMH_EVIDENCE_TRUST_CLASH_FAKE_IP=1` is required only
+when the host's DNS intentionally returns Clash's `198.18.0.0/15` fake-IP
+range; without that explicit posture, reserved addresses fail before network
+I/O. The resulting JSON reports hashes, bounds, network posture, extraction
+metadata, and conditional `304` reuse, never the untrusted rule text itself.
+
+`pnpm rule-evidence-claim:smoke` independently qualifies the configured live
+DeepSeek tool loop over a bounded local rule capture. It reports only artifact
+identities, disposition, citation/read counts, and authority flags; it never
+prints the API key, document text, citation text, or provider reasoning.
+
+The Studio binds `127.0.0.1`, starts at port `5173`, and lets Vite increment to
+`5174`, `5175`, and later ports when another local workspace already owns the
+earlier port. Its same-origin development proxy continues to target the control
+plane on `127.0.0.1:4100`.
 
 `pnpm studio` stores bounded Scout Inbox state in
 `.data/control-plane.sqlite` using WAL mode. Set `PMH_STATE_DB` to an alternate
@@ -236,7 +272,7 @@ path when a different local operational volume is required. The database is
 ignored by Git and contains bounded discovery runs plus their exact normalized
 catalog snapshots, completed investigations, and raw anonymous catalog
 observations, Candidate Watch raw books and its bounded refresh journal, and
-SQLite schema-v18 AI search-lease lineage, deduplicated task corpora, deep-lane
+SQLite schema-v20 AI search-lease lineage, deduplicated task corpora, deep-lane
 attention alerts and deliveries, and durable semantic-review admission dispositions;
 it contains no credentials or immutable campaign evidence. Snapshot bodies
 remain server-side and are omitted from the Studio/SSE projection.
@@ -485,6 +521,72 @@ otherwise they wait in `BLOCKED_EVIDENCE` without spending an attempt. Studio
 separately reports original captures, exact-current rebases, and unresolved
 legacy evidence debt. These reports remain advisory: they cannot accept a
 proposal, simulate it, certify it, or route an order.
+
+Passing premise audits with unbound obligations feed a separate AI-native
+evidence router. It does not begin from a global claim list. For each complete
+proposal capsule it first compresses duplicate or derived premises, searches
+the retained semantic market corpus for a traded representation, inspects exact
+proposal listings, and prefers falsifiers over confirmation. Its terminal tool
+must route every unbound premise exactly once to premise rewrite, traded-state
+expansion, rule evidence, probabilistic external-fact research, counterexample
+review, or an explicit unresolved stop. Only traded state, intrinsic contract
+logic, or removal of a derived premise can potentially return to exact review;
+external facts remain probabilistic. Jobs run every 15 seconds by default and
+survive restart. A terminal route spends once per proposal, premise-outcome,
+and router-version scope; price churn or ambient catalog growth cannot silently
+enqueue another provider request. The searched corpus snapshot remains
+content-bound inside the artifact, and a future refresh must be explicit and
+separately attributed. Routes are exposed at
+`GET /api/v1/premise-evidence-routing`. Set
+`PMH_PREMISE_EVIDENCE_ROUTING_TICK_MS=0` to disable automatic dispatch.
+
+Passing traded-state routes may feed a second durable Pi reformulation lane. It
+retains an exact corpus containing the original proposal and any additional
+Agent-observed market; a candidate is also allowed to be an existing source
+listing whose state interpretation changes when bound to the hidden premise.
+Zero proposals is a successful terminal result. Generated proposals inherit the
+source research lineage and re-enter the ordinary independent semantic-review
+queue with a new evidence bundle and no shortcut authority. Expansion runs one
+at a time, spends at most two attempts per route group, and is exposed at
+`GET /api/v1/premise-route-expansion`. Automatic dispatch is disabled by
+default after the first live portfolio produced only unchanged review scopes;
+set `PMH_PREMISE_ROUTE_EXPANSION_TICK_MS` to 1000–60000 to opt into another
+measured campaign.
+
+Structured document requirements also feed a separate durable acquisition
+queue. Set `PMH_EVIDENCE_ACQUISITION_TICK_MS` to 1000–60000 to enable it. Jobs
+coalesce by content-addressed acquisition scope, lease before network I/O,
+recover expired work after restart, and retain independent SQLite records for
+raw bytes, bounded extracted text, and every `200`/`304` observation. Current
+requirements become stale on their freshness deadline and revalidate
+conditionally; historical requirements remain bound to their original bytes.
+Unsupported routes consume zero fetch and provider budget. If Clash fake-IP DNS
+is active, `PMH_EVIDENCE_TRUST_CLASH_FAKE_IP=1` must be explicit and the selected
+address is retained in the observation. The worker starts only after the HTTP
+listener wins startup admission, and `/api/v1/evidence-acquisition` exposes its
+queue and accounting without returning untrusted document text.
+
+Captured rule documents then fan out into a proposal-local Agent interpretation
+queue. Set `PMH_EVIDENCE_CLAIM_TICK_MS` to 1000–60000 to enable it; the example
+keeps it off by default so a fresh clone cannot spend provider budget. Each
+durable job binds one structured requirement to one exact document extraction.
+The Vercel AI SDK loop initially receives only metadata, then may use bounded
+literal search and passage-read tools before it terminates through
+`submit_rule_evidence_claim`. The submitted claim must cite exact character
+offsets whose quoted text matches the retained extraction exactly. It can
+support, contradict, or leave the requirement inconclusive, but cannot decide a
+semantic relation, publish a certificate, or execute anything.
+
+`PMH_EVIDENCE_CLAIM_MODEL`, `PMH_EVIDENCE_CLAIM_MAX_OUTPUT_TOKENS`,
+`PMH_EVIDENCE_CLAIM_TIMEOUT_MS`, and `PMH_EVIDENCE_CLAIM_CONCURRENCY` tune this
+loop; defaults are DeepSeek V4 Flash, 1,800 output tokens, five minutes, and
+three concurrent jobs. Complete current claim sets create a content-addressed
+evidence-enriched semantic scope and automatically rerun the same proposal's
+adversarial review. The old review remains replayable, and the new v4 report
+and any hard constraint bind the new scope identity. Partial claim sets never
+silently rebind an existing review. `/api/v1/rule-evidence-claims` and Studio
+show queue, retry-budget, storage, and disposition counts without returning
+the document body or claim citations.
 
 Both AI paths use tool effects instead of treating a model's entire final
 answer as a fixed-schema document. Pi retains its recursive read-only MarketFS

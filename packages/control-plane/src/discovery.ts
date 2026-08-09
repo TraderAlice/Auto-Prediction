@@ -3,12 +3,16 @@ import { ModelRequestFailure, modelFailureTelemetry } from "./model-failure.js";
 import type {
   DiscoveryAgentPort,
   DiscoveryAgentRunResult,
+  DiscoveryFalsification,
+  DiscoveryInspiration,
   DiscoveryRun,
   DiscoveryTask,
   DiscoveryWorker,
   OpportunityHypothesis,
 } from "./types.js";
 import {
+  hasBoundedRulesEvidence,
+  MAX_AGENT_RULE_CHARACTERS,
   MAX_CATALOG_CONTEXT_CHARACTERS,
 } from "./catalog-discovery.js";
 import { hasBoundedDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
@@ -29,6 +33,17 @@ const SEARCH_STOPWORDS = new Set([
   "this",
   "will",
   "with",
+]);
+
+const DISCOVERY_RELATION_KINDS = new Set([
+  "EQUIVALENT",
+  "IMPLIES",
+  "SUBSET",
+  "MUTUALLY_EXCLUSIVE",
+  "EXHAUSTIVE",
+  "CONDITIONAL",
+  "RELATED",
+  "CONFLICTING",
 ]);
 
 function compactWorkerDiagnostic(error: unknown): string {
@@ -59,7 +74,7 @@ function hasBoundedCatalogListing(
     listing.mechanism.trim() !== "" &&
     listing.mechanism.length <= 100 &&
     (listing.closesAt === null || listing.closesAt.length <= 64) &&
-    (listing.rulesText === null || listing.rulesText.length <= 1_200) &&
+    hasBoundedRulesEvidence(listing, MAX_AGENT_RULE_CHARACTERS) &&
     hasBoundedDiscoveryEvidenceLocators(listing) &&
     (listing.sourceKind === "VERIFIED_FIXTURE" ||
       listing.sourceKind === "LIVE_OBSERVATION") &&
@@ -132,6 +147,22 @@ export function assertDiscoveryTask(task: DiscoveryTask): void {
       throw new Error("discovery catalog context is invalid or unbounded");
     }
   }
+  if (task.searchAssignment !== undefined) {
+    const assignment = task.searchAssignment;
+    if (
+      !["EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM"]
+        .includes(assignment.lens) ||
+      (assignment.semanticFamily !== null &&
+        ![
+          "TEMPORAL_IMPOSSIBILITY", "EVENT_CONTAINMENT",
+          "PARTITION_COMPLETENESS", "IDENTITY_SUCCESSION",
+          "PHYSICAL_CO_OCCURRENCE",
+        ].includes(assignment.semanticFamily)) ||
+      (assignment.sourceTrailheadIdentity !== null &&
+        !/^sha256:[0-9a-f]{64}$/u.test(assignment.sourceTrailheadIdentity)) ||
+      (assignment.inspirationDepth !== 0 && assignment.inspirationDepth !== 1)
+    ) throw new Error("discovery search assignment is invalid or unbounded");
+  }
 }
 
 function assertHypothesis(
@@ -160,6 +191,8 @@ function assertHypothesis(
     hypothesis.reviewStatus !== "UNREVIEWED" ||
     hypothesis.thesis.trim() === "" ||
     hypothesis.thesis.length > 500 ||
+    (hypothesis.relationKind !== undefined &&
+      !DISCOVERY_RELATION_KINDS.has(hypothesis.relationKind)) ||
     hypothesis.venueIds.length === 0 ||
     hypothesisVenueIds.size !== hypothesis.venueIds.length ||
     hypothesis.venueIds.some(
@@ -192,6 +225,102 @@ function assertHypothesis(
   }
 }
 
+function assertFalsification(
+  falsification: DiscoveryFalsification,
+  workerId: string,
+  task: DiscoveryTask,
+): void {
+  const listingRefs = falsification.listingRefs;
+  const allowedListingRefs = new Set(
+    task.catalogContext?.listings.map((listing) => listing.listingRef) ?? [],
+  );
+  const { falsificationId: _falsificationId, ...body } = falsification;
+  if (
+    (falsification.schemaVersion !== "pmh.discovery-falsification.v1" &&
+      falsification.schemaVersion !== "pmh.discovery-falsification.v2") ||
+    falsification.falsificationId !== hashCanonical(body) ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v2" &&
+      falsification.findingIdentity !== hashCanonical({
+        schemaVersion: "pmh.discovery-falsification-finding.v1",
+        relationKind: falsification.relationKind,
+        listingRefs,
+      })) ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v1" &&
+      (falsification.findingIdentity !== undefined ||
+        falsification.relationKind !== undefined)) ||
+    falsification.workerId !== workerId ||
+    falsification.taskId !== task.taskId ||
+    falsification.claim.trim() === "" || falsification.claim.length > 500 ||
+    falsification.reason.trim() === "" || falsification.reason.length > 500 ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v2" &&
+      !["EQUIVALENCE", "IMPLICATION", "MUTUAL_EXCLUSION", "EXHAUSTIVENESS", "MECHANISM"]
+        .includes(String(falsification.relationKind))) ||
+    listingRefs.length < 2 || listingRefs.length > 6 ||
+    new Set(listingRefs).size !== listingRefs.length ||
+    listingRefs.some((listingRef) =>
+      listingRef.trim() === "" || !allowedListingRefs.has(listingRef)
+    ) ||
+    falsification.claimSearchTerms.length < 1 ||
+    falsification.claimSearchTerms.length > 12 ||
+    falsification.claimSearchTerms.some((term) =>
+      term.trim() === "" || term.length > 80
+    ) ||
+    falsification.authority !== "SEARCH_NEGATIVE_EVIDENCE_ONLY" ||
+    falsification.semanticDecisionAuthority !== false ||
+    falsification.certificateAuthority !== false ||
+    falsification.executionAuthority !== false ||
+    falsification.externalWriteAuthority !== false ||
+    falsification.valueMovingAuthority !== false
+  ) {
+    throw new Error(`worker ${workerId} returned an unsafe falsification`);
+  }
+}
+
+function assertInspiration(
+  inspiration: DiscoveryInspiration,
+  workerId: string,
+  task: DiscoveryTask,
+): void {
+  const assignment = task.searchAssignment;
+  const allowedListingRefs = new Set(
+    task.catalogContext?.listings.map((listing) => listing.listingRef) ?? [],
+  );
+  const { inspirationId: _inspirationId, ...body } = inspiration;
+  const expectedContentIdentity = hashCanonical({
+    schemaVersion: "pmh.discovery-inspiration-content.v1",
+    listingRefs: inspiration.listingRefs,
+    suggestedLens: inspiration.suggestedLens,
+    suggestedSemanticFamily: inspiration.suggestedSemanticFamily,
+    sourceTrailheadIdentity: inspiration.sourceTrailheadIdentity,
+  });
+  if (
+    assignment === undefined || assignment.inspirationDepth >= 1 ||
+    inspiration.schemaVersion !== "pmh.discovery-inspiration.v1" ||
+    inspiration.inspirationId !== hashCanonical(body) ||
+    inspiration.contentIdentity !== expectedContentIdentity ||
+    inspiration.workerId !== workerId || inspiration.taskId !== task.taskId ||
+    inspiration.observation.trim() === "" || inspiration.observation.length > 500 ||
+    inspiration.listingRefs.length < 2 || inspiration.listingRefs.length > 6 ||
+    new Set(inspiration.listingRefs).size !== inspiration.listingRefs.length ||
+    inspiration.listingRefs.some((listingRef) => !allowedListingRefs.has(listingRef)) ||
+    inspiration.searchSignals.length < 1 || inspiration.searchSignals.length > 8 ||
+    inspiration.searchSignals.some((signal) => signal.trim() === "" || signal.length > 80) ||
+    inspiration.sourceLens !== assignment.lens ||
+    inspiration.sourceSemanticFamily !== assignment.semanticFamily ||
+    inspiration.sourceTrailheadIdentity !== assignment.sourceTrailheadIdentity ||
+    inspiration.inspirationDepth !== assignment.inspirationDepth ||
+    (inspiration.suggestedLens === assignment.lens &&
+      inspiration.suggestedSemanticFamily === assignment.semanticFamily) ||
+    inspiration.authority !== "SEARCH_ROUTING_ONLY" ||
+    inspiration.semanticDecisionAuthority !== false ||
+    inspiration.probabilityAuthority !== false ||
+    inspiration.certificateAuthority !== false ||
+    inspiration.executionAuthority !== false ||
+    inspiration.externalWriteAuthority !== false ||
+    inspiration.valueMovingAuthority !== false
+  ) throw new Error(`worker ${workerId} returned an unsafe inspiration`);
+}
+
 export class HeuristicDiscoveryWorker implements DiscoveryWorker {
   public readonly workerId: string;
   public readonly kind = "HEURISTIC" as const;
@@ -221,7 +350,7 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
         );
         return [...queryTerms].some((term) => listingTerms.has(term));
       }) ?? [];
-    if (task.catalogContext !== undefined && relevantListings.length === 0) {
+    if (task.catalogContext !== undefined && relevantListings.length < 2) {
       return [];
     }
     const titleGroups = new Map<string, typeof relevantListings>();
@@ -270,6 +399,7 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
       venueIds,
       listingRefs,
       strategyKind,
+      relationKind: "RELATED",
     });
     return [
       Object.freeze({
@@ -277,6 +407,7 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
         workerId: this.workerId,
         thesis,
         strategyKind,
+        relationKind: "RELATED" as const,
         venueIds: Object.freeze(venueIds),
         claimSearchTerms: Object.freeze(claimSearchTerms),
         listingRefs: Object.freeze(listingRefs),
@@ -366,14 +497,20 @@ export class DiscoveryPool {
           const execution = worker.runWithTrace === undefined
             ? Object.freeze({
                 hypotheses: await worker.discover(task),
+                falsifications: Object.freeze([]),
+                inspirations: Object.freeze([]),
                 trace: undefined,
               })
             : await worker.runWithTrace(task);
           const hypotheses = execution.hypotheses;
+          const falsifications = execution.falsifications;
+          const inspirations = execution.inspirations;
           const workerCompletedAtMs = Math.max(this.now(), workerStartedAtMs);
           return {
             worker,
             hypotheses,
+            falsifications,
+            inspirations,
             report: Object.freeze({
               workerId: worker.workerId,
               kind: worker.kind,
@@ -383,6 +520,8 @@ export class DiscoveryPool {
               completedAt: new Date(workerCompletedAtMs).toISOString(),
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: hypotheses.length,
+              falsificationCount: falsifications.length,
+              inspirationCount: inspirations.length,
               diagnostic: null,
               providerRequestAttemptCount:
                 execution.trace?.providerRequestAttemptCount ??
@@ -403,6 +542,8 @@ export class DiscoveryPool {
           return {
             worker,
             hypotheses: Object.freeze([]),
+            falsifications: Object.freeze([]),
+            inspirations: Object.freeze([]),
             report: Object.freeze({
               workerId: worker.workerId,
               kind: worker.kind,
@@ -412,6 +553,8 @@ export class DiscoveryPool {
               completedAt: new Date(workerCompletedAtMs).toISOString(),
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: 0,
+              falsificationCount: agentTrace?.acceptedFalsificationCount ?? 0,
+              inspirationCount: agentTrace?.acceptedInspirationCount ?? 0,
               diagnostic,
               providerRequestAttemptCount:
                 providerTelemetry.requestAttemptCount,
@@ -424,6 +567,8 @@ export class DiscoveryPool {
     );
     const diagnostics: string[] = [];
     const hypotheses = new Map<string, OpportunityHypothesis>();
+    const falsifications = new Map<string, DiscoveryFalsification>();
+    const inspirations = new Map<string, DiscoveryInspiration>();
     for (const result of results) {
       if (result.report.status === "FAILED") {
         diagnostics.push(result.report.diagnostic ?? "discovery worker failed");
@@ -434,11 +579,24 @@ export class DiscoveryPool {
         const identity = hashCanonical({
           thesis: hypothesis.thesis.trim().toLowerCase(),
           strategyKind: hypothesis.strategyKind,
+          relationKind: hypothesis.relationKind ?? null,
           venueIds: [...hypothesis.venueIds].sort(),
           listingRefs: [...(hypothesis.listingRefs ?? [])].sort(),
         });
         if (!hypotheses.has(identity)) {
           hypotheses.set(identity, hypothesis);
+        }
+      }
+      for (const falsification of result.falsifications) {
+        assertFalsification(falsification, result.worker.workerId, task);
+        if (!falsifications.has(falsification.falsificationId)) {
+          falsifications.set(falsification.falsificationId, falsification);
+        }
+      }
+      for (const inspiration of result.inspirations) {
+        assertInspiration(inspiration, result.worker.workerId, task);
+        if (!inspirations.has(inspiration.contentIdentity)) {
+          inspirations.set(inspiration.contentIdentity, inspiration);
         }
       }
     }
@@ -459,6 +617,8 @@ export class DiscoveryPool {
       hypotheses: Object.freeze(
         [...hypotheses.values()].slice(0, task.maxHypotheses),
       ),
+      falsifications: Object.freeze([...falsifications.values()]),
+      inspirations: Object.freeze([...inspirations.values()]),
       diagnostics: Object.freeze(diagnostics),
       executionAuthority: false,
     });

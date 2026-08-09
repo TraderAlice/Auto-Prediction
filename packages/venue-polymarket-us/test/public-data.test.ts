@@ -1,7 +1,11 @@
 import { resolve } from "node:path";
+import { hashBytes } from "@pmh/domain";
 import { loadRawFixture } from "@pmh/evidence";
+import { verifyRawFixture } from "@pmh/evidence";
 import { describe, expect, it } from "vitest";
 import {
+  POLYMARKET_US_RULEBOOK_URL,
+  decodePolymarketUsBinarySettlement,
   decodePolymarketUsBookSnapshot,
   normalizePolymarketUsBbo,
   normalizePolymarketUsCatalog,
@@ -20,6 +24,25 @@ async function fixture(name: string) {
   );
 }
 
+function settlementFixture(settlement: number, slug = "resolved-market") {
+  const bytes = new TextEncoder().encode(JSON.stringify({ slug, settlement }));
+  return verifyRawFixture(bytes, {
+    schemaVersion: "pmh.raw-fixture.v1",
+    name: "polymarket-us-settlement",
+    venue: polymarketUsManifest.venueId,
+    protocolVersion: polymarketUsManifest.protocolIdentity,
+    sourceUrl: `https://gateway.polymarket.us/v1/markets/${slug}/settlement`,
+    fetchedAt: "2026-08-09T09:00:00.000Z",
+    httpStatus: 200,
+    contentType: "application/json",
+    etag: null,
+    lastModified: null,
+    rawHash: hashBytes(bytes),
+    byteLength: String(bytes.byteLength),
+    acquisition: { method: "GET", credentialsUsed: false, valueMovingOperation: false },
+  });
+}
+
 describe("Polymarket US anonymous public data", () => {
   it("normalizes a distinct centralized binary catalog without floating point", async () => {
     const catalog = await fixture("polymarket-us-catalog");
@@ -34,6 +57,7 @@ describe("Polymarket US anonymous public data", () => {
       mechanism: "CENTRALIZED_ORDER_BOOK",
       collateralId: "USD",
       minPriceTick: 100_000n,
+      rulesUrl: POLYMARKET_US_RULEBOOK_URL,
     });
     expect(listings[0]?.outcomes.map((outcome) => [outcome.label, outcome.indicativePrice])).toEqual([
       ["Yes", 300_000n],
@@ -46,6 +70,9 @@ describe("Polymarket US anonymous public data", () => {
     });
     expect(polymarketUsManifest.venueId).not.toBe("polymarket-global");
     expect(polymarketUsManifest.liveExecutionEnabled).toBe(false);
+    expect(polymarketUsManifest.officialSources).toContain(
+      POLYMARKET_US_RULEBOOK_URL,
+    );
   });
 
   it("binds a REST long-contract book to catalog tick evidence", async () => {
@@ -83,5 +110,32 @@ describe("Polymarket US anonymous public data", () => {
       executableDepth: false,
     });
     expect(observation.artifactHash).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  });
+
+  it("decodes an exact US settlement without inventing a resolution time", () => {
+    expect(decodePolymarketUsBinarySettlement(settlementFixture(1), "resolved-market"))
+      .toMatchObject({
+        venueInstrumentId: "resolved-market",
+        truthValue: true,
+        settlementPrice: "1",
+        resolvedAt: null,
+        resolutionTimeBasis: "UNAVAILABLE_FROM_ANONYMOUS_SETTLEMENT_ENDPOINT",
+        protocolIdentity: polymarketUsManifest.protocolIdentity,
+      });
+    expect(decodePolymarketUsBinarySettlement(settlementFixture(0))).toMatchObject({
+      truthValue: false,
+      settlementPrice: "0",
+      resolvedAt: null,
+    });
+  });
+
+  it("rejects a mismatched or fractional US settlement", () => {
+    expect(() => decodePolymarketUsBinarySettlement(
+      settlementFixture(1),
+      "elsewhere",
+    )).toThrow(/requested instrument/u);
+    expect(() => decodePolymarketUsBinarySettlement(settlementFixture(0.5))).toThrow(
+      /exact binary payout/u,
+    );
   });
 });

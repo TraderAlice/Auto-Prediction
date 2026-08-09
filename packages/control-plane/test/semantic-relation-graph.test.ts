@@ -128,9 +128,36 @@ function fixture() {
   });
   const decision = Object.freeze({ ...decisionBody, decisionId: hashCanonical(decisionBody) });
   const leaseArtifact = hashCanonical({ duplicate: 1 });
+  const findingIdentity = hashCanonical({
+    schemaVersion: "pmh.discovery-falsification-finding.v1",
+    relationKind: "EQUIVALENCE",
+    listingRefs: proposal.listingRefs,
+  });
+  const falsificationBody = Object.freeze({
+    schemaVersion: "pmh.discovery-falsification.v2" as const,
+    findingIdentity,
+    workerId: "model:luna",
+    taskId: "task:falsify-pizza",
+    claim: "The two pizza listings are equivalent.",
+    reason: "Their resolution sources apply different void rules.",
+    relationKind: "EQUIVALENCE" as const,
+    listingRefs: proposal.listingRefs,
+    claimSearchTerms: Object.freeze(["Trump pizza", "void rules"]),
+    authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  const falsification = Object.freeze({
+    ...falsificationBody,
+    falsificationId: hashCanonical(falsificationBody),
+  });
 
   return {
     corpus,
+    falsification,
     input: {
       corpus,
       archaeologist: {
@@ -165,13 +192,19 @@ function fixture() {
       },
       relationPayoff: { qualifications: [] },
       materializations: { records: [] },
+      discoveryDesk: {
+        runs: [{
+          completedAt: "2026-08-01T00:00:04.000Z",
+          falsifications: [falsification],
+        }],
+      },
     } as unknown as Parameters<typeof buildSemanticRelationGraph>[0],
   };
 }
 
 describe("content-addressed semantic relation graph", () => {
   it("binds listings, relation review, counterexamples, and lifecycle feedback deterministically", () => {
-    const { input } = fixture();
+    const { input, falsification } = fixture();
     const first = buildSemanticRelationGraph(input);
     const replay = buildSemanticRelationGraph(input);
 
@@ -184,6 +217,7 @@ describe("content-addressed semantic relation graph", () => {
     ]);
     expect(first.relations[0]?.exactDecision).toBe("REJECT");
     expect(first.feedback.map((item) => item.code).sort()).toEqual([
+      "AGENT_FALSIFIED",
       "DUPLICATE",
       "MISSING_RULE",
       "SEMANTIC_REJECTED",
@@ -191,6 +225,13 @@ describe("content-addressed semantic relation graph", () => {
     ]);
     expect(first.modelConfidenceUsed).toBe(false);
     expect(first.executionAuthority).toBe(false);
+    expect(first.feedback.find((item) => item.code === "AGENT_FALSIFIED"))
+      .toMatchObject({
+        sourceArtifactHash: falsification.falsificationId,
+        sourceKind: "DISCOVERY_FALSIFICATION",
+        proposalId: null,
+        authority: "SEARCH_EVIDENCE_ONLY",
+      });
   });
 
   it("returns a bounded graph neighborhood ranked by outcomes and freshness", () => {

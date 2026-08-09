@@ -10,6 +10,7 @@ import type {
   DiscoveryTask,
   PiInvestigatorProjection,
 } from "./types.js";
+import type { AiUsageRecorder } from "./ai-usage-ledger.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -435,6 +436,7 @@ export class PiInvestigator {
     private readonly cwd: string,
     apiKey: string,
     private readonly runner: PiProcessRunner = runBoundedPiProcess,
+    private readonly usageRecorder?: AiUsageRecorder,
   ) {
     this.#apiKey = apiKey;
   }
@@ -535,7 +537,42 @@ export class PiInvestigator {
           liveExecutionEnabled: false as const,
         }),
       });
-      return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
+      const report = Object.freeze({ ...body, artifactHash: hashCanonical(body) });
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "PI_INVESTIGATION",
+        role: "DEEP_INVESTIGATOR",
+        provider: this.projection.provider,
+        model: this.projection.model,
+        transport: "PI_CLI",
+        operationIdentity: hashCanonical({
+          schemaVersion: "pmh.ai-usage-operation.v1",
+          taskId: task.taskId,
+        }),
+        outcome: "SUCCEEDED",
+        durableEffect: true,
+        providerRequestCount: null,
+      });
+      return report;
+    } catch (error) {
+      this.usageRecorder?.record({
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+        purpose: "PI_INVESTIGATION",
+        role: "DEEP_INVESTIGATOR",
+        provider: this.projection.provider,
+        model: this.projection.model,
+        transport: "PI_CLI",
+        operationIdentity: hashCanonical({
+          schemaVersion: "pmh.ai-usage-operation.v1",
+          taskId: task.taskId,
+        }),
+        outcome: error instanceof Error && /timed out|expired/iu.test(error.message)
+          ? "TIMED_OUT"
+          : "FAILED",
+        durableEffect: false,
+        providerRequestCount: null,
+      });
+      throw error;
     } finally {
       await rm(configDirectory, { recursive: true, force: true });
     }
@@ -553,6 +590,7 @@ export function createPiInvestigatorRuntime(
     command?: string;
     cwd?: string;
     runner?: PiProcessRunner;
+    usageRecorder?: AiUsageRecorder;
   }> = {},
 ): PiInvestigatorRuntime {
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";
@@ -600,6 +638,7 @@ export function createPiInvestigatorRuntime(
             cwd,
             apiKey,
             options.runner ?? runBoundedPiProcess,
+            options.usageRecorder,
           ),
   });
 }

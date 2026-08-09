@@ -6,6 +6,10 @@ the project no longer needs it; do not record secrets in this file.
 
 ## Open
 
+- [ ] Which external reference-data family should probability-estimation Agents
+  qualify first: public-figure health/appearance history, elections/politics,
+  crypto/financial events, or another domain?
+
 - [ ] Which external notification destination should be qualified first when
   the in-app Finding Inbox is no longer enough: webhook, email, Slack, or
   something else?
@@ -15,9 +19,6 @@ the project no longer needs it; do not record secrets in this file.
 - [ ] For the first real semantic-review authority beyond local research, who or
   what should be allowed to accept an equivalence claim for certificate-bound
   simulation?
-- [ ] Once the arbitrage-first automatic review lane is measured, should
-  non-compilable and multi-listing research proposals get a small background
-  review budget, or remain manual until their payoff compiler exists?
 
 ## Blocking
 
