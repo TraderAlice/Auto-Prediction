@@ -181,7 +181,7 @@ describe("Agent-native rule evidence claims", () => {
     const validSubmission = {
       disposition: "SUPPORTS",
       rationale: "The exact official clause supplies the satisfying observation.",
-      citations: [{ start, end: start + quote.length, quote }],
+      citations: [{ start, end: start + quote.length }],
       unresolvedEvidence: [],
     };
     const fetcher = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
@@ -205,7 +205,10 @@ describe("Agent-native rule evidence claims", () => {
           "submit_rule_evidence_claim",
           {
             ...validSubmission,
-            citations: [{ start, end: start + quote.length, quote: `${quote}!` }],
+            citations: [{
+              start: observed.extraction.text.length,
+              end: observed.extraction.text.length + 1,
+            }],
           },
           bodies.length,
         );
@@ -229,10 +232,13 @@ describe("Agent-native rule evidence claims", () => {
     expect(JSON.stringify(bodies[0])).not.toContain("UNTRUSTED-DO-NOT-OBEY");
     expect(JSON.stringify(bodies[1])).not.toContain("UNTRUSTED-DO-NOT-OBEY");
     expect(JSON.stringify(bodies[2])).toContain("UNTRUSTED-DO-NOT-OBEY");
-    expect(JSON.stringify(bodies[3])).toContain("does not match the retained extraction");
+    expect(JSON.stringify(bodies[3])).toContain("citation range is invalid");
     expect(bodies.every((body) => !("response_format" in body))).toBe(true);
     expect(result).toMatchObject({
-      draft: { disposition: "SUPPORTS" },
+      draft: {
+        disposition: "SUPPORTS",
+        citations: [{ start, end: start + quote.length, quote }],
+      },
       trace: { searchEffectCount: 1, readEffectCount: 0 },
     });
   });
@@ -262,6 +268,37 @@ describe("Agent-native rule evidence claims", () => {
         durableEffectCount: "0",
         tokens: { inputTokens: "100", outputTokens: "20", totalTokens: "120" },
       },
+    });
+  });
+
+  it("fails closed to a durable inconclusive claim after a bounded non-terminal tool loop", async () => {
+    const input = requirement();
+    const observed = await capture();
+    let requests = 0;
+    const port = new DeepSeekRuleEvidenceClaimModelPort(
+      "deepseek-v4-flash",
+      "test-only-key",
+      1_800,
+      3_000,
+      async () => {
+        requests += 1;
+        return deepSeekToolResponse(
+          "search_evidence_text",
+          { query: "cancelled" },
+          requests,
+        );
+      },
+    );
+
+    const result = await port.interpret({ requirement: input, capture: observed });
+    expect(requests).toBe(20);
+    expect(result).toMatchObject({
+      draft: {
+        disposition: "INCONCLUSIVE",
+        citations: [],
+        unresolvedEvidence: [expect.stringContaining("terminal recovery")],
+      },
+      trace: { searchEffectCount: 16, readEffectCount: 0 },
     });
   });
 

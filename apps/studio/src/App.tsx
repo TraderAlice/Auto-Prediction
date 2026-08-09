@@ -778,6 +778,51 @@ const EMPTY_RULE_EVIDENCE_CLAIMS: StudioProjection["ai"]["ruleEvidenceClaims"] =
   },
 };
 
+const EMPTY_EVIDENCE_ACQUISITION: StudioProjection["ai"]["evidenceAcquisition"] = {
+  schemaVersion: "pmh.evidence-acquisition-scheduler.v1",
+  enabled: false,
+  status: "IDLE",
+  tickIntervalMs: null,
+  concurrencyLimit: 3,
+  activeCount: 0,
+  dueCount: 0,
+  pendingCount: 0,
+  leasedCount: 0,
+  retryWaitCount: 0,
+  capturedCount: 0,
+  staleCount: 0,
+  unsupportedCount: 0,
+  exhaustedCount: 0,
+  requirementCount: 0,
+  coalescedRequirementCount: 0,
+  conditionalReuseCount: 0,
+  budget: {
+    basis: "FETCH_ATTEMPTS",
+    maxAttemptsPerJob: 3,
+    maxRequestsPerTick: 3,
+    fetchAttemptsStarted: 0,
+  },
+  jobs: [],
+  storage: {
+    jobs: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "jobId" },
+    documents: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "documentId" },
+    text: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "extractionId" },
+    observations: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "observationId" },
+  },
+  authority: "ANONYMOUS_EVIDENCE_ORCHESTRATION_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    externalWrites: false,
+    anonymousReadsOnly: true,
+    credentialsUsed: false,
+    providerRequests: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_REVIEW_ATTENTION: StudioProjection["ai"]["reviewAttention"] = {
   schemaVersion: "pmh.review-attention-queue.v1",
   contentHash: `sha256:${"0".repeat(64)}`,
@@ -9176,6 +9221,12 @@ function BookDeskView() {
 
 function EvidenceView() {
   const studioProjection = useStudioProjection();
+  const evidenceAcquisition =
+    studioProjection.ai.evidenceAcquisition ?? EMPTY_EVIDENCE_ACQUISITION;
+  const ruleEvidenceClaims =
+    studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
+  const semanticReviewScheduler =
+    studioProjection.ai.semanticReviewScheduler ?? EMPTY_SEMANTIC_REVIEW_SCHEDULER;
   const replayChaos = studioProjection.qualification.replayChaos;
   const campaignEvidence = studioProjection.qualification.campaignEvidence;
   const reviewedCompilation =
@@ -9219,16 +9270,125 @@ function EvidenceView() {
       icon: BadgeCheck,
     },
   ] as const;
+  const capturedJobs = evidenceAcquisition.jobs.filter((job) =>
+    job.status === "CAPTURED"
+  );
+  const rebasedJobs = semanticReviewScheduler.jobs.filter((job) =>
+    job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" &&
+    job.evidenceBundle.captureKind === "EXACT_CURRENT_REBASE"
+  );
+  const evidencePipeline = [
+    {
+      step: "01",
+      label: "Agent gaps",
+      value: evidenceAcquisition.requirementCount,
+      detail: `${evidenceAcquisition.coalescedRequirementCount} shared fetches`,
+      state: evidenceAcquisition.requirementCount > 0 ? "READY" : "WAITING",
+    },
+    {
+      step: "02",
+      label: "Official documents",
+      value: evidenceAcquisition.capturedCount,
+      detail: `${evidenceAcquisition.pendingCount + evidenceAcquisition.leasedCount} active`,
+      state: evidenceAcquisition.capturedCount > 0 ? "CAPTURED" : "WAITING",
+    },
+    {
+      step: "03",
+      label: "Verified claims",
+      value: ruleEvidenceClaims.passedCount,
+      detail: `${ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount} in Agent loop`,
+      state: ruleEvidenceClaims.passedCount > 0 ? "INTERPRETED" : "RUNNING",
+    },
+    {
+      step: "04",
+      label: "Evidence-aware review",
+      value: semanticReviewScheduler.rebasedJobCount,
+      detail: `${rebasedJobs.filter((job) => job.status === "PASS").length} passed in window`,
+      state: semanticReviewScheduler.rebasedJobCount > 0 ? "REBOUND" : "WAITING",
+    },
+  ] as const;
+  const bottleneck = ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount > 0
+    ? "Agents are reading captured rule documents and binding exact passages to proposal-local claims."
+    : evidenceAcquisition.pendingCount + evidenceAcquisition.leasedCount > 0
+      ? "Anonymous document capture is the active constraint."
+      : evidenceAcquisition.unsupportedCount > 0
+        ? "Legacy gaps without an eligible official locator remain historical evidence debt."
+        : "The evidence loop is caught up with the retained proposal window.";
 
   return (
     <section className="page-section">
       <div className="page-heading">
-        <span className="eyebrow">Immutable trail</span>
-        <h1>Evidence inventory</h1>
+        <span className="eyebrow">Semantic evidence loop</span>
+        <h1>From Agent hunch to reviewable claim</h1>
         <p>
-          Normalized facts remain linked to the raw bytes, protocol identity,
-          receive time, and exact verifier inputs that produced them.
+          Discovery Agents name the uncertainty. The harness acquires an official
+          source, verifies exact passages, then reopens the same proposal against
+          stronger evidence without rewriting its history.
         </p>
+      </div>
+      <Card className="evidence-pipeline-card">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Live durable workflow</span>
+            <h2>Evidence acquisition pipeline</h2>
+          </div>
+          <Badge variant={evidenceAcquisition.enabled ? "verified" : "muted"}>
+            {evidenceAcquisition.enabled ? "AUTO" : "PAUSED"}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="evidence-pipeline" aria-label="Evidence acquisition stages">
+            {evidencePipeline.map((stage, index) => (
+              <div className="evidence-pipeline-stage" key={stage.step}>
+                <span className="evidence-pipeline-step">{stage.step}</span>
+                <div>
+                  <strong>{stage.value}</strong>
+                  <h3>{stage.label}</h3>
+                  <p>{stage.detail}</p>
+                </div>
+                <Badge variant={stage.state === "WAITING" ? "muted" : "shadow"}>
+                  {stage.state}
+                </Badge>
+                {index < evidencePipeline.length - 1 && (
+                  <ChevronRight className="evidence-pipeline-arrow" size={16} />
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="evidence-bottleneck">
+            <Activity size={15} />
+            <div>
+              <strong>Current bottleneck</strong>
+              <span>{bottleneck}</span>
+            </div>
+            <code>{evidenceAcquisition.storage.jobs.durable ? "SQLITE WAL" : "MEMORY"}</code>
+          </div>
+          <div className="evidence-document-list">
+            {capturedJobs.length === 0 ? (
+              <div className="review-operation-empty">
+                <strong>{evidenceAcquisition.capturedCount} official documents retained</strong>
+                <span>Captured job details have rotated beyond the bounded live window; content-addressed documents and claim jobs remain durable.</span>
+              </div>
+            ) : capturedJobs.slice(0, 4).map((job) => (
+              <article key={job.jobId}>
+                <FileCheck2 size={16} />
+                <div>
+                  <strong>{job.requirements[0]?.claim ?? job.kind.replaceAll("_", " ")}</strong>
+                  <span>
+                    {job.requirementIds.length} requirement{job.requirementIds.length === 1 ? "" : "s"}
+                    {" · "}{job.proposalIds.length} proposal{job.proposalIds.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <Badge variant="verified">CAPTURED</Badge>
+                <code>{job.lastDocumentId?.slice(7, 15) ?? "document"}</code>
+              </article>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      <div className="evidence-section-label">
+        <span className="eyebrow">Verifier provenance</span>
+        <p>Separate deterministic artifacts retained below the semantic evidence loop.</p>
       </div>
       <div className="evidence-grid">
         {items.map((item) => {

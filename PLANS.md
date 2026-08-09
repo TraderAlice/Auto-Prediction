@@ -672,6 +672,25 @@ deterministic settlement proof. The current House dossier therefore remains a
 research object whose real external dependency is visible, not a green exact
 arbitrage manufactured from Agent prose.
 
+Official evidence can now improve an old proposal without rewriting its
+history. Exact-current rebases bind a new evidence-capability scope only when
+contract semantics, locator inventory, or rule completeness changes; ordinary
+price and capture-time churn is ignored. With local anonymous acquisition and
+claim schedules enabled, the retained corpus captured eight official documents,
+rebound ten review jobs, and produced fifteen conservative document claims.
+Live traffic also exposed and closed a nonterminal Agent-loop failure:
+late steps must submit or abstain, and exhausted inspected loops persist an
+explicit first-party `INCONCLUSIVE` effect instead of consuming every retry.
+The remaining citation failures confirmed that asking a model to reproduce
+exact quote bytes was itself the wrong abstraction. Claim tools now accept
+only previously inspected start/end ranges; first-party code copies the quote.
+A natural DeepSeek smoke produced `SUPPORTS` with one externally verified
+74-character citation after one read.
+The House specimen remains historical because its exact refs are absent from
+the current 659-listing corpus; no current locator is grafted onto old source
+time. Studio now exposes this as a readable four-stage evidence funnel. The
+measured operator frontier remains `DECISION_READY=0`.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

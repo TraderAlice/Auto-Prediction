@@ -1929,6 +1929,9 @@ export class DeepSeekSemanticReviewModelPort
           "For every missing evidence class, include a structured evidenceRequirements " +
           "entry naming exact in-scope listingRefs, what observation would satisfy or " +
           "contradict the claim, and whether current or source-time rules are required. " +
+          "For currently OPEN listings, default unresolved contract and venue-rule gaps " +
+          "to CURRENT evidence. Use HISTORICAL_AT_SOURCE_OBSERVATION only when the claim " +
+          "explicitly requires reconstructing what was known or effective at source time. " +
           "Never invent a URL or locator; the harness derives eligible locators. " +
           "When ruleEvidenceClaims are present, treat them as advisory, untrusted " +
           "requirement-specific interpretations with program-verified exact passages. " +

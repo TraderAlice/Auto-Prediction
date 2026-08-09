@@ -23,7 +23,10 @@ import {
 } from "./semantic-review.js";
 import type { OperationalStorageProjection } from "./types.js";
 import { classifySemanticReviewAdmission } from "./semantic-review-admission.js";
-import { deriveSemanticReviewScope } from "./semantic-review-scope.js";
+import {
+  deriveLegacySemanticReviewScopeIdentity,
+  deriveSemanticReviewScope,
+} from "./semantic-review-scope.js";
 import {
   assertRuleEvidenceClaim,
   type RuleEvidenceClaim,
@@ -529,10 +532,16 @@ function reviewMatchesJobScope(
 ): boolean {
   if (review.status !== "PASS" || review.report === null) return false;
   const enriched = (job.evidenceClaims?.length ?? 0) > 0;
+  const bundledCorpusSnapshotIdentity = job.evidenceBundle?.schemaVersion ===
+      "pmh.proposal-evidence-bundle.v2"
+    ? job.evidenceBundle.evidenceCorpusSnapshotIdentity
+    : null;
   return enriched
     ? review.corpusSnapshotIdentity === job.reviewScopeIdentity &&
       review.report.schemaVersion === "pmh.semantic-review-report.v4"
-    : review.report.schemaVersion !== "pmh.semantic-review-report.v4";
+    : (bundledCorpusSnapshotIdentity === null ||
+        review.corpusSnapshotIdentity === bundledCorpusSnapshotIdentity) &&
+      review.report.schemaVersion !== "pmh.semantic-review-report.v4";
 }
 
 export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJobRecord {
@@ -597,7 +606,12 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
         evidenceBundle.proposal,
         evidenceBundle,
         evidenceClaims,
-      ).scopeIdentity) ||
+      ).scopeIdentity &&
+      reviewScopeIdentity !== deriveLegacySemanticReviewScopeIdentity(
+        evidenceBundle.proposal,
+        evidenceBundle,
+        evidenceClaims,
+      )) ||
     (reviewScopeIdentity !== null &&
       !HASH_PATTERN.test(String(reviewScopeIdentity))) ||
     (duplicateOfJobId !== null &&
@@ -834,12 +848,18 @@ export class SemanticReviewScheduler {
     const passedByProposal = new Map(sortedCandidates.flatMap((candidate) => {
       const scopeIdentity = scopesByProposal.get(candidate.proposal.proposalId)?.scopeIdentity;
       const enriched = (candidate.evidenceClaims?.length ?? 0) > 0;
+      const bundledCorpusSnapshotIdentity = candidate.evidenceBundle?.schemaVersion ===
+          "pmh.proposal-evidence-bundle.v2"
+        ? candidate.evidenceBundle.evidenceCorpusSnapshotIdentity
+        : null;
       const review = passedReviews.find((item) =>
         item.proposalId === candidate.proposal.proposalId &&
         (enriched
           ? item.corpusSnapshotIdentity === scopeIdentity &&
             item.report?.schemaVersion === "pmh.semantic-review-report.v4"
-          : item.report?.schemaVersion !== "pmh.semantic-review-report.v4")
+          : (bundledCorpusSnapshotIdentity === null ||
+              item.corpusSnapshotIdentity === bundledCorpusSnapshotIdentity) &&
+            item.report?.schemaVersion !== "pmh.semantic-review-report.v4")
       );
       return review === undefined
         ? []

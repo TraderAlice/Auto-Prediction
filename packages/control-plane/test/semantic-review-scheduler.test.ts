@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertSemanticReviewJobRecord,
   assertSemanticReviewOutcomeCapsule,
+  buildDiscoveryEvidenceLocator,
   buildMarketCorpusSnapshot,
   buildProposalEvidenceBundle,
   createSemanticReviewDesk,
@@ -1088,6 +1089,61 @@ describe("persistent semantic review scheduler", () => {
       ...legacyJobBody,
       artifactHash: hashCanonical(legacyJobBody),
     })).not.toThrow();
+  });
+
+  it("reopens a passed proposal when an exact current rebase adds official evidence", async () => {
+    const item = proposal("official-evidence-rebase", "MUTUALLY_EXCLUSIVE");
+    const originalBundle = buildProposalEvidenceBundle(item, snapshot);
+    let calls = 0;
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      { reviewer: { review: async () => { calls += 1; return reviewResult("ESCALATE"); } } },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+    await Promise.all(scheduler.tick([
+      candidate(item, 5, undefined, originalBundle),
+    ], snapshot));
+    expect(calls).toBe(1);
+
+    const locator = buildDiscoveryEvidenceLocator({
+      venueId: listings[1]!.venueId,
+      protocolIdentity: listings[1]!.protocolIdentity,
+      role: "CONTRACT_RULE_DOCUMENT",
+      url: "https://rules.example.test/current.docx",
+    });
+    if (locator === null) throw new Error("fixture locator should be valid");
+    const currentSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ sources: "official-evidence-rebase" }),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: [listings[0]!, { ...listings[1]!, evidenceLocators: [locator] }],
+    });
+    const rebasedBundle = buildProposalEvidenceBundle(
+      item,
+      currentSnapshot,
+      snapshot.snapshotIdentity,
+    );
+    const rebasedCandidate = candidate(item, 5, undefined, rebasedBundle);
+    scheduler.reconcile([rebasedCandidate], desk.projection().records);
+    expect(scheduler.projection()).toMatchObject({
+      pendingCount: 1,
+      passedCount: 0,
+      rebasedJobCount: 1,
+    });
+
+    await Promise.all(scheduler.tick([rebasedCandidate], currentSnapshot));
+    expect(calls).toBe(2);
+    expect(desk.projection().records.filter((record) => record.status === "PASS"))
+      .toHaveLength(2);
+    expect(scheduler.projection()).toMatchObject({
+      pendingCount: 0,
+      passedCount: 1,
+      rebasedJobCount: 1,
+    });
   });
 
   it("loads durable attribution beyond the bounded scheduler projection", async () => {

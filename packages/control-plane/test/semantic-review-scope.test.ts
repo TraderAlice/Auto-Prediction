@@ -2,8 +2,10 @@ import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it } from "vitest";
 import {
   buildMarketCorpusSnapshot,
+  buildDiscoveryEvidenceLocator,
   buildProposalEvidenceBundle,
   deriveSemanticReviewScope,
+  selectCurrentSemanticEvidenceBundle,
   type MarketCorpusSnapshot,
   type MarketRelationProposal,
 } from "../src/index.js";
@@ -146,6 +148,59 @@ describe("semantic review scope identity", () => {
     ).not.toBe(
       scope(changedCorpus, "IMPLIES", [left.listingRef, right.listingRef], "second").scopeIdentity,
     );
+  });
+
+  it("rebases only when current evidence capability materially improves", () => {
+    const item = proposal(
+      corpus,
+      "MUTUALLY_EXCLUSIVE",
+      [left.listingRef, right.listingRef],
+      "evidence upgrade",
+    );
+    const retainedBundle = buildProposalEvidenceBundle(item, corpus);
+    const priceOnlyCorpus = snapshot([left, listing(right.listingRef, {
+      sourceReceivedAt: "2026-08-04T00:00:00.000Z",
+      sourceRawHash: hashCanonical({ listingRef: right.listingRef, capture: 4 }),
+      outcomes: Object.freeze(right.outcomes.map((outcome) => Object.freeze({
+        ...outcome,
+        indicativePrice: outcome.venueOutcomeId === "yes" ? "0.8" : "0.2",
+      }))),
+    })], 4);
+    expect(selectCurrentSemanticEvidenceBundle({
+      proposal: item,
+      retainedBundle,
+      currentSnapshot: priceOnlyCorpus,
+      proposalCorpusSnapshotIdentity: corpus.snapshotIdentity,
+    })).toBe(retainedBundle);
+
+    const locator = buildDiscoveryEvidenceLocator({
+      venueId: right.venueId,
+      protocolIdentity: right.protocolIdentity,
+      role: "CONTRACT_RULE_DOCUMENT",
+      url: "https://rules.example.test/current.docx",
+    });
+    if (locator === null) throw new Error("fixture locator should be valid");
+    const improvedCorpus = snapshot([left, listing(right.listingRef, {
+      evidenceLocators: Object.freeze([locator]),
+      rulesTextPosture: "TRUNCATED",
+      rulesTextSourceCharacterCount: 42_000,
+    })], 5);
+    const rebased = selectCurrentSemanticEvidenceBundle({
+      proposal: item,
+      retainedBundle,
+      currentSnapshot: improvedCorpus,
+      proposalCorpusSnapshotIdentity: corpus.snapshotIdentity,
+    });
+    expect(rebased).toMatchObject({
+      captureKind: "EXACT_CURRENT_REBASE",
+      proposalCorpusSnapshotIdentity: corpus.snapshotIdentity,
+      evidenceCorpusSnapshotIdentity: improvedCorpus.snapshotIdentity,
+    });
+    const oldScope = deriveSemanticReviewScope(item, retainedBundle);
+    const newScope = deriveSemanticReviewScope(item, rebased);
+    expect(oldScope.schemaVersion).toBe("pmh.semantic-review-scope.v1");
+    expect(newScope.schemaVersion).toBe("pmh.semantic-review-scope.v3");
+    expect(newScope.scopeIdentity).not.toBe(oldScope.scopeIdentity);
   });
 
   it("leaves missing and legacy evidence unscoped", () => {

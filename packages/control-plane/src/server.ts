@@ -62,13 +62,13 @@ import {
 import { buildReviewAttentionProjection } from "./review-attention.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
-  buildProposalEvidenceBundle,
   createMarketArchaeologistDesk,
   MarketArchaeologistBusyError,
   MarketArchaeologistDesk,
   MarketArchaeologistNotConfiguredError,
   type MarketArchaeologistRecordStore,
 } from "./market-archaeologist.js";
+import { selectCurrentSemanticEvidenceBundle } from "./semantic-review-scope.js";
 import {
   buildMarketCorpusSnapshot,
   projectMarketCorpus,
@@ -1412,24 +1412,16 @@ export function createControlPlane(options?: {
       for (const proposal of record.report.result.proposals) {
         if (!sources.has(proposal.proposalId)) {
           const storedJobBundle = jobsByProposal.get(proposal.proposalId)?.evidenceBundle;
-          let evidenceBundle =
-            reportBundles.get(proposal.proposalId) ??
-            (storedJobBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2"
-              ? storedJobBundle
-              : null) ??
-            null;
-          if (
-            evidenceBundle === null &&
-            proposal.listingRefs.every((listingRef) =>
-              currentSnapshot.listings.some((listing) => listing.listingRef === listingRef)
-            )
-          ) {
-            evidenceBundle = buildProposalEvidenceBundle(
-              proposal,
-              currentSnapshot,
-              record.corpusSnapshotIdentity,
-            );
-          }
+          const retainedBundle = storedJobBundle?.schemaVersion ===
+              "pmh.proposal-evidence-bundle.v2"
+            ? storedJobBundle
+            : reportBundles.get(proposal.proposalId) ?? null;
+          const evidenceBundle = selectCurrentSemanticEvidenceBundle({
+            proposal,
+            retainedBundle,
+            currentSnapshot,
+            proposalCorpusSnapshotIdentity: record.corpusSnapshotIdentity,
+          });
           sources.set(proposal.proposalId, {
             proposal,
             proposalCorpusSnapshotIdentity: record.corpusSnapshotIdentity,

@@ -1,6 +1,6 @@
 # Venue-level rulebook evidence
 
-Status: first Polymarket US document route live-qualified
+Status: automatic evidence refresh and interpretation live-qualified
 
 Created: 2026-08-10
 
@@ -45,7 +45,36 @@ rules without giving the Agent open-web fetch authority.
 
 ## Next evidence
 
-Route the current House external requirement through the retained document,
-record a quote-verified support/contradiction/inconclusive claim, and measure
-whether the enriched review resolves the dependency or confirms that exact
-admission is unavailable under the venue's discretionary process.
+The evidence path is now automatic. A proposal keeps its original evidence and
+review immutable, but exact listing refs may be rebound to the current corpus
+when contract semantics, official locators, or retained-rule completeness has
+materially changed. The new v3 review scope binds that evidence capability;
+price, receive-time, and raw-response churn do not trigger another model run.
+Legacy v1/v2 scopes remain readable and migrate through ordinary scheduler
+reconciliation.
+
+Live qualification enabled the anonymous acquisition and rule-claim timers.
+Eight official documents are now captured in SQLite, ten retained review jobs
+use exact-current rebases, and the first persistent batch reached fifteen
+conservative `INCONCLUSIVE` claims. The initial traffic also exposed 24
+loops that inspected documents but never emitted a terminal claim. The Agent
+protocol now forces reading before disposition, offers an explicit abstention
+tool, narrows late steps to submit/abstain, and converts a still-nonterminal
+bounded loop into an explicit first-party `INCONCLUSIVE` effect instead of
+burning every retry. It cannot silently support or contradict a requirement.
+
+Those safe recoveries exposed a second, more precise protocol defect: the Agent
+was still asked to reproduce quote bytes in its terminal payload. Submission
+now contains only start/end ranges that must lie inside a prior search/read
+effect; first-party code copies the exact quote from retained text and verifies
+the finished claim. A natural DeepSeek V4 Flash smoke then returned `SUPPORTS`
+in one read plus one terminal effect with a verified 74-character citation.
+Fixed-schema byte copying is no longer part of the model's job.
+
+The retained House-control proposal itself cannot yet be rebound: its exact
+Polymarket US refs are absent from the current 659-listing corpus, and attaching
+a current rulebook to a historical observation would falsify temporal lineage.
+The next honest qualification is a fresh House capture when those refs return,
+or a separately designed historical-rule acquisition route. Studio's Evidence
+page now presents the live four-stage funnel—Agent gap, official document,
+verified claim, evidence-aware review—and names the active bottleneck.
