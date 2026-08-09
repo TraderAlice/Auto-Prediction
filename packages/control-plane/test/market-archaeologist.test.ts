@@ -321,6 +321,36 @@ describe("Market Archaeologist", () => {
     expect(record.report?.result.proposals[0]?.falsifiers[0]).toMatch(/…$/u);
   });
 
+  it("persists bounded long-form reformulation questions without losing the result", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-archaeologist-question-"));
+    const path = join(directory, "control-plane.sqlite");
+    const runner: PiProcessRunner = async (request) => submitEffect(request, {
+      summary: "The exact corpus does not support a materially different relation.",
+      proposals: [],
+      missingEvidence: [],
+    });
+    const store = new SqliteOperationalStore(path);
+    try {
+      const desk = createMarketArchaeologistDesk(
+        { DEEPSEEK_API_KEY: secret },
+        { runner, store },
+      );
+      const question = `Reformulate the relation. ${"premise evidence ".repeat(100)}`;
+      expect(question.length).toBeGreaterThan(1_000);
+      const record = await desk.begin(snapshot, question, "SCHEDULE").promise;
+
+      expect(record).toMatchObject({
+        status: "PASS",
+        diagnostic: null,
+        report: { result: { proposals: [] } },
+      });
+      expect(desk.projection()).toMatchObject({ passCount: 1, failedCount: 0 });
+    } finally {
+      store.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("restores content-verified reports and run idempotency from SQLite", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-archaeologist-store-"));
     const path = join(directory, "control-plane.sqlite");
@@ -360,7 +390,7 @@ describe("Market Archaeologist", () => {
       expect(firstDesk.projection().storage).toMatchObject({
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 31,
+        schemaVersion: 32,
         idempotencyKey: "runId",
       });
       firstStore.close();

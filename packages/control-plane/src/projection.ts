@@ -32,6 +32,7 @@ import type { OpportunityRadarProjection } from "./opportunity-radar.js";
 import type { MarketCorpusProjection } from "./market-corpus.js";
 import type { MarketArchaeologistProjection } from "./market-archaeologist.js";
 import type { PremiseEvidenceRoutingSchedulerProjection } from "./premise-evidence-routing-scheduler.js";
+import type { PremiseRouteExpansionSchedulerProjection } from "./premise-route-expansion-scheduler.js";
 import type { SearchLeaseSchedulerProjection } from "./search-lease-scheduler.js";
 import type { SearchQuoteEnrichmentProjection } from "./search-quote-enrichment.js";
 import type { SearchIssueSchedulerProjection } from "./search-issue-scheduler.js";
@@ -139,6 +140,7 @@ export function buildStudioProjection(input: {
   premiseAnalysis?: PremiseAnalysisDeskProjection;
   premiseAnalysisScheduler?: PremiseAnalysisSchedulerProjection;
   premiseEvidenceRouting?: PremiseEvidenceRoutingSchedulerProjection;
+  premiseRouteExpansion?: PremiseRouteExpansionSchedulerProjection;
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
   ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
@@ -730,6 +732,48 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const premiseRouteExpansion = input.premiseRouteExpansion ?? {
+    schemaVersion: "pmh.premise-route-expansion-scheduler.v1" as const,
+    enabled: false,
+    configured: false,
+    model: "unconfigured",
+    status: "NEEDS_KEY" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 1 as const,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    passedCount: 0,
+    exhaustedCount: 0,
+    zeroProposalCount: 0,
+    proposalYieldJobCount: 0,
+    generatedProposalCount: 0,
+    candidateListingCount: 0,
+    budget: {
+      basis: "PROVIDER_ATTEMPTS" as const,
+      maxAttemptsPerJob: 2,
+      maxRequestsPerTick: 1 as const,
+      providerAttemptsStarted: 0,
+    },
+    jobs: [],
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "jobId" as const,
+    },
+    authority: "ADVISORY_TRADED_STATE_EXPANSION_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const evidenceAcquisition = input.evidenceAcquisition ?? {
     schemaVersion: "pmh.evidence-acquisition-scheduler.v1" as const,
     enabled: false,
@@ -1242,6 +1286,7 @@ export function buildStudioProjection(input: {
       premiseAnalysis,
       premiseAnalysisScheduler,
       premiseEvidenceRouting,
+      premiseRouteExpansion,
       evidenceAcquisition,
       ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),

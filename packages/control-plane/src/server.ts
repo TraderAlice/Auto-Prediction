@@ -140,6 +140,14 @@ import {
   type PremiseEvidenceRoutingSchedulerStore,
 } from "./premise-evidence-routing-scheduler.js";
 import {
+  buildPremiseRouteExpansionCandidate,
+  derivePremiseRouteExpansionReviewLineage,
+  parsePremiseRouteExpansionTickInterval,
+  PremiseRouteExpansionScheduler,
+  type PremiseRouteExpansionCandidate,
+  type PremiseRouteExpansionSchedulerStore,
+} from "./premise-route-expansion-scheduler.js";
+import {
   EvidenceAcquisitionScheduler,
   parseEvidenceAcquisitionTickInterval,
   type EvidenceAcquisitionSchedulerStore,
@@ -616,6 +624,16 @@ function supportsPremiseEvidenceRoutingSchedulerRecords(
     typeof candidate.savePremiseEvidenceRoutingJobRecord === "function";
 }
 
+function supportsPremiseRouteExpansionSchedulerRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & PremiseRouteExpansionSchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<PremiseRouteExpansionSchedulerStore>;
+  return candidate.premiseRouteExpansionJobStorage !== undefined &&
+    typeof candidate.loadPremiseRouteExpansionJobRecords === "function" &&
+    typeof candidate.savePremiseRouteExpansionJobRecord === "function";
+}
+
 function supportsEvidenceAcquisitionRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & EvidenceAcquisitionSchedulerStore {
@@ -836,6 +854,7 @@ export function createControlPlane(options?: {
   premiseAnalysisScheduler?: PremiseAnalysisScheduler;
   premiseEvidenceRouter?: PremiseEvidenceRouterPort | null;
   premiseEvidenceRoutingScheduler?: PremiseEvidenceRoutingScheduler;
+  premiseRouteExpansionScheduler?: PremiseRouteExpansionScheduler;
   evidenceAcquisitionScheduler?: EvidenceAcquisitionScheduler;
   ruleEvidenceClaimDesk?: ReturnType<typeof createRuleEvidenceClaimDesk>;
   ruleEvidenceClaimScheduler?: RuleEvidenceClaimScheduler;
@@ -1188,6 +1207,42 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const expansionArchaeologist = marketArchaeologistDesk.projection();
+  const premiseRouteExpander = Object.freeze({
+    configured: expansionArchaeologist.configured,
+    model: expansionArchaeologist.model,
+    expanderIdentity: hashCanonical({
+      schemaVersion: "pmh.premise-route-expander.v2",
+      engine: "PI_MARKET_ARCHAEOLOGIST",
+      model: expansionArchaeologist.model,
+      mode: "EXACT_TRADED_STATE_REBINDING",
+    }),
+    expand: async (candidate: PremiseRouteExpansionCandidate) => {
+      const record = await marketArchaeologistDesk.begin(
+        candidate.corpus,
+        candidate.question,
+        "SCHEDULE",
+      ).promise;
+      if (record.status !== "PASS" || record.report === null) {
+        throw new Error(record.diagnostic ?? "traded-state expansion produced no report");
+      }
+      return Object.freeze({
+        marketArchaeologistRunId: record.runId,
+        reportArtifactHash: record.report.artifactHash,
+        generatedProposalIds: Object.freeze(
+          record.report.result.proposals.map((proposal) => proposal.proposalId),
+        ),
+      });
+    },
+  });
+  const premiseRouteExpansionScheduler = options?.premiseRouteExpansionScheduler ??
+    new PremiseRouteExpansionScheduler({
+      expander: premiseRouteExpander,
+      tickIntervalMs: parsePremiseRouteExpansionTickInterval(process.env),
+      ...(supportsPremiseRouteExpansionSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const evidenceAcquisitionScheduler =
     options?.evidenceAcquisitionScheduler ??
     new EvidenceAcquisitionScheduler({
@@ -1312,6 +1367,29 @@ export function createControlPlane(options?: {
           retainedJobPriority: current?.priority ?? job.priority,
         }),
       });
+    }
+    const retainedReviewJobs = semanticReviewScheduler.projection().jobs;
+    for (const inherited of derivePremiseRouteExpansionReviewLineage(
+      premiseRouteExpansionScheduler.projection().jobs,
+      retainedReviewJobs.map((job) => Object.freeze({
+        proposalId: job.proposalId,
+        issueIds: job.issueIds,
+        priority: recoverBaseReviewPriority({
+          issuePriorities: job.issueIds.flatMap((issueId) => {
+            const issue = issues.get(issueId);
+            return issue === undefined ? [] : [issue.priority];
+          }),
+          retainedJobPriority: job.priority,
+        }),
+      })),
+    )) {
+      const current = lineage.get(inherited.proposalId) ?? {
+        issueIds: new Set<Hash>(),
+        priority: 1 as const,
+      };
+      for (const issueId of inherited.issueIds) current.issueIds.add(issueId);
+      if (inherited.priority > current.priority) current.priority = inherited.priority;
+      lineage.set(inherited.proposalId, current);
     }
     const sources = new Map<Hash, {
       proposal: SemanticReviewCandidate["proposal"];
@@ -1502,6 +1580,63 @@ export function createControlPlane(options?: {
       })];
     }));
   };
+  const premiseRouteExpansionCandidates = ():
+    readonly PremiseRouteExpansionCandidate[] => {
+    const currentCorpus = catalogObservationDesk.corpus();
+    const retainedListingsByProposal = new Map<string, readonly import("./types.js").DiscoveryCatalogListing[]>();
+    for (const reviewJob of semanticReviewScheduler.projection().jobs) {
+      if (reviewJob.evidenceBundle === null || reviewJob.evidenceBundle === undefined) continue;
+      const retained = retainedListingsByProposal.get(reviewJob.proposalId) ?? [];
+      retainedListingsByProposal.set(reviewJob.proposalId, Object.freeze([
+        ...new Map([
+          ...retained.map((listing) => [listing.listingRef, listing] as const),
+          ...reviewJob.evidenceBundle.listings.map((listing) =>
+            [listing.listingRef, listing] as const
+          ),
+        ]).values(),
+      ]));
+    }
+    const routeJobs = premiseEvidenceRoutingScheduler.projection().jobs;
+    const currentRouterIdentity = [...routeJobs].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || right.jobId.localeCompare(left.jobId)
+    )[0]?.routerIdentity;
+    if (currentRouterIdentity === undefined) return Object.freeze([]);
+    return Object.freeze(routeJobs.flatMap((sourceJob) => {
+      if (
+        sourceJob.routerIdentity !== currentRouterIdentity ||
+        sourceJob.status !== "PASS" || sourceJob.route === null
+      ) return [];
+      const retained = retainedListingsByProposal.get(sourceJob.proposal.proposalId) ?? [];
+      const availableCorpus = buildMarketCorpusSnapshot({
+        sourceSetIdentity: hashCanonical({
+          schemaVersion: "pmh.premise-route-expansion-available-source.v1",
+          currentSourceSetIdentity: currentCorpus.sourceSetIdentity,
+          sourceRoutingArtifactHash: sourceJob.route.artifactHash,
+          retainedListingHashes: retained.map((listing) => hashCanonical(listing)).sort(),
+        }),
+        eligibleSourceCount: currentCorpus.eligibleSourceCount,
+        excludedSourceCount: currentCorpus.excludedSourceCount,
+        listings: [...new Map([
+          ...currentCorpus.listings.map((listing) => [listing.listingRef, listing] as const),
+          ...retained.map((listing) => [listing.listingRef, listing] as const),
+        ]).values()],
+      });
+      return sourceJob.route.groups.flatMap((group) => {
+        if (group.disposition !== "TRADED_STATE_CANDIDATE") return [];
+        try {
+          return [buildPremiseRouteExpansionCandidate({
+            sourceJob,
+            availableCorpus,
+            routeGroupId: group.groupId,
+          })];
+        } catch {
+          // The source route remains visible. Missing or oversized exact refs
+          // cannot silently become a provider request.
+          return [];
+        }
+      });
+    }));
+  };
   const probabilitySearchOriginByReview = new Map<Hash,
     ReturnType<typeof buildProbabilitySearchOrigin> | null>();
   const probabilityEstimationCandidates = (): readonly ProbabilityEstimationCandidate[] => {
@@ -1645,6 +1780,7 @@ export function createControlPlane(options?: {
     );
     premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
     premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
+    premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
     evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
@@ -1652,6 +1788,7 @@ export function createControlPlane(options?: {
     const premiseAnalysisProjection = premiseAnalysisDesk.projection();
     const premiseAnalysisSchedulerProjection = premiseAnalysisScheduler.projection();
     const premiseEvidenceRoutingProjection = premiseEvidenceRoutingScheduler.projection();
+    const premiseRouteExpansionProjection = premiseRouteExpansionScheduler.projection();
     const evidenceAcquisitionProjection = evidenceAcquisitionScheduler.projection();
     const ruleEvidenceClaimProjection = ruleEvidenceClaimScheduler.projection();
     const lifecycleProjection = opportunityLifecycleDesk.projection();
@@ -1720,6 +1857,7 @@ export function createControlPlane(options?: {
       premiseAnalysis: premiseAnalysisProjection,
       premiseAnalysisScheduler: premiseAnalysisSchedulerProjection,
       premiseEvidenceRouting: premiseEvidenceRoutingProjection,
+      premiseRouteExpansion: premiseRouteExpansionProjection,
       evidenceAcquisition: evidenceAcquisitionProjection,
       ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
@@ -2064,6 +2202,7 @@ export function createControlPlane(options?: {
         premiseAnalysis: premiseAnalysisDesk.projection(),
         premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
         premiseEvidenceRouting: premiseEvidenceRoutingScheduler.projection(),
+        premiseRouteExpansion: premiseRouteExpansionScheduler.projection(),
         evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
         ruleEvidenceClaims: ruleEvidenceClaimScheduler.projection(),
         semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
@@ -2279,6 +2418,16 @@ export function createControlPlane(options?: {
       premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
       premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
       writeJson(response, 200, premiseEvidenceRoutingScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/premise-route-expansion"
+    ) {
+      await ready;
+      premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
+      premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
+      writeJson(response, 200, premiseRouteExpansionScheduler.projection());
       return;
     }
     if (
@@ -3632,6 +3781,7 @@ export function createControlPlane(options?: {
   let probabilityResolutionTimer: ReturnType<typeof setInterval> | null = null;
   let premiseAnalysisTimer: ReturnType<typeof setInterval> | null = null;
   let premiseEvidenceRoutingTimer: ReturnType<typeof setInterval> | null = null;
+  let premiseRouteExpansionTimer: ReturnType<typeof setInterval> | null = null;
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -3819,6 +3969,35 @@ export function createControlPlane(options?: {
       premiseEvidenceRoutingTimer.unref();
     });
   }
+  const premiseRouteExpansionTickMs = premiseRouteExpansionScheduler.tickIntervalMs;
+  if (premiseRouteExpansionTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        try {
+          premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
+          const runs = premiseRouteExpansionScheduler.tick(
+            premiseRouteExpansionCandidates(),
+          );
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) {
+            void run.then(() => {
+              semanticReviewScheduler.reconcile(
+                semanticReviewCandidates(),
+                semanticReviewDesk.projection().records,
+              );
+              return broadcastProjection();
+            });
+          }
+        } catch {
+          // The next bounded tick retries exact-ref reformulation work.
+        }
+      };
+      tick();
+      premiseRouteExpansionTimer = setInterval(tick, premiseRouteExpansionTickMs);
+      premiseRouteExpansionTimer.unref();
+    });
+  }
   const evidenceAcquisitionTickMs = evidenceAcquisitionScheduler.tickIntervalMs;
   if (evidenceAcquisitionTickMs !== null) {
     void ready.then(() => {
@@ -3865,6 +4044,7 @@ export function createControlPlane(options?: {
     if (probabilityResolutionTimer !== null) clearInterval(probabilityResolutionTimer);
     if (premiseAnalysisTimer !== null) clearInterval(premiseAnalysisTimer);
     if (premiseEvidenceRoutingTimer !== null) clearInterval(premiseEvidenceRoutingTimer);
+    if (premiseRouteExpansionTimer !== null) clearInterval(premiseRouteExpansionTimer);
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
@@ -3898,6 +4078,7 @@ export function createControlPlane(options?: {
     premiseAnalysisScheduler,
     premiseEvidenceRouter,
     premiseEvidenceRoutingScheduler,
+    premiseRouteExpansionScheduler,
     evidenceAcquisitionScheduler,
     ruleEvidenceClaimDesk,
     ruleEvidenceClaimScheduler,

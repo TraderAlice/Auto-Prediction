@@ -28,6 +28,7 @@ const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 2_000_000;
 const DEFAULT_RETENTION_LIMIT = 10;
 const MAX_PROPOSALS = 5;
+const MAX_QUESTION_LENGTH = 8_000;
 const MAX_EVIDENCE_BUNDLE_BYTES = 512_000;
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
@@ -390,7 +391,7 @@ export function assertMarketArchaeologistRecord(
     !HASH_PATTERN.test(String(record.runId)) ||
     !HASH_PATTERN.test(String(record.corpusSnapshotIdentity)) ||
     !isNonEmptyString(record.question) ||
-    record.question.length > 1_000 ||
+    record.question.length > MAX_QUESTION_LENGTH ||
     (!running && !passed && !failed) ||
     !isIsoDate(record.startedAt) ||
     (running ? record.completedAt !== null : !isIsoDate(record.completedAt)) ||
@@ -814,9 +815,13 @@ export class MarketArchaeologist {
     const normalizedQuestion = question.trim();
     if (
       normalizedQuestion === "" ||
-      normalizedQuestion.length > 1_000 ||
-      snapshot.listingCount === 0
+      normalizedQuestion.length > MAX_QUESTION_LENGTH
     ) {
+      throw new Error(
+        `Market Archaeologist question must contain 1-${MAX_QUESTION_LENGTH} characters`,
+      );
+    }
+    if (snapshot.listingCount === 0) {
       throw new Error("market archaeologist task is invalid or has an empty corpus");
     }
     const startedAtMs = Date.now();
@@ -1046,6 +1051,14 @@ export class MarketArchaeologistDesk {
       );
     }
     const normalizedQuestion = question.trim();
+    if (
+      normalizedQuestion === "" ||
+      normalizedQuestion.length > MAX_QUESTION_LENGTH
+    ) {
+      throw new Error(
+        `Market Archaeologist question must contain 1-${MAX_QUESTION_LENGTH} characters`,
+      );
+    }
     const runId = hashCanonical({
       schemaVersion: "pmh.market-archaeologist-run.v1",
       corpusSnapshotIdentity: snapshot.snapshotIdentity,
@@ -1109,12 +1122,16 @@ export class MarketArchaeologistDesk {
               record,
               this.retentionLimit,
             );
-          } catch {
+          } catch (error) {
             retained = Object.freeze({
               ...running,
               status: "FAILED" as const,
               completedAt: new Date().toISOString(),
-              diagnostic: "Market Archaeologist result persistence failed",
+              diagnostic: compactDiagnostic(
+                `Market Archaeologist result persistence failed: ${
+                  error instanceof Error ? error.message : "unknown storage error"
+                }`,
+              ),
             });
           }
         }

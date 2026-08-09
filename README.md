@@ -540,6 +540,19 @@ separately attributed. Routes are exposed at
 `GET /api/v1/premise-evidence-routing`. Set
 `PMH_PREMISE_EVIDENCE_ROUTING_TICK_MS=0` to disable automatic dispatch.
 
+Passing traded-state routes may feed a second durable Pi reformulation lane. It
+retains an exact corpus containing the original proposal and any additional
+Agent-observed market; a candidate is also allowed to be an existing source
+listing whose state interpretation changes when bound to the hidden premise.
+Zero proposals is a successful terminal result. Generated proposals inherit the
+source research lineage and re-enter the ordinary independent semantic-review
+queue with a new evidence bundle and no shortcut authority. Expansion runs one
+at a time, spends at most two attempts per route group, and is exposed at
+`GET /api/v1/premise-route-expansion`. Automatic dispatch is disabled by
+default after the first live portfolio produced only unchanged review scopes;
+set `PMH_PREMISE_ROUTE_EXPANSION_TICK_MS` to 1000–60000 to opt into another
+measured campaign.
+
 Structured document requirements also feed a separate durable acquisition
 queue. Set `PMH_EVIDENCE_ACQUISITION_TICK_MS` to 1000–60000 to enable it. Jobs
 coalesce by content-addressed acquisition scope, lease before network I/O,

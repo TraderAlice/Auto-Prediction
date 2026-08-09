@@ -71,6 +71,11 @@ import {
   type PremiseEvidenceRoutingSchedulerStore,
 } from "./premise-evidence-routing-scheduler.js";
 import {
+  assertPremiseRouteExpansionJobRecord,
+  type PremiseRouteExpansionJobRecord,
+  type PremiseRouteExpansionSchedulerStore,
+} from "./premise-route-expansion-scheduler.js";
+import {
   assertSemanticReviewJobRecord,
   assertSemanticReviewNotificationRecord,
   type SemanticReviewJobRecord,
@@ -172,7 +177,7 @@ import {
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
 
-const SCHEMA_VERSION = 31;
+const SCHEMA_VERSION = 32;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -357,6 +362,7 @@ type PremiseEvidenceRoutingJobRow = Readonly<{
   record_json: string;
   record_hash: string;
 }>;
+type PremiseRouteExpansionJobRow = PremiseEvidenceRoutingJobRow;
 
 type PremiseAnalysisNotificationRow = Readonly<{
   notification_id: string;
@@ -1047,6 +1053,30 @@ function parsePremiseEvidenceRoutingJobRecord(
   return record;
 }
 
+function parsePremiseRouteExpansionJobRecord(
+  value: unknown,
+): PremiseRouteExpansionJobRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite premise route expansion job row is malformed");
+  }
+  const row = value as Partial<PremiseRouteExpansionJobRow>;
+  if (
+    typeof row.job_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite premise route expansion job row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite premise route expansion job contains invalid JSON");
+  }
+  const record = assertPremiseRouteExpansionJobRecord(decoded);
+  if (record.jobId !== row.job_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite premise route expansion job identity mismatch");
+  }
+  return record;
+}
+
 function parseSemanticReviewJobRecord(value: unknown): SemanticReviewJobRecord {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite semantic review job row is malformed");
@@ -1577,6 +1607,7 @@ export class SqliteOperationalStore
     PremiseAnalysisRecordStore,
     PremiseAnalysisSchedulerStore,
     PremiseEvidenceRoutingSchedulerStore,
+    PremiseRouteExpansionSchedulerStore,
     SemanticReviewSchedulerStore,
     EvidenceAcquisitionSchedulerStore,
     RuleEvidenceClaimRecordStore,
@@ -1643,6 +1674,7 @@ export class SqliteOperationalStore
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
   public readonly premiseEvidenceRoutingJobStorage: OperationalStorageProjection<"jobId">;
+  public readonly premiseRouteExpansionJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewNotificationStorage: OperationalStorageProjection<"notificationId">;
   public readonly evidenceAcquisitionJobStorage: OperationalStorageProjection<"jobId">;
@@ -1857,6 +1889,12 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "jobId",
     });
+    this.premiseRouteExpansionJobStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "jobId",
+    });
     this.semanticReviewJobStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -2058,6 +2096,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'premise_evidence_routing_jobs'`,
       )
       .get() !== undefined;
+    const premiseRouteExpansionJobTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'premise_route_expansion_jobs'`,
+      )
+      .get() !== undefined;
     const searchQuoteObservationTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2128,6 +2172,7 @@ export class SqliteOperationalStore
       && premiseAnalysisJobTableExists
       && premiseAnalysisNotificationTableExists
       && premiseEvidenceRoutingJobTableExists
+      && premiseRouteExpansionJobTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -2947,6 +2992,26 @@ export class SqliteOperationalStore
           ) STRICT;
           CREATE INDEX IF NOT EXISTS premise_evidence_routing_jobs_due
             ON premise_evidence_routing_jobs (status, next_attempt_at, job_id);
+        `);
+      }
+      if (current < 32 || !premiseRouteExpansionJobTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS premise_route_expansion_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN ('PENDING', 'LEASED', 'RETRY_WAIT', 'PASS', 'EXHAUSTED')
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS premise_route_expansion_jobs_due
+            ON premise_route_expansion_jobs (status, next_attempt_at, job_id);
         `);
       }
       if (current < 24 || !probabilityEstimationRunTableExists) {
@@ -5183,6 +5248,84 @@ export class SqliteOperationalStore
       const stored = parsePremiseEvidenceRoutingJobRecord(row);
       if (hashCanonical(stored) !== recordHash) {
         throw new Error("jobId is already bound to another premise evidence routing job");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadPremiseRouteExpansionJobRecords(
+    limit: number,
+  ): readonly PremiseRouteExpansionJobRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM premise_route_expansion_jobs
+         ORDER BY next_attempt_at, job_id
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parsePremiseRouteExpansionJobRecord));
+  }
+
+  public savePremiseRouteExpansionJobRecord(
+    record: PremiseRouteExpansionJobRecord,
+    retentionLimit: number,
+  ): PremiseRouteExpansionJobRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertPremiseRouteExpansionJobRecord(record);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO premise_route_expansion_jobs (
+             job_id, status, next_attempt_at, updated_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(job_id) DO UPDATE SET
+             status = excluded.status,
+             next_attempt_at = excluded.next_attempt_at,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          validated.jobId,
+          validated.status,
+          validated.nextAttemptAt,
+          validated.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM premise_route_expansion_jobs
+           WHERE job_id IN (
+             SELECT job_id FROM premise_route_expansion_jobs
+             ORDER BY updated_at DESC, job_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT job_id, record_json, record_hash
+           FROM premise_route_expansion_jobs WHERE job_id = ?`,
+        )
+        .get(validated.jobId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the premise route expansion job");
+      }
+      const stored = parsePremiseRouteExpansionJobRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("jobId is already bound to another premise route expansion job");
       }
       this.#database.exec("COMMIT");
       return stored;

@@ -47,6 +47,7 @@ export * from "./premise-analysis.js";
 export * from "./premise-analysis-scheduler.js";
 export * from "./premise-evidence-router.js";
 export * from "./premise-evidence-routing-scheduler.js";
+export * from "./premise-route-expansion-scheduler.js";
 export * from "./probabilistic-semantic-arbitrage.js";
 export * from "./probability-estimation-agent.js";
 export * from "./probability-estimation-scheduler.js";

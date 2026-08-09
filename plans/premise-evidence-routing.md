@@ -115,6 +115,11 @@ the downstream with the strongest measured exact-potential yield first:
 If most groups are derived restatements, fix premise generation and replay
 before buying more evidence. `UNRESOLVED` is a valid terminal result.
 
+The measured portfolio selected item 1: three traded-state groups versus one
+rule-document group, and the rule group has no typed document locator. Durable
+exact-ref reformulation is now tracked in `plans/premise-route-expansion.md`;
+the source route remains advisory and gains no review authority from selection.
+
 ## Implementation evidence — 2026-08-10
 
 - The v4 tool-loop router, durable scheduler, SQLite job table, read-only API projection,

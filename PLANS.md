@@ -28,6 +28,8 @@ with durable premise obligations and deterministic post-review gates tracked in
 [`plans/premise-decision-dossier.md`](plans/premise-decision-dossier.md),
 and obligation deduplication plus evidence-route selection tracked in
 [`plans/premise-evidence-routing.md`](plans/premise-evidence-routing.md),
+with traded-state routes evaluated as exact-ref Pi reformulations under
+[`plans/premise-route-expansion.md`](plans/premise-route-expansion.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -60,6 +62,13 @@ and overflow checks did not prevent the product from reading like a dense
 protocol console. The second pass now simplifies hierarchy, copy, and surfaces,
 and collapses secondary diagnostics by default; final aesthetic acceptance
 remains with the operator rather than another mechanical audit.
+
+The first traded-state reformulation portfolio is a measured `HOLD`, not a new
+default Agent loop. Three exact groups produced one honest zero-result and two
+proposals, but both proposals were first-party `DUPLICATE_SCOPE` restatements of
+the same contracts and relation kind. Their source issue/priority lineage now
+reaches the ordinary review scheduler, while automatic expansion is opt-in
+until routing selects a genuinely changed contract scope or relation.
 
 The product entry now matches that posture. Studio opens on Discover, its
 above-fold action issues the next heuristic lease, and the old hard-coded claim

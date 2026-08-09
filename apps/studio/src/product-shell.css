@@ -1219,6 +1219,22 @@ main {
   font-weight: 600;
 }
 
+.premise-route-list article .premise-route-execution {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 3px;
+  border-top: 1px solid #29443a;
+  padding-top: 8px;
+}
+
+.premise-route-list article .premise-route-execution > span {
+  color: #a8b8b0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .decision-dossier-premises > p {
   margin: 4px 0 0;
   color: #9b9587;
@@ -2349,5 +2365,116 @@ footer {
 
   [data-slot="card-content"] {
     padding: 0 16px 16px;
+  }
+}
+
+/* Discovery is the operator's daily surface. Keep it editorial, not terminal-like. */
+.archaeology-page {
+  --discovery-body: 14px;
+  --discovery-secondary: 13px;
+  --discovery-meta: 12px;
+}
+
+.archaeology-page .issue-scheduler-console [data-slot="card-content"] {
+  padding-top: 16px;
+}
+
+.archaeology-page .discovery-origin-overview h3,
+.archaeology-page .latest-discovery-trailhead h3,
+.archaeology-page .inspiration-card h3 {
+  font-size: var(--discovery-body);
+  line-height: 1.5;
+}
+
+.archaeology-page .discovery-origin-overview p,
+.archaeology-page .latest-discovery-trailhead p,
+.archaeology-page .inspiration-card p {
+  font-size: var(--discovery-secondary);
+}
+
+.inspiration-grid {
+  display: flex;
+  flex-direction: column;
+}
+
+.inspiration-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-right: 0;
+  padding: 16px;
+}
+
+.inspiration-card-head {
+  font-family: inherit;
+  font-size: var(--discovery-meta);
+}
+
+.inspiration-route {
+  color: #8a938f;
+  font-weight: 520;
+}
+
+.inspiration-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 28px;
+}
+
+.inspiration-card h3 {
+  max-width: 760px;
+  margin: 0 0 5px;
+  color: #e5e8e6;
+  font-weight: 560;
+}
+
+.inspiration-card-body p {
+  margin: 0 0 10px;
+  color: #858e8a;
+}
+
+.inspiration-card-body dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-self: center;
+  margin: 0;
+}
+
+.inspiration-card-body dt {
+  color: #747d79;
+  font-size: var(--discovery-meta);
+}
+
+.inspiration-card-body dd {
+  margin: 3px 0 0;
+  font-family: inherit;
+  font-size: var(--discovery-secondary);
+  font-weight: 600;
+}
+
+.inspiration-card-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #20252a;
+  padding-top: 10px;
+  color: #747d79;
+  font-size: var(--discovery-meta);
+}
+
+@media (max-width: 760px) {
+  .inspiration-card-body {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .inspiration-card-body dl {
+    width: min(320px, 100%);
+  }
+
+  .inspiration-card-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 }

@@ -702,6 +702,40 @@ const EMPTY_PREMISE_EVIDENCE_ROUTING: StudioProjection["ai"]["premiseEvidenceRou
   effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
 };
 
+const EMPTY_PREMISE_ROUTE_EXPANSION: StudioProjection["ai"]["premiseRouteExpansion"] = {
+  schemaVersion: "pmh.premise-route-expansion-scheduler.v1",
+  enabled: false,
+  configured: false,
+  model: "unconfigured",
+  status: "NEEDS_KEY",
+  tickIntervalMs: null,
+  concurrencyLimit: 1,
+  activeCount: 0,
+  dueCount: 0,
+  pendingCount: 0,
+  leasedCount: 0,
+  retryWaitCount: 0,
+  passedCount: 0,
+  exhaustedCount: 0,
+  zeroProposalCount: 0,
+  proposalYieldJobCount: 0,
+  generatedProposalCount: 0,
+  candidateListingCount: 0,
+  budget: {
+    basis: "PROVIDER_ATTEMPTS",
+    maxAttemptsPerJob: 2,
+    maxRequestsPerTick: 1,
+    providerAttemptsStarted: 0,
+  },
+  jobs: [],
+  storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "jobId" },
+  authority: "ADVISORY_TRADED_STATE_EXPANSION_ORCHESTRATION_ONLY",
+  semanticDecisionAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+};
+
 const EMPTY_RULE_EVIDENCE_CLAIMS: StudioProjection["ai"]["ruleEvidenceClaims"] = {
   schemaVersion: "pmh.rule-evidence-claim-scheduler.v1",
   enabled: false,
@@ -3856,7 +3890,8 @@ function MarketArchaeologistView() {
             <div className="issue-column-heading">
               <div><Lightbulb size={14} /><strong>Cross-lens inspirations</strong></div>
               <span>
-                {issueScheduler.queuedInspirationCount} queued · {issueScheduler.runningInspirationCount} running · exact-ref follow-ups only
+                {issueScheduler.queuedInspirationCount} queued · {issueScheduler.runningInspirationCount} running
+                {issueScheduler.inspirations.length > 4 ? ` · ${issueScheduler.inspirations.length - 4} older retained` : ""}
               </span>
             </div>
             {issueScheduler.inspirations.length === 0 ? (
@@ -3869,25 +3904,33 @@ function MarketArchaeologistView() {
               </div>
             ) : (
               <div className="inspiration-grid">
-                {issueScheduler.inspirations.slice(0, 6).map((item) => (
+                {issueScheduler.inspirations.slice(0, 4).map((item) => (
                   <article className="inspiration-card" key={item.inspiration.inspirationId}>
                     <div className="inspiration-card-head">
                       <Badge variant={item.status === "COMPLETE" ? "verified" : item.status === "FAILED" ? "warning" : item.status === "RUNNING" ? "shadow" : "muted"}>
                         {item.status}
                       </Badge>
-                      <span>{item.inspiration.sourceLens} → {item.inspiration.suggestedLens}</span>
+                      <span className="inspiration-route">{item.inspiration.sourceLens} → {item.inspiration.suggestedLens}</span>
                     </div>
-                    <h3>{item.inspiration.observation}</h3>
-                    <p>{item.inspiration.listingRefs.length} inspected contracts · {item.inspiration.suggestedSemanticFamily?.replaceAll("_", " ") ?? "lens-only follow-up"}</p>
-                    <div className="latest-discovery-signals">
-                      {item.inspiration.searchSignals.map((signal) => <span key={signal}>{signal}</span>)}
+                    <div className="inspiration-card-body">
+                      <div>
+                        <h3>{item.inspiration.observation}</h3>
+                        <p>{item.inspiration.suggestedSemanticFamily?.replaceAll("_", " ") ?? "Lens-only follow-up"}</p>
+                        <div className="latest-discovery-signals">
+                          {item.inspiration.searchSignals.slice(0, 4).map((signal) => <span key={signal}>{signal}</span>)}
+                          {item.inspiration.searchSignals.length > 4 && <span>+{item.inspiration.searchSignals.length - 4}</span>}
+                        </div>
+                      </div>
+                      <dl aria-label="Inspiration run facts">
+                        <div><dt>requests</dt><dd>{item.providerRequestAttemptCount}</dd></div>
+                        <div><dt>leads</dt><dd>{item.downstreamHypothesisCount}</dd></div>
+                        <div><dt>falsified</dt><dd>{item.downstreamFalsificationCount}</dd></div>
+                      </dl>
                     </div>
-                    <dl>
-                      <div><dt>requests</dt><dd>{item.providerRequestAttemptCount}</dd></div>
-                      <div><dt>leads</dt><dd>{item.downstreamHypothesisCount}</dd></div>
-                      <div><dt>falsified</dt><dd>{item.downstreamFalsificationCount}</dd></div>
-                    </dl>
-                    <code>{item.inspiration.listingRefs.join(" · ")}</code>
+                    <div className="inspiration-card-footer">
+                      <span>{item.inspiration.listingRefs.length} exact contracts inspected</span>
+                      <span>Evidence refs retained in Agent diagnostics</span>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -4764,6 +4807,8 @@ function OpportunityLifecycleView({
     studioProjection.ai.premiseAnalysisScheduler ?? EMPTY_PREMISE_ANALYSIS_SCHEDULER;
   const premiseEvidenceRouting =
     studioProjection.ai.premiseEvidenceRouting ?? EMPTY_PREMISE_EVIDENCE_ROUTING;
+  const premiseRouteExpansion =
+    studioProjection.ai.premiseRouteExpansion ?? EMPTY_PREMISE_ROUTE_EXPANSION;
   const ruleEvidenceClaims =
     studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
   const reviewAttention =
@@ -5520,8 +5565,13 @@ function OpportunityLifecycleView({
                             <ChevronRight size={13} />
                           </summary>
                           <div>
-                            {premiseRouteJob.route.groups.map((group) => (
-                              <article key={group.groupId}>
+                            {premiseRouteJob.route.groups.map((group) => {
+                              const expansionJob = premiseRouteExpansion.jobs
+                                .filter((job) => job.routeGroupId === group.groupId)
+                                .sort((left, right) =>
+                                  right.createdAt.localeCompare(left.createdAt)
+                                )[0];
+                              return <article key={group.groupId}>
                                 <div>
                                   <Badge variant={group.exactAdmissionPotential === "POTENTIAL_AFTER_REVIEW" ? "verified" : group.disposition === "UNRESOLVED" ? "warning" : "muted"}>
                                     {group.disposition.replaceAll("_", " ")}
@@ -5531,8 +5581,28 @@ function OpportunityLifecycleView({
                                 <strong>{group.evidenceQuestion}</strong>
                                 <p>{group.rationale}</p>
                                 <small>NEXT · {group.nextAction.replaceAll("_", " ")}</small>
-                              </article>
-                            ))}
+                                {group.disposition === "TRADED_STATE_CANDIDATE" && (
+                                  <div className="premise-route-execution">
+                                    <Badge variant={expansionJob?.status === "PASS"
+                                      ? expansionJob.proposalCount > 0 ? "verified" : "muted"
+                                      : expansionJob?.status === "EXHAUSTED" ? "warning" : "shadow"}>
+                                      {expansionJob === undefined
+                                        ? "EXPANSION BLOCKED"
+                                        : `PI EXPANSION · ${expansionJob.status.replaceAll("_", " ")}`}
+                                    </Badge>
+                                    <span>
+                                      {expansionJob === undefined
+                                        ? "The exact candidate corpus is not retained."
+                                        : expansionJob.status === "PASS"
+                                          ? expansionJob.proposalCount === 0
+                                            ? `${expansionJob.candidateListingRefs.length} candidate market${expansionJob.candidateListingRefs.length === 1 ? "" : "s"} inspected · no defensible reformulation`
+                                            : `${expansionJob.proposalCount} new proposal${expansionJob.proposalCount === 1 ? "" : "s"} · next gate is independent semantic review`
+                                          : `${expansionJob.candidateListingRefs.length} exact candidate market${expansionJob.candidateListingRefs.length === 1 ? "" : "s"} · attempt ${expansionJob.attemptCount}/${expansionJob.maxAttempts}`}
+                                    </span>
+                                  </div>
+                                )}
+                              </article>;
+                            })}
                           </div>
                         </details>
                       </div>
