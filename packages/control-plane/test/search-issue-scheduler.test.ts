@@ -267,7 +267,7 @@ describe("issue-driven concurrent search scheduler", () => {
       lease: {
         semanticFamily: "TEMPORAL_IMPOSSIBILITY",
         discoveryMode: "HEURISTIC_EXPLORATION",
-        algorithmVersion: "pmh.ai-search-leases.v7",
+        algorithmVersion: "pmh.ai-search-leases.v8",
       },
       fastLane: { candidateListingRefs: selectedRefs },
       deepLane: { status: "PASS", proposalIds: [hashCanonical({ proposal: "family" })] },
@@ -416,7 +416,7 @@ describe("issue-driven concurrent search scheduler", () => {
       });
       expect(secondLeases.projection().records[0]?.lease).toMatchObject({
         issueId: issue.issueId,
-        algorithmVersion: "pmh.ai-search-leases.v7",
+        algorithmVersion: "pmh.ai-search-leases.v8",
         discoveryMode: "HEURISTIC_EXPLORATION",
       });
       secondStore.close();

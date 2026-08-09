@@ -1,8 +1,7 @@
 # Semantic-family retrieval trailheads
 
-Status: active; deterministic retrieval, lease lineage, rotation, metrics, and
-Studio visibility implemented locally; clean post-correction benchmark and
-fresh-bundle pixel inspection remain
+Status: v4 deterministic family and rare-seed trailheads are live-qualified;
+cross-lens inspiration effects are the active follow-on
 
 Created: 2026-08-02
 
@@ -55,8 +54,9 @@ matched.
   rotation reason.
 - Scores rank retrieval only. They are not probabilities, semantic decisions,
   certificates, or execution authority.
-- If no family cue qualifies, the plan records an explicit lexical-query
-  fallback instead of pretending a family neighborhood existed.
+- If no family cue qualifies, claim monitoring records an explicit lexical-query
+  fallback while heuristic exploration constructs a typed rare-seed
+  neighborhood with verbosity-normalised rarity and exact related refs.
 
 ## Qualification
 
@@ -66,11 +66,11 @@ matched.
   focused deterministic examples.
 - Attempted neighborhoods rotate without crossing issue feedback.
 - Plan hash tampering fails closed; historical leases without plans replay.
-- Search lease v6 preserves the plan through failure, SQLite restart, bounded
+- Search lease v8 preserves the plan through failure, SQLite restart, bounded
   live projection, and Studio.
 - Per-family trailhead, neighborhood, and fallback counts are visible without
   being rendered as confidence.
-- A retained anonymous 947-listing corpus run measures real neighborhood yield,
+- A retained anonymous 799-listing corpus run measures real neighborhood yield,
   false-positive burden, provider work, and query fallbacks.
 
 ## Next decisions from evidence
@@ -85,6 +85,26 @@ work separately: unique relation neighborhoods reached, useful falsifications,
 review-worthy candidates, repeated/common-market concentration, token cost, and
 operator follow-up. That evidence decides the exploration/exploitation mix; a
 fixed claim queue must not silently become the default again.
+
+## 2026-08-09 v4 checkpoint
+
+The heuristic fallback now records one content-addressed rare seed, its bounded
+signals, and related refs instead of an unrelated rarity sample. Rarity is
+normalised by title-token count. Search lease v8 stores the original question
+separately from semantic-graph lineage and only gives the Agent graph relations
+whose complete ref set is readable in the selected context.
+
+The live 799-listing scan selected one Hormuz deadline contract and ten related
+same-subject deadlines. It completed in three tool steps with one accepted
+catalog read, no unknown-ref rejection, no proposal, and no Pi spend. Studio
+keeps the latest retained seed, signals, neighbors, graph readability, steps,
+reads, and terminal result above the scrolling lease ledger. Desktop and 390 px
+inspection show no overflow, no console errors, and no text below 12 px.
+
+The scan also shows that a coherent trailhead may suggest a different relation
+family than its scheduled lens. That observation moves to
+`cross-lens-inspiration-effects.md`; retrieval must not force it into a false
+candidate merely to satisfy the current family.
 
 ## 2026-08-02 anonymous-corpus checkpoint
 

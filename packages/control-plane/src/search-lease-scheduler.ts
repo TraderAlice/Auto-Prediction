@@ -55,8 +55,9 @@ const SEARCH_LEASE_ALGORITHM_VERSIONS = Object.freeze([
   "pmh.ai-search-leases.v5",
   "pmh.ai-search-leases.v6",
   "pmh.ai-search-leases.v7",
+  "pmh.ai-search-leases.v8",
 ] as const);
-const ALGORITHM_VERSION = "pmh.ai-search-leases.v7" as const;
+const ALGORITHM_VERSION = "pmh.ai-search-leases.v8" as const;
 const DEFAULT_RETENTION_LIMIT = 40;
 const DEFAULT_FAST_DEADLINE_MS = 300_000;
 const DEFAULT_DEEP_DEADLINE_MS = 300_000;
@@ -69,7 +70,8 @@ const READ_ONLY_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
 function hasStagedLaneContractVersion(version: SearchLeaseAlgorithmVersion): boolean {
   return version === "pmh.ai-search-leases.v5" ||
     version === "pmh.ai-search-leases.v6" ||
-    version === "pmh.ai-search-leases.v7";
+    version === "pmh.ai-search-leases.v7" ||
+    version === "pmh.ai-search-leases.v8";
 }
 
 export const SEARCH_LENSES = Object.freeze([
@@ -947,9 +949,11 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     isSearchCandidatePolicy(candidatePolicy);
   const hasStagedLaneContract = lease?.algorithmVersion === "pmh.ai-search-leases.v5" ||
     lease?.algorithmVersion === "pmh.ai-search-leases.v6" ||
-    lease?.algorithmVersion === "pmh.ai-search-leases.v7";
+    lease?.algorithmVersion === "pmh.ai-search-leases.v7" ||
+    lease?.algorithmVersion === "pmh.ai-search-leases.v8";
   const discoveryMode = lease?.discoveryMode;
-  const discoveryModeValid = lease?.algorithmVersion === "pmh.ai-search-leases.v7"
+  const discoveryModeValid = lease?.algorithmVersion === "pmh.ai-search-leases.v7" ||
+      lease?.algorithmVersion === "pmh.ai-search-leases.v8"
     ? lease.issueId === undefined || lease.issueId === null
       ? discoveryMode === null
       : discoveryMode === "HEURISTIC_EXPLORATION" || discoveryMode === "CLAIM_MONITORING"
@@ -1299,6 +1303,36 @@ function boundCatalogContextForPolicy(
   );
 }
 
+function readableGraphBrief(
+  graphContext: SemanticGraphSearchContext | null | undefined,
+  context: DiscoveryCatalogContext,
+): string {
+  if (graphContext === null || graphContext === undefined) return "";
+  const readableRefs = new Set(context.listings.map((listing) => listing.listingRef));
+  const readableItems = graphContext.items.filter((item) =>
+    item.listingRefs.length > 0 &&
+    item.listingRefs.every((listingRef) => readableRefs.has(listingRef))
+  );
+  if (readableItems.length === 0) return "";
+  const refs = [...new Set(readableItems.flatMap((item) => item.listingRefs))]
+    .sort()
+    .slice(0, 4);
+  const outcomes = [...new Set(readableItems.flatMap((item) => item.outcomeCodes))]
+    .sort()
+    .slice(0, 4);
+  return `Readable prior graph refs ${refs.join(", ")}; use outcomes ${outcomes.join(", ") || "none"} only as falsification evidence.`.slice(0, 180);
+}
+
+function boundedTaskQuestion(
+  baseQuestion: string,
+  retrievalBrief: string,
+  graphBrief: string,
+): string {
+  const suffix = [graphBrief, retrievalBrief].filter((item) => item !== "").join(" ");
+  if (suffix === "") return baseQuestion.slice(0, 500);
+  return `${baseQuestion.slice(0, Math.max(1, 499 - suffix.length))} ${suffix}`.slice(0, 500);
+}
+
 export class SearchLeaseBusyError extends Error {}
 export class SearchLeaseUnavailableError extends Error {}
 
@@ -1556,11 +1590,7 @@ export class SearchLeaseScheduler {
       );
       const graphContext = this.#graphContext?.(snapshot, selectedLens) ?? null;
       const baseQuestion = issue?.question ?? spec.question;
-      const querySummary = (
-        graphContext === null
-          ? baseQuestion
-          : `${baseQuestion} Graph neighborhood: ${graphContext.searchBrief}`
-      ).slice(0, 500);
+      const querySummary = baseQuestion.slice(0, 500);
       const lease: SearchLease = deepFreeze({
         schemaVersion: "pmh.search-lease.v1" as const,
         leaseId,
@@ -1744,9 +1774,11 @@ export class SearchLeaseScheduler {
       const retrievalBrief = selectedRetrievalPlan === undefined
         ? ""
         : semanticFamilyRetrievalBrief(selectedRetrievalPlan).slice(0, 220);
-      const taskQuestion = retrievalBrief === ""
-        ? issued.trace.querySummary
-        : `${issued.trace.querySummary.slice(0, 499 - retrievalBrief.length)} ${retrievalBrief}`;
+      const taskQuestion = boundedTaskQuestion(
+        issued.trace.querySummary,
+        retrievalBrief,
+        readableGraphBrief(issued.lease.graphContext, context),
+      );
       const task: DiscoveryTask = Object.freeze({
         taskId: issued.fastLane.taskId,
         question: taskQuestion,

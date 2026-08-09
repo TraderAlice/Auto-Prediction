@@ -668,7 +668,7 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
 
 const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler"] = {
   schemaVersion: "pmh.search-lease-scheduler.v1",
-  algorithmVersion: "pmh.ai-search-leases.v7",
+  algorithmVersion: "pmh.ai-search-leases.v8",
   enabled: false,
   configured: { fastLane: true, deepLane: false },
   status: "IDLE",
@@ -3237,6 +3237,25 @@ function MarketArchaeologistView() {
     (issue) => issue.discoveryMode === "HEURISTIC_EXPLORATION",
   ).length;
   const currentMonitoringCount = currentIssues.length - currentExplorationCount;
+  const graphReadability = (record: (typeof scheduler.records)[number]) => {
+    const graphContext = record.lease.graphContext;
+    if (graphContext == null) return null;
+    const contextRefs = new Set(record.fastLane.semanticScope?.listingRefs ?? []);
+    const allRefs = new Set(graphContext.items.flatMap((item) => item.listingRefs));
+    const readableRefs = new Set(graphContext.items
+      .filter((item) => item.listingRefs.every((listingRef) => contextRefs.has(listingRef)))
+      .flatMap((item) => item.listingRefs));
+    return Object.freeze({ readable: readableRefs.size, total: allRefs.size });
+  };
+  const latestTrailheadRecord = scheduler.records.find((record) =>
+    record.lease.discoveryMode === "HEURISTIC_EXPLORATION" &&
+    record.fastLane.retrievalPlan?.heuristicTrailhead != null
+  );
+  const latestTrailhead = latestTrailheadRecord?.fastLane.retrievalPlan
+    ?.heuristicTrailhead ?? null;
+  const latestTrailheadGraph = latestTrailheadRecord === undefined
+    ? null
+    : graphReadability(latestTrailheadRecord);
   const quoteEnrichment =
     studioProjection.ai.searchQuoteEnrichment ?? EMPTY_SEARCH_QUOTE_ENRICHMENT;
   const outcomeAttribution =
@@ -3506,6 +3525,41 @@ function MarketArchaeologistView() {
               </dl>
             </article>
           </div>
+          {latestTrailheadRecord !== undefined && latestTrailhead !== null && (
+            <section className="latest-discovery-trailhead" aria-label="Latest exploration trailhead">
+              <div className="latest-discovery-trailhead-copy">
+                <div>
+                  <Badge variant="verified"><Sparkles size={11} /> LATEST TRAILHEAD</Badge>
+                  <span>{latestTrailheadRecord.lease.semanticFamily?.replaceAll("_", " ")}</span>
+                </div>
+                <h3>{latestTrailhead.seedTitle ?? "Heuristic seed neighborhood"}</h3>
+                <code>{latestTrailhead.seedListingRef}</code>
+                <p>
+                  The router started here because of rare signals, then assembled
+                  {" "}{latestTrailhead.relatedListingRefs.length} related contracts for the
+                  Agent to inspect before forming any claim.
+                </p>
+                <div className="latest-discovery-signals">
+                  {latestTrailhead.seedSignals.map((signal) => (
+                    <span key={signal}>{signal}</span>
+                  ))}
+                </div>
+              </div>
+              <dl>
+                <div><dt>neighbors</dt><dd>{latestTrailhead.relatedListingRefs.length}</dd></div>
+                <div>
+                  <dt>graph refs</dt>
+                  <dd>{latestTrailheadGraph === null
+                    ? "—"
+                    : `${latestTrailheadGraph.readable}/${latestTrailheadGraph.total}`}</dd>
+                </div>
+                <div><dt>Agent steps</dt><dd>{latestTrailheadRecord.fastLane.agentTelemetry?.stepCount ?? 0}</dd></div>
+                <div><dt>catalog reads</dt><dd>{latestTrailheadRecord.fastLane.agentTelemetry?.catalogReadCount ?? 0}</dd></div>
+                <div><dt>leads</dt><dd>{latestTrailheadRecord.outcome.hypothesisCount}</dd></div>
+                <div><dt>result</dt><dd>{latestTrailheadRecord.status}</dd></div>
+              </dl>
+            </section>
+          )}
           <div className="issue-scheduler-strip">
             <div><strong>{issueScheduler.issueCount}</strong><span>durable issues</span></div>
             <div><strong>{issueScheduler.dueIssueCount}</strong><span>due now</span></div>
@@ -4167,11 +4221,19 @@ function MarketArchaeologistView() {
                       : ` · ${record.fastLane.corpusCoverage.omittedSources.map((source) => source.venueId).join(", ")}`}
                   </code>
                 )}
-                {record.lease.graphContext != null && <code>GRAPH BOUND</code>}
+                {graphReadability(record) !== null && (
+                  <code>
+                    GRAPH {graphReadability(record)!.readable}/{graphReadability(record)!.total} READABLE
+                  </code>
+                )}
                 {record.fastLane.retrievalPlan !== undefined && (
                   <code>
                     FAMILY TRAILHEAD {record.fastLane.retrievalPlan.selectedNeighborhoodRank ??
-                      (record.fastLane.retrievalPlan.routingMode === "HEURISTIC_FIRST" ? "SAMPLE" : "QUERY")}/
+                      (record.fastLane.retrievalPlan.heuristicTrailhead != null
+                        ? "SEED"
+                        : record.fastLane.retrievalPlan.routingMode === "HEURISTIC_FIRST"
+                          ? "NONE"
+                          : "QUERY")}/
                     {record.fastLane.retrievalPlan.neighborhoodCount}
                   </code>
                 )}
@@ -4179,7 +4241,8 @@ function MarketArchaeologistView() {
                 {record.deepLane.status === "FAILED" &&
                   (record.lease.algorithmVersion === "pmh.ai-search-leases.v5" ||
                     record.lease.algorithmVersion === "pmh.ai-search-leases.v6" ||
-                    record.lease.algorithmVersion === "pmh.ai-search-leases.v7") &&
+                    record.lease.algorithmVersion === "pmh.ai-search-leases.v7" ||
+                    record.lease.algorithmVersion === "pmh.ai-search-leases.v8") &&
                   record.deepLane.inputIdentity != null &&
                   (record.deepLane.attempts?.length ?? 0) <
                     (record.lease.budget.maxDeepAttempts ?? 1) && (
@@ -4207,6 +4270,9 @@ function MarketArchaeologistView() {
                   {record.fastLane.retrievalPlan.anchorListingRefs.length === 0
                     ? ""
                     : ` · anchors ${record.fastLane.retrievalPlan.anchorListingRefs.join(" + ")}`}
+                  {record.fastLane.retrievalPlan.heuristicTrailhead == null
+                    ? ""
+                    : ` · seed ${record.fastLane.retrievalPlan.heuristicTrailhead.seedListingRef} · ${record.fastLane.retrievalPlan.heuristicTrailhead.relatedListingRefs.length} neighbors · signals ${record.fastLane.retrievalPlan.heuristicTrailhead.seedSignals.join(", ")}`}
                 </p>
               )}
             </article>

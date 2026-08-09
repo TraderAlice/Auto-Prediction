@@ -2224,6 +2224,99 @@ main {
   margin: 0;
 }
 
+.latest-discovery-trailhead {
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--primary) 7%, transparent), transparent 48%),
+    var(--card);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 10px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.9fr);
+  margin: 0 0 14px;
+  padding: 16px;
+}
+
+.latest-discovery-trailhead-copy {
+  min-width: 0;
+}
+
+.latest-discovery-trailhead-copy > div:first-child {
+  align-items: center;
+  color: var(--muted-foreground);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.latest-discovery-trailhead h3 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 10px 0 4px;
+}
+
+.latest-discovery-trailhead code {
+  color: var(--primary);
+  display: block;
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.latest-discovery-trailhead p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 10px 0;
+  max-width: 68ch;
+}
+
+.latest-discovery-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.latest-discovery-signals span {
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 7px;
+}
+
+.latest-discovery-trailhead dl {
+  align-content: center;
+  border-left: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.latest-discovery-trailhead dl > div {
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.latest-discovery-trailhead dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.latest-discovery-trailhead dd {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  margin: 3px 0 0;
+}
+
 .issue-scheduler-strip {
   border-bottom: 1px solid var(--border);
   border-top: 1px solid var(--border);
@@ -7174,6 +7267,7 @@ footer span:first-child {
   .search-lease-history,
   .issue-scheduler-strip,
   .discovery-origin-overview,
+  .latest-discovery-trailhead,
   .search-attention-summary,
   .search-attention-list,
   .search-outcome-stages,
@@ -7185,6 +7279,13 @@ footer span:first-child {
 
   .discovery-origin-overview dl {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .latest-discovery-trailhead dl {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-top: 8px;
   }
 
   .issue-scheduler-console [data-slot="card-header"],

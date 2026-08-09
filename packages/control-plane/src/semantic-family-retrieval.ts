@@ -52,16 +52,35 @@ export type SemanticFamilyRetrievalSelectionReason =
   | "ROUTING_ATTEMPTED_FALLBACK"
   | "SEMANTIC_COMPLETED_FALLBACK"
   | "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK"
-  | "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE";
+  | "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE"
+  | "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD"
+  | "NO_COHERENT_HEURISTIC_TRAILHEAD";
 
 export type SemanticFamilyRoutingMode = "HEURISTIC_FIRST" | "QUERY_FIRST";
+
+export type HeuristicDiscoveryTrailhead = Readonly<{
+  schemaVersion: "pmh.heuristic-discovery-trailhead.v1";
+  trailheadIdentity: Hash;
+  kind: "RARE_SEED_NEIGHBORHOOD";
+  seedListingRef: string;
+  seedTitle?: string;
+  relatedListingRefs: readonly string[];
+  seedSignals: readonly string[];
+  score: number;
+  authority: "SEARCH_ROUTING_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+}>;
 
 export type SemanticFamilyRetrievalPlan = Readonly<{
   schemaVersion: "pmh.semantic-family-retrieval.v1";
   algorithmVersion:
     | "pmh.semantic-family-retrieval.v1"
     | "pmh.semantic-family-retrieval.v2"
-    | "pmh.semantic-family-retrieval.v3";
+    | "pmh.semantic-family-retrieval.v3"
+    | "pmh.semantic-family-retrieval.v4";
   planIdentity: Hash;
   semanticFamily: SearchSemanticFamily;
   corpusIdentity: Hash;
@@ -77,6 +96,7 @@ export type SemanticFamilyRetrievalPlan = Readonly<{
   queryScore?: number | null;
   routingMode?: SemanticFamilyRoutingMode;
   sampleListingRefs?: readonly string[];
+  heuristicTrailhead?: HeuristicDiscoveryTrailhead | null;
   selectedContextIdentity: Hash;
   authority: "SEARCH_ROUTING_ONLY";
   semanticDecisionAuthority: false;
@@ -272,61 +292,141 @@ function selectionTier(
   return completed ? attempted ? 3 : 2 : attempted ? 1 : 0;
 }
 
-function buildHeuristicCorpusSample(
+type HeuristicTrailheadSelection = Readonly<{
+  context: DiscoveryCatalogContext;
+  trailhead: HeuristicDiscoveryTrailhead;
+}>;
+
+function familyCueScore(family: SearchSemanticFamily, value: Features): number {
+  switch (family) {
+    case "TEMPORAL_IMPOSSIBILITY":
+      return value.temporal.length * 4 + value.physical.length * 5 +
+        value.incapacity.length * 8;
+    case "EVENT_CONTAINMENT":
+      return value.containment.length * 6 + value.numbers.length * 5 +
+        value.temporal.length * 3;
+    case "PARTITION_COMPLETENESS":
+      return value.range.length * 7 + value.numbers.length * 5;
+    case "IDENTITY_SUCCESSION":
+      return value.identity.length * 7 + value.temporal.length * 2;
+    case "PHYSICAL_CO_OCCURRENCE":
+      return value.physical.length * 7 + value.temporal.length * 3 +
+        value.incapacity.length * 5;
+  }
+}
+
+function heuristicSeedSignals(
+  value: Features,
+  documentFrequency: ReadonlyMap<string, number>,
+): readonly string[] {
+  return Object.freeze([...value.tokens]
+    .sort((left, right) =>
+      (documentFrequency.get(left) ?? 0) - (documentFrequency.get(right) ?? 0) ||
+      left.localeCompare(right)
+    )
+    .slice(0, MAX_SHARED_SIGNALS));
+}
+
+function withTrailheadIdentity(
+  body: Omit<HeuristicDiscoveryTrailhead, "trailheadIdentity">,
+): HeuristicDiscoveryTrailhead {
+  return Object.freeze({ ...body, trailheadIdentity: hashCanonical(body) });
+}
+
+function buildHeuristicTrailhead(
   source: DiscoveryCatalogContextSource,
   listings: readonly DiscoveryCatalogListing[],
   maximum: number,
+  semanticFamily: SearchSemanticFamily,
   byRef: ReadonlyMap<string, Features>,
   documentFrequency: ReadonlyMap<string, number>,
   feedback: DiscoveryContextRoutingFeedback,
-): DiscoveryCatalogContext {
-  if (listings.length === 0) {
-    return buildExactDiscoveryCatalogContext(source, Object.freeze([]));
-  }
-  const rarityScore = (listing: DiscoveryCatalogListing) => {
+): HeuristicTrailheadSelection | null {
+  const rarityScore = (listing: DiscoveryCatalogListing): number => {
     const listingFeatures = byRef.get(listing.listingRef)!;
-    return [...listingFeatures.tokens].reduce(
+    const total = [...listingFeatures.tokens].reduce(
       (score, token) => score + Math.max(1, listings.length -
         (documentFrequency.get(token) ?? listings.length)),
       0,
-    ) + listingFeatures.temporal.length * 4 +
-      listingFeatures.physical.length * 6 + listingFeatures.incapacity.length * 8;
+    );
+    return Math.floor(total / Math.max(1, listingFeatures.tokens.size));
   };
-  const ranked = [...listings].sort((left, right) =>
-    rarityScore(right) - rarityScore(left) ||
+  const seedScore = (listing: DiscoveryCatalogListing): number =>
+    familyCueScore(semanticFamily, byRef.get(listing.listingRef)!) * 10_000 +
+      rarityScore(listing);
+  const rankedSeeds = [...listings].sort((left, right) =>
+    seedScore(right) - seedScore(left) ||
     left.listingRef.localeCompare(right.listingRef)
   );
-  const variants: DiscoveryCatalogContext[] = [];
-  for (let offset = 0; offset < Math.min(8, ranked.length); offset += 1) {
-    const ordered = [...ranked.slice(offset), ...ranked.slice(0, offset)];
-    let context: DiscoveryCatalogContext | null = null;
-    const selected: DiscoveryCatalogListing[] = [];
-    const representedVenues = new Set<string>();
-    const venueFirst = [
-      ...ordered.filter((listing) => !representedVenues.has(listing.venueId) &&
-        (representedVenues.add(listing.venueId), true)),
-      ...ordered,
-    ];
-    for (const listing of venueFirst) {
-      if (selected.length >= maximum || selected.some((item) =>
-        item.listingRef === listing.listingRef
-      )) continue;
+  const variants: HeuristicTrailheadSelection[] = [];
+  for (const seed of rankedSeeds.slice(0, Math.min(16, rankedSeeds.length))) {
+    const seedFeatures = byRef.get(seed.listingRef)!;
+    const related = listings
+      .filter((listing) => listing.listingRef !== seed.listingRef)
+      .map((listing) => {
+        const listingFeatures = byRef.get(listing.listingRef)!;
+        const shared = intersection(seedFeatures.tokens, listingFeatures.tokens);
+        const sharedScore = shared.reduce(
+          (score, token) => score + Math.max(1, listings.length -
+            (documentFrequency.get(token) ?? listings.length)),
+          0,
+        );
+        return Object.freeze({
+          listing,
+          sharedScore,
+          score: sharedScore * 100 +
+            Math.min(familyCueScore(semanticFamily, listingFeatures), 50) * 10 +
+            (listing.venueId === seed.venueId ? 0 : 25),
+        });
+      })
+      .filter((item) => item.sharedScore > 0)
+      .sort((left, right) =>
+        right.score - left.score ||
+        left.listing.listingRef.localeCompare(right.listing.listingRef)
+      );
+    if (related.length === 0) continue;
+    const selected = [seed];
+    let context = buildExactDiscoveryCatalogContext(source, selected);
+    for (const { listing } of related) {
+      if (selected.length >= maximum) break;
       try {
-        context = buildExactDiscoveryCatalogContext(source, [...selected, listing]);
+        const candidate = buildExactDiscoveryCatalogContext(source, [...selected, listing]);
         selected.push(listing);
+        context = candidate;
       } catch {
         // Skip a verbose listing rather than crossing the immutable context cap.
       }
     }
-    if (context !== null && !variants.some((item) =>
-      item.contextIdentity === context!.contextIdentity
-    )) variants.push(context);
+    if (selected.length < 2 || variants.some((item) =>
+      item.context.contextIdentity === context.contextIdentity
+    )) continue;
+    const seedSignals = heuristicSeedSignals(seedFeatures, documentFrequency);
+    if (seedSignals.length === 0) continue;
+    const body = Object.freeze({
+      schemaVersion: "pmh.heuristic-discovery-trailhead.v1" as const,
+      kind: "RARE_SEED_NEIGHBORHOOD" as const,
+      seedListingRef: seed.listingRef,
+      seedTitle: seed.title.slice(0, 300),
+      relatedListingRefs: Object.freeze(selected.slice(1).map((item) => item.listingRef)),
+      seedSignals,
+      score: seedScore(seed) + related.slice(0, selected.length - 1).reduce(
+        (sum, item) => sum + item.score,
+        0,
+      ),
+      authority: "SEARCH_ROUTING_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    });
+    variants.push(Object.freeze({
+      context,
+      trailhead: withTrailheadIdentity(body),
+    }));
   }
-  if (variants.length === 0) {
-    return buildExactDiscoveryCatalogContext(source, Object.freeze([]));
-  }
+  if (variants.length === 0) return null;
   return variants.reduce((best, candidate) =>
-    selectionTier(candidate, feedback) < selectionTier(best, feedback)
+    selectionTier(candidate.context, feedback) < selectionTier(best.context, feedback)
       ? candidate
       : best
   );
@@ -359,6 +459,40 @@ function withPlanIdentity(
   return Object.freeze({ ...body, planIdentity: hashCanonical(body) });
 }
 
+function validHeuristicTrailhead(value: unknown): value is HeuristicDiscoveryTrailhead {
+  if (value === null || typeof value !== "object") return false;
+  const trailhead = value as HeuristicDiscoveryTrailhead;
+  const { trailheadIdentity, ...body } = trailhead;
+  return trailhead.schemaVersion === "pmh.heuristic-discovery-trailhead.v1" &&
+    HASH_PATTERN.test(String(trailheadIdentity)) &&
+    trailheadIdentity === hashCanonical(body) &&
+    trailhead.kind === "RARE_SEED_NEIGHBORHOOD" &&
+    typeof trailhead.seedListingRef === "string" &&
+    trailhead.seedListingRef.trim() !== "" &&
+    (trailhead.seedTitle === undefined || (
+      typeof trailhead.seedTitle === "string" && trailhead.seedTitle.trim() !== "" &&
+      trailhead.seedTitle.length <= 300
+    )) &&
+    Array.isArray(trailhead.relatedListingRefs) &&
+    trailhead.relatedListingRefs.length >= 1 &&
+    trailhead.relatedListingRefs.length <= 29 &&
+    new Set(trailhead.relatedListingRefs).size === trailhead.relatedListingRefs.length &&
+    !trailhead.relatedListingRefs.includes(trailhead.seedListingRef) &&
+    trailhead.relatedListingRefs.every((item) =>
+      typeof item === "string" && item.trim() !== ""
+    ) &&
+    Array.isArray(trailhead.seedSignals) && trailhead.seedSignals.length >= 1 &&
+    trailhead.seedSignals.length <= MAX_SHARED_SIGNALS &&
+    new Set(trailhead.seedSignals).size === trailhead.seedSignals.length &&
+    trailhead.seedSignals.every((item) => typeof item === "string" && item.trim() !== "") &&
+    Number.isSafeInteger(trailhead.score) && trailhead.score > 0 &&
+    trailhead.authority === "SEARCH_ROUTING_ONLY" &&
+    trailhead.semanticDecisionAuthority === false &&
+    trailhead.probabilityAuthority === false &&
+    trailhead.certificateAuthority === false &&
+    trailhead.executionAuthority === false;
+}
+
 export function assertSemanticFamilyRetrievalPlan(
   value: unknown,
 ): SemanticFamilyRetrievalPlan {
@@ -370,12 +504,14 @@ export function assertSemanticFamilyRetrievalPlan(
   const isV1 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v1";
   const isV2 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v2";
   const isV3 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v3";
+  const isV4 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v4";
   const querySignals = plan.querySignals ?? [];
   const queryScore = plan.queryScore ?? null;
   const sampleListingRefs = plan.sampleListingRefs ?? [];
+  const heuristicTrailhead = plan.heuristicTrailhead ?? null;
   if (
     plan.schemaVersion !== "pmh.semantic-family-retrieval.v1" ||
-    (!isV1 && !isV2 && !isV3) ||
+    (!isV1 && !isV2 && !isV3 && !isV4) ||
     !HASH_PATTERN.test(String(planIdentity)) || planIdentity !== hashCanonical(body) ||
     !isSearchSemanticFamily(plan.semanticFamily) ||
     !HASH_PATTERN.test(String(plan.corpusIdentity)) ||
@@ -397,6 +533,8 @@ export function assertSemanticFamilyRetrievalPlan(
       "ROUTING_ATTEMPTED_FALLBACK",
       "SEMANTIC_COMPLETED_FALLBACK", "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK",
       "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
+      "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD",
+      "NO_COHERENT_HEURISTIC_TRAILHEAD",
     ].includes(plan.selectionReason) ||
     !Array.isArray(plan.anchorListingRefs) || plan.anchorListingRefs.length > 2 ||
     plan.anchorListingRefs.some((item) => typeof item !== "string" || item.trim() === "") ||
@@ -405,7 +543,8 @@ export function assertSemanticFamilyRetrievalPlan(
     (plan.score !== null && (!Number.isSafeInteger(plan.score) || plan.score < 0)) ||
     (isV1 && (
       plan.querySignals !== undefined || plan.queryScore !== undefined ||
-      plan.routingMode !== undefined || plan.sampleListingRefs !== undefined
+      plan.routingMode !== undefined || plan.sampleListingRefs !== undefined ||
+      plan.heuristicTrailhead !== undefined
     )) ||
     (isV2 && (
       !Array.isArray(plan.querySignals) || querySignals.length > MAX_QUERY_SIGNALS ||
@@ -415,7 +554,10 @@ export function assertSemanticFamilyRetrievalPlan(
       ((plan.selectionReason === "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD") !==
         (querySignals.length > 0))
     )) ||
-    (isV2 && (plan.routingMode !== undefined || plan.sampleListingRefs !== undefined)) ||
+    (isV2 && (
+      plan.routingMode !== undefined || plan.sampleListingRefs !== undefined ||
+      plan.heuristicTrailhead !== undefined
+    )) ||
     (isV3 && (
       (plan.routingMode !== "HEURISTIC_FIRST" && plan.routingMode !== "QUERY_FIRST") ||
       !Array.isArray(plan.querySignals) || querySignals.length > MAX_QUERY_SIGNALS ||
@@ -433,6 +575,33 @@ export function assertSemanticFamilyRetrievalPlan(
       new Set(sampleListingRefs).size !== sampleListingRefs.length ||
       sampleListingRefs.some((item) => typeof item !== "string" || item.trim() === "")
     )) ||
+    (isV3 && plan.heuristicTrailhead !== undefined) ||
+    (isV4 && (
+      (plan.routingMode !== "HEURISTIC_FIRST" && plan.routingMode !== "QUERY_FIRST") ||
+      !Array.isArray(plan.querySignals) || querySignals.length > MAX_QUERY_SIGNALS ||
+      querySignals.some((item) => typeof item !== "string" || item.trim() === "") ||
+      (queryScore !== null && (!Number.isSafeInteger(queryScore) || queryScore < 1)) ||
+      ((querySignals.length === 0) !== (queryScore === null)) ||
+      (plan.routingMode === "HEURISTIC_FIRST" && (
+        querySignals.length !== 0 || queryScore !== null ||
+        plan.selectionReason === "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD"
+      )) ||
+      (plan.routingMode === "QUERY_FIRST" &&
+        ((plan.selectionReason === "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD") !==
+          (querySignals.length > 0))) ||
+      plan.sampleListingRefs !== undefined ||
+      (heuristicTrailhead !== null && !validHeuristicTrailhead(heuristicTrailhead)) ||
+      (plan.neighborhoodCount === 0 && (
+        plan.routingMode === "QUERY_FIRST"
+          ? plan.selectionReason !== "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK" ||
+            heuristicTrailhead !== null
+          : plan.selectionReason === "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD"
+            ? heuristicTrailhead === null
+            : plan.selectionReason === "NO_COHERENT_HEURISTIC_TRAILHEAD"
+              ? heuristicTrailhead !== null
+              : true
+      ))
+    )) ||
     !HASH_PATTERN.test(String(plan.selectedContextIdentity)) ||
     plan.authority !== "SEARCH_ROUTING_ONLY" ||
     plan.semanticDecisionAuthority !== false || plan.probabilityAuthority !== false ||
@@ -440,7 +609,7 @@ export function assertSemanticFamilyRetrievalPlan(
     (plan.neighborhoodCount === 0
       ? plan.selectedNeighborhoodRank !== null || plan.anchorListingRefs.length !== 0 ||
         plan.sharedSignals.length !== 0 || plan.score !== null ||
-        ((isV2 || isV3) && (querySignals.length !== 0 || queryScore !== null)) ||
+        ((isV2 || isV3 || isV4) && (querySignals.length !== 0 || queryScore !== null)) ||
         (isV3 && (
           plan.selectionReason === "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE"
             ? sampleListingRefs.length === 0
@@ -449,10 +618,13 @@ export function assertSemanticFamilyRetrievalPlan(
         ![
           "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK",
           "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
+          "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD",
+          "NO_COHERENT_HEURISTIC_TRAILHEAD",
         ].includes(plan.selectionReason)
       : plan.selectedNeighborhoodRank === null || plan.anchorListingRefs.length !== 2 ||
         plan.sharedSignals.length === 0 || plan.score === null ||
-        (isV3 && sampleListingRefs.length !== 0))
+        (isV3 && sampleListingRefs.length !== 0) ||
+        (isV4 && heuristicTrailhead !== null))
   ) throw new Error("semantic family retrieval plan violates its bounded contract");
   return Object.freeze(plan);
 }
@@ -594,27 +766,34 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
     }
   }
   if (selectedIndex < 0) {
-    const queryContext = routingMode === "QUERY_FIRST"
-      ? buildDiscoveryCatalogContext(input.source, listings, input.question, venueIds)
-      : buildHeuristicCorpusSample(
+    const heuristicSelection = routingMode === "HEURISTIC_FIRST"
+      ? buildHeuristicTrailhead(
           input.source,
           listings,
           input.maxContextListings,
+          input.semanticFamily,
           byRef,
           documentFrequency,
           input.feedback,
+        )
+      : null;
+    const fallbackContext = routingMode === "QUERY_FIRST"
+      ? buildDiscoveryCatalogContext(input.source, listings, input.question, venueIds)
+      : heuristicSelection?.context ?? buildExactDiscoveryCatalogContext(
+          input.source,
+          listings.slice(0, input.maxContextListings),
         );
-    const context = queryContext.listings.length <= input.maxContextListings
-      ? queryContext
+    const context = fallbackContext.listings.length <= input.maxContextListings
+      ? fallbackContext
       : buildExactDiscoveryCatalogContext(
           input.source,
-          queryContext.listings.slice(0, input.maxContextListings),
+          fallbackContext.listings.slice(0, input.maxContextListings),
         );
     return Object.freeze({
       catalogContext: context,
       retrievalPlan: withPlanIdentity({
         schemaVersion: "pmh.semantic-family-retrieval.v1",
-        algorithmVersion: "pmh.semantic-family-retrieval.v3",
+        algorithmVersion: "pmh.semantic-family-retrieval.v4",
         semanticFamily: input.semanticFamily,
         corpusIdentity: input.corpusIdentity,
         eligibleVenueIds: venueIds,
@@ -623,16 +802,16 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
         selectedNeighborhoodRank: null,
         selectionReason: routingMode === "QUERY_FIRST"
           ? "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK"
-          : "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
+          : heuristicSelection === null
+            ? "NO_COHERENT_HEURISTIC_TRAILHEAD"
+            : "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD",
         anchorListingRefs: Object.freeze([]),
         sharedSignals: Object.freeze([]),
         score: null,
         querySignals: Object.freeze([]),
         queryScore: null,
         routingMode,
-        sampleListingRefs: routingMode === "HEURISTIC_FIRST"
-          ? Object.freeze(context.listings.map((listing) => listing.listingRef))
-          : Object.freeze([]),
+        heuristicTrailhead: heuristicSelection?.trailhead ?? null,
         selectedContextIdentity: context.contextIdentity as Hash,
         authority: "SEARCH_ROUTING_ONLY",
         semanticDecisionAuthority: false,
@@ -654,7 +833,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
     catalogContext: selected.context,
     retrievalPlan: withPlanIdentity({
       schemaVersion: "pmh.semantic-family-retrieval.v1",
-      algorithmVersion: "pmh.semantic-family-retrieval.v3",
+      algorithmVersion: "pmh.semantic-family-retrieval.v4",
       semanticFamily: input.semanticFamily,
       corpusIdentity: input.corpusIdentity,
       eligibleVenueIds: venueIds,
@@ -668,7 +847,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
       querySignals: selected.querySignals,
       queryScore: selected.queryScore,
       routingMode,
-      sampleListingRefs: Object.freeze([]),
+      heuristicTrailhead: null,
       selectedContextIdentity: selected.context.contextIdentity as Hash,
       authority: "SEARCH_ROUTING_ONLY",
       semanticDecisionAuthority: false,
@@ -684,13 +863,26 @@ export function semanticFamilyRetrievalBrief(
 ): string {
   assertSemanticFamilyRetrievalPlan(plan);
   if (plan.anchorListingRefs.length === 0) {
+    if (
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" &&
+      plan.heuristicTrailhead !== null && plan.heuristicTrailhead !== undefined
+    ) {
+      return `Heuristic trailhead only (not a semantic or probability judgment): seed ${plan.heuristicTrailhead.seedListingRef} with ${plan.heuristicTrailhead.relatedListingRefs.length} related refs from rare signals [${plan.heuristicTrailhead.seedSignals.join(", ")}]. Form a claim only after inspecting exact refs; abstain when no relation is grounded.`;
+    }
+    if (
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" &&
+      plan.selectionReason === "NO_COHERENT_HEURISTIC_TRAILHEAD"
+    ) {
+      return `No coherent ${plan.semanticFamily} heuristic trailhead qualified; inspect the bounded context only for negative evidence and abstain rather than inventing a relation.`;
+    }
     return plan.algorithmVersion === "pmh.semantic-family-retrieval.v3" &&
         plan.routingMode === "HEURISTIC_FIRST"
       ? `No deterministic ${plan.semanticFamily} neighborhood qualified. Inspect the ${plan.sampleListingRefs?.length ?? 0}-listing rarity sample for an unexpected relation; form a claim only after reading exact refs, and abstain when none is grounded.`
       : `Family retrieval found no deterministic ${plan.semanticFamily} neighborhood; inspect the bounded query fallback and abstain unless exact refs support a relation.`;
   }
   const queryTrail = (plan.algorithmVersion === "pmh.semantic-family-retrieval.v2" ||
-      plan.algorithmVersion === "pmh.semantic-family-retrieval.v3") &&
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v3" ||
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v4") &&
       (plan.querySignals?.length ?? 0) > 0
     ? ` and matched issue signals [${plan.querySignals!.join(", ")}]`
     : "";

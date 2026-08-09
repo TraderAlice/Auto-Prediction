@@ -3,6 +3,8 @@
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
 [`plans/heuristic-origin-discovery.md`](plans/heuristic-origin-discovery.md),
+with cross-lens inspiration follow-ups tracked in
+[`plans/cross-lens-inspiration-effects.md`](plans/cross-lens-inspiration-effects.md),
 [`plans/probabilistic-semantic-arbitrage.md`](plans/probabilistic-semantic-arbitrage.md),
 with Studio product normalization tracked in
 [`plans/studio-product-normalization.md`](plans/studio-product-normalization.md),
@@ -37,12 +39,17 @@ machine values.
 
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls
-back to a rotating rarity sample when no family neighborhood qualifies.
-Operator questions remain `CLAIM_MONITORING`. Search issue v3, lease v7, and
-family-retrieval v3 preserve the origin through SQLite restart, and Studio shows
-separate scans, findings, provider requests, and Pi escalations. The first live
-799-listing window retained five exploration scans and no promoted lead, which
-is baseline evidence rather than a success claim.
+back to a rotating rare-seed neighborhood when no family pair qualifies.
+Operator questions remain `CLAIM_MONITORING`. Search issue v3, lease v8, and
+family-retrieval v4 preserve the origin and typed trailhead through SQLite
+restart, while graph refs outside the assigned context remain lineage-only.
+Studio shows separate scans, findings, provider requests, Pi escalations, seed
+signals, neighbors, and graph readability. A live 799-listing v4 scan replaced
+the unrelated rarity sample with one Hormuz seed plus ten related deadline
+contracts and completed without an unknown-ref rejection or false proposal.
+That scan exposed the next active design problem: inspirations that imply a
+different relation family than the scheduled lens need their own durable effect
+and follow-up path.
 
 ## Planning contract
 

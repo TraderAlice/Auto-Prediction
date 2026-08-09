@@ -244,7 +244,8 @@ describe("AI-native search lease scheduler", () => {
     expect(record.deepLane.permittedTools).toEqual(["read", "grep", "find", "ls"]);
     expect(record.trace.chainOfThoughtStored).toBe(false);
     expect(record.lease.graphContext?.feedbackCount).toBe(1);
-    expect(record.trace.querySummary).toContain("Graph neighborhood:");
+    expect(record.trace.querySummary).not.toContain("Graph neighborhood:");
+    expect(runFast.mock.calls[0]?.[0].question).toContain("Readable prior graph refs");
     expect(runFast.mock.calls[0]?.[0].question).toContain("MISSING_RULE");
     expect(record.semanticDecisionAuthority).toBe(false);
     expect(record.certificateAuthority).toBe(false);
@@ -272,6 +273,61 @@ describe("AI-native search lease scheduler", () => {
     await expect(replay.promise).resolves.toEqual(record);
     expect(runFast).toHaveBeenCalledTimes(1);
     expect(runDeep).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps graph refs outside the assigned context as lineage-only evidence", async () => {
+    const runFast = vi.fn(async (task: DiscoveryTask) => {
+      expect(task.question).not.toContain("venue-z:historical-a");
+      expect(task.question).not.toContain("Readable prior graph refs");
+      return Object.freeze({
+        ...runRecord(task),
+        hypotheses: Object.freeze([]),
+      });
+    });
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      graphContext: (_snapshot, lens) => {
+        const graphIdentity = hashCanonical({ graph: "outside-context" });
+        const items = Object.freeze([Object.freeze({
+          proposalId: hashCanonical({ proposal: "outside-context" }),
+          relationKind: "EQUIVALENT" as const,
+          listingRefs: Object.freeze([
+            "venue-z:historical-a",
+            "venue-z:historical-b",
+          ]),
+          outcomeCodes: Object.freeze(["MISSING_RULE" as const]),
+          summary: "Historical refs are not in this immutable context.",
+        })]);
+        return Object.freeze({
+          schemaVersion: "pmh.semantic-graph-search-context.v1" as const,
+          graphIdentity,
+          neighborhoodIdentity: hashCanonical({ graphIdentity, lens, items }),
+          lens,
+          relationCount: 1,
+          feedbackCount: 1,
+          items,
+          searchBrief: "Revisit graph refs venue-z:historical-a and venue-z:historical-b.",
+          priorityBasis: "EMPIRICAL_OUTCOMES_THEN_EVIDENCE_FRESHNESS" as const,
+          modelConfidenceUsed: false as const,
+          authority: "SEARCH_EVIDENCE_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          executionAuthority: false as const,
+        });
+      },
+      maxPiInvocations: 0,
+      runFast,
+    });
+
+    const record = await scheduler.begin(snapshot("graph-lineage-only"), "EQUIVALENCE").promise;
+    expect(record.lease.graphContext?.items[0]?.listingRefs).toEqual([
+      "venue-z:historical-a",
+      "venue-z:historical-b",
+    ]);
+    expect(record.fastLane.semanticScope?.listingRefs).toEqual([
+      "venue-a:pizza-a",
+      "venue-b:pizza-b",
+    ]);
+    expect(runFast).toHaveBeenCalledTimes(1);
   });
 
   it("retains a single-listing lead without assigning candidate novelty or spending pi", async () => {
@@ -1752,7 +1808,7 @@ describe("AI-native search lease scheduler", () => {
     expect(scheduler.projection().runCount).toBe(4);
   });
 
-  it("replays historical v1-v6 leases but does not let them suppress a v7 scan", async () => {
+  it("replays historical leases but does not let them suppress a v8 scan", async () => {
     const current = snapshot("historical-v1");
     const completed = await new SearchLeaseScheduler({
       context,
@@ -1848,13 +1904,13 @@ describe("AI-native search lease scheduler", () => {
       "SCHEDULE",
     ).promise;
     expect(currentRecord.lease).toMatchObject({
-      algorithmVersion: "pmh.ai-search-leases.v7",
+      algorithmVersion: "pmh.ai-search-leases.v8",
       lens: "EQUIVALENCE",
     });
     expect(scheduler.projection().records.map(
       (record) => record.lease.algorithmVersion,
     )).toEqual([
-      "pmh.ai-search-leases.v7",
+      "pmh.ai-search-leases.v8",
       "pmh.ai-search-leases.v2",
       "pmh.ai-search-leases.v1",
     ]);

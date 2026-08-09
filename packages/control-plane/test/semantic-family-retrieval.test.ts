@@ -161,7 +161,7 @@ describe("semantic-family retrieval trailheads", () => {
       "polymarket-us:house-rep",
     ]);
     expect(selected.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v3",
+      algorithmVersion: "pmh.semantic-family-retrieval.v4",
       routingMode: "QUERY_FIRST",
       selectionReason: "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD",
       anchorListingRefs: ["polymarket-us:house-dem", "polymarket-us:house-rep"],
@@ -187,7 +187,7 @@ describe("semantic-family retrieval trailheads", () => {
       routingMode: "HEURISTIC_FIRST",
     });
     expect(heuristic.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v3",
+      algorithmVersion: "pmh.semantic-family-retrieval.v4",
       routingMode: "HEURISTIC_FIRST",
       querySignals: [],
       queryScore: null,
@@ -246,11 +246,11 @@ describe("semantic-family retrieval trailheads", () => {
     });
   });
 
-  it("samples rare corpus trailheads without turning the issue question into a claim", () => {
+  it("builds a rare seed neighborhood without turning the issue question into a claim", () => {
     const listings = [
-      listing("venue-a:weather", "Will rainfall exceed one inch tomorrow?"),
-      listing("venue-b:sports", "Will the Tigers win tonight?"),
-      listing("venue-c:novel", "Will Zorblax perform a live orbital ballet in 2026?"),
+      listing("venue-a:verbose", "Will Alpha Beta Gamma Delta Epsilon Zeta Eta Theta win?"),
+      listing("venue-b:novel", "Will Zorblax perform a live orbital ballet in 2026?"),
+      listing("venue-c:neighbor", "Will Zorblax receive an international award in 2026?"),
     ];
     const selected = buildSemanticFamilyCatalogSelection({
       source: "QUALIFIED_LIVE_OBSERVATIONS",
@@ -258,20 +258,31 @@ describe("semantic-family retrieval trailheads", () => {
       listings,
       question: "Only inspect rainfall markets.",
       eligibleVenueIds: ["venue-a", "venue-b", "venue-c"],
-      semanticFamily: "IDENTITY_SUCCESSION",
+      semanticFamily: "PHYSICAL_CO_OCCURRENCE",
       maxContextListings: 2,
       feedback: noFeedback,
       routingMode: "HEURISTIC_FIRST",
     });
     expect(selected.retrievalPlan).toMatchObject({
-      selectionReason: "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
+      algorithmVersion: "pmh.semantic-family-retrieval.v4",
+      selectionReason: "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD",
       routingMode: "HEURISTIC_FIRST",
       querySignals: [],
       queryScore: null,
-      sampleListingRefs: expect.arrayContaining(["venue-c:novel"]),
+      heuristicTrailhead: {
+        kind: "RARE_SEED_NEIGHBORHOOD",
+        seedListingRef: "venue-b:novel",
+        relatedListingRefs: ["venue-c:neighbor"],
+        seedSignals: expect.arrayContaining(["zorblax"]),
+        authority: "SEARCH_ROUTING_ONLY",
+      },
     });
+    expect(selected.catalogContext.listings.map((item) => item.listingRef)).toEqual([
+      "venue-b:novel",
+      "venue-c:neighbor",
+    ]);
     expect(semanticFamilyRetrievalBrief(selected.retrievalPlan)).toContain(
-      "form a claim only after reading exact refs",
+      "Form a claim only after inspecting exact refs",
     );
     expect(assertSemanticFamilyRetrievalPlan(selected.retrievalPlan)).toBe(
       selected.retrievalPlan,
