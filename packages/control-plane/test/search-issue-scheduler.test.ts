@@ -257,6 +257,7 @@ describe("issue-driven concurrent search scheduler", () => {
 
     const checkpoint = await issues.runNow(issue.issueId, wideSnapshot).promise;
     const completed = await leases.awaitDeep(checkpoint.lease.leaseId);
+    expect(observedQuestion).toContain("Issue topic: Search a bounded temporal neighborhood");
     expect(observedQuestion).toContain("Semantic family TEMPORAL_IMPOSSIBILITY");
     expect(observedQuestion).toContain("Try to falsify first");
     expect(completed).toMatchObject({

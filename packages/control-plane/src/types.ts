@@ -27,6 +27,8 @@ export type DiscoveryCatalogListing = Readonly<{
   mechanism: string;
   closesAt: string | null;
   rulesText: string | null;
+  rulesTextPosture?: "COMPLETE" | "TRUNCATED";
+  rulesTextSourceCharacterCount?: number;
   evidenceLocators?: readonly DiscoveryEvidenceLocator[];
   outcomes: readonly Readonly<{
     venueOutcomeId: string;

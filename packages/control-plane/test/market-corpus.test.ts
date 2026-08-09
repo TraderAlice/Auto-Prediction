@@ -106,6 +106,20 @@ describe("Market Corpus", () => {
       .toEqual(snapshot);
   });
 
+  it("rejects contradictory retained rules completeness metadata", () => {
+    const malformed = {
+      ...snapshot.listings[0]!,
+      rulesTextPosture: "COMPLETE" as const,
+      rulesTextSourceCharacterCount: snapshot.listings[0]!.rulesText!.length + 1,
+    };
+    expect(() => buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ malformed: true }),
+      eligibleSourceCount: 1,
+      excludedSourceCount: 0,
+      listings: [malformed],
+    })).toThrow("rules evidence");
+  });
+
   it("fails closed when a locator no longer matches its bound venue and protocol", () => {
     const first = snapshot.listings[0]!;
     const tampered = {

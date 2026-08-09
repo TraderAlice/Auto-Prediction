@@ -8,8 +8,11 @@ import {
   buildDiscoveryEvidenceLocator,
   buildDiscoveryEvidenceLocators,
   buildExactDiscoveryCatalogContext,
+  buildMarketCorpusSnapshot,
+  buildProposalEvidenceBundle,
   buildRotatingDiscoveryCatalogContext,
   buildSearchScopeIdentity,
+  toDiscoveryCatalogListing,
   type DiscoveryTask,
 } from "../src/index.js";
 
@@ -50,6 +53,116 @@ describe("verified catalog discovery context", () => {
         listing.listingRef.startsWith("polymarket-us:")
       ),
     ).toBe(true);
+  });
+
+  it("retains complete contract rules while bounding the Agent context preview", () => {
+    const prefix = "Seats are attributed to the party under which the member was elected. ";
+    const completeRules = `${prefix}${"x".repeat(1_896 - prefix.length)}`;
+    const normalized = (instrument: string) => toDiscoveryCatalogListing({
+      venueId: "polymarket-us",
+      venueInstrumentId: instrument,
+      title: `House control ${instrument}`,
+      description: completeRules,
+      status: "OPEN",
+      mechanism: "CENTRALIZED_ORDER_BOOK",
+      rulesText: completeRules,
+      outcomes: [
+        { venueOutcomeId: `${instrument}-yes`, label: "Yes", indicativePrice: 45_000_000n },
+        { venueOutcomeId: `${instrument}-no`, label: "No", indicativePrice: 55_000_000n },
+      ],
+      priceScale: 100_000_000n,
+      quantityScale: 10_000n,
+      minPriceTick: 100_000n,
+      sourceFixtureHash: hashCanonical({ instrument, completeRules }),
+      protocolIdentity: "gateway-rest-v1:test",
+    }, {
+      kind: "LIVE_OBSERVATION",
+      receivedAt: "2026-08-09T00:00:00.000Z",
+    });
+    const retained = [normalized("dem"), normalized("rep")];
+    const corpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "complete-rules" }),
+      eligibleSourceCount: 1,
+      excludedSourceCount: 0,
+      listings: retained,
+    });
+    const context = buildExactDiscoveryCatalogContext(
+      "QUALIFIED_LIVE_OBSERVATIONS",
+      retained,
+    );
+    const proposalBody = {
+      relationKind: "EXHAUSTIVE" as const,
+      listingRefs: retained.map((listing) => listing.listingRef),
+      statement: "The two party outcomes may form an exhaustive partition.",
+      rationale: "The complete rules assign control to exactly one party.",
+      falsifiers: ["An unaffiliated outcome could leave both No."],
+      authority: "PROPOSE_ONLY" as const,
+      reviewStatus: "UNREVIEWED" as const,
+      executionAuthority: false as const,
+    };
+    const proposal = Object.freeze({
+      ...proposalBody,
+      proposalId: hashCanonical({
+        corpusSnapshotIdentity: corpus.snapshotIdentity,
+        ...proposalBody,
+      }),
+    });
+    const bundle = buildProposalEvidenceBundle(proposal, corpus);
+
+    expect(retained[0]).toMatchObject({
+      rulesText: completeRules,
+      rulesTextPosture: "COMPLETE",
+      rulesTextSourceCharacterCount: 1_896,
+    });
+    expect(context.listings[0]).toMatchObject({
+      rulesTextPosture: "TRUNCATED",
+      rulesTextSourceCharacterCount: 1_896,
+    });
+    expect(context.listings[0]?.rulesText).toHaveLength(1_200);
+    expect(context.listings[0]?.rulesText).toMatch(/…$/u);
+    expect(bundle.listings[0]?.rulesText).toBe(completeRules);
+    expect(bundle.listings[0]?.rulesTextPosture).toBe("COMPLETE");
+
+    const changed = retained.map((listing, index) => index === 0
+      ? Object.freeze({
+          ...listing,
+          rulesText: `${completeRules.slice(0, -1)}y`,
+          sourceRawHash: hashCanonical({ changed: true }),
+        })
+      : listing);
+    expect(buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "complete-rules" }),
+      eligibleSourceCount: 1,
+      excludedSourceCount: 0,
+      listings: changed,
+    }).snapshotIdentity).not.toBe(corpus.snapshotIdentity);
+  });
+
+  it("marks retained rules beyond the evidence bound as truncated", () => {
+    const sourceRules = "r".repeat(20_001);
+    const retained = toDiscoveryCatalogListing({
+      venueId: "polymarket-us",
+      venueInstrumentId: "bounded-rule",
+      title: "Bounded rule",
+      description: "Bounded evidence fixture",
+      status: "OPEN",
+      mechanism: "CENTRALIZED_ORDER_BOOK",
+      rulesText: sourceRules,
+      outcomes: [{ venueOutcomeId: "yes", label: "Yes" }],
+      priceScale: 100_000_000n,
+      quantityScale: 10_000n,
+      sourceFixtureHash: hashCanonical({ sourceRules }),
+      protocolIdentity: "gateway-rest-v1:test",
+    }, {
+      kind: "LIVE_OBSERVATION",
+      receivedAt: "2026-08-09T00:00:00.000Z",
+    });
+    expect(retained).toMatchObject({
+      rulesTextPosture: "TRUNCATED",
+      rulesTextSourceCharacterCount: 20_001,
+    });
+    expect(retained.rulesText).toHaveLength(20_000);
+    expect(retained.rulesText).toMatch(/…$/u);
   });
 
   it("grounds a range hypothesis in six concrete Gemini listings", async () => {
@@ -230,6 +343,8 @@ describe("verified catalog discovery context", () => {
       venueInstrumentId: `dense-${index}`,
       description: "d".repeat(800),
       rulesText: "r".repeat(1_200),
+      rulesTextPosture: "COMPLETE" as const,
+      rulesTextSourceCharacterCount: 1_200,
     }));
     const context = buildDiscoveryCatalogContext(
       "VERIFIED_FIXTURE_CATALOGS",
@@ -256,8 +371,13 @@ describe("verified catalog discovery context", () => {
     const desk = new FixtureCatalogDiscoveryDesk();
     await desk.load();
     const seed = desk.context("Rihanna album", ["polymarket-global"]).listings[0]!;
+    const {
+      rulesTextPosture: _rulesTextPosture,
+      rulesTextSourceCharacterCount: _rulesTextSourceCharacterCount,
+      ...seedWithoutRulesMetadata
+    } = seed;
     const dominant = Array.from({ length: 35 }, (_, index) => Object.freeze({
-      ...seed,
+      ...seedWithoutRulesMetadata,
       listingRef: `venue-a:album-${index}`,
       venueId: "venue-a",
       venueInstrumentId: `album-${index}`,
@@ -265,7 +385,7 @@ describe("verified catalog discovery context", () => {
       rulesText: null,
     }));
     const secondVenue = Object.freeze({
-      ...seed,
+      ...seedWithoutRulesMetadata,
       listingRef: "venue-b:unrelated",
       venueId: "venue-b",
       venueInstrumentId: "unrelated",

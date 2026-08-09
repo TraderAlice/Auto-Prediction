@@ -126,6 +126,54 @@ describe("semantic-family retrieval trailheads", () => {
     );
   });
 
+  it("uses a durable issue question to select a relevant family-valid neighborhood", () => {
+    const highScoringDecoys = Array.from({ length: 65 }, (_, index) => [
+      listing(
+        `polymarket-us:decoy-${index}-left`,
+        `Will fighter${index} series${index} champion${index} division${index} be under 10 in 2026?`,
+      ),
+      listing(
+        `polymarket-us:decoy-${index}-right`,
+        `Will fighter${index} series${index} champion${index} division${index} be between 11 and 20 in 2026?`,
+      ),
+    ]).flat();
+    const listings = [
+      ...highScoringDecoys,
+      listing("polymarket-us:ufc-heavy", "Will Alex Pereira be UFC heavyweight champion in 2026?"),
+      listing("polymarket-us:ufc-light-heavy", "Will Alex Pereira be UFC light heavyweight champion in 2026?"),
+      listing("polymarket-us:house-dem", "U.S House Midterm Winner — Democratic Party"),
+      listing("polymarket-us:house-rep", "U.S House Midterm Winner — Republican Party"),
+    ];
+    const selected = buildSemanticFamilyCatalogSelection({
+      source: "QUALIFIED_LIVE_OBSERVATIONS",
+      corpusIdentity,
+      listings,
+      question: "Audit the Democratic and Republican 2026 US House-control midterms contracts.",
+      eligibleVenueIds: ["polymarket-us"],
+      semanticFamily: "PARTITION_COMPLETENESS",
+      maxContextListings: 2,
+      feedback: noFeedback,
+    });
+
+    expect(selected.catalogContext.listings.map((item) => item.listingRef)).toEqual([
+      "polymarket-us:house-dem",
+      "polymarket-us:house-rep",
+    ]);
+    expect(selected.retrievalPlan).toMatchObject({
+      algorithmVersion: "pmh.semantic-family-retrieval.v2",
+      selectionReason: "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD",
+      anchorListingRefs: ["polymarket-us:house-dem", "polymarket-us:house-rep"],
+      querySignals: expect.arrayContaining(["democratic", "republican", "house"]),
+      queryScore: expect.any(Number),
+    });
+    expect(semanticFamilyRetrievalBrief(selected.retrievalPlan)).toContain(
+      "matched issue signals",
+    );
+    expect(assertSemanticFamilyRetrievalPlan(selected.retrievalPlan)).toBe(
+      selected.retrievalPlan,
+    );
+  });
+
   it.each([
     ["EVENT_CONTAINMENT", [
       "Will US CPI exceed 4 percent by June 2026?",

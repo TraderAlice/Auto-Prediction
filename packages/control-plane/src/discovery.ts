@@ -10,6 +10,8 @@ import type {
   OpportunityHypothesis,
 } from "./types.js";
 import {
+  hasBoundedRulesEvidence,
+  MAX_AGENT_RULE_CHARACTERS,
   MAX_CATALOG_CONTEXT_CHARACTERS,
 } from "./catalog-discovery.js";
 import { hasBoundedDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
@@ -60,7 +62,7 @@ function hasBoundedCatalogListing(
     listing.mechanism.trim() !== "" &&
     listing.mechanism.length <= 100 &&
     (listing.closesAt === null || listing.closesAt.length <= 64) &&
-    (listing.rulesText === null || listing.rulesText.length <= 1_200) &&
+    hasBoundedRulesEvidence(listing, MAX_AGENT_RULE_CHARACTERS) &&
     hasBoundedDiscoveryEvidenceLocators(listing) &&
     (listing.sourceKind === "VERIFIED_FIXTURE" ||
       listing.sourceKind === "LIVE_OBSERVATION") &&

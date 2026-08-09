@@ -16,7 +16,9 @@ runtime model supply and operator switching tracked in
 discovery findings tracked in
 [`plans/discovery-falsification-effects.md`](plans/discovery-falsification-effects.md),
 with durable issue-to-review yield tracked in
-[`plans/durable-search-yield-attribution.md`](plans/durable-search-yield-attribution.md).
+[`plans/durable-search-yield-attribution.md`](plans/durable-search-yield-attribution.md),
+and full contract text retention tracked in
+[`plans/complete-contract-rules-evidence.md`](plans/complete-contract-rules-evidence.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -32,6 +34,36 @@ hard-arbitrage compiler.
   rerun the plan's qualification gates against the current worktree.
 
 ## Current checkpoint
+
+The measured funnel has no safe automatic operator decisions yet:
+`DECISION_READY=0`. The strongest live lead—the Polymarket US Democratic and
+Republican House-control partition—was escalated because its retained rules end
+mid-sentence at 1,200 characters even though the anonymous official catalog
+returns the complete 1,896-character contract. Discovery-context compaction has
+been incorrectly reused as proposal evidence. The active slice separates a
+20,000-character, posture-labelled retained rule artifact from the still-bounded
+1,200-character Agent context, so independent review can reason over complete,
+source-hashed rules without inflating every cheap discovery prompt.
+
+The first live re-scan also proved that durable issues are not yet true topic
+assignments: an issue naming the 2026 U.S. Congress control contracts was routed
+to a UFC-champion partition because family retrieval ignored the issue question
+whenever it found any family-valid neighborhood. The same active slice now
+binds discriminative issue-question signals into the content-addressed routing
+plan while preserving family gating and scope-rotation feedback. The Congress
+issue is the live qualification case for both complete rules and issue-directed
+Agent work.
+
+Live qualification now closes both defects. The 799-listing capture retains
+the House rules as 1,890-character `COMPLETE` artifacts; the durable House issue
+selects the exact pair at rank 1 with six matched query signals. DeepSeek
+produced two relation hypotheses, Pi read the full MarketFS venue files, and
+unconditional exhaustiveness was correctly falsified by the unaffiliated-
+Speaker `(No, No)` state. The surviving `MUTUALLY_EXCLUSIVE` and `CONDITIONAL`
+proposals entered independent review with complete evidence. That review
+exposed the next bottleneck: terminal tool submissions can still be rejected
+without enough repair guidance, causing safe abstention/retry even when the
+semantic argument is largely sound. This is a distinct follow-on slice.
 
 Live north-star measurement exposed two nested retention-window attribution
 bugs. The issue funnel originally forgot terminal reviews as they left the

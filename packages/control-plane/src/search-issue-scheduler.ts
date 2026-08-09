@@ -1030,13 +1030,16 @@ function searchQuestionForIssue(issue: SearchIssueRecord): string {
     return issue.question;
   }
   const family = issue.familyDefinition;
+  const issueTopic = issue.question.length <= 240
+    ? issue.question
+    : `${issue.question.slice(0, 239)}…`;
   return [
+    `Issue topic: ${issueTopic}`,
     `Semantic family ${family.semanticFamily}.`,
     `Return ${family.expectedListingCount.minimum}-${family.expectedListingCount.maximum} exact listing refs and only ${family.intendedRelationKinds.join("/")} relations.`,
     `Try to falsify first: ${family.falsifiers.join("; ")}.`,
     `Premises retained for research may be ${family.acceptablePremiseKinds.join("/")}.`,
-    issue.question,
-  ].join(" ");
+  ].join(" ").slice(0, 500);
 }
 
 export class SearchIssueScheduler {

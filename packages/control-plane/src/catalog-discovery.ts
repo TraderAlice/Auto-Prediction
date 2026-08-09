@@ -21,7 +21,8 @@ import { buildSearchScopeIdentity } from "./search-scope-identity.js";
 export const MAX_LISTINGS_PER_TASK = 30;
 export const MAX_CATALOG_CONTEXT_CHARACTERS = 50_000;
 const MAX_DESCRIPTION_CHARACTERS = 800;
-const MAX_RULE_CHARACTERS = 1_200;
+export const MAX_AGENT_RULE_CHARACTERS = 1_200;
+export const MAX_RETAINED_RULE_CHARACTERS = 20_000;
 
 type CatalogSource = Readonly<{
   venueId: string;
@@ -90,11 +91,74 @@ function textOnly(value: string): string {
     .replace(/&gt;/giu, ">");
 }
 
-function compactText(value: string, limit: number): string {
-  const normalized = textOnly(value).trim().replace(/\s+/gu, " ");
+function normalizedText(value: string): string {
+  return textOnly(value).trim().replace(/\s+/gu, " ");
+}
+
+function compactNormalizedText(normalized: string, limit: number): string {
   return normalized.length <= limit
     ? normalized
     : `${normalized.slice(0, limit - 1).trimEnd()}…`;
+}
+
+function compactText(value: string, limit: number): string {
+  return compactNormalizedText(normalizedText(value), limit);
+}
+
+export function hasBoundedRulesEvidence(
+  listing: Pick<
+    DiscoveryCatalogListing,
+    "rulesText" | "rulesTextPosture" | "rulesTextSourceCharacterCount"
+  >,
+  maximumTextLength: number,
+): boolean {
+  if (listing.rulesText === null) {
+    return listing.rulesTextPosture === undefined &&
+      listing.rulesTextSourceCharacterCount === undefined;
+  }
+  if (listing.rulesText.length > maximumTextLength) return false;
+  const posture = listing.rulesTextPosture;
+  const sourceCharacterCount = listing.rulesTextSourceCharacterCount;
+  if (posture === undefined && sourceCharacterCount === undefined) return true;
+  if (
+    (posture !== "COMPLETE" && posture !== "TRUNCATED") ||
+    !Number.isSafeInteger(sourceCharacterCount) ||
+    sourceCharacterCount! < listing.rulesText.length
+  ) return false;
+  return posture === "COMPLETE"
+    ? sourceCharacterCount === listing.rulesText.length
+    : sourceCharacterCount! > listing.rulesText.length;
+}
+
+function toAgentContextListing(
+  listing: DiscoveryCatalogListing,
+): DiscoveryCatalogListing {
+  if (listing.rulesText === null) {
+    const {
+      rulesTextPosture: _rulesTextPosture,
+      rulesTextSourceCharacterCount: _rulesTextSourceCharacterCount,
+      ...withoutRulesMetadata
+    } = listing;
+    return Object.freeze(withoutRulesMetadata);
+  }
+  const rulesText = compactText(listing.rulesText, MAX_AGENT_RULE_CHARACTERS);
+  const posture = listing.rulesTextPosture === undefined
+    ? undefined
+    : listing.rulesTextPosture === "COMPLETE" &&
+        listing.rulesText.length <= MAX_AGENT_RULE_CHARACTERS
+      ? "COMPLETE" as const
+      : "TRUNCATED" as const;
+  return Object.freeze({
+    ...listing,
+    rulesText,
+    ...(posture === undefined
+      ? {}
+      : {
+          rulesTextPosture: posture,
+          rulesTextSourceCharacterCount:
+            listing.rulesTextSourceCharacterCount ?? listing.rulesText.length,
+        }),
+  });
 }
 
 function searchTerms(value: string): ReadonlySet<string> {
@@ -137,6 +201,12 @@ export function toDiscoveryCatalogListing(
   }>,
 ): DiscoveryCatalogListing {
   const evidenceLocators = buildDiscoveryEvidenceLocators(listing);
+  const normalizedRules = listing.rulesText === undefined
+    ? null
+    : normalizedText(listing.rulesText);
+  const retainedRules = normalizedRules === null
+    ? null
+    : compactNormalizedText(normalizedRules, MAX_RETAINED_RULE_CHARACTERS);
   return Object.freeze({
     listingRef: `${listing.venueId}:${listing.venueInstrumentId}`,
     venueId: listing.venueId,
@@ -146,10 +216,15 @@ export function toDiscoveryCatalogListing(
     status: listing.status,
     mechanism: listing.mechanism,
     closesAt: listing.closesAt ?? null,
-    rulesText:
-      listing.rulesText === undefined
-        ? null
-        : compactText(listing.rulesText, MAX_RULE_CHARACTERS),
+    rulesText: retainedRules,
+    ...(normalizedRules === null
+      ? {}
+      : {
+          rulesTextPosture: normalizedRules.length <= MAX_RETAINED_RULE_CHARACTERS
+            ? "COMPLETE" as const
+            : "TRUNCATED" as const,
+          rulesTextSourceCharacterCount: normalizedRules.length,
+        }),
     ...(evidenceLocators.length === 0 ? {} : { evidenceLocators }),
     outcomes: Object.freeze(
       listing.outcomes.map((outcome) =>
@@ -190,7 +265,8 @@ export function buildDiscoveryCatalogContext(
   const append = (item: (typeof ranked)[number]): boolean => {
     if (selected.length >= MAX_LISTINGS_PER_TASK) return false;
     if (selectedRefs.has(item.listing.listingRef)) return false;
-    const candidate = [...selected, item.listing];
+    const boundedListing = toAgentContextListing(item.listing);
+    const candidate = [...selected, boundedListing];
     const boundedCandidate = {
       schemaVersion: "pmh.discovery-catalog-context.v2" as const,
       source,
@@ -201,7 +277,7 @@ export function buildDiscoveryCatalogContext(
     if (JSON.stringify(boundedCandidate).length > MAX_CATALOG_CONTEXT_CHARACTERS) {
       return false;
     }
-    selected.push(item.listing);
+    selected.push(boundedListing);
     selectedRefs.add(item.listing.listingRef);
     return true;
   };
@@ -227,7 +303,7 @@ export function buildExactDiscoveryCatalogContext(
   source: DiscoveryCatalogContextSource,
   listingsInput: readonly DiscoveryCatalogListing[],
 ): DiscoveryCatalogContext {
-  const listings = Object.freeze([...listingsInput]);
+  const listings = Object.freeze(listingsInput.map(toAgentContextListing));
   if (listings.length > MAX_LISTINGS_PER_TASK) {
     throw new Error("exact catalog context exceeds the listing limit");
   }
