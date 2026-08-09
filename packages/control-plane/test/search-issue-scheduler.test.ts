@@ -949,6 +949,79 @@ describe("issue-driven concurrent search scheduler", () => {
     store.close();
   });
 
+  it("notifies a grounded falsification without presenting it as a candidate", async () => {
+    const leases = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => {
+        const base = runRecord(task);
+        const findingIdentity = hashCanonical({
+          schemaVersion: "pmh.discovery-falsification-finding.v1",
+          relationKind: "EQUIVALENCE",
+          listingRefs: ["venue-a:pizza", "venue-b:pizza"],
+        });
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-falsification.v2" as const,
+          findingIdentity,
+          workerId: "model:fast",
+          taskId: task.taskId,
+          claim: "The two pizza contracts are equivalent.",
+          reason: "Their settlement windows differ.",
+          relationKind: "EQUIVALENCE" as const,
+          listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
+          claimSearchTerms: Object.freeze(["Trump pizza", "August"]),
+          authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          certificateAuthority: false as const,
+          executionAuthority: false as const,
+          externalWriteAuthority: false as const,
+          valueMovingAuthority: false as const,
+        });
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([]),
+          falsifications: Object.freeze([Object.freeze({
+            ...body,
+            falsificationId: hashCanonical(body),
+          })]),
+          workerReports: Object.freeze(base.workerReports!.map((report) =>
+            Object.freeze({ ...report, hypothesisCount: 0, falsificationCount: 1 })
+          )),
+        });
+      },
+      maxPiInvocations: 0,
+      now: () => nowMs,
+    });
+    const issues = new SearchIssueScheduler({
+      leaseScheduler: leases,
+      seedDefaults: false,
+      now: () => nowMs,
+    });
+    const issue = issues.create({
+      title: "Falsification notice",
+      question: "Test the pizza equivalence claim.",
+      lens: "EQUIVALENCE",
+      cadenceMs: 300_000,
+    });
+
+    const record = await issues.runNow(issue.issueId, snapshot("falsification-notice")).promise;
+    const projection = issues.projection();
+
+    expect(record.outcome).toMatchObject({ hypothesisCount: 0, falsificationCount: 1 });
+    expect(projection.performance).toMatchObject({
+      hypothesisCount: 0,
+      falsificationCount: 1,
+      novelCandidateCount: 0,
+      piEscalationCount: 0,
+    });
+    expect(projection.notifications).toHaveLength(1);
+    expect(projection.notifications[0]).toMatchObject({
+      kind: "FALSIFICATION_RECORDED",
+      status: "UNREAD",
+      title: "Falsification notice: relation falsified",
+    });
+    expect(projection.notifications[0]?.summary).toContain("no proposal or Pi work");
+  });
+
   it("reconciles missing defaults without overwriting durable operator issue state", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-search-issues-"));
     const path = join(directory, "control-plane.sqlite");

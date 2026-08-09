@@ -71,7 +71,7 @@ export type SearchNotificationRecord = Readonly<{
   dedupeIdentity: Hash;
   issueId: Hash;
   leaseId: Hash;
-  kind: "NOVEL_CANDIDATE" | "RUN_FAILED";
+  kind: "NOVEL_CANDIDATE" | "FALSIFICATION_RECORDED" | "RUN_FAILED";
   status: "UNREAD" | "READ";
   title: string;
   summary: string;
@@ -139,6 +139,7 @@ export type SearchIssueSchedulerProjection = Readonly<{
     boundedScopeRevisitCount: number;
     noLeadBoundedScopeCount: number;
     hypothesisCount: number;
+    falsificationCount: number;
     proposalCount: number;
     evidenceGapCount: number;
     coverageManifestCount: number;
@@ -156,6 +157,8 @@ export type SearchIssueSchedulerProjection = Readonly<{
     agentCatalogReadCount: number;
     agentAcceptedProposalEffectCount: number;
     agentRejectedProposalEffectCount: number;
+    agentAcceptedFalsificationEffectCount: number;
+    agentRejectedFalsificationEffectCount: number;
     agentExplicitCompletionCount: number;
     agentBudgetTerminationCount: number;
     agentFailureTerminationCount: number;
@@ -207,6 +210,7 @@ export type SearchIssueSchedulerProjection = Readonly<{
       boundedScopeRevisitCount: number;
       noLeadBoundedScopeCount: number;
       hypothesisCount: number;
+      falsificationCount: number;
       proposalCount: number;
       evidenceGapCount: number;
       coverageManifestCount: number;
@@ -221,6 +225,8 @@ export type SearchIssueSchedulerProjection = Readonly<{
       agentCatalogReadCount: number;
       agentAcceptedProposalEffectCount: number;
       agentRejectedProposalEffectCount: number;
+      agentAcceptedFalsificationEffectCount: number;
+      agentRejectedFalsificationEffectCount: number;
       agentExplicitCompletionCount: number;
       agentBudgetTerminationCount: number;
       agentFailureTerminationCount: number;
@@ -240,6 +246,7 @@ export type SearchIssueSchedulerProjection = Readonly<{
       terminalLeaseCount: number;
       novelCandidateCount: number;
       proposalCount: number;
+      falsificationCount: number;
       providerRequestAttemptCount: number;
       providerFailureCount: number;
       providerFailureRateBps: number | null;
@@ -438,6 +445,7 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   boundedScopeRevisitCount: number;
   noLeadBoundedScopeCount: number;
   hypothesisCount: number;
+  falsificationCount: number;
   proposalCount: number;
   evidenceGapCount: number;
   coverageManifestCount: number;
@@ -455,6 +463,8 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
   agentCatalogReadCount: number;
   agentAcceptedProposalEffectCount: number;
   agentRejectedProposalEffectCount: number;
+  agentAcceptedFalsificationEffectCount: number;
+  agentRejectedFalsificationEffectCount: number;
   agentExplicitCompletionCount: number;
   agentBudgetTerminationCount: number;
   agentFailureTerminationCount: number;
@@ -634,6 +644,10 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
       noLeadReasons.includes(record.deepLane.reason)
     ).length,
     hypothesisCount: records.reduce((sum, record) => sum + record.outcome.hypothesisCount, 0),
+    falsificationCount: records.reduce(
+      (sum, record) => sum + (record.outcome.falsificationCount ?? 0),
+      0,
+    ),
     proposalCount: records.reduce((sum, record) => sum + record.outcome.proposalCount, 0),
     evidenceGapCount: records.reduce((sum, record) => sum + record.outcome.evidenceGapCount, 0),
     coverageManifestCount: coverageRecords.length,
@@ -674,6 +688,14 @@ function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Reado
     ),
     agentRejectedProposalEffectCount: agentTelemetry.reduce(
       (sum, item) => sum + item.rejectedProposalEffectCount,
+      0,
+    ),
+    agentAcceptedFalsificationEffectCount: agentTelemetry.reduce(
+      (sum, item) => sum + (item.acceptedFalsificationEffectCount ?? 0),
+      0,
+    ),
+    agentRejectedFalsificationEffectCount: agentTelemetry.reduce(
+      (sum, item) => sum + (item.rejectedFalsificationEffectCount ?? 0),
       0,
     ),
     agentExplicitCompletionCount: terminationCount(["EXPLICIT_COMPLETION"]),
@@ -816,7 +838,9 @@ export function assertSearchNotificationRecord(
     !HASH_PATTERN.test(String(record.dedupeIdentity)) ||
     !HASH_PATTERN.test(String(record.issueId)) ||
     !HASH_PATTERN.test(String(record.leaseId)) ||
-    (record.kind !== "NOVEL_CANDIDATE" && record.kind !== "RUN_FAILED") ||
+    (record.kind !== "NOVEL_CANDIDATE" &&
+      record.kind !== "FALSIFICATION_RECORDED" &&
+      record.kind !== "RUN_FAILED") ||
     (record.status !== "UNREAD" && record.status !== "READ") ||
     !boundedText(record.title, 160) || !boundedText(record.summary, 500) ||
     !isIso(record.createdAt) ||
@@ -1445,6 +1469,18 @@ export class SearchIssueScheduler {
           ? `${lease.outcome.hypothesisCount} fast-lane candidate${lease.outcome.hypothesisCount === 1 ? "" : "s"} retained; the independent pi investigation is queued.`
           : `${lease.outcome.hypothesisCount} fast-lane candidate${lease.outcome.hypothesisCount === 1 ? "" : "s"}; ${lease.outcome.proposalCount} grounded deep proposal${lease.outcome.proposalCount === 1 ? "" : "s"}; ${lease.outcome.evidenceGapCount} evidence gap${lease.outcome.evidenceGapCount === 1 ? "" : "s"}.`,
       );
+    } else if ((lease.fastLane.falsificationIds?.length ?? 0) > 0) {
+      const falsificationIds = Object.freeze([
+        ...(lease.fastLane.falsificationFindingIdentities ??
+          lease.fastLane.falsificationIds!),
+      ].sort());
+      this.#notify(
+        issue,
+        lease,
+        "FALSIFICATION_RECORDED",
+        hashCanonical({ schemaVersion: "pmh.search-falsification-notice.v1", falsificationIds }),
+        `${falsificationIds.length} inspected relation${falsificationIds.length === 1 ? " was" : "s were"} retained as negative search evidence; no proposal or Pi work was created.`,
+      );
     }
   }
 
@@ -1476,7 +1512,9 @@ export class SearchIssueScheduler {
       status: "UNREAD",
       title: kind === "NOVEL_CANDIDATE"
         ? `${issue.title}: new candidate`
-        : `${issue.title}: search failed`,
+        : kind === "FALSIFICATION_RECORDED"
+          ? `${issue.title}: relation falsified`
+          : `${issue.title}: search failed`,
       summary: summary.slice(0, 500),
       createdAt,
       readAt: null,
@@ -1614,6 +1652,7 @@ export class SearchIssueScheduler {
             terminalLeaseCount: summary.terminalLeaseCount,
             novelCandidateCount: summary.novelCandidateCount,
             proposalCount: summary.proposalCount,
+            falsificationCount: summary.falsificationCount,
             providerRequestAttemptCount: summary.providerRequestAttemptCount,
             providerFailureCount: summary.providerFailureCount,
             providerFailureRateBps: summary.providerFailureRateBps,

@@ -324,6 +324,76 @@ describe("AI-native search lease scheduler", () => {
     expect(runDeep).not.toHaveBeenCalled();
   });
 
+  it("retains a falsification-only fast result without launching pi", async () => {
+    const runDeep = vi.fn();
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => {
+        const base = runRecord(task);
+        const findingIdentity = hashCanonical({
+          schemaVersion: "pmh.discovery-falsification-finding.v1",
+          relationKind: "EQUIVALENCE",
+          listingRefs: ["venue-a:pizza-a", "venue-b:pizza-b"],
+        });
+        const body = Object.freeze({
+          schemaVersion: "pmh.discovery-falsification.v2" as const,
+          findingIdentity,
+          workerId: "model:fast",
+          taskId: task.taskId,
+          claim: "The two pizza listings settle the same claim.",
+          reason: "Their positive resolution windows end on different dates.",
+          relationKind: "EQUIVALENCE" as const,
+          listingRefs: Object.freeze(["venue-a:pizza-a", "venue-b:pizza-b"]),
+          claimSearchTerms: Object.freeze(["Trump pizza", "August"]),
+          authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY" as const,
+          semanticDecisionAuthority: false as const,
+          certificateAuthority: false as const,
+          executionAuthority: false as const,
+          externalWriteAuthority: false as const,
+          valueMovingAuthority: false as const,
+        });
+        const falsification = Object.freeze({
+          ...body,
+          falsificationId: hashCanonical(body),
+        });
+        return Object.freeze({
+          ...base,
+          hypotheses: Object.freeze([]),
+          falsifications: Object.freeze([falsification]),
+          workerReports: Object.freeze(base.workerReports!.map((report) =>
+            Object.freeze({
+              ...report,
+              hypothesisCount: 0,
+              falsificationCount: report.kind === "MODEL" ? 1 : 0,
+            })
+          )),
+        });
+      },
+      runDeep,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+
+    const record = await scheduler.begin(snapshot("falsification-only"), "EQUIVALENCE").promise;
+
+    expect(record).toMatchObject({
+      status: "PASS",
+      fastLane: {
+        status: "PASS",
+        hypothesisIds: [],
+        falsificationIds: [expect.stringMatching(/^sha256:/)],
+      },
+      deepLane: { status: "NOT_RUN", reason: "NO_CANDIDATES" },
+      outcome: {
+        novelCandidate: false,
+        hypothesisCount: 0,
+        falsificationCount: 1,
+        proposalCount: 0,
+      },
+    });
+    expect(runDeep).not.toHaveBeenCalled();
+    expect(() => assertSearchLeaseRecord(record)).not.toThrow();
+  });
+
   it("links duplicate candidate signatures and does not spend a second pi invocation", async () => {
     const runDeep = vi.fn(async () => Object.freeze({
       runId: hashCanonical({ deep: 1 }),

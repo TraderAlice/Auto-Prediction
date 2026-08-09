@@ -16,18 +16,22 @@ const p2 = h("proposal-2");
 const p3 = h("proposal-3");
 const p4 = h("manual-proposal");
 const p5 = h("lifecycle-missing");
+const f1 = h("falsification-1");
+const f2 = h("falsification-2");
 
 function lease(
   name: string,
   issueId: Hash,
   proposalIds: readonly string[],
   status: "PASS" | "FAILED" = "PASS",
+  falsificationIds: readonly string[] = [],
 ): SearchOutcomeAttributionInput["searchLeases"][number] {
   return Object.freeze({
     artifactHash: h(`lease:${name}`),
     status,
     completedAt: "2026-08-02T00:00:00.000Z",
     lease: Object.freeze({ issueId }),
+    fastLane: Object.freeze({ falsificationIds }),
     deepLane: Object.freeze({
       status: status === "PASS" ? "PASS" as const : "FAILED" as const,
       proposalIds,
@@ -48,9 +52,9 @@ function input(): SearchOutcomeAttributionInput {
       }),
     ]),
     searchLeases: Object.freeze([
-      lease("a", issueA, [p1, p2, p5, "invalid-proposal-reference"]),
-      lease("b", issueB, [p2, p3]),
-      lease("failed", issueA, [p4], "FAILED"),
+      lease("a", issueA, [p1, p2, p5, "invalid-proposal-reference"], "PASS", [f1]),
+      lease("b", issueB, [p2, p3], "PASS", [f1, f2, "invalid-falsification-reference"]),
+      lease("failed", issueA, [p4], "FAILED", [f2]),
     ]),
     semanticReviews: Object.freeze([
       Object.freeze({
@@ -121,18 +125,20 @@ describe("search outcome attribution", () => {
     const projection = buildSearchOutcomeAttribution(input());
 
     expect(projection).toMatchObject({
-      measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+      measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES",
       sourceArtifactCount: 17,
       issueCount: 2,
       familyCount: 2,
       unclassifiedIssueCount: 0,
       attributedLeaseCount: 3,
       attributedProposalCount: 4,
+      attributedFalsificationCount: 2,
       totalAiProposalCount: 4,
       unattributedAiProposalCount: 1,
       multiIssueProposalCount: 1,
       multiFamilyProposalCount: 1,
       invalidProposalReferenceCount: 1,
+      invalidFalsificationReferenceCount: 1,
       lifecycleMissingCount: 1,
       attributionCoverageBps: 7_500,
       modelConfidenceUsed: false,
@@ -173,6 +179,7 @@ describe("search outcome attribution", () => {
     expect(projection.byIssue.find((item) => item.issueId === issueA)).toMatchObject({
       leaseCount: 2,
       proposalCount: 3,
+      falsificationCount: 1,
       reviewedCount: 2,
       operatorAcceptedCount: 1,
       operatorRejectedCount: 1,
@@ -187,6 +194,7 @@ describe("search outcome attribution", () => {
     expect(projection.byIssue.find((item) => item.issueId === issueB)).toMatchObject({
       leaseCount: 1,
       proposalCount: 2,
+      falsificationCount: 2,
       reviewedCount: 1,
       operatorRejectedCount: 1,
       positiveGrossHintCount: 0,
@@ -201,6 +209,7 @@ describe("search outcome attribution", () => {
         issueCount: 1,
         leaseCount: 1,
         proposalCount: 2,
+        falsificationCount: 2,
         reviewedCount: 1,
       }),
       expect.objectContaining({
@@ -208,6 +217,7 @@ describe("search outcome attribution", () => {
         issueCount: 1,
         leaseCount: 2,
         proposalCount: 3,
+        falsificationCount: 1,
         certifiedCount: 1,
       }),
     ]);

@@ -698,6 +698,7 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     boundedScopeRevisitCount: 0,
     noLeadBoundedScopeCount: 0,
     hypothesisCount: 0,
+    falsificationCount: 0,
     proposalCount: 0,
     evidenceGapCount: 0,
     coverageManifestCount: 0,
@@ -715,6 +716,8 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     agentCatalogReadCount: 0,
     agentAcceptedProposalEffectCount: 0,
     agentRejectedProposalEffectCount: 0,
+    agentAcceptedFalsificationEffectCount: 0,
+    agentRejectedFalsificationEffectCount: 0,
     agentExplicitCompletionCount: 0,
     agentBudgetTerminationCount: 0,
     agentFailureTerminationCount: 0,
@@ -806,21 +809,23 @@ const EMPTY_SEARCH_QUOTE_ENRICHMENT: StudioProjection["ai"]["searchQuoteEnrichme
 };
 
 const EMPTY_SEARCH_OUTCOME_ATTRIBUTION: StudioProjection["ai"]["searchOutcomeAttribution"] = {
-  schemaVersion: "pmh.search-outcome-attribution.v2",
+  schemaVersion: "pmh.search-outcome-attribution.v3",
   attributionIdentity: `sha256:${"0".repeat(64)}`,
   sourceSetIdentity: `sha256:${"0".repeat(64)}`,
   sourceArtifactCount: 0,
-  measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+  measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES",
   issueCount: 0,
   familyCount: 0,
   unclassifiedIssueCount: 0,
   attributedLeaseCount: 0,
   attributedProposalCount: 0,
+  attributedFalsificationCount: 0,
   totalAiProposalCount: 0,
   unattributedAiProposalCount: 0,
   multiIssueProposalCount: 0,
   multiFamilyProposalCount: 0,
   invalidProposalReferenceCount: 0,
+  invalidFalsificationReferenceCount: 0,
   lifecycleMissingCount: 0,
   attributionCoverageBps: null,
   stages: [
@@ -3589,6 +3594,7 @@ function MarketArchaeologistView() {
               <span><b>{outcomeAttribution.bottlenecks.materializationBlockedCount}</b> market evidence blocked</span>
               <span><b>{outcomeAttribution.bottlenecks.simulationBlockedCount}</b> simulation blocked</span>
               <span><b>{outcomeAttribution.bottlenecks.missingEvidenceCount}</b> evidence gaps</span>
+              <span><b>{outcomeAttribution.attributedFalsificationCount}</b> falsified leads retained</span>
               {outcomeAttribution.multiIssueProposalCount > 0 && <span><b>{outcomeAttribution.multiIssueProposalCount}</b> multi-issue proposals</span>}
               {outcomeAttribution.multiFamilyProposalCount > 0 && <span><b>{outcomeAttribution.multiFamilyProposalCount}</b> multi-family proposals</span>}
               {outcomeAttribution.invalidProposalReferenceCount > 0 && <span className="is-warning"><b>{outcomeAttribution.invalidProposalReferenceCount}</b> invalid proposal refs</span>}
@@ -3604,7 +3610,7 @@ function MarketArchaeologistView() {
                     <div key={family.semanticFamily}>
                       <strong>{family.certifiedCount}/{family.proposalCount}</strong>
                       <span>
-                        {family.semanticFamily.replaceAll("_", " ")} · certified/proposed · {family.reviewedCount} reviewed · {provider?.providerRequestAttemptCount ?? 0} requests · {provider?.familyRetrievalLeaseCount ?? 0} trailheads / {provider?.familyRetrievalNeighborhoodCount ?? 0} neighborhoods / {provider?.familyRetrievalFallbackCount ?? 0} query fallbacks
+                        {family.semanticFamily.replaceAll("_", " ")} · certified/proposed · {family.falsificationCount} falsified · {family.reviewedCount} reviewed · {provider?.providerRequestAttemptCount ?? 0} requests · {provider?.familyRetrievalLeaseCount ?? 0} trailheads / {provider?.familyRetrievalNeighborhoodCount ?? 0} neighborhoods / {provider?.familyRetrievalFallbackCount ?? 0} query fallbacks
                       </span>
                     </div>
                   );
@@ -3686,7 +3692,7 @@ function MarketArchaeologistView() {
                           {performance?.economicGatePositiveCount ?? 0}/{performance?.economicGateRequiredCount ?? 0} gross-positive · {performance?.piAvoidedCount ?? 0} pi saved
                         </span>
                       )}
-                      <span>{outcome?.reviewedCount ?? 0}/{outcome?.proposalCount ?? 0} reviewed · {outcome?.operatorAcceptedCount ?? 0} accepted · {outcome?.certifiedCount ?? 0} certified</span>
+                      <span>{outcome?.reviewedCount ?? 0}/{outcome?.proposalCount ?? 0} reviewed · {outcome?.falsificationCount ?? 0} falsified · {outcome?.operatorAcceptedCount ?? 0} accepted · {outcome?.certifiedCount ?? 0} certified</span>
                       <span>{outcome?.positiveGrossHintCount ?? 0} positive · {outcome?.nonPositiveGrossHintCount ?? 0} non-positive · {outcome?.economicUnavailableCount ?? 0} unpriceable</span>
                     </div>
                     <div className="search-issue-actions">
@@ -3729,7 +3735,7 @@ function MarketArchaeologistView() {
                 <div className="search-notification-empty">
                   <Bell size={20} />
                   <strong>Inbox is quiet</strong>
-                  <span>Empty or duplicate scans do not notify.</span>
+                  <span>Empty or duplicate scans do not notify; candidates and grounded falsifications do.</span>
                 </div>
               ) : issueScheduler.notifications.slice(0, 12).map((notification) => (
                 <article className={cn("search-notification", notification.status === "READ" && "is-read")} key={notification.notificationId}>
@@ -3985,6 +3991,7 @@ function MarketArchaeologistView() {
               <p>{record.lease.thesis}</p>
               <div>
                 <code>{record.outcome.hypothesisCount} candidates</code>
+                <code>{record.outcome.falsificationCount ?? 0} falsified</code>
                 <code>FAST {record.fastLane.status}</code>
                 <code>DEEP {record.deepLane.status}</code>
                 <code>{record.deepLane.reason}</code>
@@ -6199,8 +6206,9 @@ function ScoutInboxView() {
         <h1>Scout inbox</h1>
         <p>
           Cheap workers can broaden the search surface and suggest semantic
-          connections. Every result lands here as an unreviewed proposal; none
-          can become a claim link, certificate, or order by itself.
+          connections. Positive leads land as unreviewed proposals; disproved
+          relations remain separate negative search evidence. Neither can
+          become a claim link, certificate, or order by itself.
         </p>
       </div>
 
@@ -6219,6 +6227,11 @@ function ScoutInboxView() {
           label="Awaiting review"
           value={`${studioProjection.discoveryDesk.unreviewedCount}`}
           detail="independent authority required"
+        />
+        <Metric
+          label="Falsified leads"
+          value={`${studioProjection.discoveryDesk.falsificationCount}`}
+          detail="search feedback · never proposals"
         />
         <Metric
           label="Catalog facts"
@@ -6598,6 +6611,7 @@ function ScoutInboxView() {
                         <strong>
                           {report.status} · {report.hypothesisCount} lead
                           {report.hypothesisCount === 1 ? "" : "s"} ·{" "}
+                          {report.falsificationCount ?? 0} falsified ·{" "}
                           {report.durationMs} ms
                         </strong>
                         {report.diagnostic !== null && (
@@ -6634,6 +6648,39 @@ function ScoutInboxView() {
                     <div className="promotion-lock">
                       <CircleOff size={13} />
                       Runtime equivalence review is not configured; promotion is locked.
+                    </div>
+                  </div>
+                ))}
+                {(run.falsifications ?? []).map((falsification) => (
+                  <div className="hypothesis-card" key={falsification.falsificationId}>
+                    <div className="hypothesis-topline">
+                      <Badge variant="warning">FALSIFIED LEAD</Badge>
+                      <Badge variant="muted">{falsification.authority}</Badge>
+                    </div>
+                    <p>{falsification.claim}</p>
+                    <dl>
+                      <div>
+                        <dt>Tested relation</dt>
+                        <dd>{(falsification.relationKind ?? "UNSPECIFIED RELATION").replaceAll("_", " ")}</dd>
+                      </div>
+                      <div>
+                        <dt>Why rejected</dt>
+                        <dd>{falsification.reason}</dd>
+                      </div>
+                      <div>
+                        <dt>Search terms</dt>
+                        <dd>{falsification.claimSearchTerms.join(" · ")}</dd>
+                      </div>
+                      <div>
+                        <dt>Inspected listings</dt>
+                        <dd className="grounded-listings">
+                          {falsification.listingRefs.join(" · ")}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="promotion-lock">
+                      <CircleOff size={13} />
+                      Negative retrieval feedback only; no proposal or promotion route.
                     </div>
                   </div>
                 ))}

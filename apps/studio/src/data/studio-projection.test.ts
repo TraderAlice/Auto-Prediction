@@ -86,7 +86,7 @@ describe("Studio projection safety", () => {
       records: [],
     });
     expect(studioProjection.ai.searchOutcomeAttribution).toMatchObject({
-      measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+      measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES",
       attributedProposalCount: 0,
       attributionCoverageBps: null,
       modelConfidenceUsed: false,

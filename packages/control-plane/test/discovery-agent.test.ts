@@ -187,4 +187,58 @@ describe("bounded discovery agent session", () => {
       terminationReason: "MODEL_FINISHED",
     }).hypotheses).toHaveLength(1);
   });
+
+  it("retains inspected falsifications without creating a hypothesis", () => {
+    const session = new DiscoveryAgentSession("model-agent", task, 12);
+    const input = {
+      claim: "The two rain contracts settle the same event.",
+      reason:
+        "The first uses daily accumulation while the second uses an hourly observation window.",
+      relationKind: "EQUIVALENCE" as const,
+      listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
+      claimSearchTerms: ["NYC rainfall", "Central Park"],
+    };
+    expect(session.recordFalsification({
+      ...input,
+      claim: "An uninspected equivalence claim.",
+    })).toMatchObject({
+      status: "REJECTED",
+      reason: "INSPECTION_REQUIRED",
+    });
+    session.inspectListings({ listingRefs: input.listingRefs });
+    const accepted = session.recordFalsification(input);
+    expect(accepted).toMatchObject({
+      status: "ACCEPTED",
+      reason: "FALSIFICATION_RECORDED",
+      hypothesisId: null,
+      falsificationId: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    });
+    expect(session.recordFalsification(input)).toMatchObject({
+      status: "IDEMPOTENT_REPLAY",
+      reason: "DUPLICATE",
+      falsificationId: accepted.falsificationId,
+    });
+    session.completeSearch({ reason: "The inspected relation was disproved." });
+    const result = session.finish({
+      stepCount: 3,
+      providerRequestAttemptCount: 3,
+      toolCallCount: 4,
+      terminationReason: "EXPLICIT_COMPLETION",
+    });
+    expect(result.hypotheses).toEqual([]);
+    expect(result.falsifications).toHaveLength(1);
+    expect(result.falsifications[0]).toMatchObject({
+      claim: input.claim,
+      listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
+      authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY",
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
+    expect(result.trace).toMatchObject({
+      schemaVersion: "pmh.discovery-agent-trace.v3",
+      acceptedProposalCount: 0,
+      acceptedFalsificationCount: 1,
+      rejectedFalsificationCount: 1,
+    });
+  });
 });

@@ -1,3 +1,4 @@
+import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it } from "vitest";
 import {
   createDeepSeekDiscoveryRuntime,
@@ -179,6 +180,78 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
       "LISTINGS_INSPECTED",
       "HYPOTHESIS_RECORDED",
       "SEARCH_COMPLETED",
+    ]);
+  });
+
+  it("routes a disproved relation through the negative-effect tool", async () => {
+    const first = agentTask.catalogContext!.listings[0]!;
+    const second = Object.freeze({
+      ...first,
+      listingRef: "venue-b:boston-threshold",
+      venueId: "venue-b",
+      venueInstrumentId: "boston-threshold",
+      title: "Boston high at least 80°F",
+      sourceRawHash: `sha256:${"b".repeat(64)}`,
+      protocolIdentity: "fixture:venue-b:boston-threshold",
+    });
+    const contextBody = Object.freeze({
+      schemaVersion: "pmh.discovery-catalog-context.v2" as const,
+      source: "VERIFIED_FIXTURE_CATALOGS" as const,
+      contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+      listings: Object.freeze([first, second]),
+    });
+    const task = Object.freeze({
+      ...agentTask,
+      taskId: "task:deepseek-falsification",
+      venueIds: Object.freeze(["gemini-predictions", "venue-b"]),
+      catalogContext: Object.freeze({
+        ...contextBody,
+        contextIdentity: hashCanonical(contextBody),
+      }),
+    });
+    const refs = task.catalogContext.listings.map((item) => item.listingRef);
+    let requestCount = 0;
+    const port = new DeepSeekAiSdkAgentPort({
+      apiKey: "test-only-deepseek-key",
+      async fetcher() {
+        requestCount += 1;
+        const call = requestCount === 1
+          ? { name: "inspect_listings", input: { listingRefs: refs } }
+          : requestCount === 2
+            ? {
+                name: "record_falsification",
+                input: {
+                  claim: "The interval and threshold contracts are equivalent.",
+                  reason: "80-81°F excludes temperatures above 81°F; at-least-80°F includes them.",
+                  relationKind: "EQUIVALENCE",
+                  listingRefs: refs,
+                  claimSearchTerms: ["Boston temperature", "80°F"],
+                },
+              }
+            : { name: "complete_search", input: { reason: "Relation disproved." } };
+        return deepSeekToolResponse(call.name, call.input, requestCount);
+      },
+    });
+
+    const result = await port.run({
+      workerId: "model-fast-lane",
+      model: "deepseek-v4-flash",
+      system: "Propose only.",
+      task,
+    });
+
+    expect(result.hypotheses).toEqual([]);
+    expect(result.falsifications).toHaveLength(1);
+    expect(result.trace).toMatchObject({
+      schemaVersion: "pmh.discovery-agent-trace.v3",
+      acceptedProposalCount: 0,
+      acceptedFalsificationCount: 1,
+      terminationReason: "EXPLICIT_COMPLETION",
+    });
+    expect(result.trace.effects.map((effect) => effect.toolName)).toEqual([
+      "inspect_listings",
+      "record_falsification",
+      "complete_search",
     ]);
   });
 

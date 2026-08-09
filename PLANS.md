@@ -12,7 +12,9 @@ protocol efficiency tracked in
 and resolved-outcome quality tracked in
 [`plans/probability-calibration.md`](plans/probability-calibration.md), with
 runtime model supply and operator switching tracked in
-[`plans/ai-provider-routing.md`](plans/ai-provider-routing.md).
+[`plans/ai-provider-routing.md`](plans/ai-provider-routing.md), and negative
+discovery findings tracked in
+[`plans/discovery-falsification-effects.md`](plans/discovery-falsification-effects.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -28,6 +30,19 @@ hard-arbitrage compiler.
   rerun the plan's qualification gates against the current worktree.
 
 ## Current checkpoint
+
+Live Luna/high use exposed a disposition error at the discovery boundary. A
+scout correctly disproved equivalence between two lexically similar contracts,
+but the tool protocol forced that useful negative result through
+`record_hypothesis`, polluting the candidate pool. The active construction slice
+adds a first-class, content-addressed falsification effect: durable search
+feedback that is attributable by issue/family and reusable by the semantic
+graph, while being structurally unable to launch Pi, semantic review, lifecycle,
+certification, or execution work. Natural Luna/high traffic proved the new v2
+effect but still showed one redundant negative hypothesis, so the operator
+runtime is now Terra/high. Its fresh calibration produced one falsification and
+zero hypotheses in 14.2 seconds; SQLite restart and Studio inspection preserved
+the artifact, trace, negative-only authority, and no-promotion disposition.
 
 Discovery model supply is now a durable operator-controlled runtime instead of
 a startup-only environment selection. DeepSeek V4 Flash remains the inexpensive

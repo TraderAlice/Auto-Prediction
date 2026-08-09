@@ -714,7 +714,7 @@ describe("control-plane HTTP surface", () => {
     expect(attributionResponse.status).toBe(200);
     expect(await attributionResponse.json()).toMatchObject({
       attributionIdentity: projection.ai.searchOutcomeAttribution.attributionIdentity,
-      measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES",
+      measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES",
       authority: "DERIVED_RESEARCH_EVIDENCE_ONLY",
       executionAuthority: false,
       effects: { liveExecutionEnabled: false },

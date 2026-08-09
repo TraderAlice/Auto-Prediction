@@ -1,3 +1,4 @@
+import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it } from "vitest";
 import {
   AgenticModelDiscoveryWorker,
@@ -147,6 +148,11 @@ describe("discovery ledger", () => {
     const record = new DiscoveryLedger(2).record(agentTask, run);
 
     const legacy = JSON.parse(JSON.stringify(record));
+    delete legacy.workerReports[0].agentTrace.acceptedFalsificationCount;
+    delete legacy.workerReports[0].agentTrace.rejectedFalsificationCount;
+    for (const effect of legacy.workerReports[0].agentTrace.effects) {
+      delete effect.falsificationId;
+    }
     legacy.workerReports[0].agentTrace.schemaVersion =
       "pmh.discovery-agent-trace.v1";
     legacy.workerReports[0].agentTrace.catalogReadCount = 2;
@@ -163,5 +169,90 @@ describe("discovery ledger", () => {
     expect(() => assertDiscoveryRunRecord(invalidV2)).toThrow(
       /agent trace violates/,
     );
+  });
+
+  it("round-trips a negative finding without placing it in the proposal pool", async () => {
+    const first = agentTask.catalogContext!.listings[0]!;
+    const second = Object.freeze({
+      ...first,
+      listingRef: "venue-b:boston-weather",
+      venueId: "venue-b",
+      venueInstrumentId: "boston-weather",
+      title: "Boston temperature at least 80°F",
+      sourceRawHash: `sha256:${"b".repeat(64)}`,
+      protocolIdentity: "fixture:venue-b:boston-weather",
+    });
+    const contextBody = Object.freeze({
+      ...agentTask.catalogContext!,
+      listings: Object.freeze([first, second]),
+    });
+    const { contextIdentity: _contextIdentity, ...identityBody } = contextBody;
+    const task = Object.freeze({
+      ...agentTask,
+      taskId: "task:model-agent-falsification",
+      venueIds: Object.freeze(["gemini-predictions", "venue-b"]),
+      catalogContext: Object.freeze({
+        ...identityBody,
+        contextIdentity: hashCanonical(identityBody),
+      }),
+    });
+    const session = new DiscoveryAgentSession("model:falsifier", task, 24);
+    const refs = task.catalogContext.listings.map((item) => item.listingRef);
+    session.inspectListings({ listingRefs: refs });
+    session.recordFalsification({
+      claim: "These listings settle the same Boston temperature event.",
+      reason: "One is a two-degree interval while the other is an open-ended threshold.",
+      relationKind: "EQUIVALENCE",
+      listingRefs: refs,
+      claimSearchTerms: ["Boston temperature", "80°F"],
+    });
+    session.completeSearch({ reason: "The candidate relation was disproved." });
+    const result = session.finish({
+      stepCount: 3,
+      providerRequestAttemptCount: 3,
+      toolCallCount: 3,
+      terminationReason: "EXPLICIT_COMPLETION",
+    });
+    const run = await new DiscoveryPool([
+      new AgenticModelDiscoveryWorker(
+        "model:falsifier",
+        "provider/cheap",
+        { async run() { return result; } },
+      ),
+    ]).run(task);
+    const ledger = new DiscoveryLedger(2);
+    const record = ledger.record(task, run);
+    const restored = assertDiscoveryRunRecord(JSON.parse(JSON.stringify(record)));
+
+    expect(restored.hypotheses).toEqual([]);
+    expect(restored.falsifications).toHaveLength(1);
+    expect(restored.workerReports?.[0]).toMatchObject({
+      hypothesisCount: 0,
+      falsificationCount: 1,
+      agentTrace: {
+        schemaVersion: "pmh.discovery-agent-trace.v3",
+        acceptedFalsificationCount: 1,
+      },
+    });
+    expect(ledger.projection()).toMatchObject({
+      hypothesisCount: 0,
+      falsificationCount: 1,
+    });
+
+    const legacy = JSON.parse(JSON.stringify(record));
+    const legacyFinding = legacy.falsifications[0];
+    legacyFinding.schemaVersion = "pmh.discovery-falsification.v1";
+    delete legacyFinding.findingIdentity;
+    delete legacyFinding.relationKind;
+    const { falsificationId: _legacyId, ...legacyBody } = legacyFinding;
+    legacyFinding.falsificationId = hashCanonical(legacyBody);
+    const effect = legacy.workerReports[0].agentTrace.effects.find(
+      (item: { toolName: string }) => item.toolName === "record_falsification",
+    );
+    effect.falsificationId = legacyFinding.falsificationId;
+    expect(assertDiscoveryRunRecord(legacy).falsifications?.[0]).toMatchObject({
+      schemaVersion: "pmh.discovery-falsification.v1",
+      falsificationId: legacyFinding.falsificationId,
+    });
   });
 });

@@ -84,6 +84,32 @@ export type OpportunityHypothesis = Readonly<{
   reviewStatus: "UNREVIEWED";
 }>;
 
+export type DiscoveryFalsification = Readonly<{
+  schemaVersion:
+    | "pmh.discovery-falsification.v1"
+    | "pmh.discovery-falsification.v2";
+  falsificationId: Hash;
+  findingIdentity?: Hash;
+  workerId: string;
+  taskId: string;
+  claim: string;
+  reason: string;
+  relationKind?:
+    | "EQUIVALENCE"
+    | "IMPLICATION"
+    | "MUTUAL_EXCLUSION"
+    | "EXHAUSTIVENESS"
+    | "MECHANISM";
+  listingRefs: readonly string[];
+  claimSearchTerms: readonly string[];
+  authority: "SEARCH_NEGATIVE_EVIDENCE_ONLY";
+  semanticDecisionAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type DiscoveryWorkerReport = Readonly<{
   workerId: string;
   kind: "HEURISTIC" | "MODEL";
@@ -93,6 +119,7 @@ export type DiscoveryWorkerReport = Readonly<{
   completedAt: string;
   durationMs: number;
   hypothesisCount: number;
+  falsificationCount?: number;
   diagnostic: string | null;
   providerRequestAttemptCount?: number;
   providerFailureCategory?: import("./model-failure.js").ModelFailureCategory | null;
@@ -103,6 +130,7 @@ export type DiscoveryAgentToolName =
   | "search_catalog"
   | "inspect_listings"
   | "record_hypothesis"
+  | "record_falsification"
   | "complete_search"
   | "unknown_tool";
 
@@ -115,6 +143,7 @@ export type DiscoveryAgentEffectReason =
   | "CATALOG_RESULTS"
   | "LISTINGS_INSPECTED"
   | "HYPOTHESIS_RECORDED"
+  | "FALSIFICATION_RECORDED"
   | "SEARCH_COMPLETED"
   | "INVALID_INPUT"
   | "INPUT_TOO_LARGE"
@@ -137,6 +166,7 @@ export type DiscoveryAgentEffect = Readonly<{
   outputIdentity: string;
   listingRefs: readonly string[];
   hypothesisId: string | null;
+  falsificationId?: Hash | null;
 }>;
 
 export type DiscoveryAgentTerminationReason =
@@ -153,7 +183,8 @@ export type DiscoveryAgentTerminationReason =
 export type DiscoveryAgentTrace = Readonly<{
   schemaVersion:
     | "pmh.discovery-agent-trace.v1"
-    | "pmh.discovery-agent-trace.v2";
+    | "pmh.discovery-agent-trace.v2"
+    | "pmh.discovery-agent-trace.v3";
   protocol: "PMH_BOUNDED_TOOL_LOOP_V1";
   stepCount: number;
   providerRequestAttemptCount: number;
@@ -161,6 +192,8 @@ export type DiscoveryAgentTrace = Readonly<{
   catalogReadCount: number;
   acceptedProposalCount: number;
   rejectedProposalCount: number;
+  acceptedFalsificationCount?: number;
+  rejectedFalsificationCount?: number;
   terminationReason: DiscoveryAgentTerminationReason;
   effects: readonly DiscoveryAgentEffect[];
   semanticDecisionAuthority: false;
@@ -172,6 +205,7 @@ export type DiscoveryAgentTrace = Readonly<{
 
 export type DiscoveryAgentRunResult = Readonly<{
   hypotheses: readonly OpportunityHypothesis[];
+  falsifications: readonly DiscoveryFalsification[];
   trace: DiscoveryAgentTrace;
 }>;
 
@@ -183,6 +217,7 @@ export type DiscoveryRun = Readonly<{
   workerIds: readonly string[];
   workerReports?: readonly DiscoveryWorkerReport[];
   hypotheses: readonly OpportunityHypothesis[];
+  falsifications?: readonly DiscoveryFalsification[];
   diagnostics: readonly string[];
   executionAuthority: false;
 }>;
@@ -203,6 +238,7 @@ export type DiscoveryDeskProjection = Readonly<{
   runCount: number;
   hypothesisCount: number;
   unreviewedCount: number;
+  falsificationCount: number;
   storage: OperationalStorageProjection;
   runs: readonly DiscoveryRunRecord[];
 }>;

@@ -3,6 +3,7 @@ import { ModelRequestFailure, modelFailureTelemetry } from "./model-failure.js";
 import type {
   DiscoveryAgentPort,
   DiscoveryAgentRunResult,
+  DiscoveryFalsification,
   DiscoveryRun,
   DiscoveryTask,
   DiscoveryWorker,
@@ -192,6 +193,57 @@ function assertHypothesis(
   }
 }
 
+function assertFalsification(
+  falsification: DiscoveryFalsification,
+  workerId: string,
+  task: DiscoveryTask,
+): void {
+  const listingRefs = falsification.listingRefs;
+  const allowedListingRefs = new Set(
+    task.catalogContext?.listings.map((listing) => listing.listingRef) ?? [],
+  );
+  const { falsificationId: _falsificationId, ...body } = falsification;
+  if (
+    (falsification.schemaVersion !== "pmh.discovery-falsification.v1" &&
+      falsification.schemaVersion !== "pmh.discovery-falsification.v2") ||
+    falsification.falsificationId !== hashCanonical(body) ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v2" &&
+      falsification.findingIdentity !== hashCanonical({
+        schemaVersion: "pmh.discovery-falsification-finding.v1",
+        relationKind: falsification.relationKind,
+        listingRefs,
+      })) ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v1" &&
+      (falsification.findingIdentity !== undefined ||
+        falsification.relationKind !== undefined)) ||
+    falsification.workerId !== workerId ||
+    falsification.taskId !== task.taskId ||
+    falsification.claim.trim() === "" || falsification.claim.length > 500 ||
+    falsification.reason.trim() === "" || falsification.reason.length > 500 ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v2" &&
+      !["EQUIVALENCE", "IMPLICATION", "MUTUAL_EXCLUSION", "EXHAUSTIVENESS", "MECHANISM"]
+        .includes(String(falsification.relationKind))) ||
+    listingRefs.length < 2 || listingRefs.length > 6 ||
+    new Set(listingRefs).size !== listingRefs.length ||
+    listingRefs.some((listingRef) =>
+      listingRef.trim() === "" || !allowedListingRefs.has(listingRef)
+    ) ||
+    falsification.claimSearchTerms.length < 1 ||
+    falsification.claimSearchTerms.length > 12 ||
+    falsification.claimSearchTerms.some((term) =>
+      term.trim() === "" || term.length > 80
+    ) ||
+    falsification.authority !== "SEARCH_NEGATIVE_EVIDENCE_ONLY" ||
+    falsification.semanticDecisionAuthority !== false ||
+    falsification.certificateAuthority !== false ||
+    falsification.executionAuthority !== false ||
+    falsification.externalWriteAuthority !== false ||
+    falsification.valueMovingAuthority !== false
+  ) {
+    throw new Error(`worker ${workerId} returned an unsafe falsification`);
+  }
+}
+
 export class HeuristicDiscoveryWorker implements DiscoveryWorker {
   public readonly workerId: string;
   public readonly kind = "HEURISTIC" as const;
@@ -366,14 +418,17 @@ export class DiscoveryPool {
           const execution = worker.runWithTrace === undefined
             ? Object.freeze({
                 hypotheses: await worker.discover(task),
+                falsifications: Object.freeze([]),
                 trace: undefined,
               })
             : await worker.runWithTrace(task);
           const hypotheses = execution.hypotheses;
+          const falsifications = execution.falsifications;
           const workerCompletedAtMs = Math.max(this.now(), workerStartedAtMs);
           return {
             worker,
             hypotheses,
+            falsifications,
             report: Object.freeze({
               workerId: worker.workerId,
               kind: worker.kind,
@@ -383,6 +438,7 @@ export class DiscoveryPool {
               completedAt: new Date(workerCompletedAtMs).toISOString(),
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: hypotheses.length,
+              falsificationCount: falsifications.length,
               diagnostic: null,
               providerRequestAttemptCount:
                 execution.trace?.providerRequestAttemptCount ??
@@ -403,6 +459,7 @@ export class DiscoveryPool {
           return {
             worker,
             hypotheses: Object.freeze([]),
+            falsifications: Object.freeze([]),
             report: Object.freeze({
               workerId: worker.workerId,
               kind: worker.kind,
@@ -412,6 +469,7 @@ export class DiscoveryPool {
               completedAt: new Date(workerCompletedAtMs).toISOString(),
               durationMs: workerCompletedAtMs - workerStartedAtMs,
               hypothesisCount: 0,
+              falsificationCount: agentTrace?.acceptedFalsificationCount ?? 0,
               diagnostic,
               providerRequestAttemptCount:
                 providerTelemetry.requestAttemptCount,
@@ -424,6 +482,7 @@ export class DiscoveryPool {
     );
     const diagnostics: string[] = [];
     const hypotheses = new Map<string, OpportunityHypothesis>();
+    const falsifications = new Map<string, DiscoveryFalsification>();
     for (const result of results) {
       if (result.report.status === "FAILED") {
         diagnostics.push(result.report.diagnostic ?? "discovery worker failed");
@@ -439,6 +498,12 @@ export class DiscoveryPool {
         });
         if (!hypotheses.has(identity)) {
           hypotheses.set(identity, hypothesis);
+        }
+      }
+      for (const falsification of result.falsifications) {
+        assertFalsification(falsification, result.worker.workerId, task);
+        if (!falsifications.has(falsification.falsificationId)) {
+          falsifications.set(falsification.falsificationId, falsification);
         }
       }
     }
@@ -459,6 +524,7 @@ export class DiscoveryPool {
       hypotheses: Object.freeze(
         [...hypotheses.values()].slice(0, task.maxHypotheses),
       ),
+      falsifications: Object.freeze([...falsifications.values()]),
       diagnostics: Object.freeze(diagnostics),
       executionAuthority: false,
     });

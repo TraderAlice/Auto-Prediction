@@ -6,9 +6,11 @@ import type { OpportunityLifecycleDeskProjection } from "./opportunity-lifecycle
 import type { RelationPayoffProjection } from "./relation-payoff.js";
 import type { SearchLeaseSchedulerProjection, SearchLens } from "./search-lease-scheduler.js";
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
+import type { DiscoveryDeskProjection } from "./types.js";
 
 export type SemanticFeedbackCode =
   | "DUPLICATE"
+  | "AGENT_FALSIFIED"
   | "SEMANTIC_REJECTED"
   | "MISSING_RULE"
   | "NO_DEPTH"
@@ -58,6 +60,7 @@ export type SemanticRelationGraphFeedback = Readonly<{
   sourceArtifactHash: Hash;
   sourceKind:
     | "SEARCH_LEASE"
+    | "DISCOVERY_FALSIFICATION"
     | "SEMANTIC_REVIEW"
     | "RESEARCH_DECISION"
     | "ANONYMOUS_MATERIALIZATION"
@@ -135,10 +138,12 @@ type GraphInput = Readonly<{
   lifecycle: OpportunityLifecycleDeskProjection;
   relationPayoff: RelationPayoffProjection;
   materializations: AnonymousSimulationMaterializerProjection;
+  discoveryDesk?: DiscoveryDeskProjection;
 }>;
 
 const FEEDBACK_CODES: readonly SemanticFeedbackCode[] = Object.freeze([
   "DUPLICATE",
+  "AGENT_FALSIFIED",
   "SEMANTIC_REJECTED",
   "MISSING_RULE",
   "NO_DEPTH",
@@ -275,6 +280,25 @@ export function buildSemanticRelationGraph(input: GraphInput): SemanticRelationG
         listingRefs: record.fastLane.candidateListingRefs,
         observedAt: record.completedAt ?? record.lease.issuedAt,
         detail: `Candidate signature duplicates lease ${record.lineage.duplicateOfLeaseId}.`,
+      }));
+    }
+  }
+  const seenFalsifications = new Set<Hash>();
+  for (const run of input.discoveryDesk?.runs ?? []) {
+    for (const falsification of run.falsifications ?? []) {
+      const findingIdentity = falsification.findingIdentity ??
+        falsification.falsificationId;
+      if (seenFalsifications.has(findingIdentity)) continue;
+      seenFalsifications.add(findingIdentity);
+      feedbackItems.push(feedback({
+        code: "AGENT_FALSIFIED",
+        sourceArtifactHash: falsification.falsificationId,
+        sourceKind: "DISCOVERY_FALSIFICATION",
+        opportunityId: null,
+        proposalId: null,
+        listingRefs: falsification.listingRefs,
+        observedAt: run.completedAt,
+        detail: `${falsification.relationKind ?? "UNSPECIFIED_RELATION"}: ${falsification.claim} Rejected because: ${falsification.reason}`,
       }));
     }
   }

@@ -1378,6 +1378,7 @@ export function createControlPlane(options?: {
       lifecycle: lifecycleProjection,
       relationPayoff,
       materializations: materializerProjection,
+      discoveryDesk: discoveryLedger.projection(),
     });
     const searchOutcomeAttribution = buildSearchOutcomeAttribution({
       issues: searchIssueProjection.issues,

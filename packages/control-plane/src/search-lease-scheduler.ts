@@ -250,6 +250,8 @@ export type SearchLeaseFastLane = Readonly<{
   corpusCoverage?: CatalogContextCoverage;
   retrievalPlan?: SemanticFamilyRetrievalPlan;
   hypothesisIds: readonly string[];
+  falsificationIds?: readonly Hash[];
+  falsificationFindingIdentities?: readonly Hash[];
   candidateListingRefs: readonly string[];
   semanticScope?: SearchScopeIdentity;
   economicGate?: SearchLeaseEconomicGate;
@@ -278,6 +280,8 @@ export type SearchLeaseAgentTelemetry = Readonly<{
   catalogReadCount: number;
   acceptedProposalEffectCount: number;
   rejectedProposalEffectCount: number;
+  acceptedFalsificationEffectCount?: number;
+  rejectedFalsificationEffectCount?: number;
   terminationReasons: readonly Readonly<{
     reason: import("./types.js").DiscoveryAgentTerminationReason;
     count: number;
@@ -339,6 +343,7 @@ export type SearchLeaseRecord = Readonly<{
   outcome: Readonly<{
     novelCandidate: boolean;
     hypothesisCount: number;
+    falsificationCount?: number;
     proposalCount: number;
     evidenceGapCount: number;
     stage?:
@@ -850,7 +855,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
       new Set(item.listingRefs).size === item.listingRefs.length &&
       Array.isArray(item.outcomeCodes) && item.outcomeCodes.length <= 9 &&
       item.outcomeCodes.every((code) => [
-        "DUPLICATE", "SEMANTIC_REJECTED", "MISSING_RULE", "NO_DEPTH",
+        "DUPLICATE", "AGENT_FALSIFIED", "SEMANTIC_REJECTED", "MISSING_RULE", "NO_DEPTH",
         "FEE_OR_MODEL_BLOCK", "EXACT_REJECTED", "CERTIFIED",
         "SHADOW_DIVERGENCE", "SHADOW_MATCHED",
       ].includes(code)) &&
@@ -909,6 +914,14 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     Number.isSafeInteger(agentTelemetry.rejectedProposalEffectCount) &&
     agentTelemetry.rejectedProposalEffectCount >= 0 &&
     agentTelemetry.rejectedProposalEffectCount <= 256 &&
+    (agentTelemetry.acceptedFalsificationEffectCount === undefined ||
+      (Number.isSafeInteger(agentTelemetry.acceptedFalsificationEffectCount) &&
+        agentTelemetry.acceptedFalsificationEffectCount >= 0 &&
+        agentTelemetry.acceptedFalsificationEffectCount <= 80)) &&
+    (agentTelemetry.rejectedFalsificationEffectCount === undefined ||
+      (Number.isSafeInteger(agentTelemetry.rejectedFalsificationEffectCount) &&
+        agentTelemetry.rejectedFalsificationEffectCount >= 0 &&
+        agentTelemetry.rejectedFalsificationEffectCount <= 256)) &&
     Array.isArray(agentTelemetry.terminationReasons) &&
     agentTelemetry.terminationReasons.length <= 9 &&
     new Set(agentTelemetry.terminationReasons.map((item) => item.reason)).size ===
@@ -1096,6 +1109,20 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     record.fastLane.taskId !== `search-lease:${lease.leaseId.slice(7)}` ||
     !nonEmptyStrings(record.fastLane.workerIds, 16) ||
     !nonEmptyStrings(record.fastLane.hypothesisIds, lease.budget.maxHypotheses) ||
+    (record.fastLane.falsificationIds !== undefined &&
+      (!nonEmptyStrings(record.fastLane.falsificationIds, 256) ||
+        record.fastLane.falsificationIds.some((item) => !HASH_PATTERN.test(item)))) ||
+    (record.fastLane.falsificationFindingIdentities !== undefined &&
+      (!nonEmptyStrings(record.fastLane.falsificationFindingIdentities, 256) ||
+        record.fastLane.falsificationFindingIdentities.some(
+          (item) => !HASH_PATTERN.test(item)
+        ))) ||
+    (record.fastLane.falsificationFindingIdentities !== undefined &&
+      record.fastLane.falsificationIds === undefined) ||
+    (record.fastLane.falsificationIds !== undefined &&
+      record.fastLane.falsificationFindingIdentities !== undefined &&
+      record.fastLane.falsificationIds.length !==
+        record.fastLane.falsificationFindingIdentities!.length) ||
     !nonEmptyStrings(record.fastLane.candidateListingRefs, 100) ||
     !Number.isSafeInteger(record.fastLane.modelRequestCount) ||
     record.fastLane.modelRequestCount < 0 ||
@@ -1121,6 +1148,9 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     !validHashOrNull(record.lineage.duplicateOfLeaseId) ||
     !validHashOrNull(record.lineage.noveltySignature) ||
     !Number.isSafeInteger(record.outcome.hypothesisCount) ||
+    (record.outcome.falsificationCount !== undefined &&
+      (!Number.isSafeInteger(record.outcome.falsificationCount) ||
+        record.outcome.falsificationCount < 0)) ||
     !Number.isSafeInteger(record.outcome.proposalCount) ||
     !Number.isSafeInteger(record.outcome.evidenceGapCount) ||
     record.outcome.hypothesisCount < 0 ||
@@ -1128,6 +1158,9 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     record.outcome.evidenceGapCount < 0 ||
     (record.status !== "ISSUED" &&
       (record.outcome.hypothesisCount !== record.fastLane.hypothesisIds.length ||
+        (record.outcome.falsificationCount !== undefined &&
+          record.outcome.falsificationCount !==
+            (record.fastLane.falsificationIds?.length ?? 0)) ||
         record.outcome.proposalCount !== record.deepLane.proposalIds.length ||
         record.outcome.evidenceGapCount !== record.deepLane.evidenceGaps.length)) ||
     (record.status === "ISSUED" &&
@@ -1560,6 +1593,8 @@ export class SearchLeaseScheduler {
             failureCategories: Object.freeze([]),
           }),
           hypothesisIds: Object.freeze([]),
+          falsificationIds: Object.freeze([]),
+          falsificationFindingIdentities: Object.freeze([]),
           candidateListingRefs: Object.freeze([]),
           economicGate: pendingEconomicGate(issue?.candidatePolicy),
           diagnostic: null,
@@ -1582,6 +1617,7 @@ export class SearchLeaseScheduler {
         outcome: Object.freeze({
           novelCandidate: false,
           hypothesisCount: 0,
+          falsificationCount: 0,
           proposalCount: 0,
           evidenceGapCount: 0,
           stage: "FAST_PENDING" as const,
@@ -1742,6 +1778,14 @@ export class SearchLeaseScheduler {
           (sum, trace) => sum + trace.rejectedProposalCount,
           0,
         ),
+        acceptedFalsificationEffectCount: agentTraces.reduce(
+          (sum, trace) => sum + (trace.acceptedFalsificationCount ?? 0),
+          0,
+        ),
+        rejectedFalsificationEffectCount: agentTraces.reduce(
+          (sum, trace) => sum + (trace.rejectedFalsificationCount ?? 0),
+          0,
+        ),
         terminationReasons: Object.freeze(terminationReasons.flatMap((reason) => {
           const count = agentTraces.filter((trace) => trace.terminationReason === reason).length;
           return count === 0 ? [] : [Object.freeze({ reason, count })];
@@ -1872,6 +1916,14 @@ export class SearchLeaseScheduler {
           ? {}
           : { retrievalPlan: selectedRetrievalPlan }),
         hypothesisIds: Object.freeze(run.hypotheses.map((item) => item.hypothesisId)),
+        falsificationIds: Object.freeze(
+          (run.falsifications ?? []).map((item) => item.falsificationId),
+        ),
+        falsificationFindingIdentities: Object.freeze(
+          (run.falsifications ?? []).map((item) =>
+            item.findingIdentity ?? item.falsificationId
+          ),
+        ),
         candidateListingRefs: listingRefs,
         semanticScope,
         economicGate,
@@ -1936,6 +1988,7 @@ export class SearchLeaseScheduler {
             deepLane.reason !== "ECONOMIC_GATE_BLOCKED" &&
             hasGroundedMultiListingRefs(listingRefs),
           hypothesisCount: run.hypotheses.length,
+          falsificationCount: run.falsifications?.length ?? 0,
           proposalCount: deepLane.proposalIds.length,
           evidenceGapCount: deepLane.evidenceGaps.length,
           stage: deepLane.status === "PENDING"

@@ -423,6 +423,7 @@ export function buildStudioProjection(input: {
       boundedScopeRevisitCount: 0,
       noLeadBoundedScopeCount: 0,
       hypothesisCount: 0,
+      falsificationCount: 0,
       proposalCount: 0,
       evidenceGapCount: 0,
       coverageManifestCount: 0,
@@ -440,6 +441,8 @@ export function buildStudioProjection(input: {
       agentCatalogReadCount: 0,
       agentAcceptedProposalEffectCount: 0,
       agentRejectedProposalEffectCount: 0,
+      agentAcceptedFalsificationEffectCount: 0,
+      agentRejectedFalsificationEffectCount: 0,
       agentExplicitCompletionCount: 0,
       agentBudgetTerminationCount: 0,
       agentFailureTerminationCount: 0,
@@ -752,6 +755,9 @@ export function buildStudioProjection(input: {
     semanticReviews: semanticReview,
     lifecycle: input.opportunityLifecycle ?? new OpportunityLifecycleDesk().projection(),
     relationPayoff: input.relationPayoff ?? buildRelationPayoffProjection([]),
+    ...(input.discoveryDesk === undefined
+      ? {}
+      : { discoveryDesk: input.discoveryDesk }),
     materializations: input.simulationMaterializer ?? {
       schemaVersion: "pmh.anonymous-simulation-materializer-desk.v1",
       mode: "ANONYMOUS_PUBLIC_GET",
@@ -874,6 +880,7 @@ export function buildStudioProjection(input: {
     runCount: 0,
     hypothesisCount: 0,
     unreviewedCount: 0,
+    falsificationCount: 0,
     storage: {
       mode: "MEMORY" as const,
       durable: false,

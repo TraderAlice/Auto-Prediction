@@ -26,6 +26,10 @@ type LeaseSource = Readonly<{
   status: "ISSUED" | "PASS" | "FAILED";
   completedAt: string | null;
   lease: Readonly<{ issueId?: Hash | null }>;
+  fastLane?: Readonly<{
+    falsificationIds?: readonly string[];
+    falsificationFindingIdentities?: readonly string[];
+  }>;
   deepLane: Readonly<{
     status: "NOT_RUN" | "PENDING" | "RUNNING" | "PASS" | "FAILED";
     proposalIds: readonly string[];
@@ -121,6 +125,7 @@ export type SearchOutcomeIssueAttribution = Readonly<{
   issueId: Hash;
   leaseCount: number;
   proposalCount: number;
+  falsificationCount: number;
   reviewedCount: number;
   operatorAcceptedCount: number;
   operatorRejectedCount: number;
@@ -146,6 +151,7 @@ export type SearchOutcomeFamilyAttribution = Readonly<{
   issueCount: number;
   leaseCount: number;
   proposalCount: number;
+  falsificationCount: number;
   reviewedCount: number;
   operatorAcceptedCount: number;
   operatorRejectedCount: number;
@@ -167,21 +173,23 @@ export type SearchOutcomeFamilyAttribution = Readonly<{
 }>;
 
 export type SearchOutcomeAttributionProjection = Readonly<{
-  schemaVersion: "pmh.search-outcome-attribution.v2";
+  schemaVersion: "pmh.search-outcome-attribution.v3";
   attributionIdentity: Hash;
   sourceSetIdentity: Hash;
   sourceArtifactCount: number;
-  measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES";
+  measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES";
   issueCount: number;
   familyCount: number;
   unclassifiedIssueCount: number;
   attributedLeaseCount: number;
   attributedProposalCount: number;
+  attributedFalsificationCount: number;
   totalAiProposalCount: number;
   unattributedAiProposalCount: number;
   multiIssueProposalCount: number;
   multiFamilyProposalCount: number;
   invalidProposalReferenceCount: number;
+  invalidFalsificationReferenceCount: number;
   lifecycleMissingCount: number;
   attributionCoverageBps: number | null;
   stages: readonly Readonly<{
@@ -397,6 +405,7 @@ function evaluate(
 function issueSummary(
   issueId: Hash,
   leaseCount: number,
+  falsificationCount: number,
   evaluation: ProposalEvaluation,
 ): SearchOutcomeIssueAttribution {
   const decidedCount = evaluation.accepted.size + evaluation.rejected.size;
@@ -404,6 +413,7 @@ function issueSummary(
     issueId,
     leaseCount,
     proposalCount: evaluation.proposed.size,
+    falsificationCount,
     reviewedCount: evaluation.reviewed.size,
     operatorAcceptedCount: evaluation.accepted.size,
     operatorRejectedCount: evaluation.rejected.size,
@@ -446,11 +456,33 @@ export function buildSearchOutcomeAttribution(
   const passedLeases = leases.filter(
     (record) => record.status === "PASS" && record.deepLane.status === "PASS",
   );
+  const fastPassedLeases = leases.filter((record) => record.status === "PASS");
   const proposalIssues = new Map<Hash, Set<Hash>>();
   const proposalsByIssue = new Map<Hash, Set<Hash>>(
     [...issueIds].map((issueId) => [issueId, new Set<Hash>()]),
   );
   let invalidProposalReferenceCount = 0;
+  let invalidFalsificationReferenceCount = 0;
+  const falsificationIssues = new Map<Hash, Set<Hash>>();
+  const falsificationsByIssue = new Map<Hash, Set<Hash>>(
+    [...issueIds].map((issueId) => [issueId, new Set<Hash>()]),
+  );
+  for (const lease of fastPassedLeases) {
+    const issueId = lease.lease.issueId!;
+    const values = lease.fastLane?.falsificationFindingIdentities ??
+      lease.fastLane?.falsificationIds ?? [];
+    for (const value of values) {
+      if (!HASH_PATTERN.test(value)) {
+        invalidFalsificationReferenceCount += 1;
+        continue;
+      }
+      const falsificationId = value as Hash;
+      falsificationsByIssue.get(issueId)!.add(falsificationId);
+      const attribution = falsificationIssues.get(falsificationId) ?? new Set<Hash>();
+      attribution.add(issueId);
+      falsificationIssues.set(falsificationId, attribution);
+    }
+  }
   for (const lease of passedLeases) {
     const issueId = lease.lease.issueId!;
     for (const proposalIdValue of lease.deepLane.proposalIds) {
@@ -477,10 +509,21 @@ export function buildSearchOutcomeAttribution(
   const proposalsByFamily = new Map<SearchSemanticFamily, Set<Hash>>(
     [...semanticFamilies].map((family) => [family, new Set<Hash>()]),
   );
+  const falsificationsByFamily = new Map<SearchSemanticFamily, Set<Hash>>(
+    [...semanticFamilies].map((family) => [family, new Set<Hash>()]),
+  );
   for (const [proposalId, attributedIssues] of proposalIssues) {
     for (const issueId of attributedIssues) {
       const family = familyByIssue.get(issueId);
       if (family !== undefined) proposalsByFamily.get(family)!.add(proposalId);
+    }
+  }
+  for (const [falsificationId, attributedIssues] of falsificationIssues) {
+    for (const issueId of attributedIssues) {
+      const family = familyByIssue.get(issueId);
+      if (family !== undefined) {
+        falsificationsByFamily.get(family)!.add(falsificationId);
+      }
     }
   }
   const attributedProposalIds = new Set(proposalIssues.keys());
@@ -541,6 +584,7 @@ export function buildSearchOutcomeAttribution(
   const byIssue = Object.freeze([...issueIds].sort().map((issueId) => issueSummary(
     issueId,
     leases.filter((record) => record.lease.issueId === issueId).length,
+    falsificationsByIssue.get(issueId)?.size ?? 0,
     evaluate(proposalsByIssue.get(issueId) ?? new Set<Hash>(), context),
   )));
   const byFamily = Object.freeze([...semanticFamilies].sort().map((semanticFamily) => {
@@ -551,6 +595,7 @@ export function buildSearchOutcomeAttribution(
       [...familyIssueIds].sort()[0] ?? hashCanonical({ semanticFamily }),
       leases.filter((record) => record.lease.issueId !== null &&
         record.lease.issueId !== undefined && familyIssueIds.has(record.lease.issueId)).length,
+      falsificationsByFamily.get(semanticFamily)?.size ?? 0,
       evaluate(proposalsByFamily.get(semanticFamily) ?? new Set<Hash>(), context),
     );
     const { issueId: _issueId, ...metrics } = summary;
@@ -626,10 +671,10 @@ export function buildSearchOutcomeAttribution(
     }))
     .sort((left, right) => left.issueId.localeCompare(right.issueId)));
   const body = Object.freeze({
-    schemaVersion: "pmh.search-outcome-attribution.v2" as const,
+    schemaVersion: "pmh.search-outcome-attribution.v3" as const,
     sourceSetIdentity: hashCanonical({ sourceArtifactHashes, issueDefinitionSetIdentity }),
     sourceArtifactCount: sourceArtifactHashes.length,
-    measurementBasis: "DISTINCT_PROPOSALS_FROM_PASSED_ISSUE_LEASES" as const,
+    measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES" as const,
     issueCount: issueIds.size,
     familyCount: semanticFamilies.size,
     unclassifiedIssueCount: input.issues.filter(
@@ -637,6 +682,7 @@ export function buildSearchOutcomeAttribution(
     ).length,
     attributedLeaseCount: leases.length,
     attributedProposalCount: attributedProposalIds.size,
+    attributedFalsificationCount: falsificationIssues.size,
     totalAiProposalCount: aiProposalIds.size,
     unattributedAiProposalCount: [...aiProposalIds].filter(
       (proposalId) => !attributedProposalIds.has(proposalId),
@@ -651,6 +697,7 @@ export function buildSearchOutcomeAttribution(
       })).size > 1
     ).length,
     invalidProposalReferenceCount,
+    invalidFalsificationReferenceCount,
     lifecycleMissingCount: overall.lifecycleMissing.size,
     attributionCoverageBps: rateBps(
       [...aiProposalIds].filter((proposalId) => attributedProposalIds.has(proposalId)).length,

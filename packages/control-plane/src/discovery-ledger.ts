@@ -1,7 +1,9 @@
+import { hashCanonical } from "@pmh/domain";
 import type {
   DiscoveryCatalogContext,
   DiscoveryAgentEffect,
   DiscoveryAgentTrace,
+  DiscoveryFalsification,
   DiscoveryDeskProjection,
   DiscoveryRun,
   DiscoveryRunRecord,
@@ -33,6 +35,7 @@ const AGENT_TOOL_NAMES = Object.freeze([
   "search_catalog",
   "inspect_listings",
   "record_hypothesis",
+  "record_falsification",
   "complete_search",
   "unknown_tool",
 ] as const);
@@ -45,6 +48,7 @@ const AGENT_EFFECT_REASONS = Object.freeze([
   "CATALOG_RESULTS",
   "LISTINGS_INSPECTED",
   "HYPOTHESIS_RECORDED",
+  "FALSIFICATION_RECORDED",
   "SEARCH_COMPLETED",
   "INVALID_INPUT",
   "INPUT_TOO_LARGE",
@@ -78,6 +82,7 @@ function freezeAgentEffect(value: unknown, ordinal: number): DiscoveryAgentEffec
   const successfulReason = effect.reason === "CATALOG_RESULTS" ||
     effect.reason === "LISTINGS_INSPECTED" ||
     effect.reason === "HYPOTHESIS_RECORDED" ||
+    effect.reason === "FALSIFICATION_RECORDED" ||
     effect.reason === "SEARCH_COMPLETED";
   if (
     effect.ordinal !== ordinal ||
@@ -89,10 +94,18 @@ function freezeAgentEffect(value: unknown, ordinal: number): DiscoveryAgentEffec
     !isStringArray(effect.listingRefs) || effect.listingRefs.length > 20 ||
     effect.listingRefs.some((item) => item.length > 512) ||
     (effect.hypothesisId !== null && !isNonEmptyString(effect.hypothesisId)) ||
+    (effect.falsificationId !== undefined && effect.falsificationId !== null &&
+      !/^sha256:[0-9a-f]{64}$/.test(String(effect.falsificationId))) ||
     (effect.status === "ACCEPTED") !== successfulReason ||
     (effect.status === "IDEMPOTENT_REPLAY" && effect.reason !== "DUPLICATE") ||
     (effect.status === "REJECTED" && successfulReason) ||
-    (effect.hypothesisId !== null && effect.toolName !== "record_hypothesis")
+    (effect.hypothesisId !== null && effect.toolName !== "record_hypothesis") ||
+    (effect.falsificationId !== undefined && effect.falsificationId !== null &&
+      effect.toolName !== "record_falsification") ||
+    (effect.toolName === "record_falsification" &&
+      effect.status === "ACCEPTED" &&
+      (effect.reason !== "FALSIFICATION_RECORDED" ||
+        effect.falsificationId === undefined || effect.falsificationId === null))
   ) {
     throw new Error("stored discovery agent effect violates its contract");
   }
@@ -105,6 +118,9 @@ function freezeAgentEffect(value: unknown, ordinal: number): DiscoveryAgentEffec
     outputIdentity: effect.outputIdentity,
     listingRefs: Object.freeze([...effect.listingRefs]),
     hypothesisId: effect.hypothesisId,
+    ...(effect.falsificationId === undefined
+      ? {}
+      : { falsificationId: effect.falsificationId }),
   }) as DiscoveryAgentEffect;
 }
 
@@ -136,9 +152,16 @@ function freezeAgentTrace(value: unknown): DiscoveryAgentTrace {
   const rejectedProposalCount = effects.filter((effect) =>
     effect.toolName === "record_hypothesis" && effect.status === "REJECTED"
   ).length;
+  const acceptedFalsificationCount = effects.filter((effect) =>
+    effect.toolName === "record_falsification" && effect.status === "ACCEPTED"
+  ).length;
+  const rejectedFalsificationCount = effects.filter((effect) =>
+    effect.toolName === "record_falsification" && effect.status === "REJECTED"
+  ).length;
   if (
     (trace.schemaVersion !== "pmh.discovery-agent-trace.v1" &&
-      trace.schemaVersion !== "pmh.discovery-agent-trace.v2") ||
+      trace.schemaVersion !== "pmh.discovery-agent-trace.v2" &&
+      trace.schemaVersion !== "pmh.discovery-agent-trace.v3") ||
     trace.protocol !== "PMH_BOUNDED_TOOL_LOOP_V1" ||
     !Number.isSafeInteger(trace.stepCount) || Number(trace.stepCount) < 0 ||
     Number(trace.stepCount) > 20 ||
@@ -150,6 +173,13 @@ function freezeAgentTrace(value: unknown): DiscoveryAgentTrace {
     trace.catalogReadCount !== catalogReadCount ||
     trace.acceptedProposalCount !== acceptedProposalCount ||
     trace.rejectedProposalCount !== rejectedProposalCount ||
+    (trace.schemaVersion === "pmh.discovery-agent-trace.v3" &&
+      (trace.acceptedFalsificationCount !== acceptedFalsificationCount ||
+        trace.rejectedFalsificationCount !== rejectedFalsificationCount)) ||
+    (trace.schemaVersion !== "pmh.discovery-agent-trace.v3" &&
+      (acceptedFalsificationCount !== 0 ||
+        trace.acceptedFalsificationCount !== undefined ||
+        trace.rejectedFalsificationCount !== undefined)) ||
     !AGENT_TERMINATION_REASONS.includes(trace.terminationReason as never) ||
     trace.semanticDecisionAuthority !== false ||
     trace.certificateAuthority !== false ||
@@ -168,6 +198,9 @@ function freezeAgentTrace(value: unknown): DiscoveryAgentTrace {
     catalogReadCount,
     acceptedProposalCount,
     rejectedProposalCount,
+    ...(trace.schemaVersion === "pmh.discovery-agent-trace.v3"
+      ? { acceptedFalsificationCount, rejectedFalsificationCount }
+      : {}),
     terminationReason: trace.terminationReason,
     effects,
     semanticDecisionAuthority: false,
@@ -185,6 +218,11 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
   const report = value as Record<string, unknown>;
   const telemetryAbsent = report.providerRequestAttemptCount === undefined &&
     report.providerFailureCategory === undefined;
+  const falsificationTelemetryAbsent = report.falsificationCount === undefined;
+  const falsificationTelemetryPresent =
+    Number.isSafeInteger(report.falsificationCount) &&
+    Number(report.falsificationCount) >= 0 &&
+    Number(report.falsificationCount) <= 64;
   const telemetryPresent = Number.isSafeInteger(report.providerRequestAttemptCount) &&
     Number(report.providerRequestAttemptCount) >= 0 &&
     Number(report.providerRequestAttemptCount) <= 20 &&
@@ -223,7 +261,8 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
     (report.status === "PASS" && report.diagnostic !== null) ||
     (report.status === "FAILED" &&
       (report.diagnostic === null || report.hypothesisCount !== 0)) ||
-    (!telemetryAbsent && !telemetryPresent)
+    (!telemetryAbsent && !telemetryPresent) ||
+    (!falsificationTelemetryAbsent && !falsificationTelemetryPresent)
   ) {
     throw new Error("stored discovery worker report violates its contract");
   }
@@ -236,7 +275,10 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
       report.providerRequestAttemptCount !==
         agentTrace.providerRequestAttemptCount ||
       (report.status === "PASS" &&
-        report.hypothesisCount !== agentTrace.acceptedProposalCount))
+        (report.hypothesisCount !== agentTrace.acceptedProposalCount ||
+          (agentTrace.schemaVersion === "pmh.discovery-agent-trace.v3" &&
+            report.falsificationCount !==
+              agentTrace.acceptedFalsificationCount))))
   ) {
     throw new Error("stored discovery worker report does not bind its agent trace");
   }
@@ -249,6 +291,9 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
     completedAt: report.completedAt,
     durationMs: report.durationMs,
     hypothesisCount: report.hypothesisCount,
+    ...(falsificationTelemetryAbsent
+      ? {}
+      : { falsificationCount: report.falsificationCount }),
     diagnostic: report.diagnostic,
     ...(telemetryPresent
       ? {
@@ -258,6 +303,81 @@ function freezeWorkerReport(value: unknown): DiscoveryWorkerReport {
       : {}),
     ...(agentTrace === undefined ? {} : { agentTrace }),
   }) as DiscoveryWorkerReport;
+}
+
+function freezeFalsification(value: unknown): DiscoveryFalsification {
+  if (value === null || typeof value !== "object") {
+    throw new Error("stored discovery falsification is malformed");
+  }
+  const falsification = value as Record<string, unknown>;
+  const legacyBody = {
+    schemaVersion: falsification.schemaVersion,
+    workerId: falsification.workerId,
+    taskId: falsification.taskId,
+    claim: falsification.claim,
+    reason: falsification.reason,
+    listingRefs: falsification.listingRefs,
+    claimSearchTerms: falsification.claimSearchTerms,
+    authority: falsification.authority,
+    semanticDecisionAuthority: falsification.semanticDecisionAuthority,
+    certificateAuthority: falsification.certificateAuthority,
+    executionAuthority: falsification.executionAuthority,
+    externalWriteAuthority: falsification.externalWriteAuthority,
+    valueMovingAuthority: falsification.valueMovingAuthority,
+  };
+  const body = falsification.schemaVersion === "pmh.discovery-falsification.v2"
+    ? {
+        ...legacyBody,
+        findingIdentity: falsification.findingIdentity,
+        relationKind: falsification.relationKind,
+      }
+    : legacyBody;
+  if (
+    (falsification.schemaVersion !== "pmh.discovery-falsification.v1" &&
+      falsification.schemaVersion !== "pmh.discovery-falsification.v2") ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(falsification.falsificationId)) ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v2" &&
+      (!/^sha256:[0-9a-f]{64}$/.test(String(falsification.findingIdentity)) ||
+        falsification.findingIdentity !== hashCanonical({
+          schemaVersion: "pmh.discovery-falsification-finding.v1",
+          relationKind: falsification.relationKind,
+          listingRefs: falsification.listingRefs,
+        }))) ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v1" &&
+      (falsification.findingIdentity !== undefined ||
+        falsification.relationKind !== undefined)) ||
+    falsification.falsificationId !== hashCanonical(body) ||
+    !isNonEmptyString(falsification.workerId) ||
+    !isNonEmptyString(falsification.taskId) ||
+    !isNonEmptyString(falsification.claim) ||
+    falsification.claim.length > 500 ||
+    !isNonEmptyString(falsification.reason) ||
+    falsification.reason.length > 500 ||
+    (falsification.schemaVersion === "pmh.discovery-falsification.v2" &&
+      !["EQUIVALENCE", "IMPLICATION", "MUTUAL_EXCLUSION", "EXHAUSTIVENESS", "MECHANISM"]
+        .includes(String(falsification.relationKind))) ||
+    !isStringArray(falsification.listingRefs) ||
+    falsification.listingRefs.length < 2 ||
+    falsification.listingRefs.length > 6 ||
+    new Set(falsification.listingRefs).size !== falsification.listingRefs.length ||
+    !isStringArray(falsification.claimSearchTerms) ||
+    falsification.claimSearchTerms.length < 1 ||
+    falsification.claimSearchTerms.length > 12 ||
+    falsification.authority !== "SEARCH_NEGATIVE_EVIDENCE_ONLY" ||
+    falsification.semanticDecisionAuthority !== false ||
+    falsification.certificateAuthority !== false ||
+    falsification.executionAuthority !== false ||
+    falsification.externalWriteAuthority !== false ||
+    falsification.valueMovingAuthority !== false
+  ) {
+    throw new Error("stored discovery falsification violates its authority boundary");
+  }
+  return Object.freeze({
+    ...body,
+    falsificationId: falsification.falsificationId,
+    listingRefs: Object.freeze([...falsification.listingRefs]),
+    claimSearchTerms: Object.freeze([...falsification.claimSearchTerms]),
+  }) as DiscoveryFalsification;
 }
 
 function freezeHypothesis(value: unknown): OpportunityHypothesis {
@@ -339,6 +459,8 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
     !isStringArray(record.workerIds) ||
     record.workerIds.length === 0 ||
     !Array.isArray(record.hypotheses) ||
+    (record.falsifications !== undefined &&
+      !Array.isArray(record.falsifications)) ||
     !isStringArray(record.diagnostics) ||
     record.executionAuthority !== false ||
     !isNonEmptyString(record.question) ||
@@ -347,6 +469,7 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
   ) {
     throw new Error("stored discovery run violates its record contract");
   }
+  const workerIds = record.workerIds as readonly string[];
   if (
     (record.catalogContextIdentity === undefined) !==
       (record.catalogListingCount === undefined) ||
@@ -403,14 +526,47 @@ export function assertDiscoveryRunRecord(value: unknown): DiscoveryRunRecord {
       throw new Error("stored discovery worker reports do not bind the run");
     }
   }
+  const falsifications = record.falsifications === undefined
+    ? undefined
+    : Object.freeze(record.falsifications.map(freezeFalsification));
+  if (
+    falsifications !== undefined &&
+    (new Set(falsifications.map((item) => item.falsificationId)).size !==
+        falsifications.length ||
+      falsifications.some((item) =>
+        item.taskId !== record.taskId || !workerIds.includes(item.workerId)
+      ))
+  ) {
+    throw new Error("stored discovery falsifications do not bind the run");
+  }
+  if (falsifications !== undefined && workerReports !== undefined) {
+    const tracedIds = workerReports.flatMap((report) =>
+      report.status !== "PASS" || report.agentTrace === undefined
+        ? []
+        : report.agentTrace.effects.flatMap((effect) =>
+            effect.toolName === "record_falsification" &&
+              effect.status === "ACCEPTED" && effect.falsificationId != null
+              ? [effect.falsificationId]
+              : []
+          )
+    );
+    const retainedIds = falsifications.map((item) => item.falsificationId);
+    if (
+      new Set(tracedIds).size !== retainedIds.length ||
+      retainedIds.some((item) => !tracedIds.includes(item))
+    ) {
+      throw new Error("stored discovery falsifications do not bind agent effects");
+    }
+  }
   return Object.freeze({
     runId: record.runId,
     taskId: record.taskId,
     startedAt: record.startedAt,
     completedAt: record.completedAt,
-    workerIds: Object.freeze([...record.workerIds]),
+    workerIds: Object.freeze([...workerIds]),
     ...(workerReports === undefined ? {} : { workerReports }),
     hypotheses: Object.freeze(record.hypotheses.map(freezeHypothesis)),
+    ...(falsifications === undefined ? {} : { falsifications }),
     diagnostics: Object.freeze([...record.diagnostics]),
     executionAuthority: false,
     question: record.question,
@@ -517,11 +673,16 @@ export class DiscoveryLedger {
       (total, run) => total + run.hypotheses.length,
       0,
     );
+    const falsificationCount = this.#runs.reduce(
+      (total, run) => total + (run.falsifications?.length ?? 0),
+      0,
+    );
     return Object.freeze({
       retentionLimit: this.#retentionLimit,
       runCount: this.#runs.length,
       hypothesisCount,
       unreviewedCount: hypothesisCount,
+      falsificationCount,
       storage:
         this.#store?.storage ??
         Object.freeze({
