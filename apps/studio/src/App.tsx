@@ -221,6 +221,52 @@ const EMPTY_PROBABILITY_ESTIMATION_SCHEDULER:
     effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
   };
 
+const EMPTY_PROBABILITY_CALIBRATION:
+  StudioProjection["ai"]["probabilityCalibration"] = {
+    schemaVersion: "pmh.probability-calibration-desk.v1",
+    status: "EMPTY",
+    registeredBoundCount: 0,
+    registeredObservedBoundCount: 0,
+    pendingResolutionBoundCount: 0,
+    observationCount: 0,
+    adverseObservationCount: 0,
+    snapshotCount: 0,
+    minimumSampleSize: 20,
+    snapshotInterval: 20,
+    nextSnapshotAtObservationCount: 1,
+    currentArtifactHash: null,
+    currentCreatedAt: null,
+    measuredGroupCount: 0,
+    insufficientGroupCount: 0,
+    groups: [],
+    observations: [],
+    snapshots: [],
+    storage: {
+      bounds: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "artifactHash",
+      },
+      observations: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "artifactHash",
+      },
+      snapshots: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "artifactHash",
+      },
+    },
+    authority: "CALIBRATION_ORCHESTRATION_ONLY",
+    probabilityCertificateAuthority: false,
+    executionAuthority: false,
+    effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+  };
+
 const EMPTY_AI_USAGE: StudioProjection["ai"]["aiUsage"] = {
   schemaVersion: "pmh.ai-usage-ledger.v1",
   eventCount: 0,
@@ -4178,6 +4224,8 @@ function OpportunityLifecycleView() {
   const probabilityScheduler =
     studioProjection.ai.probabilityEstimationScheduler ??
       EMPTY_PROBABILITY_ESTIMATION_SCHEDULER;
+  const probabilityCalibration =
+    studioProjection.ai.probabilityCalibration ?? EMPTY_PROBABILITY_CALIBRATION;
   const aiUsage = studioProjection.ai.aiUsage ?? EMPTY_AI_USAGE;
   const reviewAdmission =
     studioProjection.ai.semanticReviewAdmission ?? EMPTY_SEMANTIC_REVIEW_ADMISSION;
@@ -4477,6 +4525,11 @@ function OpportunityLifecycleView() {
           detail={`fresh bounds / cases · ${probabilityScheduler.storage.jobs.durable ? "SQLite" : "memory"}`}
         />
         <Metric
+          label="Resolved calibration"
+          value={`${probabilityCalibration.observationCount}/${probabilityCalibration.registeredBoundCount}`}
+          detail={`${probabilityCalibration.measuredGroupCount} measured cohorts · ${probabilityCalibration.storage.observations.durable ? "SQLite" : "memory"}`}
+        />
+        <Metric
           label="Public evidence"
           value={`${simulationMaterializer.retainedRawSourceCount}`}
           detail={`${simulationMaterializer.storage.durable ? "SQLite WAL" : "memory"} · content addressed`}
@@ -4570,6 +4623,73 @@ function OpportunityLifecycleView() {
               <small>Not confidence · not guaranteed profit · no certificate or execution authority</small>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="attention-queue" aria-label="Resolved-outcome probability calibration">
+        <div className="attention-queue-heading">
+          <div>
+            <Activity size={15} />
+            <div>
+              <strong>Resolved-outcome calibration</strong>
+              <span>Source-hashed settlements · immutable historical bounds · no post-hoc forecasts</span>
+            </div>
+          </div>
+          <Badge variant={probabilityCalibration.status === "MEASURED" ? "verified" : probabilityCalibration.status === "COLLECTING" ? "shadow" : "muted"}>
+            {probabilityCalibration.status}
+          </Badge>
+        </div>
+        <div className="attention-queue-stats">
+          <div><strong>{probabilityCalibration.observationCount}</strong><span>resolved bounds</span></div>
+          <div><strong>{probabilityCalibration.adverseObservationCount}</strong><span>adverse outcomes</span></div>
+          <div><strong>{probabilityCalibration.pendingResolutionBoundCount}</strong><span>registered pending</span></div>
+          <div><strong>{probabilityCalibration.measuredGroupCount}</strong><span>measured cohorts</span></div>
+          <div><strong>{probabilityCalibration.insufficientGroupCount}</strong><span>collecting cohorts</span></div>
+          <div><strong>{probabilityCalibration.snapshotCount}</strong><span>milestone snapshots</span></div>
+        </div>
+        <div className="attention-item-list">
+          {probabilityCalibration.groups.length === 0 ? (
+            <div className="review-operation-empty">
+              <strong>No resolved probability outcomes retained yet</strong>
+              <span>When an official venue result is captured with its raw content hash, the bound is scored here. A market disappearing or showing a status label is not treated as settlement evidence.</span>
+            </div>
+          ) : probabilityCalibration.groups.slice(0, 6).map((group) => (
+            <article key={group.groupId}>
+              <div className="attention-item-topline">
+                <Badge variant={group.status === "WITHIN_INTERVAL" ? "verified" : group.status === "INSUFFICIENT_SAMPLE" ? "muted" : "warning"}>
+                  {group.status.replaceAll("_", " ")}
+                </Badge>
+                <Badge variant="muted">{group.horizonBucket.replaceAll("_", " ")}</Badge>
+              </div>
+              <strong>{group.estimator} · {group.method.replaceAll("_", " ")}</strong>
+              <p>Observed adverse rate {group.empiricalRatePpm} ppm versus mean interval {group.meanLowerPpm}–{group.meanUpperPpm} ppm.</p>
+              <div className="attention-item-facts">
+                <span>{group.sampleCount} samples</span>
+                <span>{group.adverseCount} adverse</span>
+                <span>Brier {group.meanMidpointBrierPpm} ppm</span>
+                <span>bucket {group.upperBucketStartPpm}–{group.upperBucketEndPpm}</span>
+              </div>
+              <small>{group.relationKind.replaceAll("_", " ")} · minimum sample {probabilityCalibration.minimumSampleSize} · evidence only</small>
+            </article>
+          ))}
+          {probabilityCalibration.observations.slice(0, 4).map((observation) => (
+            <article key={observation.artifactHash}>
+              <div className="attention-item-topline">
+                <Badge variant={observation.adverseOccurred ? "warning" : "shadow"}>
+                  {observation.adverseOccurred ? "ADVERSE" : "ORDINARY"}
+                </Badge>
+                <time>{new Date(observation.resolvedAt).toLocaleString()}</time>
+              </div>
+              <strong>{observation.observedStateId} · {observation.relationKind.replaceAll("_", " ")}</strong>
+              <p>{observation.listingRefs.join(" ↔ ")}</p>
+              <small>Bound {observation.boundArtifactHash.slice(0, 23)}… · immutable settlement observation</small>
+            </article>
+          ))}
+        </div>
+        <div className="attention-authority-lock">
+          <CircleOff size={14} />
+          <span>Calibration diagnoses estimator behavior; it cannot issue a probability certificate or authorize execution.</span>
+          <code>{probabilityCalibration.storage.observations.durable ? "SQLITE WAL" : "MEMORY"}</code>
         </div>
       </section>
 

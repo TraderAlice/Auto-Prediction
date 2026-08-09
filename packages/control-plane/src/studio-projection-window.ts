@@ -11,6 +11,8 @@ export const LIVE_PROJECTION_LIMITS = Object.freeze({
   probabilityEstimationJobs: 32,
   probabilityEstimationBounds: 12,
   probabilityEstimationNotifications: 12,
+  probabilityCalibrationObservations: 20,
+  probabilityCalibrationSnapshots: 12,
   aiUsageEvents: 48,
   searchLeases: 8,
   marketArchaeologistRuns: 4,
@@ -125,6 +127,18 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
     LIVE_PROJECTION_LIMITS.probabilityEstimationNotifications,
     "ACTIVE_THEN_RETAINED_ORDER",
     (record) => record.status === "UNREAD",
+  );
+  const probabilityCalibrationObservations = window(
+    "ai.probabilityCalibration.observations",
+    full.ai.probabilityCalibration.observations,
+    LIVE_PROJECTION_LIMITS.probabilityCalibrationObservations,
+    "RETAINED_ORDER",
+  );
+  const probabilityCalibrationSnapshots = window(
+    "ai.probabilityCalibration.snapshots",
+    full.ai.probabilityCalibration.snapshots,
+    LIVE_PROJECTION_LIMITS.probabilityCalibrationSnapshots,
+    "RETAINED_ORDER",
   );
   const aiUsageEvents = window(
     "ai.aiUsage.recentEvents",
@@ -316,6 +330,11 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
         jobs: probabilityEstimationJobs,
         bounds: probabilityEstimationBounds,
         notifications: probabilityEstimationNotifications,
+      }),
+      probabilityCalibration: Object.freeze({
+        ...full.ai.probabilityCalibration,
+        observations: probabilityCalibrationObservations,
+        snapshots: probabilityCalibrationSnapshots,
       }),
       aiUsage: Object.freeze({ ...full.ai.aiUsage, recentEvents: aiUsageEvents }),
       semanticReviewAdmission: Object.freeze({

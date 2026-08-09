@@ -96,6 +96,11 @@ import {
   type ProbabilityEstimationSchedulerStore,
 } from "./probability-estimation-scheduler.js";
 import {
+  ProbabilityCalibrationDesk,
+  type ProbabilityCalibrationStore,
+} from "./probability-calibration-desk.js";
+import type { ProbabilityResolutionEvidence } from "./probability-calibration.js";
+import {
   parseSemanticReviewTickInterval,
   SemanticReviewScheduler,
   type SemanticReviewCandidate,
@@ -467,6 +472,22 @@ function supportsProbabilityEstimationSchedulerRecords(
     typeof candidate.saveProbabilityEstimationNotificationRecord === "function";
 }
 
+function supportsProbabilityCalibrationRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ProbabilityCalibrationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ProbabilityCalibrationStore>;
+  return candidate.probabilityCalibrationBoundStorage !== undefined &&
+    candidate.probabilityCalibrationObservationStorage !== undefined &&
+    candidate.probabilityCalibrationSnapshotStorage !== undefined &&
+    typeof candidate.loadProbabilityCalibrationBounds === "function" &&
+    typeof candidate.saveProbabilityCalibrationBound === "function" &&
+    typeof candidate.loadProbabilityCalibrationObservations === "function" &&
+    typeof candidate.saveProbabilityCalibrationObservation === "function" &&
+    typeof candidate.loadProbabilityCalibrationSnapshots === "function" &&
+    typeof candidate.saveProbabilityCalibrationSnapshot === "function";
+}
+
 function supportsSemanticReviewSchedulerRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & SemanticReviewSchedulerStore {
@@ -648,6 +669,50 @@ function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   });
 }
 
+function parseProbabilityCalibrationResolution(value: unknown): Readonly<{
+  boundArtifactHash: Hash;
+  resolutionEvidence: readonly ProbabilityResolutionEvidence[];
+}> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("probability calibration resolution request is malformed");
+  }
+  const body = value as Record<string, unknown>;
+  if (
+    JSON.stringify(Object.keys(body).sort()) !==
+      JSON.stringify(["boundArtifactHash", "resolutionEvidence"]) ||
+    typeof body.boundArtifactHash !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/u.test(body.boundArtifactHash) ||
+    !Array.isArray(body.resolutionEvidence) ||
+    body.resolutionEvidence.length < 1 || body.resolutionEvidence.length > 16
+  ) throw new Error("probability calibration resolution request is invalid");
+  const resolutionEvidence = Object.freeze(body.resolutionEvidence.map((value) => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("probability calibration resolution evidence is malformed");
+    }
+    const item = value as Record<string, unknown>;
+    if (
+      JSON.stringify(Object.keys(item).sort()) !== JSON.stringify([
+        "listingRef", "protocolIdentity", "resolvedAt", "sourceRawHash", "truthValue",
+      ]) ||
+      typeof item.listingRef !== "string" || typeof item.truthValue !== "boolean" ||
+      typeof item.resolvedAt !== "string" || typeof item.sourceRawHash !== "string" ||
+      !/^sha256:[0-9a-f]{64}$/u.test(item.sourceRawHash) ||
+      typeof item.protocolIdentity !== "string"
+    ) throw new Error("probability calibration resolution evidence is invalid");
+    return Object.freeze({
+      listingRef: item.listingRef,
+      truthValue: item.truthValue,
+      resolvedAt: item.resolvedAt,
+      sourceRawHash: item.sourceRawHash as Hash,
+      protocolIdentity: item.protocolIdentity,
+    });
+  }));
+  return Object.freeze({
+    boundArtifactHash: body.boundArtifactHash as Hash,
+    resolutionEvidence,
+  });
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -671,6 +736,7 @@ export function createControlPlane(options?: {
   semanticReviewDesk?: SemanticReviewDesk;
   probabilityEstimationDesk?: ProbabilityEstimationDesk;
   probabilityEstimationScheduler?: ProbabilityEstimationScheduler;
+  probabilityCalibrationDesk?: ProbabilityCalibrationDesk;
   aiUsageLedger?: AiUsageLedger;
   aiRuntimeConfigurationDesk?: AiRuntimeConfigurationDesk;
   modelRuntimeFactory?: (configuration: AiRuntimeConfiguration) => DiscoveryModelRuntime;
@@ -965,6 +1031,13 @@ export function createControlPlane(options?: {
       concurrencyLimit: 3,
       maxRequestsPerTick: 3,
       ...(supportsProbabilityEstimationSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const probabilityCalibrationDesk = options?.probabilityCalibrationDesk ??
+    new ProbabilityCalibrationDesk({
+      boundSource: () => probabilityEstimationScheduler.projection().bounds,
+      ...(supportsProbabilityCalibrationRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -1410,6 +1483,7 @@ export function createControlPlane(options?: {
       semanticReview: semanticReviewProjection,
       probabilityEstimation: probabilityEstimationDesk.projection(),
       probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
+      probabilityCalibration: probabilityCalibrationDesk.projection(),
       aiUsage: aiUsageLedger.projection(),
       runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
       semanticReviewAdmission,
@@ -1564,6 +1638,7 @@ export function createControlPlane(options?: {
         semanticReview: semanticReviewDesk.projection(),
         probabilityEstimation: probabilityEstimationDesk.projection(),
         probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
+        probabilityCalibration: probabilityCalibrationDesk.projection(),
         aiUsage: aiUsageLedger.projection(),
         runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
         premiseAnalysis: premiseAnalysisDesk.projection(),
@@ -1641,6 +1716,41 @@ export function createControlPlane(options?: {
     ) {
       const current = await projection();
       writeJson(response, 200, current.ai.searchOutcomeAttribution);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/probability-calibration"
+    ) {
+      await ready;
+      writeJson(response, 200, probabilityCalibrationDesk.projection());
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/probability-calibration/observations"
+    ) {
+      try {
+        await ready;
+        const result = probabilityCalibrationDesk.recordResolution(
+          parseProbabilityCalibrationResolution(await readJson(request)),
+        );
+        await broadcastProjection();
+        writeJson(response, result.idempotentReplay ? 200 : 201, Object.freeze({
+          ok: true,
+          ...result,
+          probabilityCalibration: probabilityCalibrationDesk.projection(),
+          executionAuthority: false as const,
+        }));
+      } catch (error) {
+        writeJson(response, 400, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "probability calibration resolution failed",
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (
@@ -3196,6 +3306,7 @@ export function createControlPlane(options?: {
     semanticReviewDesk,
     probabilityEstimationDesk,
     probabilityEstimationScheduler,
+    probabilityCalibrationDesk,
     aiUsageLedger,
     semanticReviewScheduler,
     premiseAnalysisDesk,

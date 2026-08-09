@@ -756,6 +756,35 @@ describe("control-plane HTTP surface", () => {
       probabilityCertificateAuthority: false,
       executionAuthority: false,
     });
+    expect(projection.ai.probabilityCalibration).toMatchObject({
+      schemaVersion: "pmh.probability-calibration-desk.v1",
+      status: "EMPTY",
+      observationCount: 0,
+      snapshotCount: 0,
+      authority: "CALIBRATION_ORCHESTRATION_ONLY",
+      probabilityCertificateAuthority: false,
+      executionAuthority: false,
+    });
+    const calibrationResponse = await fetch(`${baseUrl}/api/v1/probability-calibration`);
+    expect(calibrationResponse.status).toBe(200);
+    expect(await calibrationResponse.json()).toMatchObject({
+      status: "EMPTY",
+      storage: { observations: { durable: false, idempotencyKey: "artifactHash" } },
+      executionAuthority: false,
+    });
+    const invalidCalibrationResponse = await fetch(
+      `${baseUrl}/api/v1/probability-calibration/observations`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ boundArtifactHash: hashCanonical({ missing: true }) }),
+      },
+    );
+    expect(invalidCalibrationResponse.status).toBe(400);
+    expect(await invalidCalibrationResponse.json()).toMatchObject({
+      ok: false,
+      executionAuthority: false,
+    });
     const probabilityResponse = await fetch(`${baseUrl}/api/v1/probability-estimation`);
     expect(probabilityResponse.status).toBe(200);
     expect(await probabilityResponse.json()).toMatchObject({
@@ -2292,7 +2321,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 27,
+          schemaVersion: 28,
         },
         records: [{ investigationId: created.investigationId }],
       });

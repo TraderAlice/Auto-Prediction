@@ -184,8 +184,21 @@ group estimates by estimator, method, relation, horizon, and probability bucket,
 then use bigint arithmetic for empirical rate, mean interval, upper/lower miss,
 and midpoint Brier score. A cohort below its explicit minimum remains
 `INSUFFICIENT_SAMPLE`; calibration evidence grants no certificate or execution
-authority. Durable resolution ingestion, SQLite replay, search-family lineage,
-and Studio trends are next.
+authority. The artifact now has a durable first-party observation desk: only
+scheduler-registered historical bounds can be scored, duplicate replay is
+idempotent, conflicting or future-dated outcomes fail closed, and SQLite schema
+v28 preserves every registered bound and observation across restart, so a
+later settlement is still scoreable after scheduler-detail rotation. Full embedded calibration
+artifacts are stored only at observation one and configurable milestones to
+avoid quadratic history growth; the current artifact is rebuilt deterministically
+between milestones. A strict API accepts source-hashed per-listing settlement
+evidence, while the bounded Studio view shows pending bounds, adverse outcomes,
+cohort sufficiency, interval misses, Brier score, and milestone history without
+claiming that dashboard status text is a result. Official anonymous venue-
+resolution capture and search-family lineage are next.
+Node 24.14.0 checks, all 551 workspace tests (402 control-plane), and the
+production build pass. Studio desktop and 390 px inspection show the new
+calibration section without console warnings or horizontal overflow.
 
 The unified AI usage ledger is now implemented locally. SQLite schema v26
 retains one immutable event per invocation and rolls it up by purpose, role,

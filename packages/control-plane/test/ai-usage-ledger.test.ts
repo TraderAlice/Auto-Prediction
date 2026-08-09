@@ -15,7 +15,7 @@ class MemoryStore implements AiUsageEventStore {
   public readonly aiUsageStorage = Object.freeze({
     mode: "MEMORY" as const,
     durable: false,
-    schemaVersion: 27,
+    schemaVersion: 28,
     idempotencyKey: "eventId" as const,
   });
   loadAiUsageEvents() { return [...this.#events.values()]; }
@@ -159,7 +159,7 @@ describe("AI usage ledger", () => {
       expect(restored.storage).toMatchObject({
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 27,
+        schemaVersion: 28,
       });
       secondStore.close();
     } finally {

@@ -150,8 +150,19 @@ import {
   type AiRuntimeConfiguration,
   type AiRuntimeConfigurationStore,
 } from "./ai-runtime-configuration.js";
+import {
+  assertProbabilityCalibrationArtifact,
+  assertProbabilityCalibrationObservation,
+  type ProbabilityCalibrationArtifact,
+  type ProbabilityCalibrationObservation,
+} from "./probability-calibration.js";
+import type { ProbabilityCalibrationStore } from "./probability-calibration-desk.js";
+import {
+  assertProbabilisticSemanticBound,
+  type ProbabilisticSemanticBoundArtifact,
+} from "./probabilistic-semantic-arbitrage.js";
 
-const SCHEMA_VERSION = 27;
+const SCHEMA_VERSION = 28;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -183,6 +194,25 @@ type StoredAiUsageEventRow = Readonly<{
 
 type StoredAiRuntimeConfigurationRow = Readonly<{
   singleton_key: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ProbabilityCalibrationObservationRow = Readonly<{
+  artifact_hash: string;
+  bound_artifact_hash: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ProbabilityCalibrationBoundRow = Readonly<{
+  artifact_hash: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ProbabilityCalibrationSnapshotRow = Readonly<{
+  artifact_hash: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -1352,6 +1382,81 @@ function parseAiRuntimeConfiguration(value: unknown): AiRuntimeConfiguration {
   return configuration;
 }
 
+function parseProbabilityCalibrationObservation(
+  value: unknown,
+): ProbabilityCalibrationObservation {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite probability calibration observation row is malformed");
+  }
+  const row = value as Partial<ProbabilityCalibrationObservationRow>;
+  if (
+    typeof row.artifact_hash !== "string" ||
+    typeof row.bound_artifact_hash !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite probability calibration observation row has invalid columns");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite probability calibration observation contains invalid JSON");
+  }
+  const observation = assertProbabilityCalibrationObservation(decoded);
+  if (
+    observation.artifactHash !== row.artifact_hash ||
+    observation.boundArtifactHash !== row.bound_artifact_hash ||
+    hashCanonical(observation) !== row.record_hash
+  ) throw new Error("SQLite probability calibration observation identity mismatch");
+  return observation;
+}
+
+function parseProbabilityCalibrationBound(value: unknown): ProbabilisticSemanticBoundArtifact {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite probability calibration bound row is malformed");
+  }
+  const row = value as Partial<ProbabilityCalibrationBoundRow>;
+  if (
+    typeof row.artifact_hash !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite probability calibration bound row has invalid columns");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite probability calibration bound contains invalid JSON");
+  }
+  const bound = assertProbabilisticSemanticBound(decoded);
+  if (bound.artifactHash !== row.artifact_hash || hashCanonical(bound) !== row.record_hash) {
+    throw new Error("SQLite probability calibration bound identity mismatch");
+  }
+  return bound;
+}
+
+function parseProbabilityCalibrationSnapshot(value: unknown): ProbabilityCalibrationArtifact {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite probability calibration snapshot row is malformed");
+  }
+  const row = value as Partial<ProbabilityCalibrationSnapshotRow>;
+  if (
+    typeof row.artifact_hash !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite probability calibration snapshot row has invalid columns");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite probability calibration snapshot contains invalid JSON");
+  }
+  const artifact = assertProbabilityCalibrationArtifact(decoded);
+  if (
+    artifact.artifactHash !== row.artifact_hash ||
+    hashCanonical(artifact) !== row.record_hash
+  ) throw new Error("SQLite probability calibration snapshot identity mismatch");
+  return artifact;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -1400,7 +1505,8 @@ export class SqliteOperationalStore
     RuleEvidenceClaimRecordStore,
     RuleEvidenceClaimSchedulerStore,
     OpportunityLifecycleJournalStore,
-    AnonymousSimulationMaterializationStore
+    AnonymousSimulationMaterializationStore,
+    ProbabilityCalibrationStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -1442,6 +1548,12 @@ export class SqliteOperationalStore
   public readonly probabilityEstimationJobStorage: OperationalStorageProjection<"jobId">;
   public readonly probabilityEstimationNotificationStorage:
     OperationalStorageProjection<"notificationId">;
+  public readonly probabilityCalibrationBoundStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly probabilityCalibrationObservationStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly probabilityCalibrationSnapshotStorage:
+    OperationalStorageProjection<"artifactHash">;
   public readonly aiUsageStorage: OperationalStorageProjection<"eventId">;
   public readonly aiRuntimeConfigurationStorage:
     OperationalStorageProjection<"singleton">;
@@ -1595,6 +1707,24 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "notificationId",
+    });
+    this.probabilityCalibrationBoundStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.probabilityCalibrationObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.probabilityCalibrationSnapshotStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
     });
     this.aiUsageStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -1761,6 +1891,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'probability_estimation_notifications'`,
       )
       .get() !== undefined;
+    const probabilityCalibrationObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'probability_calibration_observations'`,
+      )
+      .get() !== undefined;
+    const probabilityCalibrationBoundTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'probability_calibration_bounds'`,
+      )
+      .get() !== undefined;
+    const probabilityCalibrationSnapshotTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'probability_calibration_snapshots'`,
+      )
+      .get() !== undefined;
     const aiUsageEventTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -1846,6 +1994,9 @@ export class SqliteOperationalStore
       probabilityEstimationRunTableExists &&
       probabilityEstimationJobTableExists &&
       probabilityEstimationNotificationTableExists &&
+      probabilityCalibrationBoundTableExists &&
+      probabilityCalibrationObservationTableExists &&
+      probabilityCalibrationSnapshotTableExists &&
       aiUsageEventTableExists &&
       aiRuntimeConfigurationTableExists &&
       searchQuoteObservationTableExists &&
@@ -2769,6 +2920,55 @@ export class SqliteOperationalStore
               length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
             )
           ) STRICT;
+        `);
+      }
+      if (
+        current < 28 || !probabilityCalibrationBoundTableExists ||
+        !probabilityCalibrationObservationTableExists ||
+        !probabilityCalibrationSnapshotTableExists
+      ) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS probability_calibration_bounds (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            valid_from TEXT NOT NULL CHECK (length(valid_from) > 0),
+            expires_at TEXT NOT NULL CHECK (length(expires_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS probability_calibration_bounds_validity
+            ON probability_calibration_bounds (valid_from DESC, artifact_hash DESC);
+          CREATE TABLE IF NOT EXISTS probability_calibration_observations (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            bound_artifact_hash TEXT NOT NULL UNIQUE CHECK (
+              length(bound_artifact_hash) = 71 AND bound_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            resolved_at TEXT NOT NULL CHECK (length(resolved_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS probability_calibration_observations_resolved
+            ON probability_calibration_observations (resolved_at DESC, artifact_hash DESC);
+          CREATE TABLE IF NOT EXISTS probability_calibration_snapshots (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            created_at TEXT NOT NULL CHECK (length(created_at) > 0),
+            observation_count INTEGER NOT NULL CHECK (observation_count >= 1),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS probability_calibration_snapshots_created
+            ON probability_calibration_snapshots (created_at DESC, artifact_hash DESC);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -3955,6 +4155,166 @@ export class SqliteOperationalStore
       )
       .all(limit);
     return Object.freeze(rows.map(parseProbabilityEstimationRunRecord));
+  }
+
+  public loadProbabilityCalibrationObservations(
+    limit: number,
+  ): readonly ProbabilityCalibrationObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT artifact_hash, bound_artifact_hash, record_json, record_hash
+         FROM probability_calibration_observations
+         ORDER BY resolved_at DESC, artifact_hash DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseProbabilityCalibrationObservation));
+  }
+
+  public loadProbabilityCalibrationBounds(
+    limit: number,
+  ): readonly ProbabilisticSemanticBoundArtifact[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT artifact_hash, record_json, record_hash
+         FROM probability_calibration_bounds
+         ORDER BY valid_from DESC, artifact_hash DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseProbabilityCalibrationBound));
+  }
+
+  public saveProbabilityCalibrationBound(bound: ProbabilisticSemanticBoundArtifact): void {
+    this.#assertOpen();
+    const validated = assertProbabilisticSemanticBound(bound);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database
+      .prepare(
+        `INSERT INTO probability_calibration_bounds (
+           artifact_hash, valid_from, expires_at, record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(artifact_hash) DO NOTHING`,
+      )
+      .run(
+        validated.artifactHash,
+        validated.validFrom,
+        validated.expiresAt,
+        recordJson,
+        recordHash,
+      );
+    const row = this.#database
+      .prepare(
+        `SELECT artifact_hash, record_json, record_hash
+         FROM probability_calibration_bounds WHERE artifact_hash = ?`,
+      )
+      .get(validated.artifactHash);
+    if (row === undefined || hashCanonical(parseProbabilityCalibrationBound(row)) !== recordHash) {
+      throw new Error("artifactHash is already bound to another probability calibration bound");
+    }
+  }
+
+  public saveProbabilityCalibrationObservation(
+    observation: ProbabilityCalibrationObservation,
+  ): void {
+    this.#assertOpen();
+    const validated = assertProbabilityCalibrationObservation(observation);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database
+      .prepare(
+        `INSERT INTO probability_calibration_observations (
+           artifact_hash, bound_artifact_hash, resolved_at, record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(artifact_hash) DO NOTHING`,
+      )
+      .run(
+        validated.artifactHash,
+        validated.boundArtifactHash,
+        validated.resolvedAt,
+        recordJson,
+        recordHash,
+      );
+    const row = this.#database
+      .prepare(
+        `SELECT artifact_hash, bound_artifact_hash, record_json, record_hash
+         FROM probability_calibration_observations WHERE artifact_hash = ?`,
+      )
+      .get(validated.artifactHash);
+    if (row === undefined || hashCanonical(parseProbabilityCalibrationObservation(row)) !== recordHash) {
+      throw new Error("artifactHash is already bound to another probability calibration observation");
+    }
+  }
+
+  public loadProbabilityCalibrationSnapshots(
+    limit: number,
+  ): readonly ProbabilityCalibrationArtifact[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT artifact_hash, record_json, record_hash
+         FROM probability_calibration_snapshots
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseProbabilityCalibrationSnapshot));
+  }
+
+  public saveProbabilityCalibrationSnapshot(
+    artifact: ProbabilityCalibrationArtifact,
+    retentionLimit: number,
+  ): void {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const validated = assertProbabilityCalibrationArtifact(artifact);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO probability_calibration_snapshots (
+             artifact_hash, created_at, observation_count, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(artifact_hash) DO NOTHING`,
+        )
+        .run(
+          validated.artifactHash,
+          validated.createdAt,
+          validated.observations.length,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM probability_calibration_snapshots
+           WHERE rowid IN (
+             SELECT rowid FROM probability_calibration_snapshots
+             ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT artifact_hash, record_json, record_hash
+           FROM probability_calibration_snapshots WHERE artifact_hash = ?`,
+        )
+        .get(validated.artifactHash);
+      if (row === undefined || hashCanonical(parseProbabilityCalibrationSnapshot(row)) !== recordHash) {
+        throw new Error("artifactHash is already bound to another probability calibration snapshot");
+      }
+      this.#database.exec("COMMIT");
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   public saveProbabilityEstimationRunRecord(

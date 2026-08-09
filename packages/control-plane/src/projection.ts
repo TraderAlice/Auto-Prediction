@@ -46,6 +46,7 @@ import {
 import type { SemanticReviewDeskProjection } from "./semantic-review.js";
 import type { ProbabilityEstimationDeskProjection } from "./probability-estimation-agent.js";
 import type { ProbabilityEstimationSchedulerProjection } from "./probability-estimation-scheduler.js";
+import type { ProbabilityCalibrationDeskProjection } from "./probability-calibration-desk.js";
 import { AiUsageLedger, type AiUsageProjection } from "./ai-usage-ledger.js";
 import {
   buildSemanticReviewAdmissionProjection,
@@ -127,6 +128,7 @@ export function buildStudioProjection(input: {
   semanticReview?: SemanticReviewDeskProjection;
   probabilityEstimation?: ProbabilityEstimationDeskProjection;
   probabilityEstimationScheduler?: ProbabilityEstimationSchedulerProjection;
+  probabilityCalibration?: ProbabilityCalibrationDeskProjection;
   aiUsage?: AiUsageProjection;
   runtimeConfiguration?: import("./ai-runtime-configuration.js").AiRuntimeConfigurationProjection;
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
@@ -864,6 +866,54 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     }),
   };
+  const probabilityCalibration = input.probabilityCalibration ?? Object.freeze({
+    schemaVersion: "pmh.probability-calibration-desk.v1" as const,
+    status: "EMPTY" as const,
+    registeredBoundCount: 0,
+    registeredObservedBoundCount: 0,
+    pendingResolutionBoundCount: 0,
+    observationCount: 0,
+    adverseObservationCount: 0,
+    snapshotCount: 0,
+    minimumSampleSize: 20,
+    snapshotInterval: 20,
+    nextSnapshotAtObservationCount: 1,
+    currentArtifactHash: null,
+    currentCreatedAt: null,
+    measuredGroupCount: 0,
+    insufficientGroupCount: 0,
+    groups: Object.freeze([]),
+    observations: Object.freeze([]),
+    snapshots: Object.freeze([]),
+    storage: Object.freeze({
+      bounds: Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "artifactHash" as const,
+      }),
+      observations: Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "artifactHash" as const,
+      }),
+      snapshots: Object.freeze({
+        mode: "MEMORY" as const,
+        durable: false,
+        schemaVersion: 0,
+        idempotencyKey: "artifactHash" as const,
+      }),
+    }),
+    authority: "CALIBRATION_ORCHESTRATION_ONLY" as const,
+    probabilityCertificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: Object.freeze({
+      externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    }),
+  });
   const investigationDesk = input.investigationDesk ?? {
     retentionLimit: 10,
     activeCount: 0 as const,
@@ -1067,6 +1117,7 @@ export function buildStudioProjection(input: {
       semanticReview,
       probabilityEstimation,
       probabilityEstimationScheduler,
+      probabilityCalibration,
       aiUsage: input.aiUsage ?? new AiUsageLedger().projection(),
       runtimeConfiguration: input.runtimeConfiguration ?? Object.freeze({
         configuration: Object.freeze({

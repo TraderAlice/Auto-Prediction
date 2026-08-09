@@ -48,6 +48,7 @@ export * from "./probabilistic-semantic-arbitrage.js";
 export * from "./probability-estimation-agent.js";
 export * from "./probability-estimation-scheduler.js";
 export * from "./probability-calibration.js";
+export * from "./probability-calibration-desk.js";
 export * from "./ai-usage-ledger.js";
 export * from "./ai-runtime-configuration.js";
 export * from "./codex-model.js";
