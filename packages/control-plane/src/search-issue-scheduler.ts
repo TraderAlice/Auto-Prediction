@@ -27,6 +27,12 @@ export {
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 100;
 
+export const SEARCH_DISCOVERY_MODES = Object.freeze([
+  "HEURISTIC_EXPLORATION",
+  "CLAIM_MONITORING",
+] as const);
+export type SearchDiscoveryMode = (typeof SEARCH_DISCOVERY_MODES)[number];
+
 export type SearchIssueFamilyDefinition = Readonly<{
   schemaVersion: "pmh.search-issue-family-definition.v1";
   semanticFamily: SearchSemanticFamily;
@@ -39,8 +45,9 @@ export type SearchIssueFamilyDefinition = Readonly<{
 }>;
 
 export type SearchIssueRecord = Readonly<{
-  schemaVersion: "pmh.search-issue.v1" | "pmh.search-issue.v2";
+  schemaVersion: "pmh.search-issue.v1" | "pmh.search-issue.v2" | "pmh.search-issue.v3";
   issueId: Hash;
+  discoveryMode?: SearchDiscoveryMode;
   definitionIdentity?: Hash;
   familyDefinition?: SearchIssueFamilyDefinition;
   defaultKey?: string;
@@ -102,6 +109,8 @@ export type SearchIssueSchedulerProjection = Readonly<{
   activeCount: number;
   issueCount: number;
   enabledIssueCount: number;
+  explorationIssueCount: number;
+  claimMonitoringIssueCount: number;
   defaultManagedIssueCount: number;
   supersededIssueCount: number;
   dueIssueCount: number;
@@ -256,6 +265,19 @@ export type SearchIssueSchedulerProjection = Readonly<{
       familyRetrievalNeighborhoodCount: number;
       familyRetrievalFallbackCount: number;
     }>[];
+    byDiscoveryMode: readonly Readonly<{
+      discoveryMode: SearchDiscoveryMode;
+      issueCount: number;
+      terminalLeaseCount: number;
+      novelCandidateCount: number;
+      proposalCount: number;
+      falsificationCount: number;
+      providerRequestAttemptCount: number;
+      providerFailureCount: number;
+      providerFailureRateBps: number | null;
+      agentToolCallCount: number;
+      piEscalationCount: number;
+    }>[];
   }>;
   issues: readonly SearchIssueRecord[];
   notifications: readonly SearchNotificationRecord[];
@@ -290,6 +312,7 @@ export type CreateSearchIssueInput = Readonly<{
   cadenceMs: number;
   priority?: 1 | 2 | 3 | 4 | 5;
   enabled?: boolean;
+  discoveryMode?: SearchDiscoveryMode;
 }>;
 
 type SearchIssueSchedulerOptions = Readonly<{
@@ -400,9 +423,12 @@ function issueDefinitionIdentity(input: Readonly<{
   priority: 1 | 2 | 3 | 4 | 5;
   candidatePolicy: SearchCandidatePolicy | null;
   familyDefinition: SearchIssueFamilyDefinition;
+  discoveryMode?: SearchDiscoveryMode;
 }>): Hash {
   return hashCanonical({
-    schemaVersion: "pmh.search-issue-definition.v1",
+    schemaVersion: input.discoveryMode === undefined
+      ? "pmh.search-issue-definition.v1"
+      : "pmh.search-issue-definition.v2",
     title: input.title,
     question: input.question,
     lens: input.lens,
@@ -411,7 +437,14 @@ function issueDefinitionIdentity(input: Readonly<{
     priority: input.priority,
     candidatePolicy: input.candidatePolicy,
     familyDefinitionIdentity: input.familyDefinition.definitionIdentity,
+    ...(input.discoveryMode === undefined ? {} : { discoveryMode: input.discoveryMode }),
   });
+}
+
+export function searchDiscoveryModeForIssue(issue: SearchIssueRecord): SearchDiscoveryMode {
+  return issue.schemaVersion === "pmh.search-issue.v3"
+    ? issue.discoveryMode!
+    : "CLAIM_MONITORING";
 }
 
 function summarizeLeasePerformance(records: readonly SearchLeaseRecord[]): Readonly<{
@@ -752,18 +785,19 @@ export function assertSearchIssueRecord(value: unknown): SearchIssueRecord {
   const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null ||
     isSearchCandidatePolicy(candidatePolicy);
   const v2 = record.schemaVersion === "pmh.search-issue.v2";
+  const v3 = record.schemaVersion === "pmh.search-issue.v3";
   const managementValid = record.defaultKey === undefined
     ? record.supersededByIssueId === undefined
-    : v2 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(record.defaultKey) &&
+    : (v2 || v3) && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(record.defaultKey) &&
       record.defaultKey.length <= 80 &&
       (record.supersededByIssueId === null || (
         HASH_PATTERN.test(String(record.supersededByIssueId)) &&
         record.supersededByIssueId !== record.issueId &&
         record.enabled === false
       ));
-  let familyValid = !v2 && record.definitionIdentity === undefined &&
-    record.familyDefinition === undefined;
-  if (v2) {
+  let familyValid = !v2 && !v3 && record.definitionIdentity === undefined &&
+    record.familyDefinition === undefined && record.discoveryMode === undefined;
+  if (v2 || v3) {
     try {
       const familyDefinition = assertSearchIssueFamilyDefinition(record.familyDefinition);
       familyValid = candidatePolicy !== undefined && candidatePolicy !== null &&
@@ -777,11 +811,15 @@ export function assertSearchIssueRecord(value: unknown): SearchIssueRecord {
           priority: record.priority,
           candidatePolicy,
           familyDefinition,
+          ...(v3 ? { discoveryMode: record.discoveryMode } : {}),
         }) &&
         record.issueId === hashCanonical({
-          schemaVersion: "pmh.search-issue-id.v2",
+          schemaVersion: v3 ? "pmh.search-issue-id.v3" : "pmh.search-issue-id.v2",
           definitionIdentity: record.definitionIdentity,
         }) &&
+        (v2
+          ? record.discoveryMode === undefined
+          : SEARCH_DISCOVERY_MODES.includes(record.discoveryMode!)) &&
         candidatePolicy.allowedRelationKinds.join("\n") ===
           familyDefinition.intendedRelationKinds.join("\n") &&
         candidatePolicy.minimumListingRefCount ===
@@ -794,7 +832,8 @@ export function assertSearchIssueRecord(value: unknown): SearchIssueRecord {
     }
   }
   if (
-    !["pmh.search-issue.v1", "pmh.search-issue.v2"].includes(record.schemaVersion) ||
+    !["pmh.search-issue.v1", "pmh.search-issue.v2", "pmh.search-issue.v3"]
+      .includes(record.schemaVersion) ||
     !HASH_PATTERN.test(String(record.issueId)) ||
     !boundedText(record.title, 120) ||
     !boundedText(record.question, 1_000) ||
@@ -1026,7 +1065,7 @@ const DEFAULT_FAMILY_ISSUES = Object.freeze([
 ]);
 
 function searchQuestionForIssue(issue: SearchIssueRecord): string {
-  if (issue.schemaVersion !== "pmh.search-issue.v2" || issue.familyDefinition === undefined) {
+  if (issue.schemaVersion === "pmh.search-issue.v1" || issue.familyDefinition === undefined) {
     return issue.question;
   }
   const family = issue.familyDefinition;
@@ -1112,7 +1151,8 @@ export class SearchIssueScheduler {
           if (issue.issueId === current.issueId) continue;
           const managedRevision = issue.defaultKey === template.key || (
             issue.defaultKey === undefined &&
-            issue.schemaVersion === "pmh.search-issue.v2" &&
+            (issue.schemaVersion === "pmh.search-issue.v2" ||
+              issue.schemaVersion === "pmh.search-issue.v3") &&
             issue.title === current.title &&
             issue.question === current.question &&
             issue.lens === current.lens &&
@@ -1186,6 +1226,7 @@ export class SearchIssueScheduler {
       cadenceMs: template.cadenceMs,
       priority: template.priority,
       enabled: true,
+      discoveryMode: "HEURISTIC_EXPLORATION",
     }, now);
   }
 
@@ -1212,6 +1253,7 @@ export class SearchIssueScheduler {
       maxCorpusListings: familyDefinition.maxCorpusListings,
       candidateSelection: "MODEL_HYPOTHESIS" as const,
     });
+    const discoveryMode = input.discoveryMode ?? "CLAIM_MONITORING";
     const definitionIdentity = issueDefinitionIdentity({
       title,
       question,
@@ -1221,17 +1263,19 @@ export class SearchIssueScheduler {
       priority,
       candidatePolicy,
       familyDefinition,
+      discoveryMode,
     });
     const issueId = hashCanonical({
-      schemaVersion: "pmh.search-issue-id.v2",
+      schemaVersion: "pmh.search-issue-id.v3",
       definitionIdentity,
     });
     const existing = this.#issues.find((issue) => issue.issueId === issueId);
     if (existing !== undefined) return existing;
     const timestamp = new Date(now).toISOString();
     return withIssueHash({
-      schemaVersion: "pmh.search-issue.v2",
+      schemaVersion: "pmh.search-issue.v3",
       issueId,
+      discoveryMode,
       definitionIdentity,
       familyDefinition,
       candidatePolicy,
@@ -1260,6 +1304,9 @@ export class SearchIssueScheduler {
         input as CreateSearchIssueInput & Required<Pick<CreateSearchIssueInput, "family">>,
         this.#now(),
       ));
+    }
+    if (input.discoveryMode !== undefined) {
+      throw new Error("discovery mode requires a bounded semantic family definition");
     }
     const title = input.title.trim().replace(/\s+/gu, " ");
     const question = input.question.trim().replace(/\s+/gu, " ");
@@ -1418,6 +1465,7 @@ export class SearchIssueScheduler {
           issueId: issue.issueId,
           question: searchQuestionForIssue(issue),
           venueIds: issue.venueIds,
+          discoveryMode: searchDiscoveryModeForIssue(issue),
           ...(issue.familyDefinition === undefined
             ? {}
             : { semanticFamily: issue.familyDefinition.semanticFamily }),
@@ -1588,6 +1636,16 @@ export class SearchIssueScheduler {
       (record) => record.status !== "ISSUED" && record.lease.issueId !== null &&
         record.lease.issueId !== undefined,
     );
+    const issueById = new Map(issues.map((issue) => [issue.issueId, issue] as const));
+    const discoveryModeForLease = (record: SearchLeaseRecord): SearchDiscoveryMode => {
+      if (record.lease.discoveryMode !== undefined && record.lease.discoveryMode !== null) {
+        return record.lease.discoveryMode;
+      }
+      const issue = record.lease.issueId === undefined || record.lease.issueId === null
+        ? undefined
+        : issueById.get(record.lease.issueId);
+      return issue === undefined ? "CLAIM_MONITORING" : searchDiscoveryModeForIssue(issue);
+    };
     const performance = summarizeLeasePerformance(terminalIssueLeases);
     return Object.freeze({
       schemaVersion: "pmh.search-issue-scheduler.v1",
@@ -1599,6 +1657,12 @@ export class SearchIssueScheduler {
       activeCount: this.#active.size,
       issueCount: issues.length,
       enabledIssueCount: issues.filter((item) => item.enabled).length,
+      explorationIssueCount: issues.filter((item) =>
+        searchDiscoveryModeForIssue(item) === "HEURISTIC_EXPLORATION"
+      ).length,
+      claimMonitoringIssueCount: issues.filter((item) =>
+        searchDiscoveryModeForIssue(item) === "CLAIM_MONITORING"
+      ).length,
       defaultManagedIssueCount: issues.filter((item) => item.defaultKey !== undefined).length,
       supersededIssueCount: issues.filter(
         (item) => item.supersededByIssueId !== undefined && item.supersededByIssueId !== null,
@@ -1665,6 +1729,27 @@ export class SearchIssueScheduler {
             familyRetrievalNeighborhoodCount: summary.familyRetrievalNeighborhoodCount,
             familyRetrievalFallbackCount: summary.familyRetrievalFallbackCount,
           })];
+        })),
+        byDiscoveryMode: Object.freeze(SEARCH_DISCOVERY_MODES.map((discoveryMode) => {
+          const issueIds = new Set(issues.flatMap((issue) =>
+            searchDiscoveryModeForIssue(issue) === discoveryMode ? [issue.issueId] : []
+          ));
+          const summary = summarizeLeasePerformance(terminalIssueLeases.filter(
+            (record) => discoveryModeForLease(record) === discoveryMode,
+          ));
+          return Object.freeze({
+            discoveryMode,
+            issueCount: issueIds.size,
+            terminalLeaseCount: summary.terminalLeaseCount,
+            novelCandidateCount: summary.novelCandidateCount,
+            proposalCount: summary.proposalCount,
+            falsificationCount: summary.falsificationCount,
+            providerRequestAttemptCount: summary.providerRequestAttemptCount,
+            providerFailureCount: summary.providerFailureCount,
+            providerFailureRateBps: summary.providerFailureRateBps,
+            agentToolCallCount: summary.agentToolCallCount,
+            piEscalationCount: summary.piEscalationCount,
+          });
         })),
       }),
       issues,

@@ -2153,6 +2153,77 @@ main {
   min-width: 0;
 }
 
+.discovery-origin-overview {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-bottom: 14px;
+}
+
+.discovery-origin-overview article {
+  background: color-mix(in srgb, var(--card) 86%, var(--background));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.discovery-origin-overview article.is-primary {
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border));
+}
+
+.discovery-origin-overview article > div:first-child {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.discovery-origin-overview article > div:first-child > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.discovery-origin-overview h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 2px 0 0;
+}
+
+.discovery-origin-overview p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.discovery-origin-overview dl {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 4px 0 0;
+}
+
+.discovery-origin-overview dl > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.discovery-origin-overview dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.discovery-origin-overview dd {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  margin: 0;
+}
+
 .issue-scheduler-strip {
   border-bottom: 1px solid var(--border);
   border-top: 1px solid var(--border);
@@ -7102,6 +7173,7 @@ footer span:first-child {
   .search-lease-budget,
   .search-lease-history,
   .issue-scheduler-strip,
+  .discovery-origin-overview,
   .search-attention-summary,
   .search-attention-list,
   .search-outcome-stages,
@@ -7109,6 +7181,10 @@ footer span:first-child {
   .search-issue-form,
   .semantic-graph-stats {
     grid-template-columns: 1fr;
+  }
+
+  .discovery-origin-overview dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .issue-scheduler-console [data-slot="card-header"],

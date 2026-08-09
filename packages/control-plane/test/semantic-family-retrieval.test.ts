@@ -91,6 +91,7 @@ describe("semantic-family retrieval trailheads", () => {
     expect(assertSemanticFamilyRetrievalPlan(selected.retrievalPlan)).toBe(
       selected.retrievalPlan,
     );
+
     expect(() => assertSemanticFamilyRetrievalPlan({
       ...selected.retrievalPlan,
       sharedSignals: ["trump", "certainly-exclusive"],
@@ -160,7 +161,8 @@ describe("semantic-family retrieval trailheads", () => {
       "polymarket-us:house-rep",
     ]);
     expect(selected.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v2",
+      algorithmVersion: "pmh.semantic-family-retrieval.v3",
+      routingMode: "QUERY_FIRST",
       selectionReason: "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD",
       anchorListingRefs: ["polymarket-us:house-dem", "polymarket-us:house-rep"],
       querySignals: expect.arrayContaining(["democratic", "republican", "house"]),
@@ -171,6 +173,30 @@ describe("semantic-family retrieval trailheads", () => {
     );
     expect(assertSemanticFamilyRetrievalPlan(selected.retrievalPlan)).toBe(
       selected.retrievalPlan,
+    );
+
+    const heuristic = buildSemanticFamilyCatalogSelection({
+      source: "QUALIFIED_LIVE_OBSERVATIONS",
+      corpusIdentity,
+      listings,
+      question: "Audit the Democratic and Republican 2026 US House-control midterms contracts.",
+      eligibleVenueIds: ["polymarket-us"],
+      semanticFamily: "PARTITION_COMPLETENESS",
+      maxContextListings: 2,
+      feedback: noFeedback,
+      routingMode: "HEURISTIC_FIRST",
+    });
+    expect(heuristic.retrievalPlan).toMatchObject({
+      algorithmVersion: "pmh.semantic-family-retrieval.v3",
+      routingMode: "HEURISTIC_FIRST",
+      querySignals: [],
+      queryScore: null,
+    });
+    expect(heuristic.retrievalPlan.selectionReason).not.toBe(
+      "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD",
+    );
+    expect(heuristic.retrievalPlan.anchorListingRefs).not.toEqual(
+      selected.retrievalPlan.anchorListingRefs,
     );
   });
 
@@ -218,5 +244,37 @@ describe("semantic-family retrieval trailheads", () => {
       sharedSignals: [],
       score: null,
     });
+  });
+
+  it("samples rare corpus trailheads without turning the issue question into a claim", () => {
+    const listings = [
+      listing("venue-a:weather", "Will rainfall exceed one inch tomorrow?"),
+      listing("venue-b:sports", "Will the Tigers win tonight?"),
+      listing("venue-c:novel", "Will Zorblax perform a live orbital ballet in 2026?"),
+    ];
+    const selected = buildSemanticFamilyCatalogSelection({
+      source: "QUALIFIED_LIVE_OBSERVATIONS",
+      corpusIdentity,
+      listings,
+      question: "Only inspect rainfall markets.",
+      eligibleVenueIds: ["venue-a", "venue-b", "venue-c"],
+      semanticFamily: "IDENTITY_SUCCESSION",
+      maxContextListings: 2,
+      feedback: noFeedback,
+      routingMode: "HEURISTIC_FIRST",
+    });
+    expect(selected.retrievalPlan).toMatchObject({
+      selectionReason: "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
+      routingMode: "HEURISTIC_FIRST",
+      querySignals: [],
+      queryScore: null,
+      sampleListingRefs: expect.arrayContaining(["venue-c:novel"]),
+    });
+    expect(semanticFamilyRetrievalBrief(selected.retrievalPlan)).toContain(
+      "form a claim only after reading exact refs",
+    );
+    expect(assertSemanticFamilyRetrievalPlan(selected.retrievalPlan)).toBe(
+      selected.retrievalPlan,
+    );
   });
 });

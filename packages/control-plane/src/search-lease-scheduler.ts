@@ -45,6 +45,7 @@ import {
   isSearchSemanticFamily,
   type SearchSemanticFamily,
 } from "./search-semantic-family.js";
+import type { SearchDiscoveryMode } from "./search-issue-scheduler.js";
 
 const SEARCH_LEASE_ALGORITHM_VERSIONS = Object.freeze([
   "pmh.ai-search-leases.v1",
@@ -53,8 +54,9 @@ const SEARCH_LEASE_ALGORITHM_VERSIONS = Object.freeze([
   "pmh.ai-search-leases.v4",
   "pmh.ai-search-leases.v5",
   "pmh.ai-search-leases.v6",
+  "pmh.ai-search-leases.v7",
 ] as const);
-const ALGORITHM_VERSION = "pmh.ai-search-leases.v6" as const;
+const ALGORITHM_VERSION = "pmh.ai-search-leases.v7" as const;
 const DEFAULT_RETENTION_LIMIT = 40;
 const DEFAULT_FAST_DEADLINE_MS = 300_000;
 const DEFAULT_DEEP_DEADLINE_MS = 300_000;
@@ -66,7 +68,8 @@ const READ_ONLY_TOOLS = Object.freeze(["read", "grep", "find", "ls"] as const);
 
 function hasStagedLaneContractVersion(version: SearchLeaseAlgorithmVersion): boolean {
   return version === "pmh.ai-search-leases.v5" ||
-    version === "pmh.ai-search-leases.v6";
+    version === "pmh.ai-search-leases.v6" ||
+    version === "pmh.ai-search-leases.v7";
 }
 
 export const SEARCH_LENSES = Object.freeze([
@@ -205,6 +208,7 @@ export type SearchLease = Readonly<{
   snapshotIdentity: Hash;
   sourceSetIdentity: Hash;
   issueId?: Hash | null;
+  discoveryMode?: SearchDiscoveryMode | null;
   semanticFamily?: SearchSemanticFamily | null;
   candidatePolicy?: SearchCandidatePolicy | null;
   lens: SearchLens;
@@ -471,6 +475,7 @@ type SearchLeaseOptions = Readonly<{
     feedback: SearchLeaseContextFeedback,
     candidatePolicy: SearchCandidatePolicy | null,
     semanticFamily: SearchSemanticFamily | null,
+    discoveryMode: SearchDiscoveryMode | null,
   ) => DiscoveryCatalogContext | SearchLeaseContextSelection;
   graphContext?: (
     snapshot: MarketCorpusSnapshot,
@@ -495,6 +500,7 @@ export type SearchLeaseIssueInput = Readonly<{
   issueId: Hash;
   question: string;
   venueIds: readonly string[];
+  discoveryMode?: SearchDiscoveryMode;
   semanticFamily?: SearchSemanticFamily | null;
   candidatePolicy?: SearchCandidatePolicy | null;
 }>;
@@ -940,7 +946,14 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
   const candidatePolicyValid = candidatePolicy === undefined || candidatePolicy === null ||
     isSearchCandidatePolicy(candidatePolicy);
   const hasStagedLaneContract = lease?.algorithmVersion === "pmh.ai-search-leases.v5" ||
-    lease?.algorithmVersion === "pmh.ai-search-leases.v6";
+    lease?.algorithmVersion === "pmh.ai-search-leases.v6" ||
+    lease?.algorithmVersion === "pmh.ai-search-leases.v7";
+  const discoveryMode = lease?.discoveryMode;
+  const discoveryModeValid = lease?.algorithmVersion === "pmh.ai-search-leases.v7"
+    ? lease.issueId === undefined || lease.issueId === null
+      ? discoveryMode === null
+      : discoveryMode === "HEURISTIC_EXPLORATION" || discoveryMode === "CLAIM_MONITORING"
+    : discoveryMode === undefined;
   const semanticFamily = lease?.semanticFamily;
   const semanticFamilyValid = semanticFamily === undefined || semanticFamily === null ||
     isSearchSemanticFamily(semanticFamily);
@@ -951,7 +964,11 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
       const validated = assertSemanticFamilyRetrievalPlan(retrievalPlan);
       retrievalPlanValid = semanticFamily !== undefined && semanticFamily !== null &&
         validated.semanticFamily === semanticFamily &&
-        validated.corpusIdentity === lease.snapshotIdentity;
+        validated.corpusIdentity === lease.snapshotIdentity &&
+        (validated.algorithmVersion !== "pmh.semantic-family-retrieval.v3" ||
+          validated.routingMode === (discoveryMode === "HEURISTIC_EXPLORATION"
+            ? "HEURISTIC_FIRST"
+            : "QUERY_FIRST"));
     } catch {
       retrievalPlanValid = false;
     }
@@ -1067,6 +1084,7 @@ export function assertSearchLeaseRecord(value: unknown): SearchLeaseRecord {
     lease.executionAuthority !== false ||
     !graphContextValid ||
     !candidatePolicyValid ||
+    !discoveryModeValid ||
     !semanticFamilyValid ||
     !providerTelemetryValid ||
     !agentTelemetryValid ||
@@ -1550,6 +1568,9 @@ export class SearchLeaseScheduler {
         snapshotIdentity: snapshot.snapshotIdentity,
         sourceSetIdentity: snapshot.sourceSetIdentity,
         issueId: issue?.issueId ?? null,
+        discoveryMode: issue === undefined
+          ? null
+          : issue.discoveryMode ?? "CLAIM_MONITORING",
         ...(issue?.semanticFamily === undefined
           ? {}
           : { semanticFamily: issue.semanticFamily }),
@@ -1675,6 +1696,7 @@ export class SearchLeaseScheduler {
         this.#contextFeedback(issued),
         issued.lease.candidatePolicy ?? null,
         issued.lease.semanticFamily ?? null,
+        issued.lease.discoveryMode ?? null,
       );
       const unboundedContext = "catalogContext" in contextResult
         ? contextResult.catalogContext

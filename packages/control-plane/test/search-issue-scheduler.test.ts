@@ -230,6 +230,7 @@ describe("issue-driven concurrent search scheduler", () => {
       question: "Search a bounded temporal neighborhood and distinguish impossibility from likelihood.",
       lens: "IMPLICATION" as const,
       family,
+      discoveryMode: "HEURISTIC_EXPLORATION" as const,
       cadenceMs: 300_000,
       priority: 5 as const,
     });
@@ -240,7 +241,8 @@ describe("issue-driven concurrent search scheduler", () => {
       question: `${createInput.question} Also test postponement.`,
     }));
     expect(issue).toMatchObject({
-      schemaVersion: "pmh.search-issue.v2",
+      schemaVersion: "pmh.search-issue.v3",
+      discoveryMode: "HEURISTIC_EXPLORATION",
       issueId: replay.issueId,
       familyDefinition: {
         semanticFamily: "TEMPORAL_IMPOSSIBILITY",
@@ -262,7 +264,11 @@ describe("issue-driven concurrent search scheduler", () => {
     expect(observedQuestion).toContain("Try to falsify first");
     expect(completed).toMatchObject({
       status: "PASS",
-      lease: { semanticFamily: "TEMPORAL_IMPOSSIBILITY" },
+      lease: {
+        semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+        discoveryMode: "HEURISTIC_EXPLORATION",
+        algorithmVersion: "pmh.ai-search-leases.v7",
+      },
       fastLane: { candidateListingRefs: selectedRefs },
       deepLane: { status: "PASS", proposalIds: [hashCanonical({ proposal: "family" })] },
       outcome: { proposalCount: 1 },
@@ -275,6 +281,19 @@ describe("issue-driven concurrent search scheduler", () => {
       proposalCount: 1,
       providerRequestAttemptCount: 1,
     }));
+    expect(issues.projection()).toMatchObject({
+      explorationIssueCount: 2,
+      claimMonitoringIssueCount: 0,
+      performance: {
+        byDiscoveryMode: expect.arrayContaining([expect.objectContaining({
+          discoveryMode: "HEURISTIC_EXPLORATION",
+          issueCount: 2,
+          terminalLeaseCount: 1,
+          proposalCount: 1,
+          piEscalationCount: 1,
+        })]),
+      },
+    });
   });
 
   it("enforces a per-family concurrency budget without blocking another family", async () => {
@@ -305,6 +324,7 @@ describe("issue-driven concurrent search scheduler", () => {
       lens: "IMPLICATION" as const,
       cadenceMs: 300_000,
       priority: 5 as const,
+      discoveryMode: "HEURISTIC_EXPLORATION" as const,
       family: Object.freeze({
         semanticFamily,
         intendedRelationKinds: Object.freeze(["CONDITIONAL"] as const),
@@ -334,6 +354,75 @@ describe("issue-driven concurrent search scheduler", () => {
     });
     for (const item of pending) item.resolve(runRecord(item.task));
     await Promise.all(runs);
+  });
+
+  it("preserves exploration origin across SQLite restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-search-origin-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstLeases = new SearchLeaseScheduler({
+        context,
+        maxPiInvocations: 0,
+        runFast: async (task) => Object.freeze({
+          ...runRecord(task),
+          hypotheses: Object.freeze([]),
+        }),
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const firstIssues = new SearchIssueScheduler({
+        leaseScheduler: firstLeases,
+        seedDefaults: false,
+        store: firstStore,
+        now: () => nowMs,
+      });
+      const issue = firstIssues.create({
+        title: "Restart-safe exploration",
+        question: "Explore an uncommon temporal neighborhood before forming a claim.",
+        lens: "IMPLICATION",
+        cadenceMs: 300_000,
+        discoveryMode: "HEURISTIC_EXPLORATION",
+        family: {
+          semanticFamily: "TEMPORAL_IMPOSSIBILITY",
+          intendedRelationKinds: ["CONDITIONAL"],
+          falsifiers: ["both events can occur without conflict"],
+          expectedListingCount: { minimum: 2, maximum: 2 },
+          maxCorpusListings: 2,
+          acceptablePremiseKinds: ["CAUSAL_HYPOTHESIS"],
+        },
+      });
+      await firstIssues.runNow(issue.issueId, snapshot("origin-restart")).promise;
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const secondLeases = new SearchLeaseScheduler({
+        context,
+        maxPiInvocations: 0,
+        runFast: async () => { throw new Error("retained terminal lease must not rerun"); },
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      const restored = new SearchIssueScheduler({
+        leaseScheduler: secondLeases,
+        seedDefaults: false,
+        store: secondStore,
+        now: () => nowMs + 1_000,
+      });
+      expect(restored.projection().issues[0]).toMatchObject({
+        issueId: issue.issueId,
+        schemaVersion: "pmh.search-issue.v3",
+        discoveryMode: "HEURISTIC_EXPLORATION",
+      });
+      expect(secondLeases.projection().records[0]?.lease).toMatchObject({
+        issueId: issue.issueId,
+        algorithmVersion: "pmh.ai-search-leases.v7",
+        discoveryMode: "HEURISTIC_EXPLORATION",
+      });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("counts degraded productive scans and omitted venues separately", async () => {
@@ -919,6 +1008,18 @@ describe("issue-driven concurrent search scheduler", () => {
 
     await issues.runNow(issue.issueId, snapshot()).promise;
 
+    expect(issue.discoveryMode).toBeUndefined();
+    expect(leases.projection().records[0]?.lease.discoveryMode).toBe("CLAIM_MONITORING");
+    expect(issues.projection()).toMatchObject({
+      explorationIssueCount: 0,
+      claimMonitoringIssueCount: 1,
+      performance: {
+        byDiscoveryMode: expect.arrayContaining([expect.objectContaining({
+          discoveryMode: "CLAIM_MONITORING",
+          terminalLeaseCount: 1,
+        })]),
+      },
+    });
     expect(dispatched?.question).toHaveLength(500);
     expect(dispatched?.question).toMatch(/^Find a grounded pair\./u);
   });

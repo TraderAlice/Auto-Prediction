@@ -927,6 +927,7 @@ export function createControlPlane(options?: {
         feedback,
         candidatePolicy,
         semanticFamily,
+        discoveryMode,
       ) => {
         const minimumEligibleVenueCount =
           semanticFamily !== null ||
@@ -948,6 +949,9 @@ export function createControlPlane(options?: {
                 semanticFamily,
                 maxContextListings: candidatePolicy?.maxCorpusListings ?? 30,
                 feedback,
+                routingMode: discoveryMode === "HEURISTIC_EXPLORATION"
+                  ? "HEURISTIC_FIRST"
+                  : "QUERY_FIRST",
               });
               retrievalPlan = familySelection.retrievalPlan;
               return familySelection.catalogContext;
@@ -2550,10 +2554,12 @@ export function createControlPlane(options?: {
           cadenceMs?: unknown;
           priority?: unknown;
           enabled?: unknown;
+          discoveryMode?: unknown;
           family?: unknown;
         };
         const allowed = new Set([
-          "title", "question", "lens", "venueIds", "cadenceMs", "priority", "enabled", "family",
+          "title", "question", "lens", "venueIds", "cadenceMs", "priority", "enabled",
+          "discoveryMode", "family",
         ]);
         if (
           Object.keys(input).some((key) => !allowed.has(key)) ||
@@ -2568,6 +2574,9 @@ export function createControlPlane(options?: {
           (input.priority !== undefined &&
             (typeof input.priority !== "number" || ![1, 2, 3, 4, 5].includes(input.priority))) ||
           (input.enabled !== undefined && typeof input.enabled !== "boolean") ||
+          (input.discoveryMode !== undefined && input.discoveryMode !== "HEURISTIC_EXPLORATION" &&
+            input.discoveryMode !== "CLAIM_MONITORING") ||
+          (input.discoveryMode !== undefined && input.family === undefined) ||
           (input.family !== undefined &&
             (input.family === null || typeof input.family !== "object" || Array.isArray(input.family)))
         ) {
@@ -2581,6 +2590,9 @@ export function createControlPlane(options?: {
           venueIds: (input.venueIds as readonly string[] | undefined) ?? [],
           priority: (input.priority as 1 | 2 | 3 | 4 | 5 | undefined) ?? 3,
           ...(input.enabled === undefined ? {} : { enabled: input.enabled as boolean }),
+          ...(input.discoveryMode === undefined
+            ? {}
+            : { discoveryMode: input.discoveryMode as NonNullable<CreateSearchIssueInput["discoveryMode"]> }),
           ...(input.family === undefined
             ? {}
             : { family: input.family as NonNullable<CreateSearchIssueInput["family"]> }),

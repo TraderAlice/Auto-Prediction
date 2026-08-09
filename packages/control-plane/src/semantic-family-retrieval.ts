@@ -51,13 +51,17 @@ export type SemanticFamilyRetrievalSelectionReason =
   | "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD"
   | "ROUTING_ATTEMPTED_FALLBACK"
   | "SEMANTIC_COMPLETED_FALLBACK"
-  | "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK";
+  | "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK"
+  | "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE";
+
+export type SemanticFamilyRoutingMode = "HEURISTIC_FIRST" | "QUERY_FIRST";
 
 export type SemanticFamilyRetrievalPlan = Readonly<{
   schemaVersion: "pmh.semantic-family-retrieval.v1";
   algorithmVersion:
     | "pmh.semantic-family-retrieval.v1"
-    | "pmh.semantic-family-retrieval.v2";
+    | "pmh.semantic-family-retrieval.v2"
+    | "pmh.semantic-family-retrieval.v3";
   planIdentity: Hash;
   semanticFamily: SearchSemanticFamily;
   corpusIdentity: Hash;
@@ -71,6 +75,8 @@ export type SemanticFamilyRetrievalPlan = Readonly<{
   score: number | null;
   querySignals?: readonly string[];
   queryScore?: number | null;
+  routingMode?: SemanticFamilyRoutingMode;
+  sampleListingRefs?: readonly string[];
   selectedContextIdentity: Hash;
   authority: "SEARCH_ROUTING_ONLY";
   semanticDecisionAuthority: false;
@@ -266,6 +272,66 @@ function selectionTier(
   return completed ? attempted ? 3 : 2 : attempted ? 1 : 0;
 }
 
+function buildHeuristicCorpusSample(
+  source: DiscoveryCatalogContextSource,
+  listings: readonly DiscoveryCatalogListing[],
+  maximum: number,
+  byRef: ReadonlyMap<string, Features>,
+  documentFrequency: ReadonlyMap<string, number>,
+  feedback: DiscoveryContextRoutingFeedback,
+): DiscoveryCatalogContext {
+  if (listings.length === 0) {
+    return buildExactDiscoveryCatalogContext(source, Object.freeze([]));
+  }
+  const rarityScore = (listing: DiscoveryCatalogListing) => {
+    const listingFeatures = byRef.get(listing.listingRef)!;
+    return [...listingFeatures.tokens].reduce(
+      (score, token) => score + Math.max(1, listings.length -
+        (documentFrequency.get(token) ?? listings.length)),
+      0,
+    ) + listingFeatures.temporal.length * 4 +
+      listingFeatures.physical.length * 6 + listingFeatures.incapacity.length * 8;
+  };
+  const ranked = [...listings].sort((left, right) =>
+    rarityScore(right) - rarityScore(left) ||
+    left.listingRef.localeCompare(right.listingRef)
+  );
+  const variants: DiscoveryCatalogContext[] = [];
+  for (let offset = 0; offset < Math.min(8, ranked.length); offset += 1) {
+    const ordered = [...ranked.slice(offset), ...ranked.slice(0, offset)];
+    let context: DiscoveryCatalogContext | null = null;
+    const selected: DiscoveryCatalogListing[] = [];
+    const representedVenues = new Set<string>();
+    const venueFirst = [
+      ...ordered.filter((listing) => !representedVenues.has(listing.venueId) &&
+        (representedVenues.add(listing.venueId), true)),
+      ...ordered,
+    ];
+    for (const listing of venueFirst) {
+      if (selected.length >= maximum || selected.some((item) =>
+        item.listingRef === listing.listingRef
+      )) continue;
+      try {
+        context = buildExactDiscoveryCatalogContext(source, [...selected, listing]);
+        selected.push(listing);
+      } catch {
+        // Skip a verbose listing rather than crossing the immutable context cap.
+      }
+    }
+    if (context !== null && !variants.some((item) =>
+      item.contextIdentity === context!.contextIdentity
+    )) variants.push(context);
+  }
+  if (variants.length === 0) {
+    return buildExactDiscoveryCatalogContext(source, Object.freeze([]));
+  }
+  return variants.reduce((best, candidate) =>
+    selectionTier(candidate, feedback) < selectionTier(best, feedback)
+      ? candidate
+      : best
+  );
+}
+
 function boundedContext(
   source: DiscoveryCatalogContextSource,
   anchors: readonly [DiscoveryCatalogListing, DiscoveryCatalogListing],
@@ -303,11 +369,13 @@ export function assertSemanticFamilyRetrievalPlan(
   const { planIdentity, ...body } = plan;
   const isV1 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v1";
   const isV2 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v2";
+  const isV3 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v3";
   const querySignals = plan.querySignals ?? [];
   const queryScore = plan.queryScore ?? null;
+  const sampleListingRefs = plan.sampleListingRefs ?? [];
   if (
     plan.schemaVersion !== "pmh.semantic-family-retrieval.v1" ||
-    (!isV1 && !isV2) ||
+    (!isV1 && !isV2 && !isV3) ||
     !HASH_PATTERN.test(String(planIdentity)) || planIdentity !== hashCanonical(body) ||
     !isSearchSemanticFamily(plan.semanticFamily) ||
     !HASH_PATTERN.test(String(plan.corpusIdentity)) ||
@@ -328,13 +396,17 @@ export function assertSemanticFamilyRetrievalPlan(
       "FRESH_FAMILY_NEIGHBORHOOD", "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD",
       "ROUTING_ATTEMPTED_FALLBACK",
       "SEMANTIC_COMPLETED_FALLBACK", "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK",
+      "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
     ].includes(plan.selectionReason) ||
     !Array.isArray(plan.anchorListingRefs) || plan.anchorListingRefs.length > 2 ||
     plan.anchorListingRefs.some((item) => typeof item !== "string" || item.trim() === "") ||
     !Array.isArray(plan.sharedSignals) || plan.sharedSignals.length > MAX_SHARED_SIGNALS ||
     plan.sharedSignals.some((item) => typeof item !== "string" || item.trim() === "") ||
     (plan.score !== null && (!Number.isSafeInteger(plan.score) || plan.score < 0)) ||
-    (isV1 && (plan.querySignals !== undefined || plan.queryScore !== undefined)) ||
+    (isV1 && (
+      plan.querySignals !== undefined || plan.queryScore !== undefined ||
+      plan.routingMode !== undefined || plan.sampleListingRefs !== undefined
+    )) ||
     (isV2 && (
       !Array.isArray(plan.querySignals) || querySignals.length > MAX_QUERY_SIGNALS ||
       querySignals.some((item) => typeof item !== "string" || item.trim() === "") ||
@@ -343,6 +415,24 @@ export function assertSemanticFamilyRetrievalPlan(
       ((plan.selectionReason === "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD") !==
         (querySignals.length > 0))
     )) ||
+    (isV2 && (plan.routingMode !== undefined || plan.sampleListingRefs !== undefined)) ||
+    (isV3 && (
+      (plan.routingMode !== "HEURISTIC_FIRST" && plan.routingMode !== "QUERY_FIRST") ||
+      !Array.isArray(plan.querySignals) || querySignals.length > MAX_QUERY_SIGNALS ||
+      querySignals.some((item) => typeof item !== "string" || item.trim() === "") ||
+      (queryScore !== null && (!Number.isSafeInteger(queryScore) || queryScore < 1)) ||
+      ((querySignals.length === 0) !== (queryScore === null)) ||
+      (plan.routingMode === "HEURISTIC_FIRST" && (
+        querySignals.length !== 0 || queryScore !== null ||
+        plan.selectionReason === "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD"
+      )) ||
+      (plan.routingMode === "QUERY_FIRST" &&
+        ((plan.selectionReason === "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD") !==
+          (querySignals.length > 0))) ||
+      !Array.isArray(plan.sampleListingRefs) || sampleListingRefs.length > 30 ||
+      new Set(sampleListingRefs).size !== sampleListingRefs.length ||
+      sampleListingRefs.some((item) => typeof item !== "string" || item.trim() === "")
+    )) ||
     !HASH_PATTERN.test(String(plan.selectedContextIdentity)) ||
     plan.authority !== "SEARCH_ROUTING_ONLY" ||
     plan.semanticDecisionAuthority !== false || plan.probabilityAuthority !== false ||
@@ -350,10 +440,19 @@ export function assertSemanticFamilyRetrievalPlan(
     (plan.neighborhoodCount === 0
       ? plan.selectedNeighborhoodRank !== null || plan.anchorListingRefs.length !== 0 ||
         plan.sharedSignals.length !== 0 || plan.score !== null ||
-        (isV2 && (querySignals.length !== 0 || queryScore !== null)) ||
-        plan.selectionReason !== "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK"
+        ((isV2 || isV3) && (querySignals.length !== 0 || queryScore !== null)) ||
+        (isV3 && (
+          plan.selectionReason === "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE"
+            ? sampleListingRefs.length === 0
+            : sampleListingRefs.length !== 0
+        )) ||
+        ![
+          "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK",
+          "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
+        ].includes(plan.selectionReason)
       : plan.selectedNeighborhoodRank === null || plan.anchorListingRefs.length !== 2 ||
-        plan.sharedSignals.length === 0 || plan.score === null)
+        plan.sharedSignals.length === 0 || plan.score === null ||
+        (isV3 && sampleListingRefs.length !== 0))
   ) throw new Error("semantic family retrieval plan violates its bounded contract");
   return Object.freeze(plan);
 }
@@ -367,6 +466,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
   semanticFamily: SearchSemanticFamily;
   maxContextListings: number;
   feedback: DiscoveryContextRoutingFeedback;
+  routingMode?: SemanticFamilyRoutingMode;
 }>): SemanticFamilyCatalogSelection {
   if (!isSearchSemanticFamily(input.semanticFamily)) {
     throw new Error("semantic family retrieval family is invalid");
@@ -381,6 +481,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
   }
   const allowedVenues = new Set(venueIds);
   const listings = input.listings.filter((listing) => allowedVenues.has(listing.venueId));
+  const routingMode = input.routingMode ?? "QUERY_FIRST";
   const byRef = new Map(listings.map((listing) => [listing.listingRef, features(listing)]));
   const documentFrequency = new Map<string, number>();
   for (const value of byRef.values()) {
@@ -419,13 +520,15 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
           DiscoveryCatalogListing,
           DiscoveryCatalogListing,
         ];
-        const querySignals = relevantQueryTerms(
-          input.question,
-          anchors,
-          byRef,
-          documentFrequency,
-          listings.length,
-        );
+        const querySignals = routingMode === "QUERY_FIRST"
+          ? relevantQueryTerms(
+              input.question,
+              anchors,
+              byRef,
+              documentFrequency,
+              listings.length,
+            )
+          : Object.freeze([]);
         raw.push(Object.freeze({
           anchors,
           score,
@@ -491,12 +594,16 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
     }
   }
   if (selectedIndex < 0) {
-    const queryContext = buildDiscoveryCatalogContext(
-      input.source,
-      listings,
-      input.question,
-      venueIds,
-    );
+    const queryContext = routingMode === "QUERY_FIRST"
+      ? buildDiscoveryCatalogContext(input.source, listings, input.question, venueIds)
+      : buildHeuristicCorpusSample(
+          input.source,
+          listings,
+          input.maxContextListings,
+          byRef,
+          documentFrequency,
+          input.feedback,
+        );
     const context = queryContext.listings.length <= input.maxContextListings
       ? queryContext
       : buildExactDiscoveryCatalogContext(
@@ -507,19 +614,25 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
       catalogContext: context,
       retrievalPlan: withPlanIdentity({
         schemaVersion: "pmh.semantic-family-retrieval.v1",
-        algorithmVersion: "pmh.semantic-family-retrieval.v2",
+        algorithmVersion: "pmh.semantic-family-retrieval.v3",
         semanticFamily: input.semanticFamily,
         corpusIdentity: input.corpusIdentity,
         eligibleVenueIds: venueIds,
         maxContextListings: input.maxContextListings,
         neighborhoodCount: 0,
         selectedNeighborhoodRank: null,
-        selectionReason: "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK",
+        selectionReason: routingMode === "QUERY_FIRST"
+          ? "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK"
+          : "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
         anchorListingRefs: Object.freeze([]),
         sharedSignals: Object.freeze([]),
         score: null,
         querySignals: Object.freeze([]),
         queryScore: null,
+        routingMode,
+        sampleListingRefs: routingMode === "HEURISTIC_FIRST"
+          ? Object.freeze(context.listings.map((listing) => listing.listingRef))
+          : Object.freeze([]),
         selectedContextIdentity: context.contextIdentity as Hash,
         authority: "SEARCH_ROUTING_ONLY",
         semanticDecisionAuthority: false,
@@ -541,7 +654,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
     catalogContext: selected.context,
     retrievalPlan: withPlanIdentity({
       schemaVersion: "pmh.semantic-family-retrieval.v1",
-      algorithmVersion: "pmh.semantic-family-retrieval.v2",
+      algorithmVersion: "pmh.semantic-family-retrieval.v3",
       semanticFamily: input.semanticFamily,
       corpusIdentity: input.corpusIdentity,
       eligibleVenueIds: venueIds,
@@ -554,6 +667,8 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
       score: selected.score,
       querySignals: selected.querySignals,
       queryScore: selected.queryScore,
+      routingMode,
+      sampleListingRefs: Object.freeze([]),
       selectedContextIdentity: selected.context.contextIdentity as Hash,
       authority: "SEARCH_ROUTING_ONLY",
       semanticDecisionAuthority: false,
@@ -569,9 +684,13 @@ export function semanticFamilyRetrievalBrief(
 ): string {
   assertSemanticFamilyRetrievalPlan(plan);
   if (plan.anchorListingRefs.length === 0) {
-    return `Family retrieval found no deterministic ${plan.semanticFamily} neighborhood; inspect the bounded query fallback and abstain unless exact refs support a relation.`;
+    return plan.algorithmVersion === "pmh.semantic-family-retrieval.v3" &&
+        plan.routingMode === "HEURISTIC_FIRST"
+      ? `No deterministic ${plan.semanticFamily} neighborhood qualified. Inspect the ${plan.sampleListingRefs?.length ?? 0}-listing rarity sample for an unexpected relation; form a claim only after reading exact refs, and abstain when none is grounded.`
+      : `Family retrieval found no deterministic ${plan.semanticFamily} neighborhood; inspect the bounded query fallback and abstain unless exact refs support a relation.`;
   }
-  const queryTrail = plan.algorithmVersion === "pmh.semantic-family-retrieval.v2" &&
+  const queryTrail = (plan.algorithmVersion === "pmh.semantic-family-retrieval.v2" ||
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v3") &&
       (plan.querySignals?.length ?? 0) > 0
     ? ` and matched issue signals [${plan.querySignals!.join(", ")}]`
     : "";

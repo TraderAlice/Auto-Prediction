@@ -3838,9 +3838,11 @@ export class SqliteOperationalStore
           prior.lineage.noveltySignature === validated.lineage.noveltySignature;
         const monotonicDeepTransition =
           (prior.lease.algorithmVersion === "pmh.ai-search-leases.v5" ||
-            prior.lease.algorithmVersion === "pmh.ai-search-leases.v6") &&
+            prior.lease.algorithmVersion === "pmh.ai-search-leases.v6" ||
+            prior.lease.algorithmVersion === "pmh.ai-search-leases.v7") &&
           (validated.lease.algorithmVersion === "pmh.ai-search-leases.v5" ||
-            validated.lease.algorithmVersion === "pmh.ai-search-leases.v6") &&
+            validated.lease.algorithmVersion === "pmh.ai-search-leases.v6" ||
+            validated.lease.algorithmVersion === "pmh.ai-search-leases.v7") &&
           prior.status === "PASS" && validated.status === "PASS" &&
           prior.completedAt === validated.completedAt &&
           prior.diagnostic === validated.diagnostic &&

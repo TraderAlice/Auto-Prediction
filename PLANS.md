@@ -2,6 +2,7 @@
 
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
+[`plans/heuristic-origin-discovery.md`](plans/heuristic-origin-discovery.md),
 [`plans/probabilistic-semantic-arbitrage.md`](plans/probabilistic-semantic-arbitrage.md),
 with Studio product normalization tracked in
 [`plans/studio-product-normalization.md`](plans/studio-product-normalization.md),
@@ -33,6 +34,15 @@ monitoring, and operator-hypothesis lane rather than the primary discovery
 funnel. Studio normalization now also has a qualified shadcn-compatible
 component layer and a bounded Inter type scale with monospace reserved for exact
 machine values.
+
+That posture is now executable and attributable. Managed semantic-family work
+is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls
+back to a rotating rarity sample when no family neighborhood qualifies.
+Operator questions remain `CLAIM_MONITORING`. Search issue v3, lease v7, and
+family-retrieval v3 preserve the origin through SQLite restart, and Studio shows
+separate scans, findings, provider requests, and Pi escalations. The first live
+799-listing window retained five exploration scans and no promoted lead, which
+is baseline evidence rather than a success claim.
 
 ## Planning contract
 

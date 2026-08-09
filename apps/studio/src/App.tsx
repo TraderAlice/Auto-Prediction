@@ -668,7 +668,7 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
 
 const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler"] = {
   schemaVersion: "pmh.search-lease-scheduler.v1",
-  algorithmVersion: "pmh.ai-search-leases.v6",
+  algorithmVersion: "pmh.ai-search-leases.v7",
   enabled: false,
   configured: { fastLane: true, deepLane: false },
   status: "IDLE",
@@ -740,6 +740,8 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
   activeCount: 0,
   issueCount: 0,
   enabledIssueCount: 0,
+  explorationIssueCount: 0,
+  claimMonitoringIssueCount: 0,
   defaultManagedIssueCount: 0,
   supersededIssueCount: 0,
   dueIssueCount: 0,
@@ -812,6 +814,7 @@ const EMPTY_SEARCH_ISSUE_SCHEDULER: StudioProjection["ai"]["searchIssueScheduler
     economicGatePositiveRateBps: null,
     byIssue: [],
     byFamily: [],
+    byDiscoveryMode: [],
   },
   issues: [],
   notifications: [],
@@ -3209,6 +3212,31 @@ function MarketArchaeologistView() {
     issuePerformance.providerFailuresByCategory.find(
       (item) => item.category === category,
     )?.count ?? 0;
+  const emptyOriginPerformance = {
+    issueCount: 0,
+    terminalLeaseCount: 0,
+    novelCandidateCount: 0,
+    proposalCount: 0,
+    falsificationCount: 0,
+    providerRequestAttemptCount: 0,
+    providerFailureCount: 0,
+    providerFailureRateBps: null,
+    agentToolCallCount: 0,
+    piEscalationCount: 0,
+  };
+  const explorationPerformance = issuePerformance.byDiscoveryMode.find(
+    (item) => item.discoveryMode === "HEURISTIC_EXPLORATION",
+  ) ?? emptyOriginPerformance;
+  const monitoringPerformance = issuePerformance.byDiscoveryMode.find(
+    (item) => item.discoveryMode === "CLAIM_MONITORING",
+  ) ?? emptyOriginPerformance;
+  const currentIssues = issueScheduler.issues.filter(
+    (issue) => issue.supersededByIssueId === undefined || issue.supersededByIssueId === null,
+  );
+  const currentExplorationCount = currentIssues.filter(
+    (issue) => issue.discoveryMode === "HEURISTIC_EXPLORATION",
+  ).length;
+  const currentMonitoringCount = currentIssues.length - currentExplorationCount;
   const quoteEnrichment =
     studioProjection.ai.searchQuoteEnrichment ?? EMPTY_SEARCH_QUOTE_ENRICHMENT;
   const outcomeAttribution =
@@ -3365,9 +3393,9 @@ function MarketArchaeologistView() {
           <span className="eyebrow">AI-native discovery · recursive search</span>
           <h1>Market archaeologist</h1>
           <p>
-            pi explores the complete, content-addressed MarketFS snapshot like a
-            repository. Programs freeze evidence and enforce bounds; the agent
-            chooses aliases, searches, and semantic paths.
+            AI starts from unusual corpus neighborhoods, forms claims only after
+            inspecting exact markets, and keeps operator hypotheses in a separate
+            monitoring lane. Every path remains evidence-bound and reproducible.
           </p>
         </div>
         <div className="archaeology-heading-badges">
@@ -3394,9 +3422,9 @@ function MarketArchaeologistView() {
           }
         />
         <Metric
-          label="Search issues"
-          value={`${issueScheduler.enabledIssueCount}`}
-          detail={`${issueScheduler.activeCount}/${issueScheduler.concurrencyLimit} agents running · ${issueScheduler.supersededIssueCount} retired`}
+          label="Discovery programs"
+          value={`${currentIssues.length}`}
+          detail={`${issueScheduler.enabledIssueCount} active · ${currentExplorationCount} explore · ${currentMonitoringCount} monitor`}
         />
         <Metric
           label="Semantic graph"
@@ -3408,7 +3436,7 @@ function MarketArchaeologistView() {
       <Card className="issue-scheduler-console">
         <CardHeader>
           <div>
-            <span className="eyebrow">Durable issue queue · concurrent bounded agents</span>
+            <span className="eyebrow">Heuristic exploration + claim monitoring</span>
             <h2>Scheduled search desk</h2>
           </div>
           <div className="issue-scheduler-badges">
@@ -3444,6 +3472,40 @@ function MarketArchaeologistView() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="discovery-origin-overview" aria-label="Discovery origin yield">
+            <article className="is-primary">
+              <div>
+                <Badge variant="verified">DEFAULT DISCOVERY</Badge>
+                <span>{currentExplorationCount} heuristic programs</span>
+              </div>
+              <h3>Explore from corpus signals</h3>
+              <p>Fresh rare entities, timing conflicts, rule changes, and unusual relation neighborhoods become trailheads before any claim is written.</p>
+              <dl>
+                <div><dt>scans</dt><dd>{explorationPerformance.terminalLeaseCount}</dd></div>
+                <div><dt>novel</dt><dd>{explorationPerformance.novelCandidateCount}</dd></div>
+                <div><dt>falsified</dt><dd>{explorationPerformance.falsificationCount}</dd></div>
+                <div><dt>proposals</dt><dd>{explorationPerformance.proposalCount}</dd></div>
+                <div><dt>AI requests</dt><dd>{explorationPerformance.providerRequestAttemptCount}</dd></div>
+                <div><dt>Pi</dt><dd>{explorationPerformance.piEscalationCount}</dd></div>
+              </dl>
+            </article>
+            <article>
+              <div>
+                <Badge variant="muted">EXPLOITATION LANE</Badge>
+                <span>{currentMonitoringCount} claim monitors</span>
+              </div>
+              <h3>Monitor a known hypothesis</h3>
+              <p>Operator questions, regression cases, and known constraints may route by query terms without redefining open-ended discovery.</p>
+              <dl>
+                <div><dt>scans</dt><dd>{monitoringPerformance.terminalLeaseCount}</dd></div>
+                <div><dt>novel</dt><dd>{monitoringPerformance.novelCandidateCount}</dd></div>
+                <div><dt>falsified</dt><dd>{monitoringPerformance.falsificationCount}</dd></div>
+                <div><dt>proposals</dt><dd>{monitoringPerformance.proposalCount}</dd></div>
+                <div><dt>AI requests</dt><dd>{monitoringPerformance.providerRequestAttemptCount}</dd></div>
+                <div><dt>Pi</dt><dd>{monitoringPerformance.piEscalationCount}</dd></div>
+              </dl>
+            </article>
+          </div>
           <div className="issue-scheduler-strip">
             <div><strong>{issueScheduler.issueCount}</strong><span>durable issues</span></div>
             <div><strong>{issueScheduler.dueIssueCount}</strong><span>due now</span></div>
@@ -3704,10 +3766,10 @@ function MarketArchaeologistView() {
           <div className="issue-scheduler-workbench">
             <section className="search-issue-list" aria-label="Scheduled search issues">
               <div className="issue-column-heading">
-                <div><GitBranch size={14} /><strong>Search issues</strong></div>
-                <span>priority first · one lease per corpus snapshot</span>
+                <div><GitBranch size={14} /><strong>Discovery programs</strong></div>
+                <span>priority first · {issueScheduler.supersededIssueCount} retired revisions hidden</span>
               </div>
-              {issueScheduler.issues.map((issue) => {
+              {currentIssues.map((issue) => {
                 const performance = issuePerformance.byIssue.find(
                   (item) => item.issueId === issue.issueId,
                 );
@@ -3723,6 +3785,9 @@ function MarketArchaeologistView() {
                         </Badge>
                         <Badge variant="muted">P{issue.priority}</Badge>
                         <Badge variant="muted">{issue.lens}</Badge>
+                        <Badge variant={issue.discoveryMode === "HEURISTIC_EXPLORATION" ? "verified" : "muted"}>
+                          {issue.discoveryMode === "HEURISTIC_EXPLORATION" ? "EXPLORE" : "MONITOR"}
+                        </Badge>
                         {issue.familyDefinition !== undefined && (
                           <Badge variant="shadow">{issue.familyDefinition.semanticFamily.replaceAll("_", " ")}</Badge>
                         )}
@@ -3845,9 +3910,9 @@ function MarketArchaeologistView() {
 
           <form className="search-issue-form" onSubmit={(event) => { event.preventDefault(); void createIssue(); }}>
             <div>
-              <span className="eyebrow"><Plus size={12} /> New bounded search issue</span>
-              <Input aria-label="Search issue title" placeholder="Issue title" maxLength={120} required value={newIssueTitle} onChange={(event) => setNewIssueTitle(event.target.value)} />
-              <Textarea aria-label="Search issue question" placeholder="What recurring semantic pattern should the agent search and try to falsify?" maxLength={1000} required value={newIssueQuestion} onChange={(event) => setNewIssueQuestion(event.target.value)} />
+              <span className="eyebrow"><Plus size={12} /> New claim monitor</span>
+              <Input aria-label="Search issue title" placeholder="Monitor title" maxLength={120} required value={newIssueTitle} onChange={(event) => setNewIssueTitle(event.target.value)} />
+              <Textarea aria-label="Search issue question" placeholder="Which known hypothesis or constraint should the Agent revisit?" maxLength={1000} required value={newIssueQuestion} onChange={(event) => setNewIssueQuestion(event.target.value)} />
             </div>
             <label>
               <span>Lens</span>
@@ -3873,7 +3938,7 @@ function MarketArchaeologistView() {
             </label>
             <Button disabled={issueAction !== null || newIssueTitle.trim() === "" || newIssueQuestion.trim() === ""} type="submit">
               {issueAction === "CREATE" ? <RefreshCw className="is-spinning" size={13} /> : <Plus size={13} />}
-              Create issue
+              Create monitor
             </Button>
           </form>
           {!issueScheduler.enabled && (
@@ -4075,6 +4140,11 @@ function MarketArchaeologistView() {
                 </Badge>
                 <strong>{record.lease.lens}</strong>
                 <span>{record.trigger}</span>
+                {record.lease.discoveryMode != null && (
+                  <Badge variant={record.lease.discoveryMode === "HEURISTIC_EXPLORATION" ? "verified" : "muted"}>
+                    {record.lease.discoveryMode === "HEURISTIC_EXPLORATION" ? "EXPLORE" : "MONITOR"}
+                  </Badge>
+                )}
               </div>
               <p>{record.lease.thesis}</p>
               <div>
@@ -4100,14 +4170,16 @@ function MarketArchaeologistView() {
                 {record.lease.graphContext != null && <code>GRAPH BOUND</code>}
                 {record.fastLane.retrievalPlan !== undefined && (
                   <code>
-                    FAMILY TRAILHEAD {record.fastLane.retrievalPlan.selectedNeighborhoodRank ?? "QUERY"}/
+                    FAMILY TRAILHEAD {record.fastLane.retrievalPlan.selectedNeighborhoodRank ??
+                      (record.fastLane.retrievalPlan.routingMode === "HEURISTIC_FIRST" ? "SAMPLE" : "QUERY")}/
                     {record.fastLane.retrievalPlan.neighborhoodCount}
                   </code>
                 )}
                 {record.lineage.duplicateOfLeaseId !== null && <code>DUPLICATE LINK</code>}
                 {record.deepLane.status === "FAILED" &&
                   (record.lease.algorithmVersion === "pmh.ai-search-leases.v5" ||
-                    record.lease.algorithmVersion === "pmh.ai-search-leases.v6") &&
+                    record.lease.algorithmVersion === "pmh.ai-search-leases.v6" ||
+                    record.lease.algorithmVersion === "pmh.ai-search-leases.v7") &&
                   record.deepLane.inputIdentity != null &&
                   (record.deepLane.attempts?.length ?? 0) <
                     (record.lease.budget.maxDeepAttempts ?? 1) && (

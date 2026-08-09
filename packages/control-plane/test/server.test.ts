@@ -421,7 +421,7 @@ describe("control-plane HTTP surface", () => {
         },
         retrievalPlan: {
           semanticFamily: "IDENTITY_SUCCESSION",
-          selectionReason: "NO_FAMILY_NEIGHBORHOOD_QUERY_FALLBACK",
+          selectionReason: "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE",
           authority: "SEARCH_ROUTING_ONLY",
           semanticDecisionAuthority: false,
           probabilityAuthority: false,
