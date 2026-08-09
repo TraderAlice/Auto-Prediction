@@ -549,6 +549,9 @@ export function buildStudioProjection(input: {
     legacyEvidenceDebtCount: 0,
     passedCount: 0,
     exhaustedCount: 0,
+    classifiedFailureJobCount: 0,
+    unclassifiedFailureJobCount: 0,
+    failureClassCounts: [],
     unreadNotificationCount: 0,
     budget: {
       basis: "REQUEST_ATTEMPTS" as const,

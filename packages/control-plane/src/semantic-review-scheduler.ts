@@ -10,6 +10,11 @@ import {
   SemanticReviewBusyError,
   SemanticReviewDesk,
   SemanticReviewNotConfiguredError,
+  assertSemanticReviewFailure,
+  classifySemanticReviewFailureDiagnostic,
+  semanticReviewFailure,
+  type SemanticReviewFailure,
+  type SemanticReviewFailureClass,
   type SemanticReviewRecord,
   type SemanticReviewRecommendation,
 } from "./semantic-review.js";
@@ -28,6 +33,16 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_REQUESTS_PER_TICK = 3;
 const DEFAULT_LEASE_TIMEOUT_MS = 150_000;
 const DEFAULT_RETRY_DELAY_MS = 30_000;
+const FAILURE_CLASSES = Object.freeze([
+  "PROVIDER_RETRYABLE",
+  "PROVIDER_TERMINAL",
+  "TIMEOUT",
+  "MODEL_PROTOCOL",
+  "FIRST_PARTY_CONTRACT",
+  "PERSISTENCE",
+  "LEASE_EXPIRED",
+  "UNKNOWN",
+] as const satisfies readonly SemanticReviewFailureClass[]);
 
 export type SemanticReviewJobStatus =
   | "PENDING"
@@ -61,6 +76,7 @@ export type SemanticReviewJobRecord = Readonly<{
   lastReviewId: Hash | null;
   recommendation: SemanticReviewRecommendation | null;
   diagnostic: string | null;
+  lastFailure?: SemanticReviewFailure | null;
   createdAt: string;
   updatedAt: string;
   artifactHash: Hash;
@@ -128,6 +144,12 @@ export type SemanticReviewSchedulerProjection = Readonly<{
   legacyEvidenceDebtCount: number;
   passedCount: number;
   exhaustedCount: number;
+  classifiedFailureJobCount: number;
+  unclassifiedFailureJobCount: number;
+  failureClassCounts: readonly Readonly<{
+    failureClass: SemanticReviewFailureClass;
+    jobCount: number;
+  }>[];
   unreadNotificationCount: number;
   budget: Readonly<{
     basis: "REQUEST_ATTEMPTS";
@@ -183,6 +205,27 @@ function boundedText(value: unknown, limit: number): value is string {
 
 function compactDiagnostic(value: string): string {
   return value.trim().replace(/\s+/gu, " ").slice(0, 500) || "semantic review failed";
+}
+
+function retainedFailure(
+  record: Pick<SemanticReviewJobRecord, "status" | "diagnostic" | "lastFailure">,
+): SemanticReviewFailure | null {
+  if (record.lastFailure !== undefined && record.lastFailure !== null) {
+    return assertSemanticReviewFailure(record.lastFailure);
+  }
+  return record.status === "RETRY_WAIT" || record.status === "EXHAUSTED"
+    ? classifySemanticReviewFailureDiagnostic(record.diagnostic)
+    : null;
+}
+
+function shouldRetry(
+  failure: SemanticReviewFailure,
+  attemptCount: number,
+  maxAttempts: number,
+): boolean {
+  if (attemptCount >= maxAttempts) return false;
+  if (failure.retryPolicy === "NO_RETRY") return false;
+  return failure.retryPolicy === "STANDARD_RETRY" || attemptCount < 2;
 }
 
 function researchOnlyDiagnostic(
@@ -242,6 +285,7 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
   const evidenceClaims = record.evidenceClaims ?? [];
   const reviewScopeIdentity = record.reviewScopeIdentity ?? null;
   const duplicateOfJobId = record.duplicateOfJobId ?? null;
+  const lastFailure = record.lastFailure ?? null;
   if (
     !["pmh.semantic-review-job.v1", "pmh.semantic-review-job.v2"]
       .includes(record.schemaVersion) ||
@@ -311,6 +355,10 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
     )) ||
     (record.status !== "DUPLICATE_SCOPE" && duplicateOfJobId !== null) ||
     (record.diagnostic !== null && (!boundedText(record.diagnostic, 500))) ||
+    (lastFailure !== null && (
+      !["RETRY_WAIT", "EXHAUSTED"].includes(record.status) ||
+      assertSemanticReviewFailure(lastFailure) !== lastFailure
+    )) ||
     !isIso(record.createdAt) || !isIso(record.updatedAt) ||
     !HASH_PATTERN.test(String(record.artifactHash)) ||
     record.artifactHash !== hashCanonical((({ artifactHash: _hash, ...body }) => body)(record))
@@ -536,6 +584,7 @@ export class SemanticReviewScheduler {
               : duplicateOfJobId !== null
                 ? duplicateScopeDiagnostic(duplicateOfJobId)
                 : null,
+          lastFailure: null,
           createdAt: now,
           updatedAt: now,
         }));
@@ -571,6 +620,7 @@ export class SemanticReviewScheduler {
           diagnostic: !automatic
             ? researchOnlyDiagnostic(candidate)
             : duplicateOfJobId === null ? null : duplicateScopeDiagnostic(duplicateOfJobId),
+          lastFailure: null,
           updatedAt: now,
         }));
         continue;
@@ -584,6 +634,7 @@ export class SemanticReviewScheduler {
           ...this.#withoutJobHash(existing),
           status: "BLOCKED_EVIDENCE",
           completedAt: null,
+          lastFailure: null,
           updatedAt: now,
         }));
         continue;
@@ -605,6 +656,7 @@ export class SemanticReviewScheduler {
           lastReviewId: null,
           recommendation: null,
           diagnostic: researchOnlyDiagnostic(candidate),
+          lastFailure: null,
           leasedAt: null,
           leaseExpiresAt: null,
           updatedAt: now,
@@ -624,6 +676,7 @@ export class SemanticReviewScheduler {
           lastReviewId: null,
           recommendation: null,
           diagnostic: null,
+          lastFailure: null,
           nextAttemptAt: now,
           updatedAt: now,
         }));
@@ -642,6 +695,7 @@ export class SemanticReviewScheduler {
           lastReviewId: null,
           recommendation: null,
           diagnostic: duplicateScopeDiagnostic(duplicateOfJobId),
+          lastFailure: null,
           leasedAt: null,
           leaseExpiresAt: null,
           updatedAt: now,
@@ -734,6 +788,7 @@ export class SemanticReviewScheduler {
       leaseExpiresAt: new Date(startedAtMs + this.#leaseTimeoutMs).toISOString(),
       completedAt: null,
       diagnostic: null,
+      lastFailure: null,
       updatedAt: new Date(startedAtMs).toISOString(),
     }));
     let invocation;
@@ -756,6 +811,7 @@ export class SemanticReviewScheduler {
         diagnostic: compactDiagnostic(
           error instanceof Error ? error.message : "semantic review dispatch failed",
         ),
+        lastFailure: null,
         updatedAt: new Date(this.#now()).toISOString(),
       }));
       if (
@@ -773,8 +829,15 @@ export class SemanticReviewScheduler {
       if (review.status === "PASS" && review.report !== null) {
         return this.#completeFromReview(leased, review);
       }
-      if (leased.attemptCount >= leased.maxAttempts) {
-        return this.#exhaust(leased, review.diagnostic ?? "semantic review attempt failed");
+      const failure = review.failure ?? classifySemanticReviewFailureDiagnostic(
+        review.diagnostic,
+      );
+      if (!shouldRetry(failure, leased.attemptCount, leased.maxAttempts)) {
+        return this.#exhaust(
+          leased,
+          review.diagnostic ?? "semantic review attempt failed",
+          failure,
+        );
       }
       const updatedAtMs = this.#now();
       return this.#saveJob(withJobHash({
@@ -787,6 +850,7 @@ export class SemanticReviewScheduler {
         leaseExpiresAt: null,
         lastReviewId: review.reviewId,
         diagnostic: compactDiagnostic(review.diagnostic ?? "semantic review attempt failed"),
+        lastFailure: failure,
         updatedAt: new Date(updatedAtMs).toISOString(),
       }));
     });
@@ -812,7 +876,11 @@ export class SemanticReviewScheduler {
       if (review !== undefined) {
         this.#completeFromReview(job, review);
       } else if (job.attemptCount >= job.maxAttempts) {
-        this.#exhaust(job, "semantic review lease expired after the request budget was exhausted");
+        this.#exhaust(
+          job,
+          "semantic review lease expired after the request budget was exhausted",
+          semanticReviewFailure("LEASE_EXPIRED"),
+        );
       } else {
         const timestamp = new Date(now).toISOString();
         this.#saveJob(withJobHash({
@@ -822,6 +890,7 @@ export class SemanticReviewScheduler {
           leasedAt: null,
           leaseExpiresAt: null,
           diagnostic: "semantic review lease expired before a durable result was observed",
+          lastFailure: semanticReviewFailure("LEASE_EXPIRED"),
           updatedAt: timestamp,
         }));
       }
@@ -874,6 +943,7 @@ export class SemanticReviewScheduler {
         status: "PENDING",
         nextAttemptAt: updatedAt,
         diagnostic: null,
+        lastFailure: null,
         updatedAt,
       }));
     }
@@ -899,6 +969,7 @@ export class SemanticReviewScheduler {
       leaseExpiresAt: null,
       completedAt: null,
       diagnostic: compactDiagnostic(detail),
+      lastFailure: null,
       updatedAt,
     }));
   }
@@ -928,6 +999,7 @@ export class SemanticReviewScheduler {
       lastReviewId: review.reviewId,
       recommendation: review.report.result.recommendation,
       diagnostic: null,
+      lastFailure: null,
       updatedAt: review.completedAt,
     }));
     this.#notify(completed, review.report.result.recommendation === "ESCALATE"
@@ -936,7 +1008,11 @@ export class SemanticReviewScheduler {
     return completed;
   }
 
-  #exhaust(job: SemanticReviewJobRecord, diagnostic: string): SemanticReviewJobRecord {
+  #exhaust(
+    job: SemanticReviewJobRecord,
+    diagnostic: string,
+    failure: SemanticReviewFailure = classifySemanticReviewFailureDiagnostic(diagnostic),
+  ): SemanticReviewJobRecord {
     const completedAt = new Date(this.#now()).toISOString();
     const exhausted = this.#saveJob(withJobHash({
       ...this.#withoutJobHash(job),
@@ -945,6 +1021,7 @@ export class SemanticReviewScheduler {
       leaseExpiresAt: null,
       completedAt,
       diagnostic: compactDiagnostic(diagnostic),
+      lastFailure: failure,
       updatedAt: completedAt,
     }));
     this.#notify(exhausted, "JOB_EXHAUSTED");
@@ -968,6 +1045,7 @@ export class SemanticReviewScheduler {
       dedupeIdentity,
     });
     const recommendation = job.recommendation?.replaceAll("_", " ").toLowerCase();
+    const failure = retainedFailure(job);
     this.#saveNotification(withNotificationHash({
       schemaVersion: "pmh.semantic-review-notification.v1",
       notificationId,
@@ -982,7 +1060,11 @@ export class SemanticReviewScheduler {
           ? "Semantic review needs escalation"
           : "Semantic review completed",
       summary: kind === "JOB_EXHAUSTED"
-        ? compactDiagnostic(job.diagnostic ?? "Review attempts were exhausted.")
+        ? compactDiagnostic(
+            `${failure?.failureClass.replaceAll("_", " ") ?? "UNCLASSIFIED"}: ${
+              job.diagnostic ?? "Review attempts were exhausted."
+            }`,
+          )
         : `Advisory reviewer returned ${recommendation ?? "a result"}; an operator decision is still required.`,
       createdAt,
       readAt: null,
@@ -1061,6 +1143,18 @@ export class SemanticReviewScheduler {
       const scopeIdentity = job.reviewScopeIdentity as Hash;
       passedByScope.set(scopeIdentity, (passedByScope.get(scopeIdentity) ?? 0) + 1);
     }
+    const retainedFailures = jobs.flatMap((job) => {
+      const failure = retainedFailure(job);
+      return failure === null ? [] : [failure];
+    });
+    const failureClassCounts = Object.freeze(FAILURE_CLASSES.flatMap((failureClass) => {
+      const jobCount = retainedFailures.filter(
+        (failure) => failure.failureClass === failureClass,
+      ).length;
+      return jobCount === 0
+        ? []
+        : [Object.freeze({ failureClass, jobCount })];
+    }));
     return Object.freeze({
       schemaVersion: "pmh.semantic-review-scheduler.v1",
       enabled: this.tickIntervalMs !== null,
@@ -1106,6 +1200,13 @@ export class SemanticReviewScheduler {
       ).length,
       passedCount: jobs.filter((job) => job.status === "PASS").length,
       exhaustedCount: jobs.filter((job) => job.status === "EXHAUSTED").length,
+      classifiedFailureJobCount: retainedFailures.filter(
+        (failure) => failure.failureClass !== "UNKNOWN",
+      ).length,
+      unclassifiedFailureJobCount: retainedFailures.filter(
+        (failure) => failure.failureClass === "UNKNOWN",
+      ).length,
+      failureClassCounts,
       unreadNotificationCount: notifications.filter((item) => item.status === "UNREAD").length,
       budget: Object.freeze({
         basis: "REQUEST_ATTEMPTS" as const,

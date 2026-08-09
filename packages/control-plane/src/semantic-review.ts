@@ -57,6 +57,26 @@ export type SemanticReviewRecommendation =
   | "ESCALATE"
   | "ACCEPT_FOR_RESEARCH_SIMULATION";
 
+export type SemanticReviewFailureClass =
+  | "PROVIDER_RETRYABLE"
+  | "PROVIDER_TERMINAL"
+  | "TIMEOUT"
+  | "MODEL_PROTOCOL"
+  | "FIRST_PARTY_CONTRACT"
+  | "PERSISTENCE"
+  | "LEASE_EXPIRED"
+  | "UNKNOWN";
+
+export type SemanticReviewRetryPolicy =
+  | "STANDARD_RETRY"
+  | "ONE_RETRY"
+  | "NO_RETRY";
+
+export type SemanticReviewFailure = Readonly<{
+  failureClass: SemanticReviewFailureClass;
+  retryPolicy: SemanticReviewRetryPolicy;
+}>;
+
 export type SemanticReviewAssessment = Readonly<{
   outcomeMapping: string;
   timingAndClose: string;
@@ -156,6 +176,7 @@ export type SemanticReviewRecord = Readonly<{
   startedAt: string;
   completedAt: string | null;
   diagnostic: string | null;
+  failure?: SemanticReviewFailure | null;
   report: SemanticReviewReport | null;
 }>;
 
@@ -238,6 +259,54 @@ class SemanticReviewRepairError extends Error {
   ) {
     super(message);
   }
+}
+
+class SemanticReviewRunError extends Error {
+  public constructor(
+    message: string,
+    readonly failure: SemanticReviewFailure,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+}
+
+const RETRY_POLICY_BY_FAILURE_CLASS: Readonly<
+  Record<SemanticReviewFailureClass, SemanticReviewRetryPolicy>
+> = Object.freeze({
+  PROVIDER_RETRYABLE: "STANDARD_RETRY",
+  PROVIDER_TERMINAL: "NO_RETRY",
+  TIMEOUT: "STANDARD_RETRY",
+  MODEL_PROTOCOL: "ONE_RETRY",
+  FIRST_PARTY_CONTRACT: "NO_RETRY",
+  PERSISTENCE: "NO_RETRY",
+  LEASE_EXPIRED: "STANDARD_RETRY",
+  UNKNOWN: "STANDARD_RETRY",
+});
+
+export function semanticReviewFailure(
+  failureClass: SemanticReviewFailureClass,
+): SemanticReviewFailure {
+  return Object.freeze({
+    failureClass,
+    retryPolicy: RETRY_POLICY_BY_FAILURE_CLASS[failureClass],
+  });
+}
+
+export function assertSemanticReviewFailure(
+  value: unknown,
+): SemanticReviewFailure {
+  if (value === null || typeof value !== "object") {
+    throw new Error("semantic review failure classification is malformed");
+  }
+  const failure = value as SemanticReviewFailure;
+  if (
+    !Object.hasOwn(RETRY_POLICY_BY_FAILURE_CLASS, failure.failureClass) ||
+    failure.retryPolicy !== RETRY_POLICY_BY_FAILURE_CLASS[failure.failureClass]
+  ) {
+    throw new Error("semantic review failure classification is inconsistent");
+  }
+  return Object.freeze(failure);
 }
 
 function repairFailure(
@@ -498,6 +567,59 @@ function compactDiagnostic(value: string): string {
   return compact.length <= 500
     ? compact
     : `${compact.slice(0, 499).trimEnd()}…`;
+}
+
+export function classifySemanticReviewFailureDiagnostic(
+  diagnostic: string | null | undefined,
+): SemanticReviewFailure {
+  const value = diagnostic?.toLowerCase() ?? "";
+  if (value.includes("without submitting its tool effect")) {
+    return semanticReviewFailure("MODEL_PROTOCOL");
+  }
+  if (value.includes("timed out") || value.includes("timeout")) {
+    return semanticReviewFailure("TIMEOUT");
+  }
+  if (value.includes("lease expired") || value.includes("process restart")) {
+    return semanticReviewFailure("LEASE_EXPIRED");
+  }
+  if (value.includes("persistence failed") || value.includes("store failed")) {
+    return semanticReviewFailure("PERSISTENCE");
+  }
+  if (
+    value.includes("constraint draft") ||
+    value.includes("constraint artifact") ||
+    value.includes("counterexample state is malformed") ||
+    value.includes("first-party contract")
+  ) {
+    return semanticReviewFailure("FIRST_PARTY_CONTRACT");
+  }
+  if (
+    value.includes("service unavailable") ||
+    value.includes("provider unavailable") ||
+    value.includes("rate limit") ||
+    /\b(408|409|429|5\d\d)\b/u.test(value)
+  ) {
+    return semanticReviewFailure("PROVIDER_RETRYABLE");
+  }
+  return semanticReviewFailure("UNKNOWN");
+}
+
+function providerFailure(error: unknown): SemanticReviewFailure {
+  if (error !== null && typeof error === "object") {
+    const raw = error as { isRetryable?: unknown; statusCode?: unknown };
+    const statusCode = typeof raw.statusCode === "number" ? raw.statusCode : null;
+    if (
+      raw.isRetryable === true ||
+      statusCode === 408 || statusCode === 409 || statusCode === 429 ||
+      (statusCode !== null && statusCode >= 500)
+    ) return semanticReviewFailure("PROVIDER_RETRYABLE");
+    if (raw.isRetryable === false || statusCode !== null) {
+      return semanticReviewFailure("PROVIDER_TERMINAL");
+    }
+  }
+  return classifySemanticReviewFailureDiagnostic(
+    error instanceof Error ? error.message : String(error),
+  );
 }
 
 function validateRawReview(value: unknown): RawSemanticReview {
@@ -909,6 +1031,7 @@ export function assertSemanticReviewRecord(
   const running = record.status === "RUNNING";
   const passed = record.status === "PASS";
   const failed = record.status === "FAILED";
+  const failure = record.failure ?? null;
   if (
     !HASH_PATTERN.test(record.reviewId) ||
     !HASH_PATTERN.test(record.proposalId) ||
@@ -923,7 +1046,9 @@ export function assertSemanticReviewRecord(
     (running && (record.report !== null || record.diagnostic !== null)) ||
     (passed && (record.report === null || record.diagnostic !== null)) ||
     (failed &&
-      (record.report !== null || !boundedText(record.diagnostic, 500)))
+      (record.report !== null || !boundedText(record.diagnostic, 500))) ||
+    ((!failed && failure !== null) ||
+      (failure !== null && assertSemanticReviewFailure(failure) !== failure))
   ) {
     throw new Error("stored semantic review record violates its contract");
   }
@@ -1517,7 +1642,10 @@ export class DeepSeekSemanticReviewModelPort
           usage: result.usage,
         });
         usageRecorded = true;
-        throw new Error("semantic reviewer completed without submitting its tool effect");
+        throw new SemanticReviewRunError(
+          "semantic reviewer completed without submitting its tool effect",
+          semanticReviewFailure("MODEL_PROTOCOL"),
+        );
       }
       this.usageRecorder?.record({
         durationMs: Math.max(0, Date.now() - startedAtMs),
@@ -1549,12 +1677,18 @@ export class DeepSeekSemanticReviewModelPort
         durableEffect: false,
       });
       if (controller.signal.aborted) {
-        throw new Error("semantic review request timed out");
+        throw new SemanticReviewRunError(
+          "semantic review request timed out",
+          semanticReviewFailure("TIMEOUT"),
+          { cause: error },
+        );
       }
-      throw new Error(
+      if (error instanceof SemanticReviewRunError) throw error;
+      throw new SemanticReviewRunError(
         `semantic review request failed: ${compactDiagnostic(
           error instanceof Error ? error.message : "unknown provider error",
         )}`,
+        providerFailure(error),
         { cause: error },
       );
     } finally {
@@ -1680,9 +1814,11 @@ export class SemanticReviewDesk {
       startedAt,
       completedAt: null,
       diagnostic: null,
+      failure: null,
       report: null,
     });
     this.#replace(running);
+    let modelCompleted = false;
     const promise = Promise.resolve()
       .then(() => this.reviewer!.review({
         proposal,
@@ -1691,6 +1827,7 @@ export class SemanticReviewDesk {
       }))
       .then(
         (raw): SemanticReviewRecord => {
+          modelCompleted = true;
           const completedAt = new Date().toISOString();
           const validatedRaw = validateRawReview(raw);
           const {
@@ -1846,16 +1983,24 @@ export class SemanticReviewDesk {
           });
         },
       )
-      .catch((error: unknown): SemanticReviewRecord =>
-        Object.freeze({
+      .catch((error: unknown): SemanticReviewRecord => {
+        const failure = error instanceof SemanticReviewRunError
+          ? error.failure
+          : modelCompleted
+            ? semanticReviewFailure("FIRST_PARTY_CONTRACT")
+            : classifySemanticReviewFailureDiagnostic(
+                error instanceof Error ? error.message : "semantic review failed",
+              );
+        return Object.freeze({
           ...running,
           status: "FAILED" as const,
           completedAt: new Date().toISOString(),
           diagnostic: compactDiagnostic(
             error instanceof Error ? error.message : "semantic review failed",
           ),
-        })
-      )
+          failure,
+        });
+      })
       .then((record) => {
         let retained = record;
         if (this.store !== undefined) {
@@ -1874,6 +2019,7 @@ export class SemanticReviewDesk {
                   error instanceof Error ? error.message : "unknown store error"
                 }`,
               ),
+              failure: semanticReviewFailure("PERSISTENCE"),
             });
           }
         }

@@ -215,6 +215,12 @@ describe("persistent semantic review scheduler", () => {
     expect(scheduler.projection()).toMatchObject({
       retryWaitCount: 1,
       exhaustedCount: 0,
+      classifiedFailureJobCount: 1,
+      unclassifiedFailureJobCount: 0,
+      failureClassCounts: [{
+        failureClass: "PROVIDER_RETRYABLE",
+        jobCount: 1,
+      }],
       budget: { requestAttemptsStarted: 1 },
     });
     expect(scheduler.tick([item], snapshot)).toHaveLength(0);
@@ -224,8 +230,15 @@ describe("persistent semantic review scheduler", () => {
     expect(scheduler.projection()).toMatchObject({
       retryWaitCount: 0,
       exhaustedCount: 1,
+      classifiedFailureJobCount: 1,
       unreadNotificationCount: 1,
       budget: { requestAttemptsStarted: 2 },
+    });
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      lastFailure: {
+        failureClass: "PROVIDER_RETRYABLE",
+        retryPolicy: "STANDARD_RETRY",
+      },
     });
     const notification = scheduler.projection().notifications[0]!;
     expect(notification.kind).toBe("JOB_EXHAUSTED");
@@ -233,6 +246,99 @@ describe("persistent semantic review scheduler", () => {
     scheduler.reconcile([item], desk.projection().records);
     expect(scheduler.projection().notifications).toHaveLength(1);
     expect(scheduler.projection().unreadNotificationCount).toBe(0);
+  });
+
+  it("allows one repair retry for a stable model protocol failure", async () => {
+    let now = Date.parse("2026-08-02T00:00:00.000Z");
+    let calls = 0;
+    const item = candidate(proposal("protocol-retry"), 4);
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      {
+        reviewer: {
+          review: async () => {
+            calls += 1;
+            throw new Error(
+              "semantic reviewer completed without submitting its tool effect",
+            );
+          },
+        },
+      },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      maxAttempts: 3,
+      retryDelayMs: 1_000,
+      now: () => now,
+    });
+
+    await Promise.all(scheduler.tick([item], snapshot));
+    expect(scheduler.projection()).toMatchObject({
+      retryWaitCount: 1,
+      exhaustedCount: 0,
+      failureClassCounts: [{ failureClass: "MODEL_PROTOCOL", jobCount: 1 }],
+      budget: { requestAttemptsStarted: 1 },
+    });
+    now += 1_000;
+    await Promise.all(scheduler.tick([item], snapshot));
+    expect(calls).toBe(2);
+    expect(scheduler.projection()).toMatchObject({
+      retryWaitCount: 0,
+      exhaustedCount: 1,
+      budget: { maxAttemptsPerJob: 3, requestAttemptsStarted: 2 },
+    });
+    expect(scheduler.tick([item], snapshot)).toHaveLength(0);
+  });
+
+  it("does not spend a second model request on a first-party contract failure", async () => {
+    let calls = 0;
+    const item = candidate(proposal("first-party-contract"), 5);
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only" },
+      {
+        reviewer: {
+          review: async () => {
+            calls += 1;
+            return {
+              ...reviewResult("ESCALATE"),
+              constraintDraft: {
+                classification: "HARD_SETTLEMENT_CONSTRAINT" as const,
+                relationKind: "EQUIVALENT" as const,
+                assumptions: [],
+                counterexampleAttempt: {
+                  attempted: false,
+                  result: "INCONCLUSIVE" as const,
+                  narrative: "No valid first-party counterexample effect was retained.",
+                  truths: null,
+                },
+                truthTable: [],
+                unresolvedEvidence: [],
+              },
+            };
+          },
+        },
+      },
+    );
+    const scheduler = new SemanticReviewScheduler({
+      reviewDesk: desk,
+      tickIntervalMs: 1_000,
+      maxAttempts: 3,
+      now: () => Date.parse("2026-08-02T00:00:00.000Z"),
+    });
+
+    await Promise.all(scheduler.tick([item], snapshot));
+    expect(calls).toBe(1);
+    expect(scheduler.projection()).toMatchObject({
+      retryWaitCount: 0,
+      exhaustedCount: 1,
+      failureClassCounts: [{
+        failureClass: "FIRST_PARTY_CONTRACT",
+        jobCount: 1,
+      }],
+      budget: { maxAttemptsPerJob: 3, requestAttemptsStarted: 1 },
+    });
+    expect(scheduler.tick([item], snapshot)).toHaveLength(0);
   });
 
   it("reconciles a passed review without spending another request", async () => {
@@ -787,6 +893,94 @@ describe("persistent semantic review scheduler", () => {
           notifications: { durable: true, schemaVersion: 27 },
         },
       });
+      thirdStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retains the one-retry protocol policy across SQLite restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-review-failure-policy-"));
+    const path = join(directory, "control-plane.sqlite");
+    const item = candidate(
+      proposal("restart-protocol-policy"),
+      5,
+    );
+    let now = Date.parse("2026-08-02T00:00:00.000Z");
+    let calls = 0;
+    const failingReviewer = {
+      review: async () => {
+        calls += 1;
+        throw new Error(
+          "semantic reviewer completed without submitting its tool effect",
+        );
+      },
+    };
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const first = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk(
+          { DEEPSEEK_API_KEY: "test-only" },
+          { reviewer: failingReviewer, store: firstStore },
+        ),
+        tickIntervalMs: 1_000,
+        retryDelayMs: 1_000,
+        maxAttempts: 3,
+        store: firstStore,
+        now: () => now,
+      });
+      await Promise.all(first.tick([item], snapshot));
+      expect(first.projection().jobs[0]).toMatchObject({
+        status: "RETRY_WAIT",
+        attemptCount: 1,
+        lastFailure: {
+          failureClass: "MODEL_PROTOCOL",
+          retryPolicy: "ONE_RETRY",
+        },
+      });
+      firstStore.close();
+
+      now += 1_000;
+      const secondStore = new SqliteOperationalStore(path);
+      const second = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk(
+          { DEEPSEEK_API_KEY: "test-only" },
+          { reviewer: failingReviewer, store: secondStore },
+        ),
+        tickIntervalMs: 1_000,
+        retryDelayMs: 1_000,
+        maxAttempts: 3,
+        store: secondStore,
+        now: () => now,
+      });
+      await Promise.all(second.tick([item], snapshot));
+      expect(calls).toBe(2);
+      expect(second.projection()).toMatchObject({
+        retryWaitCount: 0,
+        exhaustedCount: 1,
+        classifiedFailureJobCount: 1,
+        failureClassCounts: [{ failureClass: "MODEL_PROTOCOL", jobCount: 1 }],
+        budget: { requestAttemptsStarted: 2 },
+      });
+      secondStore.close();
+
+      const thirdStore = new SqliteOperationalStore(path);
+      const restored = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store: thirdStore }),
+        store: thirdStore,
+        now: () => now,
+      }).projection();
+      expect(restored.jobs[0]).toMatchObject({
+        status: "EXHAUSTED",
+        lastFailure: {
+          failureClass: "MODEL_PROTOCOL",
+          retryPolicy: "ONE_RETRY",
+        },
+      });
+      expect(restored.failureClassCounts).toEqual([{
+        failureClass: "MODEL_PROTOCOL",
+        jobCount: 1,
+      }]);
       thirdStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });

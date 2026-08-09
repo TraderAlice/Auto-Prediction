@@ -79,8 +79,19 @@ with three counterexample attempts, zero claimed truth states, and explicit
 reasoning-budget—not evidence—exhaustion. Studio desktop and 390 px inspection
 show the durable House issue at 5/5 reviewed without layout regression. Retry
 policy classification and resolved-outcome quality remain the active measured
-checkpoints. Node 24.14.0 checks, all 543 workspace tests, and the production
-build pass.
+checkpoints. The retry-policy half is now implemented: review failures retain a
+content-hashed class and immutable `STANDARD_RETRY`, `ONE_RETRY`, or `NO_RETRY`
+policy. Provider/transport failures keep the normal bounded budget, a stable
+no-counterexample tool-protocol failure gets only one repair retry, and
+first-party contract or persistence failures stop after one request. SQLite
+restart preserves the remaining policy; historical diagnostics remain
+replayable and are conservatively classified in projection. Studio exposes the
+retained failure mix and each job's last scheduling disposition. Resolved-
+outcome calibration remains the active quality checkpoint. Live restart
+classified all 41 failures in the bounded interactive window—28 model protocol,
+three first-party contract, and ten lease expiry—with no model requests or
+history rewrite. Desktop and 390 px Studio inspection pass, as do Node 24.14.0
+checks, all 547 workspace tests, and the production build.
 
 Live north-star measurement exposed two nested retention-window attribution
 bugs. The issue funnel originally forgot terminal reviews as they left the

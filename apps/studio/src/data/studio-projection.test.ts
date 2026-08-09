@@ -116,6 +116,9 @@ describe("Studio projection safety", () => {
       bundledJobCount: 0,
       legacyEvidenceDebtCount: 0,
       exhaustedCount: 0,
+      classifiedFailureJobCount: 0,
+      unclassifiedFailureJobCount: 0,
+      failureClassCounts: [],
       budget: {
         basis: "REQUEST_ATTEMPTS",
         maxAttemptsPerJob: 3,

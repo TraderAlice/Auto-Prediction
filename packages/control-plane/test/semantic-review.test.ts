@@ -567,6 +567,10 @@ describe("adversarial semantic review", () => {
     expect(record).toMatchObject({
       status: "FAILED",
       diagnostic: expect.stringContaining("without submitting its tool effect"),
+      failure: {
+        failureClass: "MODEL_PROTOCOL",
+        retryPolicy: "ONE_RETRY",
+      },
     });
     expect(usageLedger.projection()).toMatchObject({
       eventCount: 1,
@@ -607,6 +611,10 @@ describe("adversarial semantic review", () => {
       diagnostic: expect.stringContaining(
         "semantic constraint draft violates its bounded contract",
       ),
+      failure: {
+        failureClass: "FIRST_PARTY_CONTRACT",
+        retryPolicy: "NO_RETRY",
+      },
       report: null,
     });
     expect(desk.projection()).toMatchObject({
@@ -615,6 +623,43 @@ describe("adversarial semantic review", () => {
       failedCount: 1,
     });
     expect(() => assertSemanticReviewRecord(desk.projection().records[0])).not.toThrow();
+  });
+
+  it("classifies a retryable provider response without parsing its body as model output", async () => {
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        async fetcher() {
+          return new Response("Service unavailable", {
+            status: 503,
+            headers: { "content-type": "text/plain" },
+          });
+        },
+      },
+    );
+
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+
+    expect(record).toMatchObject({
+      status: "FAILED",
+      failure: {
+        failureClass: "PROVIDER_RETRYABLE",
+        retryPolicy: "STANDARD_RETRY",
+      },
+      report: null,
+    });
+    expect(() => assertSemanticReviewRecord(record)).not.toThrow();
+    expect(() => assertSemanticReviewRecord({
+      ...record,
+      failure: {
+        failureClass: "PROVIDER_RETRYABLE",
+        retryPolicy: "NO_RETRY",
+      },
+    })).toThrow(/classification is inconsistent/);
   });
 
   it("fails closed when the key or exact listing scope is absent", () => {

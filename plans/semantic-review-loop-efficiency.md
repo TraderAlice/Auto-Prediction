@@ -1,6 +1,6 @@
 # Semantic review loop efficiency
 
-Status: terminal-recovery qualified; retry-policy measurement active
+Status: terminal recovery and failure-aware retry policy qualified
 
 Created: 2026-08-02
 
@@ -120,9 +120,42 @@ reasoning-budget exhaustion from missing rule evidence. The previous scheduler
 exhaustion is therefore no longer reproducible as a terminal-protocol failure,
 and no recovered abstention was needed for this natural run.
 
+## Failure-aware scheduler contract
+
+Durable review failures now carry a first-party classification and immutable
+retry policy instead of leaving the scheduler to parse one opaque diagnostic:
+
+- retryable provider/transport failures and timeouts receive the normal bounded
+  request budget;
+- a model that records no counterexample and violates the terminal protocol may
+  receive one repair retry, but cannot consume all three default attempts;
+- first-party artifact-contract failures, persistence failures, and provider
+  errors explicitly marked non-retryable stop after the first request;
+- lease expiry remains retryable because it does not prove a model-quality
+  failure;
+- `UNKNOWN` preserves the historical standard policy rather than silently
+  converting old records into terminal failures.
+
+The policy and last failure class live on the durable job, survive SQLite
+restart, appear in the scheduler projection and Studio, and are covered by the
+same content hash as the rest of the job. Historical retry/exhausted jobs remain
+valid; their compact diagnostics are conservatively classified at projection
+time. The retained live history that motivated the policy contains 31 exhausted
+terminal-protocol jobs, 13 lease-expiry jobs, and three first-party constraint
+builder failures. Those classes no longer share one retry rule.
+
+Live restart qualification classifies every failed job in the current
+250-record interactive scheduler window: 28 `MODEL_PROTOCOL`, three
+`FIRST_PARTY_CONTRACT`, and ten `LEASE_EXPIRED`, with zero unclassified jobs.
+The full durable SQLite history remains larger (31, three, and 13 respectively),
+which is expected because interactive detail retention stays bounded. The
+projection performs no migration write and starts no reviewer request. Studio
+desktop and 390 px views render the complete 41/41 classified mix. Workspace
+checks, all 547 tests, and the production build pass.
+
 ## Next checkpoint
 
-1. Separate scheduler retry policy for provider/transport failures from stable
-   tool-protocol violations once enough classified observations exist.
+1. Observe new real-provider failures until each retry class has natural live
+   samples, then calibrate class-specific delays without changing attempt caps.
 2. Add resolved-outcome calibration before using token efficiency as a quality
    signal; cheaper abstention is not automatically better semantic work.
