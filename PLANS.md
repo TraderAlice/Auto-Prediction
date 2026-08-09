@@ -20,6 +20,8 @@ with Studio invalidation transport tracked in
 [`plans/studio-invalidation-stream.md`](plans/studio-invalidation-stream.md),
 and the primary price-positive opportunity frontier tracked in
 [`plans/opportunity-frontier.md`](plans/opportunity-frontier.md),
+with durable proposal-local review evidence and decision dossiers tracked in
+[`plans/durable-decision-dossier.md`](plans/durable-decision-dossier.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -45,9 +47,13 @@ The discovery posture is now heuristic-first: corpus anomalies and unusual
 semantic neighborhoods generate inspiration, and claims are formed after an
 Agent has inspected a trailhead. Claim-first work remains a validation,
 monitoring, and operator-hypothesis lane rather than the primary discovery
-funnel. Studio normalization now also has a qualified shadcn-compatible
-component layer and a bounded Inter type scale with monospace reserved for exact
-machine values.
+funnel. Studio normalization uses a shadcn-compatible component layer and a
+bounded Inter type scale with monospace reserved for exact machine values.
+Direct operator review reopened its visual qualification: mechanical font-floor
+and overflow checks did not prevent the product from reading like a dense
+protocol console. The second pass now simplifies hierarchy, copy, and surfaces,
+and collapses secondary diagnostics by default; final aesthetic acceptance
+remains with the operator rather than another mechanical audit.
 
 The product entry now matches that posture. Studio opens on Discover, its
 above-fold action issues the next heuristic lease, and the old hard-coded claim
@@ -103,6 +109,15 @@ Review handoff. The three proposals previously absent from the live economic
 detail window each restore their proposal, review job, and lifecycle case.
 Every card names semantic review, fees, and depth as outstanding, so a gross
 hint cannot masquerade as executable profit.
+
+Live frontier use exposed the next persistence cliff. Four price-positive jobs
+are direct PASS and two reuse one canonical PASS, yet only one underlying
+semantic-review report remains inside the fifty-record detail window. The
+active decision-dossier slice retains a bounded, content-addressed review
+outcome capsule with contemporary PASS jobs, resolves duplicate-scope lineage
+explicitly, and joins that evidence with current economics in the proposal-
+local handoff. Historical missing detail stays visibly unavailable rather than
+being reconstructed from a recommendation label.
 
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls

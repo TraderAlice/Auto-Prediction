@@ -1,6 +1,6 @@
 # Studio product normalization
 
-Status: implemented and visually qualified
+Status: implemented; operator re-review pending
 
 ## Evidence
 
@@ -90,3 +90,34 @@ The retained 799-market projection was inspected at 1280×720 and 390×844. Both
 widths have equal body/document width, the primary action remains visible, the
 mobile drawer opens at 264 px, and the computed main-content font range starts
 at 12 px.
+
+## 2026-08-10 operator evidence and second normalization
+
+The operator's direct visual review is stronger evidence than the previous
+mechanical typography and overflow checks. Although the component primitives
+were present, the result still read as a dense protocol console: too many
+simultaneous navigation destinations, uppercase status copy, machine-facing
+labels, weak card hierarchy, and an Overview whose controls competed with its
+primary task. The earlier “visually qualified” status was therefore premature.
+
+The second pass treats the shadcn-compatible primitives and tokens as the
+actual visual system rather than an implementation detail. It narrows the
+content measure, removes decorative instrument-panel styling, reduces the top
+bar to page context/search/sync, uses one restrained Inter scale, and makes the
+heuristic discovery action the visual start of the product. Claim-first work is
+renamed and demoted to a focused-watch lane: useful for validating an existing
+hypothesis, never presented as the default source of new opportunities.
+
+Qualification requires a fresh live desktop and narrow-width visual inspection;
+the old screenshots and computed font-floor audit are not sufficient evidence.
+
+The second pass was exercised against the retained 799-market live projection
+in a clean Vite session. At 1280×720, the default Discover document fell from
+14,502 px to 2,347 px after operations and Agent internals were moved into two
+closed, keyboard/click-operable disclosure regions. At 390×844, the document
+width was 375 px inside the 390 px viewport, navigation became a drawer trigger,
+the primary exploration action remained above the fold, and both disclosure
+regions opened and closed without losing their contents. The live browser log
+contained no warnings or errors. All 578 workspace tests, all workspace type
+checks, the Studio production build, and `git diff --check` pass. A legacy live
+projection missing `findingSummaries` also no longer crashes the Discover view.

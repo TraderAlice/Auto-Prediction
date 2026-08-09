@@ -2093,24 +2093,9 @@ function Topbar({
         >
           <Menu size={19} />
         </Button>
-        <div>
-          <span className="eyebrow">Research workspace</span>
-          <strong>{currentLabel}</strong>
-        </div>
+        <strong>{currentLabel}</strong>
       </div>
       <div className="topbar-actions">
-        <Badge
-          variant={projectionSync.status === "RECONNECTING" ? "warning" : "muted"}
-          title={projectionSync.revision === null
-            ? syncLabel
-            : `${syncLabel} · projection revision ${projectionSync.revision}`}
-        >
-          <SyncIcon
-            size={10}
-            className={projectionSync.status === "REFRESHING" ? "is-spinning" : undefined}
-          />
-          {syncLabel}
-        </Badge>
         <button
           className="command-button"
           aria-label="Open command menu"
@@ -2122,9 +2107,17 @@ function Topbar({
             <Command size={11} /> K
           </kbd>
         </button>
-        <Badge variant="shadow">
-          <CircleOff size={10} />
-          No execution
+        <Badge
+          variant={projectionSync.status === "RECONNECTING" ? "warning" : "muted"}
+          title={projectionSync.revision === null
+            ? syncLabel
+            : `${syncLabel} · projection revision ${projectionSync.revision}`}
+        >
+          <SyncIcon
+            size={10}
+            className={projectionSync.status === "REFRESHING" ? "is-spinning" : undefined}
+          />
+          {syncLabel}
         </Badge>
       </div>
     </header>
@@ -3359,7 +3352,7 @@ function MarketArchaeologistView() {
     ? null
     : graphReadability(latestTrailheadRecord);
   const findingSummary = (leaseId: string) =>
-    scheduler.findingSummaries.find((item) => item.leaseId === leaseId);
+    (scheduler.findingSummaries ?? []).find((item) => item.leaseId === leaseId);
   const latestTrailheadFinding = latestTrailheadRecord === undefined
     ? undefined
     : findingSummary(latestTrailheadRecord.lease.leaseId);
@@ -3516,18 +3509,14 @@ function MarketArchaeologistView() {
     <section className="page-section archaeology-page">
       <div className="page-heading archaeology-heading">
         <div>
-          <span className="eyebrow">AI-native discovery · recursive search</span>
-          <h1>Market archaeologist</h1>
+          <span className="eyebrow">Discovery</span>
+          <h1>Find overlooked relationships</h1>
           <p>
-            AI starts from unusual corpus neighborhoods, forms claims only after
-            inspecting exact markets, and keeps operator hypotheses in a separate
-            monitoring lane. Every path remains evidence-bound and reproducible.
+            Start from unusual market neighborhoods. Agents inspect exact contracts,
+            form a hypothesis, and try to break it before it reaches review.
           </p>
         </div>
         <div className="archaeology-heading-badges">
-          <Badge variant={desk.configured ? "shadow" : "warning"}>
-            {desk.configured ? `${desk.model} · PI` : "KEY REQUIRED"}
-          </Badge>
           <Button
             disabled={
               corpus.listingCount === 0 ||
@@ -3542,73 +3531,46 @@ function MarketArchaeologistView() {
             ) : (
               <Sparkles size={13} />
             )}
-            {leaseStatus === "RUNNING" ? "Exploring…" : "Explore next neighborhood"}
+            {leaseStatus === "RUNNING" ? "Exploring…" : "Explore a new neighborhood"}
           </Button>
         </div>
       </div>
 
       <div className="radar-summary-grid archaeology-summary-grid">
         <Metric
-          label="MarketFS corpus"
+          label="Live markets"
           value={`${corpus.listingCount}`}
-          detail="fresh public listings"
+          detail="fresh public contracts"
         />
         <Metric
-          label="Eligible sources"
-          value={`${corpus.eligibleSourceCount}`}
-          detail={
-            catalogRefreshScheduler.enabled
-              ? `${corpus.excludedSourceCount} excluded · auto every ${(catalogRefreshScheduler.intervalMs ?? 0) / 60_000}m`
-              : `${corpus.excludedSourceCount} excluded · manual refresh`
-          }
+          label="Active briefs"
+          value={`${issueScheduler.enabledIssueCount}`}
+          detail={`${currentExplorationCount} exploratory · ${currentMonitoringCount} focused`}
         />
         <Metric
-          label="Discovery programs"
-          value={`${currentIssues.length}`}
-          detail={`${issueScheduler.enabledIssueCount} active · ${currentExplorationCount} explore · ${currentMonitoringCount} monitor`}
+          label="Completed searches"
+          value={`${explorationPerformance.terminalLeaseCount + monitoringPerformance.terminalLeaseCount}`}
+          detail={`${explorationPerformance.falsificationCount + monitoringPerformance.falsificationCount} hypotheses rejected`}
         />
         <Metric
-          label="Semantic graph"
-          value={`${graph.relationCount}`}
-          detail={`${graph.feedbackCount} empirical outcomes`}
+          label="Proposals"
+          value={`${explorationPerformance.proposalCount + monitoringPerformance.proposalCount}`}
+          detail="waiting in the evidence pipeline"
         />
       </div>
 
       <Card className="issue-scheduler-console">
         <CardHeader>
           <div>
-            <span className="eyebrow">Heuristic exploration + claim monitoring</span>
-            <h2>Scheduled search desk</h2>
+            <span className="eyebrow">Search briefs</span>
+            <h2>What the Agents are looking for</h2>
           </div>
           <div className="issue-scheduler-badges">
             <Badge variant={issueScheduler.enabled ? "shadow" : "muted"}>
-              <Clock3 size={11} /> TIMER {issueScheduler.enabled ? "ON" : "OFF"}
-            </Badge>
-            <Badge
-              variant={
-                catalogRefreshScheduler.lastResult === "DEGRADED" ||
-                catalogRefreshScheduler.lastResult === "FAILED"
-                  ? "warning"
-                  : catalogRefreshScheduler.enabled
-                    ? "verified"
-                    : "muted"
-              }
-            >
-              <RefreshCw
-                className={catalogRefreshScheduler.status === "REFRESHING" ? "is-spinning" : undefined}
-                size={11}
-              />{" "}
-              CORPUS {catalogRefreshScheduler.status === "REFRESHING"
-                ? "REFRESHING"
-                : catalogRefreshScheduler.enabled
-                  ? `AUTO ${(catalogRefreshScheduler.intervalMs ?? 0) / 60_000}m`
-                  : "MANUAL"}
+              <Clock3 size={11} /> {issueScheduler.enabled ? "Scheduler on" : "Scheduler off"}
             </Badge>
             <Badge variant={issueScheduler.unreadNotificationCount > 0 ? "warning" : "muted"}>
-              <Bell size={11} /> {issueScheduler.unreadNotificationCount} UNREAD
-            </Badge>
-            <Badge variant={scheduler.missingCorpusIssuedCount > 0 ? "warning" : "verified"}>
-              <Database size={11} /> {scheduler.retainedCorpusCount} CORPORA · {scheduler.recoverableIssuedCount} RESUMABLE
+              <Bell size={11} /> {issueScheduler.unreadNotificationCount} unread
             </Badge>
           </div>
         </CardHeader>
@@ -3616,11 +3578,11 @@ function MarketArchaeologistView() {
           <div className="discovery-origin-overview" aria-label="Discovery origin yield">
             <article className="is-primary">
               <div>
-                <Badge variant="verified">DEFAULT DISCOVERY</Badge>
-                <span>{currentExplorationCount} heuristic programs</span>
+                <Badge variant="verified">Primary</Badge>
+                <span>{currentExplorationCount} exploration briefs</span>
               </div>
-              <h3>Explore from corpus signals</h3>
-              <p>Fresh rare entities, timing conflicts, rule changes, and unusual relation neighborhoods become trailheads before any claim is written.</p>
+              <h3>Explore before forming a claim</h3>
+              <p>Rare entities, timing conflicts, rule changes, and unusual semantic neighborhoods become trailheads. The Agent decides what might matter only after reading the contracts.</p>
               <dl>
                 <div><dt>scans</dt><dd>{explorationPerformance.terminalLeaseCount}</dd></div>
                 <div><dt>novel</dt><dd>{explorationPerformance.novelCandidateCount}</dd></div>
@@ -3632,11 +3594,11 @@ function MarketArchaeologistView() {
             </article>
             <article>
               <div>
-                <Badge variant="muted">EXPLOITATION LANE</Badge>
-                <span>{currentMonitoringCount} claim monitors</span>
+                <Badge variant="muted">Focused watch</Badge>
+                <span>{currentMonitoringCount} saved hypotheses</span>
               </div>
-              <h3>Monitor a known hypothesis</h3>
-              <p>Operator questions, regression cases, and known constraints may route by query terms without redefining open-ended discovery.</p>
+              <h3>Revisit something already suspected</h3>
+              <p>Useful for operator questions and regression checks. This lane validates a known idea; it is not the default source of new opportunities.</p>
               <dl>
                 <div><dt>scans</dt><dd>{monitoringPerformance.terminalLeaseCount}</dd></div>
                 <div><dt>novel</dt><dd>{monitoringPerformance.novelCandidateCount}</dd></div>
@@ -3727,6 +3689,18 @@ function MarketArchaeologistView() {
               </div>
             )}
           </section>
+          <details className="discovery-operations">
+            <summary>
+              <div>
+                <Gauge size={15} />
+                <span>
+                  <strong>Search operations</strong>
+                  <small>Briefs, notifications, provider health, and focused watches</small>
+                </span>
+              </div>
+              <ChevronRight size={16} />
+            </summary>
+            <div className="discovery-operations-body">
           <div className="issue-scheduler-strip">
             <div><strong>{issueScheduler.inspirationCount}</strong><span>inspirations</span></div>
             <div><strong>{issueScheduler.dueIssueCount}</strong><span>due now</span></div>
@@ -4170,9 +4144,23 @@ function MarketArchaeologistView() {
           {issueDiagnostic !== null && (
             <div className="radar-diagnostic" role="status"><CircleOff size={14} /><span>{issueDiagnostic}</span></div>
           )}
+            </div>
+          </details>
         </CardContent>
       </Card>
 
+      <details className="discovery-advanced">
+        <summary>
+          <div>
+            <SquareTerminal size={15} />
+            <span>
+              <strong>Agent tools and diagnostics</strong>
+              <small>Semantic memory, lease internals, manual Pi, and retained run history</small>
+            </span>
+          </div>
+          <ChevronRight size={16} />
+        </summary>
+        <div className="discovery-advanced-body">
       <Card className="semantic-graph-console">
         <CardHeader>
           <div>
@@ -4534,6 +4522,8 @@ function MarketArchaeologistView() {
           remain separate mandatory gates; execution is unavailable.
         </span>
       </div>
+        </div>
+      </details>
     </section>
   );
 }
