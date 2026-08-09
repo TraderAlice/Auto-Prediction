@@ -416,6 +416,48 @@ describe("adversarial semantic review", () => {
     });
   });
 
+  it("turns a first-party constraint validation failure into a durable failed review", async () => {
+    const desk = createSemanticReviewDesk(
+      { DEEPSEEK_API_KEY: "test-only-key" },
+      {
+        reviewer: {
+          review: async () => ({
+            ...reviewPayload,
+            constraintDraft: {
+              ...submissionPayload.constraint,
+              relationKind: proposal.relationKind,
+              counterexampleAttempt: {
+                attempted: false as const,
+                result: "INCONCLUSIVE" as const,
+                narrative: "The model submitted without a required counterexample attempt.",
+                truths: null,
+              },
+            },
+          }),
+        },
+      },
+    );
+
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+    expect(record).toMatchObject({
+      status: "FAILED",
+      diagnostic: expect.stringContaining(
+        "semantic constraint draft violates its bounded contract",
+      ),
+      report: null,
+    });
+    expect(desk.projection()).toMatchObject({
+      status: "IDLE",
+      activeCount: 0,
+      failedCount: 1,
+    });
+    expect(() => assertSemanticReviewRecord(desk.projection().records[0])).not.toThrow();
+  });
+
   it("fails closed when the key or exact listing scope is absent", () => {
     const missing = createSemanticReviewDesk({});
     expect(() =>

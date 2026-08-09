@@ -16,6 +16,8 @@ const p2 = h("proposal-2");
 const p3 = h("proposal-3");
 const p4 = h("manual-proposal");
 const p5 = h("lifecycle-missing");
+const p6 = h("pending-review");
+const p7 = h("missing-duplicate-canonical");
 const f1 = h("falsification-1");
 const f2 = h("falsification-2");
 
@@ -125,7 +127,9 @@ describe("search outcome attribution", () => {
     const projection = buildSearchOutcomeAttribution(input());
 
     expect(projection).toMatchObject({
+      schemaVersion: "pmh.search-outcome-attribution.v4",
       measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES",
+      reviewMeasurementBasis: "DURABLE_SCHEDULER_OUTCOME_WITH_RETAINED_REPORT_DETAIL",
       sourceArtifactCount: 17,
       issueCount: 2,
       familyCount: 2,
@@ -166,9 +170,29 @@ describe("search outcome attribution", () => {
       nonPositiveGrossHintCount: 1,
       unavailableOrUnsupportedCount: 2,
     });
+    expect(projection.reviewOutcomes).toEqual({
+      sourceBasis: "IN_MEMORY_RETAINED_WINDOW",
+      sourceJobCount: 0,
+      sourceMaximumJobCount: 0,
+      sourceTruncated: false,
+      passedCount: 2,
+      exhaustedCount: 1,
+      blockedEvidenceCount: 0,
+      researchOnlyCount: 0,
+      pendingCount: 0,
+      untrackedCount: 1,
+      duplicateScopeCount: 0,
+      reusedPassCount: 0,
+      detailedReportCount: 2,
+      detailedReportCoverageBps: 10_000,
+      outcomeCoverageBps: 7_500,
+    });
     expect(projection.bottlenecks).toEqual({
-      pendingReviewCount: 2,
+      pendingReviewCount: 0,
       reviewFailedCount: 1,
+      reviewBlockedEvidenceCount: 0,
+      reviewResearchOnlyCount: 0,
+      reviewUntrackedCount: 1,
       pendingOperatorDecisionCount: 0,
       materializationBlockedCount: 0,
       simulationBlockedCount: 0,
@@ -187,7 +211,8 @@ describe("search outcome attribution", () => {
       nonPositiveGrossHintCount: 1,
       economicUnavailableCount: 1,
       certifiedCount: 1,
-      pendingReviewCount: 1,
+      pendingReviewCount: 0,
+      reviewUntrackedCount: 1,
       missingEvidenceCount: 3,
       operatorAcceptanceRateBps: 5_000,
     });
@@ -200,7 +225,8 @@ describe("search outcome attribution", () => {
       positiveGrossHintCount: 0,
       nonPositiveGrossHintCount: 1,
       economicUnavailableCount: 1,
-      pendingReviewCount: 1,
+      pendingReviewCount: 0,
+      reviewExhaustedCount: 1,
       operatorAcceptanceRateBps: 0,
     });
     expect(projection.byFamily).toEqual([
@@ -254,16 +280,23 @@ describe("search outcome attribution", () => {
     const projection = buildSearchOutcomeAttribution({
       ...original,
       searchLeases: [],
+      semanticReviews: [],
       semanticReviewJobs: Object.freeze([
         Object.freeze({
           artifactHash: h("review-job-1"),
+          jobId: h("review-job-id-1"),
           proposalId: p1,
           issueIds: Object.freeze([issueA]),
+          status: "PASS" as const,
+          duplicateOfJobId: null,
         }),
         Object.freeze({
           artifactHash: h("review-job-2"),
+          jobId: h("review-job-id-2"),
           proposalId: p2,
           issueIds: Object.freeze([issueA, issueB]),
+          status: "PASS" as const,
+          duplicateOfJobId: null,
         }),
       ]),
     });
@@ -278,7 +311,129 @@ describe("search outcome attribution", () => {
       leaseCount: 0,
       proposalCount: 2,
       reviewedCount: 2,
+      detailedReviewCount: 0,
     });
+    expect(projection.reviewOutcomes).toMatchObject({
+      passedCount: 2,
+      detailedReportCount: 0,
+      detailedReportCoverageBps: 0,
+      outcomeCoverageBps: 10_000,
+    });
+  });
+
+  it("resolves duplicate scopes and separates every durable review disposition", () => {
+    const original = input();
+    const canonicalJobId = h("canonical-pass-job");
+    const jobs: NonNullable<SearchOutcomeAttributionInput["semanticReviewJobs"]> =
+      Object.freeze([
+        Object.freeze({
+          artifactHash: h("job-pass"),
+          jobId: canonicalJobId,
+          proposalId: p1,
+          issueIds: Object.freeze([issueA]),
+          status: "PASS" as const,
+          duplicateOfJobId: null,
+        }),
+        Object.freeze({
+          artifactHash: h("job-duplicate-pass"),
+          jobId: h("duplicate-pass-job"),
+          proposalId: p2,
+          issueIds: Object.freeze([issueA, issueB]),
+          status: "DUPLICATE_SCOPE" as const,
+          duplicateOfJobId: canonicalJobId,
+        }),
+        Object.freeze({
+          artifactHash: h("job-exhausted"),
+          jobId: h("exhausted-job"),
+          proposalId: p3,
+          issueIds: Object.freeze([issueB]),
+          status: "EXHAUSTED" as const,
+          duplicateOfJobId: null,
+        }),
+        Object.freeze({
+          artifactHash: h("job-research"),
+          jobId: h("research-job"),
+          proposalId: p4,
+          issueIds: Object.freeze([issueA]),
+          status: "RESEARCH_ONLY" as const,
+          duplicateOfJobId: null,
+        }),
+        Object.freeze({
+          artifactHash: h("job-blocked"),
+          jobId: h("blocked-job"),
+          proposalId: p5,
+          issueIds: Object.freeze([issueA]),
+          status: "BLOCKED_EVIDENCE" as const,
+          duplicateOfJobId: null,
+        }),
+        Object.freeze({
+          artifactHash: h("job-pending"),
+          jobId: h("pending-job"),
+          proposalId: p6,
+          issueIds: Object.freeze([issueA]),
+          status: "RETRY_WAIT" as const,
+          duplicateOfJobId: null,
+        }),
+        Object.freeze({
+          artifactHash: h("job-missing-canonical"),
+          jobId: h("missing-canonical-job"),
+          proposalId: p7,
+          issueIds: Object.freeze([issueA]),
+          status: "DUPLICATE_SCOPE" as const,
+          duplicateOfJobId: h("absent-job"),
+        }),
+      ]);
+    const projection = buildSearchOutcomeAttribution({
+      ...original,
+      searchLeases: [],
+      semanticReviews: [],
+      semanticReviewJobSource: {
+        basis: "DURABLE_STORE_RECORDS",
+        maximumJobCount: 7,
+        truncated: true,
+        jobs,
+      },
+    });
+
+    expect(projection).toMatchObject({
+      attributedProposalCount: 7,
+      stages: expect.arrayContaining([{ stage: "REVIEWED", count: 2 }]),
+      reviewOutcomes: {
+        sourceBasis: "DURABLE_STORE_RECORDS",
+        sourceJobCount: 7,
+        sourceMaximumJobCount: 7,
+        sourceTruncated: true,
+        passedCount: 2,
+        exhaustedCount: 1,
+        blockedEvidenceCount: 1,
+        researchOnlyCount: 1,
+        pendingCount: 1,
+        untrackedCount: 1,
+        duplicateScopeCount: 2,
+        reusedPassCount: 1,
+        detailedReportCount: 0,
+        detailedReportCoverageBps: 0,
+        outcomeCoverageBps: 8_571,
+      },
+      bottlenecks: expect.objectContaining({
+        pendingReviewCount: 1,
+        reviewFailedCount: 1,
+        reviewBlockedEvidenceCount: 1,
+        reviewResearchOnlyCount: 1,
+        reviewUntrackedCount: 1,
+      }),
+    });
+    expect(buildSearchOutcomeAttribution({
+      ...original,
+      searchLeases: [],
+      semanticReviews: [],
+      semanticReviewJobSource: {
+        basis: "DURABLE_STORE_RECORDS",
+        maximumJobCount: 7,
+        truncated: true,
+        jobs: Object.freeze([...jobs].reverse()),
+      },
+    })).toEqual(projection);
   });
 
   it("projects an empty, authority-locked funnel", () => {

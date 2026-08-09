@@ -654,6 +654,52 @@ describe("persistent semantic review scheduler", () => {
     })).not.toThrow();
   });
 
+  it("loads durable attribution beyond the bounded scheduler projection", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-review-attribution-"));
+    const path = join(directory, "control-plane.sqlite");
+    const items = Array.from({ length: 12 }, (_, index) => candidate(
+      proposal(`attribution-${index}`),
+      4,
+      [hashCanonical({ issue: `attribution-${index}` })],
+    ));
+    try {
+      const store = new SqliteOperationalStore(path);
+      const scheduler = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, { store }),
+        retentionLimit: 10,
+        store,
+      });
+      scheduler.reconcile(items, []);
+
+      expect(scheduler.projection().jobs).toHaveLength(10);
+      expect(scheduler.attributionSource(20)).toMatchObject({
+        basis: "DURABLE_STORE_RECORDS",
+        maximumJobCount: 20,
+        truncated: false,
+      });
+      expect(scheduler.attributionSource(20).jobs).toHaveLength(12);
+      expect(scheduler.attributionSource(11)).toMatchObject({
+        maximumJobCount: 11,
+        truncated: true,
+      });
+      expect(scheduler.attributionSource(11).jobs).toHaveLength(11);
+      store.close();
+
+      const memoryScheduler = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}),
+        retentionLimit: 10,
+      });
+      memoryScheduler.reconcile(items, []);
+      expect(memoryScheduler.attributionSource(20)).toMatchObject({
+        basis: "IN_MEMORY_RETAINED_WINDOW",
+        truncated: true,
+      });
+      expect(memoryScheduler.attributionSource(20).jobs).toHaveLength(10);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("recovers an expired SQLite lease and retains the result across restart", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-review-scheduler-"));
     const path = join(directory, "control-plane.sqlite");

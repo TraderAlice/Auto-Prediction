@@ -809,11 +809,12 @@ const EMPTY_SEARCH_QUOTE_ENRICHMENT: StudioProjection["ai"]["searchQuoteEnrichme
 };
 
 const EMPTY_SEARCH_OUTCOME_ATTRIBUTION: StudioProjection["ai"]["searchOutcomeAttribution"] = {
-  schemaVersion: "pmh.search-outcome-attribution.v3",
+  schemaVersion: "pmh.search-outcome-attribution.v4",
   attributionIdentity: `sha256:${"0".repeat(64)}`,
   sourceSetIdentity: `sha256:${"0".repeat(64)}`,
   sourceArtifactCount: 0,
   measurementBasis: "DISTINCT_FINDINGS_FROM_PASSED_ISSUE_LEASES",
+  reviewMeasurementBasis: "DURABLE_SCHEDULER_OUTCOME_WITH_RETAINED_REPORT_DETAIL",
   issueCount: 0,
   familyCount: 0,
   unclassifiedIssueCount: 0,
@@ -845,9 +846,29 @@ const EMPTY_SEARCH_OUTCOME_ATTRIBUTION: StudioProjection["ai"]["searchOutcomeAtt
     nonPositiveGrossHintCount: 0,
     unavailableOrUnsupportedCount: 0,
   },
+  reviewOutcomes: {
+    sourceBasis: "IN_MEMORY_RETAINED_WINDOW",
+    sourceJobCount: 0,
+    sourceMaximumJobCount: 0,
+    sourceTruncated: false,
+    passedCount: 0,
+    exhaustedCount: 0,
+    blockedEvidenceCount: 0,
+    researchOnlyCount: 0,
+    pendingCount: 0,
+    untrackedCount: 0,
+    duplicateScopeCount: 0,
+    reusedPassCount: 0,
+    detailedReportCount: 0,
+    detailedReportCoverageBps: null,
+    outcomeCoverageBps: null,
+  },
   bottlenecks: {
     pendingReviewCount: 0,
     reviewFailedCount: 0,
+    reviewBlockedEvidenceCount: 0,
+    reviewResearchOnlyCount: 0,
+    reviewUntrackedCount: 0,
     pendingOperatorDecisionCount: 0,
     materializationBlockedCount: 0,
     simulationBlockedCount: 0,
@@ -3588,12 +3609,19 @@ function MarketArchaeologistView() {
               ))}
             </div>
             <div className="search-outcome-bottlenecks">
-              <span><b>{outcomeAttribution.bottlenecks.pendingReviewCount}</b> pending review</span>
-              <span><b>{outcomeAttribution.bottlenecks.reviewFailedCount}</b> review failed</span>
+              <span><b>{formatRateBps(outcomeAttribution.reviewOutcomes.outcomeCoverageBps)}</b> review disposition coverage · {outcomeAttribution.reviewOutcomes.sourceJobCount} source jobs</span>
+              {outcomeAttribution.reviewOutcomes.sourceTruncated && <span className="is-warning"><b>partial</b> review history hit the {outcomeAttribution.reviewOutcomes.sourceMaximumJobCount} job attribution bound</span>}
+              <span><b>{outcomeAttribution.reviewOutcomes.passedCount}</b> review passed</span>
+              <span><b>{outcomeAttribution.reviewOutcomes.reusedPassCount}</b> pass reused</span>
+              <span><b>{outcomeAttribution.bottlenecks.pendingReviewCount}</b> actually pending</span>
+              <span><b>{outcomeAttribution.bottlenecks.reviewFailedCount}</b> exhausted</span>
+              <span><b>{outcomeAttribution.bottlenecks.reviewBlockedEvidenceCount}</b> evidence blocked</span>
+              <span><b>{outcomeAttribution.bottlenecks.reviewResearchOnlyCount}</b> research only</span>
+              {outcomeAttribution.bottlenecks.reviewUntrackedCount > 0 && <span className="is-warning"><b>{outcomeAttribution.bottlenecks.reviewUntrackedCount}</b> review outcome untracked</span>}
               <span><b>{outcomeAttribution.bottlenecks.pendingOperatorDecisionCount}</b> pending operator</span>
               <span><b>{outcomeAttribution.bottlenecks.materializationBlockedCount}</b> market evidence blocked</span>
               <span><b>{outcomeAttribution.bottlenecks.simulationBlockedCount}</b> simulation blocked</span>
-              <span><b>{outcomeAttribution.bottlenecks.missingEvidenceCount}</b> evidence gaps</span>
+              <span><b>{outcomeAttribution.bottlenecks.missingEvidenceCount}</b> evidence gaps in {outcomeAttribution.reviewOutcomes.detailedReportCount} retained reports · {formatRateBps(outcomeAttribution.reviewOutcomes.detailedReportCoverageBps)} detail coverage</span>
               <span><b>{outcomeAttribution.attributedFalsificationCount}</b> falsified leads retained</span>
               {outcomeAttribution.multiIssueProposalCount > 0 && <span><b>{outcomeAttribution.multiIssueProposalCount}</b> multi-issue proposals</span>}
               {outcomeAttribution.multiFamilyProposalCount > 0 && <span><b>{outcomeAttribution.multiFamilyProposalCount}</b> multi-family proposals</span>}
@@ -3610,7 +3638,7 @@ function MarketArchaeologistView() {
                     <div key={family.semanticFamily}>
                       <strong>{family.certifiedCount}/{family.proposalCount}</strong>
                       <span>
-                        {family.semanticFamily.replaceAll("_", " ")} · certified/proposed · {family.falsificationCount} falsified · {family.reviewedCount} reviewed · {provider?.providerRequestAttemptCount ?? 0} requests · {provider?.familyRetrievalLeaseCount ?? 0} trailheads / {provider?.familyRetrievalNeighborhoodCount ?? 0} neighborhoods / {provider?.familyRetrievalFallbackCount ?? 0} query fallbacks
+                        {family.semanticFamily.replaceAll("_", " ")} · certified/proposed · {family.falsificationCount} falsified · {family.reviewedCount} reviewed / {family.reviewExhaustedCount} exhausted / {family.reviewBlockedEvidenceCount} blocked / {family.reviewResearchOnlyCount} research · {provider?.providerRequestAttemptCount ?? 0} requests · {provider?.familyRetrievalLeaseCount ?? 0} trailheads / {provider?.familyRetrievalNeighborhoodCount ?? 0} neighborhoods / {provider?.familyRetrievalFallbackCount ?? 0} query fallbacks
                       </span>
                     </div>
                   );
@@ -3692,7 +3720,7 @@ function MarketArchaeologistView() {
                           {performance?.economicGatePositiveCount ?? 0}/{performance?.economicGateRequiredCount ?? 0} gross-positive · {performance?.piAvoidedCount ?? 0} pi saved
                         </span>
                       )}
-                      <span>{outcome?.reviewedCount ?? 0}/{outcome?.proposalCount ?? 0} reviewed · {outcome?.falsificationCount ?? 0} falsified · {outcome?.operatorAcceptedCount ?? 0} accepted · {outcome?.certifiedCount ?? 0} certified</span>
+                      <span>{outcome?.reviewedCount ?? 0}/{outcome?.proposalCount ?? 0} reviewed · {outcome?.reviewExhaustedCount ?? 0} exhausted · {outcome?.reviewBlockedEvidenceCount ?? 0} blocked · {outcome?.reviewResearchOnlyCount ?? 0} research · {outcome?.falsificationCount ?? 0} falsified · {outcome?.operatorAcceptedCount ?? 0} accepted · {outcome?.certifiedCount ?? 0} certified</span>
                       <span>{outcome?.positiveGrossHintCount ?? 0} positive · {outcome?.nonPositiveGrossHintCount ?? 0} non-positive · {outcome?.economicUnavailableCount ?? 0} unpriceable</span>
                     </div>
                     <div className="search-issue-actions">

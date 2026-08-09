@@ -23,6 +23,7 @@ import {
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 250;
+const DEFAULT_ATTRIBUTION_JOB_LIMIT = 10_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_REQUESTS_PER_TICK = 3;
 const DEFAULT_LEASE_TIMEOUT_MS = 150_000;
@@ -149,6 +150,14 @@ export type SemanticReviewSchedulerProjection = Readonly<{
     valueMovingActions: false;
     liveExecutionEnabled: false;
   }>;
+}>;
+
+export type SemanticReviewAttributionSource = Readonly<{
+  schemaVersion: "pmh.semantic-review-attribution-source.v1";
+  basis: "DURABLE_STORE_RECORDS" | "IN_MEMORY_RETAINED_WINDOW";
+  maximumJobCount: number;
+  truncated: boolean;
+  jobs: readonly SemanticReviewJobRecord[];
 }>;
 
 type SchedulerOptions = Readonly<{
@@ -351,6 +360,7 @@ export class SemanticReviewScheduler {
   readonly #leaseTimeoutMs: number;
   readonly #retryDelayMs: number;
   readonly #retentionLimit: number;
+  #inMemoryHistoryTruncated = false;
   public readonly tickIntervalMs: number | null;
 
   public constructor(options: SchedulerOptions) {
@@ -1012,7 +1022,10 @@ export class SemanticReviewScheduler {
       right.priority - left.priority || left.createdAt.localeCompare(right.createdAt) ||
       left.jobId.localeCompare(right.jobId)
     );
-    if (this.#jobs.length > this.#retentionLimit) this.#jobs.length = this.#retentionLimit;
+    if (this.#jobs.length > this.#retentionLimit) {
+      this.#jobs.length = this.#retentionLimit;
+      if (this.#store === undefined) this.#inMemoryHistoryTruncated = true;
+    }
     return stored;
   }
 
@@ -1125,6 +1138,33 @@ export class SemanticReviewScheduler {
         valueMovingActions: false as const,
         liveExecutionEnabled: false as const,
       }),
+    });
+  }
+
+  public attributionSource(
+    maximumJobCount = DEFAULT_ATTRIBUTION_JOB_LIMIT,
+  ): SemanticReviewAttributionSource {
+    if (
+      !Number.isSafeInteger(maximumJobCount) ||
+      maximumJobCount < 1 ||
+      maximumJobCount > 100_000
+    ) {
+      throw new Error("semantic review attribution job limit is invalid or unbounded");
+    }
+    const loaded = this.#store === undefined
+      ? [...this.#jobs]
+      : [...this.#store.loadSemanticReviewJobRecords(maximumJobCount + 1)];
+    const jobs = Object.freeze(loaded.slice(0, maximumJobCount).map(
+      assertSemanticReviewJobRecord,
+    ));
+    return Object.freeze({
+      schemaVersion: "pmh.semantic-review-attribution-source.v1",
+      basis: this.#store === undefined
+        ? "IN_MEMORY_RETAINED_WINDOW"
+        : "DURABLE_STORE_RECORDS",
+      maximumJobCount,
+      truncated: loaded.length > maximumJobCount || this.#inMemoryHistoryTruncated,
+      jobs,
     });
   }
 }

@@ -14,7 +14,9 @@ and resolved-outcome quality tracked in
 runtime model supply and operator switching tracked in
 [`plans/ai-provider-routing.md`](plans/ai-provider-routing.md), and negative
 discovery findings tracked in
-[`plans/discovery-falsification-effects.md`](plans/discovery-falsification-effects.md).
+[`plans/discovery-falsification-effects.md`](plans/discovery-falsification-effects.md),
+with durable issue-to-review yield tracked in
+[`plans/durable-search-yield-attribution.md`](plans/durable-search-yield-attribution.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -30,6 +32,21 @@ hard-arbitrage compiler.
   rerun the plan's qualification gates against the current worktree.
 
 ## Current checkpoint
+
+Live north-star measurement exposed two nested retention-window attribution
+bugs. The issue funnel originally forgot terminal reviews as they left the
+50-record detail window, and the scheduler's 250-job interactive projection was
+about to become a second cliff. Attribution now reads an independent, validated
+10,000-job window from SQLite and exposes source basis, bound, and truncation,
+while detailed evidence gaps remain explicitly windowed. Live qualification
+naturally crossed the old cliff: attribution read all 255 durable jobs while the
+scheduler UI stayed bounded to 250, exactly partitioning 144 effective PASS, 49
+exhausted, 16 evidence-blocked, 42 research-only, and 4 actually pending.
+Source and outcome coverage are complete, while the 16 retained detailed
+reports are correctly labelled as 11.11% detail coverage. Studio desktop/390 px inspection passes. A
+fresh Terra/high temporal-impossibility run took 38.4 seconds and retained one
+falsification with zero proposals, confirming that negative search yield enters
+the same durable measurement path without polluting the candidate pool.
 
 Live Luna/high use exposed a disposition error at the discovery boundary. A
 scout correctly disproved equivalence between two lexically similar contracts,

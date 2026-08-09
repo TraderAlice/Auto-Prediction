@@ -1473,15 +1473,16 @@ export class SemanticReviewDesk {
             report,
           });
         },
-        (error: unknown): SemanticReviewRecord =>
-          Object.freeze({
-            ...running,
-            status: "FAILED" as const,
-            completedAt: new Date().toISOString(),
-            diagnostic: compactDiagnostic(
-              error instanceof Error ? error.message : "semantic review failed",
-            ),
-          }),
+      )
+      .catch((error: unknown): SemanticReviewRecord =>
+        Object.freeze({
+          ...running,
+          status: "FAILED" as const,
+          completedAt: new Date().toISOString(),
+          diagnostic: compactDiagnostic(
+            error instanceof Error ? error.message : "semantic review failed",
+          ),
+        })
       )
       .then((record) => {
         let retained = record;

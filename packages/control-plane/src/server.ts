@@ -1348,6 +1348,7 @@ export function createControlPlane(options?: {
     evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
+    const semanticReviewAttributionSource = semanticReviewScheduler.attributionSource();
     const premiseAnalysisProjection = premiseAnalysisDesk.projection();
     const premiseAnalysisSchedulerProjection = premiseAnalysisScheduler.projection();
     const evidenceAcquisitionProjection = evidenceAcquisitionScheduler.projection();
@@ -1383,7 +1384,7 @@ export function createControlPlane(options?: {
     const searchOutcomeAttribution = buildSearchOutcomeAttribution({
       issues: searchIssueProjection.issues,
       searchLeases: searchLeaseProjection.records,
-      semanticReviewJobs: semanticReviewSchedulerProjection.jobs,
+      semanticReviewJobSource: semanticReviewAttributionSource,
       semanticReviews: semanticReviewProjection.records,
       lifecycle: lifecycleProjection,
       materializations: materializerProjection.records,
