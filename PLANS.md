@@ -677,7 +677,8 @@ history. Exact-current rebases bind a new evidence-capability scope only when
 contract semantics, locator inventory, or rule completeness changes; ordinary
 price and capture-time churn is ignored. With local anonymous acquisition and
 claim schedules enabled, the retained corpus captured eight official documents,
-rebound ten review jobs, and produced fifteen conservative document claims.
+rebound ten review jobs, and drained forty-one legacy-format interpretations as
+conservative `INCONCLUSIVE` claims with zero exhausted or retrying jobs.
 Live traffic also exposed and closed a nonterminal Agent-loop failure:
 late steps must submit or abstain, and exhausted inspected loops persist an
 explicit first-party `INCONCLUSIVE` effect instead of consuming every retry.
