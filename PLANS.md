@@ -3,6 +3,8 @@
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
 [`plans/probabilistic-semantic-arbitrage.md`](plans/probabilistic-semantic-arbitrage.md),
+with Studio product normalization tracked in
+[`plans/studio-product-normalization.md`](plans/studio-product-normalization.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -454,6 +456,19 @@ operator-owned issues. The retained P4 temporal issue is now linked to its P5
 successor. Studio visibly identifies eighteen windowed collections and the
 retired issue; default and 390 px QA have no horizontal overflow. Cursor-based
 history and invalidation-only/coalesced SSE remain the next scalability layer.
+
+Live operator inspection then rejected the Studio's qualification-console
+visual language as a product surface. The normalized shell now contains only
+working navigation, uses a page-aware header and ordinary sentence-case type,
+and reserves monospace for exact identities and values. Overview groups model
+selection, runtime health, corpus posture, and actions into one readable AI
+configuration surface; joined instrument panels, decorative glow, raw header
+hashes, non-functional “soon” destinations, and the full sidebar venue pulse
+were removed. The retained 799-listing projection passes desktop Overview and
+Market Archaeologist inspection plus a 390×844 mobile navigation check with no
+horizontal overflow or console errors. Workspace type checks, all ten Studio
+tests, and the production build pass; Agent authority and scheduling are
+unchanged.
 
 ## Deferred future campaigns
 

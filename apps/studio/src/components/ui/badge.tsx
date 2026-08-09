@@ -3,12 +3,12 @@ import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em]",
+  "inline-flex w-fit shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium",
   {
     variants: {
       variant: {
         verified:
-          "border-primary/25 bg-primary/8 text-primary shadow-[inset_0_0_12px_color-mix(in_oklab,var(--primary)_8%,transparent)]",
+          "border-primary/20 bg-primary/8 text-primary",
         shadow: "border-violet/25 bg-violet/8 text-violet",
         muted: "border-border bg-muted text-muted-foreground",
         warning: "border-warning/25 bg-warning/8 text-warning",

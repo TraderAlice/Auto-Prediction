@@ -5,7 +5,6 @@ import {
   Bell,
   BookOpenCheck,
   Boxes,
-  Braces,
   ChevronRight,
   CircleOff,
   Clock3,
@@ -1105,12 +1104,6 @@ const navigation = [
   { id: "evidence", label: "Evidence", icon: Fingerprint },
 ] as const;
 
-const supplementalNavigation = [
-  { label: "Claims", icon: Braces },
-  { label: "Capital", icon: Gauge },
-  { label: "Campaigns", icon: TestTubeDiagonal },
-] as const;
-
 function SignalMark() {
   return (
     <div className="signal-mark" aria-hidden="true">
@@ -1866,27 +1859,18 @@ async function requestCandidateWatchRefresh(): Promise<"READY" | "DEGRADED"> {
   return result.status;
 }
 
-function VenuePulse() {
+function SidebarStatus() {
   const studioProjection = useStudioProjection();
+  const observation = studioProjection.ai.catalogObservation;
   return (
-    <div className="venue-pulse">
-      <div className="pulse-heading">
-        <span>Adapter pulse</span>
-        <Badge variant="verified">
-          {studioProjection.venues.length} registered
-        </Badge>
-      </div>
-      <div className="pulse-list">
-        {studioProjection.venues.map((venue) => (
-          <div className="pulse-row" key={venue.id}>
-            <span
-              className="venue-dot"
-              style={{ backgroundColor: venue.color }}
-            />
-            <span>{venue.name}</span>
-            <span className="pulse-score">{venue.health}%</span>
-          </div>
-        ))}
+    <div className="sidebar-status">
+      <span className="sidebar-status-dot" />
+      <div>
+        <strong>System ready</strong>
+        <span>
+          {observation.healthySourceCount}/{observation.sourceCount} sources ·{" "}
+          {observation.listingCount} markets
+        </span>
       </div>
     </div>
   );
@@ -1915,7 +1899,7 @@ function Sidebar({
           <SignalMark />
           <div>
             <span>HARMONY</span>
-            <small>MARKET HARNESS</small>
+            <small>Prediction markets</small>
           </div>
           <Button
             className="mobile-close"
@@ -1929,8 +1913,8 @@ function Sidebar({
         </div>
 
         <nav aria-label="Primary navigation">
-          <span className="nav-label">Workspace</span>
-          {navigation.map((item) => {
+          <span className="nav-label">Research</span>
+          {navigation.slice(0, 5).map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -1947,22 +1931,28 @@ function Sidebar({
               </button>
             );
           })}
-
-          <span className="nav-label nav-label-spaced">Core</span>
-          {supplementalNavigation.map((item) => {
+          <span className="nav-label nav-label-spaced">Workspace</span>
+          {navigation.slice(5).map((item) => {
             const Icon = item.icon;
             return (
-              <button className="nav-item is-muted" key={item.label}>
+              <button
+                key={item.id}
+                className={cn("nav-item", view === item.id && "is-active")}
+                onClick={() => {
+                  onViewChange(item.id);
+                  onMobileClose();
+                }}
+              >
                 <Icon size={17} />
                 <span>{item.label}</span>
-                <span className="soon">soon</span>
+                {view === item.id && <span className="active-pip" />}
               </button>
             );
           })}
         </nav>
 
         <div className="sidebar-bottom">
-          <VenuePulse />
+          <SidebarStatus />
           <div className="authority-note">
             <CircleOff size={15} />
             <div>
@@ -1977,13 +1967,15 @@ function Sidebar({
 }
 
 function Topbar({
+  view,
   onMenu,
   onCommand,
 }: {
+  view: View;
   onMenu: () => void;
   onCommand: () => void;
 }) {
-  const studioProjection = useStudioProjection();
+  const currentLabel = navigation.find((item) => item.id === view)?.label ?? "Overview";
   return (
     <header className="topbar">
       <div className="topbar-title">
@@ -1997,8 +1989,8 @@ function Topbar({
           <Menu size={19} />
         </Button>
         <div>
-          <span className="eyebrow">Architecture qualification</span>
-          <strong>AI discovery desk</strong>
+          <span className="eyebrow">Harmony Studio</span>
+          <strong>{currentLabel}</strong>
         </div>
       </div>
       <div className="topbar-actions">
@@ -2014,20 +2006,9 @@ function Topbar({
           </kbd>
         </button>
         <Badge variant="shadow">
-          <Sparkles size={10} />
-          Shadow only
+          <CircleOff size={10} />
+          Research only
         </Badge>
-        {studioProjection.projectionWindow.mode === "LIVE_BOUNDED" && (
-          <Badge variant="muted">
-            {studioProjection.projectionWindow.collections.filter(
-              (item) => item.includedCount < item.totalCount,
-            ).length} windowed
-          </Badge>
-        )}
-        <span className="header-hash">
-          <GitBranch size={13} />
-          {studioProjection.identity.stateHash.slice(7, 14)}
-        </span>
       </div>
     </header>
   );
@@ -2223,8 +2204,6 @@ function Overview({
   onInspect: (opportunity: Opportunity) => void;
 }) {
   const studioProjection = useStudioProjection();
-  const catalogContext =
-    studioProjection.ai.catalogContext ?? EMPTY_CATALOG_CONTEXT;
   const catalogObservation = studioProjection.ai.catalogObservation;
   const [scoutStatus, setScoutStatus] = useState<
     "IDLE" | "RUNNING" | "PROPOSED" | "PARTIAL" | "FAILED"
@@ -2288,72 +2267,62 @@ function Overview({
         <div className="hero-copy">
           <Badge variant="verified">
             <Activity size={10} />
-            Evidence current
+            System online
           </Badge>
-          <h1>
-            Cross-venue truth,
-            <br />
-            <span>before execution.</span>
-          </h1>
+          <h1>Prediction-market research</h1>
           <p>
-            Let an agent search market meaning recursively, then normalize
-            contract semantics and prove the payoff floor—without granting a
-            browser or model the authority to trade.
+            Find related contracts across venues, challenge their semantic
+            relationship, and advance the few candidates supported by rules,
+            prices, and exact verification.
           </p>
         </div>
         <div className="hero-identity">
           <span className="identity-kicker">
             <Hexagon size={13} />
-            Projection identity
+            Current snapshot
           </span>
-          <code>{studioProjection.identity.stateHash}</code>
+          <code title={studioProjection.identity.stateHash}>
+            {studioProjection.identity.stateHash.slice(0, 22)}…
+          </code>
           <div>
-            <Badge variant="muted">{studioProjection.identity.mode}</Badge>
-            <span>{studioProjection.identity.schemaVersion} · {studioProjection.identity.view}</span>
+            <Badge variant="muted">Live data</Badge>
+            <span>{studioProjection.identity.mode} · {studioProjection.identity.view}</span>
           </div>
         </div>
       </section>
 
       <section className="metric-grid" aria-label="System metrics">
         <Metric
-          label="Venue families"
-          value={`${studioProjection.system.observedVenueFamilies}`}
-          detail="official-source census"
+          label="Live markets"
+          value={`${catalogObservation.listingCount}`}
+          detail="current anonymous catalog"
         />
         <Metric
-          label="Catalog adapters"
-          value={`${studioProjection.system.catalogAdapters}`}
-          detail={`${studioProjection.system.realtimeBookAdapters} books · ${studioProjection.system.inertOrderGateways} inert gates`}
+          label="Data sources"
+          value={`${catalogObservation.healthySourceCount}/${catalogObservation.sourceCount}`}
+          detail="healthy venue feeds"
         />
         <Metric
-          label="Proof tests"
-          value={`${studioProjection.system.proofTests}`}
-          detail="all passing"
+          label="Search workers"
+          value={`${studioProjection.ai.workers.filter((worker) => worker.status === "READY").length}/${studioProjection.ai.workers.length}`}
+          detail="ready for new work"
         />
-        <Metric label="Live execution" value="OFF" detail="hard policy" />
+        <Metric label="Order execution" value="Disabled" detail="research workspace" />
       </section>
 
       <section className="ai-rack" aria-label="AI discovery workers">
-        <div className="ai-rack-heading">
-          <div className="ai-rack-icon">
-            <Sparkles size={16} />
+        <div className="ai-rack-header">
+          <div className="ai-rack-heading">
+            <div className="ai-rack-icon">
+              <Sparkles size={17} />
+            </div>
+            <div>
+              <span className="eyebrow">Discovery runtime</span>
+              <strong>AI search configuration</strong>
+              <p>Choose the model used for new semantic-search work.</p>
+            </div>
           </div>
-          <div>
-            <span className="eyebrow">Agent search · exact verification</span>
-            <strong>AI-native discovery pool</strong>
-          </div>
-        </div>
-        <div className="worker-chips">
-          {studioProjection.ai.workers.map((worker) => (
-            <span key={worker.workerId}>
-              <i className={worker.status === "READY" ? "is-ready" : ""} />
-              {worker.workerId}
-              <small>{worker.status.replaceAll("_", " ")}</small>
-            </span>
-          ))}
           <Button
-            size="sm"
-            variant="outline"
             disabled={scoutStatus === "RUNNING"}
             onClick={() => void runScout()}
           >
@@ -2369,134 +2338,122 @@ function Overview({
                   : "Run scout"}
           </Button>
         </div>
-        <div className="ai-runtime-controls" aria-label="AI runtime configuration">
-          <div className="ai-provider-toggle" role="group" aria-label="Scout provider">
-            {runtimeConfiguration.availableProviders.map((provider) => (
-              <Button
-                key={provider}
-                size="sm"
-                variant={
-                  runtimeConfiguration.configuration.provider === provider
-                    ? "default"
-                    : "outline"
-                }
-                disabled={configurationStatus === "SAVING"}
-                onClick={() => void updateAiRuntimeConfiguration({ provider })}
-              >
-                {provider === "DEEPSEEK" ? "DeepSeek" : "Codex"}
-              </Button>
-            ))}
+
+        <div className="ai-runtime-panel">
+          <div className="ai-runtime-panel-heading">
+            <div>
+              <span>Scout provider</span>
+              <strong>{studioProjection.ai.modelProvider.model}</strong>
+            </div>
+            <span className={cn(
+              "ai-runtime-status",
+              configurationStatus === "FAILED" && "is-failed",
+            )}>
+              {configurationStatus === "SAVING"
+                ? "Saving…"
+                : configurationStatus === "SAVED"
+                  ? "Saved"
+                  : configurationStatus === "FAILED"
+                    ? configurationDiagnostic ?? "Update failed"
+                    : runtimeConfiguration.storage.durable
+                      ? `Saved · revision ${runtimeConfiguration.configuration.revision}`
+                      : `Session · revision ${runtimeConfiguration.configuration.revision}`}
+            </span>
           </div>
-          <label>
-            <span>Model</span>
-            <select
-              aria-label="Codex model"
-              value={runtimeConfiguration.configuration.codexModel}
-              disabled={configurationStatus === "SAVING"}
-              onChange={(event) => void updateAiRuntimeConfiguration({
-                codexModel: event.target.value as AiRuntimeConfiguration["codexModel"],
-              })}
-            >
-              {runtimeConfiguration.availableCodexModels.map((model) => (
-                <option key={model} value={model}>{model.replace("gpt-5.6-", "")}</option>
+          <div className="ai-runtime-controls" aria-label="AI runtime configuration">
+            <div className="ai-provider-toggle" role="group" aria-label="Scout provider">
+              {runtimeConfiguration.availableProviders.map((provider) => (
+                <Button
+                  key={provider}
+                  size="sm"
+                  variant={
+                    runtimeConfiguration.configuration.provider === provider
+                      ? "default"
+                      : "outline"
+                  }
+                  disabled={configurationStatus === "SAVING"}
+                  onClick={() => void updateAiRuntimeConfiguration({ provider })}
+                >
+                  {provider === "DEEPSEEK" ? "DeepSeek" : "Codex"}
+                </Button>
               ))}
-            </select>
-          </label>
-          <label>
-            <span>Effort</span>
-            <select
-              aria-label="Codex reasoning effort"
-              value={runtimeConfiguration.configuration.codexReasoningEffort}
-              disabled={configurationStatus === "SAVING"}
-              onChange={(event) => void updateAiRuntimeConfiguration({
-                codexReasoningEffort:
-                  event.target.value as AiRuntimeConfiguration["codexReasoningEffort"],
-              })}
-            >
-              {runtimeConfiguration.availableCodexReasoningEfforts.map((effort) => (
-                <option key={effort} value={effort}>{effort}</option>
-              ))}
-            </select>
-          </label>
-          <span className={cn(
-            "ai-runtime-status",
-            configurationStatus === "FAILED" && "is-failed",
-          )}>
-            {configurationStatus === "SAVING"
-              ? "switching…"
-              : configurationStatus === "SAVED"
-                ? "saved"
-                : configurationStatus === "FAILED"
-                  ? configurationDiagnostic ?? "failed"
-                  : runtimeConfiguration.storage.durable
-                    ? `saved · r${runtimeConfiguration.configuration.revision}`
-                    : `session · r${runtimeConfiguration.configuration.revision}`}
-          </span>
-        </div>
-        <div className="ai-boundary">
-          <Gauge size={14} />
-          <span>
-            {studioProjection.ai.modelProvider.model} · {studioProjection.ai.modelProvider.maxOutputTokensEnforced ? "max" : "target"}{" "}
-            {studioProjection.ai.modelProvider.maxOutputTokens} tokens/step ·{" "}
+            </div>
+            <label>
+              <span>Model</span>
+              <select
+                aria-label="Codex model"
+                value={runtimeConfiguration.configuration.codexModel}
+                disabled={configurationStatus === "SAVING"}
+                onChange={(event) => void updateAiRuntimeConfiguration({
+                  codexModel: event.target.value as AiRuntimeConfiguration["codexModel"],
+                })}
+              >
+                {runtimeConfiguration.availableCodexModels.map((model) => (
+                  <option key={model} value={model}>{model.replace("gpt-5.6-", "")}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Reasoning effort</span>
+              <select
+                aria-label="Codex reasoning effort"
+                value={runtimeConfiguration.configuration.codexReasoningEffort}
+                disabled={configurationStatus === "SAVING"}
+                onChange={(event) => void updateAiRuntimeConfiguration({
+                  codexReasoningEffort:
+                    event.target.value as AiRuntimeConfiguration["codexReasoningEffort"],
+                })}
+              >
+                {runtimeConfiguration.availableCodexReasoningEfforts.map((effort) => (
+                  <option key={effort} value={effort}>{effort}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="ai-runtime-description">
             {studioProjection.ai.modelProvider.maxSteps} steps ·{" "}
-            {studioProjection.ai.modelProvider.maxToolCalls} tools ·{" "}
-            {studioProjection.ai.modelProvider.timeoutMs / 1_000}s total · {" "}
-            {studioProjection.ai.modelProvider.fanout} agent scout
-            {studioProjection.ai.modelProvider.fanout === 1 ? "" : "s"} ·{" "}
-            {studioProjection.ai.modelProvider.transport.replaceAll("_", " ")}
-            {" · "}
-            {studioProjection.ai.modelProvider.responseStorage === false
-              ? "responses not stored"
-              : "provider retention policy"}
-          </span>
+            {studioProjection.ai.modelProvider.maxToolCalls} tool calls ·{" "}
+            {studioProjection.ai.modelProvider.timeoutMs / 1_000}s timeout ·{" "}
+            {studioProjection.ai.modelProvider.transport.replaceAll("_", " ").toLowerCase()}
+          </p>
         </div>
-        <div className="ai-boundary">
-          <SquareTerminal size={14} />
-          <span>
-            pi investigator · {studioProjection.ai.investigator.model} ·{" "}
-            {studioProjection.ai.investigator.mode.replaceAll("_", " ")} ·{" "}
-            {studioProjection.ai.investigator.tools.join("/")} only ·{" "}
-            {studioProjection.ai.investigator.configured
-              ? "READY"
-              : "NEEDS KEY"}
-          </span>
+
+        <div className="ai-status-grid">
+          <div className="ai-status-card">
+            <div><Gauge size={16} /><span>Fast search</span></div>
+            <strong>{studioProjection.ai.workers.every((worker) => worker.status === "READY") ? "Ready" : "Busy"}</strong>
+            <span>{studioProjection.ai.workers.map((worker) => worker.workerId).join(" · ")}</span>
+          </div>
+          <div className="ai-status-card">
+            <div><SquareTerminal size={16} /><span>Deep investigation</span></div>
+            <strong>{studioProjection.ai.investigator.configured ? "Ready" : "Needs setup"}</strong>
+            <span>Pi · {studioProjection.ai.investigator.model}</span>
+          </div>
+          <div className="ai-status-card">
+            <div><Radio size={16} /><span>Market corpus</span></div>
+            <strong>{catalogObservation.listingCount} listings</strong>
+            <span>{catalogObservation.healthySourceCount}/{catalogObservation.sourceCount} sources · {catalogObservation.status.toLowerCase()}</span>
+          </div>
         </div>
-        <div className="ai-boundary">
-          <Database size={14} />
-          <span>
-            {catalogContext.listingCount} listings · {catalogContext.venueCount}{" "}
-            venues · {catalogContext.sourceFixtureCount} verified fixtures ·
-            context {catalogContext.corpusIdentity.slice(7, 14)}
-          </span>
-        </div>
-        <div className="ai-boundary">
-          <Radio size={14} />
-          <span>
-            live catalog observation · {catalogObservation.listingCount} listings
-            · {catalogObservation.healthySourceCount}/{catalogObservation.sourceCount}{" "}
-            sources · {catalogObservation.status} · {catalogObservation.storage.mode}
-            {catalogObservation.storage.durable
-              ? ` v${catalogObservation.storage.schemaVersion}`
-              : ""}{" "}
-            · OBSERVE ONLY
-          </span>
+
+        <div className="ai-rack-footer">
+          <div>
+            <ShieldCheck size={16} />
+            <span>{studioProjection.ai.promotionBoundary}</span>
+          </div>
           <Button
             size="sm"
             variant="outline"
             disabled={refreshStatus === "RUNNING"}
             onClick={() => void refreshCatalog()}
           >
-            <RefreshCw size={11} />
+            <RefreshCw size={13} />
             {refreshStatus === "RUNNING"
               ? "Refreshing…"
               : refreshStatus === "FAILED"
                 ? "Retry refresh"
                 : "Refresh catalogs"}
           </Button>
-        </div>
-        <div className="ai-boundary">
-          <ShieldCheck size={14} />
-          <span>{studioProjection.ai.promotionBoundary}</span>
         </div>
       </section>
 
@@ -8051,6 +8008,7 @@ function StudioShell() {
       />
       <div className="workspace">
         <Topbar
+          view={view}
           onMenu={() => setMobileOpen(true)}
           onCommand={() => setCommandOpen(true)}
         />
@@ -8069,9 +8027,9 @@ function StudioShell() {
         <footer>
           <span>
             <Radar size={13} />
-            PRE-ALPHA · CONTROL PLANE
+            Pre-alpha research workspace
           </span>
-          <span>All displayed opportunities are non-executable evidence.</span>
+          <span>Displayed opportunities are research evidence, not orders.</span>
         </footer>
       </div>
       <CertificateDrawer
