@@ -54,6 +54,7 @@ import {
   resolveReviewIntake,
   useControlPlaneProjection,
   useStudioProjection,
+  type ProjectionSyncState,
   type StudioProjection,
 } from "@/data/studio-projection";
 import { cn } from "@/lib/utils";
@@ -2057,14 +2058,28 @@ function Sidebar({
 
 function Topbar({
   view,
+  projectionSync,
   onMenu,
   onCommand,
 }: {
   view: View;
+  projectionSync: ProjectionSyncState;
   onMenu: () => void;
   onCommand: () => void;
 }) {
   const currentLabel = navigation.find((item) => item.id === view)?.label ?? "Overview";
+  const syncLabel = projectionSync.status === "LIVE"
+    ? "Live data"
+    : projectionSync.status === "REFRESHING"
+      ? "Updating"
+      : projectionSync.status === "RECONNECTING"
+        ? "Reconnecting"
+        : "Connecting";
+  const SyncIcon = projectionSync.status === "REFRESHING"
+    ? RefreshCw
+    : projectionSync.status === "RECONNECTING"
+      ? Clock3
+      : Radio;
   return (
     <header className="topbar">
       <div className="topbar-title">
@@ -2083,6 +2098,18 @@ function Topbar({
         </div>
       </div>
       <div className="topbar-actions">
+        <Badge
+          variant={projectionSync.status === "RECONNECTING" ? "warning" : "muted"}
+          title={projectionSync.revision === null
+            ? syncLabel
+            : `${syncLabel} · projection revision ${projectionSync.revision}`}
+        >
+          <SyncIcon
+            size={10}
+            className={projectionSync.status === "REFRESHING" ? "is-spinning" : undefined}
+          />
+          {syncLabel}
+        </Badge>
         <button
           className="command-button"
           aria-label="Open command menu"
@@ -8718,7 +8745,7 @@ function CommandPalette({
   );
 }
 
-function StudioShell() {
+function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }) {
   const [view, setView] = useState<View>(() =>
     parseWorkspaceRoute(window.location.search).view
   );
@@ -8776,6 +8803,7 @@ function StudioShell() {
       <div className="workspace">
         <Topbar
           view={view}
+          projectionSync={projectionSync}
           onMenu={() => setMobileOpen(true)}
           onCommand={() => setCommandOpen(true)}
         />
@@ -8822,7 +8850,7 @@ function StudioShell() {
 }
 
 export default function App() {
-  const { projection, diagnostic } = useControlPlaneProjection();
+  const { projection, diagnostic, sync } = useControlPlaneProjection();
   if (projection === null) {
     return (
       <main className="control-plane-gate">
@@ -8841,7 +8869,7 @@ export default function App() {
   }
   return (
     <StudioProjectionProvider projection={projection}>
-      <StudioShell />
+      <StudioShell projectionSync={sync} />
     </StudioProjectionProvider>
   );
 }

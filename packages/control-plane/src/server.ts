@@ -44,6 +44,7 @@ import {
 } from "./opportunity-radar.js";
 import { buildStudioProjection } from "./projection.js";
 import { buildLiveStudioProjection } from "./studio-projection-window.js";
+import { buildStudioProjectionInvalidation } from "./studio-projection-stream.js";
 import {
   AiUsageLedger,
   type AiUsageEventStore,
@@ -239,13 +240,24 @@ function writeJson(
   response: ServerResponse,
   status: number,
   value: unknown,
+  headers: Readonly<Record<string, string>> = {},
 ): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     ...localStudioCorsHeaders(response.req),
+    ...headers,
   });
   response.end(`${JSON.stringify(value)}\n`);
+}
+
+function requestAcceptsEtag(request: IncomingMessage, etag: string): boolean {
+  const value = request.headers["if-none-match"];
+  if (value === undefined) return false;
+  const candidates = (Array.isArray(value) ? value.join(",") : value)
+    .split(",")
+    .map((item) => item.trim());
+  return candidates.includes("*") || candidates.includes(etag);
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
@@ -1498,6 +1510,14 @@ export function createControlPlane(options?: {
       return job.requirements.map((requirement) => Object.freeze({ requirement, capture }));
     }),
   );
+  const synchronizeLifecycleSources = (): void => {
+    opportunityLifecycleDesk.syncMarketArchaeologist(
+      marketArchaeologistDesk.projection(),
+    );
+    opportunityLifecycleDesk.syncRealCandidate(
+      realCandidatePreflightDesk.dispositionProjection(),
+    );
+  };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     const realCandidateReady = realCandidatePreflightDesk.load();
     await Promise.all([
@@ -1509,6 +1529,7 @@ export function createControlPlane(options?: {
         ? [catalogRefreshScheduler.runNow("STARTUP").promise]
         : []),
     ]);
+    synchronizeLifecycleSources();
   });
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
@@ -1524,8 +1545,6 @@ export function createControlPlane(options?: {
     const archaeologistProjection = marketArchaeologistDesk.projection();
     const realCandidateDisposition =
       realCandidatePreflightDesk.dispositionProjection();
-    opportunityLifecycleDesk.syncMarketArchaeologist(archaeologistProjection);
-    opportunityLifecycleDesk.syncRealCandidate(realCandidateDisposition);
     const semanticReviewProjection = semanticReviewDesk.projection();
     const baseReviewCandidates = baseSemanticReviewCandidates();
     const semanticReviewAdmission = buildSemanticReviewAdmissionProjection(
@@ -1635,6 +1654,39 @@ export function createControlPlane(options?: {
     });
   };
   const liveProjection = async () => buildLiveStudioProjection(await projection());
+  type LiveProjectionSnapshot = Readonly<{
+    revision: bigint;
+    projection: Awaited<ReturnType<typeof liveProjection>>;
+    etag: string;
+  }>;
+  let projectionRevision = 0n;
+  let liveProjectionCache: LiveProjectionSnapshot | null = null;
+  let liveProjectionBuild: Readonly<{
+    revision: bigint;
+    promise: Promise<LiveProjectionSnapshot>;
+  }> | null = null;
+  const liveProjectionSnapshot = (): Promise<LiveProjectionSnapshot> => {
+    const revision = projectionRevision;
+    if (
+      liveProjectionCache !== null &&
+      liveProjectionCache.revision === revision
+    ) return Promise.resolve(liveProjectionCache);
+    if (liveProjectionBuild?.revision === revision) return liveProjectionBuild.promise;
+    let pending: Promise<LiveProjectionSnapshot>;
+    pending = liveProjection().then((current) => {
+      const snapshot = Object.freeze({
+        revision,
+        projection: current,
+        etag: `"${current.identity.viewHash}"`,
+      });
+      if (projectionRevision === revision) liveProjectionCache = snapshot;
+      return snapshot;
+    }).finally(() => {
+      if (liveProjectionBuild?.promise === pending) liveProjectionBuild = null;
+    });
+    liveProjectionBuild = Object.freeze({ revision, promise: pending });
+    return pending;
+  };
   const proposalHandoff = async (proposalIds: readonly Hash[]) => {
     const full = await projection();
     const proposals = new Map(
@@ -1717,9 +1769,15 @@ export function createControlPlane(options?: {
     return Object.freeze({ ...body, contentHash: hashCanonical(body) });
   };
 
-  const broadcastProjection = async (): Promise<void> => {
-    const payload = `event: projection\ndata: ${JSON.stringify(
-      await liveProjection(),
+  let invalidationFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  const flushProjectionInvalidation = (): void => {
+    invalidationFlushTimer = null;
+    const payload = `event: projection-invalidated\ndata: ${JSON.stringify(
+      buildStudioProjectionInvalidation({
+        revision: projectionRevision,
+        emittedAt: new Date().toISOString(),
+        reason: "STATE_CHANGED",
+      }),
     )}\n\n`;
     for (const subscriber of subscribers) {
       if (subscriber.destroyed) {
@@ -1728,6 +1786,14 @@ export function createControlPlane(options?: {
         subscriber.write(payload);
       }
     }
+  };
+  const broadcastProjection = async (): Promise<void> => {
+    await ready;
+    synchronizeLifecycleSources();
+    projectionRevision += 1n;
+    if (subscribers.size === 0 || invalidationFlushTimer !== null) return;
+    invalidationFlushTimer = setTimeout(flushProjectionInvalidation, 25);
+    invalidationFlushTimer.unref();
   };
   publishSearchLeaseChange = () => {
     void broadcastProjection();
@@ -1870,7 +1936,22 @@ export function createControlPlane(options?: {
     if (request.method === "GET" && url.pathname === "/api/v1/projection") {
       const view = url.searchParams.get("view") ?? "live";
       if (view === "live") {
-        writeJson(response, 200, await liveProjection());
+        const snapshot = await liveProjectionSnapshot();
+        const headers = Object.freeze({
+          "access-control-expose-headers": "etag, x-pmh-projection-revision",
+          "cache-control": "no-cache, private",
+          etag: snapshot.etag,
+          "x-pmh-projection-revision": snapshot.revision.toString(),
+        });
+        if (requestAcceptsEtag(request, snapshot.etag)) {
+          response.writeHead(304, {
+            ...localStudioCorsHeaders(request),
+            ...headers,
+          });
+          response.end();
+        } else {
+          writeJson(response, 200, snapshot.projection, headers);
+        }
       } else if (view === "full") {
         writeJson(response, 200, await projection());
       } else {
@@ -2627,7 +2708,13 @@ export function createControlPlane(options?: {
         ...localStudioCorsHeaders(request),
       });
       response.write(
-        `event: projection\ndata: ${JSON.stringify(await liveProjection())}\n\n`,
+        `event: projection-invalidated\ndata: ${JSON.stringify(
+          buildStudioProjectionInvalidation({
+            revision: projectionRevision,
+            emittedAt: new Date().toISOString(),
+            reason: "SUBSCRIBER_CONNECTED",
+          }),
+        )}\n\n`,
       );
       subscribers.add(response);
       const heartbeat = setInterval(() => {
@@ -3561,6 +3648,7 @@ export function createControlPlane(options?: {
     });
   }
   server.once("close", () => {
+    if (invalidationFlushTimer !== null) clearTimeout(invalidationFlushTimer);
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
     if (searchIssueTimer !== null) clearInterval(searchIssueTimer);
     if (searchAttentionTimer !== null) clearInterval(searchAttentionTimer);

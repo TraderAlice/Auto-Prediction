@@ -39,8 +39,9 @@ cursor-based collection resources.
 - Graph listing nodes are omitted from the live body because Studio currently
   consumes only exact graph counts and identities. Relation/feedback windows
   remain bounded search memory, not semantic authority.
-- SSE broadcasts the bounded live view. Full history is never pushed merely
-  because one counter changed.
+- SSE publishes a small presentation-only invalidation. The bounded live view
+  is constructed on demand and retained per process revision; full history is
+  never pushed merely because one counter changed.
 - Full reads and future page reads are anonymous/read-only and grant no model,
   semantic, certificate, or execution authority.
 
@@ -74,9 +75,9 @@ These are transport limits, not storage retention limits.
 ## Follow-on
 
 Add cursor-based resources for individual collections before any live window is
-expected to support interactive history exploration. Then make SSE an identity
-invalidation stream with client-side coalescing so bursts do not rebuild even a
-bounded projection once per tool effect.
+expected to support interactive history exploration. Invalidation-only SSE,
+client-side coalescing, conditional reads, and a per-revision projection cache
+are now implemented under `plans/studio-invalidation-stream.md`.
 
 ## 2026-08-02 checkpoint
 
@@ -99,6 +100,7 @@ bounded projection once per tool effect.
   390 px visual QA showed the window badge and retired issue state without
   horizontal overflow.
 
-Cursor resources and invalidation-only/coalesced SSE remain deliberately open;
-the current checkpoint removes full-history fanout but does not claim constant
-cost as retained summaries and cross-linked active work grow.
+Cursor resources remain deliberately open. The 2026-08-10 invalidation-stream
+checkpoint removed live-view construction from mutation fanout and made
+unchanged reads constant-cost; proposal-local and collection-local reads are
+the next places to remove full-projection construction.

@@ -617,6 +617,15 @@ describe("control-plane HTTP surface", () => {
       };
     };
     expect(response.status).toBe(200);
+    const liveEtag = response.headers.get("etag");
+    expect(liveEtag).toBe(`"${projection.identity.viewHash}"`);
+    expect(response.headers.get("x-pmh-projection-revision")).toBe("0");
+    const unchanged = await fetch(`${baseUrl}/api/v1/projection`, {
+      headers: { "if-none-match": liveEtag! },
+    });
+    expect(unchanged.status).toBe(304);
+    expect(unchanged.headers.get("etag")).toBe(liveEtag);
+    expect(await unchanged.text()).toBe("");
     expect(projection.identity.mode).toBe("CONTROL_PLANE");
     expect(projection.identity.view).toBe("LIVE_BOUNDED");
     expect(projection.identity.stateHash).toMatch(/^sha256:/);
@@ -1364,8 +1373,9 @@ describe("control-plane HTTP surface", () => {
         }),
       },
     );
-    expect(decisionResponse.status).toBe(200);
-    expect(await decisionResponse.json()).toMatchObject({
+    const decisionResult = await decisionResponse.json();
+    expect(decisionResponse.status, JSON.stringify(decisionResult)).toBe(200);
+    expect(decisionResult).toMatchObject({
       decision: {
         authority: "LOCAL_OPERATOR_RESEARCH_ONLY",
         productionPromotionEligible: false,
@@ -2727,7 +2737,7 @@ describe("control-plane HTTP surface", () => {
     );
   });
 
-  it("broadcasts the replayed projection to connected SSE clients", async () => {
+  it("publishes small invalidations and rebuilds a projection only on demand", async () => {
     const baseUrl = await listen();
     const abort = new AbortController();
     const eventResponse = await fetch(`${baseUrl}/api/v1/events`, {
@@ -2749,18 +2759,35 @@ describe("control-plane HTTP surface", () => {
       return event;
     };
     const initialEvent = await readEvent();
-    expect(initialEvent).toContain("event: projection");
-    expect(initialEvent).toContain('"view":"LIVE_BOUNDED"');
+    expect(initialEvent).toContain("event: projection-invalidated");
+    expect(initialEvent).toContain('"schemaVersion":"pmh.studio-projection-invalidation.v1"');
+    expect(initialEvent).toContain('"reason":"SUBSCRIBER_CONNECTED"');
+    expect(initialEvent).not.toContain("projectionWindow");
+    expect(initialEvent.length).toBeLessThan(1_000);
+    const beforeReplay = await fetch(`${baseUrl}/api/v1/projection`);
+    const beforeReplayEtag = beforeReplay.headers.get("etag");
+    await beforeReplay.body?.cancel();
 
     await fetch(`${baseUrl}/api/v1/books/replay`, { method: "POST" });
     const event = await readEvent();
-    expect(event).toContain("event: projection");
-    expect(event).toContain('"replayCount":2');
+    expect(event).toContain("event: projection-invalidated");
+    expect(event).toContain('"reason":"STATE_CHANGED"');
+    expect(event).not.toContain('"replayCount"');
+    expect(event.length).toBeLessThan(1_000);
+    const refreshed = await fetch(`${baseUrl}/api/v1/projection`, {
+      headers: { "if-none-match": beforeReplayEtag! },
+    });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.headers.get("etag")).not.toBe(beforeReplayEtag);
+    expect(await refreshed.json()).toMatchObject({
+      bookDesk: { replayCount: 2 },
+    });
+    expect(Number(refreshed.headers.get("x-pmh-projection-revision"))).toBeGreaterThan(0);
     await reader.cancel();
     abort.abort();
   });
 
-  it("broadcasts active and completed discovery ledger state", async () => {
+  it("coalesces discovery effects behind durable projection invalidations", async () => {
     const baseUrl = await listen();
     const abort = new AbortController();
     const eventResponse = await fetch(`${baseUrl}/api/v1/events`, {
@@ -2791,13 +2818,22 @@ describe("control-plane HTTP surface", () => {
         venueIds: ["kalshi", "polymarket-global"],
       }),
     });
-    let events = "";
-    for (let index = 0; index < 4 && !events.includes('"runCount":1'); index += 1) {
-      events += await readEvent();
+    let durableState: {
+      activeRuns: number;
+      discoveryDesk: { runCount: number };
+      system: { liveExecutionEnabled: boolean };
+    } | null = null;
+    for (let index = 0; index < 4 && durableState?.discoveryDesk.runCount !== 1; index += 1) {
+      const invalidation = await readEvent();
+      expect(invalidation).toContain("event: projection-invalidated");
+      expect(invalidation).not.toContain('"runCount"');
+      durableState = await (await fetch(`${baseUrl}/api/v1/projection`)).json() as
+        typeof durableState;
     }
-    expect(events).toContain('"activeRuns":1');
-    expect(events).toContain('"runCount":1');
-    expect(events).toContain('"executionAuthority":false');
+    expect(durableState).toMatchObject({
+      discoveryDesk: { runCount: 1 },
+      system: { liveExecutionEnabled: false },
+    });
     await reader.cancel();
     abort.abort();
   });

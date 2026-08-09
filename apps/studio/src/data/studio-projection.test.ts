@@ -5,7 +5,10 @@ import {
   RealCandidatePreflightDesk,
   ReplayBookDesk,
 } from "@pmh/control-plane";
-import { resolveReviewIntake } from "./studio-projection.js";
+import {
+  parseProjectionInvalidation,
+  resolveReviewIntake,
+} from "./studio-projection.js";
 
 describe("Studio projection safety", () => {
   const studioProjection = buildStudioProjection({
@@ -23,6 +26,25 @@ describe("Studio projection safety", () => {
       caseId: "research-case:legacy-before-review-intake",
     } as (typeof studioProjection.ai.researchDesk.cases)[number];
     expect(resolveReviewIntake(legacyCase)).toBeNull();
+  });
+
+  it("accepts only bounded presentation invalidations", () => {
+    expect(parseProjectionInvalidation({
+      schemaVersion: "pmh.studio-projection-invalidation.v1",
+      revision: "42",
+      projectionResource: "/api/v1/projection",
+      projectionView: "LIVE_BOUNDED",
+      refreshRequired: true,
+      authority: "PRESENTATION_INVALIDATION_ONLY",
+    })).toMatchObject({ revision: "42" });
+    expect(() => parseProjectionInvalidation({
+      schemaVersion: "pmh.studio-projection-invalidation.v1",
+      revision: "042",
+      projectionResource: "/api/v1/projection",
+      projectionView: "LIVE_BOUNDED",
+      refreshRequired: true,
+      authority: "PRESENTATION_INVALIDATION_ONLY",
+    })).toThrow(/refresh contract/u);
   });
 
   it("shows the fail-closed model budget without exposing credentials", () => {

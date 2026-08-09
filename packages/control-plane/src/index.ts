@@ -32,6 +32,7 @@ export * from "./pi-investigator.js";
 export * from "./pi-investigator-smoke.js";
 export * from "./projection.js";
 export * from "./studio-projection-window.js";
+export * from "./studio-projection-stream.js";
 export * from "./proposal-economic-triage.js";
 export * from "./provider-smoke.js";
 export * from "./qualification.js";

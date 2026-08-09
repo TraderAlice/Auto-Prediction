@@ -16,6 +16,8 @@ with its URL-stable review transition tracked in
 [`plans/finding-review-handoff.md`](plans/finding-review-handoff.md),
 and search-origin probability calibration tracked in
 [`plans/search-origin-probability-calibration.md`](plans/search-origin-probability-calibration.md),
+with Studio invalidation transport tracked in
+[`plans/studio-invalidation-stream.md`](plans/studio-invalidation-stream.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -81,6 +83,15 @@ observations explicit as `UNATTRIBUTED`. Historical v1 jobs, bounds,
 observations, and calibration snapshots retain their original identities and
 replay unchanged; a dedicated reconcile test prevents later origin evidence
 from rewriting retained v1 jobs.
+
+Operator presentation no longer runs inside every Agent effect. Scheduler and
+tool mutations now emit a roughly 0.5 KB, coalesced, content-addressed
+invalidation; the 2.27 MB bounded view is built on demand, shared per revision,
+and served with an exact ETag. On retained local state, a matching conditional
+read returned 304 with zero bytes in 0.000789 seconds, and the observed idle
+control-plane sample fell from the old 52–55% projection-fanout workload to
+0.2%. Studio retains its last good view and reports Live data, Updating, or
+Reconnecting instead of silently replacing megabytes of state.
 
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls
