@@ -35,6 +35,17 @@ const SEARCH_STOPWORDS = new Set([
   "with",
 ]);
 
+const DISCOVERY_RELATION_KINDS = new Set([
+  "EQUIVALENT",
+  "IMPLIES",
+  "SUBSET",
+  "MUTUALLY_EXCLUSIVE",
+  "EXHAUSTIVE",
+  "CONDITIONAL",
+  "RELATED",
+  "CONFLICTING",
+]);
+
 function compactWorkerDiagnostic(error: unknown): string {
   const value =
     error instanceof Error ? error.message : "discovery worker failed";
@@ -180,6 +191,8 @@ function assertHypothesis(
     hypothesis.reviewStatus !== "UNREVIEWED" ||
     hypothesis.thesis.trim() === "" ||
     hypothesis.thesis.length > 500 ||
+    (hypothesis.relationKind !== undefined &&
+      !DISCOVERY_RELATION_KINDS.has(hypothesis.relationKind)) ||
     hypothesis.venueIds.length === 0 ||
     hypothesisVenueIds.size !== hypothesis.venueIds.length ||
     hypothesis.venueIds.some(
@@ -386,6 +399,7 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
       venueIds,
       listingRefs,
       strategyKind,
+      relationKind: "RELATED",
     });
     return [
       Object.freeze({
@@ -393,6 +407,7 @@ export class HeuristicDiscoveryWorker implements DiscoveryWorker {
         workerId: this.workerId,
         thesis,
         strategyKind,
+        relationKind: "RELATED" as const,
         venueIds: Object.freeze(venueIds),
         claimSearchTerms: Object.freeze(claimSearchTerms),
         listingRefs: Object.freeze(listingRefs),
@@ -564,6 +579,7 @@ export class DiscoveryPool {
         const identity = hashCanonical({
           thesis: hypothesis.thesis.trim().toLowerCase(),
           strategyKind: hypothesis.strategyKind,
+          relationKind: hypothesis.relationKind ?? null,
           venueIds: [...hypothesis.venueIds].sort(),
           listingRefs: [...(hypothesis.listingRefs ?? [])].sort(),
         });

@@ -76,6 +76,16 @@ export type DiscoveryTask = Readonly<{
   }>;
 }>;
 
+export type DiscoveryRelationKind =
+  | "EQUIVALENT"
+  | "IMPLIES"
+  | "SUBSET"
+  | "MUTUALLY_EXCLUSIVE"
+  | "EXHAUSTIVE"
+  | "CONDITIONAL"
+  | "RELATED"
+  | "CONFLICTING";
+
 export type OpportunityHypothesis = Readonly<{
   hypothesisId: string;
   workerId: string;
@@ -84,6 +94,7 @@ export type OpportunityHypothesis = Readonly<{
     | "COMPLETE_SET"
     | "EXHAUSTIVE_RANGE"
     | "SAME_CLAIM_CROSS_VENUE";
+  relationKind?: DiscoveryRelationKind;
   venueIds: readonly string[];
   claimSearchTerms: readonly string[];
   listingRefs?: readonly string[];

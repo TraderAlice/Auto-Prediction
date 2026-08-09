@@ -5,6 +5,7 @@ import {
   buildMarketCorpusSnapshot,
   CatalogContextCoverageError,
   SearchLeaseScheduler,
+  searchLeaseFindingSummary,
   parseSearchLeaseStageBudget,
   SqliteOperationalStore,
   type DiscoveryCatalogContext,
@@ -103,6 +104,7 @@ function hypothesis(task: DiscoveryTask): OpportunityHypothesis {
     workerId: "model:fast",
     thesis: "The two listings may resolve to the same claim.",
     strategyKind: "SAME_CLAIM_CROSS_VENUE" as const,
+    relationKind: "EQUIVALENT" as const,
     venueIds: Object.freeze(["venue-a", "venue-b"]),
     claimSearchTerms: Object.freeze(["Trump", "pizza", "August"]),
     listingRefs: Object.freeze(["venue-a:pizza-a", "venue-b:pizza-b"]),
@@ -897,6 +899,7 @@ describe("AI-native search lease scheduler", () => {
 
     expect(record.fastLane).toMatchObject({
       candidateListingRefs: selectedRefs,
+      candidateRelationKind: "EQUIVALENT",
       semanticScope: { kind: "BOUNDED_CONTEXT" },
       economicGate: {
         status: "POSITIVE_GROSS_HINT",
@@ -912,6 +915,15 @@ describe("AI-native search lease scheduler", () => {
     expect(record.outcome.novelCandidate).toBe(true);
     expect(runDeep).toHaveBeenCalledTimes(1);
     expect(runDeep.mock.calls[0]?.[1]).toContain(selectedRefs.join(", "));
+    expect(runDeep.mock.calls[0]?.[1]).toContain("Fast-lane asserted relation: EQUIVALENT");
+    expect(searchLeaseFindingSummary(record)).toMatchObject({
+      state: "COMPLETE",
+      kinds: ["LEAD"],
+      leadCount: 2,
+      authority: "SEARCH_RESULT_SUMMARY_ONLY",
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
   });
 
   it("does not let heuristics or invalid model scope satisfy model selection", async () => {
@@ -969,11 +981,17 @@ describe("AI-native search lease scheduler", () => {
                 "venue-z:not-in-context",
               ]),
             }),
+            Object.freeze({
+              ...hypothesis(task),
+              hypothesisId: "hypothesis:model-wrong-relation",
+              workerId: "model:fast",
+              relationKind: "CONFLICTING" as const,
+            }),
           ]),
           workerReports: Object.freeze(base.workerReports!.map((report) =>
             Object.freeze({
               ...report,
-              hypothesisCount: report.kind === "MODEL" ? 2 : 1,
+              hypothesisCount: report.kind === "MODEL" ? 3 : 1,
             })
           )),
         });
@@ -1904,13 +1922,13 @@ describe("AI-native search lease scheduler", () => {
       "SCHEDULE",
     ).promise;
     expect(currentRecord.lease).toMatchObject({
-      algorithmVersion: "pmh.ai-search-leases.v9",
+      algorithmVersion: "pmh.ai-search-leases.v10",
       lens: "EQUIVALENCE",
     });
     expect(scheduler.projection().records.map(
       (record) => record.lease.algorithmVersion,
     )).toEqual([
-      "pmh.ai-search-leases.v9",
+      "pmh.ai-search-leases.v10",
       "pmh.ai-search-leases.v2",
       "pmh.ai-search-leases.v1",
     ]);

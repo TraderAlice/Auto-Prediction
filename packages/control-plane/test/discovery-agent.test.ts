@@ -72,6 +72,24 @@ const task: DiscoveryTask = {
 };
 
 describe("bounded discovery agent session", () => {
+  it("requires an explicit semantic relation for every new hypothesis", () => {
+    const session = new DiscoveryAgentSession("model-agent", task, 12);
+    session.inspectListings({
+      listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
+    });
+    expect(session.recordHypothesis({
+      thesis: "These contracts may use the same gauge and threshold.",
+      strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
+      claimSearchTerms: ["rainfall"],
+      confidenceBps: 6_000,
+    })).toMatchObject({
+      status: "REJECTED",
+      reason: "INVALID_INPUT",
+      guidance: expect.stringContaining("relationKind"),
+    });
+  });
+
   it("rejects premature completion and proposals until the required reads occur", () => {
     const session = new DiscoveryAgentSession("model-agent", task, 12);
     expect(session.completeSearch({ reason: "Skip the catalog." })).toMatchObject({
@@ -81,6 +99,7 @@ describe("bounded discovery agent session", () => {
     expect(session.recordHypothesis({
       thesis: "These contracts might match.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      relationKind: "EQUIVALENT",
       listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
       claimSearchTerms: ["rainfall"],
       confidenceBps: 5_000,
@@ -116,6 +135,7 @@ describe("bounded discovery agent session", () => {
     expect(session.recordHypothesis({
       thesis: "An ungrounded guess.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      relationKind: "EQUIVALENT",
       listingRefs: ["venue-a:rain-yes", "venue-c:invented"],
       claimSearchTerms: ["rain"],
       confidenceBps: 5_000,
@@ -126,6 +146,7 @@ describe("bounded discovery agent session", () => {
     const accepted = session.recordHypothesis({
       thesis: "These contracts may use the same gauge and threshold.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      relationKind: "EQUIVALENT",
       listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
       claimSearchTerms: ["rainfall", "central park"],
       confidenceBps: 7_000,
@@ -166,6 +187,7 @@ describe("bounded discovery agent session", () => {
     expect(session.recordHypothesis({
       thesis: "No grounded relation was found, but retain this contract.",
       strategyKind: "COMPLETE_SET",
+      relationKind: "RELATED",
       listingRefs: ["venue-a:rain-yes"],
       claimSearchTerms: ["rainfall"],
       confidenceBps: 9_000,
@@ -192,6 +214,7 @@ describe("bounded discovery agent session", () => {
     const input = {
       thesis: "These contracts may use the same gauge and threshold.",
       strategyKind: "SAME_CLAIM_CROSS_VENUE",
+      relationKind: "EQUIVALENT",
       listingRefs: ["venue-a:rain-yes", "venue-b:nyc-rain"],
       claimSearchTerms: ["rainfall"],
       confidenceBps: 6_000,

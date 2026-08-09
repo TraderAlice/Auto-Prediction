@@ -319,7 +319,7 @@ export function buildStudioProjection(input: {
   };
   const searchLeaseScheduler = input.searchLeaseScheduler ?? {
     schemaVersion: "pmh.search-lease-scheduler.v1" as const,
-    algorithmVersion: "pmh.ai-search-leases.v9" as const,
+    algorithmVersion: "pmh.ai-search-leases.v10" as const,
     enabled: false,
     configured: { fastLane: true, deepLane: false },
     status: "IDLE" as const,
@@ -370,6 +370,7 @@ export function buildStudioProjection(input: {
       idempotencyKey: "snapshotIdentity" as const,
     },
     records: [],
+    findingSummaries: [],
     authority: "PROPOSE_ONLY" as const,
     semanticDecisionAuthority: false as const,
     certificateAuthority: false as const,

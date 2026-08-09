@@ -131,3 +131,16 @@ workspace tests pass, as do the Studio production build and its ten focused
 tests. In-app browser inspection at desktop and 390 px shows the two lanes and
 the stable latest-trailhead card with no horizontal overflow, no console errors,
 and visible text of at least 12 px.
+
+## 2026-08-09 product-entry correction
+
+The Studio itself still contradicted the architecture: it opened on a system
+overview whose primary scout action submitted a hard-coded Boston temperature
+question. That made a legacy claim-shaped demo the default product behavior
+even though scheduled discovery was already heuristic-first.
+
+Studio now opens on Discover. Its primary action issues the next bounded search
+lease, allowing the scheduler to choose a fresh corpus trailhead before the
+Agent forms a claim. Operator-authored questions remain available as explicit
+claim monitors and ad-hoc investigations, but neither is presented as the
+default way to find an opportunity.

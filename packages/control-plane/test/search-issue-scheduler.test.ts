@@ -107,6 +107,9 @@ function runRecord(task: DiscoveryTask): DiscoveryRunRecord {
     workerId: "model:fast",
     thesis: "The two listings may resolve to the same claim.",
     strategyKind: "SAME_CLAIM_CROSS_VENUE",
+    relationKind: task.question.includes("TEMPORAL_IMPOSSIBILITY")
+      ? "CONDITIONAL"
+      : "EQUIVALENT",
     venueIds: Object.freeze(["venue-a", "venue-b"]),
     claimSearchTerms: Object.freeze(["Trump", "pizza", "August"]),
     listingRefs: Object.freeze(["venue-a:pizza", "venue-b:pizza"]),
@@ -267,7 +270,7 @@ describe("issue-driven concurrent search scheduler", () => {
       lease: {
         semanticFamily: "TEMPORAL_IMPOSSIBILITY",
         discoveryMode: "HEURISTIC_EXPLORATION",
-        algorithmVersion: "pmh.ai-search-leases.v9",
+        algorithmVersion: "pmh.ai-search-leases.v10",
       },
       fastLane: { candidateListingRefs: selectedRefs },
       deepLane: { status: "PASS", proposalIds: [hashCanonical({ proposal: "family" })] },
@@ -416,7 +419,7 @@ describe("issue-driven concurrent search scheduler", () => {
       });
       expect(secondLeases.projection().records[0]?.lease).toMatchObject({
         issueId: issue.issueId,
-        algorithmVersion: "pmh.ai-search-leases.v9",
+        algorithmVersion: "pmh.ai-search-leases.v10",
         discoveryMode: "HEURISTIC_EXPLORATION",
       });
       secondStore.close();

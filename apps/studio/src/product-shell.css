@@ -1,0 +1,585 @@
+/*
+ * Product shell overrides.
+ *
+ * The original Studio stylesheet grew alongside protocol surfaces and still
+ * carries many local console-era decisions. This layer deliberately owns the
+ * human-facing hierarchy: one body face, one compact type scale, restrained
+ * surfaces, and task-oriented navigation. Machine identities remain mono.
+ */
+
+:root {
+  --background: #0d0f12;
+  --foreground: #f5f7f6;
+  --card: #15181c;
+  --card-foreground: #f5f7f6;
+  --popover: #191d22;
+  --popover-foreground: #f5f7f6;
+  --primary: #82e6bd;
+  --primary-foreground: #08261c;
+  --secondary: #20242a;
+  --secondary-foreground: #e7eae8;
+  --muted: #1c2025;
+  --muted-foreground: #9aa3a0;
+  --accent: #242930;
+  --accent-foreground: #ffffff;
+  --border: #282d33;
+  --input: #343a42;
+  --ring: #82e6bd;
+  --sidebar: #111317;
+  --radius: 0.75rem;
+}
+
+html,
+body {
+  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  font-size: 16px;
+  font-variation-settings: "opsz" 18;
+  letter-spacing: -0.008em;
+}
+
+body {
+  color: var(--foreground);
+  line-height: 1.5;
+}
+
+p,
+button,
+input,
+textarea,
+[data-slot="select-trigger"],
+[data-slot="select-content"] {
+  font-family: inherit;
+}
+
+code,
+kbd,
+pre,
+.mono {
+  font-family: "JetBrains Mono Variable", ui-monospace, monospace;
+  font-variation-settings: normal;
+  letter-spacing: -0.02em;
+}
+
+.sidebar {
+  width: 224px;
+  border-color: #24282e;
+  background: var(--sidebar);
+  padding: 0 12px 14px;
+}
+
+.workspace {
+  margin-left: 224px;
+}
+
+.brand {
+  height: 68px;
+  gap: 11px;
+  border-bottom: 1px solid #22262b;
+  padding: 0 8px;
+}
+
+.brand span {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.brand small {
+  margin-top: 3px;
+  color: #7f8885;
+  font-size: 12px;
+}
+
+.signal-mark {
+  width: 30px;
+  height: 30px;
+  border-color: rgba(130, 230, 189, 0.22);
+  background: rgba(130, 230, 189, 0.08);
+  box-shadow: none;
+}
+
+.sidebar nav {
+  padding-top: 20px;
+}
+
+.nav-label,
+.eyebrow {
+  color: #818a87;
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.nav-label {
+  padding: 0 10px 8px;
+}
+
+.nav-label-spaced {
+  padding-top: 18px;
+}
+
+.nav-item {
+  height: 40px;
+  gap: 10px;
+  border-radius: 8px;
+  color: #aab1af;
+  padding: 0 10px;
+  font-size: 13.5px;
+  font-weight: 450;
+}
+
+.nav-item:hover {
+  background: #1a1e23;
+  color: #eef1ef;
+}
+
+.nav-item.is-active {
+  background: #20262a;
+  color: #f7faf8;
+  box-shadow: inset 0 0 0 1px rgba(130, 230, 189, 0.08);
+}
+
+.nav-item.is-active svg,
+.active-pip {
+  color: var(--primary);
+}
+
+.active-pip {
+  right: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: none;
+}
+
+.sidebar-status,
+.authority-note {
+  border: 0;
+  border-top: 1px solid #24282e;
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 8px 0;
+}
+
+.authority-note {
+  margin-top: 12px;
+  color: #7f8885;
+}
+
+.sidebar-status strong,
+.authority-note strong {
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.sidebar-status span:last-child,
+.authority-note span {
+  color: #737c79;
+  font-size: 12px;
+}
+
+.topbar {
+  height: 64px;
+  border-color: rgba(40, 45, 51, 0.85);
+  background: rgba(13, 15, 18, 0.88);
+  padding: 0 32px;
+  backdrop-filter: blur(18px) saturate(130%);
+}
+
+.topbar-title > div:last-child {
+  gap: 1px;
+}
+
+.topbar-title strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.command-button {
+  width: 208px;
+  height: 36px;
+  border-color: #2b3036;
+  background: #15181c;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.command-button:hover {
+  border-color: #3a4149;
+  background: #191d22;
+}
+
+.command-button kbd {
+  border-color: #30363d;
+  background: #101216;
+  color: #8b9490;
+}
+
+[data-slot="badge"] {
+  min-height: 22px;
+  border-radius: 999px;
+  padding-inline: 8px;
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: 0;
+  box-shadow: none;
+}
+
+[data-slot="button"] {
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+[data-slot="card"] {
+  border-color: #292f35;
+  border-radius: 12px;
+  background: #15181c;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+[data-slot="card-header"] {
+  padding: 20px 22px;
+}
+
+[data-slot="card-content"] {
+  padding: 0 22px 22px;
+}
+
+[data-slot="card-header"] h2,
+.section-heading h2 {
+  margin-top: 4px;
+  font-size: 17px;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+main {
+  width: min(1400px, 100%);
+  padding: 36px 40px 64px;
+}
+
+.page-section,
+.section-block {
+  margin-top: 0;
+}
+
+.page-heading {
+  margin-bottom: 24px;
+}
+
+.hero-copy h1,
+.page-heading h1 {
+  margin: 9px 0 9px;
+  font-size: clamp(30px, 3vw, 38px);
+  font-weight: 640;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+}
+
+.hero-copy p,
+.page-heading p {
+  max-width: 760px;
+  color: #a5ada9;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.hero {
+  gap: 48px;
+  padding: 4px 0 24px;
+}
+
+.hero-identity {
+  width: 250px;
+  border-color: #292f35;
+  background: #13161a;
+  padding: 14px 16px;
+}
+
+.hero-identity code,
+.hero-identity > div {
+  font-size: 12px;
+}
+
+.metric-grid,
+.radar-summary-grid,
+.scout-summary-grid,
+.case-summary-grid {
+  gap: 10px;
+}
+
+.metric {
+  min-height: 94px;
+  border-color: #292f35;
+  border-radius: 11px;
+  background: #15181c;
+  padding: 15px 17px;
+}
+
+.metric strong {
+  margin-top: 3px;
+  font-size: 23px;
+  font-weight: 620;
+  letter-spacing: -0.035em;
+}
+
+.metric-detail {
+  margin-top: 2px;
+  color: #89928f;
+  font-size: 12.5px;
+}
+
+.ai-rack {
+  gap: 16px;
+  margin-top: 16px;
+  border-color: #292f35;
+  background: #15181c;
+  padding: 20px;
+}
+
+.ai-rack-heading strong {
+  font-size: 16px;
+  font-weight: 620;
+}
+
+.ai-rack-heading p {
+  color: #929b98;
+  font-size: 13px;
+}
+
+.ai-rack-icon {
+  border-color: rgba(130, 230, 189, 0.18);
+  background: rgba(130, 230, 189, 0.07);
+  box-shadow: none;
+}
+
+.ai-runtime-panel,
+.ai-status-card {
+  border-color: #292f35;
+  background: #111418;
+}
+
+.ai-runtime-controls [data-slot="select-trigger"] {
+  border-color: #343a42;
+  background: #171b20;
+  color: #eef1ef;
+}
+
+.ai-rack-footer {
+  border-color: #292f35;
+}
+
+.archaeology-heading {
+  align-items: end;
+}
+
+.archaeology-heading-badges {
+  margin-bottom: 4px;
+}
+
+.archaeology-pipeline,
+.issue-scheduler-console,
+.latest-discovery-trailhead,
+.inspiration-inbox,
+.semantic-graph-console,
+.search-lease-console {
+  border-color: #292f35;
+  box-shadow: none;
+}
+
+.issue-scheduler-console {
+  margin-top: 16px;
+}
+
+.issue-scheduler-badges {
+  gap: 6px;
+}
+
+.discovery-origin-overview {
+  gap: 10px;
+}
+
+.discovery-origin-overview article {
+  border-color: #2a3036;
+  border-radius: 10px;
+  background: #111418;
+  padding: 18px;
+}
+
+.discovery-origin-overview article.is-primary {
+  border-color: rgba(130, 230, 189, 0.26);
+  background: linear-gradient(145deg, rgba(130, 230, 189, 0.07), #111418 55%);
+  box-shadow: none;
+}
+
+.discovery-origin-overview h3,
+.latest-discovery-trailhead h3,
+.inspiration-card h3 {
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+}
+
+.discovery-origin-overview p,
+.latest-discovery-trailhead p,
+.inspiration-card > p {
+  color: #949d99;
+  font-size: 13px;
+  line-height: 1.58;
+}
+
+.discovery-origin-overview dt,
+.latest-discovery-trailhead dt,
+.inspiration-card dt {
+  color: #7d8783;
+  font-size: 12px;
+}
+
+.discovery-origin-overview dd,
+.latest-discovery-trailhead dd,
+.inspiration-card dd {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.latest-discovery-trailhead,
+.inspiration-inbox {
+  border-radius: 10px;
+  background: #111418;
+}
+
+.latest-discovery-signals span {
+  border-color: #30363d;
+  background: #181c21;
+  color: #aab2af;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.issue-scheduler-strip {
+  border-color: #292f35;
+  background: #111418;
+}
+
+.issue-scheduler-strip strong {
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.issue-scheduler-strip span,
+.issue-column-heading span {
+  font-size: 12px;
+}
+
+.opportunity-list,
+.opportunity-row {
+  border-color: #292f35;
+  background: #15181c;
+}
+
+.opportunity-row:hover {
+  background: #191d22;
+}
+
+footer {
+  color: #737c79;
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .sidebar {
+    width: 216px;
+  }
+
+  .workspace {
+    margin-left: 216px;
+  }
+
+  main {
+    padding-inline: 28px;
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: 264px;
+  }
+
+  .workspace {
+    margin-left: 0;
+  }
+
+  main {
+    padding: 28px 22px 48px;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    height: 58px;
+    padding: 0 14px;
+  }
+
+  .topbar-actions > [data-slot="badge"] {
+    display: none;
+  }
+
+  .command-button {
+    width: 38px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .command-button span,
+  .command-button kbd {
+    display: none;
+  }
+
+  main {
+    padding: 24px 16px 42px;
+  }
+
+  .hero-copy h1,
+  .page-heading h1 {
+    font-size: 30px;
+  }
+
+  .archaeology-heading,
+  .ai-rack-header,
+  .ai-rack-footer,
+  .ai-runtime-panel-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .archaeology-heading-badges,
+  .issue-scheduler-badges {
+    justify-content: flex-start;
+  }
+
+  .metric-grid,
+  .radar-summary-grid,
+  .scout-summary-grid,
+  .case-summary-grid,
+  .discovery-origin-overview,
+  .ai-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric {
+    min-height: 82px;
+  }
+
+  .ai-rack,
+  [data-slot="card-header"] {
+    padding: 17px;
+  }
+
+  [data-slot="card-content"] {
+    padding: 0 17px 17px;
+  }
+}

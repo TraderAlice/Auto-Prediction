@@ -485,6 +485,10 @@ function freezeHypothesis(value: unknown): OpportunityHypothesis {
     (hypothesis.strategyKind !== "COMPLETE_SET" &&
       hypothesis.strategyKind !== "EXHAUSTIVE_RANGE" &&
       hypothesis.strategyKind !== "SAME_CLAIM_CROSS_VENUE") ||
+    (hypothesis.relationKind !== undefined && ![
+      "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE",
+      "EXHAUSTIVE", "CONDITIONAL", "RELATED", "CONFLICTING",
+    ].includes(String(hypothesis.relationKind))) ||
     !isStringArray(hypothesis.venueIds) ||
     hypothesis.venueIds.length === 0 ||
     !isStringArray(hypothesis.claimSearchTerms) ||
@@ -504,6 +508,9 @@ function freezeHypothesis(value: unknown): OpportunityHypothesis {
     workerId: hypothesis.workerId,
     thesis: hypothesis.thesis,
     strategyKind: hypothesis.strategyKind,
+    ...(hypothesis.relationKind === undefined
+      ? {}
+      : { relationKind: hypothesis.relationKind as NonNullable<OpportunityHypothesis["relationKind"]> }),
     venueIds: Object.freeze([...hypothesis.venueIds]),
     claimSearchTerms: Object.freeze([...hypothesis.claimSearchTerms]),
     ...(hypothesis.listingRefs === undefined

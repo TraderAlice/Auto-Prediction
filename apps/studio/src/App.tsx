@@ -669,7 +669,7 @@ const EMPTY_MARKET_ARCHAEOLOGIST: StudioProjection["ai"]["marketArchaeologist"] 
 
 const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler"] = {
   schemaVersion: "pmh.search-lease-scheduler.v1",
-  algorithmVersion: "pmh.ai-search-leases.v9",
+  algorithmVersion: "pmh.ai-search-leases.v10",
   enabled: false,
   configured: { fastLane: true, deepLane: false },
   status: "IDLE",
@@ -720,6 +720,7 @@ const EMPTY_SEARCH_LEASE_SCHEDULER: StudioProjection["ai"]["searchLeaseScheduler
     idempotencyKey: "snapshotIdentity",
   },
   records: [],
+  findingSummaries: [],
   authority: "PROPOSE_ONLY",
   semanticDecisionAuthority: false,
   certificateAuthority: false,
@@ -1109,17 +1110,20 @@ const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"]
 };
 
 const navigation = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "archaeologist", label: "Market archaeologist", icon: Search },
-  { id: "lifecycle", label: "Opportunity lifecycle", icon: GitBranch },
-  { id: "radar", label: "Opportunity radar", icon: Radar },
-  { id: "preflight", label: "Candidate preflight", icon: FileCheck2 },
-  { id: "scouts", label: "Scout inbox", icon: Inbox },
-  { id: "cases", label: "Research cases", icon: Waypoints },
-  { id: "venues", label: "Venue matrix", icon: Network },
-  { id: "books", label: "Book desk", icon: BookOpenCheck },
+  { id: "archaeologist", label: "Discover", icon: Search },
+  { id: "scouts", label: "Findings", icon: Inbox },
+  { id: "lifecycle", label: "Review queue", icon: GitBranch },
+  { id: "preflight", label: "Preflight", icon: FileCheck2 },
+  { id: "venues", label: "Markets", icon: Network },
   { id: "evidence", label: "Evidence", icon: Fingerprint },
+  { id: "overview", label: "System overview", icon: LayoutDashboard },
+  { id: "radar", label: "Similarity radar", icon: Radar },
+  { id: "cases", label: "Research cases", icon: Waypoints },
+  { id: "books", label: "Order books", icon: BookOpenCheck },
 ] as const;
+
+const primaryNavigation = navigation.slice(0, 6);
+const systemNavigation = navigation.slice(6);
 
 function SignalMark() {
   return (
@@ -1915,8 +1919,8 @@ function Sidebar({
         <div className="brand">
           <SignalMark />
           <div>
-            <span>HARMONY</span>
-            <small>Prediction markets</small>
+            <span>Harmony</span>
+            <small>Market research</small>
           </div>
           <Button
             className="mobile-close"
@@ -1930,8 +1934,8 @@ function Sidebar({
         </div>
 
         <nav aria-label="Primary navigation">
-          <span className="nav-label">Research</span>
-          {navigation.slice(0, 5).map((item) => {
+          <span className="nav-label">Workspace</span>
+          {primaryNavigation.map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -1948,8 +1952,8 @@ function Sidebar({
               </button>
             );
           })}
-          <span className="nav-label nav-label-spaced">Workspace</span>
-          {navigation.slice(5).map((item) => {
+          <span className="nav-label nav-label-spaced">System</span>
+          {systemNavigation.map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -1973,8 +1977,8 @@ function Sidebar({
           <div className="authority-note">
             <CircleOff size={15} />
             <div>
-              <strong>Live authority absent</strong>
-              <span>No signing · no value movement</span>
+              <strong>Research mode</strong>
+              <span>Analysis only · no execution</span>
             </div>
           </div>
         </div>
@@ -2006,7 +2010,7 @@ function Topbar({
           <Menu size={19} />
         </Button>
         <div>
-          <span className="eyebrow">Harmony Studio</span>
+          <span className="eyebrow">Research workspace</span>
           <strong>{currentLabel}</strong>
         </div>
       </div>
@@ -2024,7 +2028,7 @@ function Topbar({
         </button>
         <Badge variant="shadow">
           <CircleOff size={10} />
-          Research only
+          No execution
         </Badge>
       </div>
     </header>
@@ -2223,7 +2227,7 @@ function Overview({
   const studioProjection = useStudioProjection();
   const catalogObservation = studioProjection.ai.catalogObservation;
   const [scoutStatus, setScoutStatus] = useState<
-    "IDLE" | "RUNNING" | "PROPOSED" | "PARTIAL" | "FAILED"
+    "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
   const [refreshStatus, setRefreshStatus] = useState<
     "IDLE" | "RUNNING" | "READY" | "DEGRADED" | "FAILED"
@@ -2259,11 +2263,8 @@ function Overview({
   async function runScout(): Promise<void> {
     setScoutStatus("RUNNING");
     try {
-      const result = await requestDiscoveryRun(
-        "Highest temperature in Boston on July 31, 2026?",
-        ["gemini-predictions"],
-      );
-      setScoutStatus(result.partial ? "PARTIAL" : "PROPOSED");
+      const restored = await requestSearchLease();
+      setScoutStatus(restored ? "RESTORED" : "DONE");
     } catch {
       setScoutStatus("FAILED");
     }
@@ -2286,11 +2287,11 @@ function Overview({
             <Activity size={10} />
             System online
           </Badge>
-          <h1>Prediction-market research</h1>
+          <h1>Find the relation the market missed.</h1>
           <p>
-            Find related contracts across venues, challenge their semantic
-            relationship, and advance the few candidates supported by rules,
-            prices, and exact verification.
+            Start from unusual market neighborhoods—not a preconceived claim.
+            Agents inspect the contracts, propose a relation, and try to break
+            it before anything reaches review.
           </p>
         </div>
         <div className="hero-identity">
@@ -2334,9 +2335,9 @@ function Overview({
               <Sparkles size={17} />
             </div>
             <div>
-              <span className="eyebrow">Discovery runtime</span>
-              <strong>AI search configuration</strong>
-              <p>Choose the model used for new semantic-search work.</p>
+              <span className="eyebrow">Heuristic discovery</span>
+              <strong>Explore the next market neighborhood</strong>
+              <p>The scheduler chooses a fresh trailhead; the Agent forms claims after inspection.</p>
             </div>
           </div>
           <Button
@@ -2346,13 +2347,13 @@ function Overview({
             <Sparkles size={11} />
             {scoutStatus === "RUNNING"
               ? "Scouting…"
-              : scoutStatus === "PROPOSED"
-                ? "Proposal ready"
-                : scoutStatus === "PARTIAL"
-                  ? "Partial result"
+              : scoutStatus === "DONE"
+                ? "Scan complete"
+                : scoutStatus === "RESTORED"
+                  ? "Already scanned"
                 : scoutStatus === "FAILED"
                   ? "Retry scout"
-                  : "Run scout"}
+                  : "Explore next"}
           </Button>
         </div>
 
@@ -3261,6 +3262,11 @@ function MarketArchaeologistView() {
   const latestTrailheadGraph = latestTrailheadRecord === undefined
     ? null
     : graphReadability(latestTrailheadRecord);
+  const findingSummary = (leaseId: string) =>
+    scheduler.findingSummaries.find((item) => item.leaseId === leaseId);
+  const latestTrailheadFinding = latestTrailheadRecord === undefined
+    ? undefined
+    : findingSummary(latestTrailheadRecord.lease.leaseId);
   const quoteEnrichment =
     studioProjection.ai.searchQuoteEnrichment ?? EMPTY_SEARCH_QUOTE_ENRICHMENT;
   const outcomeAttribution =
@@ -3423,10 +3429,25 @@ function MarketArchaeologistView() {
           </p>
         </div>
         <div className="archaeology-heading-badges">
-          <Badge variant="verified">PRIMARY DISCOVERY</Badge>
           <Badge variant={desk.configured ? "shadow" : "warning"}>
             {desk.configured ? `${desk.model} · PI` : "KEY REQUIRED"}
           </Badge>
+          <Button
+            disabled={
+              corpus.listingCount === 0 ||
+              nextLens === undefined ||
+              scheduler.status === "RUNNING" ||
+              leaseStatus === "RUNNING"
+            }
+            onClick={() => void runLease()}
+          >
+            {leaseStatus === "RUNNING" ? (
+              <RefreshCw className="is-spinning" size={13} />
+            ) : (
+              <Sparkles size={13} />
+            )}
+            {leaseStatus === "RUNNING" ? "Exploring…" : "Explore next neighborhood"}
+          </Button>
         </div>
       </div>
 
@@ -3560,8 +3581,12 @@ function MarketArchaeologistView() {
                 </div>
                 <div><dt>Agent steps</dt><dd>{latestTrailheadRecord.fastLane.agentTelemetry?.stepCount ?? 0}</dd></div>
                 <div><dt>catalog reads</dt><dd>{latestTrailheadRecord.fastLane.agentTelemetry?.catalogReadCount ?? 0}</dd></div>
-                <div><dt>leads</dt><dd>{latestTrailheadRecord.outcome.hypothesisCount}</dd></div>
-                <div><dt>result</dt><dd>{latestTrailheadRecord.status}</dd></div>
+                <div><dt>leads</dt><dd>{latestTrailheadFinding?.leadCount ?? 0}</dd></div>
+                <div><dt>falsified</dt><dd>{latestTrailheadFinding?.falsificationCount ?? 0}</dd></div>
+                <div>
+                  <dt>result</dt>
+                  <dd>{latestTrailheadFinding?.kinds.join(" · ") || latestTrailheadRecord.status}</dd>
+                </div>
               </dl>
             </section>
           )}
@@ -4232,7 +4257,9 @@ function MarketArchaeologistView() {
 
       {scheduler.records.length > 0 && (
         <div className="search-lease-history">
-          {scheduler.records.slice(0, 8).map((record) => (
+          {scheduler.records.slice(0, 8).map((record) => {
+            const summary = findingSummary(record.lease.leaseId);
+            return (
             <article key={record.lease.leaseId}>
               <div>
                 <Badge variant={record.status === "PASS" ? "verified" : record.status === "ISSUED" ? "shadow" : "warning"}>
@@ -4245,11 +4272,20 @@ function MarketArchaeologistView() {
                     {record.lease.discoveryMode === "HEURISTIC_EXPLORATION" ? "EXPLORE" : "MONITOR"}
                   </Badge>
                 )}
+                {summary?.kinds.map((kind) => (
+                  <Badge key={kind} variant={kind === "LEAD" ? "shadow" : kind === "FALSIFIED" ? "warning" : "muted"}>
+                    {kind.replaceAll("_", " ")}
+                  </Badge>
+                ))}
               </div>
               <p>{record.lease.thesis}</p>
               <div>
-                <code>{record.outcome.hypothesisCount} candidates</code>
-                <code>{record.outcome.falsificationCount ?? 0} falsified</code>
+                <code>{summary?.leadCount ?? record.outcome.hypothesisCount} leads</code>
+                <code>{summary?.falsificationCount ?? record.outcome.falsificationCount ?? 0} falsified</code>
+                <code>{summary?.inspirationCount ?? 0} inspired</code>
+                {record.fastLane.candidateRelationKind != null && (
+                  <code>RELATION {record.fastLane.candidateRelationKind}</code>
+                )}
                 <code>FAST {record.fastLane.status}</code>
                 <code>DEEP {record.deepLane.status}</code>
                 <code>{record.deepLane.reason}</code>
@@ -4285,10 +4321,6 @@ function MarketArchaeologistView() {
                 )}
                 {record.lineage.duplicateOfLeaseId !== null && <code>DUPLICATE LINK</code>}
                 {record.deepLane.status === "FAILED" &&
-                  (record.lease.algorithmVersion === "pmh.ai-search-leases.v5" ||
-                    record.lease.algorithmVersion === "pmh.ai-search-leases.v6" ||
-                    record.lease.algorithmVersion === "pmh.ai-search-leases.v7" ||
-                    record.lease.algorithmVersion === "pmh.ai-search-leases.v8") &&
                   record.deepLane.inputIdentity != null &&
                   (record.deepLane.attempts?.length ?? 0) <
                     (record.lease.budget.maxDeepAttempts ?? 1) && (
@@ -4322,7 +4354,8 @@ function MarketArchaeologistView() {
                 </p>
               )}
             </article>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -8182,7 +8215,7 @@ function CommandPalette({
 }
 
 function StudioShell() {
-  const [view, setView] = useState<View>("overview");
+  const [view, setView] = useState<View>("archaeologist");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [opportunity, setOpportunity] = useState<Opportunity | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);

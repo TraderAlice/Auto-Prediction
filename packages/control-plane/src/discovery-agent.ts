@@ -42,6 +42,10 @@ const MAX_INSPECTED_LISTINGS = 6;
 const SEARCH_LENSES = Object.freeze([
   "EQUIVALENCE", "IMPLICATION", "PARTITION", "MECHANISM",
 ] as const);
+const RELATION_KINDS = Object.freeze([
+  "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
+  "CONDITIONAL", "RELATED", "CONFLICTING",
+] as const);
 
 export const DEFAULT_DISCOVERY_AGENT_MAX_STEPS = 8;
 export const MAX_DISCOVERY_AGENT_MAX_STEPS = 20;
@@ -399,6 +403,7 @@ export class DiscoveryAgentSession {
       ? object.thesis.trim().replace(/\s+/g, " ")
       : "";
     const strategyKind = object?.strategyKind;
+    const relationKind = object?.relationKind;
     const listingRefs = compactStrings(object?.listingRefs, 20, 512);
     const claimSearchTerms = compactStrings(object?.claimSearchTerms, 12, 80);
     const confidenceBps = object?.confidenceBps;
@@ -407,6 +412,7 @@ export class DiscoveryAgentSession {
       (strategyKind !== "COMPLETE_SET" &&
         strategyKind !== "EXHAUSTIVE_RANGE" &&
         strategyKind !== "SAME_CLAIM_CROSS_VENUE") ||
+      !RELATION_KINDS.includes(relationKind as never) ||
       listingRefs === null || listingRefs.length < 2 ||
       claimSearchTerms === null ||
       !Number.isSafeInteger(confidenceBps) || Number(confidenceBps) < 0 ||
@@ -416,7 +422,7 @@ export class DiscoveryAgentSession {
         "record_hypothesis",
         input,
         "INVALID_INPUT",
-        "Provide a bounded relational thesis, supported strategyKind, 2-20 listingRefs, 1-12 search terms, and integer confidenceBps 0-10000. Single-listing pricing belongs to the deterministic venue solver, not this semantic Agent lane.",
+        "Provide a bounded relational thesis, supported strategyKind and relationKind, 2-20 listingRefs, 1-12 search terms, and integer confidenceBps 0-10000. Single-listing pricing belongs to the deterministic venue solver, not this semantic Agent lane.",
       );
     }
     const unknown = listingRefs.filter((listingRef) =>
@@ -462,6 +468,7 @@ export class DiscoveryAgentSession {
       taskId: this.task.taskId,
       thesis,
       strategyKind,
+      relationKind,
       venueIds,
       claimSearchTerms: Object.freeze([...claimSearchTerms]),
       listingRefs: Object.freeze([...listingRefs].sort()),
@@ -482,6 +489,7 @@ export class DiscoveryAgentSession {
       workerId: this.workerId,
       thesis,
       strategyKind,
+      relationKind: relationKind as NonNullable<OpportunityHypothesis["relationKind"]>,
       venueIds,
       claimSearchTerms: hypothesisBody.claimSearchTerms,
       listingRefs: hypothesisBody.listingRefs,
@@ -966,11 +974,14 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
     }),
     record_hypothesis: tool({
       description:
-        "Record one positive, unverified grounded relation between at least two inspected listings. Do not use this for a relation you rejected, an abstention, or a single-listing pricing observation. Input: {thesis, strategyKind: COMPLETE_SET|EXHAUSTIVE_RANGE|SAME_CLAIM_CROSS_VENUE, listingRefs, claimSearchTerms, confidenceBps: 0..10000}. Venue IDs are derived externally. Rejected inputs return guidance and may be corrected in a later step.",
+        "Record one positive, unverified grounded relation between at least two inspected listings. Do not use this for a relation you rejected, an abstention, or a single-listing pricing observation. Input: {thesis, strategyKind: COMPLETE_SET|EXHAUSTIVE_RANGE|SAME_CLAIM_CROSS_VENUE, relationKind: EQUIVALENT|IMPLIES|SUBSET|MUTUALLY_EXCLUSIVE|EXHAUSTIVE|CONDITIONAL|RELATED|CONFLICTING, listingRefs, claimSearchTerms, confidenceBps: 0..10000}. Venue IDs are derived externally. Rejected inputs return guidance and may be corrected in a later step.",
       inputSchema: describedObjectSchema({
         thesis: { description: "Non-empty hypothesis text up to 500 characters." },
         strategyKind: {
           description: "COMPLETE_SET, EXHAUSTIVE_RANGE, or SAME_CLAIM_CROSS_VENUE.",
+        },
+        relationKind: {
+          description: "The exact asserted semantic relation kind.",
         },
         listingRefs: {
           description: "Array of 2-20 exact listingRef strings already inspected.",

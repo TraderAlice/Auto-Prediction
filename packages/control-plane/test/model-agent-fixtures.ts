@@ -78,6 +78,7 @@ export function proposalInput(
   return {
     thesis: "The verified listings may encode adjacent bounded intervals.",
     strategyKind: "EXHAUSTIVE_RANGE",
+    relationKind: "EXHAUSTIVE",
     listingRefs: [...listingRefs],
     claimSearchTerms: ["temperature", "boston"],
     confidenceBps: 6_000,

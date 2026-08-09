@@ -5,6 +5,8 @@ The active construction plans are
 [`plans/heuristic-origin-discovery.md`](plans/heuristic-origin-discovery.md),
 with cross-lens inspiration follow-ups tracked in
 [`plans/cross-lens-inspiration-effects.md`](plans/cross-lens-inspiration-effects.md),
+and relation-bound positive findings tracked in
+[`plans/relation-bound-discovery-findings.md`](plans/relation-bound-discovery-findings.md),
 [`plans/probabilistic-semantic-arbitrage.md`](plans/probabilistic-semantic-arbitrage.md),
 with Studio product normalization tracked in
 [`plans/studio-product-normalization.md`](plans/studio-product-normalization.md),
@@ -36,6 +38,16 @@ monitoring, and operator-hypothesis lane rather than the primary discovery
 funnel. Studio normalization now also has a qualified shadcn-compatible
 component layer and a bounded Inter type scale with monospace reserved for exact
 machine values.
+
+The product entry now matches that posture. Studio opens on Discover, its
+above-fold action issues the next heuristic lease, and the old hard-coded claim
+demo is no longer the default funnel. Task navigation is separated from system
+diagnostics, and a final product-shell pass enforces a 12 px text floor at
+desktop and mobile widths. Search lease v10 also requires every new positive
+Agent hypothesis to name its semantic relation before it can satisfy a typed
+issue policy or launch Pi. First-party finding summaries preserve simultaneous
+lead, falsification, and inspiration effects instead of flattening a mixed scan
+into one misleading outcome.
 
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls
