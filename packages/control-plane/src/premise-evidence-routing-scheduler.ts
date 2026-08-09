@@ -301,15 +301,45 @@ export class PremiseEvidenceRoutingScheduler {
       if (scopedJobs.some((job) => job.status === "PASS" || job.status === "EXHAUSTED")) {
         continue;
       }
+      if (scopedJobs.some((job) => job.corpusIdentity === corpusIdentity)) {
+        continue;
+      }
       const existing = [...scopedJobs].sort((left, right) =>
         right.createdAt.localeCompare(left.createdAt) || right.jobId.localeCompare(left.jobId)
       )[0];
       if (existing !== undefined) {
         if (existing.status !== "LEASED" && existing.corpusIdentity !== corpusIdentity) {
-          this.#save(withHash({
-            ...withoutHash(existing),
+          const jobId = premiseEvidenceRoutingId({
+            proposalId: proposal.proposalId,
+            outcomeHash: outcome.outcomeHash,
             corpusIdentity,
+            routerIdentity: this.#router.routerIdentity,
+          });
+          this.#save(withHash({
+            schemaVersion: "pmh.premise-evidence-routing-job.v1",
+            jobId,
+            proposal,
+            outcome,
+            corpusIdentity,
+            routerIdentity: this.#router.routerIdentity,
+            status: "PENDING",
+            attemptCount: 0,
+            maxAttempts: this.#maxAttempts,
+            nextAttemptAt: timestamp,
+            leasedAt: null,
+            leaseExpiresAt: null,
+            completedAt: null,
+            route: null,
+            diagnostic: null,
+            createdAt: timestamp,
             updatedAt: timestamp,
+            authority: "ADVISORY_PREMISE_EVIDENCE_ORCHESTRATION_ONLY",
+            providerRequestAuthority: false,
+            semanticDecisionAuthority: false,
+            productionReviewAuthority: false,
+            simulationAuthority: false,
+            certificateAuthority: false,
+            executionAuthority: false,
           }));
         }
         continue;
@@ -365,6 +395,7 @@ export class PremiseEvidenceRoutingScheduler {
     const candidateByJob = new Map<Hash, PremiseEvidenceRoutingCandidate>();
     for (const candidate of candidates) {
       if (candidate.outcome.unboundPremiseCount < 1) continue;
+      const corpusIdentity = premiseEvidenceCorpusIdentity(candidate.corpus);
       const scopedJobs = this.#jobs.filter((job) =>
         job.proposal.proposalId === candidate.proposal.proposalId &&
         job.outcome.outcomeHash === candidate.outcome.outcomeHash &&
@@ -374,7 +405,8 @@ export class PremiseEvidenceRoutingScheduler {
         continue;
       }
       const current = [...scopedJobs].filter((job) =>
-        job.status === "PENDING" || job.status === "RETRY_WAIT" || job.status === "LEASED"
+        job.corpusIdentity === corpusIdentity &&
+        (job.status === "PENDING" || job.status === "RETRY_WAIT" || job.status === "LEASED")
       ).sort((left, right) =>
         right.createdAt.localeCompare(left.createdAt) || right.jobId.localeCompare(left.jobId)
       )[0];

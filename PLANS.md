@@ -45,7 +45,9 @@ discovery findings tracked in
 with durable issue-to-review yield tracked in
 [`plans/durable-search-yield-attribution.md`](plans/durable-search-yield-attribution.md),
 and full contract text retention tracked in
-[`plans/complete-contract-rules-evidence.md`](plans/complete-contract-rules-evidence.md).
+[`plans/complete-contract-rules-evidence.md`](plans/complete-contract-rules-evidence.md),
+with official venue-level rulebook acquisition tracked in
+[`plans/venue-level-rulebook-evidence.md`](plans/venue-level-rulebook-evidence.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -139,7 +141,7 @@ That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls
 back to a rotating rare-seed neighborhood when no family pair qualifies.
 Operator questions remain `CLAIM_MONITORING`. Search issue v3, lease v9, and
-family-retrieval v4 preserve the origin and typed trailhead through SQLite
+family-retrieval v5 preserve the origin and typed trailhead through SQLite
 restart, while graph refs outside the assigned context remain lineage-only.
 Studio shows separate scans, findings, provider requests, Pi escalations, seed
 signals, neighbors, and graph readability. A live 799-listing v4 scan replaced
@@ -646,22 +648,29 @@ product choice is evidence routing per obligation: bind it to another traded
 state when possible, otherwise acquire and quote-verify an allowlisted official
 source. Automatic open-web search for every causal premise is not yet justified.
 
-The first traded-state evidence-routing portfolio is a measured `HOLD`: its two
-positive outputs were duplicate-scope restatements. Live funnel inspection
-instead exposed a preventable review-protocol loss on the canonical
-House-control pair. Semantic review now uses
-`pmh.semantic-review-agent-effects.v2`: counterexamples, assessment lenses,
-individual truth states, and evidence obligations are durable incremental tool
-effects, while a small terminal call merely seals the journal. Relation and
-workflow posture are both derived by `FIRST_PARTY_CONSERVATIVE_V1`; protocol
-identity is part of review idempotency, and scheduler reconciliation upgrades a
-legacy PASS capsule when the new protocol produces a durable result. The live
-House review recorded a complete four-state matrix and zero evidence gaps,
-yielding `HARD_SETTLEMENT_CONSTRAINT` / `MUTUALLY_EXCLUSIVE` /
-`ACCEPT_FOR_RESEARCH_SIMULATION`. Its 190 bps gross hint remains non-executable
-and now correctly stops at `BIND_PREMISE_EVIDENCE`: four propositions in the
-separate premise audit are still unbound. Premise binding—not more discovery
-volume and not premature fee/depth work—is the next measured gate.
+The first traded-state evidence-routing portfolio remains a measured `HOLD`:
+its two positive outputs were duplicate-scope restatements. The current
+semantic-review protocol is now v3 and no longer asks the Agent to submit
+free-form assumptions. Impossible-state support must cite retained rule
+evidence, while a dependency outside the supplied contracts must become an
+explicit evidence gap and acquisition requirement. Direct two-listing exact
+relations with first-party exact admission no longer enter the redundant
+premise-analysis lane; conditional and multi-listing relations still do.
+
+The live House-control monitor now supplies the regression case for discovery,
+review, and evidence acquisition. Query-first retrieval v5 keeps the exact
+operator-assigned House pair at rank one, while heuristic-first exploration
+continues to rotate for novelty. Partition searches must account for mutual
+exclusion and exhaustiveness independently before they may complete. A natural
+Terra/high run retained one exhaustiveness falsification and one mutual-
+exclusion hypothesis in four tool steps; the existing proposal scope was then
+deduplicated without repeating Pi. The latest CFTC-hosted Polymarket US
+rulebook is also retained as a first-party DOCX locator and can be captured and
+extracted through the constrained evidence boundary. Its discretionary outcome
+review language is evidence against pretending the venue-level policy closes a
+deterministic settlement proof. The current House dossier therefore remains a
+research object whose real external dependency is visible, not a green exact
+arbitrage manufactured from Agent prose.
 
 ## Deferred future campaigns
 

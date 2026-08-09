@@ -47,6 +47,12 @@ describe("verified catalog discovery context", () => {
       rulesText: expect.stringContaining("settle"),
       sourceKind: "VERIFIED_FIXTURE",
       protocolIdentity: "gateway-rest-v1:2026-08-01",
+      evidenceLocators: [{
+        role: "CONTRACT_RULE_DOCUMENT",
+        url: "https://www.cftc.gov/filings/orgrules/rules0519263672.docx",
+        authority: "EVIDENCE_LOCATOR_ONLY",
+        fetchAuthority: false,
+      }],
     });
     expect(
       context.listings.every((listing) =>

@@ -129,6 +129,7 @@ type ProposalHandoffProjection = Readonly<{
           artifactHash: string;
           classification: string;
           relationKind: string;
+          exactCompilerAdmission?: "ELIGIBLE" | "RESEARCH_ONLY";
         }>;
         missingEvidenceCount: number;
         counterexampleCount: number;
@@ -4982,6 +4983,13 @@ function OpportunityLifecycleView({
               ? "RESOLVE_EVIDENCE_GAPS"
               : retainedOutcome.semanticConstraint?.classification !== "HARD_SETTLEMENT_CONSTRAINT"
                 ? "RETAIN_AS_RESEARCH_ONLY"
+                : retainedOutcome.semanticConstraint.exactCompilerAdmission === "ELIGIBLE" &&
+                    proposal !== undefined && proposal.listingRefs.length === 2 &&
+                    ["EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE"]
+                      .includes(proposal.relationKind)
+                  ? economicTriageItem?.status === "POSITIVE_GROSS_HINT"
+                    ? "FEE_DEPTH_QUALIFICATION"
+                    : "OPERATOR_DECISION"
                 : premiseOutcomeBasis === "NOT_ANALYZED"
                   ? "HIDDEN_PREMISE_ANALYSIS"
                   : premiseOutcomeBasis === "ANALYSIS_PENDING"
@@ -5376,6 +5384,10 @@ function OpportunityLifecycleView({
               const reviewState = reviewStates[item.opportunityId] ?? "IDLE";
               const recoveryState = reviewRecoveryStates[item.proposalId] ?? "IDLE";
               const reviewOutcome = item.reviewOutcome.outcome;
+              const premiseAuditRequired = item.proposal === undefined ||
+                item.proposal.listingRefs.length !== 2 ||
+                !["EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE"]
+                  .includes(item.proposal.relationKind);
               const reviewRecommendationPolicy = reviewOutcome === null
                 ? null
                 : semanticReview.records.find(
@@ -5483,6 +5495,9 @@ function OpportunityLifecycleView({
                         {reviewOutcome.semanticConstraint === null
                           ? "No hard settlement constraint was retained."
                           : reviewOutcome.semanticConstraint.classification.replaceAll("_", " ")}
+                        {reviewOutcome.semanticConstraint?.exactCompilerAdmission === undefined
+                          ? ""
+                          : ` · ${reviewOutcome.semanticConstraint.exactCompilerAdmission.toLowerCase().replaceAll("_", " ")} exact admission`}
                         {` · ${reviewOutcome.missingEvidenceCount} evidence gaps · ${reviewOutcome.counterexampleCount} counterexamples`}
                         {reviewRecommendationPolicy === null
                           ? " · legacy model workflow posture"
@@ -5496,8 +5511,10 @@ function OpportunityLifecycleView({
                       <p>{item.reviewOutcome.diagnostic}</p>
                     </div>
                   )}
-                  {(reviewOutcome?.semanticConstraint?.classification === "HARD_SETTLEMENT_CONSTRAINT" ||
-                    item.premiseJob !== undefined) && (
+                  {((reviewOutcome?.semanticConstraint?.classification === "HARD_SETTLEMENT_CONSTRAINT" &&
+                    (reviewOutcome.semanticConstraint.exactCompilerAdmission !== "ELIGIBLE" ||
+                      premiseAuditRequired)) ||
+                    (item.premiseJob !== undefined && premiseAuditRequired)) && (
                     item.premiseOutcome.outcome !== null ? (
                       <div className="decision-dossier-premises">
                         <div className="decision-dossier-review-head">

@@ -34,7 +34,13 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 1_800;
 const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_RETENTION_LIMIT = 50;
 export const SEMANTIC_REVIEW_PROTOCOL_IDENTITY =
-  "pmh.semantic-review-agent-effects.v2" as const;
+  "pmh.semantic-review-agent-effects.v3" as const;
+const SEMANTIC_REVIEW_PROTOCOL_IDENTITIES = Object.freeze([
+  "pmh.semantic-review-agent-effects.v2",
+  SEMANTIC_REVIEW_PROTOCOL_IDENTITY,
+] as const);
+type SemanticReviewProtocolIdentity =
+  (typeof SEMANTIC_REVIEW_PROTOCOL_IDENTITIES)[number];
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/u;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const TERMINAL_REPAIR_CODES = Object.freeze([
@@ -163,7 +169,7 @@ export type SemanticReviewReport = Readonly<{
     rejectedTerminalEffectCount?: number;
     lastRejectedTerminalDiagnostic?: string;
     recommendationPolicy?: SemanticReviewRecommendationPolicy;
-    agentEffectProtocol?: "INCREMENTAL_EFFECTS_V1";
+    agentEffectProtocol?: "INCREMENTAL_EFFECTS_V1" | "INCREMENTAL_EFFECTS_V2";
     wholeResponseSchemaParsing: false;
     structuredEvidenceRequirements?: true;
     structuredRuleEvidenceClaims?: true;
@@ -182,7 +188,7 @@ export type SemanticReviewRecord = Readonly<{
   proposalCorpusSnapshotIdentity: Hash;
   corpusSnapshotIdentity: Hash;
   model: string;
-  protocolIdentity?: typeof SEMANTIC_REVIEW_PROTOCOL_IDENTITY;
+  protocolIdentity?: SemanticReviewProtocolIdentity;
   status: "RUNNING" | "PASS" | "FAILED";
   startedAt: string;
   completedAt: string | null;
@@ -241,7 +247,7 @@ type RawSemanticReview = Readonly<{
     rejectedTerminalEffectCount?: number;
     lastRejectedTerminalDiagnostic?: string;
     recommendationPolicy?: SemanticReviewRecommendationPolicy;
-    agentEffectProtocol?: "INCREMENTAL_EFFECTS_V1";
+    agentEffectProtocol?: "INCREMENTAL_EFFECTS_V1" | "INCREMENTAL_EFFECTS_V2";
   }>;
 }>;
 
@@ -273,7 +279,6 @@ type EvidenceGapEffect = Readonly<{
 }>;
 type SemanticReviewFinalization = Readonly<{
   classification: SemanticConstraintDraft["classification"];
-  assumptions: readonly string[];
   rationale: string;
 }>;
 
@@ -539,13 +544,11 @@ const evidenceGapJsonSchema = {
 const semanticReviewFinalizationJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["classification", "assumptions", "rationale"],
+  required: ["classification", "rationale"],
   properties: {
     classification:
       semanticReviewSubmissionJsonSchema.properties.constraint.properties.classification,
-    assumptions:
-      semanticReviewSubmissionJsonSchema.properties.constraint.properties.assumptions,
-    rationale: { type: "string" },
+    rationale: { type: "string", minLength: 1, maxLength: 2_000 },
   },
 } as const;
 
@@ -958,13 +961,6 @@ function validateFinalization(value: unknown): SemanticReviewFinalization {
       "finalization.classification is not supported",
     );
   }
-  if (!boundedTextArray(raw.assumptions, 20, 1_000)) {
-    repairFailure(
-      "INVALID_ARRAY",
-      "finalization.assumptions",
-      "finalization.assumptions must contain at most 20 bounded strings",
-    );
-  }
   if (!boundedText(raw.rationale, 2_000)) {
     repairFailure(
       "INVALID_TEXT",
@@ -975,9 +971,6 @@ function validateFinalization(value: unknown): SemanticReviewFinalization {
   return Object.freeze({
     classification:
       raw.classification as SemanticReviewFinalization["classification"],
-    assumptions: Object.freeze(
-      (raw.assumptions as string[]).map((item) => item.trim()),
-    ),
     rationale: (raw.rationale as string).trim(),
   });
 }
@@ -1272,7 +1265,7 @@ export function assertSemanticReviewRecord(
     !HASH_PATTERN.test(record.corpusSnapshotIdentity) ||
     !MODEL_ID_PATTERN.test(record.model) ||
     (record.protocolIdentity !== undefined &&
-      record.protocolIdentity !== SEMANTIC_REVIEW_PROTOCOL_IDENTITY) ||
+      !SEMANTIC_REVIEW_PROTOCOL_IDENTITIES.includes(record.protocolIdentity)) ||
     typeof record.opportunityId !== "string" ||
     record.opportunityId.trim() === "" ||
     !isIsoDate(record.startedAt) ||
@@ -1429,7 +1422,8 @@ export function assertSemanticReviewRecord(
         (report.trace.recommendationPolicy !== undefined &&
           report.trace.recommendationPolicy !== "FIRST_PARTY_CONSERVATIVE_V1") ||
         (report.trace.agentEffectProtocol !== undefined &&
-          report.trace.agentEffectProtocol !== "INCREMENTAL_EFFECTS_V1") ||
+          !["INCREMENTAL_EFFECTS_V1", "INCREMENTAL_EFFECTS_V2"]
+            .includes(report.trace.agentEffectProtocol)) ||
         report.trace.wholeResponseSchemaParsing !== false
       ) throw new Error("stored semantic review report violates agent tool trace");
       const constraint = assertSemanticConstraintArtifact(
@@ -1626,7 +1620,7 @@ export class DeepSeekSemanticReviewModelPort
         ...(recommendationPolicy === undefined
           ? {}
           : { recommendationPolicy }),
-        agentEffectProtocol: "INCREMENTAL_EFFECTS_V1" as const,
+        agentEffectProtocol: "INCREMENTAL_EFFECTS_V2" as const,
       });
       const tools = {
         record_counterexample: tool({
@@ -1726,7 +1720,9 @@ export class DeepSeekSemanticReviewModelPort
         submit_semantic_review: tool({
           description:
             "Finalize the previously recorded assessment, truth-state, counterexample, and " +
-            "evidence-gap effects. Supply only classification, assumptions, and rationale. " +
+            "evidence-gap effects. Supply only classification and rationale. Rule-intrinsic " +
+            "support belongs in each truth state's evidenceListingRefs; any external dependency " +
+            "must be recorded as an UNRESOLVED state plus record_evidence_gap. " +
             "First-party policy derives relation and workflow posture. This is proposal-only.",
           inputSchema: jsonSchema<SemanticReviewFinalization>(
             semanticReviewFinalizationJsonSchema,
@@ -1769,7 +1765,7 @@ export class DeepSeekSemanticReviewModelPort
                 rationale: finalization.rationale,
                 constraint: {
                   classification: finalization.classification,
-                  assumptions: finalization.assumptions,
+                  assumptions: Object.freeze([]),
                   truthTable: truthStateEffects,
                   unresolvedEvidence: [
                     ...evidenceGapEffects.map((effect) => effect.missingEvidence),
@@ -1927,6 +1923,9 @@ export class DeepSeekSemanticReviewModelPort
           "must name only real external evidence gaps and must never fabricate certainty. " +
           "HARD_SETTLEMENT_CONSTRAINT requires a complete 2–4 listing " +
           "binary state space, no unresolved evidence, and no surviving counterexample. " +
+          "Do not create free-form assumptions. A rule-intrinsic proof must cite the " +
+          "relevant in-scope listing rules on the state it classifies. Any dependency " +
+          "not established by those rules must remain UNRESOLVED and become an evidence gap. " +
           "For every missing evidence class, include a structured evidenceRequirements " +
           "entry naming exact in-scope listingRefs, what observation would satisfy or " +
           "contradict the claim, and whether current or source-time rules are required. " +

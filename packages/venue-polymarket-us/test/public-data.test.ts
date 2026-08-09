@@ -4,6 +4,7 @@ import { loadRawFixture } from "@pmh/evidence";
 import { verifyRawFixture } from "@pmh/evidence";
 import { describe, expect, it } from "vitest";
 import {
+  POLYMARKET_US_RULEBOOK_URL,
   decodePolymarketUsBinarySettlement,
   decodePolymarketUsBookSnapshot,
   normalizePolymarketUsBbo,
@@ -56,6 +57,7 @@ describe("Polymarket US anonymous public data", () => {
       mechanism: "CENTRALIZED_ORDER_BOOK",
       collateralId: "USD",
       minPriceTick: 100_000n,
+      rulesUrl: POLYMARKET_US_RULEBOOK_URL,
     });
     expect(listings[0]?.outcomes.map((outcome) => [outcome.label, outcome.indicativePrice])).toEqual([
       ["Yes", 300_000n],
@@ -68,6 +70,9 @@ describe("Polymarket US anonymous public data", () => {
     });
     expect(polymarketUsManifest.venueId).not.toBe("polymarket-global");
     expect(polymarketUsManifest.liveExecutionEnabled).toBe(false);
+    expect(polymarketUsManifest.officialSources).toContain(
+      POLYMARKET_US_RULEBOOK_URL,
+    );
   });
 
   it("binds a REST long-contract book to catalog tick evidence", async () => {

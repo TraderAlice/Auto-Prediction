@@ -1,7 +1,7 @@
 # Semantic-family retrieval trailheads
 
-Status: v4 deterministic family and rare-seed trailheads are live-qualified;
-cross-lens inspiration effects are the active follow-on
+Status: v5 query-first monitoring and heuristic-first trailheads are
+live-qualified; relation-axis coverage is enforced for partition work
 
 Created: 2026-08-02
 
@@ -57,6 +57,13 @@ matched.
 - If no family cue qualifies, claim monitoring records an explicit lexical-query
   fallback while heuristic exploration constructs a typed rare-seed
   neighborhood with verbosity-normalised rarity and exact related refs.
+- Query-first monitoring stays on the highest-ranked query-relevant,
+  family-valid neighbourhood. Scope rotation applies to heuristic-first
+  exploration; it must not silently redirect an exact operator assignment to a
+  merely fresh but unrelated topic.
+- Partition and partition-completeness Agent runs treat mutual exclusion and
+  exhaustiveness as independent axes. Completion requires a grounded positive
+  hypothesis or falsification for each axis.
 
 ## Qualification
 
@@ -105,6 +112,24 @@ The scan also shows that a coherent trailhead may suggest a different relation
 family than its scheduled lens. That observation moves to
 `cross-lens-inspiration-effects.md`; retrieval must not force it into a false
 candidate merely to satisfy the current family.
+
+## 2026-08-10 v5 checkpoint
+
+A live House-control claim monitor exposed that feedback rotation could move an
+exact operator assignment from the Democratic/Republican House pair to an
+Arizona governor pair. Retrieval v5 keeps query-first work on the top
+query-relevant family-valid neighbourhood while preserving rotation for the
+default heuristic-first lane. The rerun selected the two exact House refs at
+rank one with six query signals and no unrelated substitution.
+
+That run also exposed an Agent-loop defect: disproving exhaustiveness caused
+the model to finish without testing mutual exclusion. The tool session now
+rejects partition completion until both axes have a durable positive or
+negative effect, and step preparation keeps the required tools available even
+after one proposal consumes the positive-hypothesis budget. A natural
+Terra/high rerun completed in four steps with one `EXHAUSTIVENESS`
+falsification and one `MUTUALLY_EXCLUSIVE` hypothesis. The deep lane correctly
+reported duplicate scope and spent no redundant Pi request.
 
 ## 2026-08-02 anonymous-corpus checkpoint
 

@@ -131,7 +131,6 @@ async function reviewed() {
         }
         return deepSeekToolResponse("submit_semantic_review", {
           classification: "HARD_SETTLEMENT_CONSTRAINT",
-          assumptions: [],
           rationale: "The third traded outcome makes the hidden fatality premise explicit.",
         }, count);
       },
@@ -273,6 +272,9 @@ describe("Agent-native hidden premise analysis", () => {
     expect(review.report?.result.semanticConstraint).toMatchObject({
       listingRefs: refs,
       exactCompilerAdmission: "ELIGIBLE",
+    });
+    expect(reviewScheduler.projection().jobs[0]?.reviewOutcome).toMatchObject({
+      semanticConstraint: { exactCompilerAdmission: "ELIGIBLE" },
     });
 
     let premiseCalls = 0;

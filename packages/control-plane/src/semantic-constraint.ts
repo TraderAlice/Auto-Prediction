@@ -29,7 +29,8 @@ export type SemanticCounterexampleAttempt = Readonly<{
 export type SemanticConstraintArtifact = Readonly<{
   schemaVersion:
     | "pmh.semantic-constraint-proposal.v1"
-    | "pmh.semantic-constraint-proposal.v2";
+    | "pmh.semantic-constraint-proposal.v2"
+    | "pmh.semantic-constraint-proposal.v3";
   artifactHash: Hash;
   proposalId: Hash;
   proposalCorpusSnapshotIdentity: Hash;
@@ -89,7 +90,8 @@ export type SemanticConstraintAdmission = Readonly<{
     | "NO_FEASIBLE_STATE"
     | "NO_FORBIDDEN_STATE"
     | "UNVERIFIED_ASSUMPTION"
-    | "MISSING_RULE_EVIDENCE";
+    | "MISSING_RULE_EVIDENCE"
+    | "MISSING_STATE_RULE_EVIDENCE";
   diagnostic: string | null;
 }>;
 
@@ -182,7 +184,10 @@ export function inspectSemanticConstraintAdmission(
     });
   }
   if (
-    artifact.schemaVersion === "pmh.semantic-constraint-proposal.v2" &&
+    [
+      "pmh.semantic-constraint-proposal.v2",
+      "pmh.semantic-constraint-proposal.v3",
+    ].includes(artifact.schemaVersion) &&
     artifact.assumptions.length > 0
   ) {
     return Object.freeze({
@@ -200,6 +205,19 @@ export function inspectSemanticConstraintAdmission(
       status: "RESEARCH_ONLY",
       blocker: "MISSING_RULE_EVIDENCE",
       diagnostic: "Exact semantic admission requires complete rule evidence and no unresolved evidence item.",
+    });
+  }
+  if (
+    artifact.schemaVersion === "pmh.semantic-constraint-proposal.v3" &&
+    artifact.truthTable.some((state) =>
+      state.disposition === "IMPOSSIBLE" && state.evidenceListingRefs.length === 0
+    )
+  ) {
+    return Object.freeze({
+      status: "RESEARCH_ONLY",
+      blocker: "MISSING_STATE_RULE_EVIDENCE",
+      diagnostic:
+        "Every impossible settlement state must cite at least one in-scope listing rule before exact compilation.",
     });
   }
   return Object.freeze({ status: "ELIGIBLE", blocker: null, diagnostic: null });
@@ -293,7 +311,7 @@ export function buildSemanticConstraintArtifact(input: {
       : stateId(attemptedTruths),
   });
   const admission = inspectSemanticConstraintAdmission({
-    schemaVersion: "pmh.semantic-constraint-proposal.v2",
+    schemaVersion: "pmh.semantic-constraint-proposal.v3",
     classification: draft.classification,
     listingRefs,
     counterexampleAttempt,
@@ -303,7 +321,7 @@ export function buildSemanticConstraintArtifact(input: {
     ruleEvidence,
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.semantic-constraint-proposal.v2" as const,
+    schemaVersion: "pmh.semantic-constraint-proposal.v3" as const,
     proposalId: proposal.proposalId,
     proposalCorpusSnapshotIdentity: input.proposalCorpusSnapshotIdentity,
     evidenceCorpusSnapshotIdentity: input.evidenceCorpusSnapshotIdentity,
@@ -342,6 +360,7 @@ export function assertSemanticConstraintArtifact(value: unknown): SemanticConstr
     ![
       "pmh.semantic-constraint-proposal.v1",
       "pmh.semantic-constraint-proposal.v2",
+      "pmh.semantic-constraint-proposal.v3",
     ].includes(artifact.schemaVersion) ||
     !HASH_PATTERN.test(artifactHash) || artifactHash !== hashCanonical(body) ||
     !HASH_PATTERN.test(artifact.proposalId) ||

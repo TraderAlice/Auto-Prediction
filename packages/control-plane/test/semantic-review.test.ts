@@ -175,7 +175,6 @@ const evidenceGapEffectPayload = {
 } as const;
 const finalizationPayload = {
   classification: submissionPayload.constraint.classification,
-  assumptions: submissionPayload.constraint.assumptions,
   rationale: submissionPayload.rationale,
 } as const;
 
@@ -257,6 +256,7 @@ describe("adversarial semantic review", () => {
           semanticConstraint: {
             classification: "PROBABILISTIC_DEPENDENCE",
             exactCompilerAdmission: "RESEARCH_ONLY",
+            assumptions: [],
           },
           evidenceRequirements: [{
             kind: "VOID_CANCELLATION",
@@ -291,6 +291,7 @@ describe("adversarial semantic review", () => {
     expect(requestBody).toContain("submit_semantic_review");
     expect(requestBody).not.toContain('"recommendation"');
     expect(requestBody).not.toContain('"relationConclusion"');
+    expect(requestBody).not.toContain('"assumptions"');
     expect(requestCount).toBe(responses.length);
     expect(JSON.stringify(record)).not.toContain("test-only-key");
 
@@ -877,7 +878,7 @@ describe("adversarial semantic review", () => {
         schemaVersion: "pmh.semantic-review-report.v3",
         result: {
           semanticConstraint: {
-            schemaVersion: "pmh.semantic-constraint-proposal.v2",
+            schemaVersion: "pmh.semantic-constraint-proposal.v3",
             exactCompilerAdmission: "RESEARCH_ONLY",
           },
           evidenceRequirements: [{

@@ -10,6 +10,8 @@ import { z } from "zod";
 
 export const POLYMARKET_US_PRICE_SCALE = 100_000_000n;
 export const POLYMARKET_US_QUANTITY_SCALE = 10_000n;
+export const POLYMARKET_US_RULEBOOK_URL =
+  "https://www.cftc.gov/filings/orgrules/rules0519263672.docx";
 
 const AmountSchema = z.object({
   value: z.string(),
@@ -119,6 +121,7 @@ export const polymarketUsManifest: VenueManifest = {
     "https://docs.polymarket.us/api-reference/introduction",
     "https://docs.polymarket.us/api-reference/market/overview",
     "https://docs.polymarket.us/fees",
+    POLYMARKET_US_RULEBOOK_URL,
   ],
   mechanisms: ["US centralized event-contract order book"],
   precisionRules: [
@@ -228,6 +231,7 @@ export function normalizePolymarketUsCatalog(
       ...(market.startDate === undefined ? {} : { opensAt: market.startDate }),
       ...(market.endDate === undefined ? {} : { closesAt: market.endDate }),
       rulesText: market.description,
+      rulesUrl: POLYMARKET_US_RULEBOOK_URL,
       outcomes: Object.freeze(outcomes),
       collateralId: "USD",
       priceScale: POLYMARKET_US_PRICE_SCALE,

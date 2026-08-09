@@ -15,3 +15,4 @@ minimumReleaseAgeExclude:
   - '@ai-sdk/gateway@4.0.33 || 4.0.37'
   - '@ai-sdk/provider-utils@5.0.16'
   - ai@7.0.44 || 7.0.48
+  - mammoth@1.12.1

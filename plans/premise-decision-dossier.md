@@ -96,3 +96,10 @@ that makes the premise a state variable, or acquire an allowlisted official
 source and bind a verifiable claim. The selection must be driven by obligation
 yield and cost rather than automatically sending every causal story to the open
 web.
+
+Direct two-listing relations whose semantic constraint already has first-party
+exact admission no longer enter this lane. Running a second Agent to restate
+listing-intrinsic truth states created artificial obligations and obscured the
+real external evidence gap. Premise analysis remains required for conditional,
+multi-listing, or otherwise premise-bearing relations; historical premise jobs
+remain durable evidence but do not control the current direct-exact gate.

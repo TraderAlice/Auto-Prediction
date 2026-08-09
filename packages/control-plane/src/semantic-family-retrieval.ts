@@ -80,7 +80,8 @@ export type SemanticFamilyRetrievalPlan = Readonly<{
     | "pmh.semantic-family-retrieval.v1"
     | "pmh.semantic-family-retrieval.v2"
     | "pmh.semantic-family-retrieval.v3"
-    | "pmh.semantic-family-retrieval.v4";
+    | "pmh.semantic-family-retrieval.v4"
+    | "pmh.semantic-family-retrieval.v5";
   planIdentity: Hash;
   semanticFamily: SearchSemanticFamily;
   corpusIdentity: Hash;
@@ -505,13 +506,14 @@ export function assertSemanticFamilyRetrievalPlan(
   const isV2 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v2";
   const isV3 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v3";
   const isV4 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v4";
+  const isV5 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v5";
   const querySignals = plan.querySignals ?? [];
   const queryScore = plan.queryScore ?? null;
   const sampleListingRefs = plan.sampleListingRefs ?? [];
   const heuristicTrailhead = plan.heuristicTrailhead ?? null;
   if (
     plan.schemaVersion !== "pmh.semantic-family-retrieval.v1" ||
-    (!isV1 && !isV2 && !isV3 && !isV4) ||
+    (!isV1 && !isV2 && !isV3 && !isV4 && !isV5) ||
     !HASH_PATTERN.test(String(planIdentity)) || planIdentity !== hashCanonical(body) ||
     !isSearchSemanticFamily(plan.semanticFamily) ||
     !HASH_PATTERN.test(String(plan.corpusIdentity)) ||
@@ -576,7 +578,7 @@ export function assertSemanticFamilyRetrievalPlan(
       sampleListingRefs.some((item) => typeof item !== "string" || item.trim() === "")
     )) ||
     (isV3 && plan.heuristicTrailhead !== undefined) ||
-    (isV4 && (
+    ((isV4 || isV5) && (
       (plan.routingMode !== "HEURISTIC_FIRST" && plan.routingMode !== "QUERY_FIRST") ||
       !Array.isArray(plan.querySignals) || querySignals.length > MAX_QUERY_SIGNALS ||
       querySignals.some((item) => typeof item !== "string" || item.trim() === "") ||
@@ -609,7 +611,8 @@ export function assertSemanticFamilyRetrievalPlan(
     (plan.neighborhoodCount === 0
       ? plan.selectedNeighborhoodRank !== null || plan.anchorListingRefs.length !== 0 ||
         plan.sharedSignals.length !== 0 || plan.score !== null ||
-        ((isV2 || isV3 || isV4) && (querySignals.length !== 0 || queryScore !== null)) ||
+        ((isV2 || isV3 || isV4 || isV5) &&
+          (querySignals.length !== 0 || queryScore !== null)) ||
         (isV3 && (
           plan.selectionReason === "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE"
             ? sampleListingRefs.length === 0
@@ -746,8 +749,12 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
     .filter((item) => item.score > 0)
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .map((item) => item.index);
+  // QUERY_FIRST is the operator-authored monitoring lane. Once a bounded
+  // family-valid neighborhood wins the query ranking, completed-scope
+  // feedback must not silently replace the assignment with a less coherent
+  // fresh pair. HEURISTIC_FIRST retains scope rotation for open exploration.
   const selectionIndexes = queryRelevantIndexes.length > 0
-    ? queryRelevantIndexes
+    ? [queryRelevantIndexes[0]!]
     : neighborhoods.map((_, index) => index);
   for (const index of selectionIndexes) {
     const neighborhood = neighborhoods[index]!;
@@ -793,7 +800,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
       catalogContext: context,
       retrievalPlan: withPlanIdentity({
         schemaVersion: "pmh.semantic-family-retrieval.v1",
-        algorithmVersion: "pmh.semantic-family-retrieval.v4",
+        algorithmVersion: "pmh.semantic-family-retrieval.v5",
         semanticFamily: input.semanticFamily,
         corpusIdentity: input.corpusIdentity,
         eligibleVenueIds: venueIds,
@@ -833,7 +840,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
     catalogContext: selected.context,
     retrievalPlan: withPlanIdentity({
       schemaVersion: "pmh.semantic-family-retrieval.v1",
-      algorithmVersion: "pmh.semantic-family-retrieval.v4",
+      algorithmVersion: "pmh.semantic-family-retrieval.v5",
       semanticFamily: input.semanticFamily,
       corpusIdentity: input.corpusIdentity,
       eligibleVenueIds: venueIds,
@@ -864,13 +871,15 @@ export function semanticFamilyRetrievalBrief(
   assertSemanticFamilyRetrievalPlan(plan);
   if (plan.anchorListingRefs.length === 0) {
     if (
-      plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" &&
+      (plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" ||
+        plan.algorithmVersion === "pmh.semantic-family-retrieval.v5") &&
       plan.heuristicTrailhead !== null && plan.heuristicTrailhead !== undefined
     ) {
       return `Heuristic trailhead only (not a semantic or probability judgment): seed ${plan.heuristicTrailhead.seedListingRef} with ${plan.heuristicTrailhead.relatedListingRefs.length} related refs from rare signals [${plan.heuristicTrailhead.seedSignals.join(", ")}]. Form a claim only after inspecting exact refs; abstain when no relation is grounded.`;
     }
     if (
-      plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" &&
+      (plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" ||
+        plan.algorithmVersion === "pmh.semantic-family-retrieval.v5") &&
       plan.selectionReason === "NO_COHERENT_HEURISTIC_TRAILHEAD"
     ) {
       return `No coherent ${plan.semanticFamily} heuristic trailhead qualified; inspect the bounded context only for negative evidence and abstain rather than inventing a relation.`;
@@ -882,7 +891,8 @@ export function semanticFamilyRetrievalBrief(
   }
   const queryTrail = (plan.algorithmVersion === "pmh.semantic-family-retrieval.v2" ||
       plan.algorithmVersion === "pmh.semantic-family-retrieval.v3" ||
-      plan.algorithmVersion === "pmh.semantic-family-retrieval.v4") &&
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" ||
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v5") &&
       (plan.querySignals?.length ?? 0) > 0
     ? ` and matched issue signals [${plan.querySignals!.join(", ")}]`
     : "";

@@ -160,12 +160,34 @@ export function resolveProposalReviewOutcome(
 type NextGateInput = Readonly<{
   reviewJob: SemanticReviewJobRecord | null;
   reviewOutcome: ProposalReviewOutcomeResolution;
+  premiseAuditRequired: boolean;
   premiseJob: PremiseAnalysisJobRecord | null;
   premiseOutcome: ProposalPremiseOutcomeResolution;
   attention: Pick<ReviewAttentionItem, "operatorPosture"> | null;
   lifecycleCase: Pick<OpportunityLifecycleProjection, "nextAction"> | null;
   economics: Pick<ProposalEconomicTriageItem, "status"> | null;
 }>;
+
+function derivePostSemanticGate(
+  input: Pick<NextGateInput, "attention" | "lifecycleCase" | "economics">,
+): ProposalDecisionNextGate {
+  if (
+    input.lifecycleCase !== null &&
+    input.lifecycleCase.nextAction !== "INDEPENDENT_SEMANTIC_REVIEW" &&
+    input.lifecycleCase.nextAction !== "WAIT_FOR_HUMAN_APPROVAL" &&
+    input.lifecycleCase.nextAction !== "DISPLAY_NOTIFICATION" &&
+    input.lifecycleCase.nextAction !== "NONE"
+  ) return "FEE_DEPTH_QUALIFICATION";
+  if (
+    input.attention?.operatorPosture === "DECISION_READY" ||
+    input.lifecycleCase?.nextAction === "WAIT_FOR_HUMAN_APPROVAL" ||
+    input.lifecycleCase?.nextAction === "DISPLAY_NOTIFICATION"
+  ) return "OPERATOR_DECISION";
+  if (input.economics?.status === "POSITIVE_GROSS_HINT") {
+    return "FEE_DEPTH_QUALIFICATION";
+  }
+  return "OPERATOR_DECISION";
+}
 
 export function deriveProposalDecisionNextGate(
   input: NextGateInput,
@@ -199,6 +221,12 @@ export function deriveProposalDecisionNextGate(
   if (outcome.semanticConstraint?.classification !== "HARD_SETTLEMENT_CONSTRAINT") {
     return "RETAIN_AS_RESEARCH_ONLY";
   }
+  if (
+    !input.premiseAuditRequired &&
+    outcome.semanticConstraint.exactCompilerAdmission === "ELIGIBLE"
+  ) {
+    return derivePostSemanticGate(input);
+  }
   if (input.premiseOutcome.basis === "NOT_ANALYZED") {
     return "HIDDEN_PREMISE_ANALYSIS";
   }
@@ -224,20 +252,5 @@ export function deriveProposalDecisionNextGate(
     ) return "RETRY_PREMISE_ANALYSIS";
     return "RETAIN_AS_RESEARCH_ONLY";
   }
-  if (
-    input.lifecycleCase !== null &&
-    input.lifecycleCase.nextAction !== "INDEPENDENT_SEMANTIC_REVIEW" &&
-    input.lifecycleCase.nextAction !== "WAIT_FOR_HUMAN_APPROVAL" &&
-    input.lifecycleCase.nextAction !== "DISPLAY_NOTIFICATION" &&
-    input.lifecycleCase.nextAction !== "NONE"
-  ) return "FEE_DEPTH_QUALIFICATION";
-  if (
-    input.attention?.operatorPosture === "DECISION_READY" ||
-    input.lifecycleCase?.nextAction === "WAIT_FOR_HUMAN_APPROVAL" ||
-    input.lifecycleCase?.nextAction === "DISPLAY_NOTIFICATION"
-  ) return "OPERATOR_DECISION";
-  if (input.economics?.status === "POSITIVE_GROSS_HINT") {
-    return "FEE_DEPTH_QUALIFICATION";
-  }
-  return "OPERATOR_DECISION";
+  return derivePostSemanticGate(input);
 }

@@ -1526,7 +1526,8 @@ export function createControlPlane(options?: {
         proposal === undefined || review.status !== "PASS" || review.report === null ||
         review.report.result.semanticConstraint === undefined ||
         proposal.listingRefs.length < 2 || proposal.listingRefs.length > 4 ||
-        reviewJob === undefined || admission === null || admission.lane === "RESEARCH_ONLY"
+        reviewJob === undefined || admission === null ||
+        admission.lane !== "AUTO_PREMISE_REVIEW"
       ) return [];
       return [Object.freeze({
         proposal,
@@ -1954,9 +1955,12 @@ export function createControlPlane(options?: {
       const reviewOutcome = resolveProposalReviewOutcome(job, jobsById);
       const premiseJob = premiseJobs.get(proposalId) ?? null;
       const premiseOutcome = resolveProposalPremiseOutcome(premiseJob);
+      const premiseAuditRequired = proposal === null ||
+        classifySemanticReviewAdmission(proposal).lane === "AUTO_PREMISE_REVIEW";
       const nextGate = deriveProposalDecisionNextGate({
         reviewJob: job,
         reviewOutcome,
+        premiseAuditRequired,
         premiseJob,
         premiseOutcome,
         attention: operatorAttention,

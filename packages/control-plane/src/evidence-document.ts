@@ -4,6 +4,10 @@ import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import { hashBytes, hashCanonical, type Hash } from "@pmh/domain";
 import { geminiManifest } from "@pmh/venue-gemini";
+import {
+  POLYMARKET_US_RULEBOOK_URL,
+  polymarketUsManifest,
+} from "@pmh/venue-polymarket-us";
 import { assertEvidenceRequirement, type EvidenceRequirement } from "./evidence-requirement.js";
 import {
   buildDiscoveryEvidenceLocator,
@@ -14,7 +18,10 @@ import type { DiscoveryEvidenceLocator } from "./types.js";
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const UNSIGNED_DECIMAL = /^(?:0|[1-9]\d*)$/u;
 const PDF_EXTRACTOR = "pdfjs-dist@6.2.108";
+const DOCX_EXTRACTOR = "mammoth@1.12.1:raw-text";
 const TEXT_EXTRACTOR = "pmh.bounded-document-text@1";
+const DOCX_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const POLICY_KEYS = Object.freeze([
   "allowedContentTypes", "allowedHostnames", "authority", "credentialsUsed",
   "executionAuthority", "extractionTimeoutMs", "maxExtractedCharacters",
@@ -306,13 +313,23 @@ export function assertEvidenceDocumentFetchPolicy(
 }
 
 export function defaultEvidenceDocumentFetchPolicies(): readonly EvidenceDocumentFetchPolicy[] {
-  return Object.freeze([buildEvidenceDocumentFetchPolicy({
-    venueId: geminiManifest.venueId,
-    protocolIdentity: geminiManifest.protocolIdentity,
-    role: "CONTRACT_RULE_DOCUMENT",
-    allowedHostnames: ["assets.gemini.com"],
-    allowedContentTypes: ["application/pdf"],
-  })]);
+  return Object.freeze([
+    buildEvidenceDocumentFetchPolicy({
+      venueId: geminiManifest.venueId,
+      protocolIdentity: geminiManifest.protocolIdentity,
+      role: "CONTRACT_RULE_DOCUMENT",
+      allowedHostnames: ["assets.gemini.com"],
+      allowedContentTypes: ["application/pdf"],
+    }),
+    buildEvidenceDocumentFetchPolicy({
+      venueId: polymarketUsManifest.venueId,
+      protocolIdentity: polymarketUsManifest.protocolIdentity,
+      role: "CONTRACT_RULE_DOCUMENT",
+      allowedHostnames: [new URL(POLYMARKET_US_RULEBOOK_URL).hostname],
+      allowedContentTypes: [DOCX_CONTENT_TYPE],
+      maxResponseBytes: 5_000_000,
+    }),
+  ]);
 }
 
 function ipv4Number(address: string): number | null {
@@ -733,6 +750,21 @@ export async function extractEvidenceDocumentText(
       document: document.record,
       ...extracted,
       extractor: PDF_EXTRACTOR,
+    });
+  }
+  if (document.record.contentType === DOCX_CONTENT_TYPE) {
+    const mammoth = await import("mammoth");
+    const result = await mammoth.extractRawText({
+      buffer: Buffer.from(document.bytes),
+    });
+    const bounded = boundedTextResult(result.value, policy.maxExtractedCharacters);
+    return extractionRecord({
+      document: document.record,
+      text: bounded.text,
+      truncated: bounded.truncated,
+      pageCount: null,
+      indirectObjectDeclarationCount: null,
+      extractor: DOCX_EXTRACTOR,
     });
   }
   let decoded: string;

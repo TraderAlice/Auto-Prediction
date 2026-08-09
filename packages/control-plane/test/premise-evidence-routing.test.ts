@@ -216,6 +216,42 @@ describe("premise evidence routing", () => {
     })).toThrow(/candidate listing/u);
   });
 
+  it("rekeys an unspent route when its semantic corpus changes", () => {
+    const scheduler = new PremiseEvidenceRoutingScheduler({
+      router: {
+        configured: true,
+        model: router.model,
+        routerIdentity: router.identity,
+        async route(): Promise<PremiseEvidenceRoutingArtifact> {
+          return routeArtifact();
+        },
+      },
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-10T00:00:00.000Z"),
+    });
+    const first = Object.freeze({ proposal, outcome: outcome(), corpus: corpus() });
+    const revised = Object.freeze({
+      proposal,
+      outcome: outcome(),
+      corpus: corpus("0.40", "Trump drinks tea in September"),
+    });
+    scheduler.reconcile([first]);
+    const firstJob = scheduler.projection().jobs[0]!;
+    scheduler.reconcile([revised]);
+    const projection = scheduler.projection();
+
+    expect(projection).toMatchObject({
+      pendingCount: 1,
+      supersededCount: 1,
+      budget: { providerAttemptsStarted: 0 },
+    });
+    expect(projection.jobs).toHaveLength(2);
+    expect(projection.jobs.at(-1)?.jobId).not.toBe(firstJob.jobId);
+    expect(projection.jobs.at(-1)?.corpusIdentity).toBe(
+      premiseEvidenceCorpusIdentity(revised.corpus),
+    );
+  });
+
   it("leases, persists, and reuses a passing route across restart", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-premise-route-"));
     const path = join(directory, "operational.sqlite");

@@ -16,6 +16,13 @@ const publicResolver = vi.fn(async () => Object.freeze([
   Object.freeze({ address: "8.8.8.8", family: 4 as const }),
 ]));
 
+const DOCX_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const MINIMAL_DOCX = Uint8Array.from(Buffer.from(
+  "UEsDBBQAAAAIANssCl3MVIwQ4AAAAJwBAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbH2Qy07DMBBFf8XyFsUTukAIJekCyhJYlA+w7Eli4Zc8bil/z6QtXaDC0r6PM7rd+hC82GMhl2Ivb1UrBUaTrItTL9+3z829XA/d9isjCbZG6uVca34AIDNj0KRSxsjKmErQlZ9lgqzNh54QVm17BybFirE2demQQ/eEo975KjYH/j5hC3qS4vFkXFi91Dl7Z3RlHfbR/qI0Z4Li5NFDs8t0wwYJVwmL8jfgnHvlHYqzKN50qS86sAs+U7Fgk9kFTqr/a67cmcbRGbzkl7ZckkEiHjh4dVGCdvHnfjjOPXwDUEsDBBQAAAAIANssCl02V97cogAAABgBAAALAAAAX3JlbHMvLnJlbHONzzsOwjAMBuCrRN6pCwNCqGkXhNQVlQNEiZtGNA8l4XV7MjBQxMBo+/dnuekedmY3isl4x2Fd1cDISa+M0xzOw3G1g65tTjSLXBJpMiGxsuIShynnsEdMciIrUuUDuTIZfbQilzJqDEJehCbc1PUW46cBS5P1ikPs1RrY8Az0j+3H0Ug6eHm15PKPE1+JIouoKXO4+6hQvdtVYQHbBhcvti9QSwMEFAAAAAgA2ywKXZeMu2u0AAAA9gAAABEAAAB3b3JkL2RvY3VtZW50LnhtbEWPSw7CMAxErxJlT1NYIFS1ZYHECeAAbWLaiCaO7PTD7UnKgs2zrLFmxvV1c5NYgNiib+SxKKUAr9FYPzTy+bgfLvLa1mtlUM8OfBTp3nO1NnKMMVRKsR7BdVxgAJ+0F5LrYlppUCuSCYQamJOdm9SpLM/KddbLbNmj+eQZMigjtreZKKfApsfODyBonqBHfItAwEALsMA5anRJgsXCKoxlTRBT/6JW2SOTdoadvxz1/6H9AlBLAQIUAxQAAAAIANssCl3MVIwQ4AAAAJwBAAATAAAAAAAAAAAAAACAAQAAAABbQ29udGVudF9UeXBlc10ueG1sUEsBAhQDFAAAAAgA2ywKXTZX3tyiAAAAGAEAAAsAAAAAAAAAAAAAAIABEQEAAF9yZWxzLy5yZWxzUEsBAhQDFAAAAAgA2ywKXZeMu2u0AAAA9gAAABEAAAAAAAAAAAAAAIAB3AEAAHdvcmQvZG9jdW1lbnQueG1sUEsFBgAAAAADAAMAuQAAAL8CAAAAAA==",
+  "base64",
+));
+
 function listing(
   listingRef: string,
   url?: string,
@@ -194,6 +201,35 @@ describe("policy-constrained evidence document acquisition", () => {
       .toBe(capture.extraction.record.extractionId);
     expect(assertEvidenceDocumentObservation(capture.observation).observationId)
       .toBe(capture.observation.observationId);
+  });
+
+  it("extracts a bounded official DOCX rulebook without granting semantic authority", async () => {
+    const input = scope(
+      "https://rules.example.com/contracts/rulebook.docx",
+      [DOCX_CONTENT_TYPE],
+    );
+    const capture = await new EvidenceDocumentFetcher({
+      policies: [input.policy],
+      resolve: publicResolver,
+      now: clock(),
+      fetch: async () => new Response(MINIMAL_DOCX, {
+        status: 200,
+        headers: { "content-type": DOCX_CONTENT_TYPE },
+      }),
+    }).capture(input);
+
+    expect(capture.document.record.contentType).toBe(DOCX_CONTENT_TYPE);
+    expect(capture.extraction.text).toContain(
+      "Current exchange rulebook preserves outcome review discretion.",
+    );
+    expect(capture.extraction.record).toMatchObject({
+      status: "EXTRACTED",
+      pageCount: null,
+      indirectObjectDeclarationCount: null,
+      promptInstructionsAccepted: false,
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
   });
 
   it("uses a retained validator for 304 and records a new observation without new bytes", async () => {

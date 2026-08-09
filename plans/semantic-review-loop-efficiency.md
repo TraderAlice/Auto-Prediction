@@ -241,10 +241,27 @@ typed production build completed.
 
 ## Next checkpoint
 
-1. Replace the four unbound House premise propositions with listing-intrinsic
-   expressions or explicit evidence obligations; do not advance to fees/depth
-   merely because the semantic review is now complete.
+1. Measure whether official venue-policy documents resolve or contradict the
+   remaining House evidence dependency; do not convert discretionary venue
+   language into deterministic settlement authority.
 2. Observe new real-provider failures until each retry class has natural live
    samples, then calibrate class-specific delays without changing attempt caps.
 3. Add resolved-outcome calibration before using token efficiency as a quality
    signal; cheaper abstention is not automatically better semantic work.
+
+## 2026-08-10 v3 evidence-binding checkpoint
+
+The terminal schema no longer contains `assumptions`. Under
+`pmh.semantic-review-agent-effects.v3`, every impossible state must be supported
+by retained rule-evidence refs. A proposition that depends on facts outside the
+supplied contracts is recorded through `record_evidence_gap` with a structured
+acquisition requirement. The terminal rationale is bounded by the tool schema
+itself, preventing the repeated overlong submissions seen in live traffic.
+
+A manual House rerun retained a complete relation journal and one real external
+dependency concerning Speaker availability/venue fallback. It did not recreate
+the four model-authored premise sentences from the v2 workflow. Direct
+two-listing exact-eligible relations now skip the separate premise audit;
+conditional and multi-listing constraints retain that lane. The dossier's next
+gate is `RESOLVE_EVIDENCE_GAPS`, which reflects evidence actually missing from
+the supplied protocol rather than a second Agent restatement of the same rules.

@@ -75,6 +75,7 @@ export type SemanticReviewOutcomeCapsule = Readonly<{
       | "PROBABILISTIC_DEPENDENCE"
       | "TEXTUAL_RELATEDNESS";
     relationKind: MarketRelationProposal["relationKind"];
+    exactCompilerAdmission?: "ELIGIBLE" | "RESEARCH_ONLY";
   }>;
   missingEvidenceCount: number;
   counterexampleCount: number;
@@ -343,6 +344,7 @@ export function buildSemanticReviewOutcomeCapsule(
         artifactHash: constraint.artifactHash,
         classification: constraint.classification,
         relationKind: constraint.relationKind,
+        exactCompilerAdmission: constraint.exactCompilerAdmission,
       }),
     missingEvidenceCount: review.report.result.missingEvidence.length,
     counterexampleCount: review.report.result.counterexamples.length,
@@ -394,7 +396,9 @@ export function assertSemanticReviewOutcomeCapsule(
       ![
         "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
         "CONDITIONAL", "CONFLICTING", "RELATED",
-      ].includes(constraint.relationKind)
+      ].includes(constraint.relationKind) ||
+      (constraint.exactCompilerAdmission !== undefined &&
+        !["ELIGIBLE", "RESEARCH_ONLY"].includes(constraint.exactCompilerAdmission))
     )) ||
     !Number.isSafeInteger(capsule.missingEvidenceCount) ||
     capsule.missingEvidenceCount < 0 || capsule.missingEvidenceCount > 100 ||

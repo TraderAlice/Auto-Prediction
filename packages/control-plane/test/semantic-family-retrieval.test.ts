@@ -161,7 +161,7 @@ describe("semantic-family retrieval trailheads", () => {
       "polymarket-us:house-rep",
     ]);
     expect(selected.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v4",
+      algorithmVersion: "pmh.semantic-family-retrieval.v5",
       routingMode: "QUERY_FIRST",
       selectionReason: "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD",
       anchorListingRefs: ["polymarket-us:house-dem", "polymarket-us:house-rep"],
@@ -173,6 +173,28 @@ describe("semantic-family retrieval trailheads", () => {
     );
     expect(assertSemanticFamilyRetrievalPlan(selected.retrievalPlan)).toBe(
       selected.retrievalPlan,
+    );
+
+    const selectedScope = buildSearchScopeIdentity(selected.catalogContext.listings);
+    const monitoredAgain = buildSemanticFamilyCatalogSelection({
+      source: "QUALIFIED_LIVE_OBSERVATIONS",
+      corpusIdentity,
+      listings,
+      question: "Audit the Democratic and Republican 2026 US House-control midterms contracts.",
+      eligibleVenueIds: ["polymarket-us"],
+      semanticFamily: "PARTITION_COMPLETENESS",
+      maxContextListings: 2,
+      feedback: {
+        completedSemanticScopeIdentities: [selectedScope.semanticScopeIdentity],
+        attemptedRoutingScopeIdentities: [selectedScope.routingScopeIdentity],
+      },
+    });
+    expect(monitoredAgain.retrievalPlan.anchorListingRefs).toEqual([
+      "polymarket-us:house-dem",
+      "polymarket-us:house-rep",
+    ]);
+    expect(monitoredAgain.retrievalPlan.selectionReason).toBe(
+      "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD",
     );
 
     const heuristic = buildSemanticFamilyCatalogSelection({
@@ -187,7 +209,7 @@ describe("semantic-family retrieval trailheads", () => {
       routingMode: "HEURISTIC_FIRST",
     });
     expect(heuristic.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v4",
+      algorithmVersion: "pmh.semantic-family-retrieval.v5",
       routingMode: "HEURISTIC_FIRST",
       querySignals: [],
       queryScore: null,
@@ -264,7 +286,7 @@ describe("semantic-family retrieval trailheads", () => {
       routingMode: "HEURISTIC_FIRST",
     });
     expect(selected.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v4",
+      algorithmVersion: "pmh.semantic-family-retrieval.v5",
       selectionReason: "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD",
       routingMode: "HEURISTIC_FIRST",
       querySignals: [],

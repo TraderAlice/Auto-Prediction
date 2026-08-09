@@ -289,6 +289,51 @@ describe("bounded discovery agent session", () => {
     });
   });
 
+  it("requires partition searches to account for exclusion and exhaustiveness separately", () => {
+    const partitionTask = Object.freeze({
+      ...task,
+      maxHypotheses: 1,
+      searchAssignment: Object.freeze({
+        lens: "PARTITION" as const,
+        semanticFamily: "PARTITION_COMPLETENESS" as const,
+        sourceTrailheadIdentity: null,
+        inspirationDepth: 0 as const,
+      }),
+    });
+    const session = new DiscoveryAgentSession("model:partition", partitionTask, 16);
+    const listingRefs = ["venue-a:rain-yes", "venue-b:nyc-rain"];
+    session.inspectListings({ listingRefs });
+
+    expect(session.recordFalsification({
+      claim: "The two outcomes exhaust the possible rainfall states.",
+      reason: "The thresholds leave an uncovered interval between the contracts.",
+      relationKind: "EXHAUSTIVENESS",
+      listingRefs,
+      claimSearchTerms: ["rainfall partition"],
+    })).toMatchObject({
+      status: "ACCEPTED",
+      guidance: expect.stringContaining("mutual exclusion"),
+    });
+    expect(session.completeSearch({ reason: "Exhaustiveness failed." })).toMatchObject({
+      status: "REJECTED",
+      reason: "SEARCH_REQUIRED",
+      guidance: expect.stringContaining("mutual exclusion"),
+    });
+
+    expect(session.recordHypothesis({
+      thesis: "The inspected contracts cannot both resolve Yes.",
+      strategyKind: "COMPLETE_SET",
+      relationKind: "MUTUALLY_EXCLUSIVE",
+      listingRefs,
+      claimSearchTerms: ["rainfall threshold"],
+      confidenceBps: 7_000,
+    })).toMatchObject({ status: "ACCEPTED" });
+    expect(session.partitionCoverageComplete).toBe(true);
+    expect(session.completeSearch({
+      reason: "Both partition axes now have grounded findings.",
+    })).toMatchObject({ status: "ACCEPTED", reason: "SEARCH_COMPLETED" });
+  });
+
   it("records a grounded cross-lens inspiration without creating a proposal", () => {
     const inspiredTask = Object.freeze({
       ...task,

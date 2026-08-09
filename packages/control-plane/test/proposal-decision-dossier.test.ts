@@ -33,6 +33,7 @@ function capsule(seed: string): SemanticReviewOutcomeCapsule {
       artifactHash: hash(`${seed}5`),
       classification: "HARD_SETTLEMENT_CONSTRAINT",
       relationKind: "MUTUALLY_EXCLUSIVE",
+      exactCompilerAdmission: "ELIGIBLE",
     },
     missingEvidenceCount: 0,
     counterexampleCount: 1,
@@ -206,6 +207,7 @@ describe("proposal decision dossier", () => {
     const base = {
       reviewJob: pass,
       reviewOutcome: direct,
+      premiseAuditRequired: false,
       premiseJob: exactPremiseJob,
       premiseOutcome: resolveProposalPremiseOutcome(exactPremiseJob),
       attention: null,
@@ -217,6 +219,32 @@ describe("proposal decision dossier", () => {
       ...base,
       economics: { status: "POSITIVE_GROSS_HINT" },
     })).toBe("FEE_DEPTH_QUALIFICATION");
+    const staleResearchPremise = premiseJob(
+      "z",
+      "PASS",
+      premiseCapsule("z", "RESEARCH_ONLY"),
+    );
+    expect(deriveProposalDecisionNextGate({
+      ...base,
+      premiseJob: staleResearchPremise,
+      premiseOutcome: resolveProposalPremiseOutcome(staleResearchPremise),
+      economics: { status: "POSITIVE_GROSS_HINT" },
+    })).toBe("FEE_DEPTH_QUALIFICATION");
+    expect(deriveProposalDecisionNextGate({
+      ...base,
+      reviewOutcome: {
+        ...direct,
+        outcome: {
+          ...direct.outcome!,
+          semanticConstraint: {
+            ...direct.outcome!.semanticConstraint!,
+            exactCompilerAdmission: undefined,
+          },
+        },
+      },
+      premiseJob: null,
+      premiseOutcome: resolveProposalPremiseOutcome(null),
+    })).toBe("HIDDEN_PREMISE_ANALYSIS");
     expect(deriveProposalDecisionNextGate({
       ...base,
       reviewOutcome: resolveProposalReviewOutcome(job("c", "PASS"), new Map()),
@@ -261,6 +289,7 @@ describe("proposal decision dossier", () => {
     expect(deriveProposalDecisionNextGate({
       reviewJob: canonical,
       reviewOutcome: directResolution,
+      premiseAuditRequired: false,
       premiseJob: null,
       premiseOutcome: resolveProposalPremiseOutcome(null),
       attention: null,
@@ -275,6 +304,7 @@ describe("proposal decision dossier", () => {
     const input = {
       reviewJob: pass,
       reviewOutcome,
+      premiseAuditRequired: true,
       attention: { operatorPosture: "RESEARCH_ONLY" as const },
       lifecycleCase: null,
       economics: { status: "POSITIVE_GROSS_HINT" as const },

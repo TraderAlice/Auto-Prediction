@@ -121,3 +121,19 @@ The immediate follow-on is narrower than auto-decision: make rejected semantic
 review tool submissions expose field-level, bounded repair feedback and ensure
 the final permitted step can always emit either a valid review or an explicit
 abstention. Preserve the complete House bundles as the regression fixture.
+
+## 2026-08-10 venue-policy follow-on
+
+Complete market text is necessary but not always sufficient. Fresh Polymarket
+US listings now also carry the official CFTC-hosted exchange rulebook as a
+`CONTRACT_RULE_DOCUMENT` locator. Catalog normalizer v2 binds that new locator;
+historical v1 observations are verified under their original normalization and
+marked for fresh capture rather than silently reinterpreted.
+
+The constrained document boundary now accepts the official DOCX MIME under a
+5 MB first-party policy and extracts its bounded text. Live capture retrieved
+the 4,140,483-byte June 2026 rulebook and extracted 197,796 characters. The
+document contains the Contract Outcome Review Process and states that the
+exchange retains discretion in reviewing markets. This is useful negative
+protocol evidence: a venue-level document may expose a remaining uncertainty
+instead of promoting the House pair to exact settlement admission.

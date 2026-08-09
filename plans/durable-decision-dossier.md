@@ -101,3 +101,9 @@ Once semantic outcome evidence is durable, anonymous fee and depth acquisition
 can attach a separate expiring microstructure preflight to dossiers whose
 semantic gate is genuinely eligible. It must not spend requests on legacy or
 research-only cases merely because their catalog midpoint looked positive.
+
+The outcome capsule now also retains the first-party semantic constraint's
+`exactCompilerAdmission`. A direct two-listing relation reaches operator or
+fee/depth gating only when that admission is `ELIGIBLE`; research-only
+constraints and unresolved evidence remain visibly stopped. Historical
+capsules without the field replay conservatively.

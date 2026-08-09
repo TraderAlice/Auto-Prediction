@@ -159,3 +159,10 @@ and cross-lens inspirations produce trailheads; an Agent earns a claim only
 after reading the exact contracts. Claim monitoring is explicitly secondary
 and lives with search operations, where it remains useful for operator ideas,
 regression cases, and scheduled re-checks.
+
+The distinction also changes rotation policy. Exploration is selected for
+novelty and may rotate away from previously completed neighbourhoods. A focused
+monitor is selected for fidelity to its durable assignment and stays on the
+highest-ranked query-relevant family-valid neighbourhood. This preserves
+claim-first as a useful exploit/regression lane without letting it define the
+product's default search surface.
