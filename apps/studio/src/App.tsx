@@ -57,6 +57,7 @@ import {
   type ProjectionSyncState,
   type StudioProjection,
 } from "@/data/studio-projection";
+import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
 import { cn } from "@/lib/utils";
 import {
   parseWorkspaceRoute,
@@ -6933,6 +6934,9 @@ function ScoutInboxView({
 }) {
   const studioProjection = useStudioProjection();
   const scheduler = studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
+  const economicTriage =
+    studioProjection.ai.proposalEconomicTriage ?? EMPTY_PROPOSAL_ECONOMIC_TRIAGE;
+  const opportunityFrontier = buildOpportunityFrontier(economicTriage);
   const catalogContext =
     studioProjection.ai.catalogContext ?? EMPTY_CATALOG_CONTEXT;
   const catalogObservation = studioProjection.ai.catalogObservation;
@@ -7088,6 +7092,74 @@ function ScoutInboxView({
         <Metric label="Deep retries" value={`${retryCount}`} detail="fast result preserved" />
         <Metric label="Negative evidence" value={`${negativeCount}`} detail="reusable falsifications" />
       </div>
+
+      <section className="opportunity-frontier" aria-label="Current opportunity frontier">
+        <div className="opportunity-frontier-heading">
+          <div>
+            <span className="eyebrow">Current contracts · pre-fee research leads</span>
+            <h2>Opportunity frontier</h2>
+            <p>
+              Price-positive semantic candidates worth inspecting now. Gross
+              edge is only a routing hint until review, fees, and depth pass.
+            </p>
+          </div>
+          <div>
+            <Badge variant={opportunityFrontier.totalPositiveCount > 0 ? "verified" : "muted"}>
+              {opportunityFrontier.totalPositiveCount} CURRENT HINT{opportunityFrontier.totalPositiveCount === 1 ? "" : "S"}
+            </Badge>
+            <span>
+              {opportunityFrontier.visiblePositiveCount}/{opportunityFrontier.totalPositiveCount} visible
+            </span>
+          </div>
+        </div>
+        {opportunityFrontier.items.length === 0 ? (
+          <div className="opportunity-frontier-empty">
+            <Gauge size={18} />
+            <div>
+              <strong>No current price-positive candidates</strong>
+              <span>Scheduled search continues; negative and unpriced findings remain retained below.</span>
+            </div>
+          </div>
+        ) : (
+          <div className="opportunity-frontier-grid">
+            {opportunityFrontier.items.map((item) => (
+              <article key={item.itemId}>
+                <div className="opportunity-frontier-card-head">
+                  <div className="opportunity-frontier-edge">
+                    <strong>+{item.indicativeEconomics.grossEdgeBpsFloor ?? "—"}</strong>
+                    <span>bps gross</span>
+                  </div>
+                  <div>
+                    <Badge variant="verified">PRICE POSITIVE</Badge>
+                    <Badge variant="muted">{item.relationKind.replaceAll("_", " ")}</Badge>
+                  </div>
+                </div>
+                <h3 title={item.statement}>{item.statement}</h3>
+                <div className="opportunity-frontier-facts">
+                  <span>{item.currentContractMatchCount}/{item.listingRefs.length} current contracts</span>
+                  <span>{item.issueIds.length} search issue{item.issueIds.length === 1 ? "" : "s"}</span>
+                  <span>P{item.effectivePriority} review priority</span>
+                </div>
+                <code>{item.listingRefs.join(" ↔ ")}</code>
+                <div className="opportunity-frontier-card-foot">
+                  <span>Needs semantic review · fees · depth</span>
+                  <Button size="sm" onClick={() => onOpenReview([item.proposalId])}>
+                    <GitBranch size={13} /> Inspect proposal
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+        {opportunityFrontier.windowed && (
+          <div className="opportunity-frontier-window-note" role="status">
+            <CircleOff size={14} />
+            <span>
+              {opportunityFrontier.omittedPositiveCount} additional positive hint{opportunityFrontier.omittedPositiveCount === 1 ? " is" : "s are"} outside the bounded live view; the total is retained, not reported as zero.
+            </span>
+          </div>
+        )}
+      </section>
 
       <section className="finding-inbox" aria-label="Durable finding inbox">
         <div className="finding-inbox-toolbar">

@@ -18,6 +18,8 @@ and search-origin probability calibration tracked in
 [`plans/search-origin-probability-calibration.md`](plans/search-origin-probability-calibration.md),
 with Studio invalidation transport tracked in
 [`plans/studio-invalidation-stream.md`](plans/studio-invalidation-stream.md),
+and the primary price-positive opportunity frontier tracked in
+[`plans/opportunity-frontier.md`](plans/opportunity-frontier.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
 and AI resource observability tracked in
@@ -92,6 +94,15 @@ read returned 304 with zero bytes in 0.000789 seconds, and the observed idle
 control-plane sample fell from the old 52–55% projection-fanout workload to
 0.2%. Studio retains its last good view and reports Live data, Updating, or
 Reconnecting instead of silently replacing megabytes of state.
+
+The product bottleneck has moved from discovery volume to opportunity delivery.
+The primary Finding inbox now opens with a price-positive Opportunity frontier:
+all six current gross hints win the bounded live window, are ordered by bigint
+gross-edge basis points, and carry one exact proposal ID into the persisted
+Review handoff. The three proposals previously absent from the live economic
+detail window each restore their proposal, review job, and lifecycle case.
+Every card names semantic review, fees, and depth as outstanding, so a gross
+hint cannot masquerade as executable profit.
 
 That posture is now executable and attributable. Managed semantic-family work
 is bound as `HEURISTIC_EXPLORATION`; it ignores query-term preference and falls

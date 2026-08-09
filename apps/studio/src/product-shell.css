@@ -508,6 +508,181 @@ main {
   margin-bottom: 16px;
 }
 
+.opportunity-frontier {
+  overflow: hidden;
+  margin-bottom: 20px;
+  border: 1px solid #29443a;
+  border-radius: 12px;
+  background: #121916;
+}
+
+.opportunity-frontier-heading {
+  display: flex;
+  min-height: 92px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid #29443a;
+  padding: 16px 18px;
+}
+
+.opportunity-frontier-heading > div:first-child {
+  min-width: 0;
+}
+
+.opportunity-frontier-heading h2 {
+  margin: 3px 0 4px;
+  font-size: 20px;
+  font-weight: 640;
+  letter-spacing: -0.025em;
+}
+
+.opportunity-frontier-heading p {
+  max-width: 720px;
+  margin: 0;
+  color: #929b98;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.opportunity-frontier-heading > div:last-child {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.opportunity-frontier-heading > div:last-child > span {
+  color: #7f8885;
+  font-size: 12px;
+}
+
+.opportunity-frontier-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.opportunity-frontier-grid > article {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 11px;
+  border-right: 1px solid #29443a;
+  border-bottom: 1px solid #29443a;
+  padding: 18px;
+}
+
+.opportunity-frontier-grid > article:nth-child(2n) {
+  border-right: 0;
+}
+
+.opportunity-frontier-grid > article:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.opportunity-frontier-card-head,
+.opportunity-frontier-card-head > div:last-child,
+.opportunity-frontier-facts,
+.opportunity-frontier-card-foot {
+  display: flex;
+  align-items: center;
+}
+
+.opportunity-frontier-card-head,
+.opportunity-frontier-card-foot {
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.opportunity-frontier-card-head > div:last-child,
+.opportunity-frontier-facts {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.opportunity-frontier-edge {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.opportunity-frontier-edge strong {
+  color: var(--primary);
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.opportunity-frontier-edge span,
+.opportunity-frontier-facts span,
+.opportunity-frontier-card-foot > span {
+  color: #89928f;
+  font-size: 12px;
+}
+
+.opportunity-frontier-grid h3 {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: #e7eae8;
+  font-size: 14px;
+  font-weight: 600;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-height: 1.5;
+}
+
+.opportunity-frontier-facts span + span::before {
+  margin-right: 6px;
+  color: #46504b;
+  content: "·";
+}
+
+.opportunity-frontier-grid code {
+  overflow-wrap: anywhere;
+  color: #8f9a95;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.opportunity-frontier-empty {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  color: var(--primary);
+  padding: 24px;
+}
+
+.opportunity-frontier-empty > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.opportunity-frontier-empty strong {
+  color: #e7eae8;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.opportunity-frontier-empty span,
+.opportunity-frontier-window-note {
+  color: #89928f;
+  font-size: 12.5px;
+}
+
+.opportunity-frontier-window-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #29443a;
+  padding: 11px 18px;
+}
+
 .finding-inbox {
   overflow: hidden;
   border: 1px solid #292f35;
@@ -995,6 +1170,21 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .opportunity-frontier-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .opportunity-frontier-grid > article,
+  .opportunity-frontier-grid > article:nth-child(2n),
+  .opportunity-frontier-grid > article:nth-last-child(-n + 2) {
+    border-right: 0;
+    border-bottom: 1px solid #29443a;
+  }
+
+  .opportunity-frontier-grid > article:last-child {
+    border-bottom: 0;
+  }
+
   .focused-review-handoff-list > article,
   .focused-review-handoff-list > article:nth-child(2n),
   .focused-review-handoff-list > article:nth-last-child(-n + 2) {
@@ -1066,9 +1256,20 @@ footer {
 
   .finding-inbox-toolbar,
   .finding-inbox-item-head,
-  .focused-review-handoff-heading {
+  .focused-review-handoff-heading,
+  .opportunity-frontier-heading,
+  .opportunity-frontier-card-foot {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .opportunity-frontier-heading > div:last-child {
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .opportunity-frontier-card-foot > [data-slot="button"] {
+    width: 100%;
   }
 
   .focused-review-handoff-heading > [data-slot="button"] {

@@ -86,7 +86,12 @@ function fixtureFullProjection(): StudioProjection {
       proposalEconomicTriage: {
         ...base.ai.proposalEconomicTriage,
         items: fake(beyond(LIVE_PROJECTION_LIMITS.economicTriageItems),
-          (index) => ({ index }) as unknown as
+          (index) => ({
+            index,
+            status: index >= LIVE_PROJECTION_LIMITS.economicTriageItems
+              ? "POSITIVE_GROSS_HINT"
+              : "SETTLEMENT_INELIGIBLE",
+          }) as unknown as
             typeof base.ai.proposalEconomicTriage.items[number]),
       },
       semanticReviewAdmission: {
@@ -179,6 +184,9 @@ describe("live Studio projection window", () => {
       LIVE_PROJECTION_LIMITS.semanticReviewJobs,
     );
     expect(live.ai.semanticReviewScheduler.jobs[0]?.status).toBe("LEASED");
+    expect(live.ai.proposalEconomicTriage.items.slice(0, 5).every(
+      (item) => item.status === "POSITIVE_GROSS_HINT",
+    )).toBe(true);
     expect(live.ai.semanticRelationGraph.listings).toEqual([]);
     expect(live.ai.semanticRelationGraph.listingCount).toBe(40);
     expect(live.opportunityLifecycle.cases).toHaveLength(
@@ -189,6 +197,14 @@ describe("live Studio projection window", () => {
       totalCount: LIVE_PROJECTION_LIMITS.semanticReviewJobs + 5,
       includedCount: LIVE_PROJECTION_LIMITS.semanticReviewJobs,
       limit: LIVE_PROJECTION_LIMITS.semanticReviewJobs,
+      selection: "ACTIVE_THEN_RETAINED_ORDER",
+      fullResource: "/api/v1/projection?view=full",
+    });
+    expect(live.projectionWindow.collections).toContainEqual({
+      path: "ai.proposalEconomicTriage.items",
+      totalCount: LIVE_PROJECTION_LIMITS.economicTriageItems + 5,
+      includedCount: LIVE_PROJECTION_LIMITS.economicTriageItems,
+      limit: LIVE_PROJECTION_LIMITS.economicTriageItems,
       selection: "ACTIVE_THEN_RETAINED_ORDER",
       fullResource: "/api/v1/projection?view=full",
     });

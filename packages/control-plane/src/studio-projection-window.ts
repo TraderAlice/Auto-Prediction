@@ -226,7 +226,8 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
     "ai.proposalEconomicTriage.items",
     full.ai.proposalEconomicTriage.items,
     LIVE_PROJECTION_LIMITS.economicTriageItems,
-    "RETAINED_ORDER",
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (item) => item.status === "POSITIVE_GROSS_HINT",
   );
   const admissionCandidates = window(
     "ai.semanticReviewAdmission.candidates",
