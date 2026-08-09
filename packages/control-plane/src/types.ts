@@ -244,6 +244,7 @@ export type ModelProviderProjection = Readonly<{
   credentialEnv: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY" | "CODEX_OAUTH";
   model: string;
   maxOutputTokens: number;
+  maxOutputTokensEnforced: boolean;
   timeoutMs: number;
   maxSteps: number;
   maxToolCalls: number;

@@ -165,6 +165,7 @@ export function buildStudioProjection(input: {
     credentialEnv: "DEEPSEEK_API_KEY" as const,
     model: "deepseek-v4-flash",
     maxOutputTokens: 800,
+    maxOutputTokensEnforced: true,
     timeoutMs: 300_000,
     maxSteps: 8,
     maxToolCalls: 24,

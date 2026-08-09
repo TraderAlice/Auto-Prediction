@@ -12,6 +12,7 @@ import {
   NoSuchToolError,
   RetryError,
   stepCountIs,
+  streamText,
   tool,
   ToolCallRepairError,
   TypeValidationError,
@@ -638,6 +639,8 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
   requestAttemptCount: () => number;
   usageRecorder?: AiUsageRecorder;
   providerOptions?: Parameters<typeof generateText>[0]["providerOptions"];
+  streamResponses?: boolean;
+  omitMaxOutputTokens?: boolean;
 }>): Promise<DiscoveryAgentRunResult> {
   const remainingMs = input.task.deadlineEpochMs - Date.now();
   if (remainingMs <= 0) {
@@ -713,7 +716,7 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
     }),
   };
   try {
-    const result = await generateText({
+    const request: Parameters<typeof generateText>[0] = {
       model: input.model,
       tools,
       toolChoice: "required",
@@ -723,7 +726,9 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
         () => session.acceptedProposalCount >= input.task.maxHypotheses,
         () => session.effectCount >= input.maxToolCalls,
       ],
-      maxOutputTokens: input.maxOutputTokens,
+      ...(input.omitMaxOutputTokens === true
+        ? {}
+        : { maxOutputTokens: input.maxOutputTokens }),
       maxRetries: 0,
       abortSignal: controller.signal,
       repairToolCall: async ({ toolCall }) => {
@@ -804,11 +809,16 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
           }
         }
       },
-    });
-    const stepCount = Math.max(completedStepCount, result.steps.length);
+    };
+    const result = input.streamResponses === true
+      ? streamText(request)
+      : await generateText(request);
+    const steps = await result.steps;
+    const usage = await result.usage;
+    const stepCount = Math.max(completedStepCount, steps.length);
     const toolCallCount = Math.max(
       observedToolCallCount,
-      result.steps.reduce((sum, step) => sum + step.toolCalls.length, 0),
+      steps.reduce((sum, step) => sum + step.toolCalls.length, 0),
     );
     const terminationReason: DiscoveryAgentTerminationReason = session.completed
       ? "EXPLICIT_COMPLETION"
@@ -833,7 +843,7 @@ export async function runAiSdkDiscoveryAgent(input: Readonly<{
       outcome: "SUCCEEDED",
       durableEffect: session.acceptedProposalCount > 0,
       providerRequestCount: input.requestAttemptCount(),
-      usage: result.usage,
+      usage,
     });
     return session.finish({
       stepCount,

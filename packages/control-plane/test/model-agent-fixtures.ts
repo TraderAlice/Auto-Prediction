@@ -146,6 +146,56 @@ export function openAiRawToolResponse(
   });
 }
 
+export function openAiStreamToolResponse(
+  name: string,
+  argumentsValue: unknown,
+  ordinal: number,
+): Response {
+  const callId = `call-${ordinal}`;
+  const itemId = `fc-${ordinal}`;
+  const argumentsText = JSON.stringify(argumentsValue);
+  const events = [
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        type: "function_call",
+        id: itemId,
+        call_id: callId,
+        name,
+        arguments: "",
+      },
+    },
+    {
+      type: "response.output_item.done",
+      output_index: 0,
+      item: {
+        type: "function_call",
+        id: itemId,
+        call_id: callId,
+        name,
+        arguments: argumentsText,
+        status: "completed",
+      },
+    },
+    {
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 100,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens: 20,
+          output_tokens_details: { reasoning_tokens: 5 },
+        },
+      },
+    },
+  ];
+  return new Response(
+    `${events.map((event) => `data: ${JSON.stringify(event)}`).join("\n\n")}\n\ndata: [DONE]\n\n`,
+    { headers: { "content-type": "text/event-stream" } },
+  );
+}
+
 export function scriptedToolCall(ordinal: number): Readonly<{
   name: string;
   input: unknown;

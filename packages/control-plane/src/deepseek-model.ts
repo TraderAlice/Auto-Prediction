@@ -197,6 +197,7 @@ export function createDeepSeekDiscoveryRuntime(
     credentialEnv: "DEEPSEEK_API_KEY",
     model,
     maxOutputTokens,
+    maxOutputTokensEnforced: true,
     timeoutMs,
     maxSteps,
     maxToolCalls,

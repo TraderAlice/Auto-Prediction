@@ -120,6 +120,8 @@ export class CodexAiSdkAgentPort implements DiscoveryAgentPort {
           parallelToolCalls: false,
         },
       },
+      streamResponses: true,
+      omitMaxOutputTokens: true,
     });
   }
 }
@@ -179,6 +181,7 @@ export function createCodexDiscoveryRuntime(
     credentialEnv: "CODEX_OAUTH",
     model: options.model,
     maxOutputTokens,
+    maxOutputTokensEnforced: false,
     timeoutMs,
     maxSteps,
     maxToolCalls,

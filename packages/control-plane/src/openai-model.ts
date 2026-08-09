@@ -200,6 +200,7 @@ export function createOpenAiDiscoveryRuntime(
     credentialEnv: "OPENAI_API_KEY",
     model,
     maxOutputTokens,
+    maxOutputTokensEnforced: true,
     timeoutMs,
     maxSteps,
     maxToolCalls,

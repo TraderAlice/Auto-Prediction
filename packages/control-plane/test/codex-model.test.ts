@@ -5,7 +5,7 @@ import {
 } from "../src/index.js";
 import {
   agentTask,
-  openAiToolResponse,
+  openAiStreamToolResponse,
   scriptedToolCall,
 } from "./model-agent-fixtures.js";
 
@@ -24,6 +24,7 @@ describe("Vercel AI SDK Codex OAuth discovery agent", () => {
       credentialEnv: "CODEX_OAUTH",
       model: "gpt-5.6-luna",
       maxOutputTokens: 800,
+      maxOutputTokensEnforced: false,
       timeoutMs: 300_000,
       maxSteps: 8,
       maxToolCalls: 24,
@@ -53,7 +54,7 @@ describe("Vercel AI SDK Codex OAuth discovery agent", () => {
           expect(headers.get("openai-beta")).toBe("responses=experimental");
           bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
           const call = scriptedToolCall(bodies.length);
-          return openAiToolResponse(call.name, call.input, bodies.length);
+          return openAiStreamToolResponse(call.name, call.input, bodies.length);
         },
       },
     );
@@ -63,11 +64,12 @@ describe("Vercel AI SDK Codex OAuth discovery agent", () => {
     expect(bodies[0]).toMatchObject({
       model: "gpt-5.6-terra",
       store: false,
-      max_output_tokens: 800,
       reasoning: { effort: "high" },
       tool_choice: "required",
       parallel_tool_calls: false,
+      stream: true,
     });
+    expect(bodies[0]).not.toHaveProperty("max_output_tokens");
     expect(bodies.every((body) => !("response_format" in body))).toBe(true);
     expect(result.trace).toMatchObject({
       providerRequestAttemptCount: 3,

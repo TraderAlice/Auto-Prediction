@@ -40,6 +40,15 @@ interaction are qualified. The four downstream specialist AI SDK loops retain
 their independent DeepSeek supply until cross-stage provider snapshot lineage
 is designed rather than silently inheriting an operator switch.
 
+Live use then exposed two Codex-backend differences that mocks had hidden:
+Responses must stream, and `max_output_tokens` is rejected. The discovery loop
+now consumes streaming tool calls natively and projects its 800-token value as
+a prompt target rather than an enforced provider ceiling. Luna/high completed
+a fresh three-effect control-plane run in 17.9 seconds with 7,625 input, 768
+output, and 253 reasoning tokens. Concurrent scheduled Codex scouts also ran
+successfully. Studio now labels a mixed worker result as partial instead of
+claiming “Proposal ready” when only the heuristic fallback passed.
+
 The product taxonomy now explicitly distinguishes hard arbitrage from
 probabilistic semantic arbitrage. A possible non-fatal shooting is not treated
 as a gotcha that discards the Trump shooting/live-cola pair; it is the adverse

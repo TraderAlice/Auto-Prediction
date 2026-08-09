@@ -1046,7 +1046,7 @@ async function requestDiscoveryRun(
   question: string,
   venueIds: readonly string[],
   catalogMode: CatalogMode = "VERIFIED_FIXTURES",
-): Promise<boolean> {
+): Promise<Readonly<{ restored: boolean; partial: boolean }>> {
   const response = await fetch("/api/v1/discovery/runs", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1060,6 +1060,7 @@ async function requestDiscoveryRun(
       authority?: string;
       reviewStatus?: string;
     }>[];
+    workerReports?: readonly Readonly<{ status?: string }>[];
   };
   if (
     result.executionAuthority !== false ||
@@ -1071,7 +1072,10 @@ async function requestDiscoveryRun(
   ) {
     throw new Error("scout crossed its authority boundary");
   }
-  return result.idempotentReplay === true;
+  return Object.freeze({
+    restored: result.idempotentReplay === true,
+    partial: result.workerReports?.some((report) => report.status !== "PASS") ?? false,
+  });
 }
 
 async function requestAiRuntimeConfigurationUpdate(
@@ -2115,7 +2119,7 @@ function Overview({
     studioProjection.ai.catalogContext ?? EMPTY_CATALOG_CONTEXT;
   const catalogObservation = studioProjection.ai.catalogObservation;
   const [scoutStatus, setScoutStatus] = useState<
-    "IDLE" | "RUNNING" | "PROPOSED" | "FAILED"
+    "IDLE" | "RUNNING" | "PROPOSED" | "PARTIAL" | "FAILED"
   >("IDLE");
   const [refreshStatus, setRefreshStatus] = useState<
     "IDLE" | "RUNNING" | "READY" | "DEGRADED" | "FAILED"
@@ -2151,11 +2155,11 @@ function Overview({
   async function runScout(): Promise<void> {
     setScoutStatus("RUNNING");
     try {
-      await requestDiscoveryRun(
+      const result = await requestDiscoveryRun(
         "Highest temperature in Boston on July 31, 2026?",
         ["gemini-predictions"],
       );
-      setScoutStatus("PROPOSED");
+      setScoutStatus(result.partial ? "PARTIAL" : "PROPOSED");
     } catch {
       setScoutStatus("FAILED");
     }
@@ -2250,6 +2254,8 @@ function Overview({
               ? "Scouting…"
               : scoutStatus === "PROPOSED"
                 ? "Proposal ready"
+                : scoutStatus === "PARTIAL"
+                  ? "Partial result"
                 : scoutStatus === "FAILED"
                   ? "Retry scout"
                   : "Run scout"}
@@ -2322,7 +2328,7 @@ function Overview({
         <div className="ai-boundary">
           <Gauge size={14} />
           <span>
-            {studioProjection.ai.modelProvider.model} · max{" "}
+            {studioProjection.ai.modelProvider.model} · {studioProjection.ai.modelProvider.maxOutputTokensEnforced ? "max" : "target"}{" "}
             {studioProjection.ai.modelProvider.maxOutputTokens} tokens/step ·{" "}
             {studioProjection.ai.modelProvider.maxSteps} steps ·{" "}
             {studioProjection.ai.modelProvider.maxToolCalls} tools ·{" "}
@@ -6130,7 +6136,7 @@ function ScoutInboxView() {
     "VERIFIED_FIXTURES",
   );
   const [runStatus, setRunStatus] = useState<
-    "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
+    "IDLE" | "RUNNING" | "DONE" | "PARTIAL" | "RESTORED" | "FAILED"
   >("IDLE");
   const [investigationStatus, setInvestigationStatus] = useState<
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
@@ -6157,12 +6163,12 @@ function ScoutInboxView() {
   async function submitScout(): Promise<void> {
     setRunStatus("RUNNING");
     try {
-      const restored = await requestDiscoveryRun(
+      const result = await requestDiscoveryRun(
         question.trim(),
         selectedVenueIds,
         catalogMode,
       );
-      setRunStatus(restored ? "RESTORED" : "DONE");
+      setRunStatus(result.partial ? "PARTIAL" : result.restored ? "RESTORED" : "DONE");
     } catch {
       setRunStatus("FAILED");
     }
@@ -6362,6 +6368,8 @@ function ScoutInboxView() {
                   ? "Scouts running…"
                   : runStatus === "DONE"
                     ? "Run another scout"
+                    : runStatus === "PARTIAL"
+                      ? "Partial result · inspect trace"
                     : runStatus === "RESTORED"
                       ? "Restored existing run"
                       : runStatus === "FAILED"

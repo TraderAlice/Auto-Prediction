@@ -22,6 +22,7 @@ describe("Vercel AI SDK OpenAI Responses discovery agent", () => {
       credentialEnv: "OPENAI_API_KEY",
       model: "gpt-5.6-luna",
       maxOutputTokens: 800,
+      maxOutputTokensEnforced: true,
       timeoutMs: 300_000,
       maxSteps: 8,
       maxToolCalls: 24,

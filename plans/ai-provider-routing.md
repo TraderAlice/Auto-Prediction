@@ -20,6 +20,11 @@ not silently change the semantics, authority, or lineage of an in-flight run.
   effort control.
 - Codex initially allows `gpt-5.6-luna` and `gpt-5.6-terra`; reasoning effort is
   one of `none`, `low`, `medium`, `high`, `xhigh`, or `max`.
+- The Codex OAuth backend requires streaming Responses and rejects
+  `max_output_tokens`. The shared loop therefore consumes the stream natively;
+  its projected output-token value is an Agent target, not a provider-enforced
+  ceiling. Step, tool-call, task-deadline, and five-minute wall-clock bounds
+  remain enforced externally.
 - The Codex transport is a normal Responses request to the Codex backend with a
   refreshed OAuth bearer, ChatGPT account ID, and bounded first-party headers.
 - Credentials never enter SQLite, projections, logs, usage events, or browser
@@ -61,6 +66,21 @@ not silently change the semantics, authority, or lineage of an in-flight run.
   events replay unchanged.
 - Studio controls work at desktop and 390 px without horizontal overflow or
   console errors.
+
+## Live qualification
+
+On 2026-08-09, Luna/high completed a three-step production control-plane run in
+17.9 seconds: inspect six Boston temperature buckets, record one proposal, and
+complete explicitly. The usage ledger retained 7,625 input tokens, 768 output
+tokens, 253 reasoning tokens, three provider requests, and one durable effect.
+A concurrent scheduled equivalence issue also completed four requests and
+retained a falsification lead rather than promoting lexical similarity.
+
+The first live attempt usefully failed: the Codex backend rejected non-streaming
+requests and then rejected `max_output_tokens`. Both incompatibilities are now
+covered by the mocked transport test. Studio also distinguishes partial pool
+results from a fully passing model run, so a heuristic fallback can no longer
+paint a failed model worker as “Proposal ready.”
 
 ## Authority boundary
 
