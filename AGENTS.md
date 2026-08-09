@@ -17,6 +17,73 @@ This repository is a pre-alpha, research-first interoperability harness. It must
   each question as soon as it is answered or no longer needed.
 - Do not create placeholder packages. A package must own working source and focused tests.
 
+## Mutation development
+
+This repository has two development lanes:
+
+- **Mainline work** advances the selected product direction incrementally. Keep
+  it serial, verified, and aligned with the active plans.
+- **Mutation work** deliberately explores a materially different product
+  proposition, behavior, architecture, interface, Agent topology, or operating
+  model. A mutation may add, remove, replace, simplify, or reorganize; novelty
+  is not required to be additive.
+
+A mutation is a candidate under selection, not a feature presumed to merge.
+Use GitHub issues as the problem/evidence ledger and pull requests as runnable
+mutation specimens.
+
+### From problem to candidate
+
+- Start from a GitHub issue describing an observed problem, or state the deeper
+  product proposition explicitly when it spans or precedes individual issues.
+- Record why the current local optimum may be insufficient, what evidence
+  motivated the exploration, and which observation would make the mutation
+  worth adopting or abandoning. Do not disguise a predetermined implementation
+  as a problem statement.
+- One issue may produce competing mutations, and one mutation may address
+  several issues. Preserve these links rather than forcing a one-to-one map.
+- Use `codex/mutation-<short-name>` for the branch and prefix the pull request
+  title with `[mutation]`.
+
+### Mutation pull-request contract
+
+Every mutation pull request must make it possible to evaluate the idea without
+first accepting it. It must state:
+
+- the issue or underlying product proposition it serves;
+- the mutation thesis and how it materially differs from the current system;
+- what it adds, removes, replaces, or restructures;
+- expected value, failure modes, operational and AI/token cost, and reversibility;
+- the evidence or selection signals available now and the evidence still missing;
+- focused verification and any deliberate incompatibility with other candidates.
+
+Mutation code must still respect the repository authority boundary, retain
+protocol evidence correctly, and be runnable enough to evaluate. It is not an
+excuse for placeholder packages, weakened tests, fake fixtures, or live-trading
+authority. Competing mutation PRs may intentionally be mutually incompatible;
+do not manufacture compatibility merely to make every candidate mergeable.
+
+### Portfolio selection
+
+- While the operator is away, Agents may open issues and isolated mutation PRs,
+  but must not merge them or let them silently redefine the stable mainline.
+- Keep the active mutation portfolio small and differentiated. Before opening a
+  new candidate, explain what selection-relevant variation it adds.
+- Review the portfolio comparatively, using product value, evidence, semantic
+  search yield, AI and operational cost, complexity, downside, and reversibility.
+- End review with one of: `ADOPT`, `PARTIAL_ADOPT`, `HOLD`, or `ABANDON`.
+- `ADOPT` means update the candidate to the current mainline, rerun qualification,
+  and merge it through the serial mainline flow.
+- `PARTIAL_ADOPT` means extract the selected learning into a clean follow-up;
+  the entire experimental branch need not merge.
+- `HOLD` requires a named missing observation or dependency.
+- `ABANDON` is a successful selection outcome. Close with the reason and retain
+  the issue/PR as negative evidence instead of repeatedly rescuing the idea.
+
+Candidate mutations do not become active-plan decisions merely by existing.
+Update `PLANS.md` when selection or evidence changes a real project decision;
+until then, keep the experiment's thesis and state in its issue and pull request.
+
 ## User input / access ledger
 
 Delete an item as soon as the user supplies it or the project no longer needs it. Do not place secrets themselves in this file.
