@@ -75,11 +75,14 @@ type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
 type ProposalHandoffProjection = Readonly<{
-  schemaVersion: "pmh.proposal-handoff.v1";
+  schemaVersion: "pmh.proposal-handoff.v2";
   sourceStateHash: string;
   requestedProposalIds: readonly string[];
   resolvedProposalCount: number;
   reviewJobCount: number;
+  reviewOutcomeCount: number;
+  legacyDetailUnavailableCount: number;
+  economicTriageCount: number;
   lifecycleCaseCount: number;
   operatorAttentionCount: number;
   items: ReadonlyArray<Readonly<{
@@ -91,12 +94,61 @@ type ProposalHandoffProjection = Readonly<{
       listingRefs: readonly string[];
     }>;
     reviewJob: null | Readonly<{
+      schemaVersion: string;
       jobId: string;
       status: string;
       attemptCount: number;
       maxAttempts: number;
       duplicateOfJobId: string | null;
       issueIds: readonly string[];
+      completedAt: string | null;
+      recommendation: string | null;
+    }>;
+    reviewOutcome: Readonly<{
+      basis:
+        | "DIRECT_REVIEW"
+        | "CANONICAL_SCOPE_REUSE"
+        | "LEGACY_DETAIL_UNAVAILABLE"
+        | "NOT_REVIEWED";
+      canonicalJobId: string | null;
+      diagnostic: string;
+      outcome: null | Readonly<{
+        outcomeHash: string;
+        reviewId: string;
+        reportArtifactHash: string;
+        completedAt: string;
+        recommendation: string;
+        relationConclusion: string;
+        semanticConstraint: null | Readonly<{
+          artifactHash: string;
+          classification: string;
+          relationKind: string;
+        }>;
+        missingEvidenceCount: number;
+        counterexampleCount: number;
+        authority: "ADVISORY_SUMMARY_ONLY";
+        semanticDecisionAuthority: false;
+        simulationAuthority: false;
+        certificateAuthority: false;
+        executionAuthority: false;
+      }>;
+    }>;
+    economicTriage: null | Readonly<{
+      itemId: string;
+      status: string;
+      diagnostic: string;
+      currentContractMatchCount: number;
+      settlementStatus: string;
+      indicativeEconomics: Readonly<{
+        status: string;
+        portfolioLabel: string | null;
+        indicativeCostBpsCeil: string | null;
+        grossEdgeBpsFloor: string | null;
+        source: string | null;
+        feesIncluded: false;
+        depthIncluded: false;
+        executable: false;
+      }>;
     }>;
     lifecycleCase: null | Readonly<{
       opportunityId: string;
@@ -112,9 +164,17 @@ type ProposalHandoffProjection = Readonly<{
       missingEvidenceCount: number;
       counterexampleCount: number;
     }>;
+    nextGate:
+      | "INDEPENDENT_SEMANTIC_REVIEW"
+      | "RECOVER_REVIEW_DETAIL"
+      | "RESOLVE_EVIDENCE_GAPS"
+      | "OPERATOR_DECISION"
+      | "FEE_DEPTH_QUALIFICATION"
+      | "RETAIN_AS_RESEARCH_ONLY";
   }>>;
   authority: "READ_ONLY_WORKFLOW_HANDOFF";
   semanticDecisionAuthority: false;
+  simulationAuthority: false;
   certificateAuthority: false;
   executionAuthority: false;
   contentHash: string;
@@ -123,6 +183,18 @@ type ProposalHandoffProjection = Readonly<{
 function formatRateBps(value: number | null): string {
   if (value === null) return "—";
   return `${Math.floor(value / 100)}.${String(value % 100).padStart(2, "0")}%`;
+}
+
+function formatFixedBps(value: string | null): string {
+  if (value === null) return "—";
+  try {
+    const parsed = BigInt(value);
+    const sign = parsed < 0n ? "−" : "";
+    const absolute = parsed < 0n ? -parsed : parsed;
+    return `${sign}${absolute / 100n}.${String(absolute % 100n).padStart(2, "0")}%`;
+  } catch {
+    return value;
+  }
 }
 
 function formatTokenCount(value: string | null): string {
@@ -1558,9 +1630,10 @@ async function requestProposalHandoff(
   };
   if (!response.ok) throw new Error(result.diagnostic ?? "proposal handoff failed");
   if (
-    result.schemaVersion !== "pmh.proposal-handoff.v1" ||
+    result.schemaVersion !== "pmh.proposal-handoff.v2" ||
     result.authority !== "READ_ONLY_WORKFLOW_HANDOFF" ||
     result.semanticDecisionAuthority !== false ||
+    result.simulationAuthority !== false ||
     result.certificateAuthority !== false ||
     result.executionAuthority !== false ||
     !Array.isArray(result.items) ||
@@ -4658,8 +4731,42 @@ function OpportunityLifecycleView({
     const opportunityId = `ai:${proposalId}`;
     const proposal = proposals.get(proposalId as Parameters<typeof proposals.get>[0]);
     const reviewJob = reviewScheduler.jobs.find((job) => job.proposalId === proposalId);
+    const canonicalReviewJob = reviewJob?.duplicateOfJobId === null ||
+        reviewJob?.duplicateOfJobId === undefined
+      ? undefined
+      : reviewScheduler.jobs.find((job) => job.jobId === reviewJob.duplicateOfJobId);
+    const retainedOutcome = reviewJob?.reviewOutcome ?? canonicalReviewJob?.reviewOutcome;
     const attention = reviewAttention.items.find((item) => item.proposalId === proposalId);
     const lifecycleCase = desk.cases.find((item) => item.opportunityId === opportunityId);
+    const economicTriageItem = economicTriage.items.find((item) =>
+      item.proposalId === proposalId
+    );
+    const outcomeBasis = reviewJob?.reviewOutcome !== undefined
+      ? "DIRECT_REVIEW" as const
+      : canonicalReviewJob?.reviewOutcome !== undefined
+        ? "CANONICAL_SCOPE_REUSE" as const
+        : reviewJob?.status === "PASS" || reviewJob?.status === "DUPLICATE_SCOPE"
+          ? "LEGACY_DETAIL_UNAVAILABLE" as const
+          : "NOT_REVIEWED" as const;
+    const nextGate: ProposalHandoffProjection["items"][number]["nextGate"] =
+      outcomeBasis === "LEGACY_DETAIL_UNAVAILABLE"
+        ? "RECOVER_REVIEW_DETAIL"
+        : retainedOutcome === undefined
+          ? reviewJob?.status === "BLOCKED_EVIDENCE"
+            ? "RESOLVE_EVIDENCE_GAPS"
+            : reviewJob?.status === "RESEARCH_ONLY" || reviewJob?.status === "EXHAUSTED"
+              ? "RETAIN_AS_RESEARCH_ONLY"
+              : "INDEPENDENT_SEMANTIC_REVIEW"
+          : retainedOutcome.recommendation === "REJECT"
+            ? "RETAIN_AS_RESEARCH_ONLY"
+            : retainedOutcome.recommendation === "ESCALATE" ||
+                retainedOutcome.missingEvidenceCount > 0
+              ? "RESOLVE_EVIDENCE_GAPS"
+              : retainedOutcome.semanticConstraint?.classification !== "HARD_SETTLEMENT_CONSTRAINT"
+                ? "RETAIN_AS_RESEARCH_ONLY"
+              : economicTriageItem?.status === "POSITIVE_GROSS_HINT"
+                ? "FEE_DEPTH_QUALIFICATION"
+                : "OPERATOR_DECISION";
     const workflowState = attention !== undefined
       ? attention.operatorPosture
       : reviewJob !== undefined
@@ -4674,8 +4781,16 @@ function OpportunityLifecycleView({
       opportunityId,
       proposal,
       reviewJob,
+      reviewOutcome: Object.freeze({
+        basis: outcomeBasis,
+        canonicalJobId: canonicalReviewJob?.jobId ?? reviewJob?.jobId ?? null,
+        outcome: retainedOutcome ?? null,
+        diagnostic: "Live bounded projection fallback; persisted dossier is loading.",
+      }),
+      economicTriage: economicTriageItem,
       attention,
       lifecycleCase,
+      nextGate,
       workflowState,
     });
   });
@@ -4684,6 +4799,7 @@ function OpportunityLifecycleView({
     opportunityId: `ai:${item.proposalId}`,
     proposal: item.proposal ?? undefined,
     reviewJob: item.reviewJob ?? undefined,
+    economicTriage: item.economicTriage ?? undefined,
     attention: item.attention ?? undefined,
     lifecycleCase: item.lifecycleCase ?? undefined,
     workflowState: item.attention !== null
@@ -4976,19 +5092,36 @@ function OpportunityLifecycleView({
           <div className="focused-review-handoff-list">
             {focusedHandoff.map((item) => {
               const reviewState = reviewStates[item.opportunityId] ?? "IDLE";
+              const reviewOutcome = item.reviewOutcome.outcome;
+              const indicativeEconomics = item.economicTriage?.indicativeEconomics;
               const canRunReview = item.lifecycleCase?.nextAction === "INDEPENDENT_SEMANTIC_REVIEW" &&
                 item.reviewJob === undefined && item.attention === undefined;
               return (
                 <article key={item.proposalId}>
                   <div className="focused-review-handoff-topline">
-                    <Badge variant={item.attention?.operatorPosture === "DECISION_READY" ? "verified" : item.workflowState.startsWith("OUTSIDE_") ? "muted" : "shadow"}>
-                      {item.workflowState.replaceAll("_", " ")}
+                    <Badge variant={item.nextGate === "OPERATOR_DECISION" || item.nextGate === "FEE_DEPTH_QUALIFICATION" ? "verified" : item.nextGate === "RECOVER_REVIEW_DETAIL" || item.nextGate === "RESOLVE_EVIDENCE_GAPS" ? "warning" : "shadow"}>
+                      NEXT · {item.nextGate.replaceAll("_", " ")}
                     </Badge>
                     {item.proposal !== undefined && (
                       <Badge variant="muted">{item.proposal.relationKind.replaceAll("_", " ")}</Badge>
                     )}
                     <code>{item.proposalId.slice(7, 19)}</code>
                   </div>
+                  {item.economicTriage !== undefined && (
+                    <div className="decision-dossier-economics">
+                      <div>
+                        <span>Gross edge hint</span>
+                        <strong>{formatFixedBps(indicativeEconomics?.grossEdgeBpsFloor ?? null)}</strong>
+                      </div>
+                      <div>
+                        <span>Indicative cost</span>
+                        <strong>{formatFixedBps(indicativeEconomics?.indicativeCostBpsCeil ?? null)}</strong>
+                      </div>
+                      <small>
+                        {item.economicTriage.status.replaceAll("_", " ")} · fees absent · depth absent · not executable
+                      </small>
+                    </div>
+                  )}
                   {item.proposal === undefined ? (
                     <strong>Proposal detail is unavailable from retained handoff sources</strong>
                   ) : (
@@ -4999,6 +5132,37 @@ function OpportunityLifecycleView({
                       </summary>
                       <code>{item.proposal.listingRefs.join(" ↔ ")}</code>
                     </details>
+                  )}
+                  {item.reviewOutcome.basis === "LEGACY_DETAIL_UNAVAILABLE" ? (
+                    <div className="decision-dossier-warning" role="status">
+                      <CircleOff size={15} />
+                      <div>
+                        <strong>Historical review detail is unavailable</strong>
+                        <span>{item.reviewOutcome.diagnostic}</span>
+                      </div>
+                    </div>
+                  ) : reviewOutcome !== null ? (
+                    <div className="decision-dossier-review">
+                      <div className="decision-dossier-review-head">
+                        <span>Semantic outcome · {item.reviewOutcome.basis === "DIRECT_REVIEW" ? "direct" : "canonical reuse"}</span>
+                        <Badge variant={reviewOutcome.recommendation === "ACCEPT_FOR_RESEARCH_SIMULATION" ? "verified" : reviewOutcome.recommendation === "ESCALATE" ? "warning" : "muted"}>
+                          {reviewOutcome.recommendation.replaceAll("_", " ")}
+                        </Badge>
+                      </div>
+                      <strong>{reviewOutcome.relationConclusion.replaceAll("_", " ")}</strong>
+                      <p>
+                        {reviewOutcome.semanticConstraint === null
+                          ? "No hard settlement constraint was retained."
+                          : reviewOutcome.semanticConstraint.classification.replaceAll("_", " ")}
+                        {` · ${reviewOutcome.missingEvidenceCount} evidence gaps · ${reviewOutcome.counterexampleCount} counterexamples`}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="decision-dossier-review is-pending">
+                      <span>Semantic outcome</span>
+                      <strong>No passing outcome capsule yet</strong>
+                      <p>{item.reviewOutcome.diagnostic}</p>
+                    </div>
                   )}
                   <div className="focused-review-handoff-facts">
                     {item.reviewJob !== undefined && (
@@ -5012,6 +5176,9 @@ function OpportunityLifecycleView({
                     )}
                     {item.attention !== undefined && (
                       <span>next {item.attention.nextAction.replaceAll("_", " ")} · {item.attention.missingEvidenceCount} evidence gaps</span>
+                    )}
+                    {item.reviewOutcome.canonicalJobId !== null && item.reviewOutcome.basis === "CANONICAL_SCOPE_REUSE" && (
+                      <span>canonical review {item.reviewOutcome.canonicalJobId.slice(7, 19)}</span>
                     )}
                     {item.proposal === undefined && item.lifecycleCase === undefined && item.reviewJob === undefined && item.attention === undefined && (
                       <span>The durable proposal ID is retained by the Finding; no proposal detail or workflow state is claimed when the persisted handoff cannot resolve it.</span>

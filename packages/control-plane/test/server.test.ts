@@ -669,21 +669,32 @@ describe("control-plane HTTP surface", () => {
     );
     expect(handoffResponse.status).toBe(200);
     expect(await handoffResponse.json()).toMatchObject({
-      schemaVersion: "pmh.proposal-handoff.v1",
+      schemaVersion: "pmh.proposal-handoff.v2",
       requestedProposalIds: [handoffProposalId],
       resolvedProposalCount: 0,
       reviewJobCount: 0,
+      reviewOutcomeCount: 0,
+      legacyDetailUnavailableCount: 0,
+      economicTriageCount: 0,
       lifecycleCaseCount: 0,
       operatorAttentionCount: 0,
       items: [{
         proposalId: handoffProposalId,
         proposal: null,
         reviewJob: null,
+        reviewOutcome: {
+          basis: "NOT_REVIEWED",
+          canonicalJobId: null,
+          outcome: null,
+        },
+        economicTriage: null,
         lifecycleCase: null,
         attention: null,
+        nextGate: "INDEPENDENT_SEMANTIC_REVIEW",
       }],
       authority: "READ_ONLY_WORKFLOW_HANDOFF",
       semanticDecisionAuthority: false,
+      simulationAuthority: false,
       certificateAuthority: false,
       executionAuthority: false,
       contentHash: expect.stringMatching(/^sha256:/),

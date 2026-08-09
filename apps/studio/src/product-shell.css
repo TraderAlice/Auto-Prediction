@@ -1028,6 +1028,89 @@ main {
   line-height: 1.45;
 }
 
+.decision-dossier-economics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid #315548;
+  border-radius: 9px;
+  background: #17231e;
+  padding: 12px;
+}
+
+.decision-dossier-economics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.decision-dossier-economics span,
+.decision-dossier-review span {
+  color: #89968f;
+  font-size: 12px;
+}
+
+.decision-dossier-economics strong {
+  color: #74e9bc;
+  font-size: 19px;
+  letter-spacing: -0.025em;
+}
+
+.decision-dossier-economics small {
+  grid-column: 1 / -1;
+  color: #89968f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.decision-dossier-review,
+.decision-dossier-warning {
+  border: 1px solid #2a4038;
+  border-radius: 9px;
+  background: #101713;
+  padding: 12px;
+}
+
+.decision-dossier-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.decision-dossier-review > p,
+.decision-dossier-warning span {
+  margin: 4px 0 0;
+  color: #89968f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.decision-dossier-review.is-pending {
+  border-style: dashed;
+}
+
+.decision-dossier-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  border-color: #69562f;
+  background: #211d13;
+}
+
+.decision-dossier-warning > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--warning);
+}
+
+.decision-dossier-warning > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
 .focused-proposal-thesis > summary {
   display: flex;
   cursor: pointer;

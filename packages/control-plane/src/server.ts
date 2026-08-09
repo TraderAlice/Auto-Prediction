@@ -54,6 +54,10 @@ import {
   buildProposalEconomicTriage,
   recoverBaseReviewPriority,
 } from "./proposal-economic-triage.js";
+import {
+  deriveProposalDecisionNextGate,
+  resolveProposalReviewOutcome,
+} from "./proposal-decision-dossier.js";
 import { buildReviewAttentionProjection } from "./review-attention.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
@@ -1708,17 +1712,32 @@ export function createControlPlane(options?: {
     const jobs = new Map(
       full.ai.semanticReviewScheduler.jobs.map((job) => [job.proposalId, job] as const),
     );
+    const jobsById = new Map(
+      full.ai.semanticReviewScheduler.jobs.map((job) => [job.jobId, job] as const),
+    );
     const cases = new Map(
       full.opportunityLifecycle.cases.map((item) => [item.opportunityId, item] as const),
     );
     const attention = new Map(
       full.ai.reviewAttention.items.map((item) => [item.proposalId, item] as const),
     );
+    const economics = new Map(
+      full.ai.proposalEconomicTriage.items.map((item) => [item.proposalId, item] as const),
+    );
     const items = Object.freeze(proposalIds.map((proposalId) => {
       const proposal = proposals.get(proposalId) ?? null;
       const job = jobs.get(proposalId) ?? null;
       const lifecycleCase = cases.get(`ai:${proposalId}`) ?? null;
       const operatorAttention = attention.get(proposalId) ?? null;
+      const economicTriage = economics.get(proposalId) ?? null;
+      const reviewOutcome = resolveProposalReviewOutcome(job, jobsById);
+      const nextGate = deriveProposalDecisionNextGate({
+        reviewJob: job,
+        reviewOutcome,
+        attention: operatorAttention,
+        lifecycleCase,
+        economics: economicTriage,
+      });
       return Object.freeze({
         proposalId,
         proposal: proposal === null ? null : Object.freeze({
@@ -1728,13 +1747,25 @@ export function createControlPlane(options?: {
           listingRefs: Object.freeze([...proposal.listingRefs]),
         }),
         reviewJob: job === null ? null : Object.freeze({
+          schemaVersion: job.schemaVersion,
           jobId: job.jobId,
           status: job.status,
           attemptCount: job.attemptCount,
           maxAttempts: job.maxAttempts,
           duplicateOfJobId: job.duplicateOfJobId ?? null,
           issueIds: Object.freeze([...job.issueIds]),
+          completedAt: job.completedAt,
+          recommendation: job.recommendation,
           lastFailure: job.lastFailure ?? null,
+        }),
+        reviewOutcome,
+        economicTriage: economicTriage === null ? null : Object.freeze({
+          itemId: economicTriage.itemId,
+          status: economicTriage.status,
+          diagnostic: economicTriage.diagnostic,
+          currentContractMatchCount: economicTriage.currentContractMatchCount,
+          settlementStatus: economicTriage.settlementPosture.status,
+          indicativeEconomics: economicTriage.indicativeEconomics,
         }),
         lifecycleCase: lifecycleCase === null ? null : Object.freeze({
           opportunityId: lifecycleCase.opportunityId,
@@ -1750,19 +1781,26 @@ export function createControlPlane(options?: {
           missingEvidenceCount: operatorAttention.missingEvidenceCount,
           counterexampleCount: operatorAttention.counterexampleCount,
         }),
+        nextGate,
       });
     }));
     const body = Object.freeze({
-      schemaVersion: "pmh.proposal-handoff.v1" as const,
+      schemaVersion: "pmh.proposal-handoff.v2" as const,
       sourceStateHash: full.identity.stateHash,
       requestedProposalIds: Object.freeze([...proposalIds]),
       resolvedProposalCount: items.filter((item) => item.proposal !== null).length,
       reviewJobCount: items.filter((item) => item.reviewJob !== null).length,
+      reviewOutcomeCount: items.filter((item) => item.reviewOutcome.outcome !== null).length,
+      legacyDetailUnavailableCount: items.filter((item) =>
+        item.reviewOutcome.basis === "LEGACY_DETAIL_UNAVAILABLE"
+      ).length,
+      economicTriageCount: items.filter((item) => item.economicTriage !== null).length,
       lifecycleCaseCount: items.filter((item) => item.lifecycleCase !== null).length,
       operatorAttentionCount: items.filter((item) => item.attention !== null).length,
       items,
       authority: "READ_ONLY_WORKFLOW_HANDOFF" as const,
       semanticDecisionAuthority: false as const,
+      simulationAuthority: false as const,
       certificateAuthority: false as const,
       executionAuthority: false as const,
     });

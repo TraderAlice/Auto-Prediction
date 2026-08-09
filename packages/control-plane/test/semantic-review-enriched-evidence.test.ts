@@ -242,11 +242,22 @@ describe("evidence-enriched semantic review", () => {
     expect(inputs[1]!.evidenceClaims).toEqual([claim]);
     const job = scheduler.projection().jobs[0]!;
     expect(job).toMatchObject({
-      schemaVersion: "pmh.semantic-review-job.v2",
+      schemaVersion: "pmh.semantic-review-job.v3",
       status: "PASS",
       reviewScopeIdentity: enrichedScope.scopeIdentity,
       recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION",
       evidenceClaims: [{ claimId: claim.claimId }],
+      reviewOutcome: {
+        reportSchemaVersion: "pmh.semantic-review-report.v4",
+        corpusSnapshotIdentity: enrichedScope.scopeIdentity,
+        relationConclusion: "MUTUALLY_EXCLUSIVE",
+        semanticConstraint: {
+          classification: "HARD_SETTLEMENT_CONSTRAINT",
+          relationKind: "MUTUALLY_EXCLUSIVE",
+        },
+        missingEvidenceCount: 0,
+        counterexampleCount: 0,
+      },
     });
     expect(job.lastReviewId).not.toBe(firstReviewId);
     expect(scheduler.projection().unreadNotificationCount).toBe(2);

@@ -1,6 +1,6 @@
 # Durable decision dossier
 
-Status: active implementation
+Status: implemented; operator re-review pending
 
 Created: 2026-08-10
 
@@ -70,6 +70,30 @@ for attribution, but they are insufficient decision evidence.
   layout, overflow, typography, and console diagnostics when the browser target
   is available.
 - Full workspace checks, tests, and production build pass.
+
+## Qualification evidence — 2026-08-10
+
+- Job v3 capsule validation, tamper rejection, exact-report-only upgrade, and
+  SQLite restart retention pass focused scheduler coverage. Duplicate dossier
+  resolution selects only the named `duplicateOfJobId`; it never substitutes
+  an unrelated retained PASS.
+- Handoff v2 is now the local Studio contract. It joins proposal, economic
+  triage, review job, resolved outcome disposition, lifecycle case, attention,
+  and deterministic next gate while keeping every semantic, simulation,
+  certificate, and execution authority false.
+- The live six-item positive-gross frontier resolves as one direct contemporary
+  capsule and five explicit historical-detail gaps. Two gaps are duplicate-
+  scope references whose named canonical capsules are unavailable; three are
+  historical direct PASS jobs. The one contemporary capsule is `ESCALATE`,
+  concludes `RELATED`, retains three evidence gaps, and routes to
+  `RESOLVE_EVIDENCE_GAPS` rather than fee/depth qualification.
+- Studio shows economics, outcome provenance, evidence gaps, and next gate in
+  the focused dossier. In-app-browser qualification at 1280×720 and 390×844
+  found no horizontal overflow, a 12 px main-text floor, Inter body typography,
+  both economic summaries, the explicit legacy warning after persisted handoff
+  load, and no console warnings or errors.
+- Node 24.14.0 full-workspace check, all 581 tests, and the production build
+  pass. The existing Studio bundle-size advisory remains non-blocking.
 
 ## Follow-on
 

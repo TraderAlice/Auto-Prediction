@@ -60,6 +60,7 @@ export * from "./semantic-constraint-smoke.js";
 export * from "./semantic-review-admission.js";
 export * from "./semantic-review-scope.js";
 export * from "./semantic-review-scheduler.js";
+export * from "./proposal-decision-dossier.js";
 export * from "./semantic-relation-graph.js";
 export * from "./search-lease-scheduler.js";
 export * from "./search-semantic-family.js";

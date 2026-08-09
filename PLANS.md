@@ -113,7 +113,7 @@ hint cannot masquerade as executable profit.
 Live frontier use exposed the next persistence cliff. Four price-positive jobs
 are direct PASS and two reuse one canonical PASS, yet only one underlying
 semantic-review report remains inside the fifty-record detail window. The
-active decision-dossier slice retains a bounded, content-addressed review
+implemented decision-dossier slice retains a bounded, content-addressed review
 outcome capsule with contemporary PASS jobs, resolves duplicate-scope lineage
 explicitly, and joins that evidence with current economics in the proposal-
 local handoff. Historical missing detail stays visibly unavailable rather than
@@ -584,6 +584,17 @@ Market Archaeologist inspection plus a 390×844 mobile navigation check with no
 horizontal overflow or console errors. Workspace type checks, all ten Studio
 tests, and the production build pass; Agent authority and scheduling are
 unchanged.
+
+The opportunity frontier now hands off a durable decision dossier instead of
+a bare PASS label. Contemporary review jobs retain a content-addressed outcome
+capsule; duplicate proposals resolve only their named canonical job; historical
+detail gaps remain explicit. Live qualification of all six positive-gross
+proposals found one contemporary `ESCALATE` capsule with three evidence gaps
+and five historical-detail gaps, so none silently advanced to fee/depth work.
+Studio presents gross economics, capsule provenance, evidence posture, and one
+deterministic next gate above the older lifecycle console. Desktop and 390 px
+browser checks pass without overflow or console diagnostics, and Node 24.14.0
+passes all 581 workspace tests and the production build.
 
 ## Deferred future campaigns
 
