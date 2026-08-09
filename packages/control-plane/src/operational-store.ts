@@ -145,8 +145,13 @@ import {
   type AiUsageEvent,
   type AiUsageEventStore,
 } from "./ai-usage-ledger.js";
+import {
+  assertAiRuntimeConfiguration,
+  type AiRuntimeConfiguration,
+  type AiRuntimeConfigurationStore,
+} from "./ai-runtime-configuration.js";
 
-const SCHEMA_VERSION = 26;
+const SCHEMA_VERSION = 27;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -172,6 +177,12 @@ type StoredCatalogObservationRow = Readonly<{
 
 type StoredAiUsageEventRow = Readonly<{
   event_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type StoredAiRuntimeConfigurationRow = Readonly<{
+  singleton_key: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -1314,6 +1325,33 @@ function parseAiUsageEvent(value: unknown): AiUsageEvent {
   return event;
 }
 
+function parseAiRuntimeConfiguration(value: unknown): AiRuntimeConfiguration {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite AI runtime configuration row is malformed");
+  }
+  const row = value as Partial<StoredAiRuntimeConfigurationRow>;
+  if (
+    row.singleton_key !== "active" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) {
+    throw new Error("SQLite AI runtime configuration row has invalid columns");
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite AI runtime configuration contains invalid JSON");
+  }
+  const configuration = assertAiRuntimeConfiguration(
+    decoded as AiRuntimeConfiguration,
+  );
+  if (hashCanonical(configuration) !== row.record_hash) {
+    throw new Error("SQLite AI runtime configuration hash mismatch");
+  }
+  return configuration;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -1354,6 +1392,7 @@ export class SqliteOperationalStore
     ProbabilityEstimationRunStore,
     ProbabilityEstimationSchedulerStore,
     AiUsageEventStore,
+    AiRuntimeConfigurationStore,
     PremiseAnalysisRecordStore,
     PremiseAnalysisSchedulerStore,
     SemanticReviewSchedulerStore,
@@ -1404,6 +1443,8 @@ export class SqliteOperationalStore
   public readonly probabilityEstimationNotificationStorage:
     OperationalStorageProjection<"notificationId">;
   public readonly aiUsageStorage: OperationalStorageProjection<"eventId">;
+  public readonly aiRuntimeConfigurationStorage:
+    OperationalStorageProjection<"singleton">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -1560,6 +1601,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "eventId",
+    });
+    this.aiRuntimeConfigurationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "singleton",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -1720,6 +1767,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'ai_usage_events'`,
       )
       .get() !== undefined;
+    const aiRuntimeConfigurationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'ai_runtime_configuration'`,
+      )
+      .get() !== undefined;
     const premiseAnalysisRecordTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -1794,6 +1847,7 @@ export class SqliteOperationalStore
       probabilityEstimationJobTableExists &&
       probabilityEstimationNotificationTableExists &&
       aiUsageEventTableExists &&
+      aiRuntimeConfigurationTableExists &&
       searchQuoteObservationTableExists &&
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
@@ -2702,6 +2756,19 @@ export class SqliteOperationalStore
             ON ai_usage_events (occurred_at DESC, event_id DESC);
           CREATE INDEX IF NOT EXISTS ai_usage_events_purpose_occurred
             ON ai_usage_events (purpose, occurred_at DESC, event_id DESC);
+        `);
+      }
+      if (current < 27 || !aiRuntimeConfigurationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS ai_runtime_configuration (
+            singleton_key TEXT PRIMARY KEY NOT NULL CHECK (singleton_key = 'active'),
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -4154,6 +4221,63 @@ export class SqliteOperationalStore
     const stored = parseAiUsageEvent(row);
     if (hashCanonical(stored) !== recordHash) {
       throw new Error("eventId is already bound to another AI usage event");
+    }
+  }
+
+  public loadAiRuntimeConfiguration(): AiRuntimeConfiguration | null {
+    this.#assertOpen();
+    const row = this.#database
+      .prepare(
+        `SELECT singleton_key, record_json, record_hash
+         FROM ai_runtime_configuration WHERE singleton_key = 'active'`,
+      )
+      .get();
+    return row === undefined ? null : parseAiRuntimeConfiguration(row);
+  }
+
+  public saveAiRuntimeConfiguration(
+    configuration: AiRuntimeConfiguration,
+  ): AiRuntimeConfiguration {
+    this.#assertOpen();
+    const validated = assertAiRuntimeConfiguration(configuration);
+    const recordJson = canonicalJson(validated);
+    const recordHash = hashCanonical(validated);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.loadAiRuntimeConfiguration();
+      if (
+        (existing === null && validated.revision !== 1) ||
+        (existing !== null && validated.revision !== existing.revision + 1)
+      ) {
+        throw new Error("AI runtime configuration revision is not consecutive");
+      }
+      this.#database
+        .prepare(
+          `INSERT INTO ai_runtime_configuration (
+             singleton_key, revision, updated_at, record_json, record_hash
+           ) VALUES ('active', ?, ?, ?, ?)
+           ON CONFLICT(singleton_key) DO UPDATE SET
+             revision = excluded.revision,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash
+           WHERE excluded.revision > ai_runtime_configuration.revision`,
+        )
+        .run(
+          validated.revision,
+          validated.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      const stored = this.loadAiRuntimeConfiguration();
+      if (stored === null || hashCanonical(stored) !== recordHash) {
+        throw new Error("SQLite failed to retain AI runtime configuration");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
     }
   }
 

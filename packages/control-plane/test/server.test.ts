@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  AiRuntimeConfigurationDesk,
   AnonymousSimulationMaterializerDesk,
   CandidateWatchDesk,
   candidateWatchSources,
@@ -14,6 +15,8 @@ import {
   CatalogRefreshScheduler,
   catalogObservationSources,
   createMarketArchaeologistDesk,
+  createCodexDiscoveryRuntime,
+  createDeepSeekDiscoveryRuntime,
   type CatalogObservationSource,
   createOpenAiDiscoveryRuntime,
   createPiInvestigatorRuntime,
@@ -31,7 +34,9 @@ import {
   type DiscoveryRunRecord,
   type DiscoveryTask,
   type DiscoveryWorker,
+  type AiRuntimeConfiguration,
   type StudioProjection,
+  codexCredentialForTest,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
@@ -56,7 +61,9 @@ async function listenControlPlane(
   options?: Parameters<typeof createControlPlane>[0],
 ) {
   const controlPlane = createControlPlane({
-    modelRuntime: createOpenAiDiscoveryRuntime({}),
+    ...(options?.modelRuntime === undefined && options?.modelRuntimeFactory === undefined
+      ? { modelRuntime: createOpenAiDiscoveryRuntime({}) }
+      : {}),
     ...options,
   });
   servers.push(controlPlane.server);
@@ -951,6 +958,88 @@ describe("control-plane HTTP surface", () => {
       durable: false,
       schemaVersion: 0,
       idempotencyKey: "taskId",
+    });
+  });
+
+  it("hot-switches the discovery runtime with revision-safe configuration", async () => {
+    const configurationDesk = new AiRuntimeConfigurationDesk({}, undefined, () =>
+      Date.parse("2026-08-09T01:00:00.000Z")
+    );
+    const modelRuntimeFactory = (configuration: AiRuntimeConfiguration) =>
+      configuration.provider === "CODEX"
+        ? createCodexDiscoveryRuntime({}, {
+            model: configuration.codexModel,
+            reasoningEffort: configuration.codexReasoningEffort,
+            credentialProvider: codexCredentialForTest(
+              "test-only-codex-token",
+              "account-test-only",
+            ),
+          })
+        : createDeepSeekDiscoveryRuntime({});
+    const { baseUrl } = await listenControlPlane({
+      aiRuntimeConfigurationDesk: configurationDesk,
+      modelRuntimeFactory,
+    });
+
+    const switched = await fetch(`${baseUrl}/api/v1/ai-runtime/configuration`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        expectedRevision: 1,
+        provider: "CODEX",
+        codexModel: "gpt-5.6-terra",
+        codexReasoningEffort: "max",
+      }),
+    });
+    expect(switched.status).toBe(200);
+    await expect(switched.json()).resolves.toMatchObject({
+      ok: true,
+      runtimeConfiguration: {
+        configuration: {
+          revision: 2,
+          provider: "CODEX",
+          codexModel: "gpt-5.6-terra",
+          codexReasoningEffort: "max",
+        },
+        credentialTextRetained: false,
+      },
+      modelProvider: {
+        provider: "CODEX_RESPONSES",
+        configured: true,
+        model: "gpt-5.6-terra",
+        reasoningEffort: "max",
+      },
+      executionAuthority: false,
+    });
+
+    const projection = await fetch(`${baseUrl}/api/v1/projection`).then((response) =>
+      response.json() as Promise<StudioProjection>
+    );
+    expect(projection.ai.runtimeConfiguration.configuration).toMatchObject({
+      revision: 2,
+      provider: "CODEX",
+    });
+    expect(projection.ai.modelProvider).toMatchObject({
+      provider: "CODEX_RESPONSES",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "max",
+    });
+
+    const stale = await fetch(`${baseUrl}/api/v1/ai-runtime/configuration`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        expectedRevision: 1,
+        provider: "DEEPSEEK",
+        codexModel: "gpt-5.6-luna",
+        codexReasoningEffort: "low",
+      }),
+    });
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "AI runtime configuration revision is stale",
+      executionAuthority: false,
     });
   });
 
@@ -2205,7 +2294,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 26,
+          schemaVersion: 27,
         },
         records: [{ investigationId: created.investigationId }],
       });

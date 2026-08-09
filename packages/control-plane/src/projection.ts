@@ -128,6 +128,7 @@ export function buildStudioProjection(input: {
   probabilityEstimation?: ProbabilityEstimationDeskProjection;
   probabilityEstimationScheduler?: ProbabilityEstimationSchedulerProjection;
   aiUsage?: AiUsageProjection;
+  runtimeConfiguration?: import("./ai-runtime-configuration.js").AiRuntimeConfigurationProjection;
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   premiseAnalysis?: PremiseAnalysisDeskProjection;
@@ -1056,6 +1057,32 @@ export function buildStudioProjection(input: {
       probabilityEstimation,
       probabilityEstimationScheduler,
       aiUsage: input.aiUsage ?? new AiUsageLedger().projection(),
+      runtimeConfiguration: input.runtimeConfiguration ?? Object.freeze({
+        configuration: Object.freeze({
+          schemaVersion: "pmh.ai-runtime-configuration.v1" as const,
+          revision: 1,
+          provider: "DEEPSEEK" as const,
+          codexModel: "gpt-5.6-luna" as const,
+          codexReasoningEffort: "low" as const,
+          updatedAt: "1970-01-01T00:00:00.000Z",
+        }),
+        availableProviders: Object.freeze(["DEEPSEEK", "CODEX"] as const),
+        availableCodexModels: Object.freeze([
+          "gpt-5.6-luna",
+          "gpt-5.6-terra",
+        ] as const),
+        availableCodexReasoningEfforts: Object.freeze([
+          "none", "low", "medium", "high", "xhigh", "max",
+        ] as const),
+        storage: Object.freeze({
+          mode: "MEMORY" as const,
+          durable: false,
+          schemaVersion: 0,
+          idempotencyKey: "singleton" as const,
+        }),
+        credentialTextRetained: false as const,
+        executionAuthority: false as const,
+      }),
       semanticReviewAdmission: input.semanticReviewAdmission ??
         buildSemanticReviewAdmissionProjection([]),
       semanticReviewScheduler,

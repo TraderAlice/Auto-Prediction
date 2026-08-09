@@ -21,7 +21,7 @@ export class ModelRequestFailure extends Error {
   readonly [MODEL_FAILURE_MARKER] = true;
 
   public constructor(
-    public readonly provider: "DEEPSEEK" | "OPENAI" | "MODEL",
+    public readonly provider: "DEEPSEEK" | "OPENAI" | "CODEX" | "MODEL",
     public readonly category: ModelFailureCategory,
     public readonly requestAttemptCount: number,
     options: Readonly<{

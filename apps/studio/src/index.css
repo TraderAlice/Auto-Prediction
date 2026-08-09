@@ -626,6 +626,68 @@ main {
   font-size: 7px;
 }
 
+.ai-runtime-controls {
+  display: flex;
+  min-width: 0;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ai-provider-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.ai-runtime-controls label {
+  display: flex;
+  min-width: 74px;
+  flex-direction: column;
+  gap: 4px;
+  color: #59635e;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ai-runtime-controls select {
+  height: 29px;
+  border: 1px solid #2b3437;
+  border-radius: 7px;
+  outline: none;
+  background: #111517;
+  color: #aeb8b3;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 8px;
+  padding: 0 23px 0 8px;
+}
+
+.ai-runtime-controls select:focus-visible {
+  border-color: rgba(189, 155, 255, 0.6);
+  box-shadow: 0 0 0 2px rgba(189, 155, 255, 0.1);
+}
+
+.ai-runtime-controls select:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.ai-runtime-status {
+  max-width: 130px;
+  align-self: center;
+  overflow: hidden;
+  color: #62706a;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-runtime-status.is-failed {
+  color: var(--danger);
+}
+
 .ai-boundary {
   display: flex;
   align-items: flex-start;
@@ -6553,6 +6615,11 @@ footer span:first-child {
     grid-column: span 2;
   }
 
+  .ai-runtime-controls {
+    grid-column: span 2;
+    justify-content: flex-start;
+  }
+
   .opportunity-row {
     grid-template-columns: minmax(280px, 1.6fr) repeat(2, minmax(100px, 0.6fr)) 22px;
   }
@@ -7339,6 +7406,13 @@ footer span:first-child {
 
   .ai-boundary {
     grid-column: auto;
+  }
+
+  .ai-runtime-controls {
+    grid-column: auto;
+    align-items: stretch;
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .section-heading {

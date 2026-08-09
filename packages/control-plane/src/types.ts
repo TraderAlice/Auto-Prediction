@@ -235,10 +235,13 @@ export interface DiscoveryAgentPort {
 }
 
 export type ModelProviderProjection = Readonly<{
-  provider: "OPENAI_RESPONSES" | "DEEPSEEK_CHAT_COMPLETIONS";
+  provider:
+    | "OPENAI_RESPONSES"
+    | "CODEX_RESPONSES"
+    | "DEEPSEEK_CHAT_COMPLETIONS";
   transport: "VERCEL_AI_SDK";
   configured: boolean;
-  credentialEnv: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY";
+  credentialEnv: "OPENAI_API_KEY" | "DEEPSEEK_API_KEY" | "CODEX_OAUTH";
   model: string;
   maxOutputTokens: number;
   timeoutMs: number;
@@ -246,7 +249,15 @@ export type ModelProviderProjection = Readonly<{
   maxToolCalls: number;
   fanout: number;
   workerRoles: readonly ModelScoutRole[];
-  reasoningEffort: "minimal" | "disabled";
+  reasoningEffort:
+    | "none"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max"
+    | "disabled";
   responseStorage: false | "PROVIDER_POLICY";
   authority: "PROPOSE_ONLY";
 }>;
@@ -365,6 +376,7 @@ export type StudioProjection = Readonly<{
     probabilityEstimation: import("./probability-estimation-agent.js").ProbabilityEstimationDeskProjection;
     probabilityEstimationScheduler: import("./probability-estimation-scheduler.js").ProbabilityEstimationSchedulerProjection;
     aiUsage: import("./ai-usage-ledger.js").AiUsageProjection;
+    runtimeConfiguration: import("./ai-runtime-configuration.js").AiRuntimeConfigurationProjection;
     semanticReviewAdmission: import("./semantic-review-admission.js").SemanticReviewAdmissionProjection;
     semanticReviewScheduler: import("./semantic-review-scheduler.js").SemanticReviewSchedulerProjection;
     premiseAnalysis: import("./premise-analysis.js").PremiseAnalysisDeskProjection;

@@ -175,6 +175,15 @@ import {
   searchSemanticGraphNeighborhood,
   type SemanticGraphSearchContext,
 } from "./semantic-relation-graph.js";
+import {
+  AiRuntimeConfigurationConflictError,
+  AiRuntimeConfigurationDesk,
+  AI_RUNTIME_PROVIDERS,
+  CODEX_REASONING_EFFORTS,
+  CODEX_RUNTIME_MODELS,
+  type AiRuntimeConfiguration,
+  type AiRuntimeConfigurationStore,
+} from "./ai-runtime-configuration.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -594,6 +603,51 @@ function supportsAiUsageEvents(
     typeof candidate.saveAiUsageEvent === "function";
 }
 
+function supportsAiRuntimeConfiguration(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & AiRuntimeConfigurationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<AiRuntimeConfigurationStore>;
+  return candidate.aiRuntimeConfigurationStorage !== undefined &&
+    typeof candidate.loadAiRuntimeConfiguration === "function" &&
+    typeof candidate.saveAiRuntimeConfiguration === "function";
+}
+
+function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
+  expectedRevision: number;
+  provider: (typeof AI_RUNTIME_PROVIDERS)[number];
+  codexModel: (typeof CODEX_RUNTIME_MODELS)[number];
+  codexReasoningEffort: (typeof CODEX_REASONING_EFFORTS)[number];
+}> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("AI runtime configuration update must be an object");
+  }
+  const body = value as Record<string, unknown>;
+  const keys = Object.keys(body).sort();
+  const expectedKeys = [
+    "codexModel",
+    "codexReasoningEffort",
+    "expectedRevision",
+    "provider",
+  ];
+  if (
+    JSON.stringify(keys) !== JSON.stringify(expectedKeys) ||
+    !Number.isSafeInteger(body.expectedRevision) ||
+    !AI_RUNTIME_PROVIDERS.includes(body.provider as never) ||
+    !CODEX_RUNTIME_MODELS.includes(body.codexModel as never) ||
+    !CODEX_REASONING_EFFORTS.includes(body.codexReasoningEffort as never)
+  ) {
+    throw new Error("AI runtime configuration update is invalid");
+  }
+  return Object.freeze({
+    expectedRevision: body.expectedRevision as number,
+    provider: body.provider as (typeof AI_RUNTIME_PROVIDERS)[number],
+    codexModel: body.codexModel as (typeof CODEX_RUNTIME_MODELS)[number],
+    codexReasoningEffort:
+      body.codexReasoningEffort as (typeof CODEX_REASONING_EFFORTS)[number],
+  });
+}
+
 export function createControlPlane(options?: {
   bookDesk?: ReplayBookDesk;
   catalogDesk?: FixtureCatalogDiscoveryDesk;
@@ -618,6 +672,8 @@ export function createControlPlane(options?: {
   probabilityEstimationDesk?: ProbabilityEstimationDesk;
   probabilityEstimationScheduler?: ProbabilityEstimationScheduler;
   aiUsageLedger?: AiUsageLedger;
+  aiRuntimeConfigurationDesk?: AiRuntimeConfigurationDesk;
+  modelRuntimeFactory?: (configuration: AiRuntimeConfiguration) => DiscoveryModelRuntime;
   semanticReviewScheduler?: SemanticReviewScheduler;
   premiseAnalysisDesk?: ReturnType<typeof createPremiseAnalysisDesk>;
   premiseAnalysisScheduler?: PremiseAnalysisScheduler;
@@ -653,15 +709,25 @@ export function createControlPlane(options?: {
       ? options.discoveryStore
       : undefined,
   );
-  const modelRuntime =
-    options?.modelRuntime ?? createDiscoveryModelRuntime(process.env, {
-      usageRecorder: aiUsageLedger,
-    });
+  const aiRuntimeConfigurationDesk = options?.aiRuntimeConfigurationDesk ??
+    new AiRuntimeConfigurationDesk(
+      process.env,
+      supportsAiRuntimeConfiguration(options?.discoveryStore)
+        ? options.discoveryStore
+        : undefined,
+    );
+  const modelRuntimeFactory = options?.modelRuntimeFactory ??
+    ((configuration: AiRuntimeConfiguration) => createDiscoveryModelRuntime(
+      process.env,
+      { usageRecorder: aiUsageLedger, runtimeConfiguration: configuration },
+    ));
+  let modelRuntime = options?.modelRuntime ??
+    modelRuntimeFactory(aiRuntimeConfigurationDesk.current());
   const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime(process.env, {
     usageRecorder: aiUsageLedger,
   });
   const worker = new HeuristicDiscoveryWorker();
-  const pool =
+  let pool =
     options?.discoveryPool ??
     new DiscoveryPool([
       worker,
@@ -1343,6 +1409,7 @@ export function createControlPlane(options?: {
       probabilityEstimation: probabilityEstimationDesk.projection(),
       probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
       aiUsage: aiUsageLedger.projection(),
+      runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
       premiseAnalysis: premiseAnalysisProjection,
@@ -1496,6 +1563,7 @@ export function createControlPlane(options?: {
         probabilityEstimation: probabilityEstimationDesk.projection(),
         probabilityEstimationScheduler: probabilityEstimationScheduler.projection(),
         aiUsage: aiUsageLedger.projection(),
+        runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
         premiseAnalysis: premiseAnalysisDesk.projection(),
         premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
         evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
@@ -1525,6 +1593,43 @@ export function createControlPlane(options?: {
           diagnostic: "projection view must be live or full",
           executionAuthority: false,
         });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/ai-runtime/configuration"
+    ) {
+      try {
+        const update = parseAiRuntimeConfigurationUpdate(await readJson(request));
+        const configuration = aiRuntimeConfigurationDesk.update(update);
+        if (options?.modelRuntime === undefined) {
+          modelRuntime = modelRuntimeFactory(configuration);
+          if (options?.discoveryPool === undefined) {
+            pool = new DiscoveryPool([
+              worker,
+              ...modelRuntime.workers,
+            ]);
+          }
+        }
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+          modelProvider: modelRuntime.projection,
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(
+          response,
+          error instanceof AiRuntimeConfigurationConflictError ? 409 : 400,
+          {
+            ok: false,
+            diagnostic: error instanceof Error ? error.message : "configuration update failed",
+            runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+            executionAuthority: false,
+          },
+        );
       }
       return;
     }

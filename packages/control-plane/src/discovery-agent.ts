@@ -624,7 +624,7 @@ function discoveryUsageRole(workerId: string): string {
 }
 
 export async function runAiSdkDiscoveryAgent(input: Readonly<{
-  provider: "DEEPSEEK" | "OPENAI";
+  provider: "DEEPSEEK" | "OPENAI" | "CODEX";
   model: LanguageModel;
   modelId: string;
   workerId: string;

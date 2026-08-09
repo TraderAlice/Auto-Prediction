@@ -189,7 +189,7 @@ describe("Vercel AI SDK DeepSeek discovery agent", () => {
       configured: false,
     });
     expect(() => createDiscoveryModelRuntime({ PMH_DISCOVERY_PROVIDER: "invented" }))
-      .toThrow(/must be deepseek or openai/);
+      .toThrow(/must be deepseek, codex, or openai/);
   });
 
   it("classifies provider and malformed-output failures without body retention", async () => {

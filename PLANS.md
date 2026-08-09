@@ -10,7 +10,9 @@ and AI resource observability tracked in
 protocol efficiency tracked in
 [`plans/semantic-review-loop-efficiency.md`](plans/semantic-review-loop-efficiency.md)
 and resolved-outcome quality tracked in
-[`plans/probability-calibration.md`](plans/probability-calibration.md).
+[`plans/probability-calibration.md`](plans/probability-calibration.md), with
+runtime model supply and operator switching tracked in
+[`plans/ai-provider-routing.md`](plans/ai-provider-routing.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -26,6 +28,17 @@ hard-arbitrage compiler.
   rerun the plan's qualification gates against the current worktree.
 
 ## Current checkpoint
+
+Discovery model supply is now a durable operator-controlled runtime instead of
+a startup-only environment selection. DeepSeek V4 Flash remains the inexpensive
+default, while the Studio can hot-switch new scout work through Codex OAuth to
+GPT-5.6 Luna or Terra with `none` through `max` reasoning effort. SQLite schema
+v27 retains only the non-secret selection and optimistic revision; credentials
+stay at the transport boundary. Mocked Codex requests, restart replay, stale
+revision rejection, full workspace checks/build, and 1280/390 px Studio
+interaction are qualified. The four downstream specialist AI SDK loops retain
+their independent DeepSeek supply until cross-stage provider snapshot lineage
+is designed rather than silently inheriting an operator switch.
 
 The product taxonomy now explicitly distinguishes hard arbitrage from
 probabilistic semantic arbitrage. A possible non-fatal shooting is not treated

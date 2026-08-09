@@ -66,6 +66,8 @@ type RadarCandidate = StudioProjection["ai"]["opportunityRadar"]["candidates"][n
 type SearchIssue = StudioProjection["ai"]["searchIssueScheduler"]["issues"][number];
 type SearchAttentionMessage = StudioProjection["ai"]["searchAttention"]["messages"][number];
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
+type AiRuntimeConfiguration =
+  StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
 
 function formatRateBps(value: number | null): string {
   if (value === null) return "—";
@@ -1070,6 +1072,31 @@ async function requestDiscoveryRun(
     throw new Error("scout crossed its authority boundary");
   }
   return result.idempotentReplay === true;
+}
+
+async function requestAiRuntimeConfigurationUpdate(
+  configuration: AiRuntimeConfiguration,
+): Promise<void> {
+  const response = await fetch("/api/v1/ai-runtime/configuration", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      expectedRevision: configuration.revision,
+      provider: configuration.provider,
+      codexModel: configuration.codexModel,
+      codexReasoningEffort: configuration.codexReasoningEffort,
+    }),
+  });
+  const result = (await response.json()) as {
+    diagnostic?: string;
+    executionAuthority?: boolean;
+  };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "AI runtime configuration update failed");
+  }
+  if (result.executionAuthority !== false) {
+    throw new Error("AI runtime configuration crossed its authority boundary");
+  }
 }
 
 async function requestInvestigation(
@@ -2093,6 +2120,33 @@ function Overview({
   const [refreshStatus, setRefreshStatus] = useState<
     "IDLE" | "RUNNING" | "READY" | "DEGRADED" | "FAILED"
   >("IDLE");
+  const [configurationStatus, setConfigurationStatus] = useState<
+    "IDLE" | "SAVING" | "SAVED" | "FAILED"
+  >("IDLE");
+  const [configurationDiagnostic, setConfigurationDiagnostic] = useState<string | null>(null);
+  const runtimeConfiguration = studioProjection.ai.runtimeConfiguration;
+
+  async function updateAiRuntimeConfiguration(
+    patch: Partial<Pick<
+      AiRuntimeConfiguration,
+      "provider" | "codexModel" | "codexReasoningEffort"
+    >>,
+  ): Promise<void> {
+    setConfigurationStatus("SAVING");
+    setConfigurationDiagnostic(null);
+    try {
+      await requestAiRuntimeConfigurationUpdate({
+        ...runtimeConfiguration.configuration,
+        ...patch,
+      });
+      setConfigurationStatus("SAVED");
+    } catch (error) {
+      setConfigurationStatus("FAILED");
+      setConfigurationDiagnostic(
+        error instanceof Error ? error.message : "configuration update failed",
+      );
+    }
+  }
 
   async function runScout(): Promise<void> {
     setScoutStatus("RUNNING");
@@ -2200,6 +2254,70 @@ function Overview({
                   ? "Retry scout"
                   : "Run scout"}
           </Button>
+        </div>
+        <div className="ai-runtime-controls" aria-label="AI runtime configuration">
+          <div className="ai-provider-toggle" role="group" aria-label="Scout provider">
+            {runtimeConfiguration.availableProviders.map((provider) => (
+              <Button
+                key={provider}
+                size="sm"
+                variant={
+                  runtimeConfiguration.configuration.provider === provider
+                    ? "default"
+                    : "outline"
+                }
+                disabled={configurationStatus === "SAVING"}
+                onClick={() => void updateAiRuntimeConfiguration({ provider })}
+              >
+                {provider === "DEEPSEEK" ? "DeepSeek" : "Codex"}
+              </Button>
+            ))}
+          </div>
+          <label>
+            <span>Model</span>
+            <select
+              aria-label="Codex model"
+              value={runtimeConfiguration.configuration.codexModel}
+              disabled={configurationStatus === "SAVING"}
+              onChange={(event) => void updateAiRuntimeConfiguration({
+                codexModel: event.target.value as AiRuntimeConfiguration["codexModel"],
+              })}
+            >
+              {runtimeConfiguration.availableCodexModels.map((model) => (
+                <option key={model} value={model}>{model.replace("gpt-5.6-", "")}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Effort</span>
+            <select
+              aria-label="Codex reasoning effort"
+              value={runtimeConfiguration.configuration.codexReasoningEffort}
+              disabled={configurationStatus === "SAVING"}
+              onChange={(event) => void updateAiRuntimeConfiguration({
+                codexReasoningEffort:
+                  event.target.value as AiRuntimeConfiguration["codexReasoningEffort"],
+              })}
+            >
+              {runtimeConfiguration.availableCodexReasoningEfforts.map((effort) => (
+                <option key={effort} value={effort}>{effort}</option>
+              ))}
+            </select>
+          </label>
+          <span className={cn(
+            "ai-runtime-status",
+            configurationStatus === "FAILED" && "is-failed",
+          )}>
+            {configurationStatus === "SAVING"
+              ? "switching…"
+              : configurationStatus === "SAVED"
+                ? "saved"
+                : configurationStatus === "FAILED"
+                  ? configurationDiagnostic ?? "failed"
+                  : runtimeConfiguration.storage.durable
+                    ? `saved · r${runtimeConfiguration.configuration.revision}`
+                    : `session · r${runtimeConfiguration.configuration.revision}`}
+          </span>
         </div>
         <div className="ai-boundary">
           <Gauge size={14} />
