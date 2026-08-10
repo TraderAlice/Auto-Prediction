@@ -5,6 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  assertEvidenceAcquisitionJobRecord,
+  assertEvidenceRequirement,
   buildDiscoveryEvidenceLocator,
   buildEvidenceDocumentFetchPolicy,
   buildEvidenceRequirements,
@@ -91,6 +93,28 @@ function requirement(
   })[0]!;
 }
 
+function legacyRequirement(
+  current: EvidenceRequirement,
+): EvidenceRequirement {
+  if (current.schemaVersion !== "pmh.evidence-requirement.v2") {
+    throw new Error("expected current evidence requirement schema");
+  }
+  const {
+    proposalListingRefs: _proposalListingRefs,
+    requirementId: _requirementId,
+    schemaVersion: _schemaVersion,
+    ...retainedBody
+  } = current;
+  const body = Object.freeze({
+    ...retainedBody,
+    schemaVersion: "pmh.evidence-requirement.v1" as const,
+  });
+  return assertEvidenceRequirement(Object.freeze({
+    ...body,
+    requirementId: hashCanonical(body),
+  }));
+}
+
 function fetcher(
   fetch: EvidenceDocumentFetchLike,
   now: () => number,
@@ -123,6 +147,32 @@ function rehash(
 }
 
 describe("durable evidence acquisition scheduler", () => {
+  it("replaces a retained v1 requirement with its proposal-scoped v2 generation", () => {
+    const time = clock();
+    const current = requirement("proposal-scope-migration", {
+      url: "https://rules.example.com/proposal-scope/rules.txt",
+    });
+    const legacy = legacyRequirement(current);
+    const read = vi.fn<EvidenceDocumentFetchLike>();
+    const scheduler = new EvidenceAcquisitionScheduler({
+      fetcher: fetcher(read, time.now),
+      tickIntervalMs: 1_000,
+      now: time.now,
+    });
+
+    scheduler.reconcile([legacy]);
+    expect(scheduler.projection().jobs[0]?.requirements).toMatchObject([{
+      schemaVersion: "pmh.evidence-requirement.v1",
+    }]);
+    scheduler.reconcile([current]);
+
+    expect(scheduler.projection().jobs[0]?.requirements).toEqual([current]);
+    expect(scheduler.projection().jobs[0]?.requirementIds).toEqual([
+      current.requirementId,
+    ]);
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it("coalesces proposal-local requirements into one bounded anonymous fetch", async () => {
     const time = clock();
     const url = "https://rules.example.com/shared/rules.txt";
@@ -157,6 +207,10 @@ describe("durable evidence acquisition scheduler", () => {
         venuePolicyCount: 0,
         legacyGenericCount: 0,
         withoutLocatorCount: 0,
+      },
+      requirementScope: {
+        proposalScopedCount: 2,
+        legacyCount: 0,
       },
       budget: { basis: "FETCH_ATTEMPTS", fetchAttemptsStarted: 1 },
       authority: "ANONYMOUS_EVIDENCE_ORCHESTRATION_ONLY",
@@ -228,6 +282,10 @@ describe("durable evidence acquisition scheduler", () => {
         venuePolicyCount: 0,
         legacyGenericCount: 0,
         withoutLocatorCount: 1,
+      },
+      requirementScope: {
+        proposalScopedCount: 1,
+        legacyCount: 0,
       },
       budget: { fetchAttemptsStarted: 0 },
     });
@@ -384,6 +442,12 @@ describe("durable evidence acquisition scheduler", () => {
       expect(read).toHaveBeenCalledOnce();
       expect(restored.captureForJob(captured.jobId)?.extraction.text)
         .toBe("Durably retained official rule.");
+      expect(restored.projection().jobs[0]?.requirements[0]).toMatchObject({
+        schemaVersion: "pmh.evidence-requirement.v2",
+        proposalListingRefs: input.schemaVersion === "pmh.evidence-requirement.v2"
+          ? input.proposalListingRefs
+          : [],
+      });
 
       const other = requirement("expired", {
         url: "https://rules.example.com/expired/rules.txt",
@@ -416,6 +480,87 @@ describe("durable evidence acquisition scheduler", () => {
       expect(recovered.projection().jobs.find((job) =>
         job.acquisitionScopeIdentity === other.acquisitionScopeIdentity
       )).toMatchObject({ status: "RETRY_WAIT", attemptCount: 1 });
+      thirdStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs a captured legacy job whose requirement generation advanced", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-evidence-generation-repair-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const time = clock();
+      const current = requirement("captured-generation-repair", {
+        url: "https://rules.example.com/generation-repair/rules.txt",
+      });
+      const legacy = legacyRequirement(current);
+      const read = vi.fn<EvidenceDocumentFetchLike>(async () =>
+        new Response("Captured under the legacy requirement generation.", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        })
+      );
+      const firstStore = new SqliteOperationalStore(path);
+      const first = new EvidenceAcquisitionScheduler({
+        fetcher: fetcher(read, time.now),
+        tickIntervalMs: 1_000,
+        store: firstStore,
+        now: time.now,
+      });
+      await Promise.all(first.tick([legacy]));
+      const captured = first.projection().jobs[0]!;
+      const {
+        artifactHash: _artifactHash,
+        captureRequirementId: _captureRequirementId,
+        schemaVersion: _schemaVersion,
+        ...capturedBody
+      } = captured;
+      const interruptedBody = Object.freeze({
+        ...capturedBody,
+        schemaVersion: "pmh.evidence-acquisition-job.v1" as const,
+        requirements: Object.freeze([current]),
+        requirementIds: Object.freeze([current.requirementId]),
+      });
+      firstStore.saveEvidenceAcquisitionJobRecord(
+        assertEvidenceAcquisitionJobRecord(Object.freeze({
+          ...interruptedBody,
+          artifactHash: hashCanonical(interruptedBody),
+        })),
+        250,
+      );
+      firstStore.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const repaired = new EvidenceAcquisitionScheduler({
+        fetcher: fetcher(read, time.now),
+        tickIntervalMs: 1_000,
+        store: secondStore,
+        now: time.now,
+      });
+      repaired.reconcile([current]);
+      expect(repaired.projection().jobs[0]).toMatchObject({
+        schemaVersion: "pmh.evidence-acquisition-job.v2",
+        captureRequirementId: legacy.requirementId,
+        requirementIds: [current.requirementId],
+        status: "CAPTURED",
+      });
+      expect(repaired.captureForJob(captured.jobId)?.extraction.text)
+        .toBe("Captured under the legacy requirement generation.");
+      secondStore.close();
+
+      const thirdStore = new SqliteOperationalStore(path);
+      const restarted = new EvidenceAcquisitionScheduler({
+        fetcher: fetcher(read, time.now),
+        tickIntervalMs: 1_000,
+        store: thirdStore,
+        now: time.now,
+      });
+      expect(restarted.projection().jobs[0]).toMatchObject({
+        schemaVersion: "pmh.evidence-acquisition-job.v2",
+        captureRequirementId: legacy.requirementId,
+      });
+      expect(read).toHaveBeenCalledOnce();
       thirdStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });

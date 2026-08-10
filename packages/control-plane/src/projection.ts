@@ -798,6 +798,10 @@ export function buildStudioProjection(input: {
       legacyGenericCount: 0,
       withoutLocatorCount: 0,
     },
+    requirementScope: {
+      proposalScopedCount: 0,
+      legacyCount: 0,
+    },
     budget: {
       basis: "FETCH_ATTEMPTS" as const,
       maxAttemptsPerJob: 3,

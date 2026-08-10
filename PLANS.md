@@ -47,7 +47,9 @@ with durable issue-to-review yield tracked in
 and full contract text retention tracked in
 [`plans/complete-contract-rules-evidence.md`](plans/complete-contract-rules-evidence.md),
 with official venue-level rulebook acquisition tracked in
-[`plans/venue-level-rulebook-evidence.md`](plans/venue-level-rulebook-evidence.md).
+[`plans/venue-level-rulebook-evidence.md`](plans/venue-level-rulebook-evidence.md),
+and evidence requirements that survive proposal-window rotation tracked in
+[`plans/durable-evidence-requirement-scope.md`](plans/durable-evidence-requirement-scope.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -723,6 +725,19 @@ interaction window; the live projection has 50 contract-detail jobs, four
 legacy-generic jobs, and 196 explicit no-locator debts. Fresh desktop and 390 px
 checks on the actual `5174` default Discover and Evidence routes have no
 horizontal overflow. The measured operator frontier remains `DECISION_READY=0`.
+
+Evidence requirements now survive the next retention boundary as well. V2
+binds the complete two-to-eight-contract proposal scope even when one evidence
+gap targets only a single listing, so current locators can be rebound after the
+Agent report and review job have rotated away. V1 remains byte-readable and is
+never assigned invented peers. Live migration caught a capture-lineage hazard:
+advancing the requirement generation without retaining the requirement that
+authorized the immutable fetch made restart fail closed. Acquisition job v2
+therefore keeps a separate `captureRequirementId`; a three-restart SQLite
+regression proves repair without another fetch. The retained queue now reports
+260 proposal-scoped requirements, 145 legacy requirements, zero duplicate
+evolution groups, 54 intact captures, and zero due acquisition work. Studio
+shows this durable-scope posture at desktop and 390 px without overflow.
 
 ## Deferred future campaigns
 

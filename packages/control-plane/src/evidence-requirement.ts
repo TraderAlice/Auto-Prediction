@@ -8,7 +8,7 @@ import type {
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_REQUIREMENTS = 20;
 const MAX_LISTINGS = 8;
-const REQUIREMENT_KEYS = Object.freeze([
+const REQUIREMENT_V1_KEYS = Object.freeze([
   "acquisitionRoute",
   "acquisitionScopeIdentity",
   "authority",
@@ -31,6 +31,10 @@ const REQUIREMENT_KEYS = Object.freeze([
   "sourceObservations",
   "temporalPosture",
 ]);
+const REQUIREMENT_V2_KEYS = Object.freeze([
+  ...REQUIREMENT_V1_KEYS,
+  "proposalListingRefs",
+].sort());
 const SOURCE_OBSERVATION_KEYS = Object.freeze([
   "evidenceLocatorIdentities",
   "listingHash",
@@ -71,8 +75,7 @@ export type EvidenceRequirementDraft = Readonly<{
   temporalPosture: "CURRENT" | "HISTORICAL_AT_SOURCE_OBSERVATION";
 }>;
 
-export type EvidenceRequirement = Readonly<{
-  schemaVersion: "pmh.evidence-requirement.v1";
+type EvidenceRequirementFields = Readonly<{
   requirementId: Hash;
   acquisitionScopeIdentity: Hash;
   origin: "MARKET_ARCHAEOLOGIST" | "SEMANTIC_REVIEW";
@@ -107,6 +110,15 @@ export type EvidenceRequirement = Readonly<{
   certificateAuthority: false;
   executionAuthority: false;
 }>;
+
+export type EvidenceRequirement =
+  | Readonly<EvidenceRequirementFields & {
+    schemaVersion: "pmh.evidence-requirement.v1";
+  }>
+  | Readonly<EvidenceRequirementFields & {
+    schemaVersion: "pmh.evidence-requirement.v2";
+    proposalListingRefs: readonly string[];
+  }>;
 
 function boundedText(value: unknown, maximum: number): value is string {
   return typeof value === "string" &&
@@ -225,7 +237,11 @@ export function buildEvidenceRequirements(input: Readonly<{
     !HASH_PATTERN.test(input.proposalId) ||
     input.proposalListingRefs.length < 2 ||
     input.proposalListingRefs.length > MAX_LISTINGS ||
-    new Set(input.proposalListingRefs).size !== input.proposalListingRefs.length
+    new Set(input.proposalListingRefs).size !== input.proposalListingRefs.length ||
+    input.proposalListingRefs.some((item) => !boundedText(item, 500)) ||
+    input.proposalListingRefs.some((listingRef) =>
+      !input.listings.some((listing) => listing.listingRef === listingRef)
+    )
   ) {
     throw new Error("evidence requirement proposal scope is invalid");
   }
@@ -309,10 +325,11 @@ export function buildEvidenceRequirements(input: Readonly<{
       acquisitionRoute: route,
     };
     const body = Object.freeze({
-      schemaVersion: "pmh.evidence-requirement.v1" as const,
+      schemaVersion: "pmh.evidence-requirement.v2" as const,
       acquisitionScopeIdentity: scopeIdentity(scoped),
       origin: input.origin,
       proposalId: input.proposalId,
+      proposalListingRefs: Object.freeze([...input.proposalListingRefs]),
       kind: draft.kind,
       listingRefs,
       claim: draft.claim,
@@ -348,10 +365,14 @@ export function assertEvidenceRequirement(value: unknown): EvidenceRequirement {
   }
   const requirement = value as EvidenceRequirement;
   const { requirementId, ...body } = requirement;
+  const expectedKeys = requirement.schemaVersion === "pmh.evidence-requirement.v1"
+    ? REQUIREMENT_V1_KEYS
+    : requirement.schemaVersion === "pmh.evidence-requirement.v2"
+      ? REQUIREMENT_V2_KEYS
+      : null;
   if (
-    Object.keys(requirement).sort().join("\n") !==
-      REQUIREMENT_KEYS.join("\n") ||
-    requirement.schemaVersion !== "pmh.evidence-requirement.v1" ||
+    expectedKeys === null ||
+    Object.keys(requirement).sort().join("\n") !== expectedKeys.join("\n") ||
     !HASH_PATTERN.test(String(requirementId)) ||
     requirementId !== hashCanonical(body) ||
     !HASH_PATTERN.test(String(requirement.acquisitionScopeIdentity)) ||
@@ -383,6 +404,19 @@ export function assertEvidenceRequirement(value: unknown): EvidenceRequirement {
     requirement.executionAuthority !== false
   ) {
     throw new Error("evidence requirement violates its bounded authority contract");
+  }
+  if (requirement.schemaVersion === "pmh.evidence-requirement.v2" && (
+    !Array.isArray(requirement.proposalListingRefs) ||
+    requirement.proposalListingRefs.length < 2 ||
+    requirement.proposalListingRefs.length > MAX_LISTINGS ||
+    new Set(requirement.proposalListingRefs).size !==
+      requirement.proposalListingRefs.length ||
+    requirement.proposalListingRefs.some((item) => !boundedText(item, 500)) ||
+    requirement.listingRefs.some((listingRef) =>
+      !requirement.proposalListingRefs.includes(listingRef)
+    )
+  )) {
+    throw new Error("evidence requirement proposal scope is malformed");
   }
   for (const [index, observation] of requirement.sourceObservations.entries()) {
     if (
@@ -470,21 +504,29 @@ export function assertEvidenceRequirement(value: unknown): EvidenceRequirement {
 export function rebaseEvidenceRequirementToCurrentListings(
   requirementInput: EvidenceRequirement,
   input: Readonly<{
-    proposalListingRefs: readonly string[];
+    proposalListingRefs?: readonly string[];
     listings: readonly DiscoveryCatalogListing[];
   }>,
 ): EvidenceRequirement {
   const requirement = assertEvidenceRequirement(requirementInput);
+  const proposalListingRefs = input.proposalListingRefs ??
+    (requirement.schemaVersion === "pmh.evidence-requirement.v2"
+      ? requirement.proposalListingRefs
+      : requirement.listingRefs);
   if (
     requirement.temporalPosture !== "CURRENT" ||
+    proposalListingRefs.length < 2 ||
     !requirement.listingRefs.every((listingRef) =>
+      input.listings.some((listing) => listing.listingRef === listingRef)
+    ) ||
+    !proposalListingRefs.every((listingRef) =>
       input.listings.some((listing) => listing.listingRef === listingRef)
     )
   ) return requirement;
   const rebased = buildEvidenceRequirements({
     origin: requirement.origin,
     proposalId: requirement.proposalId,
-    proposalListingRefs: input.proposalListingRefs,
+    proposalListingRefs,
     listings: input.listings,
     drafts: [{
       kind: requirement.kind,
@@ -496,7 +538,12 @@ export function rebaseEvidenceRequirementToCurrentListings(
       temporalPosture: requirement.temporalPosture,
     }],
   })[0]!;
-  return rebased.acquisitionScopeIdentity === requirement.acquisitionScopeIdentity
+  return requirement.schemaVersion === "pmh.evidence-requirement.v2" &&
+      rebased.acquisitionScopeIdentity === requirement.acquisitionScopeIdentity &&
+      requirement.proposalListingRefs.length === proposalListingRefs.length &&
+      requirement.proposalListingRefs.every((listingRef, index) =>
+        listingRef === proposalListingRefs[index]
+      )
     ? requirement
     : rebased;
 }

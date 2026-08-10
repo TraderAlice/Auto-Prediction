@@ -21,7 +21,7 @@ const DEFAULT_LEASE_TIMEOUT_MS = 150_000;
 const DEFAULT_RETRY_DELAY_MS = 30_000;
 const DEFAULT_FRESH_FOR_MS = 86_400_000;
 const MAX_REQUIREMENTS_PER_JOB = 100;
-const JOB_KEYS = Object.freeze([
+const JOB_V1_KEYS = Object.freeze([
   "acquisitionScopeIdentity", "artifactHash", "attemptCount", "authority", "capturedAt",
   "certificateAuthority", "conditionalReuseCount", "createdAt", "diagnostic",
   "executionAuthority", "fetchAuthority",
@@ -31,6 +31,7 @@ const JOB_KEYS = Object.freeze([
   "providerRequestAuthority", "requirementIds", "requirements", "schemaVersion",
   "semanticDecisionAuthority", "status", "temporalPosture", "totalAttemptCount", "updatedAt",
 ]);
+const JOB_V2_KEYS = Object.freeze([...JOB_V1_KEYS, "captureRequirementId"].sort());
 
 export type EvidenceAcquisitionJobStatus =
   | "PENDING"
@@ -42,7 +43,7 @@ export type EvidenceAcquisitionJobStatus =
   | "EXHAUSTED";
 
 export type EvidenceAcquisitionJobRecord = Readonly<{
-  schemaVersion: "pmh.evidence-acquisition-job.v1";
+  schemaVersion: "pmh.evidence-acquisition-job.v1" | "pmh.evidence-acquisition-job.v2";
   jobId: Hash;
   acquisitionScopeIdentity: Hash;
   requirements: readonly EvidenceRequirement[];
@@ -65,6 +66,7 @@ export type EvidenceAcquisitionJobRecord = Readonly<{
   lastObservationId: Hash | null;
   lastDocumentId: Hash | null;
   lastExtractionId: Hash | null;
+  captureRequirementId?: Hash | null;
   httpStatus: 200 | 304 | null;
   diagnostic: string | null;
   createdAt: string;
@@ -119,6 +121,10 @@ export type EvidenceAcquisitionSchedulerProjection = Readonly<{
     venuePolicyCount: number;
     legacyGenericCount: number;
     withoutLocatorCount: number;
+  }>;
+  requirementScope: Readonly<{
+    proposalScopedCount: number;
+    legacyCount: number;
   }>;
   budget: Readonly<{
     basis: "FETCH_ATTEMPTS";
@@ -212,6 +218,40 @@ function sortedUnique(values: readonly Hash[]): readonly Hash[] {
   return Object.freeze([...new Set(values)].sort((left, right) => left.localeCompare(right)));
 }
 
+function requirementEvolutionIdentity(requirement: EvidenceRequirement): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.evidence-requirement-evolution.v1",
+    acquisitionScopeIdentity: requirement.acquisitionScopeIdentity,
+    origin: requirement.origin,
+    proposalId: requirement.proposalId,
+    kind: requirement.kind,
+    listingRefs: requirement.listingRefs,
+    claim: requirement.claim,
+    reason: requirement.reason,
+    satisfyingObservation: requirement.satisfyingObservation,
+    contradictingObservation: requirement.contradictingObservation,
+    temporalPosture: requirement.temporalPosture,
+  });
+}
+
+function latestRequirementGenerations(
+  requirements: readonly EvidenceRequirement[],
+): readonly EvidenceRequirement[] {
+  const latest = new Map<Hash, EvidenceRequirement>();
+  for (const requirement of requirements) {
+    const identity = requirementEvolutionIdentity(requirement);
+    const retained = latest.get(identity);
+    if (
+      retained === undefined ||
+      retained.schemaVersion === "pmh.evidence-requirement.v1" &&
+        requirement.schemaVersion === "pmh.evidence-requirement.v2"
+    ) latest.set(identity, requirement);
+  }
+  return Object.freeze([...latest.values()].sort((left, right) =>
+    left.requirementId.localeCompare(right.requirementId)
+  ));
+}
+
 function withHash(
   body: Omit<EvidenceAcquisitionJobRecord, "artifactHash">,
 ): EvidenceAcquisitionJobRecord {
@@ -245,9 +285,14 @@ export function assertEvidenceAcquisitionJobRecord(
   const record = value as EvidenceAcquisitionJobRecord;
   const leased = record.status === "LEASED";
   const hasCapture = record.capturedAt !== null;
+  const expectedKeys = record.schemaVersion === "pmh.evidence-acquisition-job.v1"
+    ? JOB_V1_KEYS
+    : record.schemaVersion === "pmh.evidence-acquisition-job.v2"
+      ? JOB_V2_KEYS
+      : null;
   if (
-    !exactKeys(record, JOB_KEYS) ||
-    record.schemaVersion !== "pmh.evidence-acquisition-job.v1" ||
+    expectedKeys === null ||
+    !exactKeys(record, expectedKeys) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
     !HASH_PATTERN.test(String(record.acquisitionScopeIdentity)) ||
     record.jobId !== jobId(record.acquisitionScopeIdentity) ||
@@ -271,6 +316,11 @@ export function assertEvidenceAcquisitionJobRecord(
     (record.leasedAt !== null && !isIso(record.leasedAt)) ||
     (record.leaseExpiresAt !== null && !isIso(record.leaseExpiresAt)) ||
     !linkedCaptureFields(record) ||
+    (record.schemaVersion === "pmh.evidence-acquisition-job.v2" && (
+      hasCapture !== (record.captureRequirementId !== null) ||
+      record.captureRequirementId !== null &&
+        !HASH_PATTERN.test(String(record.captureRequirementId))
+    )) ||
     (record.capturedAt !== null && !isIso(record.capturedAt)) ||
     (record.nextRefreshAt !== null && !isIso(record.nextRefreshAt)) ||
     (record.httpStatus !== null && record.httpStatus !== 200 && record.httpStatus !== 304) ||
@@ -416,10 +466,10 @@ export class EvidenceAcquisitionScheduler {
     }
     for (const [scope, additions] of byScope) {
       const current = this.#jobs.find((item) => item.acquisitionScopeIdentity === scope);
-      const merged = [...new Map([
+      const merged = latestRequirementGenerations([...new Map([
         ...(current?.requirements ?? []), ...additions,
       ].map((item) => [item.requirementId, item] as const)).values()]
-        .sort((left, right) => left.requirementId.localeCompare(right.requirementId));
+        .sort((left, right) => left.requirementId.localeCompare(right.requirementId)));
       if (merged.length > MAX_REQUIREMENTS_PER_JOB) {
         throw new Error("evidence acquisition scope exceeds its retained requirement bound");
       }
@@ -427,7 +477,7 @@ export class EvidenceAcquisitionScheduler {
       const timestamp = new Date(this.#now()).toISOString();
       if (current === undefined) {
         this.#saveJob(withHash({
-          schemaVersion: "pmh.evidence-acquisition-job.v1",
+          schemaVersion: "pmh.evidence-acquisition-job.v2",
           jobId: jobId(scope),
           acquisitionScopeIdentity: scope,
           requirements: Object.freeze(merged),
@@ -450,6 +500,7 @@ export class EvidenceAcquisitionScheduler {
           lastObservationId: null,
           lastDocumentId: null,
           lastExtractionId: null,
+          captureRequirementId: null,
           httpStatus: null,
           diagnostic: selected === null
             ? "no first-party document acquisition policy admits this evidence scope"
@@ -477,6 +528,7 @@ export class EvidenceAcquisitionScheduler {
         this.#captures.delete(current.jobId);
         this.#saveJob(withHash({
           ...withoutHash(current),
+          schemaVersion: "pmh.evidence-acquisition-job.v2",
           requirements: Object.freeze(merged),
           requirementIds: sortedUnique(merged.map((item) => item.requirementId)),
           proposalIds: sortedUnique(merged.map((item) => item.proposalId)),
@@ -492,6 +544,7 @@ export class EvidenceAcquisitionScheduler {
           lastObservationId: null,
           lastDocumentId: null,
           lastExtractionId: null,
+          captureRequirementId: null,
           httpStatus: null,
           diagnostic: selected === null
             ? "no first-party document acquisition policy admits this evidence scope"
@@ -516,16 +569,23 @@ export class EvidenceAcquisitionScheduler {
         status = "STALE";
       }
       if (
-        merged.length !== current.requirements.length ||
+        merged.map((item) => item.requirementId).join("\n") !==
+          current.requirementIds.join("\n") ||
+        current.schemaVersion !== "pmh.evidence-acquisition-job.v2" ||
         status !== current.status || diagnostic !== current.diagnostic ||
         locatorIdentity !== current.locatorIdentity || policyIdentity !== current.policyIdentity
       ) this.#saveJob(withHash({
         ...withoutHash(current),
+        schemaVersion: "pmh.evidence-acquisition-job.v2",
         requirements: Object.freeze(merged),
         requirementIds: sortedUnique(merged.map((item) => item.requirementId)),
         proposalIds: sortedUnique(merged.map((item) => item.proposalId)),
         locatorIdentity,
         policyIdentity,
+        captureRequirementId: current.schemaVersion ===
+            "pmh.evidence-acquisition-job.v2"
+          ? current.captureRequirementId ?? null
+          : this.#captures.get(current.jobId)?.observation.requirementId ?? null,
         status,
         diagnostic,
         updatedAt: timestamp,
@@ -595,6 +655,7 @@ export class EvidenceAcquisitionScheduler {
       const current = this.#jobs.find((item) => item.jobId === job.jobId) ?? leased;
       const completed = withHash({
         ...withoutHash(current),
+        schemaVersion: "pmh.evidence-acquisition-job.v2",
         status: "CAPTURED",
         attemptCount: 0,
         conditionalReuseCount: current.conditionalReuseCount +
@@ -609,6 +670,7 @@ export class EvidenceAcquisitionScheduler {
         lastObservationId: capture.observation.observationId,
         lastDocumentId: capture.document.record.documentId,
         lastExtractionId: capture.extraction.record.extractionId,
+        captureRequirementId: requirement.requirementId,
         httpStatus: capture.observation.httpStatus,
         diagnostic: null,
         updatedAt: capturedAt,
@@ -662,7 +724,12 @@ export class EvidenceAcquisitionScheduler {
       job.lastExtractionId !== capture.extraction.record.extractionId ||
       job.httpStatus !== capture.observation.httpStatus ||
       job.acquisitionScopeIdentity !== capture.observation.acquisitionScopeIdentity ||
-      !job.requirementIds.includes(capture.observation.requirementId) ||
+      !(job.schemaVersion === "pmh.evidence-acquisition-job.v2"
+        ? job.captureRequirementId === capture.observation.requirementId
+        : job.requirementIds.includes(capture.observation.requirementId) ||
+          job.requirements.some((requirement) =>
+            requirement.schemaVersion === "pmh.evidence-requirement.v2"
+          )) ||
       job.locatorIdentity !== capture.observation.locatorIdentity ||
       job.policyIdentity !== capture.observation.policyIdentity
     ) throw new Error("evidence acquisition capture does not match its job lineage");
@@ -771,6 +838,16 @@ export class EvidenceAcquisitionScheduler {
         withoutLocatorCount: sourceSpecificities.filter(
           (specificity) => specificity === "WITHOUT_LOCATOR",
         ).length,
+      }),
+      requirementScope: Object.freeze({
+        proposalScopedCount: jobs.reduce((sum, job) =>
+          sum + job.requirements.filter((requirement) =>
+            requirement.schemaVersion === "pmh.evidence-requirement.v2"
+          ).length, 0),
+        legacyCount: jobs.reduce((sum, job) =>
+          sum + job.requirements.filter((requirement) =>
+            requirement.schemaVersion === "pmh.evidence-requirement.v1"
+          ).length, 0),
       }),
       budget: Object.freeze({
         basis: "FETCH_ATTEMPTS" as const,

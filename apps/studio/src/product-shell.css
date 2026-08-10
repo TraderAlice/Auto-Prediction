@@ -1669,6 +1669,37 @@ footer {
   font-weight: 640;
 }
 
+.evidence-scope-lineage {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: -2px 0 14px;
+  border: 1px solid rgba(140, 222, 192, 0.18);
+  border-radius: 10px;
+  background: rgba(140, 222, 192, 0.045);
+  padding: 12px 14px;
+  color: var(--primary);
+}
+
+.evidence-scope-lineage > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.evidence-scope-lineage strong {
+  color: #e8efec;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.evidence-scope-lineage span {
+  color: #929b97;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 @media (max-width: 640px) {
   .evidence-source-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));

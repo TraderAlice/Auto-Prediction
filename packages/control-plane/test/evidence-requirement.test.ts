@@ -91,6 +91,11 @@ describe("structured evidence requirements", () => {
       listings: [oldContract, peer],
       drafts: [{ ...draft("RESOLUTION_RULE", [oldContract.listingRef]), temporalPosture: "CURRENT" }],
     })[0]!;
+    expect(retained.schemaVersion).toBe("pmh.evidence-requirement.v2");
+    if (retained.schemaVersion !== "pmh.evidence-requirement.v2") {
+      throw new Error("expected current evidence requirement schema");
+    }
+    expect(retained.proposalListingRefs).toEqual(refs);
     const contractLocator = buildDiscoveryEvidenceLocator({
       venueId: oldContract.venueId,
       protocolIdentity: oldContract.protocolIdentity,
@@ -111,7 +116,6 @@ describe("structured evidence requirements", () => {
       evidenceLocators: Object.freeze([contractLocator, venueLocator]),
     });
     const rebased = rebaseEvidenceRequirementToCurrentListings(retained, {
-      proposalListingRefs: refs,
       listings: [currentContract, peer],
     });
     expect(rebased.requirementId).not.toBe(retained.requirementId);
@@ -122,7 +126,6 @@ describe("structured evidence requirements", () => {
       contractLocator,
     ]);
     expect(rebaseEvidenceRequirementToCurrentListings(rebased, {
-      proposalListingRefs: refs,
       listings: [{
         ...currentContract,
         outcomes: currentContract.outcomes.map((outcome) => ({
@@ -131,6 +134,44 @@ describe("structured evidence requirements", () => {
         })),
       }, peer],
     })).toBe(rebased);
+  });
+
+  it("reads v1 requirements without inventing missing proposal scope", () => {
+    const current = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId,
+      proposalListingRefs,
+      listings,
+      drafts: [{
+        ...draft("RESOLUTION_RULE", [proposalListingRefs[0]!]),
+        temporalPosture: "CURRENT",
+      }],
+    })[0]!;
+    if (current.schemaVersion !== "pmh.evidence-requirement.v2") {
+      throw new Error("expected current evidence requirement schema");
+    }
+    const {
+      proposalListingRefs: _proposalListingRefs,
+      requirementId: _requirementId,
+      schemaVersion: _schemaVersion,
+      ...retainedBody
+    } = current;
+    const legacyBody = Object.freeze({
+      ...retainedBody,
+      schemaVersion: "pmh.evidence-requirement.v1" as const,
+    });
+    const legacy = assertEvidenceRequirement(Object.freeze({
+      ...legacyBody,
+      requirementId: hashCanonical(legacyBody),
+    }));
+    expect(legacy.schemaVersion).toBe("pmh.evidence-requirement.v1");
+    expect(rebaseEvidenceRequirementToCurrentListings(legacy, { listings }))
+      .toBe(legacy);
+    const migrated = rebaseEvidenceRequirementToCurrentListings(legacy, {
+      proposalListingRefs,
+      listings,
+    });
+    expect(migrated.schemaVersion).toBe("pmh.evidence-requirement.v2");
   });
 
   it("keeps contract rules and venue policy as separate evidence routes", () => {
@@ -299,5 +340,17 @@ describe("structured evidence requirements", () => {
       ...extendedBody,
       requirementId: hashCanonical(extendedBody),
     })).toThrow(/authority contract/);
+
+    if (requirement.schemaVersion !== "pmh.evidence-requirement.v2") {
+      throw new Error("expected current evidence requirement schema");
+    }
+    const narrowedProposalBody = {
+      ...body,
+      proposalListingRefs: ["venue-b:event"],
+    };
+    expect(() => assertEvidenceRequirement({
+      ...narrowedProposalBody,
+      requirementId: hashCanonical(narrowedProposalBody),
+    })).toThrow(/proposal scope/);
   });
 });

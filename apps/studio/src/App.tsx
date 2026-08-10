@@ -806,6 +806,10 @@ const EMPTY_EVIDENCE_ACQUISITION: StudioProjection["ai"]["evidenceAcquisition"] 
     legacyGenericCount: 0,
     withoutLocatorCount: 0,
   },
+  requirementScope: {
+    proposalScopedCount: 0,
+    legacyCount: 0,
+  },
   budget: {
     basis: "FETCH_ATTEMPTS",
     maxAttemptsPerJob: 3,
@@ -9417,6 +9421,15 @@ function EvidenceView() {
               <span>Without locator</span>
               <strong>{evidenceSourceCounts.withoutLocatorCount}</strong>
               <small>explicit evidence debt</small>
+            </div>
+          </div>
+          <div className="evidence-scope-lineage" aria-label="Evidence requirement scope lineage">
+            <GitBranch size={15} />
+            <div>
+              <strong>{evidenceAcquisition.requirementScope.proposalScopedCount} requirements retain their complete proposal scope</strong>
+              <span>
+                They can rebind exact contracts after review-window rotation; {evidenceAcquisition.requirementScope.legacyCount} v1 requirements remain readable without invented lineage.
+              </span>
             </div>
           </div>
           <div className="evidence-document-list">

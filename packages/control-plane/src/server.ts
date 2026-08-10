@@ -1750,14 +1750,17 @@ export function createControlPlane(options?: {
             listings: current.evidenceBundle.listings,
           });
       }
-      const scopedListings = requirement.listingRefs.flatMap((listingRef) => {
+      const retainedProposalRefs = requirement.schemaVersion ===
+          "pmh.evidence-requirement.v2"
+        ? requirement.proposalListingRefs
+        : requirement.listingRefs;
+      const scopedListings = retainedProposalRefs.flatMap((listingRef) => {
         const listing = currentListingByRef.get(listingRef);
         return listing === undefined ? [] : [listing];
       });
-      return requirement.listingRefs.length >= 2 &&
-          scopedListings.length === requirement.listingRefs.length
+      return retainedProposalRefs.length >= 2 &&
+          scopedListings.length === retainedProposalRefs.length
         ? rebaseEvidenceRequirementToCurrentListings(requirement, {
-            proposalListingRefs: requirement.listingRefs,
             listings: scopedListings,
           })
         : requirement;
