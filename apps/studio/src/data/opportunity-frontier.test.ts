@@ -9,11 +9,21 @@ function item(
   proposalId: string,
   status: EconomicItem["status"],
   grossEdgeBpsFloor: string | null,
+  options: Readonly<{
+    relationKind?: string;
+    listingRefs?: readonly string[];
+    effectivePriority?: number;
+    issueIds?: readonly string[];
+  }> = {},
 ): EconomicItem {
   return {
     proposalId,
     status,
     currentContractMatchCount: 2,
+    relationKind: options.relationKind ?? "EQUIVALENT",
+    listingRefs: options.listingRefs ?? ["venue-a:a", "venue-b:b"],
+    effectivePriority: options.effectivePriority ?? 3,
+    issueIds: options.issueIds ?? [],
     indicativeEconomics: { grossEdgeBpsFloor },
   } as EconomicItem;
 }
@@ -31,15 +41,17 @@ function triage(
 describe("opportunity frontier", () => {
   it("shows only positive current hints and orders them by gross edge", () => {
     const frontier = buildOpportunityFrontier(triage(3, [
-      item("sha256:c", "POSITIVE_GROSS_HINT", "20"),
+      item("sha256:c", "POSITIVE_GROSS_HINT", "20", { listingRefs: ["a:c", "b:c"] }),
       item("sha256:ignored", "SETTLEMENT_INELIGIBLE", null),
-      item("sha256:a", "POSITIVE_GROSS_HINT", "210"),
-      item("sha256:b", "POSITIVE_GROSS_HINT", "100"),
+      item("sha256:a", "POSITIVE_GROSS_HINT", "210", { listingRefs: ["a:a", "b:a"] }),
+      item("sha256:b", "POSITIVE_GROSS_HINT", "100", { listingRefs: ["a:b", "b:b"] }),
     ]));
     expect(frontier).toMatchObject({
-      totalPositiveCount: 3,
-      visiblePositiveCount: 3,
-      omittedPositiveCount: 0,
+      rawPositiveCount: 3,
+      visibleRawPositiveCount: 3,
+      visibleUniqueCount: 3,
+      collapsedVisibleCount: 0,
+      omittedRawPositiveCount: 0,
       windowed: false,
     });
     expect(frontier.items.map((candidate) => candidate.proposalId)).toEqual([
@@ -51,17 +63,73 @@ describe("opportunity frontier", () => {
     expect(buildOpportunityFrontier(triage(6, [
       item("sha256:visible", "POSITIVE_GROSS_HINT", "50"),
     ]))).toMatchObject({
-      totalPositiveCount: 6,
-      visiblePositiveCount: 1,
-      omittedPositiveCount: 5,
+      rawPositiveCount: 6,
+      visibleRawPositiveCount: 1,
+      visibleUniqueCount: 1,
+      collapsedVisibleCount: 0,
+      omittedRawPositiveCount: 5,
       windowed: true,
     });
     expect(buildOpportunityFrontier(triage(0, []))).toMatchObject({
-      totalPositiveCount: 0,
-      visiblePositiveCount: 0,
-      omittedPositiveCount: 0,
+      rawPositiveCount: 0,
+      visibleRawPositiveCount: 0,
+      visibleUniqueCount: 0,
+      collapsedVisibleCount: 0,
+      omittedRawPositiveCount: 0,
       windowed: false,
       items: [],
     });
+  });
+
+  it("collapses symmetric proposal variants without deleting their lineage", () => {
+    const frontier = buildOpportunityFrontier(triage(3, [
+      item("sha256:b", "POSITIVE_GROSS_HINT", "190", {
+        relationKind: "MUTUALLY_EXCLUSIVE",
+        listingRefs: ["house:rep", "house:dem"],
+        effectivePriority: 4,
+        issueIds: ["sha256:issue-b"],
+      }),
+      item("sha256:a", "POSITIVE_GROSS_HINT", "190", {
+        relationKind: "MUTUALLY_EXCLUSIVE",
+        listingRefs: ["house:dem", "house:rep"],
+        effectivePriority: 5,
+        issueIds: ["sha256:issue-a"],
+      }),
+      item("sha256:c", "POSITIVE_GROSS_HINT", "110", {
+        relationKind: "EQUIVALENT",
+        listingRefs: ["mls:lafc", "mls:lafc-other"],
+      }),
+    ]));
+    expect(frontier).toMatchObject({
+      rawPositiveCount: 3,
+      visibleRawPositiveCount: 3,
+      visibleUniqueCount: 2,
+      collapsedVisibleCount: 1,
+    });
+    expect(frontier.items[0]).toMatchObject({
+      proposalId: "sha256:a",
+      collapsedProposalCount: 1,
+      proposalVariantIds: ["sha256:a", "sha256:b"],
+      issueIds: ["sha256:issue-a", "sha256:issue-b"],
+    });
+  });
+
+  it("preserves direction and relation kind in frontier identity", () => {
+    const frontier = buildOpportunityFrontier(triage(3, [
+      item("sha256:forward", "POSITIVE_GROSS_HINT", "80", {
+        relationKind: "IMPLIES",
+        listingRefs: ["event:early", "event:late"],
+      }),
+      item("sha256:reverse", "POSITIVE_GROSS_HINT", "80", {
+        relationKind: "IMPLIES",
+        listingRefs: ["event:late", "event:early"],
+      }),
+      item("sha256:subset", "POSITIVE_GROSS_HINT", "80", {
+        relationKind: "SUBSET",
+        listingRefs: ["event:early", "event:late"],
+      }),
+    ]));
+    expect(frontier.visibleUniqueCount).toBe(3);
+    expect(frontier.collapsedVisibleCount).toBe(0);
   });
 });

@@ -66,6 +66,33 @@ durable semantic-review disposition and current quote/depth qualification into
 a proposal-local decision dossier, rather than asking the operator to correlate
 multiple bounded diagnostic windows manually.
 
+## 2026-08-11 identity-first checkpoint
+
+Direct use of Findings exposed a presentation-level duplication failure. The
+eight positive items in the bounded view contained only four distinct
+relation/contract structures: Atlanta equivalence appeared twice, House-control
+mutual exclusion three times, and LAFC equivalence twice. These were legitimate
+retained proposal variants, but rendering each as a separate opportunity
+inflated research breadth and displaced unrelated candidates.
+
+The frontier now derives a presentation identity from relation kind and exact
+listing refs. `EQUIVALENT`, `MUTUALLY_EXCLUSIVE`, and `EXHAUSTIVE` are symmetric
+and sort refs; directional relations preserve ref order. The representative is
+selected deterministically by gross edge, current-contract coverage, review
+priority, then proposal ID. Proposal variants remain in the evidence ledger;
+the card retains their IDs, merges exact issue lineage, and displays how many
+variants were collapsed. Inspecting the card still opens one canonical
+representative rather than fanning duplicate reviews into the operator flow.
+
+Counts now distinguish visible unique structures, visible raw hints, collapsed
+visible variants, and raw hints outside the bounded projection. Unseen detail
+is never guessed to be unique or duplicate. Focused tests cover symmetric
+collapse, directional inverses, relation-kind separation, deterministic
+selection, lineage aggregation, and window counts. Browser qualification on
+the retained desk changed `8/16 visible` into `4 UNIQUE SHOWN · 16 raw · 4
+collapsed · 8 outside view`, with one card each for LA Galaxy, Atlanta, House
+control, and LAFC.
+
 ## 2026-08-10 checkpoint
 
 - The live projection now uses `ACTIVE_THEN_RETAINED_ORDER` for economic

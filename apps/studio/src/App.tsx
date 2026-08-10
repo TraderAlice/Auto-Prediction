@@ -8627,11 +8627,14 @@ function ScoutInboxView({
             </p>
           </div>
           <div>
-            <Badge variant={opportunityFrontier.totalPositiveCount > 0 ? "verified" : "muted"}>
-              {opportunityFrontier.totalPositiveCount} CURRENT HINT{opportunityFrontier.totalPositiveCount === 1 ? "" : "S"}
+            <Badge variant={opportunityFrontier.visibleUniqueCount > 0 ? "verified" : "muted"}>
+              {opportunityFrontier.visibleUniqueCount} UNIQUE SHOWN
             </Badge>
             <span>
-              {opportunityFrontier.visiblePositiveCount}/{opportunityFrontier.totalPositiveCount} visible
+              {opportunityFrontier.rawPositiveCount} raw · {opportunityFrontier.collapsedVisibleCount} collapsed
+              {opportunityFrontier.omittedRawPositiveCount > 0
+                ? ` · ${opportunityFrontier.omittedRawPositiveCount} outside view`
+                : ""}
             </span>
           </div>
         </div>
@@ -8655,6 +8658,11 @@ function ScoutInboxView({
                   <div>
                     <Badge variant="verified">PRICE POSITIVE</Badge>
                     <Badge variant="muted">{item.relationKind.replaceAll("_", " ")}</Badge>
+                    {item.collapsedProposalCount > 0 && (
+                      <Badge variant="muted">
+                        {item.collapsedProposalCount} VARIANT{item.collapsedProposalCount === 1 ? "" : "S"} COLLAPSED
+                      </Badge>
+                    )}
                   </div>
                 </div>
                 <h3 title={item.statement}>{item.statement}</h3>
@@ -8678,7 +8686,7 @@ function ScoutInboxView({
           <div className="opportunity-frontier-window-note" role="status">
             <CircleOff size={14} />
             <span>
-              {opportunityFrontier.omittedPositiveCount} additional positive hint{opportunityFrontier.omittedPositiveCount === 1 ? " is" : "s are"} outside the bounded live view; the total is retained, not reported as zero.
+              {opportunityFrontier.omittedRawPositiveCount} additional raw positive hint{opportunityFrontier.omittedRawPositiveCount === 1 ? " is" : "s are"} outside the bounded live view; uniqueness is not guessed without exact relation and contract identities.
             </span>
           </div>
         )}

@@ -215,6 +215,15 @@ Review handoff. The three proposals previously absent from the live economic
 detail window each restore their proposal, review job, and lifecycle case.
 Every card names semantic review, fees, and depth as outstanding, so a gross
 hint cannot masquerade as executable profit.
+Product use on the expanded frontier then showed that eight visible raw hints
+represented only four exact relation/contract structures: repeated Agent
+arguments for Atlanta, House control, and LAFC occupied half the bounded view.
+The frontier is now identity-first without rewriting evidence. Symmetric
+relations group by relation kind plus sorted exact listing refs; directional
+relations preserve order. One deterministic edge/coverage/priority-ranked
+representative is shown with its variant count and merged issue lineage, while
+the UI separately reports unique visible opportunities, raw hints, collapsed
+variants, and raw detail outside the projection window.
 
 Live frontier use exposed the next persistence cliff. Four price-positive jobs
 are direct PASS and two reuse one canonical PASS, yet only one underlying
