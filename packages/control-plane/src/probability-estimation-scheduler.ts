@@ -2,9 +2,11 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import {
   assertProbabilityEstimationRunRecord,
+  assertProbabilityEstimatorEngine,
   ProbabilityEstimationDesk,
   PROBABILITY_ESTIMATOR_ROLES,
   type ProbabilityEstimationRunRecord,
+  type ProbabilityEstimatorEngine,
   type ProbabilityEstimatorRole,
 } from "./probability-estimation-agent.js";
 import {
@@ -51,7 +53,8 @@ export type ProbabilityEstimationCandidate = Readonly<{
 export type ProbabilityEstimationJobRecord = Readonly<{
   schemaVersion:
     | "pmh.probability-estimation-job.v1"
-    | "pmh.probability-estimation-job.v2";
+    | "pmh.probability-estimation-job.v2"
+    | "pmh.probability-estimation-job.v3";
   jobId: Hash;
   caseIdentity: Hash;
   proposalId: Hash;
@@ -63,6 +66,7 @@ export type ProbabilityEstimationJobRecord = Readonly<{
   searchOrigin?: ProbabilitySearchOrigin;
   role: ProbabilityEstimatorRole;
   model: string;
+  engine?: ProbabilityEstimatorEngine;
   status: ProbabilityEstimationJobStatus;
   attemptCount: number;
   maxAttempts: number;
@@ -130,6 +134,7 @@ export type ProbabilityEstimationSchedulerProjection = Readonly<{
   leasedCount: number;
   retryWaitCount: number;
   blockedEvidenceCount: number;
+  policyBlockedCount: number;
   passedCount: number;
   abstainedCount: number;
   exhaustedCount: number;
@@ -174,6 +179,7 @@ type SchedulerOptions = Readonly<{
   retentionLimit?: number;
   store?: ProbabilityEstimationSchedulerStore;
   now?: () => number;
+  engineAllowed?: (engine: ProbabilityEstimatorEngine) => boolean;
 }>;
 
 function isIso(value: unknown): value is string {
@@ -250,8 +256,26 @@ function caseIdentity(input: Readonly<{
   evidenceScopeIdentity: Hash;
   adverseStateIds: readonly string[];
   model: string;
+  engine?: ProbabilityEstimatorEngine;
 }>): Hash {
-  return hashCanonical({ schemaVersion: "pmh.probability-estimation-case-id.v1", ...input });
+  return hashCanonical({
+    schemaVersion: input.engine === undefined
+      ? "pmh.probability-estimation-case-id.v1"
+      : "pmh.probability-estimation-case-id.v2",
+    ...input,
+  });
+}
+
+function jobEngine(record: ProbabilityEstimationJobRecord): ProbabilityEstimatorEngine {
+  return record.engine === undefined
+    ? assertProbabilityEstimatorEngine(Object.freeze({
+        provider: "DEEPSEEK" as const,
+        transport: "VERCEL_AI_SDK" as const,
+        model: record.model,
+        reasoningEffort: null,
+        responseStorage: false as const,
+      }))
+    : assertProbabilityEstimatorEngine(record.engine);
 }
 
 function jobId(caseId: Hash, role: ProbabilityEstimatorRole): Hash {
@@ -302,20 +326,30 @@ export function assertProbabilityEstimationJobRecord(
     : assertProbabilitySearchOrigin(record.searchOrigin);
   const terminal = ["PASS", "ABSTAINED", "EXHAUSTED"].includes(record.status);
   const leased = record.status === "LEASED";
+  const engine = record.engine === undefined
+    ? undefined
+    : assertProbabilityEstimatorEngine(record.engine);
   const expectedCaseIdentity = caseIdentity({
     semanticReviewArtifactHash: record.semanticReviewArtifactHash,
     semanticConstraintArtifactHash: record.semanticConstraintArtifactHash,
     evidenceScopeIdentity: record.evidenceScopeIdentity,
     adverseStateIds: record.adverseStateIds,
     model: record.model,
+    ...(engine === undefined ? {} : { engine }),
   });
   if (
     ![
       "pmh.probability-estimation-job.v1",
       "pmh.probability-estimation-job.v2",
+      "pmh.probability-estimation-job.v3",
     ].includes(record.schemaVersion) ||
-    (record.schemaVersion === "pmh.probability-estimation-job.v1") !==
-      (searchOrigin === undefined) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v1" &&
+      searchOrigin !== undefined) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v2" &&
+      searchOrigin === undefined) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v3") !==
+      (engine !== undefined) ||
+    (engine !== undefined && engine.model !== record.model) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
     record.jobId !== jobId(record.caseIdentity, record.role) ||
     !HASH_PATTERN.test(String(record.caseIdentity)) ||
@@ -424,6 +458,7 @@ export class ProbabilityEstimationScheduler {
   readonly #leaseTimeoutMs: number;
   readonly #retryDelayMs: number;
   readonly #retentionLimit: number;
+  readonly #engineAllowed: (engine: ProbabilityEstimatorEngine) => boolean;
   #unsupportedCandidateCount = 0;
   public readonly tickIntervalMs: number | null;
 
@@ -438,6 +473,7 @@ export class ProbabilityEstimationScheduler {
     this.#leaseTimeoutMs = options.leaseTimeoutMs ?? DEFAULT_LEASE_TIMEOUT_MS;
     this.#retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
     this.#retentionLimit = options.retentionLimit ?? DEFAULT_RETENTION_LIMIT;
+    this.#engineAllowed = options.engineAllowed ?? (() => true);
     if (
       (this.tickIntervalMs !== null && (!Number.isSafeInteger(this.tickIntervalMs) ||
         this.tickIntervalMs < 1_000 || this.tickIntervalMs > 60_000)) ||
@@ -463,7 +499,8 @@ export class ProbabilityEstimationScheduler {
     candidatesInput: readonly ProbabilityEstimationCandidate[],
     snapshot: MarketCorpusSnapshot,
   ): void {
-    const model = this.#desk.projection().model;
+    const engine = this.#desk.currentEngine();
+    const model = engine.model;
     const candidates = [...new Map(candidatesInput.flatMap((candidate) => {
       const review = assertSemanticReviewRecord(candidate.review);
       const constraint = review.report?.result.semanticConstraint;
@@ -502,15 +539,21 @@ export class ProbabilityEstimationScheduler {
         evidenceScopeIdentity: review.corpusSnapshotIdentity,
         adverseStateIds: derived.adverseStateIds,
         model,
+        engine,
       });
       for (const role of PROBABILITY_ESTIMATOR_ROLES) {
         const id = jobId(caseId, role);
-        let job = this.#jobs.find((item) => item.jobId === id);
+        let job = this.#jobs.find((item) =>
+          item.jobId === id || (
+            item.semanticReviewArtifactHash === report.artifactHash &&
+            item.semanticConstraintArtifactHash === constraint.artifactHash &&
+            item.role === role && item.model === model &&
+            hashCanonical(jobEngine(item)) === hashCanonical(engine)
+          )
+        );
         if (job === undefined) {
           job = this.#save(withHash({
-            schemaVersion: candidate.searchOrigin === undefined
-              ? "pmh.probability-estimation-job.v1"
-              : "pmh.probability-estimation-job.v2",
+            schemaVersion: "pmh.probability-estimation-job.v3",
             jobId: id,
             caseIdentity: caseId,
             proposalId: constraint.proposalId,
@@ -524,6 +567,7 @@ export class ProbabilityEstimationScheduler {
               : { searchOrigin: candidate.searchOrigin }),
             role,
             model,
+            engine,
             status: exactEvidence ? "PENDING" : "BLOCKED_EVIDENCE",
             attemptCount: 0,
             maxAttempts: this.#maxAttempts,
@@ -596,7 +640,8 @@ export class ProbabilityEstimationScheduler {
     const due = this.#jobs.filter((job) =>
       ["PENDING", "RETRY_WAIT"].includes(job.status) &&
       Date.parse(job.nextAttemptAt) <= now && !this.#active.has(job.jobId) &&
-      candidateByReview.has(job.semanticReviewArtifactHash)
+      candidateByReview.has(job.semanticReviewArtifactHash) &&
+      this.#engineAllowed(jobEngine(job))
     ).sort((left, right) =>
       Date.parse(left.nextAttemptAt) - Date.parse(right.nextAttemptAt) ||
       left.createdAt.localeCompare(right.createdAt) || left.jobId.localeCompare(right.jobId)
@@ -630,9 +675,12 @@ export class ProbabilityEstimationScheduler {
         snapshot,
         leased.adverseStateIds,
         leased.role,
+        jobEngine(leased),
       );
     } catch (error) {
-      const capacity = /requires DEEPSEEK_API_KEY|concurrency limit/u.test(compactDiagnostic(error));
+      const capacity = /requires configured .* credentials|concurrency limit/u.test(
+        compactDiagnostic(error),
+      );
       return Promise.resolve(this.#save(withHash({
         ...withoutHash(leased),
         status: capacity ? "PENDING" : leased.attemptCount >= leased.maxAttempts
@@ -678,7 +726,9 @@ export class ProbabilityEstimationScheduler {
       run.semanticReviewArtifactHash !== job.semanticReviewArtifactHash ||
       run.semanticConstraintArtifactHash !== job.semanticConstraintArtifactHash ||
       run.evidenceScopeIdentity !== job.evidenceScopeIdentity || run.role !== job.role ||
-      run.model !== job.model || run.adverseStateIds.join("\n") !== job.adverseStateIds.join("\n")
+      run.model !== job.model ||
+      hashCanonical(run.engine ?? jobEngine(job)) !== hashCanonical(jobEngine(job)) ||
+      run.adverseStateIds.join("\n") !== job.adverseStateIds.join("\n")
     ) throw new Error("probability estimation job completion lineage is inconsistent");
     if (run.status === "RUNNING") return job;
     const timestamp = run.completedAt ?? new Date(this.#now()).toISOString();
@@ -748,7 +798,7 @@ export class ProbabilityEstimationScheduler {
     }
   }
 
-  #bounds(): readonly ProbabilisticSemanticBoundArtifact[] {
+  #boundsByCase(): ReadonlyMap<Hash, ProbabilisticSemanticBoundArtifact> {
     const runById = new Map(this.#desk.projection().records.map((record) =>
       [record.runId, record] as const
     ));
@@ -758,7 +808,7 @@ export class ProbabilityEstimationScheduler {
       group.push(job);
       byCase.set(job.caseIdentity, group);
     }
-    return Object.freeze([...byCase.values()].flatMap((jobs) => {
+    return new Map([...byCase.entries()].flatMap(([caseId, jobs]) => {
       const passingRuns = jobs.flatMap((job) => {
         if (job.status !== "PASS" || job.lastRunId === null) return [];
         const run = runById.get(job.lastRunId);
@@ -775,21 +825,19 @@ export class ProbabilityEstimationScheduler {
         ))],
         ...(first.searchOrigin === undefined ? {} : { searchOrigin: first.searchOrigin }),
       });
-      return [assertProbabilisticSemanticBound(bound)];
-    }).sort((left, right) => right.validFrom.localeCompare(left.validFrom) ||
-      left.artifactHash.localeCompare(right.artifactHash)));
+      return [[caseId, assertProbabilisticSemanticBound(bound)] as const];
+    }));
+  }
+
+  #bounds(): readonly ProbabilisticSemanticBoundArtifact[] {
+    return Object.freeze([...this.#boundsByCase().values()].sort((left, right) =>
+      right.validFrom.localeCompare(left.validFrom) ||
+      left.artifactHash.localeCompare(right.artifactHash)
+    ));
   }
 
   #syncCaseNotifications(): void {
-    const boundsByCase = new Map(this.#bounds().map((bound) => {
-      const job = this.#jobs.find((item) =>
-        item.semanticConstraintArtifactHash === bound.semanticConstraintArtifactHash &&
-        item.adverseStateIds.join("\n") === bound.adverseStateIds.join("\n")
-      );
-      return job === undefined ? [] : [job.caseIdentity, bound] as const;
-    }).filter((item): item is readonly [Hash, ProbabilisticSemanticBoundArtifact] =>
-      item.length === 2
-    ));
+    const boundsByCase = this.#boundsByCase();
     const caseIds = [...new Set(this.#jobs.map((job) => job.caseIdentity))];
     for (const id of caseIds) {
       const jobs = this.#jobs.filter((job) => job.caseIdentity === id);
@@ -908,6 +956,10 @@ export class ProbabilityEstimationScheduler {
     const notifications = Object.freeze([...this.#notifications]);
     const configured = this.#desk.projection().configured;
     const now = this.#now();
+    const policyBlockedCount = jobs.filter((job) =>
+      ["PENDING", "RETRY_WAIT"].includes(job.status) &&
+      !this.#engineAllowed(jobEngine(job))
+    ).length;
     return Object.freeze({
       schemaVersion: "pmh.probability-estimation-scheduler.v1",
       enabled: this.tickIntervalMs !== null,
@@ -924,6 +976,7 @@ export class ProbabilityEstimationScheduler {
       leasedCount: jobs.filter((job) => job.status === "LEASED").length,
       retryWaitCount: jobs.filter((job) => job.status === "RETRY_WAIT").length,
       blockedEvidenceCount: jobs.filter((job) => job.status === "BLOCKED_EVIDENCE").length,
+      policyBlockedCount,
       passedCount: jobs.filter((job) => job.status === "PASS").length,
       abstainedCount: jobs.filter((job) => job.status === "ABSTAINED").length,
       exhaustedCount: jobs.filter((job) => job.status === "EXHAUSTED").length,

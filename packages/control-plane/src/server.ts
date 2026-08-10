@@ -1148,6 +1148,7 @@ export function createControlPlane(options?: {
     options?.probabilityEstimationDesk ??
     createProbabilityEstimationDesk(process.env, {
       usageRecorder: aiUsageLedger,
+      runtimeConfiguration: () => aiRuntimeConfigurationDesk.current(),
       ...(supportsProbabilityEstimationRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -1159,6 +1160,9 @@ export function createControlPlane(options?: {
       tickIntervalMs: parseProbabilityEstimationTickInterval(process.env),
       concurrencyLimit: 3,
       maxRequestsPerTick: 3,
+      engineAllowed: (engine) =>
+        engine.provider === "CODEX" ||
+        aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled,
       ...(supportsProbabilityEstimationSchedulerRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -4003,7 +4007,6 @@ export function createControlPlane(options?: {
   if (probabilityEstimationTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
-        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           const runs = probabilityEstimationScheduler.tick(
             probabilityEstimationCandidates(),

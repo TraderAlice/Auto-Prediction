@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hashCanonical } from "@pmh/domain";
+import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   buildFailureBudgetFrontier,
   buildMarketCorpusSnapshot,
@@ -8,6 +8,7 @@ import {
   type DiscoveryCatalogListing,
   type MarketRelationProposal,
   type ProbabilityEstimateInput,
+  type ProbabilityEstimationJobRecord,
 } from "../src/index.js";
 
 const evaluatedAt = "2026-08-02T00:02:00.000Z";
@@ -128,6 +129,53 @@ function bound(epsilonPpm: string) {
   });
 }
 
+function estimatorJob(input: Readonly<{
+  caseIdentity: Hash;
+  role: "REFERENCE_CLASS" | "CAUSAL" | "INDEPENDENT";
+  effort: "high" | "max";
+  estimateIdentity?: Hash;
+}>): ProbabilityEstimationJobRecord {
+  const status = input.estimateIdentity === undefined ? "PENDING" as const : "PASS" as const;
+  const body = Object.freeze({
+    schemaVersion: "pmh.probability-estimation-job.v3" as const,
+    jobId: hashCanonical({ caseIdentity: input.caseIdentity, role: input.role }),
+    caseIdentity: input.caseIdentity,
+    proposalId: proposal.proposalId,
+    semanticReviewArtifactHash: hashCanonical({ review: "failure-budget" }),
+    semanticConstraintArtifactHash: constraint.artifactHash,
+    semanticConstraint: constraint,
+    evidenceScopeIdentity: corpus.snapshotIdentity,
+    adverseStateIds: Object.freeze(["TT"]),
+    role: input.role,
+    model: "gpt-5.6-terra",
+    engine: Object.freeze({
+      provider: "CODEX" as const,
+      transport: "VERCEL_AI_SDK" as const,
+      model: "gpt-5.6-terra",
+      reasoningEffort: input.effort,
+      responseStorage: false as const,
+    }),
+    status,
+    attemptCount: status === "PASS" ? 1 : 0,
+    maxAttempts: 3,
+    nextAttemptAt: evaluatedAt,
+    leasedAt: null,
+    leaseExpiresAt: null,
+    completedAt: status === "PASS" ? evaluatedAt : null,
+    lastRunId: status === "PASS" ? hashCanonical({ run: input.role }) : null,
+    lastEstimateIdentity: input.estimateIdentity ?? null,
+    diagnostic: null,
+    createdAt: evaluatedAt,
+    updatedAt: evaluatedAt,
+    authority: "ESTIMATION_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityCertificateAuthority: false as const,
+    hardArbitrageAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return Object.freeze({ ...body, artifactHash: hashCanonical(body) });
+}
+
 describe("failure budget frontier", () => {
   it("ranks the portfolio by remaining tolerable semantic error", () => {
     const frontier = buildFailureBudgetFrontier({
@@ -186,6 +234,38 @@ describe("failure budget frontier", () => {
       guaranteedProfit: false,
       executionAuthority: false,
     });
+  });
+
+  it("keeps provider-effort cases separate for the same semantic proposal", () => {
+    const readyBound = bound("50000");
+    const readyCase = hashCanonical({ engine: "terra-high" });
+    const pendingCase = hashCanonical({ engine: "terra-max" });
+    const jobs = Object.freeze([
+      estimatorJob({
+        caseIdentity: readyCase,
+        role: "REFERENCE_CLASS",
+        effort: "high",
+        estimateIdentity: readyBound.estimates[0]!.estimateIdentity,
+      }),
+      estimatorJob({
+        caseIdentity: readyCase,
+        role: "CAUSAL",
+        effort: "high",
+        estimateIdentity: readyBound.estimates[1]!.estimateIdentity,
+      }),
+      estimatorJob({ caseIdentity: pendingCase, role: "REFERENCE_CLASS", effort: "max" }),
+      estimatorJob({ caseIdentity: pendingCase, role: "CAUSAL", effort: "max" }),
+      estimatorJob({ caseIdentity: pendingCase, role: "INDEPENDENT", effort: "max" }),
+    ]);
+    const frontier = buildFailureBudgetFrontier({
+      bounds: [readyBound], jobs, corpus, evaluatedAt,
+    });
+
+    expect(frontier).toMatchObject({ itemCount: 2, awaitingEstimateCount: 1 });
+    expect(frontier.items.find((item) => item.status === "RESEARCH_MARGIN"))
+      .toMatchObject({ estimatorJobCount: 2 });
+    expect(frontier.items.find((item) => item.status === "AWAITING_ESTIMATES"))
+      .toMatchObject({ estimatorJobCount: 3 });
   });
 
   it("fails early on non-canonical evaluation time", () => {

@@ -20,6 +20,7 @@ import {
   type CatalogObservationSource,
   createOpenAiDiscoveryRuntime,
   createPiInvestigatorRuntime,
+  createProbabilityEstimationDesk,
   createSemanticReviewDesk,
   DiscoveryPool,
   EvidenceAcquisitionScheduler,
@@ -63,6 +64,10 @@ async function listenControlPlane(
   const controlPlane = createControlPlane({
     ...(options?.modelRuntime === undefined && options?.modelRuntimeFactory === undefined
       ? { modelRuntime: createOpenAiDiscoveryRuntime({}) }
+      : {}),
+    ...(options?.probabilityEstimationDesk === undefined &&
+      options?.probabilityEstimationScheduler === undefined
+      ? { probabilityEstimationDesk: createProbabilityEstimationDesk({}) }
       : {}),
     ...options,
   });

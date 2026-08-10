@@ -10,14 +10,19 @@ import {
   buildProbabilitySearchOrigin,
   buildProbabilisticSemanticBound,
   buildSemanticConstraintArtifact,
+  codexCredentialForTest,
   createProbabilityEstimationDesk,
   deriveProbabilityAdverseStates,
   ProbabilityEstimationScheduler,
+  type AiRuntimeConfiguration,
   type MarketRelationProposal,
   type SemanticReviewRecord,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
-import { deepSeekTextResponse } from "./model-agent-fixtures.js";
+import {
+  deepSeekTextResponse,
+  openAiStreamToolResponse,
+} from "./model-agent-fixtures.js";
 
 const listings = [
   {
@@ -265,7 +270,7 @@ describe("Agent-first probability estimation", () => {
       status: "PASS",
       role: "CAUSAL",
       estimate: {
-        estimator: "deepseek-v4-flash:CAUSAL",
+        estimator: "DEEPSEEK:deepseek-v4-flash:CAUSAL",
         method: "CAUSAL_MODEL",
         lowerPpm: "20000",
         upperPpm: "50000",
@@ -336,6 +341,106 @@ describe("Agent-first probability estimation", () => {
         tokens: { inputTokens: "100", outputTokens: "20", totalTokens: "120" },
       },
     });
+  });
+
+  it("binds Codex OAuth, Terra effort, streaming posture, and usage to each run", async () => {
+    const secret = "test-only-codex-probability-token";
+    const bodies: Record<string, unknown>[] = [];
+    let configuration: AiRuntimeConfiguration = Object.freeze({
+      schemaVersion: "pmh.ai-runtime-configuration.v2",
+      revision: 1,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "high",
+      deepseekAutomationEnabled: false,
+      updatedAt: "2026-08-02T00:00:00.000Z",
+    });
+    const usageLedger = new AiUsageLedger();
+    const allowedEvidenceHash = constraint.ruleEvidence[0]!.sourceRawHash;
+    const desk = createProbabilityEstimationDesk(
+      { PMH_PROBABILITY_ESTIMATION_TIMEOUT_MS: "3000" },
+      {
+        runtimeConfiguration: () => configuration,
+        usageRecorder: usageLedger,
+        now: () => Date.parse("2026-08-02T00:02:00.000Z"),
+        codexCredentialProvider: codexCredentialForTest(
+          secret,
+          "probability-account-test",
+        ),
+        async codexFetcher(request, init) {
+          expect(String(request)).toBe("https://chatgpt.com/backend-api/codex/responses");
+          const headers = new Headers(init?.headers);
+          expect(headers.get("authorization")).toBe(`Bearer ${secret}`);
+          expect(headers.get("chatgpt-account-id")).toBe("probability-account-test");
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          bodies.push(body);
+          const ordinal = bodies.length;
+          return ordinal % 2 === 1
+            ? openAiStreamToolResponse("record_counter_scenario", {
+                stateId: "TT",
+                narrative: "A non-fatal wound followed by recovery permits both events.",
+                evidenceHashes: [allowedEvidenceHash],
+              }, ordinal)
+            : openAiStreamToolResponse("submit_probability_estimate", {
+                lowerPpm: "20000",
+                upperPpm: configuration.codexReasoningEffort === "high"
+                  ? "50000"
+                  : "60000",
+                evidenceHashes: [allowedEvidenceHash],
+                assumptions: ["Recorded appearances do not count."],
+                validForMs: 3_600_000,
+                rationale: "Bounded Terra estimate.",
+              }, ordinal);
+        },
+      },
+    );
+
+    const high = await desk.begin(review, snapshot, ["TT"], "CAUSAL").promise;
+    expect(high).toMatchObject({
+      schemaVersion: "pmh.probability-estimation-run.v2",
+      status: "PASS",
+      model: "gpt-5.6-terra",
+      engine: {
+        provider: "CODEX",
+        model: "gpt-5.6-terra",
+        reasoningEffort: "high",
+        responseStorage: false,
+      },
+      estimate: { estimator: "CODEX:gpt-5.6-terra:CAUSAL", upperPpm: "50000" },
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies.every((body) =>
+      body.stream === true && body.store === false &&
+      !("max_output_tokens" in body) && !("response_format" in body)
+    )).toBe(true);
+    expect(bodies[0]).toMatchObject({
+      model: "gpt-5.6-terra",
+      reasoning: { effort: "high" },
+      parallel_tool_calls: false,
+      tool_choice: "required",
+    });
+    expect(usageLedger.projection().recentEvents[0]).toMatchObject({
+      purpose: "PROBABILITY_ESTIMATION",
+      provider: "CODEX",
+      model: "gpt-5.6-terra",
+      outcome: "SUCCEEDED",
+      providerRequestCount: "2",
+    });
+    expect(JSON.stringify({ high, projection: desk.projection() })).not.toContain(secret);
+
+    configuration = Object.freeze({
+      ...configuration,
+      revision: 2,
+      codexReasoningEffort: "max",
+      updatedAt: "2026-08-02T00:01:00.000Z",
+    });
+    const max = await desk.begin(review, snapshot, ["TT"], "CAUSAL").promise;
+    expect(max.runId).not.toBe(high.runId);
+    expect(max).toMatchObject({
+      engine: { provider: "CODEX", reasoningEffort: "max" },
+      estimate: { upperPpm: "60000" },
+    });
+    expect(bodies[2]).toMatchObject({ reasoning: { effort: "max" } });
   });
 
   it("aggregates separate role runs conservatively and replays idempotently", async () => {
@@ -624,7 +729,8 @@ describe("durable probability estimation scheduling", () => {
       probabilityCertificateAuthority: false,
     });
     expect(projection.jobs.every((job) =>
-      job.schemaVersion === "pmh.probability-estimation-job.v2" &&
+      job.schemaVersion === "pmh.probability-estimation-job.v3" &&
+      job.engine?.provider === "DEEPSEEK" &&
       job.searchOrigin?.originIdentity === searchOrigin.originIdentity
     )).toBe(true);
     expect(projection.bounds[0]!.estimates.map((item) => item.method).sort()).toEqual([
@@ -640,7 +746,7 @@ describe("durable probability estimation scheduling", () => {
     expect(scheduler.projection().unreadNotificationCount).toBe(0);
   });
 
-  it("does not rewrite retained v1 jobs when search origin becomes available", () => {
+  it("does not rewrite retained provider-bound jobs when search origin becomes available", () => {
     const desk = createProbabilityEstimationDesk(
       { DEEPSEEK_API_KEY: "ignored-by-injected-port" },
       {
@@ -655,7 +761,8 @@ describe("durable probability estimation scheduling", () => {
     scheduler.reconcile([{ review }], snapshot);
     const retainedJobIds = scheduler.projection().jobs.map((job) => job.jobId);
     expect(scheduler.projection().jobs.every((job) =>
-      job.schemaVersion === "pmh.probability-estimation-job.v1" &&
+      job.schemaVersion === "pmh.probability-estimation-job.v3" &&
+      job.engine?.provider === "DEEPSEEK" &&
       job.searchOrigin === undefined
     )).toBe(true);
 
@@ -668,9 +775,76 @@ describe("durable probability estimation scheduling", () => {
     }], snapshot);
     expect(scheduler.projection().jobs.map((job) => job.jobId)).toEqual(retainedJobIds);
     expect(scheduler.projection().jobs.every((job) =>
-      job.schemaVersion === "pmh.probability-estimation-job.v1" &&
+      job.schemaVersion === "pmh.probability-estimation-job.v3" &&
+      job.engine?.provider === "DEEPSEEK" &&
       job.searchOrigin === undefined
     )).toBe(true);
+  });
+
+  it("creates a new case when provider effort changes without rewriting queued work", () => {
+    let configuration: AiRuntimeConfiguration = Object.freeze({
+      schemaVersion: "pmh.ai-runtime-configuration.v2",
+      revision: 1,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "high",
+      deepseekAutomationEnabled: false,
+      updatedAt: "2026-08-02T00:00:00.000Z",
+    });
+    const desk = createProbabilityEstimationDesk({}, {
+      runtimeConfiguration: () => configuration,
+      codexCredentialProvider: codexCredentialForTest("token", "account"),
+    });
+    const scheduler = new ProbabilityEstimationScheduler({ desk });
+    scheduler.reconcile([{ review }], snapshot);
+    const highJobs = scheduler.projection().jobs;
+    expect(highJobs).toHaveLength(3);
+    expect(highJobs.every((job) =>
+      job.schemaVersion === "pmh.probability-estimation-job.v3" &&
+      job.engine?.provider === "CODEX" &&
+      job.engine.reasoningEffort === "high"
+    )).toBe(true);
+
+    configuration = Object.freeze({
+      ...configuration,
+      revision: 2,
+      codexReasoningEffort: "max",
+      updatedAt: "2026-08-02T00:01:00.000Z",
+    });
+    scheduler.reconcile([{ review }], snapshot);
+    const allJobs = scheduler.projection().jobs;
+    expect(allJobs).toHaveLength(6);
+    expect(allJobs.filter((job) => job.engine?.reasoningEffort === "high"))
+      .toHaveLength(3);
+    expect(allJobs.filter((job) => job.engine?.reasoningEffort === "max"))
+      .toHaveLength(3);
+    expect(allJobs.slice(0, 3).map((job) => job.artifactHash)).toEqual(
+      highJobs.map((job) => job.artifactHash),
+    );
+  });
+
+  it("holds automatic provider work behind an engine-specific spending policy", () => {
+    const desk = createProbabilityEstimationDesk(
+      { DEEPSEEK_API_KEY: "ignored-by-injected-port" },
+      {
+        estimator: {
+          async estimate() {
+            throw new Error("policy-blocked work must not call the estimator");
+          },
+        },
+      },
+    );
+    const scheduler = new ProbabilityEstimationScheduler({
+      desk,
+      tickIntervalMs: 1_000,
+      engineAllowed: (engine) => engine.provider !== "DEEPSEEK",
+    });
+    expect(scheduler.tick([{ review }], snapshot)).toHaveLength(0);
+    expect(scheduler.projection()).toMatchObject({
+      policyBlockedCount: 3,
+      dueCount: 3,
+      budget: { providerAttemptsStarted: 0 },
+    });
   });
 
   it("rebuilds deterministic bounds from SQLite jobs and estimator runs", async () => {
@@ -752,7 +926,8 @@ describe("durable probability estimation scheduling", () => {
         },
       });
       expect(secondScheduler.projection().jobs.every((job) =>
-        job.schemaVersion === "pmh.probability-estimation-job.v2" &&
+        job.schemaVersion === "pmh.probability-estimation-job.v3" &&
+        job.engine?.provider === "DEEPSEEK" &&
         job.searchOrigin?.originIdentity === searchOrigin.originIdentity
       )).toBe(true);
       expect(secondScheduler.projection().bounds[0]).toMatchObject({

@@ -110,6 +110,12 @@ in the live desk. This mutation does not silently trigger it. A later adoption
 decision must measure provider tokens per bounded relation and per positive-margin
 frontier item.
 
+The first runnable follow-up routes new probability-estimation cases through the
+same durable provider snapshot used by the operator-selected runtime. Terra/high
+can therefore populate the frontier without reopening DeepSeek spend. The
+provider snapshot is part of case and run lineage; changing settings creates new
+work rather than mutating old estimates.
+
 ## Reversibility and incompatibility
 
 The candidate is additive at the protocol boundary: one module, one GET endpoint,

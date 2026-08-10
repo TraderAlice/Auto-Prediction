@@ -295,26 +295,47 @@ export function buildFailureBudgetFrontier(input: Readonly<{
   const listings = new Map(input.corpus.listings.map((listing) =>
     [listing.listingRef, listing] as const
   ));
-  const jobsByProposal = new Map<Hash, ProbabilityEstimationJobRecord[]>();
+  const jobsByCase = new Map<Hash, ProbabilityEstimationJobRecord[]>();
   for (const job of input.jobs) {
-    const jobs = jobsByProposal.get(job.proposalId) ?? [];
+    const jobs = jobsByCase.get(job.caseIdentity) ?? [];
     jobs.push(job);
-    jobsByProposal.set(job.proposalId, jobs);
+    jobsByCase.set(job.caseIdentity, jobs);
   }
-  const boundProposalIds = new Set(input.bounds.map((bound) => bound.proposalId));
-  const items = [
-    ...input.bounds.map((bound) => evaluatedItem({
+  const matchedCaseIds = new Set<Hash>();
+  const boundItems = input.bounds.map((bound) => {
+    const estimateIdentities = new Set(bound.estimates.map((estimate) =>
+      estimate.estimateIdentity
+    ));
+    const matched = [...jobsByCase.entries()].find(([_caseId, jobs]) => {
+      const first = jobs[0];
+      if (
+        first === undefined ||
+        first.semanticConstraintArtifactHash !== bound.semanticConstraintArtifactHash ||
+        first.adverseStateIds.join("\n") !== bound.adverseStateIds.join("\n")
+      ) return false;
+      const passingIdentities = jobs.flatMap((job) =>
+        job.status === "PASS" && job.lastEstimateIdentity !== null
+          ? [job.lastEstimateIdentity]
+          : []
+      );
+      return passingIdentities.length === estimateIdentities.size &&
+        passingIdentities.every((identity) => estimateIdentities.has(identity));
+    });
+    if (matched !== undefined) matchedCaseIds.add(matched[0]);
+    return evaluatedItem({
       bound,
       evaluation: selectPortfolio(portfolioCandidates({
         bound,
         listings,
         evaluatedAt: input.evaluatedAt,
       })),
-      estimatorJobCount: jobsByProposal.get(bound.proposalId)?.length ??
-        bound.estimates.length,
-    })),
-    ...[...jobsByProposal.entries()].flatMap(([proposalId, jobs]) =>
-      boundProposalIds.has(proposalId) ? [] : [pendingItem(jobs)]
+      estimatorJobCount: matched?.[1].length ?? bound.estimates.length,
+    });
+  });
+  const items = [
+    ...boundItems,
+    ...[...jobsByCase.entries()].flatMap(([caseId, jobs]) =>
+      matchedCaseIds.has(caseId) ? [] : [pendingItem(jobs)]
     ),
   ].sort((left, right) => {
     const leftMargin = left.remainingFailureBudgetPpm === null
@@ -327,7 +348,7 @@ export function buildFailureBudgetFrontier(input: Readonly<{
     const leftEdge = BigInt(left.expectedEdgeFloorUnits ?? "-1");
     const rightEdge = BigInt(right.expectedEdgeFloorUnits ?? "-1");
     return leftEdge === rightEdge
-      ? left.proposalId.localeCompare(right.proposalId)
+      ? left.itemId.localeCompare(right.itemId)
       : leftEdge > rightEdge ? -1 : 1;
   });
   const body = Object.freeze({
