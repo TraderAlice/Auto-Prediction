@@ -150,7 +150,7 @@ arbitrage objects into the primary workspace.
 - [x] Run the complete workspace check, test, and build qualification.
 - [x] Inspect desktop and 390 px layouts for readability, overflow, and console
   errors.
-- [ ] Open a draft mutation PR and leave it unmerged for comparative review.
+- [x] Open a draft mutation PR and leave it unmerged for comparative review.
 
 ## Selection rule
 
