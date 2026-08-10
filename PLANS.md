@@ -32,6 +32,10 @@ with traded-state routes evaluated as exact-ref Pi reformulations under
 [`plans/premise-route-expansion.md`](plans/premise-route-expansion.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
+and exact reviewed listing ownership across catalog rotation tracked in
+[`plans/durable-probability-evidence-context.md`](plans/durable-probability-evidence-context.md),
+with structured estimator abstention and research routing tracked in
+[`plans/probability-estimation-evidence-debt.md`](plans/probability-estimation-evidence-debt.md),
 and AI resource observability tracked in
 [`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md), with terminal
 protocol efficiency tracked in
@@ -785,6 +789,28 @@ each row `Current` or `Historical snapshot` instead of presenting both as the
 same work queue. All 616 workspace tests, type checks, and the production build
 pass; desktop and 390 px browser checks have no horizontal overflow or console
 errors and keep the visible type floor at 12 px.
+
+Probability estimation now survives the same retention boundary. A bounded,
+content-addressed evidence context owns the exact reviewed listings, semantic
+constraint, review lineage, and source bundle, so a provider case can run after
+both the review and catalog generation leave memory. Live LAFC qualification
+advanced three Terra/high roles through V2 readable truth mapping and then V3
+Agent-native evidence tools. All three honestly abstained once rather than
+fabricating an adverse-state probability.
+
+Those abstentions are no longer dead prose. The Agent records typed evidence
+needs before it may abstain; first-party code validates exact contract/state
+scope, compiles compatible official gaps into the ordinary acquisition
+scheduler, and groups wording variants without deleting their raw effects. The
+live run retained fifteen needs as nine work units: five official-rule groups
+with missing Gemini locators and four policy-gated external research groups for
+resolution history, reference classes, causal parameters, and anchors. Studio
+shows this queue above the failure-budget cases with 3 terminal abstentions, 1
+legacy evidence blocker, zero false awaiting cases, a 12 px text floor, no
+horizontal overflow at desktop or 390 px, and no console diagnostics. The next
+product decision is which external reference family should close the first
+statistical evidence loop; it remains batched in `QUESTIONS.md` rather than
+authorizing open-ended browsing.
 
 ## Deferred future campaigns
 

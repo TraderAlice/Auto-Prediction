@@ -60,6 +60,10 @@ import type { PremiseAnalysisDeskProjection } from "./premise-analysis.js";
 import type { PremiseAnalysisSchedulerProjection } from "./premise-analysis-scheduler.js";
 import type { EvidenceAcquisitionSchedulerProjection } from "./evidence-acquisition-scheduler.js";
 import { emptyEvidenceDebtFrontier, type EvidenceDebtFrontierProjection } from "./evidence-debt-frontier.js";
+import {
+  emptyProbabilityEvidenceDebt,
+  type ProbabilityEvidenceDebtProjection,
+} from "./probability-evidence-debt.js";
 import type { RuleEvidenceClaimSchedulerProjection } from "./rule-evidence-claim-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
@@ -144,6 +148,7 @@ export function buildStudioProjection(input: {
   premiseRouteExpansion?: PremiseRouteExpansionSchedulerProjection;
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
   evidenceDebtFrontier?: EvidenceDebtFrontierProjection;
+  probabilityEvidenceDebt?: ProbabilityEvidenceDebtProjection;
   ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
   proposalEconomicTriage?: ProposalEconomicTriageProjection;
@@ -1314,6 +1319,8 @@ export function buildStudioProjection(input: {
       premiseRouteExpansion,
       evidenceAcquisition,
       evidenceDebtFrontier: input.evidenceDebtFrontier ?? emptyEvidenceDebtFrontier(),
+      probabilityEvidenceDebt:
+        input.probabilityEvidenceDebt ?? emptyProbabilityEvidenceDebt(),
       ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),
       proposalEconomicTriage: input.proposalEconomicTriage ?? emptyProposalEconomicTriage(),

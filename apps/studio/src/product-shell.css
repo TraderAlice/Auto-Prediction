@@ -272,6 +272,67 @@
   margin-top: 18px;
 }
 
+.probability-evidence-debt-card {
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
+}
+
+.probability-evidence-debt-card [data-slot="card-header"] {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.probability-evidence-debt-card [data-slot="card-header"] h2 {
+  margin: 7px 0 4px;
+}
+
+.probability-evidence-debt-card [data-slot="card-header"] p,
+.probability-evidence-debt-list p {
+  color: var(--muted-foreground);
+  margin: 0;
+  max-width: 760px;
+}
+
+.probability-evidence-debt-list {
+  display: grid;
+  gap: 0;
+}
+
+.probability-evidence-debt-list article {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 7px;
+  padding: 18px 0;
+}
+
+.probability-evidence-debt-list article:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.probability-evidence-debt-list article > div {
+  align-items: center;
+  color: var(--muted-foreground);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.probability-evidence-debt-list small,
+.probability-evidence-debt-summary {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.probability-evidence-debt-summary {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  padding-top: 15px;
+}
+
 .failure-budget-example [data-slot="card-header"] {
   display: flex;
   align-items: center;

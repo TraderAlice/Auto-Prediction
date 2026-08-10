@@ -78,7 +78,7 @@ export type EvidenceRequirementDraft = Readonly<{
 type EvidenceRequirementFields = Readonly<{
   requirementId: Hash;
   acquisitionScopeIdentity: Hash;
-  origin: "MARKET_ARCHAEOLOGIST" | "SEMANTIC_REVIEW";
+  origin: "MARKET_ARCHAEOLOGIST" | "SEMANTIC_REVIEW" | "PROBABILITY_ESTIMATION";
   proposalId: Hash;
   kind: EvidenceRequirementKind;
   listingRefs: readonly string[];
@@ -377,7 +377,8 @@ export function assertEvidenceRequirement(value: unknown): EvidenceRequirement {
     requirementId !== hashCanonical(body) ||
     !HASH_PATTERN.test(String(requirement.acquisitionScopeIdentity)) ||
     !HASH_PATTERN.test(String(requirement.proposalId)) ||
-    !["MARKET_ARCHAEOLOGIST", "SEMANTIC_REVIEW"].includes(requirement.origin) ||
+    !["MARKET_ARCHAEOLOGIST", "SEMANTIC_REVIEW", "PROBABILITY_ESTIMATION"]
+      .includes(requirement.origin) ||
     !isRequirementKind(requirement.kind) ||
     !Array.isArray(requirement.listingRefs) ||
     requirement.listingRefs.length < 1 ||

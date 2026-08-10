@@ -106,9 +106,12 @@ and is negligible at the current portfolio size.
 
 The upstream probability-estimation cost remains the dominant AI cost. Automatic
 DeepSeek spending stays controlled by the SQLite runtime policy and is disabled
-in the live desk. This mutation does not silently trigger it. A later adoption
-decision must measure provider tokens per bounded relation and per positive-margin
-frontier item.
+in the live desk. This mutation does not silently trigger it. The first retained
+case consumed nine Terra/high invocations and 151,805 total tokens across three
+input-protocol generations. All nine invocations produced durable effects; the
+current V3 generation converted abstention into structured evidence work rather
+than another opaque retry. A later adoption decision must still measure provider
+tokens per bounded relation and per positive-margin frontier item.
 
 The first runnable follow-up routes new probability-estimation cases through the
 same durable provider snapshot used by the operator-selected runtime. Terra/high
@@ -131,8 +134,15 @@ arbitrage objects into the primary workspace.
 - Deterministic tests show a 22% price-implied tolerance minus a 5% adverse upper
   bound leaves a 17% research margin while zero depth and no calibration remain
   explicit blockers.
-- The live retained desk has probability-estimation jobs but no completed bounds,
-  so the empty/pending state is honest rather than replaced by synthetic live data.
+- The live retained desk has no fabricated completed bound: three current-protocol
+  Terra/high roles all terminated as `ABSTAINED`, while one older case remains
+  `BLOCKED_EVIDENCE`. The frontier now distinguishes these postures instead of
+  reporting all four as generic pending work.
+- The current estimator protocol produced 15 blocking evidence needs and grouped
+  them into nine exact work scopes: five official acquisition-route gaps and four
+  external-source-policy decisions. This is selection evidence that the product
+  can turn a failed numeric bound into attributable research work, but not yet
+  evidence that it can produce positive-margin opportunities.
 - SQLite provider policy keeps the live desk on `gpt-5.6-terra / high` and blocks
   automatic DeepSeek spend.
 
@@ -164,7 +174,8 @@ arbitrage objects into the primary workspace.
   acceptable token cost and operators prefer this ranking for research triage.
 - **PARTIAL_ADOPT** if the remaining-failure-budget metric improves existing cards
   but the dedicated desk does not improve decisions.
-- **HOLD** while completed bounds or executable anonymous fee/depth observations
-  are missing.
+- **HOLD**: the live Agent loop now exposes its evidence debt, but completed
+  probability bounds and executable anonymous fee/depth observations are still
+  missing.
 - **ABANDON** if margins are dominated by estimator variance, disappear after
   basic market qualification, or fail to improve operator decisions.

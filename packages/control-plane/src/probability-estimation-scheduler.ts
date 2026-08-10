@@ -3,6 +3,7 @@ import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import {
   assertProbabilityEstimationRunRecord,
   assertProbabilityEstimatorEngine,
+  PROBABILITY_ESTIMATION_INPUT_PROTOCOL,
   ProbabilityEstimationDesk,
   PROBABILITY_ESTIMATOR_ROLES,
   type ProbabilityEstimationRunRecord,
@@ -21,7 +22,7 @@ import {
   type SemanticConstraintArtifact,
 } from "./semantic-constraint.js";
 import { assertSemanticReviewRecord, type SemanticReviewRecord } from "./semantic-review.js";
-import type { OperationalStorageProjection } from "./types.js";
+import type { DiscoveryCatalogListing, OperationalStorageProjection } from "./types.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 750;
@@ -29,6 +30,12 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_REQUESTS_PER_TICK = 3;
 const DEFAULT_LEASE_TIMEOUT_MS = 330_000;
 const DEFAULT_RETRY_DELAY_MS = 30_000;
+const MAX_EVIDENCE_CONTEXT_BYTES = 512_000;
+const PREVIOUS_PROBABILITY_ESTIMATION_INPUT_PROTOCOL =
+  "pmh.probability-estimation-input.v2" as const;
+type ProbabilityEstimationInputProtocol =
+  | typeof PREVIOUS_PROBABILITY_ESTIMATION_INPUT_PROTOCOL
+  | typeof PROBABILITY_ESTIMATION_INPUT_PROTOCOL;
 
 export type ProbabilityEstimationJobStatus =
   | "PENDING"
@@ -45,16 +52,50 @@ export type ProbabilityAdverseStateDerivation = Readonly<{
   diagnostic: string | null;
 }>;
 
-export type ProbabilityEstimationCandidate = Readonly<{
+export type ProbabilityEstimationReviewCandidate = Readonly<{
   review: SemanticReviewRecord;
   searchOrigin?: ProbabilitySearchOrigin;
+  evidenceContext?: ProbabilityEstimationEvidenceContext;
+}>;
+
+export type RetainedProbabilityEstimationCandidate = Readonly<{
+  review?: never;
+  semanticReviewArtifactHash: Hash;
+  semanticConstraint: SemanticConstraintArtifact;
+  evidenceScopeIdentity: Hash;
+  searchOrigin?: ProbabilitySearchOrigin;
+  evidenceContext: ProbabilityEstimationEvidenceContext;
+}>;
+
+export type ProbabilityEstimationCandidate =
+  | ProbabilityEstimationReviewCandidate
+  | RetainedProbabilityEstimationCandidate;
+
+export type ProbabilityEstimationEvidenceContext = Readonly<{
+  schemaVersion: "pmh.probability-estimation-evidence-context.v1";
+  contextIdentity: Hash;
+  semanticReviewArtifactHash: Hash;
+  semanticConstraintArtifactHash: Hash;
+  evidenceScopeIdentity: Hash;
+  sourceKind: "CURRENT_CATALOG_EXACT" | "DURABLE_REVIEW_BUNDLE";
+  sourceArtifactHash: Hash;
+  listingRefs: readonly string[];
+  listingHashes: readonly Hash[];
+  listings: readonly DiscoveryCatalogListing[];
+  authority: "ESTIMATOR_INPUT_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityCertificateAuthority: false;
+  executionAuthority: false;
 }>;
 
 export type ProbabilityEstimationJobRecord = Readonly<{
   schemaVersion:
     | "pmh.probability-estimation-job.v1"
     | "pmh.probability-estimation-job.v2"
-    | "pmh.probability-estimation-job.v3";
+    | "pmh.probability-estimation-job.v3"
+    | "pmh.probability-estimation-job.v4"
+    | "pmh.probability-estimation-job.v5"
+    | "pmh.probability-estimation-job.v6";
   jobId: Hash;
   caseIdentity: Hash;
   proposalId: Hash;
@@ -67,6 +108,8 @@ export type ProbabilityEstimationJobRecord = Readonly<{
   role: ProbabilityEstimatorRole;
   model: string;
   engine?: ProbabilityEstimatorEngine;
+  evidenceContext?: ProbabilityEstimationEvidenceContext;
+  inputProtocol?: ProbabilityEstimationInputProtocol;
   status: ProbabilityEstimationJobStatus;
   attemptCount: number;
   maxAttempts: number;
@@ -182,6 +225,15 @@ type SchedulerOptions = Readonly<{
   engineAllowed?: (engine: ProbabilityEstimatorEngine) => boolean;
 }>;
 
+type NormalizedProbabilityEstimationCandidate = Readonly<{
+  review?: SemanticReviewRecord;
+  semanticReviewArtifactHash: Hash;
+  constraint: SemanticConstraintArtifact;
+  evidenceScopeIdentity: Hash;
+  searchOrigin?: ProbabilitySearchOrigin;
+  evidenceContext?: ProbabilityEstimationEvidenceContext;
+}>;
+
 function isIso(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Date.parse(value)) &&
     new Date(value).toISOString() === value;
@@ -250,6 +302,168 @@ export function deriveProbabilityAdverseStates(
   return Object.freeze({ status: "SUPPORTED", adverseStateIds: feasible, diagnostic: null });
 }
 
+function evidenceContextBody(
+  context: ProbabilityEstimationEvidenceContext,
+): Omit<ProbabilityEstimationEvidenceContext, "contextIdentity"> {
+  const { contextIdentity: _contextIdentity, ...body } = context;
+  return body;
+}
+
+export function assertProbabilityEstimationEvidenceContext(
+  value: unknown,
+): ProbabilityEstimationEvidenceContext {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("probability estimation evidence context is malformed");
+  }
+  const context = value as ProbabilityEstimationEvidenceContext;
+  if (
+    context.schemaVersion !== "pmh.probability-estimation-evidence-context.v1" ||
+    !HASH_PATTERN.test(String(context.contextIdentity)) ||
+    !HASH_PATTERN.test(String(context.semanticReviewArtifactHash)) ||
+    !HASH_PATTERN.test(String(context.semanticConstraintArtifactHash)) ||
+    !HASH_PATTERN.test(String(context.evidenceScopeIdentity)) ||
+    !["CURRENT_CATALOG_EXACT", "DURABLE_REVIEW_BUNDLE"].includes(
+      context.sourceKind,
+    ) ||
+    !HASH_PATTERN.test(String(context.sourceArtifactHash)) ||
+    !Array.isArray(context.listingRefs) || context.listingRefs.length < 2 ||
+    context.listingRefs.length > 4 ||
+    new Set(context.listingRefs).size !== context.listingRefs.length ||
+    context.listingRefs.some((listingRef) =>
+      !boundedText(listingRef, 500)
+    ) ||
+    !Array.isArray(context.listingHashes) ||
+    context.listingHashes.length !== context.listingRefs.length ||
+    context.listingHashes.some((listingHash) =>
+      !HASH_PATTERN.test(String(listingHash))
+    ) ||
+    !Array.isArray(context.listings) ||
+    context.listings.length !== context.listingRefs.length ||
+    context.listings.some((listing, index) =>
+      listing === null || typeof listing !== "object" ||
+      listing.listingRef !== context.listingRefs[index] ||
+      hashCanonical(listing) !== context.listingHashes[index]
+    ) ||
+    context.authority !== "ESTIMATOR_INPUT_ONLY" ||
+    context.semanticDecisionAuthority !== false ||
+    context.probabilityCertificateAuthority !== false ||
+    context.executionAuthority !== false ||
+    context.contextIdentity !== hashCanonical(evidenceContextBody(context)) ||
+    new TextEncoder().encode(JSON.stringify(context)).byteLength >
+      MAX_EVIDENCE_CONTEXT_BYTES
+  ) throw new Error("probability estimation evidence context violates its bounded contract");
+  return Object.freeze(context);
+}
+
+function assertEvidenceContextLineage(
+  contextInput: ProbabilityEstimationEvidenceContext,
+  reviewInput: SemanticReviewRecord,
+): ProbabilityEstimationEvidenceContext {
+  const review = assertSemanticReviewRecord(reviewInput);
+  const constraint = review.report?.result.semanticConstraint;
+  if (review.status !== "PASS" || review.report === null || constraint === undefined) {
+    throw new Error("probability evidence context requires a passed semantic review");
+  }
+  return assertEvidenceContextCaseLineage(contextInput, {
+    semanticReviewArtifactHash: review.report.artifactHash,
+    semanticConstraint: constraint,
+    evidenceScopeIdentity: review.corpusSnapshotIdentity,
+  });
+}
+
+function assertEvidenceContextCaseLineage(
+  contextInput: ProbabilityEstimationEvidenceContext,
+  input: Readonly<{
+    semanticReviewArtifactHash: Hash;
+    semanticConstraint: SemanticConstraintArtifact;
+    evidenceScopeIdentity: Hash;
+  }>,
+): ProbabilityEstimationEvidenceContext {
+  const context = assertProbabilityEstimationEvidenceContext(contextInput);
+  const constraint = assertSemanticConstraintArtifact(input.semanticConstraint);
+  const evidenceByRef = new Map(constraint.ruleEvidence.map((evidence) =>
+    [evidence.listingRef, evidence] as const
+  ));
+  if (
+    !HASH_PATTERN.test(String(input.semanticReviewArtifactHash)) ||
+    !HASH_PATTERN.test(String(input.evidenceScopeIdentity)) ||
+    context.semanticReviewArtifactHash !== input.semanticReviewArtifactHash ||
+    context.semanticConstraintArtifactHash !== constraint.artifactHash ||
+    context.evidenceScopeIdentity !== input.evidenceScopeIdentity ||
+    context.evidenceScopeIdentity !== constraint.evidenceCorpusSnapshotIdentity ||
+    context.listingRefs.join("\n") !== constraint.listingRefs.join("\n") ||
+    context.listings.some((listing, index) => {
+      const evidence = evidenceByRef.get(listing.listingRef);
+      return evidence === undefined ||
+        context.listingHashes[index] !== evidence.listingHash ||
+        listing.sourceRawHash !== evidence.sourceRawHash ||
+        listing.protocolIdentity !== evidence.protocolIdentity;
+    })
+  ) throw new Error("probability estimation evidence context lineage mismatch");
+  return context;
+}
+
+export function buildProbabilityEstimationEvidenceContext(input: Readonly<{
+  review: SemanticReviewRecord;
+  listings: readonly DiscoveryCatalogListing[];
+  sourceKind: ProbabilityEstimationEvidenceContext["sourceKind"];
+  sourceArtifactHash: Hash;
+}>): ProbabilityEstimationEvidenceContext {
+  const review = assertSemanticReviewRecord(input.review);
+  const constraint = review.report?.result.semanticConstraint;
+  if (review.status !== "PASS" || review.report === null || constraint === undefined) {
+    throw new Error("probability evidence context requires a passed semantic review");
+  }
+  return buildRetainedProbabilityEstimationEvidenceContext({
+    semanticReviewArtifactHash: review.report.artifactHash,
+    semanticConstraint: constraint,
+    evidenceScopeIdentity: review.corpusSnapshotIdentity,
+    listings: input.listings,
+    sourceKind: input.sourceKind,
+    sourceArtifactHash: input.sourceArtifactHash,
+  });
+}
+
+export function buildRetainedProbabilityEstimationEvidenceContext(input: Readonly<{
+  semanticReviewArtifactHash: Hash;
+  semanticConstraint: SemanticConstraintArtifact;
+  evidenceScopeIdentity: Hash;
+  listings: readonly DiscoveryCatalogListing[];
+  sourceKind: ProbabilityEstimationEvidenceContext["sourceKind"];
+  sourceArtifactHash: Hash;
+}>): ProbabilityEstimationEvidenceContext {
+  const constraint = assertSemanticConstraintArtifact(input.semanticConstraint);
+  const byRef = new Map(input.listings.map((listing) =>
+    [listing.listingRef, listing] as const
+  ));
+  const listings = Object.freeze(constraint.listingRefs.map((listingRef) => {
+    const listing = byRef.get(listingRef);
+    if (listing === undefined) {
+      throw new Error("probability evidence context is missing a reviewed listing");
+    }
+    return listing;
+  }));
+  const body = Object.freeze({
+    schemaVersion: "pmh.probability-estimation-evidence-context.v1" as const,
+    semanticReviewArtifactHash: input.semanticReviewArtifactHash,
+    semanticConstraintArtifactHash: constraint.artifactHash,
+    evidenceScopeIdentity: input.evidenceScopeIdentity,
+    sourceKind: input.sourceKind,
+    sourceArtifactHash: input.sourceArtifactHash,
+    listingRefs: Object.freeze([...constraint.listingRefs]),
+    listingHashes: Object.freeze(listings.map((listing) => hashCanonical(listing))),
+    listings,
+    authority: "ESTIMATOR_INPUT_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityCertificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return assertEvidenceContextCaseLineage(Object.freeze({
+    ...body,
+    contextIdentity: hashCanonical(body),
+  }), input);
+}
+
 function caseIdentity(input: Readonly<{
   semanticReviewArtifactHash: Hash;
   semanticConstraintArtifactHash: Hash;
@@ -257,11 +471,17 @@ function caseIdentity(input: Readonly<{
   adverseStateIds: readonly string[];
   model: string;
   engine?: ProbabilityEstimatorEngine;
+  evidenceContextIdentity?: Hash;
+  inputProtocol?: ProbabilityEstimationInputProtocol;
 }>): Hash {
   return hashCanonical({
-    schemaVersion: input.engine === undefined
-      ? "pmh.probability-estimation-case-id.v1"
-      : "pmh.probability-estimation-case-id.v2",
+    schemaVersion: input.inputProtocol !== undefined
+      ? "pmh.probability-estimation-case-id.v4"
+      : input.evidenceContextIdentity !== undefined
+        ? "pmh.probability-estimation-case-id.v3"
+      : input.engine === undefined
+        ? "pmh.probability-estimation-case-id.v1"
+        : "pmh.probability-estimation-case-id.v2",
     ...input,
   });
 }
@@ -329,6 +549,9 @@ export function assertProbabilityEstimationJobRecord(
   const engine = record.engine === undefined
     ? undefined
     : assertProbabilityEstimatorEngine(record.engine);
+  const evidenceContext = record.evidenceContext === undefined
+    ? undefined
+    : assertProbabilityEstimationEvidenceContext(record.evidenceContext);
   const expectedCaseIdentity = caseIdentity({
     semanticReviewArtifactHash: record.semanticReviewArtifactHash,
     semanticConstraintArtifactHash: record.semanticConstraintArtifactHash,
@@ -336,20 +559,60 @@ export function assertProbabilityEstimationJobRecord(
     adverseStateIds: record.adverseStateIds,
     model: record.model,
     ...(engine === undefined ? {} : { engine }),
+    ...(evidenceContext === undefined
+      ? {}
+      : { evidenceContextIdentity: evidenceContext.contextIdentity }),
+    ...(record.inputProtocol === undefined
+      ? {}
+      : { inputProtocol: record.inputProtocol }),
   });
+  const evidenceByRef = new Map(constraint.ruleEvidence.map((evidence) =>
+    [evidence.listingRef, evidence] as const
+  ));
   if (
     ![
       "pmh.probability-estimation-job.v1",
       "pmh.probability-estimation-job.v2",
       "pmh.probability-estimation-job.v3",
+      "pmh.probability-estimation-job.v4",
+      "pmh.probability-estimation-job.v5",
+      "pmh.probability-estimation-job.v6",
     ].includes(record.schemaVersion) ||
     (record.schemaVersion === "pmh.probability-estimation-job.v1" &&
       searchOrigin !== undefined) ||
     (record.schemaVersion === "pmh.probability-estimation-job.v2" &&
       searchOrigin === undefined) ||
-    (record.schemaVersion === "pmh.probability-estimation-job.v3") !==
-      (engine !== undefined) ||
+    (["pmh.probability-estimation-job.v1", "pmh.probability-estimation-job.v2"]
+      .includes(record.schemaVersion) &&
+      (engine !== undefined || evidenceContext !== undefined)) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v3" &&
+      (engine === undefined || evidenceContext !== undefined)) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v4" &&
+      (engine === undefined || evidenceContext === undefined)) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v5" &&
+      (engine === undefined || evidenceContext === undefined ||
+        record.inputProtocol !== PREVIOUS_PROBABILITY_ESTIMATION_INPUT_PROTOCOL)) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v6" &&
+      (engine === undefined || evidenceContext === undefined ||
+        record.inputProtocol !== PROBABILITY_ESTIMATION_INPUT_PROTOCOL)) ||
+    (!["pmh.probability-estimation-job.v5", "pmh.probability-estimation-job.v6"]
+      .includes(record.schemaVersion) &&
+      record.inputProtocol !== undefined) ||
     (engine !== undefined && engine.model !== record.model) ||
+    (evidenceContext !== undefined && (
+      evidenceContext.semanticReviewArtifactHash !== record.semanticReviewArtifactHash ||
+      evidenceContext.semanticConstraintArtifactHash !==
+        record.semanticConstraintArtifactHash ||
+      evidenceContext.evidenceScopeIdentity !== record.evidenceScopeIdentity ||
+      evidenceContext.listingRefs.join("\n") !== constraint.listingRefs.join("\n") ||
+      evidenceContext.listings.some((listing, index) => {
+        const evidence = evidenceByRef.get(listing.listingRef);
+        return evidence === undefined ||
+          evidenceContext.listingHashes[index] !== evidence.listingHash ||
+          listing.sourceRawHash !== evidence.sourceRawHash ||
+          listing.protocolIdentity !== evidence.protocolIdentity;
+      })
+    )) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
     record.jobId !== jobId(record.caseIdentity, record.role) ||
     !HASH_PATTERN.test(String(record.caseIdentity)) ||
@@ -501,22 +764,47 @@ export class ProbabilityEstimationScheduler {
   ): void {
     const engine = this.#desk.currentEngine();
     const model = engine.model;
-    const candidates = [...new Map(candidatesInput.flatMap((candidate) => {
+    const normalizedByReview = new Map<Hash, NormalizedProbabilityEstimationCandidate>();
+    for (const candidate of candidatesInput) {
+      const searchOrigin = candidate.searchOrigin === undefined
+        ? undefined
+        : assertProbabilitySearchOrigin(candidate.searchOrigin);
+      if (candidate.review === undefined) {
+        const constraint = assertSemanticConstraintArtifact(candidate.semanticConstraint);
+        if (constraint.classification !== "PROBABILISTIC_DEPENDENCE") continue;
+        const evidenceContext = assertEvidenceContextCaseLineage(
+          candidate.evidenceContext,
+          candidate,
+        );
+        normalizedByReview.set(candidate.semanticReviewArtifactHash, Object.freeze({
+          semanticReviewArtifactHash: candidate.semanticReviewArtifactHash,
+          constraint,
+          evidenceScopeIdentity: candidate.evidenceScopeIdentity,
+          evidenceContext,
+          ...(searchOrigin === undefined ? {} : { searchOrigin }),
+        }));
+        continue;
+      }
       const review = assertSemanticReviewRecord(candidate.review);
       const constraint = review.report?.result.semanticConstraint;
       if (
         review.status !== "PASS" || review.report === null || constraint === undefined ||
         constraint.classification !== "PROBABILISTIC_DEPENDENCE"
-      ) return [];
-      const searchOrigin = candidate.searchOrigin === undefined
+      ) continue;
+      const evidenceContext = candidate.evidenceContext === undefined
         ? undefined
-        : assertProbabilitySearchOrigin(candidate.searchOrigin);
-      return [[review.report.artifactHash, Object.freeze({
+        : assertEvidenceContextLineage(candidate.evidenceContext, review);
+      normalizedByReview.set(review.report.artifactHash, Object.freeze({
         review,
+        semanticReviewArtifactHash: review.report.artifactHash,
+        constraint,
+        evidenceScopeIdentity: review.corpusSnapshotIdentity,
         ...(searchOrigin === undefined ? {} : { searchOrigin }),
-      })] as const];
-    })).values()].sort((left, right) =>
-      left.review.report!.artifactHash.localeCompare(right.review.report!.artifactHash)
+        ...(evidenceContext === undefined ? {} : { evidenceContext }),
+      }));
+    }
+    const candidates = [...normalizedByReview.values()].sort((left, right) =>
+      left.semanticReviewArtifactHash.localeCompare(right.semanticReviewArtifactHash)
     );
     this.#unsupportedCandidateCount = 0;
     const now = new Date(this.#now()).toISOString();
@@ -525,42 +813,77 @@ export class ProbabilityEstimationScheduler {
     ));
     for (const candidate of candidates) {
       const review = candidate.review;
-      const report = review.report!;
-      const constraint = report.result.semanticConstraint!;
+      const constraint = candidate.constraint;
       const derived = deriveProbabilityAdverseStates(constraint);
       if (derived.status === "UNSUPPORTED") {
         this.#unsupportedCandidateCount += 1;
         continue;
       }
-      const exactEvidence = exactReviewedCorpusAvailable(constraint, snapshot);
+      const suppliedContext = candidate.evidenceContext === undefined
+        ? undefined
+        : assertEvidenceContextCaseLineage(candidate.evidenceContext, {
+            semanticReviewArtifactHash: candidate.semanticReviewArtifactHash,
+            semanticConstraint: candidate.constraint,
+            evidenceScopeIdentity: candidate.evidenceScopeIdentity,
+          });
+      const currentContext = review !== undefined &&
+          exactReviewedCorpusAvailable(constraint, snapshot)
+        ? buildProbabilityEstimationEvidenceContext({
+            review,
+            listings: snapshot.listings,
+            sourceKind: "CURRENT_CATALOG_EXACT",
+            sourceArtifactHash: snapshot.snapshotIdentity,
+          })
+        : undefined;
+      const retainedContext = this.#jobs.find((job) =>
+        job.semanticReviewArtifactHash === candidate.semanticReviewArtifactHash &&
+        job.semanticConstraintArtifactHash === constraint.artifactHash &&
+        hashCanonical(jobEngine(job)) === hashCanonical(engine) &&
+        job.evidenceContext !== undefined
+      )?.evidenceContext;
+      const evidenceContext = suppliedContext ?? currentContext ?? retainedContext;
+      const exactEvidence = evidenceContext !== undefined;
       const caseId = caseIdentity({
-        semanticReviewArtifactHash: report.artifactHash,
+        semanticReviewArtifactHash: candidate.semanticReviewArtifactHash,
         semanticConstraintArtifactHash: constraint.artifactHash,
-        evidenceScopeIdentity: review.corpusSnapshotIdentity,
+        evidenceScopeIdentity: candidate.evidenceScopeIdentity,
         adverseStateIds: derived.adverseStateIds,
         model,
         engine,
+        ...(evidenceContext === undefined
+          ? {}
+          : { evidenceContextIdentity: evidenceContext.contextIdentity }),
+        ...(evidenceContext === undefined
+          ? {}
+          : { inputProtocol: PROBABILITY_ESTIMATION_INPUT_PROTOCOL }),
       });
       for (const role of PROBABILITY_ESTIMATOR_ROLES) {
         const id = jobId(caseId, role);
         let job = this.#jobs.find((item) =>
-          item.jobId === id || (
-            item.semanticReviewArtifactHash === report.artifactHash &&
+            item.jobId === id || (
+            item.semanticReviewArtifactHash === candidate.semanticReviewArtifactHash &&
             item.semanticConstraintArtifactHash === constraint.artifactHash &&
             item.role === role && item.model === model &&
-            hashCanonical(jobEngine(item)) === hashCanonical(engine)
+            hashCanonical(jobEngine(item)) === hashCanonical(engine) &&
+            (item.evidenceContext?.contextIdentity ?? null) ===
+              (evidenceContext?.contextIdentity ?? null) &&
+            (item.inputProtocol ?? null) === (evidenceContext === undefined
+              ? null
+              : PROBABILITY_ESTIMATION_INPUT_PROTOCOL)
           )
         );
         if (job === undefined) {
           job = this.#save(withHash({
-            schemaVersion: "pmh.probability-estimation-job.v3",
+            schemaVersion: evidenceContext === undefined
+              ? "pmh.probability-estimation-job.v3"
+              : "pmh.probability-estimation-job.v6",
             jobId: id,
             caseIdentity: caseId,
             proposalId: constraint.proposalId,
-            semanticReviewArtifactHash: report.artifactHash,
+            semanticReviewArtifactHash: candidate.semanticReviewArtifactHash,
             semanticConstraintArtifactHash: constraint.artifactHash,
             semanticConstraint: constraint,
-            evidenceScopeIdentity: review.corpusSnapshotIdentity,
+            evidenceScopeIdentity: candidate.evidenceScopeIdentity,
             adverseStateIds: derived.adverseStateIds,
             ...(candidate.searchOrigin === undefined
               ? {}
@@ -568,6 +891,10 @@ export class ProbabilityEstimationScheduler {
             role,
             model,
             engine,
+            ...(evidenceContext === undefined ? {} : { evidenceContext }),
+            ...(evidenceContext === undefined
+              ? {}
+              : { inputProtocol: PROBABILITY_ESTIMATION_INPUT_PROTOCOL }),
             status: exactEvidence ? "PENDING" : "BLOCKED_EVIDENCE",
             attemptCount: 0,
             maxAttempts: this.#maxAttempts,
@@ -579,7 +906,7 @@ export class ProbabilityEstimationScheduler {
             lastEstimateIdentity: null,
             diagnostic: exactEvidence
               ? null
-              : "the exact reviewed listing corpus is not present in the current snapshot",
+              : "the exact reviewed listing corpus is not present in current or durable evidence",
             createdAt: now,
             updatedAt: now,
             authority: "ESTIMATION_ORCHESTRATION_ONLY",
@@ -609,7 +936,7 @@ export class ProbabilityEstimationScheduler {
           this.#save(withHash({
             ...withoutHash(job),
             status: "BLOCKED_EVIDENCE",
-            diagnostic: "the exact reviewed listing corpus is not present in the current snapshot",
+            diagnostic: "the exact reviewed listing corpus is not present in current or durable evidence",
             updatedAt: now,
           }));
         }
@@ -632,15 +959,19 @@ export class ProbabilityEstimationScheduler {
       this.#maxRequestsPerTick,
     );
     if (available <= 0) return Object.freeze([]);
-    const candidateByReview = new Map(candidates.flatMap((candidate) => {
-      const report = candidate.review.report;
-      return report === null ? [] : [[report.artifactHash, candidate] as const];
-    }));
+    const candidateByReview = new Map<Hash, ProbabilityEstimationCandidate>(
+      candidates.flatMap((candidate) =>
+        candidate.review === undefined || candidate.review.report === null
+          ? []
+          : [[candidate.review.report.artifactHash, candidate] as const]
+      ),
+    );
     const now = this.#now();
     const due = this.#jobs.filter((job) =>
       ["PENDING", "RETRY_WAIT"].includes(job.status) &&
       Date.parse(job.nextAttemptAt) <= now && !this.#active.has(job.jobId) &&
-      candidateByReview.has(job.semanticReviewArtifactHash) &&
+      (job.evidenceContext !== undefined ||
+        candidateByReview.has(job.semanticReviewArtifactHash)) &&
       this.#engineAllowed(jobEngine(job))
     ).sort((left, right) =>
       Date.parse(left.nextAttemptAt) - Date.parse(right.nextAttemptAt) ||
@@ -648,14 +979,14 @@ export class ProbabilityEstimationScheduler {
     ).slice(0, available);
     return Object.freeze(due.map((job) => this.#dispatch(
       job,
-      candidateByReview.get(job.semanticReviewArtifactHash)!,
+      candidateByReview.get(job.semanticReviewArtifactHash),
       snapshot,
     )));
   }
 
   #dispatch(
     job: ProbabilityEstimationJobRecord,
-    candidate: ProbabilityEstimationCandidate,
+    candidate: ProbabilityEstimationCandidate | undefined,
     snapshot: MarketCorpusSnapshot,
   ): Promise<ProbabilityEstimationJobRecord> {
     const startedAt = this.#now();
@@ -670,13 +1001,22 @@ export class ProbabilityEstimationScheduler {
     }));
     let invocation;
     try {
-      invocation = this.#desk.begin(
-        candidate.review,
-        snapshot,
-        leased.adverseStateIds,
-        leased.role,
-        jobEngine(leased),
-      );
+      invocation = leased.evidenceContext === undefined
+        ? candidate?.review === undefined
+          ? (() => { throw new Error("legacy probability job requires its retained review"); })()
+          : this.#desk.begin(
+              candidate.review,
+              snapshot,
+              leased.adverseStateIds,
+              leased.role,
+              jobEngine(leased),
+            )
+        : this.#desk.beginCase(Object.freeze({
+            semanticReviewArtifactHash: leased.semanticReviewArtifactHash,
+            semanticConstraint: leased.semanticConstraint,
+            evidenceScopeIdentity: leased.evidenceScopeIdentity,
+            listings: leased.evidenceContext.listings,
+          }), leased.adverseStateIds, leased.role, jobEngine(leased));
     } catch (error) {
       const capacity = /requires configured .* credentials|concurrency limit/u.test(
         compactDiagnostic(error),

@@ -1,9 +1,10 @@
 # Role-separated probability estimation agents
 
-Status: active; tool loop, abstention, durable run journal, concurrent automatic
-scheduling, conservative bound assembly, notification inbox, Studio
-observability, and first-party calibration replay implemented locally; external
-evidence tools and durable resolution ingestion remain
+Status: active; tool loop, typed evidence requests, abstention, durable run
+journal, concurrent automatic scheduling, conservative bound assembly,
+notification inbox, Studio observability, and first-party calibration replay
+implemented; approved external reference sources and durable resolution
+ingestion remain
 
 Created: 2026-08-02
 
@@ -51,29 +52,27 @@ whole-response schema or treating model confidence as probability.
 
 ## Next implementation
 
-1. Bind every new role job and run to a durable provider/model/effort snapshot;
-   support the selected Codex Terra OAuth lane without changing the tool-effect
-   contract, and retain v1 DeepSeek replay compatibility.
-2. Acquire reference-class evidence through explicit evidence tools rather
+1. Acquire reference-class evidence through explicit evidence tools rather
    than open-ended model browsing.
-3. Persist source-bound resolution observations and calibration snapshots. The
+2. Persist source-bound resolution observations and calibration snapshots. The
    pure replay layer now calculates empirical rate, interval miss, and midpoint
    Brier by estimator, method, relation, horizon, and ppm bucket; semantic-family
    grouping waits for first-party issue lineage on the bound.
-4. Feed measured per-role token and request usage into recurring-work budgets
+3. Feed measured per-role token and request usage into recurring-work budgets
    without allowing observability metadata to change semantic authority.
 
 ## Provider-snapshot qualification
 
-- New jobs use schema v3 and retain provider, model, effort, transport, and
-  response-storage posture; new run artifacts use schema v2 with the same engine.
+- New jobs use schema v6 and retain provider, model, effort, transport,
+  response-storage posture, exact evidence context, and input protocol; new run
+  artifacts use schema v3 with the same engine and structured evidence effects.
 - Case and run identities change when provider, model, or effort changes. Runtime
   configuration changes affect only newly reconciled cases.
 - Codex uses streaming Responses, omits `max_output_tokens`, disables response
   storage and parallel tool calls, and records OAuth-free usage lineage.
 - Automatic Codex estimation does not depend on the DeepSeek automation gate.
   Automatic DeepSeek estimation still requires that explicit spending gate.
-- Legacy v1/v2 jobs and v1 DeepSeek runs replay byte-for-byte and can still
+- Legacy v1-v5 jobs and v1/v2 runs replay byte-for-byte and can still
   rebuild historical probability bounds.
 
 ## Qualification

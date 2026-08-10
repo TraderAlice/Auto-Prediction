@@ -76,13 +76,16 @@ type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
 type FailureBudgetFrontierProjection = Readonly<{
-  schemaVersion: "pmh.failure-budget-frontier.v1";
+  schemaVersion: "pmh.failure-budget-frontier.v2";
   contentHash: string;
   evaluatedAt: string;
   itemCount: number;
   positiveMarginCount: number;
   boundedCandidateCount: number;
   awaitingEstimateCount: number;
+  abstainedCaseCount: number;
+  evidenceBlockedCount: number;
+  unboundedCaseCount: number;
   quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY";
   authority: "FAILURE_BUDGET_RANKING_ONLY";
   certificateAuthority: false;
@@ -97,6 +100,9 @@ type FailureBudgetFrontierProjection = Readonly<{
       | "RESEARCH_MARGIN"
       | "BUDGET_EXHAUSTED"
       | "AWAITING_ESTIMATES"
+      | "ESTIMATION_ABSTAINED"
+      | "ESTIMATION_EXHAUSTED"
+      | "EVIDENCE_BLOCKED"
       | "PRICE_UNAVAILABLE";
     portfolioLabel: string | null;
     breakEvenEpsilonPpm: string | null;
@@ -114,6 +120,14 @@ type FailureBudgetFrontierProjection = Readonly<{
       source: "ASSUMPTION" | "COUNTER_SCENARIO";
     }>>;
     estimatorJobCount: number;
+    estimationCase: null | Readonly<{
+      caseIdentity: string;
+      provider: "DEEPSEEK" | "CODEX";
+      model: string;
+      reasoningEffort: string | null;
+      inputProtocol: string;
+      evidenceSource: "CURRENT_CATALOG_EXACT" | "DURABLE_REVIEW_BUNDLE" | "LEGACY_CURRENT_CATALOG";
+    }>;
     guaranteedProfit: false;
     certificateAuthority: false;
     executionAuthority: false;
@@ -398,6 +412,13 @@ const EMPTY_PROBABILITY_ESTIMATION: StudioProjection["ai"]["probabilityEstimatio
   schemaVersion: "pmh.probability-estimation-desk.v1",
   configured: false,
   model: "unavailable",
+  engine: {
+    provider: "DEEPSEEK",
+    transport: "VERCEL_AI_SDK",
+    model: "unavailable",
+    reasoningEffort: null,
+    responseStorage: false,
+  },
   status: "NEEDS_KEY",
   activeCount: 0,
   runCount: 0,
@@ -437,6 +458,7 @@ const EMPTY_PROBABILITY_ESTIMATION_SCHEDULER:
     leasedCount: 0,
     retryWaitCount: 0,
     blockedEvidenceCount: 0,
+    policyBlockedCount: 0,
     passedCount: 0,
     abstainedCount: 0,
     exhaustedCount: 0,
@@ -469,6 +491,37 @@ const EMPTY_PROBABILITY_ESTIMATION_SCHEDULER:
     hardArbitrageAuthority: false,
     executionAuthority: false,
     effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+  };
+
+const EMPTY_PROBABILITY_EVIDENCE_DEBT:
+  StudioProjection["ai"]["probabilityEvidenceDebt"] = {
+    schemaVersion: "pmh.probability-evidence-debt.v1",
+    contentHash: `sha256:${"0".repeat(64)}`,
+    sourceRunCount: 0,
+    sourceNeedCount: 0,
+    itemCount: 0,
+    blockingItemCount: 0,
+    counts: {
+      EVIDENCE_CAPTURED: 0,
+      ACQUISITION_IN_PROGRESS: 0,
+      ACQUISITION_READY: 0,
+      ACQUISITION_ROUTE_MISSING: 0,
+      EXTERNAL_SOURCE_POLICY_REQUIRED: 0,
+    },
+    items: [],
+    rankingContract: "BLOCKING_THEN_ROUTE_POSTURE_THEN_NEED_ID",
+    authority: "RESEARCH_PRIORITY_ONLY",
+    fetchAuthority: false,
+    providerRequestAuthority: false,
+    semanticDecisionAuthority: false,
+    certificateAuthority: false,
+    executionAuthority: false,
+    effects: {
+      providerRequests: false,
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    },
   };
 
 const EMPTY_PROBABILITY_CALIBRATION:
@@ -1623,7 +1676,7 @@ async function requestFailureBudgetFrontier(): Promise<FailureBudgetFrontierProj
   if (!response.ok) throw new Error("failure budget frontier failed to load");
   const result = (await response.json()) as FailureBudgetFrontierProjection;
   if (
-    result.schemaVersion !== "pmh.failure-budget-frontier.v1" ||
+    result.schemaVersion !== "pmh.failure-budget-frontier.v2" ||
     result.authority !== "FAILURE_BUDGET_RANKING_ONLY" ||
     result.certificateAuthority !== false ||
     result.executionAuthority !== false ||
@@ -9396,6 +9449,8 @@ function FailureBudgetView() {
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const deepseekAutomationEnabled =
     studioProjection.ai.runtimeConfiguration.configuration.deepseekAutomationEnabled;
+  const evidenceDebt =
+    studioProjection.ai.probabilityEvidenceDebt ?? EMPTY_PROBABILITY_EVIDENCE_DEBT;
 
   async function load(): Promise<void> {
     setLoading(true);
@@ -9418,6 +9473,9 @@ function FailureBudgetView() {
     RESEARCH_MARGIN: "MARGIN · NEEDS MARKET DATA",
     BUDGET_EXHAUSTED: "BUDGET EXHAUSTED",
     AWAITING_ESTIMATES: "AWAITING ESTIMATES",
+    ESTIMATION_ABSTAINED: "ESTIMATORS ABSTAINED",
+    ESTIMATION_EXHAUSTED: "ESTIMATION EXHAUSTED",
+    EVIDENCE_BLOCKED: "EVIDENCE BLOCKED",
     PRICE_UNAVAILABLE: "PRICE UNAVAILABLE",
   })[status];
 
@@ -9463,9 +9521,47 @@ function FailureBudgetView() {
         <div className="metric-grid failure-budget-summary">
           <Metric label="Positive margin" value={`${frontier.positiveMarginCount}`} detail="price budget exceeds adverse bound" />
           <Metric label="Bound candidates" value={`${frontier.boundedCandidateCount}`} detail="all research gates clear" />
-          <Metric label="Awaiting estimates" value={`${frontier.awaitingEstimateCount}`} detail="relations not priced yet" />
+          <Metric label="Unbounded cases" value={`${frontier.unboundedCaseCount}`} detail={`${frontier.abstainedCaseCount} abstained · ${frontier.evidenceBlockedCount} evidence-blocked`} />
           <Metric label="Frontier size" value={`${frontier.itemCount}`} detail="ranked semantic portfolios" />
         </div>
+      )}
+
+      {evidenceDebt.items.length > 0 && (
+        <Card className="probability-evidence-debt-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Estimator research queue</span>
+              <h2>What the Agents need to learn next</h2>
+              <p>
+                Abstention is retained as typed work. Official-rule gaps can enter acquisition;
+                statistical and causal gaps wait for an approved source family.
+              </p>
+            </div>
+            <Badge variant="warning">{evidenceDebt.blockingItemCount} BLOCKING</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="probability-evidence-debt-list">
+              {evidenceDebt.items.slice(0, 6).map((item) => (
+                <article key={item.debtId}>
+                  <div>
+                    <Badge variant={item.status === "EVIDENCE_CAPTURED" ? "verified" : item.status === "ACQUISITION_IN_PROGRESS" ? "shadow" : "muted"}>
+                      {item.status.replaceAll("_", " ")}
+                    </Badge>
+                    <span>{item.kind.replaceAll("_", " ")} · {item.roles.join(" + ")}{item.questionVariants.length > 1 ? ` · ${item.questionVariants.length} formulations` : ""}</span>
+                  </div>
+                  <strong>{item.question}</strong>
+                  <p>{item.reason}</p>
+                  <small>{item.listingRefs.length} contracts · adverse {item.adverseStateIds.join("+")} · {item.engines.join(" · ")}</small>
+                </article>
+              ))}
+            </div>
+            <div className="probability-evidence-debt-summary">
+              <span>{evidenceDebt.counts.ACQUISITION_IN_PROGRESS + evidenceDebt.counts.ACQUISITION_READY} acquisition-routed</span>
+              <span>{evidenceDebt.counts.ACQUISITION_ROUTE_MISSING} missing official route</span>
+              <span>{evidenceDebt.counts.EXTERNAL_SOURCE_POLICY_REQUIRED} external-policy gated</span>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {diagnostic !== null && (
@@ -9494,7 +9590,7 @@ function FailureBudgetView() {
                   <div className="failure-budget-rank">{String(index + 1).padStart(2, "0")}</div>
                   <div className="failure-budget-title">
                     <div>
-                      <Badge variant={positive ? "verified" : item.status === "AWAITING_ESTIMATES" ? "shadow" : "muted"}>
+                      <Badge variant={positive ? "verified" : item.status === "AWAITING_ESTIMATES" ? "shadow" : ["ESTIMATION_ABSTAINED", "EVIDENCE_BLOCKED"].includes(item.status) ? "warning" : "muted"}>
                         {statusLabel(item.status)}
                       </Badge>
                       <span>{item.calibrationStatus.replaceAll("_", " ")}</span>
@@ -9532,7 +9628,10 @@ function FailureBudgetView() {
                       {item.blockers.map((blocker) => <code key={blocker}>{blocker.replaceAll("_", " ")}</code>)}
                       {item.blockers.length === 0 && <code>RESEARCH GATES CLEAR</code>}
                     </div>
-                    <span>{item.estimatorJobCount} estimator job{item.estimatorJobCount === 1 ? "" : "s"}</span>
+                    <span>
+                      {item.estimationCase === null ? "" : `${item.estimationCase.provider} · ${item.estimationCase.model}${item.estimationCase.reasoningEffort === null ? "" : ` · ${item.estimationCase.reasoningEffort}`} · `}
+                      {item.estimatorJobCount} estimator job{item.estimatorJobCount === 1 ? "" : "s"}
+                    </span>
                   </div>
                 </CardContent>
               </Card>

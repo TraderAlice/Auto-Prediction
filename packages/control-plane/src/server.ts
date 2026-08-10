@@ -62,6 +62,7 @@ import {
 import { buildReviewAttentionProjection } from "./review-attention.js";
 import { buildEvidenceDebtFrontier } from "./evidence-debt-frontier.js";
 import { buildFailureBudgetFrontier } from "./failure-budget-frontier.js";
+import { buildProbabilityEvidenceDebt } from "./probability-evidence-debt.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
   createMarketArchaeologistDesk,
@@ -99,9 +100,12 @@ import {
   type ProbabilityEstimatorRole,
 } from "./probability-estimation-agent.js";
 import {
+  buildProbabilityEstimationEvidenceContext,
+  buildRetainedProbabilityEstimationEvidenceContext,
   parseProbabilityEstimationTickInterval,
   ProbabilityEstimationScheduler,
   type ProbabilityEstimationCandidate,
+  type ProbabilityEstimationJobRecord,
   type ProbabilityEstimationSchedulerStore,
 } from "./probability-estimation-scheduler.js";
 import { buildProbabilitySearchOrigin } from "./probabilistic-semantic-arbitrage.js";
@@ -1661,6 +1665,10 @@ export function createControlPlane(options?: {
   };
   const probabilitySearchOriginByReview = new Map<Hash,
     ReturnType<typeof buildProbabilitySearchOrigin> | null>();
+  const probabilityEvidenceContextByReview = new Map<Hash,
+    import("./probability-estimation-scheduler.js").ProbabilityEstimationEvidenceContext>();
+  const probabilityEvidenceContextByArtifact = new Map<Hash,
+    import("./probability-estimation-scheduler.js").ProbabilityEstimationEvidenceContext | null>();
   const probabilityEstimationCandidates = (
     retainedAttribution?: SemanticReviewAttributionSource,
   ): readonly ProbabilityEstimationCandidate[] => {
@@ -1668,22 +1676,20 @@ export function createControlPlane(options?: {
       review.status === "PASS" && review.report !== null &&
       review.report.result.semanticConstraint?.classification === "PROBABILISTIC_DEPENDENCE"
     );
+    const liveJobs = semanticReviewScheduler.projection().jobs;
+    let durableJobs: SemanticReviewAttributionSource["jobs"] | null =
+      retainedAttribution?.jobs ?? null;
+    const allDurableJobs = (): SemanticReviewAttributionSource["jobs"] => {
+      durableJobs ??= semanticReviewScheduler.attributionSource().jobs;
+      return durableJobs;
+    };
     const missingReviews = reviews.filter((review) =>
-      !probabilitySearchOriginByReview.has(review.reviewId)
+      !probabilitySearchOriginByReview.has(review.reviewId) ||
+      !probabilityEvidenceContextByReview.has(review.reviewId)
     );
-    if (missingReviews.length === 0) {
-      return Object.freeze(reviews.map((review) => {
-        const searchOrigin = probabilitySearchOriginByReview.get(review.reviewId) ?? null;
-        return Object.freeze({
-          review,
-          ...(searchOrigin === null ? {} : { searchOrigin }),
-        });
-      }));
-    }
     const issues = new Map(searchIssueScheduler.projection().issues.map((issue) =>
       [issue.issueId, issue] as const
     ));
-    const liveJobs = semanticReviewScheduler.projection().jobs;
     const liveJobKeys = new Set(liveJobs.map((job) =>
       `${job.lastReviewId ?? "none"}\u0000${job.proposalId}`
     ));
@@ -1692,7 +1698,7 @@ export function createControlPlane(options?: {
       return !liveJobKeys.has(`${review.reviewId}\u0000${proposalId}`);
     });
     const reviewJobs = needsDurableFallback
-      ? (retainedAttribution ?? semanticReviewScheduler.attributionSource()).jobs
+      ? allDurableJobs()
       : liveJobs;
     const jobsByReviewProposal = new Map<string, (typeof reviewJobs)[number][]>();
     for (const job of reviewJobs) {
@@ -1708,25 +1714,104 @@ export function createControlPlane(options?: {
       const matchingJobs = jobsByReviewProposal.get(
         `${review.reviewId}\u0000${constraint.proposalId}`,
       ) ?? [];
-      const issueIds = Object.freeze([...new Set(matchingJobs.flatMap((job) =>
-        job.issueIds
-      ))].sort());
-      const semanticFamilies = Object.freeze([...new Set(issueIds.flatMap((issueId) => {
-        const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
-        return family === undefined ? [] : [family];
-      }))].sort());
-      const searchOrigin = issueIds.length === 0 || semanticFamilies.length === 0
-        ? null
-        : buildProbabilitySearchOrigin({ issueIds, semanticFamilies });
-      probabilitySearchOriginByReview.set(review.reviewId, searchOrigin);
+      if (!probabilitySearchOriginByReview.has(review.reviewId)) {
+        const issueIds = Object.freeze([...new Set(matchingJobs.flatMap((job) =>
+          job.issueIds
+        ))].sort());
+        const semanticFamilies = Object.freeze([...new Set(issueIds.flatMap((issueId) => {
+          const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
+          return family === undefined ? [] : [family];
+        }))].sort());
+        const searchOrigin = issueIds.length === 0 || semanticFamilies.length === 0
+          ? null
+          : buildProbabilitySearchOrigin({ issueIds, semanticFamilies });
+        probabilitySearchOriginByReview.set(review.reviewId, searchOrigin);
+      }
+      if (!probabilityEvidenceContextByReview.has(review.reviewId)) {
+        const evidenceContext = matchingJobs.flatMap((job) => {
+          const bundle = job.evidenceBundle;
+          if (bundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2") return [];
+          try {
+            return [buildProbabilityEstimationEvidenceContext({
+              review,
+              listings: bundle.listings,
+              sourceKind: "DURABLE_REVIEW_BUNDLE",
+              sourceArtifactHash: bundle.bundleId,
+            })];
+          } catch {
+            return [];
+          }
+        })[0] ?? null;
+        if (evidenceContext !== null) {
+          probabilityEvidenceContextByReview.set(review.reviewId, evidenceContext);
+        }
+      }
     }
-    return Object.freeze(reviews.map((review) => {
+    const reviewCandidates = reviews.map((review) => {
       const searchOrigin = probabilitySearchOriginByReview.get(review.reviewId) ?? null;
+      const evidenceContext = probabilityEvidenceContextByReview.get(review.reviewId) ?? null;
       return Object.freeze({
         review,
         ...(searchOrigin === null ? {} : { searchOrigin }),
+        ...(evidenceContext === null ? {} : { evidenceContext }),
       });
-    }));
+    });
+    const activeArtifacts = new Set(reviewCandidates.flatMap((candidate) =>
+      candidate.review.report === null ? [] : [candidate.review.report.artifactHash]
+    ));
+    const retainedLineages = new Map<Hash, ProbabilityEstimationJobRecord>();
+    for (const job of probabilityEstimationScheduler.projection().jobs) {
+      if (!activeArtifacts.has(job.semanticReviewArtifactHash) &&
+        !retainedLineages.has(job.semanticReviewArtifactHash)) {
+        retainedLineages.set(job.semanticReviewArtifactHash, job);
+      }
+    }
+    const unresolvedLineages = [...retainedLineages.values()].filter((job) =>
+      job.evidenceContext === undefined &&
+      !probabilityEvidenceContextByArtifact.has(job.semanticReviewArtifactHash)
+    );
+    const retainedReviewJobs = unresolvedLineages.length === 0
+      ? []
+      : allDurableJobs();
+    const retainedCandidates = [...retainedLineages.values()].flatMap((job) => {
+      let evidenceContext = job.evidenceContext ??
+        probabilityEvidenceContextByArtifact.get(job.semanticReviewArtifactHash) ?? null;
+      if (evidenceContext === null &&
+        !probabilityEvidenceContextByArtifact.has(job.semanticReviewArtifactHash)) {
+        evidenceContext = retainedReviewJobs.flatMap((reviewJob) => {
+          const bundle = reviewJob.proposalId === job.proposalId
+            ? reviewJob.evidenceBundle
+            : null;
+          if (bundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2") return [];
+          try {
+            return [buildRetainedProbabilityEstimationEvidenceContext({
+              semanticReviewArtifactHash: job.semanticReviewArtifactHash,
+              semanticConstraint: job.semanticConstraint,
+              evidenceScopeIdentity: job.evidenceScopeIdentity,
+              listings: bundle.listings,
+              sourceKind: "DURABLE_REVIEW_BUNDLE",
+              sourceArtifactHash: bundle.bundleId,
+            })];
+          } catch {
+            return [];
+          }
+        })[0] ?? null;
+        if (evidenceContext !== null) {
+          probabilityEvidenceContextByArtifact.set(
+            job.semanticReviewArtifactHash,
+            evidenceContext,
+          );
+        }
+      }
+      return evidenceContext === null ? [] : [Object.freeze({
+        semanticReviewArtifactHash: job.semanticReviewArtifactHash,
+        semanticConstraint: job.semanticConstraint,
+        evidenceScopeIdentity: job.evidenceScopeIdentity,
+        evidenceContext,
+        ...(job.searchOrigin === undefined ? {} : { searchOrigin: job.searchOrigin }),
+      })];
+    });
+    return Object.freeze([...retainedCandidates, ...reviewCandidates]);
   };
   const evidenceRequirements = (): readonly EvidenceRequirement[] => {
     const retained = [
@@ -1739,6 +1824,11 @@ export function createControlPlane(options?: {
         record.status === "PASS" && record.report !== null
           ? record.report.result.evidenceRequirements ?? []
           : []
+      ),
+      ...probabilityEstimationDesk.projection().records.flatMap((record) =>
+        (record.evidenceNeeds ?? []).flatMap((need) =>
+          need.acquisitionRequirement === null ? [] : [need.acquisitionRequirement]
+        )
       ),
       ...evidenceAcquisitionScheduler.projection().jobs.flatMap((job) =>
         job.requirements
@@ -1889,6 +1979,11 @@ export function createControlPlane(options?: {
       economicItems: economicTriageProjection.items,
       reviewItems: reviewAttention.items,
     });
+    const probabilityEvidenceDebt = buildProbabilityEvidenceDebt({
+      runs: probabilityEstimationDesk.projection().records,
+      estimatorJobs: probabilityEstimationScheduler.projection().jobs,
+      acquisitionJobs: evidenceAcquisitionProjection.jobs,
+    });
     const semanticRelationGraph = buildSemanticRelationGraph({
       corpus: catalogObservationDesk.corpus(),
       archaeologist: archaeologistProjection,
@@ -1940,6 +2035,7 @@ export function createControlPlane(options?: {
       premiseRouteExpansion: premiseRouteExpansionProjection,
       evidenceAcquisition: evidenceAcquisitionProjection,
       evidenceDebtFrontier,
+      probabilityEvidenceDebt,
       ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
@@ -2531,6 +2627,13 @@ export function createControlPlane(options?: {
       url.pathname === "/api/v1/evidence-debt-frontier"
     ) {
       writeJson(response, 200, (await projection()).ai.evidenceDebtFrontier);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/probability-evidence-debt"
+    ) {
+      writeJson(response, 200, (await projection()).ai.probabilityEvidenceDebt);
       return;
     }
     if (

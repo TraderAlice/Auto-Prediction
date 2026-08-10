@@ -27,6 +27,9 @@ export type FailureBudgetFrontierItem = Readonly<{
     | "RESEARCH_MARGIN"
     | "BUDGET_EXHAUSTED"
     | "AWAITING_ESTIMATES"
+    | "ESTIMATION_ABSTAINED"
+    | "ESTIMATION_EXHAUSTED"
+    | "EVIDENCE_BLOCKED"
     | "PRICE_UNAVAILABLE";
   portfolioLabel: string | null;
   breakEvenEpsilonPpm: string | null;
@@ -40,6 +43,14 @@ export type FailureBudgetFrontierItem = Readonly<{
   blockers: readonly string[];
   failureFactors: readonly FailureBudgetFactor[];
   estimatorJobCount: number;
+  estimationCase: Readonly<{
+    caseIdentity: Hash;
+    provider: "DEEPSEEK" | "CODEX";
+    model: string;
+    reasoningEffort: string | null;
+    inputProtocol: string;
+    evidenceSource: "CURRENT_CATALOG_EXACT" | "DURABLE_REVIEW_BUNDLE" | "LEGACY_CURRENT_CATALOG";
+  }> | null;
   evaluationArtifactHash: Hash | null;
   authority: "FAILURE_BUDGET_RANKING_ONLY";
   guaranteedProfit: false;
@@ -48,13 +59,16 @@ export type FailureBudgetFrontierItem = Readonly<{
 }>;
 
 export type FailureBudgetFrontier = Readonly<{
-  schemaVersion: "pmh.failure-budget-frontier.v1";
+  schemaVersion: "pmh.failure-budget-frontier.v2";
   contentHash: Hash;
   evaluatedAt: string;
   itemCount: number;
   positiveMarginCount: number;
   boundedCandidateCount: number;
   awaitingEstimateCount: number;
+  abstainedCaseCount: number;
+  evidenceBlockedCount: number;
+  unboundedCaseCount: number;
   items: readonly FailureBudgetFrontierItem[];
   rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC";
   quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY";
@@ -173,10 +187,25 @@ function factors(bound: ProbabilisticSemanticBoundArtifact): readonly FailureBud
   })).values()].slice(0, 12));
 }
 
+function estimationCase(
+  jobs: readonly ProbabilityEstimationJobRecord[],
+): FailureBudgetFrontierItem["estimationCase"] {
+  const first = jobs[0];
+  if (first === undefined) return null;
+  return Object.freeze({
+    caseIdentity: first.caseIdentity,
+    provider: first.engine?.provider ?? "DEEPSEEK",
+    model: first.model,
+    reasoningEffort: first.engine?.reasoningEffort ?? null,
+    inputProtocol: first.inputProtocol ?? "pmh.probability-estimation-input.v1",
+    evidenceSource: first.evidenceContext?.sourceKind ?? "LEGACY_CURRENT_CATALOG",
+  });
+}
+
 function evaluatedItem(input: Readonly<{
   bound: ProbabilisticSemanticBoundArtifact;
   evaluation: ProbabilisticSemanticArbitrageEvaluation | null;
-  estimatorJobCount: number;
+  estimatorJobs: readonly ProbabilityEstimationJobRecord[];
 }>): FailureBudgetFrontierItem {
   const evaluation = input.evaluation;
   if (evaluation === null) {
@@ -195,7 +224,8 @@ function evaluatedItem(input: Readonly<{
       calibrationStatus: input.bound.calibration.status,
       blockers: Object.freeze(["INDICATIVE_BINARY_QUOTES_UNAVAILABLE"]),
       failureFactors: factors(input.bound),
-      estimatorJobCount: input.estimatorJobCount,
+      estimatorJobCount: input.estimatorJobs.length || input.bound.estimates.length,
+      estimationCase: estimationCase(input.estimatorJobs),
       evaluationArtifactHash: null,
       authority: "FAILURE_BUDGET_RANKING_ONLY" as const,
       guaranteedProfit: false as const,
@@ -237,7 +267,8 @@ function evaluatedItem(input: Readonly<{
     calibrationStatus: evaluation.calibrationStatus,
     blockers,
     failureFactors: factors(input.bound),
-    estimatorJobCount: input.estimatorJobCount,
+    estimatorJobCount: input.estimatorJobs.length || input.bound.estimates.length,
+    estimationCase: estimationCase(input.estimatorJobs),
     evaluationArtifactHash: evaluation.artifactHash,
     authority: "FAILURE_BUDGET_RANKING_ONLY" as const,
     guaranteedProfit: false as const,
@@ -254,10 +285,20 @@ function pendingItem(
   const blockers = Object.freeze([...new Set(jobs.map((job) =>
     `ESTIMATOR_${job.role}_${job.status}`
   ))].sort());
+  const terminal = jobs.every((job) =>
+    ["PASS", "ABSTAINED", "EXHAUSTED"].includes(job.status)
+  );
+  const status = jobs.every((job) => job.status === "BLOCKED_EVIDENCE")
+    ? "EVIDENCE_BLOCKED" as const
+    : terminal && jobs.some((job) => job.status === "EXHAUSTED")
+      ? "ESTIMATION_EXHAUSTED" as const
+      : terminal && jobs.some((job) => job.status === "ABSTAINED")
+        ? "ESTIMATION_ABSTAINED" as const
+        : "AWAITING_ESTIMATES" as const;
   const body = Object.freeze({
     proposalId: first.proposalId,
     listingRefs: first.semanticConstraint.listingRefs,
-    status: "AWAITING_ESTIMATES" as const,
+    status,
     portfolioLabel: null,
     breakEvenEpsilonPpm: null,
     adverseProbabilityUpperPpm: null,
@@ -270,6 +311,7 @@ function pendingItem(
     blockers,
     failureFactors: Object.freeze([]),
     estimatorJobCount: jobs.length,
+    estimationCase: estimationCase(jobs),
     evaluationArtifactHash: null,
     authority: "FAILURE_BUDGET_RANKING_ONLY" as const,
     guaranteedProfit: false as const,
@@ -329,7 +371,7 @@ export function buildFailureBudgetFrontier(input: Readonly<{
         listings,
         evaluatedAt: input.evaluatedAt,
       })),
-      estimatorJobCount: matched?.[1].length ?? bound.estimates.length,
+      estimatorJobs: matched?.[1] ?? Object.freeze([]),
     });
   });
   const items = [
@@ -352,7 +394,7 @@ export function buildFailureBudgetFrontier(input: Readonly<{
       : leftEdge > rightEdge ? -1 : 1;
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.failure-budget-frontier.v1" as const,
+    schemaVersion: "pmh.failure-budget-frontier.v2" as const,
     evaluatedAt: input.evaluatedAt,
     itemCount: items.length,
     positiveMarginCount: items.filter((item) =>
@@ -365,6 +407,16 @@ export function buildFailureBudgetFrontier(input: Readonly<{
     awaitingEstimateCount: items.filter((item) =>
       item.status === "AWAITING_ESTIMATES"
     ).length,
+    abstainedCaseCount: items.filter((item) =>
+      item.status === "ESTIMATION_ABSTAINED"
+    ).length,
+    evidenceBlockedCount: items.filter((item) =>
+      item.status === "EVIDENCE_BLOCKED"
+    ).length,
+    unboundedCaseCount: items.filter((item) => [
+      "AWAITING_ESTIMATES", "ESTIMATION_ABSTAINED", "ESTIMATION_EXHAUSTED",
+      "EVIDENCE_BLOCKED",
+    ].includes(item.status)).length,
     items: Object.freeze(items),
     rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC" as const,
     quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY" as const,

@@ -186,7 +186,7 @@ describe("failure budget frontier", () => {
     });
 
     expect(frontier).toMatchObject({
-      schemaVersion: "pmh.failure-budget-frontier.v1",
+      schemaVersion: "pmh.failure-budget-frontier.v2",
       itemCount: 1,
       positiveMarginCount: 1,
       boundedCandidateCount: 0,
@@ -265,7 +265,43 @@ describe("failure budget frontier", () => {
     expect(frontier.items.find((item) => item.status === "RESEARCH_MARGIN"))
       .toMatchObject({ estimatorJobCount: 2 });
     expect(frontier.items.find((item) => item.status === "AWAITING_ESTIMATES"))
-      .toMatchObject({ estimatorJobCount: 3 });
+      .toMatchObject({
+        estimatorJobCount: 3,
+        estimationCase: {
+          provider: "CODEX",
+          model: "gpt-5.6-terra",
+          reasoningEffort: "max",
+        },
+      });
+  });
+
+  it("distinguishes terminal abstention and evidence debt from in-flight work", () => {
+    const abstainedCase = hashCanonical({ engine: "terra-abstained" });
+    const blockedCase = hashCanonical({ engine: "legacy-blocked" });
+    const roles = ["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"] as const;
+    const abstained = roles.map((role) => Object.freeze({
+      ...estimatorJob({ caseIdentity: abstainedCase, role, effort: "high" }),
+      status: "ABSTAINED" as const,
+    }));
+    const blocked = roles.map((role) => Object.freeze({
+      ...estimatorJob({ caseIdentity: blockedCase, role, effort: "high" }),
+      status: "BLOCKED_EVIDENCE" as const,
+    }));
+    const frontier = buildFailureBudgetFrontier({
+      bounds: [], jobs: [...abstained, ...blocked], corpus, evaluatedAt,
+    });
+
+    expect(frontier).toMatchObject({
+      itemCount: 2,
+      awaitingEstimateCount: 0,
+      abstainedCaseCount: 1,
+      evidenceBlockedCount: 1,
+      unboundedCaseCount: 2,
+    });
+    expect(frontier.items.map((item) => item.status).sort()).toEqual([
+      "ESTIMATION_ABSTAINED",
+      "EVIDENCE_BLOCKED",
+    ]);
   });
 
   it("fails early on non-canonical evaluation time", () => {

@@ -907,7 +907,7 @@ describe("control-plane HTTP surface", () => {
     );
     expect(failureBudgetResponse.status).toBe(200);
     expect(await failureBudgetResponse.json()).toMatchObject({
-      schemaVersion: "pmh.failure-budget-frontier.v1",
+      schemaVersion: "pmh.failure-budget-frontier.v2",
       itemCount: 0,
       positiveMarginCount: 0,
       rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC",
@@ -1008,6 +1008,28 @@ describe("control-plane HTTP surface", () => {
     expect(await debtResponse.json()).toMatchObject({
       schemaVersion: "pmh.evidence-debt-frontier.v1",
       groupingContract: "ONE_ITEM_PER_PROPOSAL",
+      itemCount: 0,
+      executionAuthority: false,
+    });
+    expect(projection.ai.probabilityEvidenceDebt).toMatchObject({
+      schemaVersion: "pmh.probability-evidence-debt.v1",
+      sourceRunCount: 0,
+      sourceNeedCount: 0,
+      itemCount: 0,
+      blockingItemCount: 0,
+      authority: "RESEARCH_PRIORITY_ONLY",
+      fetchAuthority: false,
+      providerRequestAuthority: false,
+      executionAuthority: false,
+      effects: { providerRequests: false, externalWrites: false },
+    });
+    const probabilityDebtResponse = await fetch(
+      `${baseUrl}/api/v1/probability-evidence-debt`,
+    );
+    expect(probabilityDebtResponse.status).toBe(200);
+    expect(await probabilityDebtResponse.json()).toMatchObject({
+      schemaVersion: "pmh.probability-evidence-debt.v1",
+      rankingContract: "BLOCKING_THEN_ROUTE_POSTURE_THEN_NEED_ID",
       itemCount: 0,
       executionAuthority: false,
     });
