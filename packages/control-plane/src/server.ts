@@ -241,6 +241,10 @@ import {
   type AiRuntimeConfiguration,
   type AiRuntimeConfigurationStore,
 } from "./ai-runtime-configuration.js";
+import {
+  AgentExecutionRegistry,
+  type AgentExecutionStore,
+} from "./agent-execution-substrate.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -773,6 +777,16 @@ function supportsAiRuntimeConfiguration(
     typeof candidate.saveAiRuntimeConfiguration === "function";
 }
 
+function supportsAgentExecution(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & AgentExecutionStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<AgentExecutionStore>;
+  return candidate.agentExecutionStorage !== undefined &&
+    typeof candidate.loadAgentExecutionSnapshot === "function" &&
+    typeof candidate.saveAgentExecutionBatch === "function";
+}
+
 function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   expectedRevision: number;
   provider: (typeof AI_RUNTIME_PROVIDERS)[number];
@@ -883,6 +897,7 @@ export function createControlPlane(options?: {
   probabilityResolutionAcquisitionScheduler?: ProbabilityResolutionAcquisitionScheduler;
   aiUsageLedger?: AiUsageLedger;
   aiRuntimeConfigurationDesk?: AiRuntimeConfigurationDesk;
+  agentExecutionRegistry?: AgentExecutionRegistry;
   modelRuntimeFactory?: (configuration: AiRuntimeConfiguration) => DiscoveryModelRuntime;
   semanticReviewScheduler?: SemanticReviewScheduler;
   premiseAnalysisDesk?: ReturnType<typeof createPremiseAnalysisDesk>;
@@ -931,6 +946,15 @@ export function createControlPlane(options?: {
         ? options.discoveryStore
         : undefined,
     );
+  const agentExecutionRegistry = options?.agentExecutionRegistry ??
+    new AgentExecutionRegistry(
+      supportsAgentExecution(options?.discoveryStore)
+        ? options.discoveryStore
+        : undefined,
+    );
+  agentExecutionRegistry.importLegacyConfiguration(
+    aiRuntimeConfigurationDesk.current(),
+  );
   const modelRuntimeFactory = options?.modelRuntimeFactory ??
     ((configuration: AiRuntimeConfiguration) => createDiscoveryModelRuntime(
       process.env,
@@ -1328,6 +1352,8 @@ export function createControlPlane(options?: {
   const ruleEvidenceClaimDesk = options?.ruleEvidenceClaimDesk ??
     createRuleEvidenceClaimDesk(process.env, {
       usageRecorder: aiUsageLedger,
+      runtimeConfiguration: () => aiRuntimeConfigurationDesk.current(),
+      codexCredentialProvider: semanticReviewCodexCredentialProvider,
       ...(supportsRuleEvidenceClaimRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -1928,6 +1954,9 @@ export function createControlPlane(options?: {
       return job.requirements.map((requirement) => Object.freeze({ requirement, capture }));
     }),
   );
+  const reconcileRuleEvidenceAgentTasks = (): void => {
+    agentExecutionRegistry.reconcileRuleEvidenceTasks(ruleEvidenceClaimInputs());
+  };
   const synchronizeLifecycleSources = (): void => {
     opportunityLifecycleDesk.syncMarketArchaeologist(
       marketArchaeologistDesk.projection(),
@@ -1948,6 +1977,7 @@ export function createControlPlane(options?: {
         : []),
     ]);
     synchronizeLifecycleSources();
+    reconcileRuleEvidenceAgentTasks();
   });
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
@@ -2097,6 +2127,7 @@ export function createControlPlane(options?: {
       probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
       aiUsage: aiUsageLedger.projection(),
       runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+      agentExecution: agentExecutionRegistry.projection(),
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
       premiseAnalysis: premiseAnalysisProjection,
@@ -2455,6 +2486,7 @@ export function createControlPlane(options?: {
         probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
         aiUsage: aiUsageLedger.projection(),
         runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+        agentExecution: agentExecutionRegistry.projection(),
         premiseAnalysis: premiseAnalysisDesk.projection(),
         premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
         premiseEvidenceRouting: premiseEvidenceRoutingScheduler.projection(),
@@ -2530,6 +2562,7 @@ export function createControlPlane(options?: {
       try {
         const update = parseAiRuntimeConfigurationUpdate(await readJson(request));
         const configuration = aiRuntimeConfigurationDesk.update(update);
+        agentExecutionRegistry.importLegacyConfiguration(configuration);
         if (options?.modelRuntime === undefined) {
           modelRuntime = modelRuntimeFactory(configuration);
           if (options?.discoveryPool === undefined) {
@@ -2543,6 +2576,7 @@ export function createControlPlane(options?: {
         writeJson(response, 200, {
           ok: true,
           runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+          agentExecution: agentExecutionRegistry.projection(),
           modelProvider: modelRuntime.projection,
           executionAuthority: false,
         });
@@ -2785,6 +2819,10 @@ export function createControlPlane(options?: {
       writeJson(response, 200, ruleEvidenceClaimScheduler.projection());
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/v1/agent-execution") {
+      writeJson(response, 200, agentExecutionRegistry.projection());
+      return;
+    }
     const ruleEvidenceClaimRunMatch = url.pathname.match(
       /^\/api\/v1\/rule-evidence-claims\/(sha256:[0-9a-f]{64})\/run$/u,
     );
@@ -2793,6 +2831,7 @@ export function createControlPlane(options?: {
         await ready;
         evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
         const inputs = ruleEvidenceClaimInputs();
+        agentExecutionRegistry.reconcileRuleEvidenceTasks(inputs);
         ruleEvidenceClaimScheduler.reconcile(inputs);
         if (aiRuntimeConfigurationDesk.current().provider !== ruleEvidenceClaimDesk.provider) {
           throw new Error(
@@ -4357,6 +4396,7 @@ export function createControlPlane(options?: {
   if (premiseAnalysisTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
+        reconcileRuleEvidenceAgentTasks();
         if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           const runs = premiseAnalysisScheduler.tick(premiseAnalysisCandidates());

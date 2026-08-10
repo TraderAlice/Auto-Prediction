@@ -149,6 +149,7 @@ export function buildStudioProjection(input: {
   probabilityResolutionAcquisition?: ProbabilityResolutionAcquisitionProjection;
   aiUsage?: AiUsageProjection;
   runtimeConfiguration?: import("./ai-runtime-configuration.js").AiRuntimeConfigurationProjection;
+  agentExecution?: import("./agent-execution-substrate.js").AgentExecutionRegistryProjection;
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   premiseAnalysis?: PremiseAnalysisDeskProjection;
@@ -903,6 +904,7 @@ export function buildStudioProjection(input: {
     dueCount: 0,
     pendingCount: 0,
     leasedCount: 0,
+    interruptedLeaseCount: 0,
     retryWaitCount: 0,
     passedCount: 0,
     exhaustedCount: 0,
@@ -1364,6 +1366,26 @@ export function buildStudioProjection(input: {
         }),
         credentialTextRetained: false as const,
         executionAuthority: false as const,
+      }),
+      agentExecution: input.agentExecution ?? Object.freeze({
+        schemaVersion: "pmh.agent-execution-registry.v1" as const,
+        runtimeDefinitionCount: 0,
+        credentialBindingCount: 0,
+        modelProfileCount: 0,
+        executionProfileCount: 0,
+        workloadRouteCount: 0,
+        taskCount: 0,
+        runCount: 0,
+        modelInvocationCount: 0,
+        activeCampaignCount: 0,
+        automaticDispatchFromConfiguration: false as const,
+        credentialSecretTextRetained: false as const,
+        storage: Object.freeze({
+          mode: "MEMORY" as const,
+          durable: false,
+          schemaVersion: 0,
+          idempotencyKey: "recordId" as const,
+        }),
       }),
       semanticReviewAdmission: input.semanticReviewAdmission ??
         buildSemanticReviewAdmissionProjection([]),

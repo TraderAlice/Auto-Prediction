@@ -179,7 +179,7 @@ describe("control-plane HTTP surface", () => {
       tickIntervalMs: 1_000,
     });
     const aiRuntimeConfigurationDesk = new AiRuntimeConfigurationDesk({
-      PMH_DEEPSEEK_AUTOMATION_ENABLED: "1",
+      PMH_DISCOVERY_PROVIDER: "codex",
     });
     const ruleEvidenceClaimTick = vi.spyOn(ruleEvidenceClaimScheduler, "tick");
     const controlPlane = createControlPlane({
@@ -213,7 +213,7 @@ describe("control-plane HTTP surface", () => {
     expect(fetchCount).toBe(1);
     expect(catalogRefreshScheduler.projection().runCount).toBe(1);
     expect(evidenceTick).toHaveBeenCalledOnce();
-    expect(ruleEvidenceClaimTick).toHaveBeenCalledOnce();
+    expect(ruleEvidenceClaimTick).not.toHaveBeenCalled();
   });
 
   it("holds due issues during refresh and dispatches them on the new corpus", async () => {
@@ -1088,7 +1088,7 @@ describe("control-plane HTTP surface", () => {
     expect(manualClaimResponse.status).toBe(409);
     expect(await manualClaimResponse.json()).toMatchObject({
       ok: false,
-      diagnostic: "rule evidence claim interpreter does not match the selected runtime provider",
+      diagnostic: "rule evidence claim interpreter is not configured",
       executionAuthority: false,
     });
     expect(projection.ai.semanticReviewAdmission).toMatchObject({
@@ -1243,6 +1243,18 @@ describe("control-plane HTTP surface", () => {
         model: "gpt-5.6-terra",
         reasoningEffort: "max",
       },
+      agentExecution: {
+        runtimeDefinitionCount: 1,
+        credentialBindingCount: 1,
+        modelProfileCount: 2,
+        executionProfileCount: 2,
+        workloadRouteCount: 2,
+        taskCount: 0,
+        runCount: 0,
+        modelInvocationCount: 0,
+        activeCampaignCount: 0,
+        automaticDispatchFromConfiguration: false,
+      },
       executionAuthority: false,
     });
 
@@ -1257,6 +1269,17 @@ describe("control-plane HTTP surface", () => {
       provider: "CODEX_RESPONSES",
       model: "gpt-5.6-terra",
       reasoningEffort: "max",
+    });
+    expect(projection.ai.agentExecution).toMatchObject({
+      modelProfileCount: 2,
+      executionProfileCount: 2,
+      workloadRouteCount: 2,
+      taskCount: 0,
+      runCount: 0,
+      modelInvocationCount: 0,
+      activeCampaignCount: 0,
+      automaticDispatchFromConfiguration: false,
+      credentialSecretTextRetained: false,
     });
 
     const stale = await fetch(`${baseUrl}/api/v1/ai-runtime/configuration`, {
@@ -2528,7 +2551,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 34,
+        schemaVersion: 35,
         },
         records: [{ investigationId: created.investigationId }],
       });

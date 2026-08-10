@@ -8,6 +8,9 @@ import {
   buildDiscoveryEvidenceLocator,
   buildEvidenceDocumentFetchPolicy,
   buildEvidenceRequirements,
+  AgentExecutionRegistry,
+  codexCredentialForTest,
+  createRuleEvidenceClaimDesk,
   EvidenceAcquisitionScheduler,
   EvidenceDocumentFetcher,
   RuleEvidenceClaimDesk,
@@ -17,6 +20,7 @@ import {
   type EvidenceDocumentCapture,
   type EvidenceRequirement,
   type RuleEvidenceClaimModelPort,
+  type AiRuntimeConfiguration,
 } from "../src/index.js";
 
 function clock(start = "2026-08-02T09:00:00.000Z") {
@@ -256,6 +260,63 @@ describe("durable rule evidence claim scheduler", () => {
     });
   });
 
+  it("does not clone the business queue when Codex effort changes", async () => {
+    const time = clock();
+    const input = requirement("runtime-generation");
+    const capture = await captureFor(input, time.now);
+    let configuration: AiRuntimeConfiguration = Object.freeze({
+      schemaVersion: "pmh.ai-runtime-configuration.v2",
+      revision: 1,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "high",
+      deepseekAutomationEnabled: false,
+      updatedAt: "2026-08-02T09:00:00.000Z",
+    });
+    const providerFetch = vi.fn(async () => {
+      throw new Error("reconciliation must not call the provider");
+    });
+    const desk = createRuleEvidenceClaimDesk({}, {
+      runtimeConfiguration: () => configuration,
+      codexCredentialProvider: codexCredentialForTest("test-token", "test-account"),
+      codexFetcher: providerFetch,
+      now: time.now,
+    });
+    const scheduler = new RuleEvidenceClaimScheduler({ desk, now: time.now });
+    const agentExecution = new AgentExecutionRegistry();
+    agentExecution.reconcileRuleEvidenceTasks([{ requirement: input, capture }]);
+    scheduler.reconcile([{ requirement: input, capture }]);
+    const highJob = scheduler.projection().jobs[0]!;
+    expect(scheduler.projection()).toMatchObject({ currentJobCount: 1, legacyJobCount: 0 });
+
+    configuration = Object.freeze({
+      ...configuration,
+      revision: 2,
+      codexReasoningEffort: "max",
+      updatedAt: "2026-08-02T09:01:00.000Z",
+    });
+    scheduler.reconcile([{ requirement: input, capture }]);
+    agentExecution.reconcileRuleEvidenceTasks([{ requirement: input, capture }]);
+    const projection = scheduler.projection();
+    expect(projection).toMatchObject({
+      currentJobCount: 0,
+      legacyJobCount: 1,
+      pendingCount: 0,
+      dueCount: 0,
+    });
+    expect(projection.currentInterpreterIdentity).not.toBe(highJob.interpreterIdentity);
+    expect(projection.jobs.some((job) => job.jobId === highJob.jobId)).toBe(true);
+    expect(projection.jobs).toHaveLength(1);
+    expect(providerFetch).not.toHaveBeenCalled();
+    expect(agentExecution.projection()).toMatchObject({
+      taskCount: 1,
+      runCount: 0,
+      modelInvocationCount: 0,
+      activeCampaignCount: 0,
+      automaticDispatchFromConfiguration: false,
+    });
+  });
+
   it("bounds provider retries and preserves the terminal diagnostic", async () => {
     const time = clock();
     const input = requirement("retry");
@@ -345,6 +406,83 @@ describe("durable rule evidence claim scheduler", () => {
       expect(secondInterpret).not.toHaveBeenCalled();
       expect(secondScheduler.projection().jobs[0]).toEqual(firstJob);
       expect(secondDesk.projection()).toMatchObject({ passCount: 1, runCount: 1 });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("quarantines an expired lease after restart instead of replaying the model request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-rule-claim-interrupted-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const time = clock();
+      const input = requirement("interrupted");
+      const capture = await captureFor(input, time.now);
+      const firstStore = new SqliteOperationalStore(path);
+      const firstInterpret = vi.fn(() =>
+        new Promise<never>(() => undefined)
+      );
+      const firstDesk = new RuleEvidenceClaimDesk(
+        { interpret: firstInterpret },
+        "deepseek-v4-flash",
+        20,
+        firstStore,
+        1,
+        time.now,
+      );
+      const firstScheduler = new RuleEvidenceClaimScheduler({
+        desk: firstDesk,
+        tickIntervalMs: 1_000,
+        leaseTimeoutMs: 1_000,
+        store: firstStore,
+        now: time.now,
+      });
+      const inFlight = firstScheduler.tick([{ requirement: input, capture }]);
+      expect(inFlight).toHaveLength(1);
+      await Promise.resolve();
+      expect(firstInterpret).toHaveBeenCalledOnce();
+      expect(firstScheduler.projection()).toMatchObject({
+        activeCount: 1,
+        leasedCount: 1,
+        interruptedLeaseCount: 0,
+      });
+      firstStore.close();
+
+      time.advance(1_001);
+      const secondStore = new SqliteOperationalStore(path);
+      const secondPort = interpreter(capture);
+      const secondInterpret = vi.spyOn(secondPort, "interpret");
+      const secondDesk = new RuleEvidenceClaimDesk(
+        secondPort,
+        "deepseek-v4-flash",
+        20,
+        secondStore,
+        1,
+        time.now,
+      );
+      const secondScheduler = new RuleEvidenceClaimScheduler({
+        desk: secondDesk,
+        tickIntervalMs: 1_000,
+        leaseTimeoutMs: 1_000,
+        store: secondStore,
+        now: time.now,
+      });
+      expect(secondScheduler.tick([{ requirement: input, capture }])).toEqual([]);
+      expect(secondInterpret).not.toHaveBeenCalled();
+      expect(secondScheduler.projection()).toMatchObject({
+        activeCount: 0,
+        dueCount: 0,
+        leasedCount: 1,
+        interruptedLeaseCount: 1,
+        retryWaitCount: 0,
+        exhaustedCount: 0,
+        budget: { providerAttemptsStarted: 1 },
+      });
+      expect(secondScheduler.projection().jobs[0]).toMatchObject({
+        status: "LEASED",
+        attemptCount: 1,
+      });
       secondStore.close();
     } finally {
       await rm(directory, { recursive: true, force: true });

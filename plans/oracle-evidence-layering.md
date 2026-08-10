@@ -1,7 +1,7 @@
 # Oracle evidence layering
 
-Status: routing live-qualified; runtime-provider wiring and catalog-rich-text
-evidence remain active
+Status: routing live-qualified; catalog-rich-text evidence remains active;
+runtime wiring deferred to the Agent execution substrate
 
 Created: 2026-08-10
 
@@ -102,12 +102,15 @@ correctly `INCONCLUSIVE` with one first-party passage handle; no false support
 was manufactured. Manual dispatch now refuses to run when the selected runtime
 provider does not match the desk, preventing another accidental DeepSeek spend.
 
-The next slice must route the Rule Evidence Interpreter through the same
-SQLite-selected Codex/DeepSeek runtime abstraction as probability estimation,
-then retain adapter catalog rich text as a source-hashed evidence artifact
-rather than assuming the linked PDF contains every catalog statement. Only
-after both changes should this exact claim be interpreted again. Neither layer
-may pretend that a declared source proves the eventual match outcome.
+The next slice must first retain adapter catalog rich text as a source-hashed
+evidence artifact rather than assuming the linked PDF contains every catalog
+statement. Runtime migration now follows
+[`agent-execution-substrate.md`](agent-execution-substrate.md): the requirement
+becomes one provider-neutral task, and Pi, Codex, or in-process execution become
+separate runs. Do not extend the legacy provider-shaped job generation. Only
+after both evidence retention and the new run boundary qualify should this
+exact claim be interpreted again. Neither layer may pretend that a declared
+source proves the eventual match outcome.
 
 Qualification passes 492 control-plane tests, 17 Studio tests, all 654
 workspace tests, all TypeScript project checks, and the production build on the

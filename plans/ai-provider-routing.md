@@ -1,6 +1,7 @@
 # AI provider routing
 
-Status: active
+Status: implemented evidence retained; target architecture superseded by
+[`agent-execution-substrate.md`](agent-execution-substrate.md)
 
 Started: 2026-08-09
 
@@ -11,6 +12,21 @@ Responses backend without restarting the control plane. Codex mode uses the
 existing ChatGPT/Codex OAuth supply through the same Vercel AI SDK agent loops,
 with an explicit GPT-5.6 model and reasoning effort. Provider instability must
 not silently change the semantics, authority, or lineage of an in-flight run.
+
+This flat provider-routing model is no longer the target architecture. It
+correctly proved endpoint behavior, credential redaction, SQLite persistence,
+streaming Responses constraints, and comparative Luna/Terra behavior, but it
+incorrectly grouped Codex Agent runtime, Codex OAuth supply, a model-service
+endpoint, and model-specific effort under one provider switch. Future
+construction follows the Agent execution substrate; this file remains the
+historical evidence ledger for the implemented route.
+
+The additive compatibility import now makes that distinction concrete: a
+legacy `CODEX` selection maps to the bounded `HARNESS_IN_PROCESS` runtime, a
+logical `CODEX_OAUTH` credential binding, and the `CODEX_RESPONSES` model
+driver. It does not falsely assert that the prior Vercel AI SDK loop was a
+Codex Agent runtime, and importing or updating it creates no task, run,
+campaign, invocation, or request.
 
 ## Runtime contract
 

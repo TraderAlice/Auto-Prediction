@@ -906,6 +906,7 @@ const EMPTY_RULE_EVIDENCE_CLAIMS: StudioProjection["ai"]["ruleEvidenceClaims"] =
   dueCount: 0,
   pendingCount: 0,
   leasedCount: 0,
+  interruptedLeaseCount: 0,
   retryWaitCount: 0,
   passedCount: 0,
   exhaustedCount: 0,
@@ -6491,6 +6492,7 @@ function OpportunityLifecycleView({
         <div className="attention-queue-stats">
           <div><strong>{ruleEvidenceClaims.dueCount}</strong><span>due</span></div>
           <div><strong>{ruleEvidenceClaims.leasedCount}/{ruleEvidenceClaims.concurrencyLimit}</strong><span>leased</span></div>
+          <div><strong>{ruleEvidenceClaims.interruptedLeaseCount}</strong><span>interrupted</span></div>
           <div><strong>{ruleEvidenceClaims.supportedCount}</strong><span>supports</span></div>
           <div><strong>{ruleEvidenceClaims.contradictedCount}</strong><span>contradicts</span></div>
           <div><strong>{ruleEvidenceClaims.inconclusiveCount}</strong><span>inconclusive</span></div>
@@ -9908,7 +9910,7 @@ function EvidenceView() {
       step: "04",
       label: "Verified claims",
       value: ruleEvidenceClaims.passedCount,
-      detail: `${ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount} in Agent loop`,
+      detail: `${ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.activeCount} in Agent loop · ${ruleEvidenceClaims.interruptedLeaseCount} interrupted`,
       state: ruleEvidenceClaims.passedCount > 0 ? "INTERPRETED" : "RUNNING",
     },
     {
@@ -9921,7 +9923,7 @@ function EvidenceView() {
   ] as const;
   const bottleneck = officialSourceDiscovery.activeCount > 0
     ? "Source-discovery Agents are searching approved official surfaces; candidate URLs remain inert until deterministic admission."
-    : ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount > 0
+    : ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.activeCount > 0
     ? "Agents are reading captured rule documents and binding exact passages to proposal-local claims."
     : evidenceAcquisition.pendingCount + evidenceAcquisition.leasedCount > 0
       ? "Anonymous document capture is the active constraint."

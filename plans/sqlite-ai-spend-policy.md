@@ -2,6 +2,13 @@
 
 Status: implemented and live-qualified
 
+The boolean gate remains the current containment control. Its flat
+provider-shaped target is superseded by
+[`agent-execution-substrate.md`](agent-execution-substrate.md), where recurring
+spend is authorized by explicit campaigns independently of runtime, credential,
+and model-profile configuration. This file retains the implemented safety and
+live evidence until that migration qualifies.
+
 ## Problem
 
 Studio already persisted the primary discovery provider, Codex model, and

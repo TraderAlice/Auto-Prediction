@@ -1,5 +1,19 @@
 # Plans
 
+The active AI architecture migration is
+[`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
+separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,
+logical credentials, model-owned inference configuration, immutable runs,
+model invocations, first-party tool effects, and explicitly authorized
+campaigns. Its Phase 1 contracts and additive SQLite v35 substrate are now in
+place: importing or editing the legacy provider setting creates only profiles
+and routes, Rule Evidence work reconciles to stable provider-neutral tasks,
+and neither operation creates a run, campaign, invocation, or model request.
+It supersedes the flat provider-switch target while retaining its live
+protocol evidence. Runtime adapters, historical run import, incident
+annotations, and the explicit campaign dispatcher remain migration work, so
+the legacy scheduler is still contained rather than declared replaced.
+
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
 [`plans/heuristic-origin-discovery.md`](plans/heuristic-origin-discovery.md),
@@ -89,12 +103,18 @@ one divided status surface, a readable exploration card, and claim monitoring
 inside secondary operations. Final aesthetic acceptance remains with the
 operator rather than another mechanical audit.
 
-AI provider selection is now a spending policy rather than a cosmetic fast-lane
-choice. SQLite configuration v2 persists provider, Codex model/effort, and a
-separate automatic-DeepSeek gate. Credentials alone no longer authorize Pi,
-review, estimation, premise, or evidence-interpretation schedulers to spend.
-The live desk is revision 20 on `CODEX / gpt-5.6-terra / high` with automatic
-DeepSeek disabled; manual DeepSeek remains an explicit operator action.
+The compatibility layer still persists the flat SQLite provider choice, Codex
+model/effort, and automatic-DeepSeek gate while the new substrate imports it
+as configuration evidence. Live evidence showed why it cannot remain the
+execution model: Codex and Pi are Agent runtimes, credentials are independent
+capabilities, and inference options belong to the selected model's schema. A
+routing change also caused provider-shaped Rule Evidence Claim job fan-out and
+six failed Terra requests before containment. The new substrate now gives the
+same Rule Evidence input one stable task across runtime/model/effort changes;
+an expired legacy lease is projected as interrupted and is not silently
+requeued. Until the runtime and campaign phases qualify, automatic Rule
+Evidence Claim dispatch remains closed and configuration changes must make
+zero model calls.
 
 The first traded-state reformulation portfolio is a measured `HOLD`, not a new
 default Agent loop. Three exact groups produced one honest zero-result and two
