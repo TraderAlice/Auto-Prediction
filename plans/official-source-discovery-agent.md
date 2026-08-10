@@ -1,6 +1,7 @@
 # Bounded official-source discovery Agent
 
-Status: active design
+Status: implemented and first live negative qualification complete; acquisition-scope
+coalescing and deterministic Gemini term discovery remain active follow-up work
 
 Created: 2026-08-10
 
@@ -123,3 +124,58 @@ Rework if most value comes from deterministic adapter metadata extraction; in
 that case improve the adapter rather than buying Agent search. Abandon open
 search if it mainly finds generic venue pages, unofficial mirrors, or sources
 that cannot bind exact contract semantics.
+
+## 2026-08-10 implementation evidence
+
+- Added content-addressed discovery tasks, inert Agent candidates, deterministic
+  admissions, and provenance-bearing `pmh.discovery-evidence-locator.v3`
+  locators. A candidate never grants fetch authority; only an admitted locator
+  can rebase an unsupported requirement into the ordinary acquisition loop.
+- Added a Vercel AI SDK tool loop with the SQLite-selected provider/model/effort.
+  Codex Responses runs in streaming mode and exposes only bounded
+  `search -> inspect -> record -> complete` effects. Search traverses exact
+  adapter-declared official hosts and never accepts a free-form model URL.
+- Added schema 34 SQLite persistence for job/task/candidate/admission lineage,
+  leases, retries, terminal negatives, provider request counts, and tool call
+  counts. Agent-generation changes create a new job while older generations
+  remain durable and are excluded from the active queue.
+- Added exact manual dispatch alongside the disabled-by-default timer. Manual
+  dispatch obeys the same concurrency budget and exists so one high-value task
+  can be qualified without activating the retained inventory.
+- Added the source-discovery stage to Studio's evidence pipeline and exposed the
+  scheduler through health, projection, and a dedicated read endpoint.
+- Unit and integration qualification covers official-host admission, off-host
+  rejection, v3 locator validation, requirement rebasing, bounded scheduling,
+  SQLite restart recovery, server projection, all workspace checks, 480
+  control-plane tests, 17 Studio tests, and production builds.
+
+### Live MLS result
+
+The four requirements emitted by the repaired MLS semantic review were run on
+Codex OAuth using `gpt-5.6-terra` at high effort. All four terminated as durable
+`NO_OFFICIAL_SOURCE_FOUND`; none produced a locator or reopened review:
+
+- outcome mapping: 4 provider requests / 4 tool calls;
+- time boundary: 10 provider requests / 10 tool calls;
+- void/cancellation: 7 provider requests / 7 tool calls;
+- oracle source: 9 provider requests / 9 tool calls.
+
+The Agents inspected Gemini's official Prediction Markets Terms, Events,
+getting-started, and related API documentation. Those pages describe generic
+event discovery, expiration examples, and terms retrieval/acceptance, but did
+not contain the current `GEMI-MLSCUP26-MLSCUP26LAFC` winner predicate, payout
+mapping, delay/cancellation treatment, or resolution authority. The negative
+result therefore preserves the repaired case as research-only instead of
+admitting a generic documentation page as contract evidence.
+
+### Follow-up evidence from the live queue
+
+The first reconciliation produced 235 current-generation tasks and also
+revealed many near-duplicate requirements from retained semantic/probability
+generations. Provider generations are now filtered from the active queue, but
+the next implementation must coalesce semantically equivalent requirements by
+acquisition scope and split multi-venue requirements into explicit per-source
+coverage obligations. Before buying broader web search, inspect Gemini's
+official Terms API and event/catalog responses for a deterministic
+contract-to-terms locator; if it exists, adapter extraction is the higher-value
+solution predicted by the rework selection signal.

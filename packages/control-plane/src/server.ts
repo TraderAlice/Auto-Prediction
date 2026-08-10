@@ -162,6 +162,13 @@ import {
   parseEvidenceAcquisitionTickInterval,
   type EvidenceAcquisitionSchedulerStore,
 } from "./evidence-acquisition-scheduler.js";
+import { AiSdkOfficialSourceDiscoveryAgent } from "./official-source-discovery-agent.js";
+import {
+  OfficialSourceDiscoveryScheduler,
+  parseOfficialSourceDiscoveryTickInterval,
+  type OfficialSourceDiscoveryAgentPort,
+  type OfficialSourceDiscoverySchedulerStore,
+} from "./official-source-discovery-scheduler.js";
 import { EvidenceDocumentFetcher } from "./evidence-document.js";
 import {
   rebaseEvidenceRequirementToCurrentListings,
@@ -665,6 +672,16 @@ function supportsEvidenceAcquisitionRecords(
   );
 }
 
+function supportsOfficialSourceDiscoveryRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & OfficialSourceDiscoverySchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<OfficialSourceDiscoverySchedulerStore>;
+  return candidate.officialSourceDiscoveryJobStorage !== undefined &&
+    typeof candidate.loadOfficialSourceDiscoveryJobRecords === "function" &&
+    typeof candidate.saveOfficialSourceDiscoveryJobRecord === "function";
+}
+
 function supportsRuleEvidenceClaimRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & RuleEvidenceClaimRecordStore {
@@ -873,6 +890,8 @@ export function createControlPlane(options?: {
   premiseEvidenceRouter?: PremiseEvidenceRouterPort | null;
   premiseEvidenceRoutingScheduler?: PremiseEvidenceRoutingScheduler;
   premiseRouteExpansionScheduler?: PremiseRouteExpansionScheduler;
+  officialSourceDiscoveryAgent?: OfficialSourceDiscoveryAgentPort | null;
+  officialSourceDiscoveryScheduler?: OfficialSourceDiscoveryScheduler;
   evidenceAcquisitionScheduler?: EvidenceAcquisitionScheduler;
   ruleEvidenceClaimDesk?: ReturnType<typeof createRuleEvidenceClaimDesk>;
   ruleEvidenceClaimScheduler?: RuleEvidenceClaimScheduler;
@@ -1274,6 +1293,22 @@ export function createControlPlane(options?: {
       expander: premiseRouteExpander,
       tickIntervalMs: parsePremiseRouteExpansionTickInterval(process.env),
       ...(supportsPremiseRouteExpansionSchedulerRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
+  const officialSourceDiscoveryAgent = options?.officialSourceDiscoveryAgent ??
+    new AiSdkOfficialSourceDiscoveryAgent(
+      process.env,
+      () => aiRuntimeConfigurationDesk.current(),
+    );
+  const officialSourceDiscoveryScheduler =
+    options?.officialSourceDiscoveryScheduler ??
+    new OfficialSourceDiscoveryScheduler({
+      agent: officialSourceDiscoveryAgent,
+      tickIntervalMs: parseOfficialSourceDiscoveryTickInterval(process.env),
+      concurrencyLimit: 2,
+      maxRequestsPerTick: 2,
+      ...(supportsOfficialSourceDiscoveryRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
     });
@@ -1826,7 +1861,7 @@ export function createControlPlane(options?: {
     });
     return Object.freeze([...retainedCandidates, ...reviewCandidates]);
   };
-  const evidenceRequirements = (): readonly EvidenceRequirement[] => {
+  const retainedEvidenceRequirements = (): readonly EvidenceRequirement[] => {
     const retained = [
       ...marketArchaeologistDesk.projection().records.flatMap((record) =>
         record.status === "PASS" && record.report !== null
@@ -1889,6 +1924,8 @@ export function createControlPlane(options?: {
       ) === index
     ));
   };
+  const evidenceRequirements = (): readonly EvidenceRequirement[] =>
+    officialSourceDiscoveryScheduler.applyAdmissions(retainedEvidenceRequirements());
   const ruleEvidenceClaimInputs = (): readonly RuleEvidenceClaimInput[] => Object.freeze(
     evidenceAcquisitionScheduler.projection().jobs.flatMap((job) => {
       if (job.status !== "CAPTURED") return [];
@@ -2005,6 +2042,16 @@ export function createControlPlane(options?: {
       economicItems: economicTriageProjection.items,
       reviewItems: reviewAttention.items,
     });
+    const tierByProposal = new Map(evidenceDebtFrontier.items.map((item) =>
+      [item.proposalId, item.tier] as const
+    ));
+    officialSourceDiscoveryScheduler.reconcile(
+      retainedEvidenceRequirements().map((requirement) => Object.freeze({
+        requirement,
+        priorityTier: tierByProposal.get(requirement.proposalId) ??
+          "RETAINED_RESEARCH_DEBT",
+      })),
+    );
     const probabilityEvidenceDebt = buildProbabilityEvidenceDebt({
       runs: probabilityEstimationDesk.projection().records,
       estimatorJobs: probabilityEstimationScheduler.projection().jobs,
@@ -2059,6 +2106,7 @@ export function createControlPlane(options?: {
       premiseAnalysisScheduler: premiseAnalysisSchedulerProjection,
       premiseEvidenceRouting: premiseEvidenceRoutingProjection,
       premiseRouteExpansion: premiseRouteExpansionProjection,
+      officialSourceDiscovery: officialSourceDiscoveryScheduler.projection(),
       evidenceAcquisition: evidenceAcquisitionProjection,
       evidenceDebtFrontier,
       probabilityEvidenceDebt,
@@ -2414,6 +2462,7 @@ export function createControlPlane(options?: {
         premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
         premiseEvidenceRouting: premiseEvidenceRoutingScheduler.projection(),
         premiseRouteExpansion: premiseRouteExpansionScheduler.projection(),
+        officialSourceDiscovery: officialSourceDiscoveryScheduler.projection(),
         evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
         ruleEvidenceClaims: ruleEvidenceClaimScheduler.projection(),
         semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
@@ -2639,6 +2688,45 @@ export function createControlPlane(options?: {
       premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
       premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
       writeJson(response, 200, premiseRouteExpansionScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/official-source-discovery"
+    ) {
+      const current = await projection();
+      writeJson(response, 200, current.ai.officialSourceDiscovery);
+      return;
+    }
+    const officialSourceRunMatch = url.pathname.match(
+      /^\/api\/v1\/official-source-discovery\/(sha256:[0-9a-f]{64})\/run$/u,
+    );
+    if (request.method === "POST" && officialSourceRunMatch !== null) {
+      try {
+        await projection();
+        const run = officialSourceDiscoveryScheduler.runJob(
+          officialSourceRunMatch[1] as Hash,
+        );
+        void broadcastProjection();
+        void run.then(() => {
+          evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+          return broadcastProjection();
+        }, () => broadcastProjection());
+        writeJson(response, 202, {
+          ok: true,
+          jobId: officialSourceRunMatch[1],
+          status: "LEASED",
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "official source discovery run could not start",
+          executionAuthority: false,
+        });
+      }
       return;
     }
     if (
@@ -4068,6 +4156,7 @@ export function createControlPlane(options?: {
   let premiseAnalysisTimer: ReturnType<typeof setInterval> | null = null;
   let premiseEvidenceRoutingTimer: ReturnType<typeof setInterval> | null = null;
   let premiseRouteExpansionTimer: ReturnType<typeof setInterval> | null = null;
+  let officialSourceDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -4289,6 +4378,27 @@ export function createControlPlane(options?: {
       premiseRouteExpansionTimer.unref();
     });
   }
+  const officialSourceDiscoveryTickMs = officialSourceDiscoveryScheduler.tickIntervalMs;
+  if (officialSourceDiscoveryTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        void projection().then(() => {
+          const runs = officialSourceDiscoveryScheduler.tick();
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) {
+            void run.then(() => {
+              evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+              return broadcastProjection();
+            }, () => broadcastProjection());
+          }
+        }).catch(() => undefined);
+      };
+      tick();
+      officialSourceDiscoveryTimer = setInterval(tick, officialSourceDiscoveryTickMs);
+      officialSourceDiscoveryTimer.unref();
+    });
+  }
   const evidenceAcquisitionTickMs = evidenceAcquisitionScheduler.tickIntervalMs;
   if (evidenceAcquisitionTickMs !== null) {
     void ready.then(() => {
@@ -4337,6 +4447,7 @@ export function createControlPlane(options?: {
     if (premiseAnalysisTimer !== null) clearInterval(premiseAnalysisTimer);
     if (premiseEvidenceRoutingTimer !== null) clearInterval(premiseEvidenceRoutingTimer);
     if (premiseRouteExpansionTimer !== null) clearInterval(premiseRouteExpansionTimer);
+    if (officialSourceDiscoveryTimer !== null) clearInterval(officialSourceDiscoveryTimer);
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
@@ -4371,6 +4482,8 @@ export function createControlPlane(options?: {
     premiseEvidenceRouter,
     premiseEvidenceRoutingScheduler,
     premiseRouteExpansionScheduler,
+    officialSourceDiscoveryAgent,
+    officialSourceDiscoveryScheduler,
     evidenceAcquisitionScheduler,
     ruleEvidenceClaimDesk,
     ruleEvidenceClaimScheduler,

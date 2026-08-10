@@ -59,6 +59,7 @@ import type { SemanticReviewSchedulerProjection } from "./semantic-review-schedu
 import type { PremiseAnalysisDeskProjection } from "./premise-analysis.js";
 import type { PremiseAnalysisSchedulerProjection } from "./premise-analysis-scheduler.js";
 import type { EvidenceAcquisitionSchedulerProjection } from "./evidence-acquisition-scheduler.js";
+import type { OfficialSourceDiscoverySchedulerProjection } from "./official-source-discovery-scheduler.js";
 import { emptyEvidenceDebtFrontier, type EvidenceDebtFrontierProjection } from "./evidence-debt-frontier.js";
 import {
   emptyProbabilityEvidenceDebt,
@@ -154,6 +155,7 @@ export function buildStudioProjection(input: {
   premiseAnalysisScheduler?: PremiseAnalysisSchedulerProjection;
   premiseEvidenceRouting?: PremiseEvidenceRoutingSchedulerProjection;
   premiseRouteExpansion?: PremiseRouteExpansionSchedulerProjection;
+  officialSourceDiscovery?: OfficialSourceDiscoverySchedulerProjection;
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
   evidenceDebtFrontier?: EvidenceDebtFrontierProjection;
   probabilityEvidenceDebt?: ProbabilityEvidenceDebtProjection;
@@ -583,6 +585,7 @@ export function buildStudioProjection(input: {
     legacyEvidenceDebtCount: 0,
     passedCount: 0,
     exhaustedCount: 0,
+    supersededCount: 0,
     recoveryRequestedCount: 0,
     recoveryInFlightCount: 0,
     recoveryCompletedCount: 0,
@@ -787,6 +790,46 @@ export function buildStudioProjection(input: {
     executionAuthority: false as const,
     effects: {
       externalWrites: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
+  const officialSourceDiscovery = input.officialSourceDiscovery ?? {
+    schemaVersion: "pmh.official-source-discovery-scheduler.v1" as const,
+    enabled: false,
+    configured: false,
+    status: "NEEDS_PROVIDER" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 2,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    admittedCount: 0,
+    noSourceCount: 0,
+    abstainedCount: 0,
+    exhaustedCount: 0,
+    supersededCount: 0,
+    candidateCount: 0,
+    rejectedCandidateCount: 0,
+    providerRequestCount: 0,
+    toolCallCount: 0,
+    jobs: [],
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "jobId" as const,
+    },
+    authority: "OFFICIAL_SOURCE_DISCOVERY_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      anonymousOfficialReadsOnly: true as const,
+      credentialsUsedForOfficialSources: false as const,
       valueMovingActions: false as const,
       liveExecutionEnabled: false as const,
     },
@@ -1329,6 +1372,7 @@ export function buildStudioProjection(input: {
       premiseAnalysisScheduler,
       premiseEvidenceRouting,
       premiseRouteExpansion,
+      officialSourceDiscovery,
       evidenceAcquisition,
       evidenceDebtFrontier: input.evidenceDebtFrontier ?? emptyEvidenceDebtFrontier(),
       probabilityEvidenceDebt:

@@ -735,3 +735,87 @@ export function rebaseEvidenceRequirementsToRetainedLocatorCapabilities(
     );
   }));
 }
+
+export function rebaseEvidenceRequirementToAdmittedLocator(input: Readonly<{
+  requirement: EvidenceRequirement;
+  venueId: string;
+  protocolIdentity: string;
+  locator: DiscoveryEvidenceLocator;
+}>): EvidenceRequirement {
+  const requirement = assertEvidenceRequirement(input.requirement);
+  if (
+    requirement.acquisitionRoute !== "UNSUPPORTED" ||
+    input.locator.schemaVersion !== "pmh.discovery-evidence-locator.v3" ||
+    !compatibleLocatorRoles(requirement.kind).includes(input.locator.role)
+  ) return requirement;
+  const matchedObservations = requirement.sourceObservations.filter((observation) =>
+    observation.venueId === input.venueId &&
+    observation.protocolIdentity === input.protocolIdentity
+  );
+  if (
+    matchedObservations.length === 0 ||
+    !hasBoundedDiscoveryEvidenceLocators({
+      venueId: input.venueId,
+      protocolIdentity: input.protocolIdentity,
+      evidenceLocators: [input.locator],
+    })
+  ) return requirement;
+  const matchedRefs = new Set(matchedObservations.map((item) => item.listingRef));
+  const sourceObservations = Object.freeze(requirement.sourceObservations.map((observation) =>
+    !matchedRefs.has(observation.listingRef)
+      ? observation
+      : Object.freeze({
+          ...observation,
+          evidenceLocatorIdentities: Object.freeze([...new Set([
+            ...observation.evidenceLocatorIdentities,
+            input.locator.locatorIdentity,
+          ])].sort((left, right) => left.localeCompare(right))),
+        })
+  ));
+  const eligibleLocators = Object.freeze([Object.freeze({
+    listingRefs: Object.freeze(requirement.listingRefs.filter((listingRef) =>
+      matchedRefs.has(listingRef)
+    )),
+    venueId: input.venueId,
+    protocolIdentity: input.protocolIdentity,
+    locator: input.locator,
+  })]);
+  const proposalListingRefs = requirement.schemaVersion ===
+      "pmh.evidence-requirement.v2"
+    ? requirement.proposalListingRefs
+    : requirement.listingRefs;
+  const scoped = {
+    kind: requirement.kind,
+    listingRefs: requirement.listingRefs,
+    temporalPosture: requirement.temporalPosture,
+    eligibleLocators,
+    acquisitionRoute: "DOCUMENT_LOCATOR" as const,
+  };
+  const body = Object.freeze({
+    schemaVersion: "pmh.evidence-requirement.v2" as const,
+    acquisitionScopeIdentity: scopeIdentity(scoped),
+    origin: requirement.origin,
+    proposalId: requirement.proposalId,
+    proposalListingRefs: Object.freeze([...proposalListingRefs]),
+    kind: requirement.kind,
+    listingRefs: requirement.listingRefs,
+    claim: requirement.claim,
+    reason: requirement.reason,
+    satisfyingObservation: requirement.satisfyingObservation,
+    contradictingObservation: requirement.contradictingObservation,
+    temporalPosture: requirement.temporalPosture,
+    sourceObservations,
+    eligibleLocators,
+    acquisitionRoute: "DOCUMENT_LOCATOR" as const,
+    authority: "EVIDENCE_ACQUISITION_REQUEST_ONLY" as const,
+    fetchAuthority: false as const,
+    providerRequestAuthority: false as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return assertEvidenceRequirement(Object.freeze({
+    ...body,
+    requirementId: hashCanonical(body),
+  }));
+}

@@ -9,9 +9,6 @@ export type DiscoveryCatalogMode =
   | "CURRENT_OBSERVATIONS";
 
 export type DiscoveryEvidenceLocator = Readonly<{
-  schemaVersion:
-    | "pmh.discovery-evidence-locator.v1"
-    | "pmh.discovery-evidence-locator.v2";
   locatorIdentity: Hash;
   role:
     | "CONTRACT_RULE_DOCUMENT"
@@ -20,7 +17,21 @@ export type DiscoveryEvidenceLocator = Readonly<{
   url: string;
   authority: "EVIDENCE_LOCATOR_ONLY";
   fetchAuthority: false;
-}>;
+} & (
+  Readonly<{
+  schemaVersion:
+    | "pmh.discovery-evidence-locator.v1"
+    | "pmh.discovery-evidence-locator.v2";
+  }> | Readonly<{
+  schemaVersion: "pmh.discovery-evidence-locator.v3";
+  provenance: Readonly<{
+    kind: "FIRST_PARTY_OFFICIAL_SOURCE_ADMISSION";
+    admissionId: Hash;
+    taskId: Hash;
+    candidateId: Hash;
+  }>;
+  }>
+)>;
 
 export type DiscoveryCatalogListing = Readonly<{
   listingRef: string;
@@ -480,6 +491,7 @@ export type StudioProjection = Readonly<{
     premiseAnalysisScheduler: import("./premise-analysis-scheduler.js").PremiseAnalysisSchedulerProjection;
     premiseEvidenceRouting: import("./premise-evidence-routing-scheduler.js").PremiseEvidenceRoutingSchedulerProjection;
     premiseRouteExpansion: import("./premise-route-expansion-scheduler.js").PremiseRouteExpansionSchedulerProjection;
+    officialSourceDiscovery: import("./official-source-discovery-scheduler.js").OfficialSourceDiscoverySchedulerProjection;
     evidenceAcquisition: import("./evidence-acquisition-scheduler.js").EvidenceAcquisitionSchedulerProjection;
     evidenceDebtFrontier: import("./evidence-debt-frontier.js").EvidenceDebtFrontierProjection;
     probabilityEvidenceDebt: import("./probability-evidence-debt.js").ProbabilityEvidenceDebtProjection;

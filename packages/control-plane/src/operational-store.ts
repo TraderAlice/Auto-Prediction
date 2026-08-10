@@ -88,6 +88,11 @@ import {
   type EvidenceAcquisitionSchedulerStore,
 } from "./evidence-acquisition-scheduler.js";
 import {
+  assertOfficialSourceDiscoveryJobRecord,
+  type OfficialSourceDiscoveryJobRecord,
+  type OfficialSourceDiscoverySchedulerStore,
+} from "./official-source-discovery-scheduler.js";
+import {
   assertEvidenceDocumentCapture,
   assertEvidenceDocumentObservation,
   assertStoredEvidenceDocument,
@@ -178,7 +183,7 @@ import {
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
 
-const SCHEMA_VERSION = 33;
+const SCHEMA_VERSION = 34;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -388,6 +393,8 @@ type EvidenceAcquisitionJobRow = Readonly<{
   record_json: string;
   record_hash: string;
 }>;
+
+type OfficialSourceDiscoveryJobRow = EvidenceAcquisitionJobRow;
 
 type EvidenceDocumentRow = Readonly<{
   document_id: string;
@@ -1179,6 +1186,30 @@ function parseEvidenceAcquisitionJobRecord(value: unknown): EvidenceAcquisitionJ
   return record;
 }
 
+function parseOfficialSourceDiscoveryJobRecord(
+  value: unknown,
+): OfficialSourceDiscoveryJobRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite official source discovery job row is malformed");
+  }
+  const row = value as Partial<OfficialSourceDiscoveryJobRow>;
+  if (
+    typeof row.job_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite official source discovery job row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite official source discovery job contains invalid JSON");
+  }
+  const record = assertOfficialSourceDiscoveryJobRecord(decoded);
+  if (record.jobId !== row.job_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite official source discovery job identity mismatch");
+  }
+  return record;
+}
+
 function parseEvidenceDocument(value: unknown): StoredEvidenceDocument {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite evidence document row is malformed");
@@ -1607,6 +1638,7 @@ export class SqliteOperationalStore
     PremiseEvidenceRoutingSchedulerStore,
     PremiseRouteExpansionSchedulerStore,
     SemanticReviewSchedulerStore,
+    OfficialSourceDiscoverySchedulerStore,
     EvidenceAcquisitionSchedulerStore,
     RuleEvidenceClaimRecordStore,
     RuleEvidenceClaimSchedulerStore,
@@ -1675,6 +1707,7 @@ export class SqliteOperationalStore
   public readonly premiseRouteExpansionJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewNotificationStorage: OperationalStorageProjection<"notificationId">;
+  public readonly officialSourceDiscoveryJobStorage: OperationalStorageProjection<"jobId">;
   public readonly evidenceAcquisitionJobStorage: OperationalStorageProjection<"jobId">;
   public readonly evidenceDocumentStorage: OperationalStorageProjection<"documentId">;
   public readonly evidenceDocumentTextStorage: OperationalStorageProjection<"extractionId">;
@@ -1905,6 +1938,12 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "notificationId",
     });
+    this.officialSourceDiscoveryJobStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "jobId",
+    });
     this.evidenceAcquisitionJobStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -2112,6 +2151,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'evidence_acquisition_jobs'`,
       )
       .get() !== undefined;
+    const officialSourceDiscoveryJobTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'official_source_discovery_jobs'`,
+      )
+      .get() !== undefined;
     const evidenceDocumentTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2163,6 +2208,7 @@ export class SqliteOperationalStore
       aiUsageEventTableExists &&
       aiRuntimeConfigurationTableExists &&
       searchQuoteObservationTableExists &&
+      officialSourceDiscoveryJobTableExists &&
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
       ruleEvidenceClaimJobTableExists && ruleEvidenceClaimRecordTableExists
@@ -3310,6 +3356,33 @@ export class SqliteOperationalStore
             ON probability_resolution_captures (listing_ref, fetched_at DESC, artifact_hash DESC);
           CREATE INDEX IF NOT EXISTS probability_resolution_captures_status
             ON probability_resolution_captures (status, fetched_at DESC);
+        `);
+      }
+      if (current < 34 || !officialSourceDiscoveryJobTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS official_source_discovery_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN (
+              'PENDING', 'LEASED', 'RETRY_WAIT', 'ADMITTED',
+              'NO_OFFICIAL_SOURCE_FOUND', 'ABSTAINED', 'EXHAUSTED'
+            )),
+            priority_tier TEXT NOT NULL CHECK (priority_tier IN (
+              'POSITIVE_GROSS_BLOCKER', 'EVIDENCE_ESCALATION',
+              'ACTIVE_TRIAGE_DEBT', 'RETAINED_RESEARCH_DEBT'
+            )),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS official_source_discovery_jobs_due
+            ON official_source_discovery_jobs (
+              status, priority_tier, next_attempt_at, job_id
+            );
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -5614,6 +5687,87 @@ export class SqliteOperationalStore
       const stored = parseSemanticReviewNotificationRecord(row);
       if (hashCanonical(stored) !== recordHash) {
         throw new Error("notificationId is already bound to another review notification");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadOfficialSourceDiscoveryJobRecords(
+    limit: number,
+  ): readonly OfficialSourceDiscoveryJobRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM official_source_discovery_jobs
+         ORDER BY updated_at DESC, job_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseOfficialSourceDiscoveryJobRecord));
+  }
+
+  public saveOfficialSourceDiscoveryJobRecord(
+    recordInput: OfficialSourceDiscoveryJobRecord,
+    retentionLimit: number,
+  ): OfficialSourceDiscoveryJobRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const record = assertOfficialSourceDiscoveryJobRecord(recordInput);
+    const recordJson = canonicalJson(record);
+    const recordHash = hashCanonical(record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO official_source_discovery_jobs (
+             job_id, status, priority_tier, next_attempt_at, updated_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(job_id) DO UPDATE SET
+             status = excluded.status,
+             priority_tier = excluded.priority_tier,
+             next_attempt_at = excluded.next_attempt_at,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          record.jobId,
+          record.status,
+          record.priorityTier,
+          record.nextAttemptAt,
+          record.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM official_source_discovery_jobs
+           WHERE job_id IN (
+             SELECT job_id FROM official_source_discovery_jobs
+             ORDER BY updated_at DESC, job_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT job_id, record_json, record_hash
+           FROM official_source_discovery_jobs WHERE job_id = ?`,
+        )
+        .get(record.jobId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the official source discovery job");
+      }
+      const stored = parseOfficialSourceDiscoveryJobRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("jobId is already bound to another official source discovery job");
       }
       this.#database.exec("COMMIT");
       return stored;

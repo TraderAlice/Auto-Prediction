@@ -852,6 +852,17 @@ rule requirements. It did not fabricate a probability or launch another
 estimator generation. Failure Budgets now shows the lifecycle and successor
 identity as `REDUCED TO RESEARCH`; desktop inspection has no console errors.
 
+Those four unsupported Gemini requirements now enter a bounded official-source
+discovery loop instead of stopping at prose debt. Terra/high inspected the
+official Gemini surfaces for outcome mapping, time boundary,
+void/cancellation, and oracle source in 30 provider/tool turns. Every run ended
+`NO_OFFICIAL_SOURCE_FOUND`: the public documentation is venue-generic and does
+not establish the listing-specific LAFC predicate or settlement semantics. No
+locator was minted and no review was reopened. This negative qualification is
+the intended honest result; the next slice coalesces the 235 current-generation
+source tasks by acquisition scope and investigates deterministic Gemini Terms
+API/catalog extraction before any wider Agent search is enabled.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

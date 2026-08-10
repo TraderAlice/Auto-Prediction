@@ -9806,6 +9806,7 @@ function FailureBudgetView() {
 
 function EvidenceView() {
   const studioProjection = useStudioProjection();
+  const officialSourceDiscovery = studioProjection.ai.officialSourceDiscovery;
   const evidenceAcquisition =
     studioProjection.ai.evidenceAcquisition ?? EMPTY_EVIDENCE_ACQUISITION;
   const evidenceDebtFrontier =
@@ -9890,27 +9891,37 @@ function EvidenceView() {
     },
     {
       step: "02",
+      label: "Source discovery",
+      value: `${officialSourceDiscovery.admittedCount}/${officialSourceDiscovery.admittedCount + officialSourceDiscovery.noSourceCount + officialSourceDiscovery.abstainedCount + officialSourceDiscovery.exhaustedCount}`,
+      detail: `${officialSourceDiscovery.pendingCount + officialSourceDiscovery.leasedCount + officialSourceDiscovery.retryWaitCount} queued · ${officialSourceDiscovery.noSourceCount} no source`,
+      state: officialSourceDiscovery.admittedCount > 0 ? "ADMITTED" :
+        officialSourceDiscovery.activeCount > 0 ? "RUNNING" : "WAITING",
+    },
+    {
+      step: "03",
       label: "Official documents",
       value: evidenceAcquisition.capturedCount,
       detail: `${evidenceAcquisition.pendingCount + evidenceAcquisition.leasedCount} active`,
       state: evidenceAcquisition.capturedCount > 0 ? "CAPTURED" : "WAITING",
     },
     {
-      step: "03",
+      step: "04",
       label: "Verified claims",
       value: ruleEvidenceClaims.passedCount,
       detail: `${ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount} in Agent loop`,
       state: ruleEvidenceClaims.passedCount > 0 ? "INTERPRETED" : "RUNNING",
     },
     {
-      step: "04",
+      step: "05",
       label: "Evidence-aware review",
       value: semanticReviewScheduler.rebasedJobCount,
       detail: `${rebasedJobs.filter((job) => job.status === "PASS").length} passed in window`,
       state: semanticReviewScheduler.rebasedJobCount > 0 ? "REBOUND" : "WAITING",
     },
   ] as const;
-  const bottleneck = ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount > 0
+  const bottleneck = officialSourceDiscovery.activeCount > 0
+    ? "Source-discovery Agents are searching approved official surfaces; candidate URLs remain inert until deterministic admission."
+    : ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount > 0
     ? "Agents are reading captured rule documents and binding exact passages to proposal-local claims."
     : evidenceAcquisition.pendingCount + evidenceAcquisition.leasedCount > 0
       ? "Anonymous document capture is the active constraint."
