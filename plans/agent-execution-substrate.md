@@ -700,12 +700,13 @@ projection request is pending and renders the actual phase instead of implying
 a network outage. The envelope cannot start a provider request, model
 invocation, external write, or value-moving action.
 
-The first retained-desk trace after instrumentation completed in 25.758
-seconds: approximately 17.8 seconds preceded the first projection and 7.949
-seconds were spent materializing it. This checkpoint makes the next two
-performance candidates measurable—bounded durable recovery and surface-scoped
-bootstrap projections—without hiding work by delaying the listener or showing
-fixture content.
+A complete retained-desk phase trace measured 3.131 seconds of durable
+recovery, 0.825 seconds of Agent reconciliation, and 8.203 seconds of projection
+materialization. A separate 23.318-second `WAITING_FOR_PROJECTION` interval was
+operator/browser delay and is deliberately excluded from backend work. This
+checkpoint makes the next two performance candidates measurable—bounded
+durable recovery and surface-scoped bootstrap projections—without hiding work
+by delaying the listener or showing fixture content.
 
 ## Qualification gates
 

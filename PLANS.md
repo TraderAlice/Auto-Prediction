@@ -45,9 +45,11 @@ reachable while Studio waited 8–25 seconds with a generic Connecting screen.
 The control plane now exposes a provider-free `/api/v1/readiness` envelope with
 timed startup-gate, durable-recovery, Agent-reconciliation, and first-projection
 phases. Studio polls that small envelope alongside the coalesced projection and
-shows the real phase and elapsed time. On the retained desk the first measured
-trace split 25.758 seconds into roughly 17.8 seconds of durable recovery and
-7.949 seconds of projection materialization, giving later performance work an
+shows the real phase and elapsed time. A complete retained-desk phase trace
+measured 3.131 seconds of durable recovery, 0.825 seconds of Agent
+reconciliation, and 8.203 seconds of projection materialization; time spent
+waiting for the browser to request its first projection is recorded separately
+and is not misclassified as backend work. This gives later performance work an
 evidence-backed target without delaying the listener or fabricating content.
 
 The active construction plans are
