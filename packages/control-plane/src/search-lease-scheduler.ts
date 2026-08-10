@@ -698,6 +698,7 @@ type SearchLeaseOptions = Readonly<{
     snapshot: MarketCorpusSnapshot,
     question: string,
   ) => Promise<SearchLeaseDeepResult>;
+  deepEnabled?: () => boolean;
   enrichPrices?: (
     listings: DiscoveryCatalogContext["listings"],
   ) => Promise<SearchQuoteEnrichmentResult>;
@@ -1631,6 +1632,7 @@ export class SearchLeaseScheduler {
   readonly #context: SearchLeaseOptions["context"];
   readonly #runFast: SearchLeaseOptions["runFast"];
   readonly #runDeep: SearchLeaseOptions["runDeep"] | undefined;
+  readonly #deepEnabled: () => boolean;
   readonly #enrichPrices: SearchLeaseOptions["enrichPrices"] | undefined;
   readonly #graphContext: SearchLeaseOptions["graphContext"] | undefined;
   readonly #now: () => number;
@@ -1653,6 +1655,7 @@ export class SearchLeaseScheduler {
     this.#context = options.context;
     this.#runFast = options.runFast;
     this.#runDeep = options.runDeep;
+    this.#deepEnabled = options.deepEnabled ?? (() => true);
     this.#enrichPrices = options.enrichPrices;
     this.#graphContext = options.graphContext;
     this.#now = options.now ?? Date.now;
@@ -1718,6 +1721,10 @@ export class SearchLeaseScheduler {
     this.#records = [
       ...(this.#store?.loadSearchLeaseRecords(this.#retentionLimit) ?? []),
     ].map(assertSearchLeaseRecord);
+  }
+
+  #deepAvailable(): boolean {
+    return this.#runDeep !== undefined && this.#deepEnabled();
   }
 
   public shouldSchedule(snapshot: MarketCorpusSnapshot): boolean {
@@ -2348,7 +2355,7 @@ export class SearchLeaseScheduler {
         );
       } else if (duplicateLeaseId !== null) {
         deepLane = this.#skippedDeep("DUPLICATE");
-      } else if (issued.lease.budget.maxPiInvocations === 0 || this.#runDeep === undefined) {
+      } else if (issued.lease.budget.maxPiInvocations === 0 || !this.#deepAvailable()) {
         deepLane = this.#skippedDeep("PI_DISABLED");
       } else {
         const inputIdentity = this.#deepInputIdentity(issued, listingRefs, signature);
@@ -2485,7 +2492,7 @@ export class SearchLeaseScheduler {
         "search lease deep stage is not pending",
       ));
     }
-    if (this.#runDeep === undefined) {
+    if (!this.#deepAvailable()) {
       return Promise.reject(new SearchLeaseUnavailableError(
         "pi deep investigation is not configured",
       ));
@@ -2551,7 +2558,8 @@ export class SearchLeaseScheduler {
     snapshot: MarketCorpusSnapshot,
     checkpoint: SearchLeaseRecord,
   ): Promise<SearchLeaseRecord> {
-    if (this.#runDeep === undefined) {
+    const runDeep = this.#runDeep;
+    if (runDeep === undefined || !this.#deepEnabled()) {
       return this.#persist(withArtifactHash({
         ...withoutArtifactHash(checkpoint),
         deepLane: this.#skippedDeep("PI_DISABLED"),
@@ -2606,7 +2614,7 @@ export class SearchLeaseScheduler {
 
     let result: SearchLeaseDeepResult;
     try {
-      result = await this.#runDeep(snapshot, this.#deepQuestion(running));
+      result = await runDeep(snapshot, this.#deepQuestion(running));
     } catch (error) {
       result = Object.freeze({
         runId: attemptId,
@@ -2694,7 +2702,7 @@ export class SearchLeaseScheduler {
   public retryDeep(
     leaseId: Hash,
   ): Readonly<{ promise: Promise<SearchLeaseRecord>; idempotentReplay: boolean }> {
-    if (this.#runDeep === undefined) {
+    if (!this.#deepAvailable()) {
       throw new SearchLeaseUnavailableError("pi deep investigation is not configured");
     }
     const active = this.#activeDeep.get(leaseId);
@@ -2759,7 +2767,7 @@ export class SearchLeaseScheduler {
   }
 
   public resumeDeepWork(): readonly Promise<SearchLeaseRecord>[] {
-    if (this.#runDeep === undefined) return Object.freeze([]);
+    if (!this.#deepAvailable()) return Object.freeze([]);
     const promises: Promise<SearchLeaseRecord>[] = [];
     for (const original of [...this.#records]) {
       if (original.status !== "PASS" ||
@@ -2947,7 +2955,7 @@ export class SearchLeaseScheduler {
       schemaVersion: "pmh.search-lease-scheduler.v1",
       algorithmVersion: ALGORITHM_VERSION,
       enabled: this.intervalMs !== null,
-      configured: Object.freeze({ fastLane: true, deepLane: this.#runDeep !== undefined }),
+      configured: Object.freeze({ fastLane: true, deepLane: this.#deepAvailable() }),
       status: this.#active.size === 0 && this.#activeDeep.size === 0 &&
           this.#queuedDeep.size === 0
         ? "IDLE"

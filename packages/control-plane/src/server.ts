@@ -753,6 +753,7 @@ function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   provider: (typeof AI_RUNTIME_PROVIDERS)[number];
   codexModel: (typeof CODEX_RUNTIME_MODELS)[number];
   codexReasoningEffort: (typeof CODEX_REASONING_EFFORTS)[number];
+  deepseekAutomationEnabled: boolean;
 }> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("AI runtime configuration update must be an object");
@@ -762,6 +763,7 @@ function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   const expectedKeys = [
     "codexModel",
     "codexReasoningEffort",
+    "deepseekAutomationEnabled",
     "expectedRevision",
     "provider",
   ];
@@ -770,7 +772,8 @@ function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
     !Number.isSafeInteger(body.expectedRevision) ||
     !AI_RUNTIME_PROVIDERS.includes(body.provider as never) ||
     !CODEX_RUNTIME_MODELS.includes(body.codexModel as never) ||
-    !CODEX_REASONING_EFFORTS.includes(body.codexReasoningEffort as never)
+    !CODEX_REASONING_EFFORTS.includes(body.codexReasoningEffort as never) ||
+    typeof body.deepseekAutomationEnabled !== "boolean"
   ) {
     throw new Error("AI runtime configuration update is invalid");
   }
@@ -780,6 +783,7 @@ function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
     codexModel: body.codexModel as (typeof CODEX_RUNTIME_MODELS)[number],
     codexReasoningEffort:
       body.codexReasoningEffort as (typeof CODEX_REASONING_EFFORTS)[number],
+    deepseekAutomationEnabled: body.deepseekAutomationEnabled,
   });
 }
 
@@ -1107,6 +1111,8 @@ export function createControlPlane(options?: {
             },
           }
         : {}),
+      deepEnabled: () =>
+        aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled,
       ...(supportsSearchLeaseRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -3955,6 +3961,7 @@ export function createControlPlane(options?: {
   if (semanticReviewTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
+        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           const runs = semanticReviewScheduler.tick(
             semanticReviewCandidates(),
@@ -3978,6 +3985,7 @@ export function createControlPlane(options?: {
   if (probabilityEstimationTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
+        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           const runs = probabilityEstimationScheduler.tick(
             probabilityEstimationCandidates(),
@@ -4017,6 +4025,7 @@ export function createControlPlane(options?: {
   if (premiseAnalysisTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
+        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           const runs = premiseAnalysisScheduler.tick(premiseAnalysisCandidates());
           if (runs.length === 0) return;
@@ -4035,6 +4044,7 @@ export function createControlPlane(options?: {
   if (premiseEvidenceRoutingTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
+        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates());
           const runs = premiseEvidenceRoutingScheduler.tick(
@@ -4056,6 +4066,7 @@ export function createControlPlane(options?: {
   if (premiseRouteExpansionTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
+        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           premiseEvidenceRoutingScheduler.reconcile(premiseEvidenceRoutingCandidates());
           const runs = premiseRouteExpansionScheduler.tick(
@@ -4103,6 +4114,7 @@ export function createControlPlane(options?: {
   if (ruleEvidenceClaimTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
+        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           const runs = ruleEvidenceClaimScheduler.tick(ruleEvidenceClaimInputs());
           if (runs.length === 0) return;

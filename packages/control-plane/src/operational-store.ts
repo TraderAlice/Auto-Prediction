@@ -157,6 +157,7 @@ import {
 } from "./ai-usage-ledger.js";
 import {
   assertAiRuntimeConfiguration,
+  migrateAiRuntimeConfiguration,
   type AiRuntimeConfiguration,
   type AiRuntimeConfigurationStore,
 } from "./ai-runtime-configuration.js";
@@ -1457,13 +1458,10 @@ function parseAiRuntimeConfiguration(value: unknown): AiRuntimeConfiguration {
   } catch {
     throw new Error("SQLite AI runtime configuration contains invalid JSON");
   }
-  const configuration = assertAiRuntimeConfiguration(
-    decoded as AiRuntimeConfiguration,
-  );
-  if (hashCanonical(configuration) !== row.record_hash) {
+  if (hashCanonical(decoded) !== row.record_hash) {
     throw new Error("SQLite AI runtime configuration hash mismatch");
   }
-  return configuration;
+  return migrateAiRuntimeConfiguration(decoded);
 }
 
 function parseProbabilityCalibrationObservation(

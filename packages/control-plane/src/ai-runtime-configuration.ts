@@ -19,11 +19,12 @@ export type CodexRuntimeModel = (typeof CODEX_RUNTIME_MODELS)[number];
 export type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
 
 export type AiRuntimeConfiguration = Readonly<{
-  schemaVersion: "pmh.ai-runtime-configuration.v1";
+  schemaVersion: "pmh.ai-runtime-configuration.v2";
   revision: number;
   provider: AiRuntimeProvider;
   codexModel: CodexRuntimeModel;
   codexReasoningEffort: CodexReasoningEffort;
+  deepseekAutomationEnabled: boolean;
   updatedAt: string;
 }>;
 
@@ -52,20 +53,60 @@ function canonicalIso(value: string): string {
 }
 
 export function assertAiRuntimeConfiguration(
-  value: AiRuntimeConfiguration,
+  value: unknown,
 ): AiRuntimeConfiguration {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("AI runtime configuration is invalid");
+  }
+  const configuration = value as AiRuntimeConfiguration;
   if (
-    value.schemaVersion !== "pmh.ai-runtime-configuration.v1" ||
-    !Number.isSafeInteger(value.revision) ||
-    value.revision < 1 ||
-    !AI_RUNTIME_PROVIDERS.includes(value.provider) ||
-    !CODEX_RUNTIME_MODELS.includes(value.codexModel) ||
-    !CODEX_REASONING_EFFORTS.includes(value.codexReasoningEffort)
+    configuration.schemaVersion !== "pmh.ai-runtime-configuration.v2" ||
+    !Number.isSafeInteger(configuration.revision) ||
+    configuration.revision < 1 ||
+    !AI_RUNTIME_PROVIDERS.includes(configuration.provider) ||
+    !CODEX_RUNTIME_MODELS.includes(configuration.codexModel) ||
+    !CODEX_REASONING_EFFORTS.includes(configuration.codexReasoningEffort) ||
+    typeof configuration.deepseekAutomationEnabled !== "boolean"
   ) {
     throw new Error("AI runtime configuration is invalid");
   }
-  canonicalIso(value.updatedAt);
-  return value;
+  canonicalIso(configuration.updatedAt);
+  return configuration;
+}
+
+export function migrateAiRuntimeConfiguration(
+  value: unknown,
+): AiRuntimeConfiguration {
+  if (
+    value !== null && typeof value === "object" && !Array.isArray(value) &&
+    (value as { schemaVersion?: unknown }).schemaVersion ===
+      "pmh.ai-runtime-configuration.v1"
+  ) {
+    const legacy = value as Readonly<{
+      revision: number;
+      provider: AiRuntimeProvider;
+      codexModel: CodexRuntimeModel;
+      codexReasoningEffort: CodexReasoningEffort;
+      updatedAt: string;
+    }>;
+    if (
+      !Number.isSafeInteger(legacy.revision) || legacy.revision < 1 ||
+      !AI_RUNTIME_PROVIDERS.includes(legacy.provider) ||
+      !CODEX_RUNTIME_MODELS.includes(legacy.codexModel) ||
+      !CODEX_REASONING_EFFORTS.includes(legacy.codexReasoningEffort)
+    ) throw new Error("AI runtime configuration is invalid");
+    canonicalIso(legacy.updatedAt);
+    return Object.freeze({
+      schemaVersion: "pmh.ai-runtime-configuration.v2" as const,
+      revision: legacy.revision,
+      provider: legacy.provider,
+      codexModel: legacy.codexModel,
+      codexReasoningEffort: legacy.codexReasoningEffort,
+      deepseekAutomationEnabled: false,
+      updatedAt: legacy.updatedAt,
+    });
+  }
+  return assertAiRuntimeConfiguration(value);
 }
 
 export function defaultAiRuntimeConfiguration(
@@ -73,23 +114,25 @@ export function defaultAiRuntimeConfiguration(
   now: () => number = Date.now,
 ): AiRuntimeConfiguration {
   const rawProvider = environment.PMH_DISCOVERY_PROVIDER?.trim().toLowerCase();
-  const provider: AiRuntimeProvider = rawProvider === "codex" || rawProvider === "openai"
-    ? "CODEX"
-    : "DEEPSEEK";
+  const provider: AiRuntimeProvider = rawProvider === "deepseek"
+    ? "DEEPSEEK"
+    : "CODEX";
   const rawModel = environment.PMH_CODEX_MODEL?.trim() ??
     (provider === "CODEX" ? environment.PMH_DISCOVERY_MODEL?.trim() : undefined);
   const codexModel = CODEX_RUNTIME_MODELS.find((item) => item === rawModel) ??
-    "gpt-5.6-luna";
+    "gpt-5.6-terra";
   const rawEffort = environment.PMH_CODEX_REASONING_EFFORT?.trim().toLowerCase();
   const codexReasoningEffort = CODEX_REASONING_EFFORTS.find(
     (item) => item === rawEffort,
-  ) ?? "low";
+  ) ?? "high";
   return Object.freeze({
-    schemaVersion: "pmh.ai-runtime-configuration.v1",
+    schemaVersion: "pmh.ai-runtime-configuration.v2",
     revision: 1,
     provider,
     codexModel,
     codexReasoningEffort,
+    deepseekAutomationEnabled:
+      environment.PMH_DEEPSEEK_AUTOMATION_ENABLED?.trim() === "1",
     updatedAt: new Date(now()).toISOString(),
   });
 }
@@ -121,6 +164,7 @@ export class AiRuntimeConfigurationDesk {
     provider: AiRuntimeProvider;
     codexModel: CodexRuntimeModel;
     codexReasoningEffort: CodexReasoningEffort;
+    deepseekAutomationEnabled: boolean;
   }>): AiRuntimeConfiguration {
     if (input.expectedRevision !== this.#configuration.revision) {
       throw new AiRuntimeConfigurationConflictError(
@@ -130,16 +174,18 @@ export class AiRuntimeConfigurationDesk {
     if (
       !AI_RUNTIME_PROVIDERS.includes(input.provider) ||
       !CODEX_RUNTIME_MODELS.includes(input.codexModel) ||
-      !CODEX_REASONING_EFFORTS.includes(input.codexReasoningEffort)
+      !CODEX_REASONING_EFFORTS.includes(input.codexReasoningEffort) ||
+      typeof input.deepseekAutomationEnabled !== "boolean"
     ) {
       throw new Error("AI runtime configuration update is invalid");
     }
     const next = Object.freeze({
-      schemaVersion: "pmh.ai-runtime-configuration.v1" as const,
+      schemaVersion: "pmh.ai-runtime-configuration.v2" as const,
       revision: this.#configuration.revision + 1,
       provider: input.provider,
       codexModel: input.codexModel,
       codexReasoningEffort: input.codexReasoningEffort,
+      deepseekAutomationEnabled: input.deepseekAutomationEnabled,
       updatedAt: new Date(this.now()).toISOString(),
     });
     this.#configuration = this.store?.saveAiRuntimeConfiguration(next) ?? next;

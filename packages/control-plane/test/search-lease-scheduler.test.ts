@@ -1230,6 +1230,33 @@ describe("AI-native search lease scheduler", () => {
     store.close();
   });
 
+  it("blocks the automatic Pi lane behind a live runtime spending gate", async () => {
+    let enabled = false;
+    const runDeep = vi.fn(async (): Promise<SearchLeaseDeepResult> => ({
+      runId: hashCanonical({ run: "must-not-run" }),
+      status: "PASS",
+      proposalIds: Object.freeze([]),
+      proposalDetails: Object.freeze([]),
+      evidenceGaps: Object.freeze([]),
+      diagnostic: null,
+    }));
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      runFast: async (task) => runRecord(task),
+      runDeep,
+      deepEnabled: () => enabled,
+      now: () => Date.parse("2026-08-01T00:00:00.000Z"),
+    });
+
+    const completed = await scheduler.begin(snapshot("deepseek-disabled"), "PARTITION").promise;
+    expect(completed.deepLane.reason).toBe("PI_DISABLED");
+    expect(runDeep).not.toHaveBeenCalled();
+    expect(scheduler.projection().configured.deepLane).toBe(false);
+
+    enabled = true;
+    expect(scheduler.projection().configured.deepLane).toBe(true);
+  });
+
   it("preserves a fast checkpoint across deep failure and retries pi without rerunning the Agent", async () => {
     const store = new SqliteOperationalStore(":memory:");
     const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));

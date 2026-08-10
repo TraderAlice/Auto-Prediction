@@ -388,6 +388,11 @@ main {
   color: #eef1ef;
 }
 
+.ai-automation-toggle [data-slot="button"] {
+  min-width: 136px;
+  height: 32px;
+}
+
 .ai-rack-footer {
   border-color: #292f35;
 }

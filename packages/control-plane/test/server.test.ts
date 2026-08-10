@@ -173,6 +173,9 @@ describe("control-plane HTTP surface", () => {
       desk: ruleEvidenceClaimDesk,
       tickIntervalMs: 1_000,
     });
+    const aiRuntimeConfigurationDesk = new AiRuntimeConfigurationDesk({
+      PMH_DEEPSEEK_AUTOMATION_ENABLED: "1",
+    });
     const ruleEvidenceClaimTick = vi.spyOn(ruleEvidenceClaimScheduler, "tick");
     const controlPlane = createControlPlane({
       modelRuntime: createOpenAiDiscoveryRuntime({}),
@@ -181,6 +184,7 @@ describe("control-plane HTTP surface", () => {
       evidenceAcquisitionScheduler,
       ruleEvidenceClaimDesk,
       ruleEvidenceClaimScheduler,
+      aiRuntimeConfigurationDesk,
       refreshCatalogOnReady: true,
       startupGate,
     });
@@ -1134,6 +1138,7 @@ describe("control-plane HTTP surface", () => {
         provider: "CODEX",
         codexModel: "gpt-5.6-terra",
         codexReasoningEffort: "max",
+        deepseekAutomationEnabled: false,
       }),
     });
     expect(switched.status).toBe(200);
@@ -1145,6 +1150,7 @@ describe("control-plane HTTP surface", () => {
           provider: "CODEX",
           codexModel: "gpt-5.6-terra",
           codexReasoningEffort: "max",
+          deepseekAutomationEnabled: false,
         },
         credentialTextRetained: false,
       },
@@ -1178,6 +1184,7 @@ describe("control-plane HTTP surface", () => {
         provider: "DEEPSEEK",
         codexModel: "gpt-5.6-luna",
         codexReasoningEffort: "low",
+        deepseekAutomationEnabled: true,
       }),
     });
     expect(stale.status).toBe(409);

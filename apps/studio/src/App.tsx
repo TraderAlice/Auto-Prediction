@@ -1559,6 +1559,7 @@ async function requestAiRuntimeConfigurationUpdate(
       provider: configuration.provider,
       codexModel: configuration.codexModel,
       codexReasoningEffort: configuration.codexReasoningEffort,
+      deepseekAutomationEnabled: configuration.deepseekAutomationEnabled,
     }),
   });
   const result = (await response.json()) as {
@@ -2664,7 +2665,10 @@ function Overview({
   async function updateAiRuntimeConfiguration(
     patch: Partial<Pick<
       AiRuntimeConfiguration,
-      "provider" | "codexModel" | "codexReasoningEffort"
+      | "provider"
+      | "codexModel"
+      | "codexReasoningEffort"
+      | "deepseekAutomationEnabled"
     >>,
   ): Promise<void> {
     setConfigurationStatus("SAVING");
@@ -2856,12 +2860,33 @@ function Overview({
               </SelectContent>
             </Select>
             </label>
+            <label className="ai-automation-toggle">
+              <span>DeepSeek automation</span>
+              <Button
+                size="sm"
+                variant={runtimeConfiguration.configuration.deepseekAutomationEnabled
+                  ? "outline"
+                  : "ghost"}
+                disabled={configurationStatus === "SAVING"}
+                onClick={() => void updateAiRuntimeConfiguration({
+                  deepseekAutomationEnabled:
+                    !runtimeConfiguration.configuration.deepseekAutomationEnabled,
+                })}
+              >
+                {runtimeConfiguration.configuration.deepseekAutomationEnabled
+                  ? "Enabled"
+                  : "Off · manual only"}
+              </Button>
+            </label>
           </div>
           <p className="ai-runtime-description">
             {studioProjection.ai.modelProvider.maxSteps} steps ·{" "}
             {studioProjection.ai.modelProvider.maxToolCalls} tool calls ·{" "}
             {studioProjection.ai.modelProvider.timeoutMs / 1_000}s timeout ·{" "}
             {studioProjection.ai.modelProvider.transport.replaceAll("_", " ").toLowerCase()}
+            {runtimeConfiguration.configuration.deepseekAutomationEnabled
+              ? " · DeepSeek automation enabled"
+              : " · DeepSeek automatic spend blocked"}
           </p>
         </div>
 

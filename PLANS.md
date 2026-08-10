@@ -55,7 +55,9 @@ with value-ranked missing-source work tracked in
 active-versus-retained debt correction tracked in
 [`plans/active-evidence-debt.md`](plans/active-evidence-debt.md), with exact-ref
 durable locator reuse tracked in
-[`plans/durable-locator-capability-reuse.md`](plans/durable-locator-capability-reuse.md).
+[`plans/durable-locator-capability-reuse.md`](plans/durable-locator-capability-reuse.md),
+and durable provider/spending choices tracked in
+[`plans/sqlite-ai-spend-policy.md`](plans/sqlite-ai-spend-policy.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -73,6 +75,13 @@ dense protocol console. The current pass uses a 13/15/20/34–44 px hierarchy,
 one divided status surface, a readable exploration card, and claim monitoring
 inside secondary operations. Final aesthetic acceptance remains with the
 operator rather than another mechanical audit.
+
+AI provider selection is now a spending policy rather than a cosmetic fast-lane
+choice. SQLite configuration v2 persists provider, Codex model/effort, and a
+separate automatic-DeepSeek gate. Credentials alone no longer authorize Pi,
+review, estimation, premise, or evidence-interpretation schedulers to spend.
+The live desk is revision 20 on `CODEX / gpt-5.6-terra / high` with automatic
+DeepSeek disabled; manual DeepSeek remains an explicit operator action.
 
 The first traded-state reformulation portfolio is a measured `HOLD`, not a new
 default Agent loop. Three exact groups produced one honest zero-result and two

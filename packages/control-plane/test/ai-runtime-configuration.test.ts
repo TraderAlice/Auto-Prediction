@@ -6,6 +6,7 @@ import {
   AiRuntimeConfigurationConflictError,
   AiRuntimeConfigurationDesk,
   CodexAuthCacheCredentialProvider,
+  migrateAiRuntimeConfiguration,
   SqliteOperationalStore,
 } from "../src/index.js";
 
@@ -37,8 +38,9 @@ describe("AI runtime configuration", () => {
       expect(desk.current()).toMatchObject({
         revision: 1,
         provider: "DEEPSEEK",
-        codexModel: "gpt-5.6-luna",
-        codexReasoningEffort: "low",
+        codexModel: "gpt-5.6-terra",
+        codexReasoningEffort: "high",
+        deepseekAutomationEnabled: false,
       });
 
       const updated = desk.update({
@@ -46,6 +48,7 @@ describe("AI runtime configuration", () => {
         provider: "CODEX",
         codexModel: "gpt-5.6-terra",
         codexReasoningEffort: "xhigh",
+        deepseekAutomationEnabled: false,
       });
       expect(updated).toMatchObject({ revision: 2, provider: "CODEX" });
       expect(() => desk.update({
@@ -53,6 +56,7 @@ describe("AI runtime configuration", () => {
         provider: "DEEPSEEK",
         codexModel: "gpt-5.6-luna",
         codexReasoningEffort: "low",
+        deepseekAutomationEnabled: true,
       })).toThrow(AiRuntimeConfigurationConflictError);
       expect(JSON.stringify(desk.projection())).not.toMatch(/access.?token|api.?key/i);
       expect(desk.projection()).toMatchObject({
@@ -71,10 +75,30 @@ describe("AI runtime configuration", () => {
         provider: "CODEX",
         codexModel: "gpt-5.6-terra",
         codexReasoningEffort: "xhigh",
+        deepseekAutomationEnabled: false,
       });
     } finally {
       reopened.close();
     }
+  });
+
+  it("migrates retained v1 choices with automatic DeepSeek spend disabled", () => {
+    expect(migrateAiRuntimeConfiguration({
+      schemaVersion: "pmh.ai-runtime-configuration.v1",
+      revision: 7,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "high",
+      updatedAt: "2026-08-09T01:00:00.000Z",
+    })).toEqual({
+      schemaVersion: "pmh.ai-runtime-configuration.v2",
+      revision: 7,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "high",
+      deepseekAutomationEnabled: false,
+      updatedAt: "2026-08-09T01:00:00.000Z",
+    });
   });
 
   it("reads a valid Codex OAuth cache on demand and rejects near-expiry tokens", async () => {

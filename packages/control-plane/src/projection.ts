@@ -1272,11 +1272,12 @@ export function buildStudioProjection(input: {
       aiUsage: input.aiUsage ?? new AiUsageLedger().projection(),
       runtimeConfiguration: input.runtimeConfiguration ?? Object.freeze({
         configuration: Object.freeze({
-          schemaVersion: "pmh.ai-runtime-configuration.v1" as const,
+          schemaVersion: "pmh.ai-runtime-configuration.v2" as const,
           revision: 1,
           provider: "DEEPSEEK" as const,
           codexModel: "gpt-5.6-luna" as const,
           codexReasoningEffort: "low" as const,
+          deepseekAutomationEnabled: false as const,
           updatedAt: "1970-01-01T00:00:00.000Z",
         }),
         availableProviders: Object.freeze(["DEEPSEEK", "CODEX"] as const),
