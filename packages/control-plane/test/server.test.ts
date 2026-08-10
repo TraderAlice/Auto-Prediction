@@ -897,6 +897,25 @@ describe("control-plane HTTP surface", () => {
         executionAuthority: false,
       },
     });
+    const failureBudgetResponse = await fetch(
+      `${baseUrl}/api/v1/failure-budget-frontier`,
+    );
+    expect(failureBudgetResponse.status).toBe(200);
+    expect(await failureBudgetResponse.json()).toMatchObject({
+      schemaVersion: "pmh.failure-budget-frontier.v1",
+      itemCount: 0,
+      positiveMarginCount: 0,
+      rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC",
+      quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY",
+      authority: "FAILURE_BUDGET_RANKING_ONLY",
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        providerRequests: false,
+        externalWrites: false,
+        valueMovingActions: false,
+      },
+    });
     expect(projection.ai.aiUsage).toMatchObject({
       schemaVersion: "pmh.ai-usage-ledger.v1",
       eventCount: 0,

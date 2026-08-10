@@ -12,6 +12,7 @@ describe("Studio workspace routes", () => {
       proposalIds: [],
     });
     expect(parseWorkspaceRoute("?view=review").view).toBe("lifecycle");
+    expect(parseWorkspaceRoute("?view=budgets").view).toBe("budgets");
     expect(parseWorkspaceRoute("?view=unknown").view).toBe("archaeologist");
   });
 

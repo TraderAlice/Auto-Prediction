@@ -8,6 +8,7 @@ export type WorkspaceView =
   | "radar"
   | "preflight"
   | "scouts"
+  | "budgets"
   | "cases"
   | "venues"
   | "books"
@@ -16,6 +17,7 @@ export type WorkspaceView =
 const ROUTE_BY_VIEW: Readonly<Record<WorkspaceView, string>> = Object.freeze({
   archaeologist: "discover",
   scouts: "findings",
+  budgets: "budgets",
   lifecycle: "review",
   preflight: "preflight",
   venues: "markets",
@@ -58,4 +60,3 @@ export function serializeWorkspaceRoute(
   if (focused.length > 0) params.set("proposals", focused.join(","));
   return `?${params.toString()}`;
 }
-

@@ -61,6 +61,7 @@ import {
 } from "./proposal-decision-dossier.js";
 import { buildReviewAttentionProjection } from "./review-attention.js";
 import { buildEvidenceDebtFrontier } from "./evidence-debt-frontier.js";
+import { buildFailureBudgetFrontier } from "./failure-budget-frontier.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
   createMarketArchaeologistDesk,
@@ -3058,6 +3059,23 @@ export function createControlPlane(options?: {
       writeJson(response, 200, Object.freeze({
         desk: probabilityEstimationDesk.projection(),
         scheduler: probabilityEstimationScheduler.projection(),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/failure-budget-frontier"
+    ) {
+      await ready;
+      const probability = probabilityEstimationScheduler.projection();
+      const evaluatedAt = new Date(
+        Math.floor(Date.now() / 60_000) * 60_000,
+      ).toISOString();
+      writeJson(response, 200, buildFailureBudgetFrontier({
+        bounds: probability.bounds,
+        jobs: probability.jobs,
+        corpus: catalogObservationDesk.corpus(),
+        evaluatedAt,
       }));
       return;
     }

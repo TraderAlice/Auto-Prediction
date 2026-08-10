@@ -75,6 +75,50 @@ type SearchAttentionMessage = StudioProjection["ai"]["searchAttention"]["message
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
+type FailureBudgetFrontierProjection = Readonly<{
+  schemaVersion: "pmh.failure-budget-frontier.v1";
+  contentHash: string;
+  evaluatedAt: string;
+  itemCount: number;
+  positiveMarginCount: number;
+  boundedCandidateCount: number;
+  awaitingEstimateCount: number;
+  quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY";
+  authority: "FAILURE_BUDGET_RANKING_ONLY";
+  certificateAuthority: false;
+  executionAuthority: false;
+  effects: Readonly<{ providerRequests: false; externalWrites: false }>;
+  items: ReadonlyArray<Readonly<{
+    itemId: string;
+    proposalId: string;
+    listingRefs: readonly string[];
+    status:
+      | "BOUNDED_ARBITRAGE_CANDIDATE"
+      | "RESEARCH_MARGIN"
+      | "BUDGET_EXHAUSTED"
+      | "AWAITING_ESTIMATES"
+      | "PRICE_UNAVAILABLE";
+    portfolioLabel: string | null;
+    breakEvenEpsilonPpm: string | null;
+    adverseProbabilityUpperPpm: string | null;
+    remainingFailureBudgetPpm: string | null;
+    budgetUtilizationBps: string | null;
+    expectedEdgeFloorUnits: string | null;
+    adverseTailLossUnits: string | null;
+    commonPriceScale: string | null;
+    calibrationStatus: "UNCALIBRATED" | "CALIBRATED" | "PENDING";
+    blockers: readonly string[];
+    failureFactors: ReadonlyArray<Readonly<{
+      factorId: string;
+      label: string;
+      source: "ASSUMPTION" | "COUNTER_SCENARIO";
+    }>>;
+    estimatorJobCount: number;
+    guaranteedProfit: false;
+    certificateAuthority: false;
+    executionAuthority: false;
+  }>>;
+}>;
 type ProposalHandoffProjection = Readonly<{
   schemaVersion: "pmh.proposal-handoff.v3";
   sourceStateHash: string;
@@ -252,6 +296,31 @@ function formatFixedBps(value: string | null): string {
     return `${sign}${absolute / 100n}.${String(absolute % 100n).padStart(2, "0")}%`;
   } catch {
     return value;
+  }
+}
+
+function formatPpm(value: string | null): string {
+  if (value === null) return "—";
+  try {
+    const parsed = BigInt(value);
+    const sign = parsed < 0n ? "−" : "";
+    const absolute = parsed < 0n ? -parsed : parsed;
+    const hundredths = absolute / 100n;
+    return `${sign}${hundredths / 100n}.${String(hundredths % 100n).padStart(2, "0")}%`;
+  } catch {
+    return value;
+  }
+}
+
+function formatScaledUnits(value: string | null, scale: string | null): string {
+  if (value === null || scale === null) return "—";
+  try {
+    const units = BigInt(value);
+    const denominator = BigInt(scale);
+    if (denominator <= 0n) return "—";
+    return formatFixedBps(((units * 10_000n) / denominator).toString());
+  } catch {
+    return "—";
   }
 }
 
@@ -1460,6 +1529,7 @@ const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"]
 const navigation = [
   { id: "archaeologist", label: "Discover", icon: Search },
   { id: "scouts", label: "Findings", icon: Inbox },
+  { id: "budgets", label: "Failure budgets", icon: Gauge },
   { id: "lifecycle", label: "Review queue", icon: GitBranch },
   { id: "preflight", label: "Preflight", icon: FileCheck2 },
   { id: "venues", label: "Markets", icon: Network },
@@ -1470,8 +1540,8 @@ const navigation = [
   { id: "books", label: "Order books", icon: BookOpenCheck },
 ] as const;
 
-const primaryNavigation = navigation.slice(0, 6);
-const systemNavigation = navigation.slice(6);
+const primaryNavigation = navigation.slice(0, 7);
+const systemNavigation = navigation.slice(7);
 
 function SignalMark() {
   return (
@@ -1546,6 +1616,23 @@ async function requestProbabilityResolutionRun(): Promise<void> {
   if (result.executionAuthority !== false) {
     throw new Error("resolution acquisition crossed its authority boundary");
   }
+}
+
+async function requestFailureBudgetFrontier(): Promise<FailureBudgetFrontierProjection> {
+  const response = await fetch("/api/v1/failure-budget-frontier");
+  if (!response.ok) throw new Error("failure budget frontier failed to load");
+  const result = (await response.json()) as FailureBudgetFrontierProjection;
+  if (
+    result.schemaVersion !== "pmh.failure-budget-frontier.v1" ||
+    result.authority !== "FAILURE_BUDGET_RANKING_ONLY" ||
+    result.certificateAuthority !== false ||
+    result.executionAuthority !== false ||
+    result.effects.providerRequests !== false ||
+    result.effects.externalWrites !== false
+  ) {
+    throw new Error("failure budget frontier crossed its authority boundary");
+  }
+  return result;
 }
 
 async function requestAiRuntimeConfigurationUpdate(
@@ -9302,6 +9389,196 @@ function BookDeskView() {
   );
 }
 
+function FailureBudgetView() {
+  const studioProjection = useStudioProjection();
+  const [frontier, setFrontier] = useState<FailureBudgetFrontierProjection | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const deepseekAutomationEnabled =
+    studioProjection.ai.runtimeConfiguration.configuration.deepseekAutomationEnabled;
+
+  async function load(): Promise<void> {
+    setLoading(true);
+    setDiagnostic(null);
+    try {
+      setFrontier(await requestFailureBudgetFrontier());
+    } catch (error) {
+      setDiagnostic(error instanceof Error ? error.message : "failure budget frontier failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const statusLabel = (status: FailureBudgetFrontierProjection["items"][number]["status"]): string => ({
+    BOUNDED_ARBITRAGE_CANDIDATE: "BOUND HOLDS",
+    RESEARCH_MARGIN: "MARGIN · NEEDS MARKET DATA",
+    BUDGET_EXHAUSTED: "BUDGET EXHAUSTED",
+    AWAITING_ESTIMATES: "AWAITING ESTIMATES",
+    PRICE_UNAVAILABLE: "PRICE UNAVAILABLE",
+  })[status];
+
+  return (
+    <section className="page-section failure-budget-page">
+      <div className="page-heading failure-budget-heading">
+        <div>
+          <span className="eyebrow">Probabilistic semantic arbitrage</span>
+          <h1>Price how wrong the relation may be.</h1>
+          <p>
+            Start with an Agent-discovered semantic dependency, then ask how often it may fail
+            before current prices stop compensating us. The gap is a failure budget—not a claim
+            of guaranteed profit.
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => void load()} disabled={loading}>
+          <RefreshCw className={loading ? "is-spinning" : ""} size={16} />
+          Refresh frontier
+        </Button>
+      </div>
+
+      <div className="failure-budget-method" aria-label="Failure budget method">
+        <div>
+          <span>01</span>
+          <strong>Find a dependency</strong>
+          <p>Heuristic Agents propose unusual relations; no claim vocabulary is required up front.</p>
+        </div>
+        <ChevronRight size={17} />
+        <div>
+          <span>02</span>
+          <strong>Bound the failure state</strong>
+          <p>Independent estimates cap the probability that the attractive semantic relation fails.</p>
+        </div>
+        <ChevronRight size={17} />
+        <div>
+          <span>03</span>
+          <strong>Compare with price</strong>
+          <p>The compiler measures how much error the quoted portfolio can absorb before edge is gone.</p>
+        </div>
+      </div>
+
+      {frontier !== null && (
+        <div className="metric-grid failure-budget-summary">
+          <Metric label="Positive margin" value={`${frontier.positiveMarginCount}`} detail="price budget exceeds adverse bound" />
+          <Metric label="Bound candidates" value={`${frontier.boundedCandidateCount}`} detail="all research gates clear" />
+          <Metric label="Awaiting estimates" value={`${frontier.awaitingEstimateCount}`} detail="relations not priced yet" />
+          <Metric label="Frontier size" value={`${frontier.itemCount}`} detail="ranked semantic portfolios" />
+        </div>
+      )}
+
+      {diagnostic !== null && (
+        <div className="failure-budget-notice is-error">
+          <CircleOff size={17} />
+          <div><strong>Frontier unavailable</strong><span>{diagnostic}</span></div>
+        </div>
+      )}
+
+      {loading && frontier === null ? (
+        <div className="failure-budget-empty">
+          <LoaderCircle className="is-spinning" size={20} />
+          <strong>Building the read-only frontier…</strong>
+        </div>
+      ) : frontier !== null && frontier.items.length > 0 ? (
+        <div className="failure-budget-list">
+          {frontier.items.map((item, index) => {
+            const utilization = item.budgetUtilizationBps === null
+              ? 0
+              : Math.min(100, Math.max(0, Number(item.budgetUtilizationBps) / 100));
+            const positive = item.remainingFailureBudgetPpm !== null &&
+              BigInt(item.remainingFailureBudgetPpm) > 0n;
+            return (
+              <Card className="failure-budget-card" key={item.itemId}>
+                <CardHeader>
+                  <div className="failure-budget-rank">{String(index + 1).padStart(2, "0")}</div>
+                  <div className="failure-budget-title">
+                    <div>
+                      <Badge variant={positive ? "verified" : item.status === "AWAITING_ESTIMATES" ? "shadow" : "muted"}>
+                        {statusLabel(item.status)}
+                      </Badge>
+                      <span>{item.calibrationStatus.replaceAll("_", " ")}</span>
+                    </div>
+                    <h2>{item.portfolioLabel ?? item.listingRefs.join(" ↔ ")}</h2>
+                  </div>
+                  <div className={cn("failure-budget-margin", positive && "is-positive")}>
+                    <span>Remaining error budget</span>
+                    <strong>{formatPpm(item.remainingFailureBudgetPpm)}</strong>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {item.budgetUtilizationBps !== null && (
+                    <div className="failure-budget-meter">
+                      <div><span>Adverse bound uses {formatFixedBps(item.budgetUtilizationBps)} of the price budget</span><span>{formatPpm(item.adverseProbabilityUpperPpm)} / {formatPpm(item.breakEvenEpsilonPpm)}</span></div>
+                      <div className="failure-budget-meter-track"><span style={{ width: `${utilization}%` }} /></div>
+                    </div>
+                  )}
+                  <dl className="failure-budget-numbers">
+                    <div><dt>Break-even failure rate</dt><dd>{formatPpm(item.breakEvenEpsilonPpm)}</dd></div>
+                    <div><dt>Conservative adverse cap</dt><dd>{formatPpm(item.adverseProbabilityUpperPpm)}</dd></div>
+                    <div><dt>Expected edge floor*</dt><dd>{formatScaledUnits(item.expectedEdgeFloorUnits, item.commonPriceScale)}</dd></div>
+                    <div><dt>Loss in adverse state*</dt><dd>{formatScaledUnits(item.adverseTailLossUnits, item.commonPriceScale)}</dd></div>
+                  </dl>
+                  {item.failureFactors.length > 0 && (
+                    <div className="failure-budget-factors">
+                      <strong>What can break the relation</strong>
+                      <div>{item.failureFactors.map((factor) => (
+                        <span key={factor.factorId}>{factor.label}</span>
+                      ))}</div>
+                    </div>
+                  )}
+                  <div className="failure-budget-footer">
+                    <div>
+                      {item.blockers.map((blocker) => <code key={blocker}>{blocker.replaceAll("_", " ")}</code>)}
+                      {item.blockers.length === 0 && <code>RESEARCH GATES CLEAR</code>}
+                    </div>
+                    <span>{item.estimatorJobCount} estimator job{item.estimatorJobCount === 1 ? "" : "s"}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      ) : frontier !== null ? (
+        <div className="failure-budget-empty">
+          <Gauge size={22} />
+          <strong>No semantic relation has a probability bound yet.</strong>
+          <p>
+            Discovery and review can continue on Terra. A relation enters this frontier only
+            after independent probability estimates exist; this read does not call a provider.
+          </p>
+          <Badge variant={deepseekAutomationEnabled ? "warning" : "muted"}>
+            DeepSeek automation {deepseekAutomationEnabled ? "enabled" : "off"}
+          </Badge>
+        </div>
+      ) : null}
+
+      <Card className="failure-budget-example">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Illustrative math · not live market data</span>
+            <h2>The object we are trying to maximize</h2>
+          </div>
+          <Badge variant="muted">RESEARCH ONLY</Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="failure-budget-equation">
+            <span>price-implied tolerance</span><strong>20%</strong>
+            <span>conservative failure bound</span><strong>5%</strong>
+            <span>remaining failure budget</span><strong>15%</strong>
+          </div>
+          <p>
+            If a portfolio costs 80¢ and pays at least $1 whenever the proposed relation holds,
+            price can tolerate a 20% adverse-state rate. A defensible 5% upper bound leaves 15%
+            of model error budget. Fees, depth, stale quotes, calibration and tail loss remain
+            separate blockers before this could become actionable.
+          </p>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
 function EvidenceView() {
   const studioProjection = useStudioProjection();
   const evidenceAcquisition =
@@ -9924,6 +10201,7 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
               onOpenReview={(proposalIds) => navigate("lifecycle", proposalIds)}
             />
           )}
+          {view === "budgets" && <FailureBudgetView />}
           {view === "cases" && <ResearchCaseDeskView />}
           {view === "venues" && <VenueMatrix />}
           {view === "books" && <BookDeskView />}
