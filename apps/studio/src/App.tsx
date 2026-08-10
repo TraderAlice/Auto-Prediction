@@ -11020,17 +11020,28 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
 export default function App() {
   const { projection, diagnostic, sync } = useControlPlaneProjection();
   if (projection === null) {
+    const readiness = sync.readiness;
+    const phaseCopy = readiness === null
+      ? "Waiting for the backend process to publish its first projection."
+      : {
+          STARTUP_GATE: "Waiting for this backend process to own the local service.",
+          DURABLE_RECOVERY: "Restoring retained books, catalogs, and research state.",
+          AGENT_RECONCILIATION: "Reconciling retained Agent tasks and run lineage.",
+          WAITING_FOR_PROJECTION: "Durable recovery is complete; preparing the Studio view.",
+          MATERIALIZING_PROJECTION: "Building the first bounded Studio projection.",
+          READY: "The research desk is ready.",
+          FAILED: readiness.diagnostic ?? "Control-plane startup failed.",
+        }[readiness.phase];
     return (
       <main className="control-plane-gate">
         <SignalMark />
         <span className="eyebrow">Harmony control plane</span>
-        <h1>{diagnostic === null ? "Connecting to the desk…" : "Desk offline"}</h1>
+        <h1>{diagnostic === null ? "Preparing the research desk…" : "Desk offline"}</h1>
         <p>
-          {diagnostic ??
-            "Waiting for the backend process to publish its first projection."}
+          {diagnostic ?? `${phaseCopy}${readiness === null ? "" : ` · ${(readiness.elapsedMs / 1_000).toFixed(1)}s elapsed`}`}
         </p>
         <Badge variant={diagnostic === null ? "muted" : "warning"}>
-          {diagnostic === null ? "CONNECTING" : "BACKEND REQUIRED"}
+          {diagnostic === null ? readiness?.phase.replaceAll("_", " ") ?? "CONNECTING" : "BACKEND REQUIRED"}
         </Badge>
       </main>
     );

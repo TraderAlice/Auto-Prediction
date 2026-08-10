@@ -2069,7 +2069,79 @@ export function createControlPlane(options?: {
       realCandidatePreflightDesk.dispositionProjection(),
     );
   };
+  type StartupReadinessPhase =
+    | "STARTUP_GATE"
+    | "DURABLE_RECOVERY"
+    | "AGENT_RECONCILIATION"
+    | "WAITING_FOR_PROJECTION"
+    | "MATERIALIZING_PROJECTION"
+    | "READY"
+    | "FAILED";
+  const startupStartedAtMs = Date.now();
+  let startupPhaseStartedAtMs = startupStartedAtMs;
+  const startupPhaseTimings: Array<Readonly<{
+    phase: StartupReadinessPhase;
+    startedAt: string;
+    completedAt: string;
+    durationMs: number;
+  }>> = [];
+  let startupReadiness = Object.freeze({
+    schemaVersion: "pmh.startup-readiness.v1" as const,
+    status: "STARTING" as "STARTING" | "READY" | "FAILED",
+    phase: "STARTUP_GATE" as StartupReadinessPhase,
+    startedAt: new Date(startupStartedAtMs).toISOString(),
+    phaseStartedAt: new Date(startupPhaseStartedAtMs).toISOString(),
+    completedAt: null as string | null,
+    elapsedMs: 0 as number,
+    phaseElapsedMs: 0 as number,
+    diagnostic: null as string | null,
+    phaseTimings: Object.freeze([...startupPhaseTimings]),
+    projectionResource: "/api/v1/projection" as const,
+    providerRequestsStarted: 0 as const,
+    modelInvocationsStarted: 0 as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  const transitionStartup = (
+    phase: StartupReadinessPhase,
+    status: "STARTING" | "READY" | "FAILED" = "STARTING",
+    diagnostic: string | null = null,
+  ): void => {
+    const nowMs = Date.now();
+    const completedPhaseElapsedMs = Math.max(0, nowMs - startupPhaseStartedAtMs);
+    startupPhaseTimings.push(Object.freeze({
+      phase: startupReadiness.phase,
+      startedAt: new Date(startupPhaseStartedAtMs).toISOString(),
+      completedAt: new Date(nowMs).toISOString(),
+      durationMs: completedPhaseElapsedMs,
+    }));
+    startupPhaseStartedAtMs = nowMs;
+    startupReadiness = Object.freeze({
+      ...startupReadiness,
+      status,
+      phase,
+      phaseStartedAt: new Date(nowMs).toISOString(),
+      completedAt: status === "STARTING" ? null : new Date(nowMs).toISOString(),
+      elapsedMs: Math.max(0, nowMs - startupStartedAtMs),
+      phaseElapsedMs: status === "STARTING" ? 0 : completedPhaseElapsedMs,
+      diagnostic,
+      phaseTimings: Object.freeze([...startupPhaseTimings]),
+    });
+  };
+  const startupReadinessProjection = () => {
+    const nowMs = Date.now();
+    return Object.freeze({
+      ...startupReadiness,
+      elapsedMs: startupReadiness.completedAt === null
+        ? Math.max(0, nowMs - startupStartedAtMs)
+        : startupReadiness.elapsedMs,
+      phaseElapsedMs: startupReadiness.completedAt === null
+        ? Math.max(0, nowMs - startupPhaseStartedAtMs)
+        : startupReadiness.phaseElapsedMs,
+    });
+  };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
+    transitionStartup("DURABLE_RECOVERY");
     const realCandidateReady = realCandidatePreflightDesk.load();
     await Promise.all([
       bookDesk.replay(),
@@ -2080,10 +2152,19 @@ export function createControlPlane(options?: {
         ? [catalogRefreshScheduler.runNow("STARTUP").promise]
         : []),
     ]);
+    transitionStartup("AGENT_RECONCILIATION");
     synchronizeLifecycleSources();
     reconcileRuleEvidenceAgentTasks();
     migrateLegacyRuleEvidenceAgentRuns();
     agentCampaignDispatcher.recoverPreparedRuns();
+    transitionStartup("WAITING_FOR_PROJECTION");
+  });
+  void ready.catch((error: unknown) => {
+    transitionStartup(
+      "FAILED",
+      "FAILED",
+      error instanceof Error ? error.message : "control-plane startup failed",
+    );
   });
 
   const agentExecutionConsole = async () => {
@@ -2465,14 +2546,31 @@ export function createControlPlane(options?: {
     // second full derivation; the next request advances to the latest revision.
     if (liveProjectionBuild !== null) return liveProjectionBuild.promise;
     let pending: Promise<LiveProjectionSnapshot>;
-    pending = liveProjection().then((current) => {
+    pending = ready.then(() => {
+      if (startupReadiness.status === "STARTING") {
+        transitionStartup("MATERIALIZING_PROJECTION");
+      }
+      return liveProjection();
+    }).then((current) => {
       const snapshot = Object.freeze({
         revision,
         projection: current,
         etag: `"${current.identity.viewHash}"`,
       });
       if (projectionRevision === revision) liveProjectionCache = snapshot;
+      if (startupReadiness.status === "STARTING") {
+        transitionStartup("READY", "READY");
+      }
       return snapshot;
+    }).catch((error: unknown) => {
+      if (startupReadiness.status === "STARTING") {
+        transitionStartup(
+          "FAILED",
+          "FAILED",
+          error instanceof Error ? error.message : "Studio projection materialization failed",
+        );
+      }
+      throw error;
     }).finally(() => {
       if (liveProjectionBuild?.promise === pending) liveProjectionBuild = null;
     });
@@ -2743,6 +2841,16 @@ export function createControlPlane(options?: {
         "access-control-allow-headers": "content-type",
       });
       response.end();
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/readiness") {
+      const readiness = startupReadinessProjection();
+      writeJson(
+        response,
+        readiness.status === "READY" ? 200 : readiness.status === "FAILED" ? 503 : 202,
+        readiness,
+        { "cache-control": "no-store" },
+      );
       return;
     }
     if (request.method === "GET" && url.pathname === "/health") {

@@ -305,6 +305,54 @@ describe("control-plane HTTP surface", () => {
     expect(ruleEvidenceClaimTick).not.toHaveBeenCalled();
   });
 
+  it("exposes provider-free startup phases before the first bounded projection", async () => {
+    let releaseStartup: (() => void) | undefined;
+    const startupGate = new Promise<void>((resolveStartup) => {
+      releaseStartup = resolveStartup;
+    });
+    const controlPlane = createControlPlane({
+      modelRuntime: createOpenAiDiscoveryRuntime({}),
+      probabilityEstimationDesk: createProbabilityEstimationDesk({}),
+      startupGate,
+    });
+    servers.push(controlPlane.server);
+    await new Promise<void>((resolveListen) =>
+      controlPlane.server.listen(0, "127.0.0.1", resolveListen),
+    );
+    const address = controlPlane.server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const waitingResponse = await fetch(`${baseUrl}/api/v1/readiness`);
+    expect(waitingResponse.status).toBe(202);
+    expect(Number(waitingResponse.headers.get("content-length") ?? "0")).toBeLessThan(2_000);
+    await expect(waitingResponse.json()).resolves.toMatchObject({
+      status: "STARTING",
+      phase: "STARTUP_GATE",
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+
+    const firstProjection = fetch(`${baseUrl}/api/v1/projection`);
+    const duplicateProjection = fetch(`${baseUrl}/api/v1/projection`);
+    releaseStartup?.();
+    const [first, duplicate] = await Promise.all([firstProjection, duplicateProjection]);
+    expect(first.status).toBe(200);
+    expect(duplicate.status).toBe(200);
+    expect(first.headers.get("etag")).toBe(duplicate.headers.get("etag"));
+
+    const readyResponse = await fetch(`${baseUrl}/api/v1/readiness`);
+    expect(readyResponse.status).toBe(200);
+    await expect(readyResponse.json()).resolves.toMatchObject({
+      status: "READY",
+      phase: "READY",
+      completedAt: expect.any(String),
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+    });
+  });
+
   it("holds due issues during refresh and dispatches them on the new corpus", async () => {
     const source = catalogObservationSources.find(
       (candidate) => candidate.venueId === "polymarket-global",

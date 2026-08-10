@@ -40,6 +40,15 @@ them while blocked. API-key profiles also require a fresh configuration-only
 preflight, so configured-but-missing secrets cannot bypass the synchronous
 dispatcher. An app-server-backed Codex runtime is the next usable-route
 candidate. Other legacy AI workloads remain later adoption work.
+Cold-start use then exposed a separate operability failure: the listener was
+reachable while Studio waited 8–25 seconds with a generic Connecting screen.
+The control plane now exposes a provider-free `/api/v1/readiness` envelope with
+timed startup-gate, durable-recovery, Agent-reconciliation, and first-projection
+phases. Studio polls that small envelope alongside the coalesced projection and
+shows the real phase and elapsed time. On the retained desk the first measured
+trace split 25.758 seconds into roughly 17.8 seconds of durable recovery and
+7.949 seconds of projection materialization, giving later performance work an
+evidence-backed target without delaying the listener or fabricating content.
 
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and

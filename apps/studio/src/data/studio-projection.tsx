@@ -15,7 +15,72 @@ export type ProjectionSyncState = Readonly<{
   status: "CONNECTING" | "LIVE" | "REFRESHING" | "RECONNECTING";
   revision: string | null;
   lastUpdatedAt: string | null;
+  readiness: StartupReadiness | null;
 }>;
+
+export type StartupReadiness = Readonly<{
+  schemaVersion: "pmh.startup-readiness.v1";
+  status: "STARTING" | "READY" | "FAILED";
+  phase:
+    | "STARTUP_GATE"
+    | "DURABLE_RECOVERY"
+    | "AGENT_RECONCILIATION"
+    | "WAITING_FOR_PROJECTION"
+    | "MATERIALIZING_PROJECTION"
+    | "READY"
+    | "FAILED";
+  startedAt: string;
+  phaseStartedAt: string;
+  completedAt: string | null;
+  elapsedMs: number;
+  phaseElapsedMs: number;
+  diagnostic: string | null;
+  phaseTimings: ReadonlyArray<Readonly<{
+    phase: StartupReadiness["phase"];
+    startedAt: string;
+    completedAt: string;
+    durationMs: number;
+  }>>;
+  projectionResource: "/api/v1/projection";
+  providerRequestsStarted: 0;
+  modelInvocationsStarted: 0;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+const STARTUP_PHASES = Object.freeze([
+  "STARTUP_GATE",
+  "DURABLE_RECOVERY",
+  "AGENT_RECONCILIATION",
+  "WAITING_FOR_PROJECTION",
+  "MATERIALIZING_PROJECTION",
+  "READY",
+  "FAILED",
+] as const);
+
+export function parseStartupReadiness(value: unknown): StartupReadiness {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("startup readiness is malformed");
+  }
+  const candidate = value as StartupReadiness;
+  if (
+    candidate.schemaVersion !== "pmh.startup-readiness.v1" ||
+    !["STARTING", "READY", "FAILED"].includes(candidate.status) ||
+    !STARTUP_PHASES.includes(candidate.phase) ||
+    !Number.isSafeInteger(candidate.elapsedMs) || candidate.elapsedMs < 0 ||
+    !Number.isSafeInteger(candidate.phaseElapsedMs) || candidate.phaseElapsedMs < 0 ||
+    !Array.isArray(candidate.phaseTimings) || candidate.phaseTimings.some((item) =>
+      !STARTUP_PHASES.includes(item.phase) ||
+      !Number.isSafeInteger(item.durationMs) || item.durationMs < 0
+    ) ||
+    candidate.projectionResource !== "/api/v1/projection" ||
+    candidate.providerRequestsStarted !== 0 ||
+    candidate.modelInvocationsStarted !== 0 ||
+    candidate.externalWriteAuthority !== false ||
+    candidate.valueMovingAuthority !== false
+  ) throw new Error("startup readiness violates its authority contract");
+  return candidate;
+}
 
 type ProjectionInvalidation = Readonly<{
   schemaVersion: "pmh.studio-projection-invalidation.v1";
@@ -81,6 +146,7 @@ export function useControlPlaneProjection(): Readonly<{
     status: "CONNECTING",
     revision: null,
     lastUpdatedAt: null,
+    readiness: null,
   });
 
   useEffect(() => {
@@ -88,7 +154,49 @@ export function useControlPlaneProjection(): Readonly<{
     let etag: string | null = null;
     let refreshQueued = false;
     let refreshInFlight: Promise<void> | null = null;
+    let readinessTimer: ReturnType<typeof setInterval> | null = null;
     const activeRequests = new Set<AbortController>();
+
+    const stopReadinessPolling = (): void => {
+      if (readinessTimer !== null) clearInterval(readinessTimer);
+      readinessTimer = null;
+    };
+
+    const pollReadiness = async (): Promise<void> => {
+      const abort = new AbortController();
+      activeRequests.add(abort);
+      try {
+        const response = await fetch("/api/v1/readiness", {
+          signal: abort.signal,
+          headers: { accept: "application/json" },
+        });
+        const readiness = parseStartupReadiness(await response.json());
+        if (closed) return;
+        const presentedReadiness = readiness.phase === "WAITING_FOR_PROJECTION" &&
+            refreshInFlight !== null
+          ? Object.freeze({
+              ...readiness,
+              phase: "MATERIALIZING_PROJECTION" as const,
+              phaseStartedAt: new Date().toISOString(),
+              phaseElapsedMs: 0,
+            })
+          : readiness;
+        setSync((current) => ({ ...current, readiness: presentedReadiness }));
+        if (readiness.status === "READY") stopReadinessPolling();
+        if (readiness.status === "FAILED") {
+          stopReadinessPolling();
+          setDiagnostic(readiness.diagnostic ?? "control-plane startup failed");
+        }
+      } catch {
+        // Projection transport owns the offline diagnostic. Readiness polling
+        // is a best-effort explanation for a backend that is already reachable.
+      } finally {
+        activeRequests.delete(abort);
+      }
+    };
+
+    void pollReadiness();
+    readinessTimer = setInterval(() => void pollReadiness(), 500);
 
     const refresh = (): void => {
       refreshQueued = true;
@@ -119,11 +227,13 @@ export function useControlPlaneProjection(): Readonly<{
               setProjection(nextProjection);
             }
             const revision = response.headers.get("x-pmh-projection-revision");
-            setSync({
+            setSync((current) => ({
+              ...current,
               status: "LIVE",
               revision,
               lastUpdatedAt: new Date().toISOString(),
-            });
+            }));
+            stopReadinessPolling();
             setDiagnostic(null);
           } catch (error: unknown) {
             if (!closed && !abort.signal.aborted) {
@@ -168,6 +278,7 @@ export function useControlPlaneProjection(): Readonly<{
     return () => {
       closed = true;
       for (const request of activeRequests) request.abort();
+      stopReadinessPolling();
       events.close();
     };
   }, []);

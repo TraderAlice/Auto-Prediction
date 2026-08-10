@@ -682,6 +682,31 @@ creation. The scheduler test asserts zero retained records and zero `runFast`
 calls; the server configuration test proves the routed profile is blocked with
 zero Agent runs and model invocations.
 
+### Cold-start readiness checkpoint
+
+Issue #88 was filed after repeated product restarts left Studio on an
+undifferentiated Connecting screen for 8–25 seconds even though the HTTP
+listener had already announced itself. The first full projection is about
+2.19 MB, while its cached response is roughly 11 ms, so the operator needed to
+see the boundary between durable recovery and view materialization before any
+optimization claim could be credible.
+
+`/api/v1/readiness` is now a small, no-store, provider-free envelope that does
+not await the full projection. It records the startup gate, durable recovery,
+Agent reconciliation, wait-for-first-view, and projection-materialization
+phases with bounded elapsed timing. The first and duplicate projection requests
+still share one in-flight build and one ETag. Studio polls readiness while the
+projection request is pending and renders the actual phase instead of implying
+a network outage. The envelope cannot start a provider request, model
+invocation, external write, or value-moving action.
+
+The first retained-desk trace after instrumentation completed in 25.758
+seconds: approximately 17.8 seconds preceded the first projection and 7.949
+seconds were spent materializing it. This checkpoint makes the next two
+performance candidates measurable—bounded durable recovery and surface-scoped
+bootstrap projections—without hiding work by delaying the listener or showing
+fixture content.
+
 ## Qualification gates
 
 ### Identity and compatibility
