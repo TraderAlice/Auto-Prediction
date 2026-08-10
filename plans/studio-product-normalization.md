@@ -160,3 +160,12 @@ exploration desk remain legible at both widths; the mobile summary collapses to
 two columns and no console-era typography returned. This closes the visual
 re-review while leaving final aesthetic acceptance, as always, with the
 operator.
+
+The subsequent evidence-source pass rechecked the actual default route rather
+than a synthetic page fixture. `/` now opens Discover, the retained 659-market
+projection reports five enabled exploratory briefs and six enabled focused
+watches without the prior off-by-one detail, and the same page has no horizontal
+overflow at 390×844. Evidence uses the same type scale and shadcn primitives;
+its source-specificity summary is an aggregate over the full retained scheduler
+rather than whichever twelve jobs fit the live interaction window. Desktop and
+390 px Evidence views remain readable with no document overflow.

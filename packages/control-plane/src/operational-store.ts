@@ -4061,12 +4061,17 @@ export class SqliteOperationalStore
           recordJson,
           recordHash,
         );
+      const currentIsRetainedTerminal =
+        (validated.status === "PASS" || validated.status === "FAILED") &&
+        validated.deepLane.status !== "PENDING" &&
+        validated.deepLane.status !== "RUNNING";
       this.#database
         .prepare(
           `DELETE FROM search_lease_records
            WHERE lease_id IN (
              SELECT lease_id FROM search_lease_records
-             WHERE status IN ('PASS', 'FAILED')
+             WHERE lease_id <> ?
+               AND status IN ('PASS', 'FAILED')
                AND COALESCE(
                  json_extract(record_json, '$.deepLane.status'),
                  'NOT_RUN'
@@ -4074,7 +4079,10 @@ export class SqliteOperationalStore
              ORDER BY rowid DESC LIMIT -1 OFFSET ?
            )`,
         )
-        .run(retentionLimit);
+        .run(
+          validated.lease.leaseId,
+          Math.max(0, retentionLimit - (currentIsRetainedTerminal ? 1 : 0)),
+        );
       this.#pruneUnreferencedSearchLeaseCorpora();
       const row = this.#database
         .prepare(

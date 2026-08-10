@@ -24,6 +24,7 @@ export type NormalizedCatalogListing = Readonly<{
   closesAt?: string;
   rulesText?: string;
   rulesUrl?: string;
+  venueRulesUrl?: string;
   resolutionSourceUrl?: string;
   outcomes: readonly NormalizedCatalogOutcome[];
   collateralId?: string;

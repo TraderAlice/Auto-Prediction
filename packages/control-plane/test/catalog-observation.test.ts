@@ -143,7 +143,7 @@ describe("anonymous catalog observation desk", () => {
     })).toThrow(/normalizer identity mismatch/);
   });
 
-  it("retires the pre-rulebook Polymarket US normalization until a fresh capture", async () => {
+  it("retires the venue-rule-only Polymarket US normalization until a fresh capture", async () => {
     const currentSource = catalogObservationSources.find(
       (candidate) => candidate.venueId === "polymarket-us",
     );
@@ -167,12 +167,16 @@ describe("anonymous catalog observation desk", () => {
       normalizerIdentity: hashCanonical({
         schemaVersion: "pmh.catalog-normalizer-identity.v1",
         venueId: "polymarket-us",
-        revision: "gateway-catalog.v1",
+        revision: "gateway-catalog.v2:cftc-rulebook-locator",
       }),
       decode: (fixture: Parameters<typeof currentSource.decode>[0]) =>
         currentSource.decode(fixture).map((listing) => {
-          const { rulesUrl: _rulesUrl, ...legacyListing } = listing;
-          return legacyListing;
+          const {
+            rulesUrl: _contractRulesUrl,
+            venueRulesUrl,
+            ...legacyListing
+          } = listing;
+          return { ...legacyListing, rulesUrl: venueRulesUrl };
         }),
     };
     await new CatalogObservationDesk({
@@ -209,11 +213,11 @@ describe("anonymous catalog observation desk", () => {
         contextEligible: true,
       }],
     });
-    expect(restored.corpus().listings.every((listing) =>
-      listing.evidenceLocators?.some((locator) =>
-        locator.url.endsWith("rules0519263672.docx")
-      ) === true
-    )).toBe(true);
+    expect(restored.corpus().listings.every((listing) => {
+      const roles = listing.evidenceLocators?.map((locator) => locator.role);
+      return roles?.includes("CONTRACT_RULE_DOCUMENT") === true &&
+        roles.includes("VENUE_RULE_DOCUMENT");
+    })).toBe(true);
   });
 
   it("replays pre-role normalizations from raw evidence into the current projection", async () => {

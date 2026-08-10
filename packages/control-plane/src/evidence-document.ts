@@ -5,7 +5,10 @@ import { Readable } from "node:stream";
 import { hashBytes, hashCanonical, type Hash } from "@pmh/domain";
 import { geminiManifest } from "@pmh/venue-gemini";
 import {
+  POLYMARKET_US_GATEWAY_ORIGIN,
   POLYMARKET_US_RULEBOOK_URL,
+  extractPolymarketUsContractRules,
+  polymarketUsContractRulesSlug,
   polymarketUsManifest,
 } from "@pmh/venue-polymarket-us";
 import { assertEvidenceRequirement, type EvidenceRequirement } from "./evidence-requirement.js";
@@ -20,6 +23,8 @@ const UNSIGNED_DECIMAL = /^(?:0|[1-9]\d*)$/u;
 const PDF_EXTRACTOR = "pdfjs-dist@6.2.108";
 const DOCX_EXTRACTOR = "mammoth@1.12.1:raw-text";
 const TEXT_EXTRACTOR = "pmh.bounded-document-text@1";
+const POLYMARKET_US_CONTRACT_RULE_EXTRACTOR =
+  "pmh.polymarket-us-contract-detail-description@1";
 const DOCX_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const POLICY_KEYS = Object.freeze([
@@ -287,7 +292,11 @@ export function assertEvidenceDocumentFetchPolicy(
     policy.schemaVersion !== "pmh.evidence-document-fetch-policy.v1" ||
     !HASH_PATTERN.test(String(policyIdentity)) || policyIdentity !== hashCanonical(body) ||
     !nonEmpty(policy.venueId, 256) || !nonEmpty(policy.protocolIdentity, 1_000) ||
-    !["CONTRACT_RULE_DOCUMENT", "OUTCOME_RESOLUTION_SOURCE"].includes(policy.role) ||
+    ![
+      "CONTRACT_RULE_DOCUMENT",
+      "OUTCOME_RESOLUTION_SOURCE",
+      "VENUE_RULE_DOCUMENT",
+    ].includes(policy.role) ||
     !Array.isArray(policy.allowedHostnames) || policy.allowedHostnames.length < 1 ||
     policy.allowedHostnames.length > 8 || policy.allowedHostnames.some((hostname, index) =>
       canonicalHostname(hostname) !== hostname ||
@@ -325,6 +334,17 @@ export function defaultEvidenceDocumentFetchPolicies(): readonly EvidenceDocumen
       venueId: polymarketUsManifest.venueId,
       protocolIdentity: polymarketUsManifest.protocolIdentity,
       role: "CONTRACT_RULE_DOCUMENT",
+      allowedHostnames: [
+        new URL(POLYMARKET_US_GATEWAY_ORIGIN).hostname,
+        new URL(POLYMARKET_US_RULEBOOK_URL).hostname,
+      ],
+      allowedContentTypes: ["application/json", DOCX_CONTENT_TYPE],
+      maxResponseBytes: 5_000_000,
+    }),
+    buildEvidenceDocumentFetchPolicy({
+      venueId: polymarketUsManifest.venueId,
+      protocolIdentity: polymarketUsManifest.protocolIdentity,
+      role: "VENUE_RULE_DOCUMENT",
       allowedHostnames: [new URL(POLYMARKET_US_RULEBOOK_URL).hostname],
       allowedContentTypes: [DOCX_CONTENT_TYPE],
       maxResponseBytes: 5_000_000,
@@ -743,6 +763,28 @@ export async function extractEvidenceDocumentText(
   const policy = assertEvidenceDocumentFetchPolicy(policyInput);
   if (document.record.policyIdentity !== policy.policyIdentity) {
     throw new Error("evidence document extraction policy does not match capture");
+  }
+  if (
+    document.record.venueId === polymarketUsManifest.venueId &&
+    document.record.role === "CONTRACT_RULE_DOCUMENT" &&
+    document.record.contentType === "application/json"
+  ) {
+    const slug = polymarketUsContractRulesSlug(document.record.requestedUrl);
+    if (slug === null) {
+      throw new Error("Polymarket US contract-rule evidence URL is not a bound market detail");
+    }
+    const bounded = boundedTextResult(
+      extractPolymarketUsContractRules(document.bytes, slug),
+      policy.maxExtractedCharacters,
+    );
+    return extractionRecord({
+      document: document.record,
+      text: bounded.text,
+      truncated: bounded.truncated,
+      pageCount: null,
+      indirectObjectDeclarationCount: null,
+      extractor: POLYMARKET_US_CONTRACT_RULE_EXTRACTOR,
+    });
   }
   if (document.record.contentType === "application/pdf") {
     const extracted = await extractPdf(document.bytes, policy);

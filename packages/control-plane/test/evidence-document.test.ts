@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
+  polymarketUsContractRulesUrl,
+  polymarketUsManifest,
+} from "@pmh/venue-polymarket-us";
+import {
   assertEvidenceDocumentObservation,
   assertStoredEvidenceDocument,
   assertStoredEvidenceDocumentText,
@@ -230,6 +234,70 @@ describe("policy-constrained evidence document acquisition", () => {
       semanticDecisionAuthority: false,
       executionAuthority: false,
     });
+  });
+
+  it("extracts only the bound contract description from Polymarket US JSON detail", async () => {
+    const slug = "paccc-usho-midterms-2026-11-03-dem";
+    const url = polymarketUsContractRulesUrl(slug);
+    const locator = buildDiscoveryEvidenceLocator({
+      venueId: polymarketUsManifest.venueId,
+      protocolIdentity: polymarketUsManifest.protocolIdentity,
+      role: "CONTRACT_RULE_DOCUMENT",
+      url,
+    });
+    if (locator === null) throw new Error("missing Polymarket US contract locator");
+    const first = Object.freeze({
+      ...listing("polymarket-us:house-dem"),
+      venueId: polymarketUsManifest.venueId,
+      venueInstrumentId: slug,
+      protocolIdentity: polymarketUsManifest.protocolIdentity,
+      evidenceLocators: Object.freeze([locator]),
+    });
+    const second = Object.freeze({
+      ...first,
+      listingRef: "polymarket-us:house-rep",
+      venueInstrumentId: "paccc-usho-midterms-2026-11-03-rep",
+      evidenceLocators: undefined,
+    });
+    const requirement = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId: hashCanonical({ proposal: "polymarket-us-contract-detail" }),
+      proposalListingRefs: [first.listingRef, second.listingRef],
+      listings: [first, second],
+      drafts: [{
+        kind: "RESOLUTION_RULE",
+        listingRefs: [first.listingRef],
+        claim: "The contract defines House control by a majority of voting seats.",
+        reason: "The partition depends on the contract-specific counting rule.",
+        satisfyingObservation: "The contract description defines the majority rule.",
+        contradictingObservation: "The contract uses a different control rule.",
+        temporalPosture: "CURRENT",
+      }],
+    })[0]!;
+    const rules = "This market settles Yes if the party wins a majority of voting seats.";
+    const bytes = new TextEncoder().encode(JSON.stringify({
+      market: { slug, description: rules, ignored: "not evidence text" },
+    }));
+    const capture = await new EvidenceDocumentFetcher({
+      resolve: publicResolver,
+      now: clock(),
+      fetch: async () => new Response(bytes, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    }).capture({
+      requirement,
+      locatorIdentity: locator.locatorIdentity,
+    });
+
+    expect(capture.document.record).toMatchObject({
+      requestedUrl: url,
+      venueId: "polymarket-us",
+      role: "CONTRACT_RULE_DOCUMENT",
+      contentType: "application/json",
+    });
+    expect(capture.extraction.text).toBe(rules);
+    expect(capture.extraction.text).not.toContain("ignored");
   });
 
   it("uses a retained validator for 304 and records a new observation without new bytes", async () => {

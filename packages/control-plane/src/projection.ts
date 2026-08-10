@@ -792,6 +792,12 @@ export function buildStudioProjection(input: {
     requirementCount: 0,
     coalescedRequirementCount: 0,
     conditionalReuseCount: 0,
+    sourceSpecificity: {
+      contractDetailCount: 0,
+      venuePolicyCount: 0,
+      legacyGenericCount: 0,
+      withoutLocatorCount: 0,
+    },
     budget: {
       basis: "FETCH_ATTEMPTS" as const,
       maxAttemptsPerJob: 3,

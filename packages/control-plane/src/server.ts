@@ -154,7 +154,10 @@ import {
   type EvidenceAcquisitionSchedulerStore,
 } from "./evidence-acquisition-scheduler.js";
 import { EvidenceDocumentFetcher } from "./evidence-document.js";
-import type { EvidenceRequirement } from "./evidence-requirement.js";
+import {
+  rebaseEvidenceRequirementToCurrentListings,
+  type EvidenceRequirement,
+} from "./evidence-requirement.js";
 import {
   createRuleEvidenceClaimDesk,
   type RuleEvidenceClaimRecordStore,
@@ -1437,10 +1440,16 @@ export function createControlPlane(options?: {
         bundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" &&
         !sources.has(job.proposalId)
       ) {
+        const evidenceBundle = selectCurrentSemanticEvidenceBundle({
+          proposal: bundle.proposal,
+          retainedBundle: bundle,
+          currentSnapshot,
+          proposalCorpusSnapshotIdentity: job.proposalCorpusSnapshotIdentity,
+        });
         sources.set(job.proposalId, {
           proposal: bundle.proposal,
           proposalCorpusSnapshotIdentity: job.proposalCorpusSnapshotIdentity,
-          evidenceBundle: bundle,
+          evidenceBundle,
         });
       }
     }
@@ -1706,20 +1715,59 @@ export function createControlPlane(options?: {
       });
     }));
   };
-  const evidenceRequirements = (): readonly EvidenceRequirement[] => Object.freeze([
-    ...marketArchaeologistDesk.projection().records.flatMap((record) =>
-      record.status === "PASS" && record.report !== null
-        ? record.report.result.evidenceRequirements ?? []
-        : []
-    ),
-    ...semanticReviewDesk.projection().records.flatMap((record) =>
-      record.status === "PASS" && record.report !== null
-        ? record.report.result.evidenceRequirements ?? []
-        : []
-    ),
-  ].filter((requirement, index, all) =>
-    all.findIndex((candidate) => candidate.requirementId === requirement.requirementId) === index
-  ));
+  const evidenceRequirements = (): readonly EvidenceRequirement[] => {
+    const retained = [
+      ...marketArchaeologistDesk.projection().records.flatMap((record) =>
+        record.status === "PASS" && record.report !== null
+          ? record.report.result.evidenceRequirements ?? []
+          : []
+      ),
+      ...semanticReviewDesk.projection().records.flatMap((record) =>
+        record.status === "PASS" && record.report !== null
+          ? record.report.result.evidenceRequirements ?? []
+          : []
+      ),
+      ...evidenceAcquisitionScheduler.projection().jobs.flatMap((job) =>
+        job.requirements
+      ),
+    ].filter((requirement, index, all) =>
+      all.findIndex((candidate) =>
+        candidate.requirementId === requirement.requirementId
+      ) === index
+    );
+    const currentByProposal = new Map(baseSemanticReviewCandidates().map((candidate) =>
+      [candidate.proposal.proposalId, candidate] as const
+    ));
+    const currentListingByRef = new Map(catalogObservationDesk.corpus().listings.map(
+      (listing) => [listing.listingRef, listing] as const,
+    ));
+    const rebased = retained.map((requirement) => {
+      const current = currentByProposal.get(requirement.proposalId);
+      if (current?.evidenceBundle?.schemaVersion ===
+          "pmh.proposal-evidence-bundle.v2") {
+        return rebaseEvidenceRequirementToCurrentListings(requirement, {
+            proposalListingRefs: current.proposal.listingRefs,
+            listings: current.evidenceBundle.listings,
+          });
+      }
+      const scopedListings = requirement.listingRefs.flatMap((listingRef) => {
+        const listing = currentListingByRef.get(listingRef);
+        return listing === undefined ? [] : [listing];
+      });
+      return requirement.listingRefs.length >= 2 &&
+          scopedListings.length === requirement.listingRefs.length
+        ? rebaseEvidenceRequirementToCurrentListings(requirement, {
+            proposalListingRefs: requirement.listingRefs,
+            listings: scopedListings,
+          })
+        : requirement;
+    });
+    return Object.freeze(rebased.filter((requirement, index, all) =>
+      all.findIndex((candidate) =>
+        candidate.requirementId === requirement.requirementId
+      ) === index
+    ));
+  };
   const ruleEvidenceClaimInputs = (): readonly RuleEvidenceClaimInput[] => Object.freeze(
     evidenceAcquisitionScheduler.projection().jobs.flatMap((job) => {
       if (job.status !== "CAPTURED") return [];

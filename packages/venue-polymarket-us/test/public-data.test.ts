@@ -7,8 +7,10 @@ import {
   POLYMARKET_US_RULEBOOK_URL,
   decodePolymarketUsBinarySettlement,
   decodePolymarketUsBookSnapshot,
+  extractPolymarketUsContractRules,
   normalizePolymarketUsBbo,
   normalizePolymarketUsCatalog,
+  polymarketUsContractRulesUrl,
   polymarketUsManifest,
 } from "../src/index.js";
 
@@ -57,7 +59,10 @@ describe("Polymarket US anonymous public data", () => {
       mechanism: "CENTRALIZED_ORDER_BOOK",
       collateralId: "USD",
       minPriceTick: 100_000n,
-      rulesUrl: POLYMARKET_US_RULEBOOK_URL,
+      rulesUrl: polymarketUsContractRulesUrl(
+        "tec-mlb-nlchamp-2026-09-27-nym",
+      ),
+      venueRulesUrl: POLYMARKET_US_RULEBOOK_URL,
     });
     expect(listings[0]?.outcomes.map((outcome) => [outcome.label, outcome.indicativePrice])).toEqual([
       ["Yes", 300_000n],
@@ -72,6 +77,21 @@ describe("Polymarket US anonymous public data", () => {
     expect(polymarketUsManifest.liveExecutionEnabled).toBe(false);
     expect(polymarketUsManifest.officialSources).toContain(
       POLYMARKET_US_RULEBOOK_URL,
+    );
+  });
+
+  it("extracts contract-specific rules from the bound official detail response", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({
+      market: {
+        slug: "contract-a",
+        description: "  Settles Yes only when the named result is official.\r\n",
+      },
+    }));
+    expect(extractPolymarketUsContractRules(bytes, "contract-a")).toBe(
+      "Settles Yes only when the named result is official.",
+    );
+    expect(() => extractPolymarketUsContractRules(bytes, "contract-b")).toThrow(
+      /requested slug/u,
     );
   });
 

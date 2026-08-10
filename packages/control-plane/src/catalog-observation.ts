@@ -335,7 +335,7 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
       protocolIdentity: polymarketUsManifest.protocolIdentity,
       normalizerIdentity: catalogNormalizerIdentity(
         polymarketUsManifest.venueId,
-        "gateway-catalog.v2:cftc-rulebook-locator",
+        "gateway-catalog.v3:contract-detail-and-venue-rule-locators",
       ),
       sourceUrl:
         "https://gateway.polymarket.us/v1/markets?active=true&closed=false&archived=false&limit=500&offset=0",
@@ -429,17 +429,24 @@ function matchesLegacyPreRuleRoleNormalization(
   return hashCanonical(legacyListings) === expectedIdentity;
 }
 
-function matchesPolymarketUsPreRulebookLocatorNormalization(
+function matchesRetiredPolymarketUsNormalization(
   listings: readonly NormalizedCatalogListing[],
   expectedIdentity: Hash,
+  revision: "gateway-catalog.v1" | "gateway-catalog.v2:cftc-rulebook-locator",
 ): boolean {
   if (!listings.every((listing) =>
     listing.venueId === polymarketUsManifest.venueId &&
-    listing.rulesUrl === POLYMARKET_US_RULEBOOK_URL
+    listing.venueRulesUrl === POLYMARKET_US_RULEBOOK_URL
   )) return false;
   return hashCanonical(listings.map((listing) => {
-    const { rulesUrl: _rulesUrl, ...legacyListing } = listing;
-    return legacyListing;
+    const {
+      rulesUrl: _contractRulesUrl,
+      venueRulesUrl,
+      ...legacyListing
+    } = listing;
+    return revision === "gateway-catalog.v1"
+      ? legacyListing
+      : { ...legacyListing, rulesUrl: venueRulesUrl };
   })) === expectedIdentity;
 }
 
@@ -693,16 +700,24 @@ export class CatalogObservationDesk {
         verified.record.schemaVersion === "pmh.catalog-observation.v2" &&
         verified.record.normalizerIdentity !== currentNormalizerIdentity
       ) {
+        const storedNormalizerIdentity = verified.record.normalizerIdentity;
+        const retiredPolymarketUsRevision = ([
+          "gateway-catalog.v1",
+          "gateway-catalog.v2:cftc-rulebook-locator",
+        ] as const).find((revision) =>
+          storedNormalizerIdentity === catalogNormalizerIdentity(
+            polymarketUsManifest.venueId,
+            revision,
+          )
+        );
         const retiredPolymarketUsNormalizer =
           verified.record.venueId === polymarketUsManifest.venueId &&
-          verified.record.normalizerIdentity === catalogNormalizerIdentity(
-            polymarketUsManifest.venueId,
-            "gateway-catalog.v1",
-          ) &&
+          retiredPolymarketUsRevision !== undefined &&
           listings.length === verified.record.listingCount &&
-          matchesPolymarketUsPreRulebookLocatorNormalization(
+          matchesRetiredPolymarketUsNormalization(
             listings,
             verified.record.listingIdentity,
+            retiredPolymarketUsRevision,
           );
         if (retiredPolymarketUsNormalizer) {
           retiredNormalizerSources.add(verified.record.venueId);

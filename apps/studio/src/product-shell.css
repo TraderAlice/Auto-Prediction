@@ -1634,6 +1634,55 @@ footer {
   }
 }
 
+.evidence-source-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  margin: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #15181d;
+}
+
+.evidence-source-summary > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  border-right: 1px solid var(--border);
+  padding: 14px 16px;
+}
+
+.evidence-source-summary > div:last-child {
+  border-right: 0;
+}
+
+.evidence-source-summary span,
+.evidence-source-summary small {
+  color: #929b97;
+  font-size: 13px;
+}
+
+.evidence-source-summary strong {
+  color: #f0f2f1;
+  font-size: 20px;
+  font-weight: 640;
+}
+
+@media (max-width: 640px) {
+  .evidence-source-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evidence-source-summary > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .evidence-source-summary > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+  }
+}
+
 /*
  * Operator review, 2026-08-10.
  *

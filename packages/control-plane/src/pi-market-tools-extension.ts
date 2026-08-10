@@ -34,6 +34,7 @@ export default function registerMarketResearchTools(pi: ExtensionAPI): void {
             Type.Literal("ORACLE_SOURCE"),
             Type.Literal("TIME_BOUNDARY"),
             Type.Literal("OUTCOME_MAPPING"),
+            Type.Literal("VENUE_POLICY"),
             Type.Literal("FEE_SCHEDULE"),
             Type.Literal("QUOTE_DEPTH"),
           ]),

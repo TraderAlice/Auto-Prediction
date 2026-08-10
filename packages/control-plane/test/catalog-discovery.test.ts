@@ -47,12 +47,20 @@ describe("verified catalog discovery context", () => {
       rulesText: expect.stringContaining("settle"),
       sourceKind: "VERIFIED_FIXTURE",
       protocolIdentity: "gateway-rest-v1:2026-08-01",
-      evidenceLocators: [{
-        role: "CONTRACT_RULE_DOCUMENT",
-        url: "https://www.cftc.gov/filings/orgrules/rules0519263672.docx",
-        authority: "EVIDENCE_LOCATOR_ONLY",
-        fetchAuthority: false,
-      }],
+      evidenceLocators: [
+        {
+          role: "CONTRACT_RULE_DOCUMENT",
+          url: "https://gateway.polymarket.us/v1/market/slug/tec-mlb-nlchamp-2026-09-27-nym",
+          authority: "EVIDENCE_LOCATOR_ONLY",
+          fetchAuthority: false,
+        },
+        {
+          role: "VENUE_RULE_DOCUMENT",
+          url: "https://www.cftc.gov/filings/orgrules/rules0519263672.docx",
+          authority: "EVIDENCE_LOCATOR_ONLY",
+          fetchAuthority: false,
+        },
+      ],
     });
     expect(
       context.listings.every((listing) =>
@@ -240,12 +248,17 @@ describe("verified catalog discovery context", () => {
       venueId: "venue-a",
       protocolIdentity: "venue-a:v1",
       rulesUrl: " https://rules.example/contract.pdf ",
+      venueRulesUrl: "https://rules.example/venue.pdf",
       resolutionSourceUrl: "https://oracle.example/result",
     });
     expect(locators.map((locator) => locator.role)).toEqual([
       "CONTRACT_RULE_DOCUMENT",
       "OUTCOME_RESOLUTION_SOURCE",
+      "VENUE_RULE_DOCUMENT",
     ]);
+    expect(locators.at(-1)?.schemaVersion).toBe(
+      "pmh.discovery-evidence-locator.v2",
+    );
     expect(locators.every((locator) => locator.fetchAuthority === false)).toBe(true);
     expect(buildDiscoveryEvidenceLocator({
       venueId: "venue-a",

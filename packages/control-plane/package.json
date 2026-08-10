@@ -7,13 +7,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json && esbuild src/main.ts src/provider-smoke-main.ts src/pi-investigator-smoke-main.ts src/semantic-constraint-smoke-main.ts src/evidence-document-smoke-main.ts src/rule-evidence-claim-smoke-main.ts src/pi-market-tools-extension.ts --bundle --platform=node --format=esm --external:ai --external:@ai-sdk/deepseek --external:@ai-sdk/openai --external:@earendil-works/pi-coding-agent --external:mammoth --external:pdfjs-dist/legacy/build/pdf.mjs --external:typebox --outdir=dist",
+    "build": "tsc -b tsconfig.json && esbuild src/main.ts src/provider-smoke-main.ts src/pi-investigator-smoke-main.ts src/semantic-constraint-smoke-main.ts src/evidence-document-smoke-main.ts src/polymarket-us-contract-rule-smoke-main.ts src/rule-evidence-claim-smoke-main.ts src/pi-market-tools-extension.ts --bundle --platform=node --format=esm --external:ai --external:@ai-sdk/deepseek --external:@ai-sdk/openai --external:@earendil-works/pi-coding-agent --external:mammoth --external:pdfjs-dist/legacy/build/pdf.mjs --external:typebox --outdir=dist",
     "check": "tsc -b tsconfig.json",
     "dev": "tsx watch src/main.ts",
     "smoke:provider": "tsx src/provider-smoke-main.ts",
     "smoke:investigator": "tsx src/pi-investigator-smoke-main.ts",
     "smoke:semantic-constraint": "tsx src/semantic-constraint-smoke-main.ts",
     "smoke:evidence-document": "tsx src/evidence-document-smoke-main.ts",
+    "smoke:polymarket-us-contract-rule": "tsx src/polymarket-us-contract-rule-smoke-main.ts",
     "smoke:rule-evidence-claim": "tsx src/rule-evidence-claim-smoke-main.ts",
     "start": "node dist/main.js",
     "test": "vitest run",

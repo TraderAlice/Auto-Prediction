@@ -152,6 +152,12 @@ describe("durable evidence acquisition scheduler", () => {
       requirementCount: 2,
       coalescedRequirementCount: 1,
       unsupportedCount: 0,
+      sourceSpecificity: {
+        contractDetailCount: 1,
+        venuePolicyCount: 0,
+        legacyGenericCount: 0,
+        withoutLocatorCount: 0,
+      },
       budget: { basis: "FETCH_ATTEMPTS", fetchAttemptsStarted: 1 },
       authority: "ANONYMOUS_EVIDENCE_ORCHESTRATION_ONLY",
       semanticDecisionAuthority: false,
@@ -217,6 +223,12 @@ describe("durable evidence acquisition scheduler", () => {
     expect(scheduler.projection()).toMatchObject({
       unsupportedCount: 1,
       dueCount: 0,
+      sourceSpecificity: {
+        contractDetailCount: 0,
+        venuePolicyCount: 0,
+        legacyGenericCount: 0,
+        withoutLocatorCount: 1,
+      },
       budget: { fetchAttemptsStarted: 0 },
     });
     expect(scheduler.projection().jobs[0]).toMatchObject({

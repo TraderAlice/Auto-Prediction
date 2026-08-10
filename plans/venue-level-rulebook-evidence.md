@@ -1,6 +1,6 @@
 # Venue-level rulebook evidence
 
-Status: passage-handle interpretation live; contract-specific locator gap measured
+Status: contract-specific and venue-policy evidence routes implemented and live-qualified
 
 Created: 2026-08-10
 
@@ -15,14 +15,24 @@ rules without giving the Agent open-web fetch authority.
 
 ## Decision
 
-- Fresh Polymarket US catalog listings attach the current official CFTC-hosted
-  rulebook as a `CONTRACT_RULE_DOCUMENT` locator.
+- Fresh Polymarket US catalog listings attach two deliberately different
+  official locators: the slug-bound anonymous market-detail endpoint is a
+  `CONTRACT_RULE_DOCUMENT`, while the current CFTC-hosted rulebook is a
+  `VENUE_RULE_DOCUMENT`.
+- Resolution, cancellation, time-boundary, and outcome-mapping requirements
+  may consume only contract-rule locators. A venue document enters the queue
+  only through an explicit `VENUE_POLICY` requirement. Generic exchange policy
+  therefore cannot accidentally satisfy a contract-specific semantic claim.
 - The catalog normalizer identity changes when this locator becomes part of the
   normalized listing. Historical observations replay under their original
   normalizer and require a fresh capture for the new evidence posture.
-- The first-party fetch policy allows only the exact CFTC host, HTTPS, bounded
-  bytes, and the official DOCX content type. Redirects, DNS, content encoding,
-  and Clash fake-IP posture retain the existing fail-closed checks.
+- The first-party fetch policies allow only the official Gateway and CFTC
+  hosts, HTTPS, bounded bytes, and the expected JSON or DOCX content types.
+  Redirects, DNS, content encoding, and Clash fake-IP posture retain the
+  existing fail-closed checks.
+- Contract-detail JSON is not exposed to the Agent as an arbitrary response.
+  The adapter verifies the requested slug and extracts only the exact market
+  description; the raw response remains content-addressed alongside it.
 - DOCX extraction produces bounded untrusted text and preserves the raw bytes,
   receive time, headers, source URL, hashes, and protocol identity.
 - Venue policy is evidence, not automatic support. A rulebook passage may
@@ -36,6 +46,8 @@ rules without giving the Agent open-web fetch authority.
 - A minimal DOCX fixture proves extraction and byte/text bounds.
 - Historical catalog observations are verified against their old normalizer
   before being retired for fresh capture; no retained hash is reinterpreted.
+- The v3 catalog normalizer retires both the pre-locator v1 and generic-
+  rulebook-only v2 Polymarket US generations until fresh anonymous capture.
 - Live anonymous capture of the June 2026 CFTC filing retrieved 4,140,483 bytes
   and extracted 197,796 characters, including the Contract Outcome Review
   Process and venue-discretion language.
@@ -104,7 +116,11 @@ but does not contain the House-control, UFC-champion, or individual market
 definitions requested by the current requirements. The next evidence slice is
 therefore not more generic-rulebook prompting. It is contract-specific official
 locator discovery and capture, with venue policy retained as a separate
-fallback/appeal layer.
+fallback/appeal layer. The official API audit found that the anonymous
+`GET /v1/market/slug/{slug}` response carries the full contract description;
+the public House pair currently returns 1,896 characters for each side. That
+endpoint is now the contract-specific locator, while the CFTC DOCX keeps its
+venue-policy role.
 
 An independent natural DeepSeek V4 Flash smoke over a controlled retained rule
 then completed `SUPPORTS` in one read plus one terminal effect. The model
@@ -114,10 +130,22 @@ schema parse and no semantic, certificate, or execution authority. This
 separates protocol capability from the low yield of the currently misrouted
 generic venue document.
 
-The retained House-control proposal itself cannot yet be rebound: its exact
-Polymarket US refs are absent from the current 659-listing corpus, and attaching
-a current rulebook to a historical observation would falsify temporal lineage.
-The next honest qualification is a fresh House capture when those refs return,
-or a separately designed historical-rule acquisition route. Studio's Evidence
-page now presents the live four-stage funnel—Agent gap, official document,
-verified claim, evidence-aware review—and names the active bottleneck.
+The House-control pair returned in the current 659-listing corpus and closed
+the missing live qualification. First-party requirement reconciliation rebound
+the retained proposal family to the two current slug-specific locators without
+another model call. The acquisition scheduler created seven contract-detail
+jobs; the House time-boundary, resolution, outcome-mapping, and cancellation
+jobs all carried both exact Democratic and Republican URLs, and the anonymous
+fetch path captured their full contract descriptions. The permanent live smoke
+captured a 3,934-byte raw response and extracted the complete 1,895-character
+trimmed House rule text under its source hash.
+
+The same restart exposed two durability defects that are now covered by the
+ordinary path: saturated SQLite search-lease pruning could delete the row just
+updated during startup recovery, and job-only review bundles could retain old
+catalog locators even after proposal evidence had been rebound. Pruning now
+reserves the current row, and every retained bundle selects current semantic
+evidence before evidence acquisition. Studio derives its source-specificity
+summary from aggregate scheduler state rather than the twelve-job interaction
+window; the live projection reports 50 contract-detail jobs, four retained
+legacy-generic jobs, and 196 explicit no-locator debts.

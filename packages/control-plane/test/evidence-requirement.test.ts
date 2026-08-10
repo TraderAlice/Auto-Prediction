@@ -4,13 +4,17 @@ import {
   assertEvidenceRequirement,
   buildDiscoveryEvidenceLocator,
   buildEvidenceRequirements,
+  rebaseEvidenceRequirementToCurrentListings,
   type DiscoveryCatalogListing,
   type EvidenceRequirementDraft,
 } from "../src/index.js";
 
 function listing(
   venueId: string,
-  locatorRole: "CONTRACT_RULE_DOCUMENT" | "OUTCOME_RESOLUTION_SOURCE",
+  locatorRole:
+    | "CONTRACT_RULE_DOCUMENT"
+    | "VENUE_RULE_DOCUMENT"
+    | "OUTCOME_RESOLUTION_SOURCE",
   options: Readonly<{ listingRef?: string; url?: string }> = {},
 ): DiscoveryCatalogListing {
   const protocolIdentity = `${venueId}:v1`;
@@ -69,6 +73,95 @@ function draft(
 }
 
 describe("structured evidence requirements", () => {
+  it("rebinds a retained current requirement only when acquisition scope changes", () => {
+    const oldContract = listing("polymarket-us", "CONTRACT_RULE_DOCUMENT", {
+      listingRef: "polymarket-us:house-dem",
+      url: "https://www.cftc.gov/filings/orgrules/legacy.docx",
+    });
+    const peer = Object.freeze({
+      ...oldContract,
+      listingRef: "polymarket-us:house-rep",
+      venueInstrumentId: "house-rep",
+    });
+    const refs = [oldContract.listingRef, peer.listingRef];
+    const retained = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId,
+      proposalListingRefs: refs,
+      listings: [oldContract, peer],
+      drafts: [{ ...draft("RESOLUTION_RULE", [oldContract.listingRef]), temporalPosture: "CURRENT" }],
+    })[0]!;
+    const contractLocator = buildDiscoveryEvidenceLocator({
+      venueId: oldContract.venueId,
+      protocolIdentity: oldContract.protocolIdentity,
+      role: "CONTRACT_RULE_DOCUMENT",
+      url: "https://gateway.polymarket.us/v1/market/slug/house-dem",
+    });
+    const venueLocator = buildDiscoveryEvidenceLocator({
+      venueId: oldContract.venueId,
+      protocolIdentity: oldContract.protocolIdentity,
+      role: "VENUE_RULE_DOCUMENT",
+      url: "https://www.cftc.gov/filings/orgrules/current.docx",
+    });
+    if (contractLocator === null || venueLocator === null) {
+      throw new Error("missing current evidence locators");
+    }
+    const currentContract = Object.freeze({
+      ...oldContract,
+      evidenceLocators: Object.freeze([contractLocator, venueLocator]),
+    });
+    const rebased = rebaseEvidenceRequirementToCurrentListings(retained, {
+      proposalListingRefs: refs,
+      listings: [currentContract, peer],
+    });
+    expect(rebased.requirementId).not.toBe(retained.requirementId);
+    expect(rebased.acquisitionScopeIdentity).not.toBe(
+      retained.acquisitionScopeIdentity,
+    );
+    expect(rebased.eligibleLocators.map((item) => item.locator)).toEqual([
+      contractLocator,
+    ]);
+    expect(rebaseEvidenceRequirementToCurrentListings(rebased, {
+      proposalListingRefs: refs,
+      listings: [{
+        ...currentContract,
+        outcomes: currentContract.outcomes.map((outcome) => ({
+          ...outcome,
+          indicativePrice: outcome.indicativePrice === "0.4" ? "0.41" : "0.59",
+        })),
+      }, peer],
+    })).toBe(rebased);
+  });
+
+  it("keeps contract rules and venue policy as separate evidence routes", () => {
+    const contract = listing("venue-a", "CONTRACT_RULE_DOCUMENT", {
+      listingRef: "venue-a:contract",
+    });
+    const venuePolicy = listing("venue-a", "VENUE_RULE_DOCUMENT", {
+      listingRef: "venue-a:venue-policy",
+    });
+    const scopedListings = Object.freeze([contract, venuePolicy]);
+    const refs = scopedListings.map((item) => item.listingRef);
+    const requirements = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId,
+      proposalListingRefs: refs,
+      listings: scopedListings,
+      drafts: [
+        draft("RESOLUTION_RULE", [contract.listingRef]),
+        draft("VENUE_POLICY", [venuePolicy.listingRef]),
+      ],
+    });
+    expect(requirements.find((item) => item.kind === "RESOLUTION_RULE")
+      ?.eligibleLocators.map((item) => item.locator.role)).toEqual([
+        "CONTRACT_RULE_DOCUMENT",
+      ]);
+    expect(requirements.find((item) => item.kind === "VENUE_POLICY")
+      ?.eligibleLocators.map((item) => item.locator.role)).toEqual([
+        "VENUE_RULE_DOCUMENT",
+      ]);
+  });
+
   it("derives bounded acquisition routes and adapter-owned locators", () => {
     const requirements = buildEvidenceRequirements({
       origin: "SEMANTIC_REVIEW",

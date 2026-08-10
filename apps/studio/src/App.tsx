@@ -800,6 +800,12 @@ const EMPTY_EVIDENCE_ACQUISITION: StudioProjection["ai"]["evidenceAcquisition"] 
   requirementCount: 0,
   coalescedRequirementCount: 0,
   conditionalReuseCount: 0,
+  sourceSpecificity: {
+    contractDetailCount: 0,
+    venuePolicyCount: 0,
+    legacyGenericCount: 0,
+    withoutLocatorCount: 0,
+  },
   budget: {
     basis: "FETCH_ATTEMPTS",
     maxAttemptsPerJob: 3,
@@ -3614,7 +3620,9 @@ function MarketArchaeologistView() {
     (item) => item.discoveryMode === "CLAIM_MONITORING",
   ) ?? emptyOriginPerformance;
   const currentIssues = issueScheduler.issues.filter(
-    (issue) => issue.supersededByIssueId === undefined || issue.supersededByIssueId === null,
+    (issue) =>
+      issue.enabled &&
+      (issue.supersededByIssueId === undefined || issue.supersededByIssueId === null),
   );
   const currentExplorationCount = currentIssues.filter(
     (issue) => issue.discoveryMode === "HEURISTIC_EXPLORATION",
@@ -9283,6 +9291,22 @@ function EvidenceView() {
   const capturedJobs = evidenceAcquisition.jobs.filter((job) =>
     job.status === "CAPTURED"
   );
+  const sourceTier = (
+    job: (typeof evidenceAcquisition.jobs)[number],
+  ): "CONTRACT" | "VENUE" | "LEGACY" | "UNSUPPORTED" => {
+    if (job.locatorIdentity === null) return "UNSUPPORTED";
+    const locator = job.requirements.flatMap((requirement) =>
+      requirement.eligibleLocators
+    ).find((binding) =>
+      binding.locator.locatorIdentity === job.locatorIdentity
+    )?.locator;
+    if (locator?.role === "VENUE_RULE_DOCUMENT") return "VENUE";
+    if (locator?.role !== "CONTRACT_RULE_DOCUMENT") return "UNSUPPORTED";
+    return locator.url === "https://www.cftc.gov/filings/orgrules/rules0519263672.docx"
+      ? "LEGACY"
+      : "CONTRACT";
+  };
+  const evidenceSourceCounts = evidenceAcquisition.sourceSpecificity;
   const rebasedJobs = semanticReviewScheduler.jobs.filter((job) =>
     job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" &&
     job.evidenceBundle.captureKind === "EXACT_CURRENT_REBASE"
@@ -9373,6 +9397,28 @@ function EvidenceView() {
             </div>
             <code>{evidenceAcquisition.storage.jobs.durable ? "SQLITE WAL" : "MEMORY"}</code>
           </div>
+          <div className="evidence-source-summary" aria-label="Evidence source specificity">
+            <div>
+              <span>Contract detail</span>
+              <strong>{evidenceSourceCounts.contractDetailCount}</strong>
+              <small>contract-bound jobs</small>
+            </div>
+            <div>
+              <span>Venue policy</span>
+              <strong>{evidenceSourceCounts.venuePolicyCount}</strong>
+              <small>venue-wide policy jobs</small>
+            </div>
+            <div>
+              <span>Legacy generic</span>
+              <strong>{evidenceSourceCounts.legacyGenericCount}</strong>
+              <small>retained, not current proof</small>
+            </div>
+            <div>
+              <span>Without locator</span>
+              <strong>{evidenceSourceCounts.withoutLocatorCount}</strong>
+              <small>explicit evidence debt</small>
+            </div>
+          </div>
           <div className="evidence-document-list">
             {capturedJobs.length === 0 ? (
               <div className="review-operation-empty">
@@ -9389,7 +9435,7 @@ function EvidenceView() {
                     {" · "}{job.proposalIds.length} proposal{job.proposalIds.length === 1 ? "" : "s"}
                   </span>
                 </div>
-                <Badge variant="verified">CAPTURED</Badge>
+                <Badge variant="verified">{sourceTier(job)}</Badge>
                 <code>{job.lastDocumentId?.slice(7, 15) ?? "document"}</code>
               </article>
             ))}

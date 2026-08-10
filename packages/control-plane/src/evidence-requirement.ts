@@ -53,6 +53,7 @@ export const EVIDENCE_REQUIREMENT_KINDS = Object.freeze([
   "ORACLE_SOURCE",
   "TIME_BOUNDARY",
   "OUTCOME_MAPPING",
+  "VENUE_POLICY",
   "FEE_SCHEDULE",
   "QUOTE_DEPTH",
 ] as const);
@@ -128,6 +129,7 @@ function compatibleLocatorRoles(
   kind: EvidenceRequirementKind,
 ): readonly DiscoveryEvidenceLocator["role"][] {
   if (kind === "ORACLE_SOURCE") return ["OUTCOME_RESOLUTION_SOURCE"];
+  if (kind === "VENUE_POLICY") return ["VENUE_RULE_DOCUMENT"];
   if ([
     "RESOLUTION_RULE",
     "VOID_CANCELLATION",
@@ -463,4 +465,38 @@ export function assertEvidenceRequirement(value: unknown): EvidenceRequirement {
     throw new Error("evidence requirement acquisition routing is inconsistent");
   }
   return Object.freeze(requirement);
+}
+
+export function rebaseEvidenceRequirementToCurrentListings(
+  requirementInput: EvidenceRequirement,
+  input: Readonly<{
+    proposalListingRefs: readonly string[];
+    listings: readonly DiscoveryCatalogListing[];
+  }>,
+): EvidenceRequirement {
+  const requirement = assertEvidenceRequirement(requirementInput);
+  if (
+    requirement.temporalPosture !== "CURRENT" ||
+    !requirement.listingRefs.every((listingRef) =>
+      input.listings.some((listing) => listing.listingRef === listingRef)
+    )
+  ) return requirement;
+  const rebased = buildEvidenceRequirements({
+    origin: requirement.origin,
+    proposalId: requirement.proposalId,
+    proposalListingRefs: input.proposalListingRefs,
+    listings: input.listings,
+    drafts: [{
+      kind: requirement.kind,
+      listingRefs: requirement.listingRefs,
+      claim: requirement.claim,
+      reason: requirement.reason,
+      satisfyingObservation: requirement.satisfyingObservation,
+      contradictingObservation: requirement.contradictingObservation,
+      temporalPosture: requirement.temporalPosture,
+    }],
+  })[0]!;
+  return rebased.acquisitionScopeIdentity === requirement.acquisitionScopeIdentity
+    ? requirement
+    : rebased;
 }

@@ -700,13 +700,29 @@ none of the House-control, UFC-champion, or named-market semantics requested by
 the current evidence requirements. The next evidence milestone is therefore
 contract-specific official locator discovery and capture, with the venue-level
 rulebook retained as a separate fallback/appeal layer—not more prompting over
-the wrong document. An independent natural DeepSeek V4 Flash smoke confirmed
+the wrong document. That routing is now implemented: fresh Polymarket US
+listings bind the anonymous slug-specific market-detail endpoint as
+`CONTRACT_RULE_DOCUMENT` and the CFTC filing separately as
+`VENUE_RULE_DOCUMENT`. Resolution requirements cannot consume venue policy;
+the latter requires an explicit `VENUE_POLICY` gap. First-party JSON extraction
+verifies the slug and retains only the exact contract description as Agent
+text, while preserving the raw response and lineage. The catalog normalizer is
+v3, and prior v1/v2 observations are retired for fresh capture instead of being
+reinterpreted. An independent natural DeepSeek V4 Flash smoke confirmed
 the protocol itself: one read plus one terminal passage handle produced
 `SUPPORTS` with a first-party verified 160-character citation.
-The House specimen remains historical because its exact refs are absent from
-the current 659-listing corpus; no current locator is grafted onto old source
-time. Studio now exposes this as a readable four-stage evidence funnel. The
-measured operator frontier remains `DECISION_READY=0`.
+The House refs subsequently returned in the current 659-listing corpus. Durable
+requirement reconciliation rebound the retained proposal family to both exact
+slug-specific locators without another model request, and seven contract-detail
+jobs entered the anonymous acquisition scheduler. A live smoke retained the
+3,934-byte raw response and extracted the complete 1,895-character trimmed
+House rule text. Startup qualification also fixed saturated search-lease SQLite
+pruning and job-only evidence-bundle rebasing. Studio now reports evidence
+source specificity from full retained aggregates rather than its twelve-job
+interaction window; the live projection has 50 contract-detail jobs, four
+legacy-generic jobs, and 196 explicit no-locator debts. Fresh desktop and 390 px
+checks on the actual `5174` default Discover and Evidence routes have no
+horizontal overflow. The measured operator frontier remains `DECISION_READY=0`.
 
 ## Deferred future campaigns
 

@@ -114,6 +114,12 @@ export type EvidenceAcquisitionSchedulerProjection = Readonly<{
   requirementCount: number;
   coalescedRequirementCount: number;
   conditionalReuseCount: number;
+  sourceSpecificity: Readonly<{
+    contractDetailCount: number;
+    venuePolicyCount: number;
+    legacyGenericCount: number;
+    withoutLocatorCount: number;
+  }>;
   budget: Readonly<{
     basis: "FETCH_ATTEMPTS";
     maxAttemptsPerJob: number;
@@ -140,6 +146,28 @@ export type EvidenceAcquisitionSchedulerProjection = Readonly<{
     liveExecutionEnabled: false;
   }>;
 }>;
+
+type EvidenceSourceSpecificity =
+  | "CONTRACT_DETAIL"
+  | "VENUE_POLICY"
+  | "LEGACY_GENERIC"
+  | "WITHOUT_LOCATOR";
+
+function evidenceSourceSpecificity(
+  job: EvidenceAcquisitionJobRecord,
+): EvidenceSourceSpecificity {
+  if (job.locatorIdentity === null) return "WITHOUT_LOCATOR";
+  const locator = job.requirements.flatMap((requirement) =>
+    requirement.eligibleLocators
+  ).find((binding) => binding.locator.locatorIdentity === job.locatorIdentity)?.locator;
+  if (locator === undefined) return "WITHOUT_LOCATOR";
+  if (locator.role === "VENUE_RULE_DOCUMENT") return "VENUE_POLICY";
+  if (locator.role !== "CONTRACT_RULE_DOCUMENT") return "WITHOUT_LOCATOR";
+  if (
+    locator.url === "https://www.cftc.gov/filings/orgrules/rules0519263672.docx"
+  ) return "LEGACY_GENERIC";
+  return "CONTRACT_DETAIL";
+}
 
 type SchedulerOptions = Readonly<{
   fetcher: EvidenceDocumentFetcher;
@@ -698,6 +726,7 @@ export class EvidenceAcquisitionScheduler {
 
   public projection(): EvidenceAcquisitionSchedulerProjection {
     const jobs = Object.freeze([...this.#jobs]);
+    const sourceSpecificities = jobs.map(evidenceSourceSpecificity);
     const now = this.#now();
     const memory = <Key extends string>(idempotencyKey: Key) => Object.freeze({
       mode: "MEMORY" as const,
@@ -729,6 +758,20 @@ export class EvidenceAcquisitionScheduler {
         0,
       ),
       conditionalReuseCount: jobs.reduce((sum, job) => sum + job.conditionalReuseCount, 0),
+      sourceSpecificity: Object.freeze({
+        contractDetailCount: sourceSpecificities.filter(
+          (specificity) => specificity === "CONTRACT_DETAIL",
+        ).length,
+        venuePolicyCount: sourceSpecificities.filter(
+          (specificity) => specificity === "VENUE_POLICY",
+        ).length,
+        legacyGenericCount: sourceSpecificities.filter(
+          (specificity) => specificity === "LEGACY_GENERIC",
+        ).length,
+        withoutLocatorCount: sourceSpecificities.filter(
+          (specificity) => specificity === "WITHOUT_LOCATOR",
+        ).length,
+      }),
       budget: Object.freeze({
         basis: "FETCH_ATTEMPTS" as const,
         maxAttemptsPerJob: this.#maxAttempts,

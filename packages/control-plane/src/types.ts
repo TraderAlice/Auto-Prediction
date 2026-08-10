@@ -9,9 +9,14 @@ export type DiscoveryCatalogMode =
   | "CURRENT_OBSERVATIONS";
 
 export type DiscoveryEvidenceLocator = Readonly<{
-  schemaVersion: "pmh.discovery-evidence-locator.v1";
+  schemaVersion:
+    | "pmh.discovery-evidence-locator.v1"
+    | "pmh.discovery-evidence-locator.v2";
   locatorIdentity: Hash;
-  role: "CONTRACT_RULE_DOCUMENT" | "OUTCOME_RESOLUTION_SOURCE";
+  role:
+    | "CONTRACT_RULE_DOCUMENT"
+    | "VENUE_RULE_DOCUMENT"
+    | "OUTCOME_RESOLUTION_SOURCE";
   url: string;
   authority: "EVIDENCE_LOCATOR_ONLY";
   fetchAuthority: false;

@@ -12,6 +12,34 @@ export const POLYMARKET_US_PRICE_SCALE = 100_000_000n;
 export const POLYMARKET_US_QUANTITY_SCALE = 10_000n;
 export const POLYMARKET_US_RULEBOOK_URL =
   "https://www.cftc.gov/filings/orgrules/rules0519263672.docx";
+export const POLYMARKET_US_GATEWAY_ORIGIN = "https://gateway.polymarket.us";
+
+const MARKET_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,254}[a-z0-9])?$/u;
+
+export function polymarketUsContractRulesUrl(slug: string): string {
+  if (!MARKET_SLUG_PATTERN.test(slug)) {
+    throw new Error("Polymarket US market slug is not URL-safe");
+  }
+  return `${POLYMARKET_US_GATEWAY_ORIGIN}/v1/market/slug/${slug}`;
+}
+
+export function polymarketUsContractRulesSlug(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const prefix = "/v1/market/slug/";
+    const slug = parsed.pathname.startsWith(prefix)
+      ? parsed.pathname.slice(prefix.length)
+      : "";
+    return parsed.origin === POLYMARKET_US_GATEWAY_ORIGIN &&
+        parsed.search === "" && parsed.hash === "" &&
+        MARKET_SLUG_PATTERN.test(slug) &&
+        polymarketUsContractRulesUrl(slug) === parsed.toString()
+      ? slug
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 const AmountSchema = z.object({
   value: z.string(),
@@ -47,6 +75,12 @@ const MarketSchema = z.object({
 });
 
 const CatalogSchema = z.object({ markets: z.array(MarketSchema) });
+const MarketRuleDetailSchema = z.object({
+  market: z.object({
+    slug: z.string(),
+    description: z.string(),
+  }),
+});
 const SettlementSchema = z.object({
   slug: z.string(),
   settlement: z.string(),
@@ -231,7 +265,8 @@ export function normalizePolymarketUsCatalog(
       ...(market.startDate === undefined ? {} : { opensAt: market.startDate }),
       ...(market.endDate === undefined ? {} : { closesAt: market.endDate }),
       rulesText: market.description,
-      rulesUrl: POLYMARKET_US_RULEBOOK_URL,
+      rulesUrl: polymarketUsContractRulesUrl(market.slug),
+      venueRulesUrl: POLYMARKET_US_RULEBOOK_URL,
       outcomes: Object.freeze(outcomes),
       collateralId: "USD",
       priceScale: POLYMARKET_US_PRICE_SCALE,
@@ -244,6 +279,24 @@ export function normalizePolymarketUsCatalog(
       protocolIdentity: fixture.metadata.protocolVersion,
     });
   });
+}
+
+export function extractPolymarketUsContractRules(
+  bytes: Uint8Array,
+  expectedSlug: string,
+): string {
+  const decoded = parseJsonWithNumberLexemes(
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+  );
+  const detail = MarketRuleDetailSchema.parse(decoded).market;
+  if (detail.slug !== expectedSlug) {
+    throw new Error("Polymarket US contract detail does not match the requested slug");
+  }
+  const rules = detail.description.replace(/\r\n?/gu, "\n").trim();
+  if (rules === "") {
+    throw new Error("Polymarket US contract detail has no resolution rules");
+  }
+  return rules;
 }
 
 export function decodePolymarketUsBinarySettlement(

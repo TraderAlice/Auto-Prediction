@@ -445,6 +445,7 @@ const semanticReviewSubmissionJsonSchema = {
               "ORACLE_SOURCE",
               "TIME_BOUNDARY",
               "OUTCOME_MAPPING",
+              "VENUE_POLICY",
               "FEE_SCHEDULE",
               "QUOTE_DEPTH",
             ],
@@ -751,6 +752,7 @@ const EVIDENCE_REQUIREMENT_KINDS = Object.freeze([
   "ORACLE_SOURCE",
   "TIME_BOUNDARY",
   "OUTCOME_MAPPING",
+  "VENUE_POLICY",
   "FEE_SCHEDULE",
   "QUOTE_DEPTH",
 ] as const);
