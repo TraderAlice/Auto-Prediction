@@ -1371,6 +1371,27 @@ describe("control-plane HTTP surface", () => {
       credentialSecretTextRetained: false,
     });
 
+    const agentConsole = await fetch(`${baseUrl}/api/v1/agent-execution`).then(
+      (response) => response.json() as Promise<{
+        workloadRoutes: { taskKind: string; executionProfileId: string }[];
+        capabilities: { executionProfileId: string; dispatchEligibility: string; diagnostic: string }[];
+        runs: unknown[];
+        modelInvocations: unknown[];
+      }>,
+    );
+    const discoveryRoute = agentConsole.workloadRoutes.find((item) =>
+      item.taskKind === "DISCOVERY_SCOUT"
+    );
+    expect(discoveryRoute).toBeDefined();
+    expect(agentConsole.capabilities.find((item) =>
+      item.executionProfileId === discoveryRoute?.executionProfileId
+    )).toMatchObject({
+      dispatchEligibility: "BLOCKED",
+      diagnostic: expect.stringContaining("preflight"),
+    });
+    expect(agentConsole.runs).toHaveLength(0);
+    expect(agentConsole.modelInvocations).toHaveLength(0);
+
     const stale = await fetch(`${baseUrl}/api/v1/ai-runtime/configuration`, {
       method: "POST",
       headers: { "content-type": "application/json" },

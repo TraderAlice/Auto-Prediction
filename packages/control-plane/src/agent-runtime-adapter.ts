@@ -295,8 +295,13 @@ export class AgentExecutionCapabilityService {
           : observation.outcome === "AUTH_REJECTED"
             ? "REJECTED" as const
             : "TRANSIENT_FAILURE" as const;
+    const freshObservation = observation !== null && !stale;
+    const serviceEligible = freshObservation && (
+      observation.outcome === "USABLE" ||
+      (binding.kind !== "CODEX_OAUTH" && observation.outcome === "UNSUPPORTED_PROBE")
+    );
     const dispatchEligibility = !runtimeAvailable || configuration.status === "MISSING" ||
-        (binding.kind === "CODEX_OAUTH" && serviceCapability !== "USABLE")
+        !serviceEligible
       ? "BLOCKED" as const
       : "ELIGIBLE" as const;
     return Object.freeze({
@@ -309,7 +314,7 @@ export class AgentExecutionCapabilityService {
         ? "Agent runtime is not installed"
         : configuration.status === "MISSING"
         ? configuration.diagnostic ?? "credential configuration is missing"
-        : observation?.diagnostic ?? "service capability has not been checked",
+        : observation?.diagnostic ?? "run a capability preflight before dispatch",
       observation,
       inferenceRequestsStarted: 0 as const,
       modelInvocationsStarted: 0 as const,
@@ -425,7 +430,6 @@ export class AgentExecutionCapabilityService {
     if (this.#runtimeAvailability.get(profile.runtimeDefinitionId) !== true) {
       throw new Error("Execution profile is blocked: Agent runtime is not installed");
     }
-    if (binding.kind !== "CODEX_OAUTH") return;
     const observation = this.latestObservation(profile.executionProfileId);
     if (observation === null) {
       throw new Error("Execution profile is blocked: run a capability preflight first");
@@ -433,7 +437,9 @@ export class AgentExecutionCapabilityService {
     if (Date.parse(observation.validUntil) <= this.now()) {
       throw new Error("Execution profile is blocked: capability preflight is stale");
     }
-    if (observation.outcome !== "USABLE") {
+    const accepted = observation.outcome === "USABLE" ||
+      (binding.kind !== "CODEX_OAUTH" && observation.outcome === "UNSUPPORTED_PROBE");
+    if (!accepted) {
       throw new Error(`Execution profile is blocked: ${observation.diagnostic}`);
     }
   }

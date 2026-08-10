@@ -307,7 +307,7 @@ describe("Agent runtime adapters", () => {
     });
   });
 
-  it("keeps a configured API-key profile eligible when no zero-inference probe exists", async () => {
+  it("requires a fresh configuration preflight for an API-key profile", async () => {
     const item = execution({
       kind: "HARNESS_IN_PROCESS",
       credential: deepSeekCredential(),
@@ -330,12 +330,22 @@ describe("Agent runtime adapters", () => {
       15 * 60_000,
       () => true,
     );
+    const configuration = await item.credentialBroker.configuration(item.credentialBinding);
+    expect(capability.project(item.executionProfile, configuration)).toMatchObject({
+      serviceCapability: "UNVERIFIED",
+      dispatchEligibility: "BLOCKED",
+      diagnostic: expect.stringContaining("preflight"),
+    });
+    expect(() => capability.assertServiceDispatchEligible(item.executionProfile))
+      .toThrow(/preflight/);
     await expect(capability.preflight(item.executionProfile)).resolves.toMatchObject({
       serviceCapability: "UNVERIFIED",
       dispatchEligibility: "ELIGIBLE",
       diagnostic: expect.stringContaining("no zero-inference service probe"),
     });
     expect(fetcher).not.toHaveBeenCalled();
+    expect(() => capability.assertServiceDispatchEligible(item.executionProfile))
+      .not.toThrow();
     const unavailableRuntime = new AgentExecutionCapabilityService(
       registry,
       item.credentialBroker,

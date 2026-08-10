@@ -2987,6 +2987,23 @@ function CapitalSilhouette() {
   );
 }
 
+async function requestAgentExecutionConsole(): Promise<AgentExecutionConsole> {
+  const response = await fetch("/api/v1/agent-execution", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Agent console returned HTTP ${response.status}`);
+  const result = await response.json() as AgentExecutionConsole;
+  if (
+    result.schemaVersion !== "pmh.agent-execution-console.v1" ||
+    result.credentialSecretTextRetained !== false ||
+    result.externalWriteAuthority !== false ||
+    result.valueMovingAuthority !== false
+  ) {
+    throw new Error("Agent console crossed its authority boundary");
+  }
+  return result;
+}
+
 function AgentOperationsView() {
   const [consoleData, setConsoleData] = useState<AgentExecutionConsole | null>(null);
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
@@ -2996,16 +3013,7 @@ function AgentOperationsView() {
   const [manualPreview, setManualPreview] = useState<unknown | null>(null);
 
   async function refresh() {
-    const response = await fetch("/api/v1/agent-execution", {
-      headers: { accept: "application/json" },
-    });
-    if (!response.ok) throw new Error(`Agent console returned HTTP ${response.status}`);
-    const next = await response.json() as AgentExecutionConsole;
-    if (next.schemaVersion !== "pmh.agent-execution-console.v1" ||
-        next.credentialSecretTextRetained !== false ||
-        next.externalWriteAuthority !== false || next.valueMovingAuthority !== false) {
-      throw new Error("Agent console crossed its authority boundary");
-    }
+    const next = await requestAgentExecutionConsole();
     setConsoleData(next);
     setTaskId((current) => current || next.tasks.find((task) =>
       task.protocol === "RULE_EVIDENCE_TASK_V1"
@@ -3120,7 +3128,7 @@ function AgentOperationsView() {
           </CardHeader>
           <CardContent className="agent-runtime-list">
             {consoleData.runtimeDefinitions.map((runtime) => {
-              const compatibleProfiles = profiles.filter((profile) =>
+              const compatibleProfiles = consoleData.executionProfiles.filter((profile) =>
                 profile.runtimeDefinitionId === runtime.runtimeDefinitionId
               );
               const readyCount = compatibleProfiles.filter((profile) =>
@@ -3139,7 +3147,7 @@ function AgentOperationsView() {
                 <span>{binding.configuration?.status === "CONFIGURED" ? "Configured" : binding.configuration?.diagnostic ?? "Missing"}</span>
               </div>
             ))}
-            {profiles.map((profile) => {
+            {consoleData.executionProfiles.map((profile) => {
               const runtime = runtimes.get(profile.runtimeDefinitionId);
               const model = models.get(profile.modelProfileId);
               const capability = capabilities.get(profile.executionProfileId);
@@ -4390,12 +4398,68 @@ function MarketArchaeologistView() {
   const [newIssueQuestion, setNewIssueQuestion] = useState("");
   const [newIssueLens, setNewIssueLens] = useState<SearchIssue["lens"]>("EQUIVALENCE");
   const [newIssueCadenceMinutes, setNewIssueCadenceMinutes] = useState(15);
+  const [executionConsole, setExecutionConsole] = useState<AgentExecutionConsole | null>(null);
+  const [executionDiagnostic, setExecutionDiagnostic] = useState<string | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
+  const discoveryRoute = [...(executionConsole?.workloadRoutes ?? [])]
+    .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
+    .sort((left, right) => right.revision - left.revision)[0];
+  const discoveryProfile = executionConsole?.executionProfiles.find((item) =>
+    item.executionProfileId === discoveryRoute?.executionProfileId
+  );
+  const discoveryCapability = executionConsole?.capabilities.find((item) =>
+    item.executionProfileId === discoveryProfile?.executionProfileId
+  );
+  const discoveryRuntime = executionConsole?.runtimeDefinitions.find((item) =>
+    item.runtimeDefinitionId === discoveryProfile?.runtimeDefinitionId
+  );
+  const discoveryModel = executionConsole?.modelProfiles.find((item) =>
+    item.modelProfileId === discoveryProfile?.modelProfileId
+  );
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
   const nextLens = scheduler.lensOrder.find(
     (lens) => !currentLensRecords.some((record) => record.lease.lens === lens),
   );
+
+  async function refreshExecutionConsole(): Promise<void> {
+    try {
+      setExecutionConsole(await requestAgentExecutionConsole());
+      setExecutionDiagnostic(null);
+    } catch (error) {
+      setExecutionDiagnostic(
+        error instanceof Error ? error.message : "Discovery execution profile is unavailable",
+      );
+    }
+  }
+
+  useEffect(() => {
+    void refreshExecutionConsole();
+  }, []);
+
+  async function preflightDiscovery(): Promise<void> {
+    if (discoveryProfile === undefined) return;
+    setPreflightBusy(true);
+    setExecutionDiagnostic(null);
+    try {
+      const response = await fetch(
+        `/api/v1/execution-profiles/${discoveryProfile.executionProfileId}/preflight`,
+        { method: "POST", headers: { accept: "application/json" } },
+      );
+      const result = await response.json() as { ok?: boolean; diagnostic?: string };
+      if (!response.ok || result.ok === false) {
+        throw new Error(result.diagnostic ?? `Capability preflight returned HTTP ${response.status}`);
+      }
+      await refreshExecutionConsole();
+    } catch (error) {
+      setExecutionDiagnostic(
+        error instanceof Error ? error.message : "Capability preflight failed",
+      );
+    } finally {
+      setPreflightBusy(false);
+    }
+  }
 
   async function run(): Promise<void> {
     setLocalStatus("RUNNING");
@@ -4525,12 +4589,27 @@ function MarketArchaeologistView() {
           </p>
         </div>
         <div className="archaeology-heading-badges">
+          <Badge variant={discoveryCapability?.dispatchEligibility === "ELIGIBLE" ? "verified" : "warning"}>
+            {discoveryRuntime?.kind?.replace("HARNESS_IN_PROCESS", "In-process") ?? "Runtime"}
+            {" · "}{discoveryModel?.model ?? "loading"}
+            {" · "}{discoveryCapability?.serviceCapability ?? "UNVERIFIED"}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={discoveryProfile === undefined || preflightBusy}
+            onClick={() => void preflightDiscovery()}
+          >
+            {preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
+            {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
+          </Button>
           <Button
             disabled={
               corpus.listingCount === 0 ||
               nextLens === undefined ||
               scheduler.status === "RUNNING" ||
-              leaseStatus === "RUNNING"
+              leaseStatus === "RUNNING" ||
+              discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
             }
             onClick={() => void runLease()}
           >
@@ -4543,6 +4622,13 @@ function MarketArchaeologistView() {
           </Button>
         </div>
       </div>
+
+      {(executionDiagnostic !== null || discoveryCapability?.dispatchEligibility === "BLOCKED") && (
+        <div className="inline-alert" role="status">
+          <CircleOff size={14} />
+          {executionDiagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
+        </div>
+      )}
 
       <div className="radar-summary-grid archaeology-summary-grid">
         <Metric
@@ -5271,7 +5357,8 @@ function MarketArchaeologistView() {
                 corpus.listingCount === 0 ||
                 nextLens === undefined ||
                 scheduler.status === "RUNNING" ||
-                leaseStatus === "RUNNING"
+                leaseStatus === "RUNNING" ||
+                discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
               }
               onClick={() => void runLease()}
             >

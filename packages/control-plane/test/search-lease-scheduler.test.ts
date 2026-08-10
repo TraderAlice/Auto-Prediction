@@ -182,6 +182,27 @@ describe("AI-native search lease scheduler", () => {
     })).toThrow("PMH_SEARCH_DEEP_MAX_ATTEMPTS");
   });
 
+  it("blocks before retaining a lease or starting provider work when execution is ineligible", () => {
+    const runFast = vi.fn(async (task: DiscoveryTask) => runRecord(task));
+    const assertDispatchEligible = vi.fn(() => {
+      throw new Error("Execution profile is blocked: run a capability preflight first");
+    });
+    const scheduler = new SearchLeaseScheduler({
+      context,
+      runFast,
+      assertDispatchEligible,
+    });
+
+    expect(() => scheduler.begin(snapshot(), "EQUIVALENCE")).toThrow(/capability preflight/);
+    expect(assertDispatchEligible).toHaveBeenCalledTimes(1);
+    expect(runFast).not.toHaveBeenCalled();
+    expect(scheduler.projection()).toMatchObject({
+      runCount: 0,
+      activeCount: 0,
+      records: [],
+    });
+  });
+
   it("bounds the cheap lane and escalates only a novel grounded multi-venue candidate", async () => {
     const runFast = vi.fn(async (task: DiscoveryTask, budget: number) => {
       expect(budget).toBe(1);

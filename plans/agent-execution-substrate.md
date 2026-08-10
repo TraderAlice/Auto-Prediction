@@ -630,9 +630,11 @@ profiles. It classifies accepted, authentication-rejected, transient, missing-
 configuration, and unsupported-probe outcomes. A fresh `USABLE` observation is
 required before a Codex OAuth profile can create a run. Missing, rejected,
 transient, unverified, or stale Codex capability blocks dispatch before the run
-and model-invocation records exist. DeepSeek API-key profiles remain eligible
-when configured but explicitly `UNVERIFIED`, because no zero-inference service
-probe is currently defined for that access driver.
+and model-invocation records exist. DeepSeek API-key profiles use a
+configuration-only preflight because no zero-inference service probe is
+currently defined for that access driver; its fresh `UNSUPPORTED_PROBE`
+observation is dispatchable, while no observation, missing configuration, or a
+stale observation is not.
 
 Real host evidence materially changed the runtime choice:
 
@@ -649,6 +651,36 @@ The current Codex CLI, Pi+Codex, and in-process Codex profiles must remain
 blocked on this host. The next runtime specimen should integrate the supported
 Codex app-server account/model surface (or another officially supported Codex
 runtime route), then earn its own `USABLE` observation before shadow work.
+
+### Discovery dispatch migration checkpoint
+
+Issue #87 exposed the first material bypass while using the product: the Agent
+Operations surface honestly blocked every current Codex profile, but Discover's
+manual button and issue scheduler still invoked the legacy discovery pool
+directly. Pausing Agent campaigns did not stop that scheduler, so an older
+backend continued retrying the rejected transport.
+
+Heuristic discovery now resolves the newest `DISCOVERY_SCOUT` workload route
+at dispatch time and synchronously checks the complete execution profile. The
+guard lives inside `SearchLeaseScheduler`, before a lease is retained and again
+at every provider-work boundary. It therefore covers manual scans, search-issue
+runs and ticks, the legacy interval, issued-lease recovery, deep retries, queued
+deep work, and restart recovery without depending on an HTTP caller or Studio.
+An unconfigured discovery pool remains allowed to run its first-party
+heuristic-only worker because it has no model-spend path.
+
+Studio consumes the same route and capability projection. Discover identifies
+the actual runtime and model, offers the zero-inference/configuration-only
+preflight, displays its diagnostic, and disables both scan controls unless the
+profile is dispatchable. Agent Operations now includes discovery profiles in
+its capability inventory while keeping Rule Evidence task controls constrained
+to their compatible tool protocol.
+
+Qualification requires a blocked configured model profile to return before
+lease persistence, provider work, Agent run creation, or model-invocation
+creation. The scheduler test asserts zero retained records and zero `runFast`
+calls; the server configuration test proves the routed profile is blocked with
+zero Agent runs and model invocations.
 
 ## Qualification gates
 

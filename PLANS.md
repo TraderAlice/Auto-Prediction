@@ -31,8 +31,15 @@ usable observation before a run is created. Real non-inference probes showed
 that this Codex OAuth cache is accepted by the Codex desktop/app-server path
 but rejected for the current `codex_cli_rs`, `pi`, and in-process originators,
 so all three misleading green paths are blocked without spending model tokens.
-An app-server-backed Codex runtime is the next usable-route candidate. Other legacy AI workloads
-remain later adoption work.
+The first legacy workload is now routed through that boundary: heuristic
+discovery resolves the current `DISCOVERY_SCOUT` workload route and evaluates
+its immutable execution profile before any manual, scheduled, issue-driven,
+restart-resumed, or deep-retry provider work. Studio shows the routed
+runtime/model/capability beside both discovery launch controls and disables
+them while blocked. API-key profiles also require a fresh configuration-only
+preflight, so configured-but-missing secrets cannot bypass the synchronous
+dispatcher. An app-server-backed Codex runtime is the next usable-route
+candidate. Other legacy AI workloads remain later adoption work.
 
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and

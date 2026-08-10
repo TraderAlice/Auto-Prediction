@@ -997,6 +997,38 @@ export function createControlPlane(options?: {
       semanticReviewCodexCredential.configured(),
     resolve: () => semanticReviewCodexCredential.resolve(),
   });
+  const agentCredentialBroker = new AgentCredentialBroker([
+    new EnvironmentCredentialResolver(process.env),
+    new CodexOAuthCredentialResolver(semanticReviewCodexCredential),
+  ]);
+  const agentExecutionCapabilityService = new AgentExecutionCapabilityService(
+    agentExecutionRegistry,
+    agentCredentialBroker,
+  );
+  const discoveryExecutionProfile = () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (route === undefined) {
+      throw new Error("Discovery execution profile is blocked: workload route is unavailable");
+    }
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) {
+      throw new Error("Discovery execution profile is blocked: routed profile is unavailable");
+    }
+    return profile;
+  };
+  const assertDiscoveryDispatchEligible = (): void => {
+    // An unconfigured pool contains only the first-party heuristic worker and
+    // therefore has no model-spend path to authorize.
+    if (!modelRuntime.projection.configured) return;
+    agentExecutionCapabilityService.assertServiceDispatchEligible(
+      discoveryExecutionProfile(),
+    );
+  };
   const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime(process.env, {
     usageRecorder: aiUsageLedger,
   });
@@ -1074,6 +1106,7 @@ export function createControlPlane(options?: {
       concurrencyLimit: 3,
       registeredVenueIds: catalogObservationDesk.registeredVenueIds(),
       ...searchLeaseStageBudget,
+      assertDispatchEligible: assertDiscoveryDispatchEligible,
       onRecordChange: () => publishSearchLeaseChange(),
       context: (
         question,
@@ -1995,14 +2028,6 @@ export function createControlPlane(options?: {
   };
   const ruleEvidenceAgentInput = (taskId: Hash) =>
     ruleEvidenceAgentInputsByTaskId.get(taskId) ?? null;
-  const agentCredentialBroker = new AgentCredentialBroker([
-    new EnvironmentCredentialResolver(process.env),
-    new CodexOAuthCredentialResolver(semanticReviewCodexCredential),
-  ]);
-  const agentExecutionCapabilityService = new AgentExecutionCapabilityService(
-    agentExecutionRegistry,
-    agentCredentialBroker,
-  );
   const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
     new AgentCampaignDispatcher({
       registry: agentExecutionRegistry,
