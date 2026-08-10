@@ -837,6 +837,39 @@ const EMPTY_EVIDENCE_ACQUISITION: StudioProjection["ai"]["evidenceAcquisition"] 
   },
 };
 
+const EMPTY_EVIDENCE_DEBT_FRONTIER: StudioProjection["ai"]["evidenceDebtFrontier"] = {
+  schemaVersion: "pmh.evidence-debt-frontier.v1",
+  contentHash: `sha256:${"0".repeat(64)}`,
+  sourceUnsupportedJobCount: 0,
+  sourceRequirementCount: 0,
+  sourceProposalCount: 0,
+  itemCount: 0,
+  truncated: false,
+  counts: {
+    POSITIVE_GROSS_BLOCKER: 0,
+    EVIDENCE_ESCALATION: 0,
+    ACTIVE_TRIAGE_DEBT: 0,
+    RETAINED_RESEARCH_DEBT: 0,
+  },
+  items: [],
+  sortContract: "TIER_THEN_GROSS_EDGE_THEN_PRIORITY_THEN_MISSING_BREADTH",
+  groupingContract: "ONE_ITEM_PER_PROPOSAL",
+  sourceWindow: "EVIDENCE_SCHEDULER_RETAINED_WINDOW",
+  authority: "EVIDENCE_ROUTING_PRIORITY_ONLY",
+  semanticDecisionAuthority: false,
+  simulationAuthority: false,
+  certificateAuthority: false,
+  executionAuthority: false,
+  effects: {
+    modelCalls: false,
+    fetchesStarted: false,
+    schedulerChanges: false,
+    externalWrites: false,
+    valueMovingActions: false,
+    liveExecutionEnabled: false,
+  },
+};
+
 const EMPTY_REVIEW_ATTENTION: StudioProjection["ai"]["reviewAttention"] = {
   schemaVersion: "pmh.review-attention-queue.v1",
   contentHash: `sha256:${"0".repeat(64)}`,
@@ -9245,6 +9278,8 @@ function EvidenceView() {
   const studioProjection = useStudioProjection();
   const evidenceAcquisition =
     studioProjection.ai.evidenceAcquisition ?? EMPTY_EVIDENCE_ACQUISITION;
+  const evidenceDebtFrontier =
+    studioProjection.ai.evidenceDebtFrontier ?? EMPTY_EVIDENCE_DEBT_FRONTIER;
   const ruleEvidenceClaims =
     studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
   const semanticReviewScheduler =
@@ -9349,9 +9384,19 @@ function EvidenceView() {
     ? "Agents are reading captured rule documents and binding exact passages to proposal-local claims."
     : evidenceAcquisition.pendingCount + evidenceAcquisition.leasedCount > 0
       ? "Anonymous document capture is the active constraint."
-      : evidenceAcquisition.unsupportedCount > 0
-        ? "Legacy gaps without an eligible official locator remain historical evidence debt."
-        : "The evidence loop is caught up with the retained proposal window.";
+      : evidenceDebtFrontier.counts.POSITIVE_GROSS_BLOCKER > 0
+        ? `${evidenceDebtFrontier.counts.POSITIVE_GROSS_BLOCKER} price-positive proposals are blocked by missing official-source routes.`
+        : evidenceDebtFrontier.counts.EVIDENCE_ESCALATION > 0
+          ? `${evidenceDebtFrontier.counts.EVIDENCE_ESCALATION} operator-reviewed proposals need official-source routes before they can advance.`
+          : evidenceAcquisition.unsupportedCount > 0
+            ? "Unsupported source routes remain, ranked below by their current proposal value."
+            : "The evidence loop is caught up with the retained proposal window.";
+  const debtTierLabel = (tier: (typeof evidenceDebtFrontier.items)[number]["tier"]): string => ({
+    POSITIVE_GROSS_BLOCKER: "GROSS HINT BLOCKED",
+    EVIDENCE_ESCALATION: "REVIEW BLOCKED",
+    ACTIVE_TRIAGE_DEBT: "ACTIVE TRIAGE",
+    RETAINED_RESEARCH_DEBT: "RETAINED",
+  })[tier];
 
   return (
     <section className="page-section">
@@ -9423,6 +9468,67 @@ function EvidenceView() {
               <small>explicit evidence debt</small>
             </div>
           </div>
+          <section className="evidence-debt-frontier" aria-labelledby="evidence-debt-heading">
+            <header>
+              <div>
+                <span className="eyebrow">Action queue · one row per proposal</span>
+                <h3 id="evidence-debt-heading">Evidence debt frontier</h3>
+                <p>
+                  Missing source routes ordered by the proposal they block, not by inventory age.
+                </p>
+              </div>
+              <div className="evidence-debt-counts" aria-label="Evidence debt tier counts">
+                <span><strong>{evidenceDebtFrontier.counts.POSITIVE_GROSS_BLOCKER}</strong> gross blockers</span>
+                <span><strong>{evidenceDebtFrontier.counts.EVIDENCE_ESCALATION}</strong> review blockers</span>
+              </div>
+            </header>
+            {evidenceDebtFrontier.items.length === 0 ? (
+              <div className="review-operation-empty">
+                <strong>No unsupported proposal evidence in the retained window</strong>
+                <span>New route gaps will appear here with proposal and requirement lineage intact.</span>
+              </div>
+            ) : (
+              <div className="evidence-debt-list">
+                {evidenceDebtFrontier.items.slice(0, 6).map((item) => (
+                  <article key={item.itemId}>
+                    <div className="evidence-debt-main">
+                      <div className="evidence-debt-labels">
+                        <Badge variant={item.tier === "POSITIVE_GROSS_BLOCKER" ? "warning" : item.tier === "EVIDENCE_ESCALATION" ? "shadow" : "muted"}>
+                          {debtTierLabel(item.tier)}
+                        </Badge>
+                        {item.missingKinds.map((kind) => (
+                          <span key={kind}>{kind.replaceAll("_", " ")}</span>
+                        ))}
+                      </div>
+                      <strong>{item.statement ?? item.requirements[0]?.claim ?? "Retained proposal evidence route"}</strong>
+                      <p>
+                        {item.listingRefs.join(" ↔ ")}
+                      </p>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Requirements</dt>
+                        <dd>{item.requirementCount} across {item.jobCount} job{item.jobCount === 1 ? "" : "s"}</dd>
+                      </div>
+                      <div>
+                        <dt>Gross edge</dt>
+                        <dd>{item.grossEdgeBpsFloor === null ? "not established" : `${item.grossEdgeBpsFloor} bps*`}</dd>
+                      </div>
+                    </dl>
+                    <a href={serializeWorkspaceRoute("lifecycle", [item.proposalId])} aria-label={`Open proposal ${item.proposalId} in Review`}>
+                      Review <ChevronRight size={15} />
+                    </a>
+                  </article>
+                ))}
+              </div>
+            )}
+            <footer>
+              <span>
+                {evidenceDebtFrontier.sourceRequirementCount} unsupported requirements · {evidenceDebtFrontier.sourceProposalCount} proposals in retained source window
+              </span>
+              <span>* Gross hint excludes fees and depth; this queue has routing authority only.</span>
+            </footer>
+          </section>
           <div className="evidence-scope-lineage" aria-label="Evidence requirement scope lineage">
             <GitBranch size={15} />
             <div>

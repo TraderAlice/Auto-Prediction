@@ -59,6 +59,7 @@ import type { SemanticReviewSchedulerProjection } from "./semantic-review-schedu
 import type { PremiseAnalysisDeskProjection } from "./premise-analysis.js";
 import type { PremiseAnalysisSchedulerProjection } from "./premise-analysis-scheduler.js";
 import type { EvidenceAcquisitionSchedulerProjection } from "./evidence-acquisition-scheduler.js";
+import { emptyEvidenceDebtFrontier, type EvidenceDebtFrontierProjection } from "./evidence-debt-frontier.js";
 import type { RuleEvidenceClaimSchedulerProjection } from "./rule-evidence-claim-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
@@ -142,6 +143,7 @@ export function buildStudioProjection(input: {
   premiseEvidenceRouting?: PremiseEvidenceRoutingSchedulerProjection;
   premiseRouteExpansion?: PremiseRouteExpansionSchedulerProjection;
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
+  evidenceDebtFrontier?: EvidenceDebtFrontierProjection;
   ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
   proposalEconomicTriage?: ProposalEconomicTriageProjection;
@@ -1302,6 +1304,7 @@ export function buildStudioProjection(input: {
       premiseEvidenceRouting,
       premiseRouteExpansion,
       evidenceAcquisition,
+      evidenceDebtFrontier: input.evidenceDebtFrontier ?? emptyEvidenceDebtFrontier(),
       ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),
       proposalEconomicTriage: input.proposalEconomicTriage ?? emptyProposalEconomicTriage(),

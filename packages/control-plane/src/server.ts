@@ -60,6 +60,7 @@ import {
   resolveProposalReviewOutcome,
 } from "./proposal-decision-dossier.js";
 import { buildReviewAttentionProjection } from "./review-attention.js";
+import { buildEvidenceDebtFrontier } from "./evidence-debt-frontier.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
   createMarketArchaeologistDesk,
@@ -1865,6 +1866,11 @@ export function createControlPlane(options?: {
       semanticDecisions: lifecycleProjection.semanticDecisions,
       corpus: catalogObservationDesk.corpus(),
     });
+    const evidenceDebtFrontier = buildEvidenceDebtFrontier({
+      jobs: evidenceAcquisitionProjection.jobs,
+      economicItems: economicTriageProjection.items,
+      reviewItems: reviewAttention.items,
+    });
     const semanticRelationGraph = buildSemanticRelationGraph({
       corpus: catalogObservationDesk.corpus(),
       archaeologist: archaeologistProjection,
@@ -1915,6 +1921,7 @@ export function createControlPlane(options?: {
       premiseEvidenceRouting: premiseEvidenceRoutingProjection,
       premiseRouteExpansion: premiseRouteExpansionProjection,
       evidenceAcquisition: evidenceAcquisitionProjection,
+      evidenceDebtFrontier,
       ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
@@ -2499,6 +2506,13 @@ export function createControlPlane(options?: {
       await ready;
       evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
       writeJson(response, 200, evidenceAcquisitionScheduler.projection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/evidence-debt-frontier"
+    ) {
+      writeJson(response, 200, (await projection()).ai.evidenceDebtFrontier);
       return;
     }
     if (

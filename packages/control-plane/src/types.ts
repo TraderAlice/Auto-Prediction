@@ -481,6 +481,7 @@ export type StudioProjection = Readonly<{
     premiseEvidenceRouting: import("./premise-evidence-routing-scheduler.js").PremiseEvidenceRoutingSchedulerProjection;
     premiseRouteExpansion: import("./premise-route-expansion-scheduler.js").PremiseRouteExpansionSchedulerProjection;
     evidenceAcquisition: import("./evidence-acquisition-scheduler.js").EvidenceAcquisitionSchedulerProjection;
+    evidenceDebtFrontier: import("./evidence-debt-frontier.js").EvidenceDebtFrontierProjection;
     ruleEvidenceClaims: import("./rule-evidence-claim-scheduler.js").RuleEvidenceClaimSchedulerProjection;
     reviewAttention: import("./review-attention.js").ReviewAttentionProjection;
     proposalEconomicTriage: import("./proposal-economic-triage.js").ProposalEconomicTriageProjection;

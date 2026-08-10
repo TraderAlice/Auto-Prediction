@@ -1634,6 +1634,182 @@ footer {
   }
 }
 
+.evidence-debt-frontier {
+  margin: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #14171c;
+  overflow: hidden;
+}
+
+.evidence-debt-frontier > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 20px 16px;
+}
+
+.evidence-debt-frontier > header h3 {
+  margin: 5px 0 2px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.evidence-debt-frontier > header p,
+.evidence-debt-frontier > footer {
+  margin: 0;
+  color: #929b97;
+  font-size: 13px;
+}
+
+.evidence-debt-counts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.evidence-debt-counts span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #1b1f25;
+  padding: 5px 9px;
+  color: #9ca5a1;
+  font-size: 12px;
+}
+
+.evidence-debt-counts strong {
+  color: #f0f2f1;
+  font-weight: 650;
+}
+
+.evidence-debt-list {
+  border-top: 1px solid var(--border);
+}
+
+.evidence-debt-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px auto;
+  align-items: center;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+  padding: 15px 20px;
+}
+
+.evidence-debt-main {
+  min-width: 0;
+}
+
+.evidence-debt-main > strong {
+  display: -webkit-box;
+  margin-top: 8px;
+  overflow: hidden;
+  color: #e9ecea;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.evidence-debt-main > p {
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: #77817c;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evidence-debt-labels {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.evidence-debt-labels > span:not([data-slot="badge"]) {
+  color: #86908b;
+  font-size: 12px;
+}
+
+.evidence-debt-list dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin: 0;
+}
+
+.evidence-debt-list dt {
+  color: #737d78;
+  font-size: 12px;
+}
+
+.evidence-debt-list dd {
+  margin: 3px 0 0;
+  color: #dce1de;
+  font-size: 13px;
+}
+
+.evidence-debt-list article > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.evidence-debt-frontier > footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 20px 13px;
+}
+
+@media (max-width: 900px) {
+  .evidence-debt-list article {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .evidence-debt-list dl {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .evidence-debt-frontier > header,
+  .evidence-debt-frontier > footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .evidence-debt-counts {
+    justify-content: flex-start;
+  }
+
+  .evidence-debt-list article {
+    gap: 12px;
+    padding: 15px;
+  }
+
+  .evidence-debt-list dl {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .evidence-debt-frontier > header,
+  .evidence-debt-frontier > footer {
+    padding-inline: 15px;
+  }
+}
+
 .evidence-source-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

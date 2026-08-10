@@ -213,6 +213,21 @@ describe("Studio projection safety", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    expect(studioProjection.ai.evidenceDebtFrontier).toMatchObject({
+      sourceUnsupportedJobCount: 0,
+      sourceProposalCount: 0,
+      itemCount: 0,
+      counts: {
+        POSITIVE_GROSS_BLOCKER: 0,
+        EVIDENCE_ESCALATION: 0,
+      },
+      groupingContract: "ONE_ITEM_PER_PROPOSAL",
+      authority: "EVIDENCE_ROUTING_PRIORITY_ONLY",
+      semanticDecisionAuthority: false,
+      simulationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
     expect(studioProjection.ai.proposalEconomicTriage).toMatchObject({
       sourceCandidateCount: 0,
       itemCount: 0,

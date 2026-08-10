@@ -49,7 +49,9 @@ and full contract text retention tracked in
 with official venue-level rulebook acquisition tracked in
 [`plans/venue-level-rulebook-evidence.md`](plans/venue-level-rulebook-evidence.md),
 and evidence requirements that survive proposal-window rotation tracked in
-[`plans/durable-evidence-requirement-scope.md`](plans/durable-evidence-requirement-scope.md).
+[`plans/durable-evidence-requirement-scope.md`](plans/durable-evidence-requirement-scope.md),
+with value-ranked missing-source work tracked in
+[`plans/evidence-debt-frontier.md`](plans/evidence-debt-frontier.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -738,6 +740,20 @@ regression proves repair without another fetch. The retained queue now reports
 260 proposal-scoped requirements, 145 legacy requirements, zero duplicate
 evolution groups, 54 intact captures, and zero due acquisition work. Studio
 shows this durable-scope posture at desktop and 390 px without overflow.
+
+The no-locator inventory is now an actionable proposal frontier rather than a
+flat debt count. A deterministic, content-addressed join groups unsupported
+requirements by proposal and orders current positive gross hints, operator
+evidence escalations, active triage, then retained research debt. Fresh live
+reconciliation found three distinct House-control proposals at a 190 bps gross
+hint ahead of six review blockers; the display explicitly says fees and depth
+are absent and grants routing authority only. The retained source window covers
+196 unsupported jobs, 265 unsupported-route requirements, and 113 proposals;
+Studio shows six leading rows with exact missing kinds and URL-stable Review
+handoffs. Desktop and 390 px browser checks keep Inter, a 12 px text floor, no
+horizontal overflow, six Agent-readable Review links, and no console errors.
+All 614 workspace tests, type checks, and the production build pass on the
+available Node 22.22.1 host; the repository's Node 24 engine warning remains.
 
 ## Deferred future campaigns
 

@@ -961,6 +961,26 @@ describe("control-plane HTTP surface", () => {
       authority: "ANONYMOUS_EVIDENCE_ORCHESTRATION_ONLY",
       executionAuthority: false,
     });
+    expect(projection.ai.evidenceDebtFrontier).toMatchObject({
+      schemaVersion: "pmh.evidence-debt-frontier.v1",
+      sourceUnsupportedJobCount: 0,
+      sourceRequirementCount: 0,
+      sourceProposalCount: 0,
+      itemCount: 0,
+      authority: "EVIDENCE_ROUTING_PRIORITY_ONLY",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: { modelCalls: false, fetchesStarted: false, externalWrites: false },
+    });
+    const debtResponse = await fetch(`${baseUrl}/api/v1/evidence-debt-frontier`);
+    expect(debtResponse.status).toBe(200);
+    expect(await debtResponse.json()).toMatchObject({
+      schemaVersion: "pmh.evidence-debt-frontier.v1",
+      groupingContract: "ONE_ITEM_PER_PROPOSAL",
+      itemCount: 0,
+      executionAuthority: false,
+    });
     expect(projection.ai.ruleEvidenceClaims).toMatchObject({
       enabled: false,
       configured: false,

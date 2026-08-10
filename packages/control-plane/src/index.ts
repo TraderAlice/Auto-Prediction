@@ -11,6 +11,7 @@ export * from "./discovery-ledger.js";
 export * from "./evidence-requirement.js";
 export * from "./evidence-document.js";
 export * from "./evidence-acquisition-scheduler.js";
+export * from "./evidence-debt-frontier.js";
 export * from "./rule-evidence-claim.js";
 export * from "./rule-evidence-claim-scheduler.js";
 export * from "./evidence-enriched-semantic-scope.js";
