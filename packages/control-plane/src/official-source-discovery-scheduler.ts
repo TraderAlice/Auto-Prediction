@@ -8,7 +8,8 @@ import {
   admitOfficialSourceCandidate,
   assertOfficialSourceDiscoveryTask,
   boundedOfficialSourceCandidates,
-  buildOfficialSourceDiscoveryTask,
+  buildOfficialSourceDiscoveryTasks,
+  officialSourceTaskRequirementIds,
   type OfficialSourceAdmission,
   type OfficialSourceCandidate,
   type OfficialSourceCandidateDraft,
@@ -22,6 +23,12 @@ const DEFAULT_MAX_ATTEMPTS = 2;
 const DEFAULT_MAX_REQUESTS_PER_TICK = 2;
 const DEFAULT_LEASE_TIMEOUT_MS = 330_000;
 const DEFAULT_RETRY_DELAY_MS = 30_000;
+const PRIORITY_RANK = Object.freeze({
+  POSITIVE_GROSS_BLOCKER: 0,
+  EVIDENCE_ESCALATION: 1,
+  ACTIVE_TRIAGE_DEBT: 2,
+  RETAINED_RESEARCH_DEBT: 3,
+} as const);
 
 export type OfficialSourceDiscoveryOutcome =
   | "PROPOSE_LOCATOR"
@@ -230,6 +237,7 @@ export function assertOfficialSourceDiscoveryJobRecord(
 
 export class OfficialSourceDiscoveryScheduler {
   readonly #jobs: OfficialSourceDiscoveryJobRecord[];
+  readonly #currentTaskIds = new Set<Hash>();
   readonly #active = new Map<Hash, Promise<OfficialSourceDiscoveryJobRecord>>();
   readonly #agent: OfficialSourceDiscoveryAgentPort | null;
   readonly #store: OfficialSourceDiscoverySchedulerStore | undefined;
@@ -263,6 +271,7 @@ export class OfficialSourceDiscoveryScheduler {
     this.#jobs = [...(
       this.#store?.loadOfficialSourceDiscoveryJobRecords(this.#retentionLimit) ?? []
     )].map(assertOfficialSourceDiscoveryJobRecord);
+    this.#jobs.forEach((job) => this.#currentTaskIds.add(job.taskId));
     this.#recoverExpiredLeases();
   }
 
@@ -272,15 +281,37 @@ export class OfficialSourceDiscoveryScheduler {
   }>[]): readonly OfficialSourceDiscoveryJobRecord[] {
     if (this.#agent === null) return Object.freeze([]);
     const created: OfficialSourceDiscoveryJobRecord[] = [];
-    for (const item of input) {
-      const task = buildOfficialSourceDiscoveryTask(item);
-      if (task === null) continue;
+    const tasks = buildOfficialSourceDiscoveryTasks(input);
+    this.#currentTaskIds.clear();
+    tasks.forEach((task) => this.#currentTaskIds.add(task.taskId));
+    for (const task of tasks) {
       const jobId = hashCanonical({
         schemaVersion: "pmh.official-source-discovery-job-id.v1",
         taskId: task.taskId,
         agentIdentity: this.#agent.agentIdentity,
       });
-      if (this.#jobs.some((job) => job.jobId === jobId)) continue;
+      const existing = this.#jobs.find((job) => job.jobId === jobId);
+      if (existing !== undefined) {
+        const effectiveTask = PRIORITY_RANK[task.priorityTier] <
+            PRIORITY_RANK[existing.priorityTier]
+          ? task
+          : existing.task;
+        if (
+          existing.task.taskHash !== effectiveTask.taskHash ||
+          existing.priorityTier !== effectiveTask.priorityTier
+        ) {
+          const updatedAt = new Date(this.#now()).toISOString();
+          this.#save(withHash({
+            ...withoutHash(existing),
+            task: effectiveTask,
+            requirementId: effectiveTask.requirementId,
+            proposalId: effectiveTask.proposalId,
+            priorityTier: effectiveTask.priorityTier,
+            updatedAt,
+          }));
+        }
+        continue;
+      }
       const now = new Date(this.#now()).toISOString();
       const record = withHash({
         schemaVersion: "pmh.official-source-discovery-job.v1",
@@ -323,27 +354,33 @@ export class OfficialSourceDiscoveryScheduler {
   public applyAdmissions(
     requirementInputs: readonly EvidenceRequirement[],
   ): readonly EvidenceRequirement[] {
-    const admittedByRequirement = new Map(this.#jobs.flatMap((job) =>
-      job.status === "ADMITTED" && job.admittedRequirement !== null
-        ? [[job.requirementId, job] as const]
-        : []
-    ));
+    const admittedByRequirement = new Map<Hash, OfficialSourceDiscoveryJobRecord[]>();
+    for (const job of this.#jobs) {
+      if (job.status !== "ADMITTED" || job.admittedRequirement === null) continue;
+      for (const requirementId of officialSourceTaskRequirementIds(job.task)) {
+        const jobs = admittedByRequirement.get(requirementId) ?? [];
+        jobs.push(job);
+        admittedByRequirement.set(requirementId, jobs);
+      }
+    }
     return Object.freeze(requirementInputs.map((input) => {
-      const requirement = assertEvidenceRequirement(input);
-      const job = admittedByRequirement.get(requirement.requirementId);
-      if (job?.admittedRequirement === null || job === undefined) return requirement;
-      const admission = job.admissions.find((item) =>
-        item.decision === "ADMITTED" && item.locator !== null
-      );
-      return admission?.locator === null || admission === undefined ||
-          admission.venueId === null || admission.protocolIdentity === null
-        ? requirement
-        : rebaseEvidenceRequirementToAdmittedLocator({
-            requirement,
-            venueId: admission.venueId,
-            protocolIdentity: admission.protocolIdentity,
-            locator: admission.locator,
-          });
+      const original = assertEvidenceRequirement(input);
+      return (admittedByRequirement.get(original.requirementId) ?? [])
+        .sort((left, right) => left.jobId.localeCompare(right.jobId))
+        .reduce((requirement, job) => {
+          const admission = job.admissions.find((item) =>
+            item.decision === "ADMITTED" && item.locator !== null
+          );
+          return admission?.locator === null || admission === undefined ||
+              admission.venueId === null || admission.protocolIdentity === null
+            ? requirement
+            : rebaseEvidenceRequirementToAdmittedLocator({
+                requirement,
+                venueId: admission.venueId,
+                protocolIdentity: admission.protocolIdentity,
+                locator: admission.locator,
+              });
+        }, original);
     }));
   }
 
@@ -351,18 +388,13 @@ export class OfficialSourceDiscoveryScheduler {
     if (this.#agent === null || !this.#agent.configured) return Object.freeze([]);
     this.#recoverExpiredLeases();
     const now = this.#now();
-    const rank = {
-      POSITIVE_GROSS_BLOCKER: 0,
-      EVIDENCE_ESCALATION: 1,
-      ACTIVE_TRIAGE_DEBT: 2,
-      RETAINED_RESEARCH_DEBT: 3,
-    } as const;
     const due = this.#jobs.filter((job) =>
       job.agentIdentity === this.#agent!.agentIdentity &&
+      this.#currentTaskIds.has(job.taskId) &&
       ["PENDING", "RETRY_WAIT"].includes(job.status) &&
       Date.parse(job.nextAttemptAt) <= now && !this.#active.has(job.jobId)
     ).sort((left, right) =>
-      rank[left.priorityTier] - rank[right.priorityTier] ||
+      PRIORITY_RANK[left.priorityTier] - PRIORITY_RANK[right.priorityTier] ||
       left.nextAttemptAt.localeCompare(right.nextAttemptAt) ||
       left.jobId.localeCompare(right.jobId)
     );
@@ -389,6 +421,9 @@ export class OfficialSourceDiscoveryScheduler {
     if (job === undefined) throw new Error("official source discovery job was not found");
     if (job.agentIdentity !== this.#agent.agentIdentity) {
       throw new Error("official source discovery job belongs to a superseded Agent generation");
+    }
+    if (!this.#currentTaskIds.has(job.taskId)) {
+      throw new Error("official source discovery job belongs to an inactive supply scope");
     }
     if (this.#active.has(jobId) || job.status === "LEASED") {
       throw new Error("official source discovery job is already running");
@@ -518,7 +553,8 @@ export class OfficialSourceDiscoveryScheduler {
     const now = this.#now();
     const currentAgentIdentity = this.#agent?.agentIdentity ?? null;
     const jobs = Object.freeze(this.#jobs.filter((job) =>
-      currentAgentIdentity !== null && job.agentIdentity === currentAgentIdentity
+      currentAgentIdentity !== null && job.agentIdentity === currentAgentIdentity &&
+      this.#currentTaskIds.has(job.taskId)
     ));
     const count = (status: OfficialSourceDiscoveryJobStatus) =>
       jobs.filter((job) => job.status === status).length;

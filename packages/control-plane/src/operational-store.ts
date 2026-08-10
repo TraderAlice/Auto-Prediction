@@ -5850,6 +5850,10 @@ export class SqliteOperationalStore
            SELECT 1 FROM evidence_document_observations
            WHERE evidence_document_observations.document_id =
                  evidence_documents.document_id
+         ) AND NOT EXISTS (
+           SELECT 1 FROM rule_evidence_claim_records
+           WHERE rule_evidence_claim_records.document_id =
+                 evidence_documents.document_id
          )`,
       )
       .run();

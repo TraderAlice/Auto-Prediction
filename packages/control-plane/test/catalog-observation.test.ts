@@ -220,6 +220,73 @@ describe("anonymous catalog observation desk", () => {
     })).toBe(true);
   });
 
+  it("retires Gemini observations that predate contract rich-text evidence", async () => {
+    const currentSource = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "gemini-predictions",
+    );
+    if (currentSource === undefined) throw new Error("missing Gemini source");
+    expect(currentSource.sourceUrl).toBe(
+      "https://api.gemini.com/v1/prediction-markets/events?status=active&limit=500&offset=0",
+    );
+    const observations: StoredCatalogObservation[] = [];
+    const store: CatalogObservationStore = {
+      catalogObservationStorage: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 34,
+        idempotencyKey: "observationId",
+      },
+      loadCatalogObservations: (limit) => observations.slice(0, limit),
+      saveCatalogObservation: (observation) => {
+        observations.unshift(observation);
+        return observation;
+      },
+    };
+    const legacySource = {
+      ...currentSource,
+      normalizerIdentity: hashCanonical({
+        schemaVersion: "pmh.catalog-normalizer-identity.v1",
+        venueId: "gemini-predictions",
+        revision: "predictions-catalog.v1",
+      }),
+      decode: (fixture: Parameters<typeof currentSource.decode>[0]) =>
+        currentSource.decode(fixture).map((listing) => {
+          const { rulesText: _rulesText, ...legacyListing } = listing;
+          return legacyListing;
+        }),
+    };
+    await new CatalogObservationDesk({
+      sources: [legacySource],
+      fetcher: fixtureFetcher(),
+      store,
+      now: () => Date.parse("2026-08-10T09:00:00.000Z"),
+    }).refresh();
+
+    const restored = new CatalogObservationDesk({
+      sources: [currentSource],
+      fetcher: fixtureFetcher(),
+      store,
+      now: () => Date.parse("2026-08-10T09:01:00.000Z"),
+    });
+    expect(restored.projection()).toMatchObject({
+      status: "DEGRADED",
+      listingCount: 0,
+      sources: [{
+        venueId: "gemini-predictions",
+        status: "FAILED",
+        diagnostic: "stored observation uses retired normalization; fresh capture required",
+      }],
+    });
+    await restored.refresh();
+    expect(restored.corpus().listings[0]).toMatchObject({
+      venueId: "gemini-predictions",
+      rulesTextPosture: "COMPLETE",
+    });
+    expect(restored.corpus().listings[0]?.evidenceLocators?.some((locator) =>
+      locator.role === "CONTRACT_RULE_DOCUMENT"
+    )).toBe(true);
+  });
+
   it("replays pre-role normalizations from raw evidence into the current projection", async () => {
     const source = catalogObservationSources.find(
       (candidate) => candidate.venueId === "myriad",
@@ -400,7 +467,7 @@ describe("anonymous catalog observation desk", () => {
     expect(projection).toMatchObject({
       status: "READY",
       listingCount: 500,
-      maxResponseBytes: 2_000_000,
+      maxResponseBytes: 10_000_000,
       sources: [
         {
           venueId: "polymarket-us",

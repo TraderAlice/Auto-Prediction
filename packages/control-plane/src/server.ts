@@ -1862,7 +1862,7 @@ export function createControlPlane(options?: {
     return Object.freeze([...retainedCandidates, ...reviewCandidates]);
   };
   const retainedEvidenceRequirements = (): readonly EvidenceRequirement[] => {
-    const retained = [
+    const retained = [...new Map([
       ...marketArchaeologistDesk.projection().records.flatMap((record) =>
         record.status === "PASS" && record.report !== null
           ? record.report.result.evidenceRequirements ?? []
@@ -1881,11 +1881,7 @@ export function createControlPlane(options?: {
       ...evidenceAcquisitionScheduler.projection().jobs.flatMap((job) =>
         job.requirements
       ),
-    ].filter((requirement, index, all) =>
-      all.findIndex((candidate) =>
-        candidate.requirementId === requirement.requirementId
-      ) === index
-    );
+    ].map((requirement) => [requirement.requirementId, requirement] as const)).values()];
     const currentByProposal = new Map(baseSemanticReviewCandidates().map((candidate) =>
       [candidate.proposal.proposalId, candidate] as const
     ));
@@ -1918,11 +1914,9 @@ export function createControlPlane(options?: {
     });
     const capabilityRebased =
       rebaseEvidenceRequirementsToRetainedLocatorCapabilities(rebased);
-    return Object.freeze(capabilityRebased.filter((requirement, index, all) =>
-      all.findIndex((candidate) =>
-        candidate.requirementId === requirement.requirementId
-      ) === index
-    ));
+    return Object.freeze([...new Map(capabilityRebased.map((requirement) =>
+      [requirement.requirementId, requirement] as const
+    )).values()]);
   };
   const evidenceRequirements = (): readonly EvidenceRequirement[] =>
     officialSourceDiscoveryScheduler.applyAdmissions(retainedEvidenceRequirements());
@@ -2001,7 +1995,10 @@ export function createControlPlane(options?: {
       premiseEvidenceRoutingCandidates(enrichedReviewCandidates),
     );
     premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
-    const currentEvidenceRequirements = evidenceRequirements();
+    const retainedCurrentEvidenceRequirements = retainedEvidenceRequirements();
+    const currentEvidenceRequirements = officialSourceDiscoveryScheduler.applyAdmissions(
+      retainedCurrentEvidenceRequirements,
+    );
     evidenceAcquisitionScheduler.reconcile(currentEvidenceRequirements);
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
@@ -2046,7 +2043,7 @@ export function createControlPlane(options?: {
       [item.proposalId, item.tier] as const
     ));
     officialSourceDiscoveryScheduler.reconcile(
-      retainedEvidenceRequirements().map((requirement) => Object.freeze({
+      retainedCurrentEvidenceRequirements.map((requirement) => Object.freeze({
         requirement,
         priorityTier: tierByProposal.get(requirement.proposalId) ??
           "RETAINED_RESEARCH_DEBT",
@@ -2694,8 +2691,14 @@ export function createControlPlane(options?: {
       request.method === "GET" &&
       url.pathname === "/api/v1/official-source-discovery"
     ) {
-      const current = await projection();
-      writeJson(response, 200, current.ai.officialSourceDiscovery);
+      await ready;
+      officialSourceDiscoveryScheduler.reconcile(
+        retainedEvidenceRequirements().map((requirement) => Object.freeze({
+          requirement,
+          priorityTier: "RETAINED_RESEARCH_DEBT" as const,
+        })),
+      );
+      writeJson(response, 200, officialSourceDiscoveryScheduler.projection());
       return;
     }
     const officialSourceRunMatch = url.pathname.match(
@@ -2703,7 +2706,13 @@ export function createControlPlane(options?: {
     );
     if (request.method === "POST" && officialSourceRunMatch !== null) {
       try {
-        await projection();
+        await ready;
+        officialSourceDiscoveryScheduler.reconcile(
+          retainedEvidenceRequirements().map((requirement) => Object.freeze({
+            requirement,
+            priorityTier: "RETAINED_RESEARCH_DEBT" as const,
+          })),
+        );
         const run = officialSourceDiscoveryScheduler.runJob(
           officialSourceRunMatch[1] as Hash,
         );

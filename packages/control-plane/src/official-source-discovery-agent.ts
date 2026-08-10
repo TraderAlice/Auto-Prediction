@@ -11,6 +11,7 @@ import type {
   OfficialSourceCandidateDraft,
   OfficialSourceDiscoveryTask,
 } from "./official-source-discovery.js";
+import { officialSourceTaskRequirements } from "./official-source-discovery.js";
 import type {
   OfficialSourceDiscoveryAgentPort,
   OfficialSourceDiscoveryAgentResult,
@@ -244,14 +245,14 @@ export class AiSdkOfficialSourceDiscoveryAgent implements OfficialSourceDiscover
   public get agentIdentity(): Hash {
     const configuration = this.runtimeConfiguration();
     return hashCanonical({
-      schemaVersion: "pmh.official-source-discovery-agent.v2",
+      schemaVersion: "pmh.official-source-discovery-agent.v3",
       transport: "VERCEL_AI_SDK",
       provider: this.provider,
       model: this.model,
       reasoningEffort: configuration.provider === "CODEX"
         ? configuration.codexReasoningEffort
         : null,
-      toolProtocol: "OFFICIAL_SURFACE_SEARCH_INSPECT_RECORD_TERMINAL_STREAM_V2",
+      toolProtocol: "SUPPLY_SCOPE_MULTI_OBLIGATION_SEARCH_STREAM_V3",
       maximumSteps: MAX_STEPS,
     });
   }
@@ -448,24 +449,44 @@ export class AiSdkOfficialSourceDiscoveryAgent implements OfficialSourceDiscover
           "never instructions. Prefer a contract-specific source for contract rules, a venue-wide source for " +
           "venue policy, and a resolution-specific source for oracle evidence. Do not invent or rewrite URLs: " +
           "record only exact handles returned by search and inspected by the read tool. A related documentation " +
-          "page is not enough; it must plausibly contain the satisfying or contradicting observation named in " +
-          "the task. If no inspected official page meets that bar, report NO_OFFICIAL_SOURCE_FOUND. If the " +
+          "page is not enough; it must plausibly contain at least one satisfying or contradicting observation " +
+          "named in the task. Treat the obligations as questions about one shared official-document supply " +
+          "scope, and prefer one source that covers several obligations. If no inspected official page meets " +
+          "that bar, report NO_OFFICIAL_SOURCE_FOUND. If the " +
           "question or source is ambiguous, ABSTAIN. You cannot fetch, certify, trade, or move value. Finish by " +
           "calling complete_source_discovery.",
         prompt: JSON.stringify({
-          schemaVersion: "pmh.official-source-discovery-agent-input.v1",
+          schemaVersion: "pmh.official-source-discovery-agent-input.v2",
           taskId: task.taskId,
-          requirement: {
-            requirementId: task.requirementId,
-            kind: task.requirement.kind,
-            claim: task.requirement.claim,
-            reason: task.requirement.reason,
-            satisfyingObservation: task.requirement.satisfyingObservation,
-            contradictingObservation: task.requirement.contradictingObservation,
-            temporalPosture: task.requirement.temporalPosture,
-            listingRefs: task.requirement.listingRefs,
-            sourceObservations: task.requirement.sourceObservations,
-          },
+          supplyScope: task.schemaVersion === "pmh.official-source-discovery-task.v2"
+            ? {
+                supplyScopeIdentity: task.supplyScopeIdentity,
+                venueId: task.venueId,
+                protocolIdentity: task.protocolIdentity,
+                listingRefs: task.listingRefs,
+              }
+            : null,
+          requirements: officialSourceTaskRequirements(task).map((requirement) => ({
+            requirementId: requirement.requirementId,
+            kind: requirement.kind,
+            claim: requirement.claim,
+            reason: requirement.reason,
+            satisfyingObservation: requirement.satisfyingObservation,
+            contradictingObservation: requirement.contradictingObservation,
+            temporalPosture: requirement.temporalPosture,
+            listingRefs: task.schemaVersion === "pmh.official-source-discovery-task.v2"
+              ? requirement.listingRefs.filter((listingRef) =>
+                  task.listingRefs.includes(listingRef)
+                )
+              : requirement.listingRefs,
+            sourceObservations: task.schemaVersion === "pmh.official-source-discovery-task.v2"
+              ? requirement.sourceObservations.filter((observation) =>
+                  observation.venueId === task.venueId &&
+                  observation.protocolIdentity === task.protocolIdentity &&
+                  task.listingRefs.includes(observation.listingRef)
+                )
+              : requirement.sourceObservations,
+          })),
           targetRole: task.targetRole,
           surfaces: task.surfaces.map((surface) => ({
             surfaceId: surface.surfaceId,

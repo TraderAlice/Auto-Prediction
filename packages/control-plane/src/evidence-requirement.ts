@@ -744,7 +744,7 @@ export function rebaseEvidenceRequirementToAdmittedLocator(input: Readonly<{
 }>): EvidenceRequirement {
   const requirement = assertEvidenceRequirement(input.requirement);
   if (
-    requirement.acquisitionRoute !== "UNSUPPORTED" ||
+    requirement.acquisitionRoute === "MARKET_DATA" ||
     input.locator.schemaVersion !== "pmh.discovery-evidence-locator.v3" ||
     !compatibleLocatorRoles(requirement.kind).includes(input.locator.role)
   ) return requirement;
@@ -772,14 +772,20 @@ export function rebaseEvidenceRequirementToAdmittedLocator(input: Readonly<{
           ])].sort((left, right) => left.localeCompare(right))),
         })
   ));
-  const eligibleLocators = Object.freeze([Object.freeze({
+  const locatorByIdentity = new Map(requirement.eligibleLocators.map((binding) =>
+    [binding.locator.locatorIdentity, binding] as const
+  ));
+  locatorByIdentity.set(input.locator.locatorIdentity, Object.freeze({
     listingRefs: Object.freeze(requirement.listingRefs.filter((listingRef) =>
       matchedRefs.has(listingRef)
     )),
     venueId: input.venueId,
     protocolIdentity: input.protocolIdentity,
     locator: input.locator,
-  })]);
+  }));
+  const eligibleLocators = Object.freeze([...locatorByIdentity.values()].sort((left, right) =>
+    left.locator.locatorIdentity.localeCompare(right.locator.locatorIdentity)
+  ));
   const proposalListingRefs = requirement.schemaVersion ===
       "pmh.evidence-requirement.v2"
     ? requirement.proposalListingRefs

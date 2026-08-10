@@ -22,6 +22,13 @@ export const LIVE_PROJECTION_LIMITS = Object.freeze({
   semanticReviewAdmissionCandidates: 8,
   reviewAttentionItems: 8,
   evidenceAcquisitionJobs: 12,
+  officialSourceDiscoveryJobs: 12,
+  ruleEvidenceClaimJobs: 16,
+  premiseAnalysisRecords: 24,
+  premiseAnalysisJobs: 24,
+  premiseAnalysisNotifications: 12,
+  premiseEvidenceRoutingJobs: 24,
+  evidenceDebtItems: 12,
   searchAttentionMessages: 12,
   searchAttentionDeliveries: 12,
   searchIssueNotifications: 12,
@@ -173,6 +180,54 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
     LIVE_PROJECTION_LIMITS.evidenceAcquisitionJobs,
     "ACTIVE_THEN_RETAINED_ORDER",
     (job) => ["PENDING", "LEASED", "RETRY_WAIT", "STALE"].includes(job.status),
+  );
+  const officialSourceJobs = window(
+    "ai.officialSourceDiscovery.jobs",
+    full.ai.officialSourceDiscovery.jobs,
+    LIVE_PROJECTION_LIMITS.officialSourceDiscoveryJobs,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (job) => ["PENDING", "LEASED", "RETRY_WAIT"].includes(job.status),
+  );
+  const ruleEvidenceClaimJobs = window(
+    "ai.ruleEvidenceClaims.jobs",
+    full.ai.ruleEvidenceClaims.jobs,
+    LIVE_PROJECTION_LIMITS.ruleEvidenceClaimJobs,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (job) => ["PENDING", "LEASED", "RETRY_WAIT"].includes(job.status),
+  );
+  const premiseAnalysisRecords = window(
+    "ai.premiseAnalysis.records",
+    full.ai.premiseAnalysis.records,
+    LIVE_PROJECTION_LIMITS.premiseAnalysisRecords,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (record) => record.status === "RUNNING",
+  );
+  const premiseAnalysisJobs = window(
+    "ai.premiseAnalysisScheduler.jobs",
+    full.ai.premiseAnalysisScheduler.jobs,
+    LIVE_PROJECTION_LIMITS.premiseAnalysisJobs,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (job) => ["PENDING", "LEASED", "RETRY_WAIT"].includes(job.status),
+  );
+  const premiseAnalysisNotifications = window(
+    "ai.premiseAnalysisScheduler.notifications",
+    full.ai.premiseAnalysisScheduler.notifications,
+    LIVE_PROJECTION_LIMITS.premiseAnalysisNotifications,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (notification) => notification.status === "UNREAD",
+  );
+  const premiseEvidenceRoutingJobs = window(
+    "ai.premiseEvidenceRouting.jobs",
+    full.ai.premiseEvidenceRouting.jobs,
+    LIVE_PROJECTION_LIMITS.premiseEvidenceRoutingJobs,
+    "ACTIVE_THEN_RETAINED_ORDER",
+    (job) => ["PENDING", "LEASED", "RETRY_WAIT"].includes(job.status),
+  );
+  const evidenceDebtItems = window(
+    "ai.evidenceDebtFrontier.items",
+    full.ai.evidenceDebtFrontier.items,
+    LIVE_PROJECTION_LIMITS.evidenceDebtItems,
+    "RETAINED_ORDER",
   );
   const attentionMessages = window(
     "ai.searchAttention.messages",
@@ -359,6 +414,31 @@ export function buildLiveStudioProjection(full: StudioProjection): StudioProject
         notifications: reviewNotifications,
       }),
       evidenceAcquisition: Object.freeze({ ...full.ai.evidenceAcquisition, jobs: evidenceJobs }),
+      officialSourceDiscovery: Object.freeze({
+        ...full.ai.officialSourceDiscovery,
+        jobs: officialSourceJobs,
+      }),
+      ruleEvidenceClaims: Object.freeze({
+        ...full.ai.ruleEvidenceClaims,
+        jobs: ruleEvidenceClaimJobs,
+      }),
+      premiseAnalysis: Object.freeze({
+        ...full.ai.premiseAnalysis,
+        records: premiseAnalysisRecords,
+      }),
+      premiseAnalysisScheduler: Object.freeze({
+        ...full.ai.premiseAnalysisScheduler,
+        jobs: premiseAnalysisJobs,
+        notifications: premiseAnalysisNotifications,
+      }),
+      premiseEvidenceRouting: Object.freeze({
+        ...full.ai.premiseEvidenceRouting,
+        jobs: premiseEvidenceRoutingJobs,
+      }),
+      evidenceDebtFrontier: Object.freeze({
+        ...full.ai.evidenceDebtFrontier,
+        items: evidenceDebtItems,
+      }),
       reviewAttention: Object.freeze({ ...full.ai.reviewAttention, items: reviewAttentionItems }),
       proposalEconomicTriage: Object.freeze({
         ...full.ai.proposalEconomicTriage,

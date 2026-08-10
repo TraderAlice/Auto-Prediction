@@ -327,7 +327,7 @@ export function defaultEvidenceDocumentFetchPolicies(): readonly EvidenceDocumen
       venueId: geminiManifest.venueId,
       protocolIdentity: geminiManifest.protocolIdentity,
       role: "CONTRACT_RULE_DOCUMENT",
-      allowedHostnames: ["assets.gemini.com"],
+      allowedHostnames: ["assets.gemini.com", "cdn.builder.io"],
       allowedContentTypes: ["application/pdf"],
     }),
     buildEvidenceDocumentFetchPolicy({

@@ -858,10 +858,35 @@ official Gemini surfaces for outcome mapping, time boundary,
 void/cancellation, and oracle source in 30 provider/tool turns. Every run ended
 `NO_OFFICIAL_SOURCE_FOUND`: the public documentation is venue-generic and does
 not establish the listing-specific LAFC predicate or settlement semantics. No
-locator was minted and no review was reopened. This negative qualification is
-the intended honest result; the next slice coalesces the 235 current-generation
-source tasks by acquisition scope and investigates deterministic Gemini Terms
-API/catalog extraction before any wider Agent search is enabled.
+locator was minted and no review was reopened. This negative qualification was
+the intended honest result, and the follow-up has now shown why: the Agent was
+searching generic documentation while Gemini already returned the exact
+contract rules and a contract-bound full-rules PDF in its anonymous Events
+payload. The adapter now retains that rich text and locator under a new
+normalizer identity. Source discovery v2 coalesces requirements by exact
+venue/protocol/listing/role/temporal supply scope, splits cross-venue coverage,
+shares one admitted locator across as many as twelve obligations, retires stale
+bundles from the runnable queue, and only raises priority. Current retained
+state has 147 active source jobs covering 223 obligations, with 353 superseded
+generations retained for replay. Only 24 active jobs target Gemini. The four
+LAFC Gemini gaps have collapsed to one positive-gross-blocking oracle-source
+obligation: contract predicate, timing, and contingency rules are now supplied
+deterministically, while an exact named resolution authority remains missing.
+No additional provider request was spent.
+
+That result selects a narrower Agent role. Adapter-owned official data is
+machine work and must be exhausted before source-search prompting; the Agent
+works the residual source-location and semantic ambiguity. Retention pruning
+now preserves any document referenced by a durable evidence claim, and the
+new high-cardinality evidence schedulers are explicitly windowed in Studio.
+The live bounded projection is 2.12 MB and cached reads return in about 0.02
+seconds, while the dedicated 147-job source endpoint reconciles in 0.39
+seconds. Browser qualification of the Evidence route shows the LAFC 110 bps
+gross hint at the correct remaining oracle-source bottleneck with no console
+errors. All 649 workspace tests, TypeScript checks, and the production build
+pass on the available Node 22 host; the expected Node 24 engine warning remains.
+The next measured slice is exact resolution-source yield and changed-review
+yield, not wider unbounded web search.
 
 ## Deferred future campaigns
 

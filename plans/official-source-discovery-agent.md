@@ -1,7 +1,7 @@
 # Bounded official-source discovery Agent
 
-Status: implemented and first live negative qualification complete; acquisition-scope
-coalescing and deterministic Gemini term discovery remain active follow-up work
+Status: implemented; supply-scope coalescing and deterministic Gemini contract-rule
+discovery are live-qualified, with exact resolution-source discovery still open
 
 Created: 2026-08-10
 
@@ -179,3 +179,57 @@ coverage obligations. Before buying broader web search, inspect Gemini's
 official Terms API and event/catalog responses for a deterministic
 contract-to-terms locator; if it exists, adapter extraction is the higher-value
 solution predicted by the rework selection signal.
+
+## 2026-08-10 supply-scope and adapter qualification
+
+The follow-up changed the unit of work from one Agent prompt per requirement to
+one exact official-document supply scope with up to twelve typed obligations.
+The scope binds one venue, protocol, listing set, document role, temporal
+posture, and official-surface policy. Multi-venue requirements are split before
+search, while requirements from different proposal generations may share a
+single search when they ask the same source to provide the same role. Terminal
+jobs from superseded obligation bundles remain replayable but cannot be run.
+Priority may rise when a shared source blocks a more valuable proposal, but a
+lightweight retained-state reconciliation cannot lower it later.
+
+Gemini's anonymous Events response proved that the Agent had been searching at
+the wrong abstraction layer. The full 496-event response is 7,352,066 bytes and
+the MLS contract carries rich-text contract rules plus a markdown `Full rules`
+link to an official contract PDF. The Gemini adapter now extracts both fields,
+binds them to a new normalizer identity, and retires old captures rather than
+reinterpreting their truncated shape. The constrained document policy admits
+the observed Gemini asset hosts, including the contract-bound
+`cdn.builder.io` PDF, without granting arbitrary web-fetch authority.
+
+On current retained state, the active source queue is 147 tasks covering 223
+obligations; 353 older task generations remain durable but inactive. Only 24
+active tasks target Gemini. For the LAFC cross-venue case, the former four
+Gemini searches collapse to one positive-gross-blocking
+`OUTCOME_RESOLUTION_SOURCE` obligation: outcome mapping, time boundary, and
+void/cancellation are now supplied deterministically by the contract payload,
+while an exact named resolution-source URL is still honestly missing. No new
+provider request was needed and automatic source-discovery spending remains
+disabled.
+
+The live qualification also exposed two operational constraints and fixed
+them. Evidence documents referenced by durable claim records now survive
+acquisition-job retention pruning, and the Studio live projection windows all
+new high-cardinality evidence schedulers. The bounded projection is 2.12 MB,
+serves from the revision cache in about 0.02 seconds, retains aggregate counts,
+and exposes explicit full-resource links for rotated detail. The dedicated
+source endpoint reconciles directly and returned the 147-job queue in 0.39
+seconds. Browser inspection of the live Evidence route showed the five-stage
+pipeline, the LAFC 110 bps gross hint blocked only on oracle source, and no
+console errors.
+
+This is positive evidence for the plan's `REWORK` signal: deterministic adapter
+extraction should consume all official data the venue already publishes, while
+the Agent remains valuable for the smaller residual set where source location
+or semantics cannot be derived mechanically. The next selection question is
+whether exact resolution-source discovery can produce a named official oracle
+at acceptable provider cost; generic Gemini policy pages remain inadmissible.
+
+Qualification passes 487 control-plane tests, 17 Studio tests, all 649 workspace
+tests, all TypeScript project checks, and the production build on the available
+Node 22 host. The repository continues to emit its expected Node 24 engine
+warning.

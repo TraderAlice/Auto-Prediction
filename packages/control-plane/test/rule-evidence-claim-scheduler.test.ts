@@ -31,12 +31,12 @@ const publicResolver = async () => Object.freeze([
   Object.freeze({ address: "8.8.8.8", family: 4 as const }),
 ]);
 
-function listing(listingRef: string, locator = false): DiscoveryCatalogListing {
+function listing(listingRef: string, locator: false | string = false): DiscoveryCatalogListing {
   const evidenceLocator = locator ? buildDiscoveryEvidenceLocator({
     venueId: "claim-scheduler-test",
     protocolIdentity: "claim-scheduler-test:v1",
     role: "CONTRACT_RULE_DOCUMENT",
-    url: "https://rules.example.com/shared.txt",
+    url: locator,
   }) : null;
   if (locator && evidenceLocator === null) throw new Error("scheduler locator failed");
   return Object.freeze({
@@ -66,8 +66,11 @@ function listing(listingRef: string, locator = false): DiscoveryCatalogListing {
   });
 }
 
-function requirement(label: string): EvidenceRequirement {
-  const first = listing("shared:first", true);
+function requirement(
+  label: string,
+  url = "https://rules.example.com/shared.txt",
+): EvidenceRequirement {
+  const first = listing(`${label}:first`, url);
   const second = listing("shared:second");
   return buildEvidenceRequirements({
     origin: "SEMANTIC_REVIEW",
@@ -269,6 +272,61 @@ describe("durable rule evidence claim scheduler", () => {
       expect(secondScheduler.projection().jobs[0]).toEqual(firstJob);
       expect(secondDesk.projection()).toMatchObject({ passCount: 1, runCount: 1 });
       secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retains claimed documents when acquisition jobs exceed queue retention", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-claimed-document-retention-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const time = clock();
+      const input = requirement("claimed-before-prune");
+      const store = new SqliteOperationalStore(path);
+      const acquisition = new EvidenceAcquisitionScheduler({
+        fetcher: documentFetcher(time.now),
+        tickIntervalMs: 1_000,
+        retentionLimit: 10,
+        store,
+        now: time.now,
+      });
+      await Promise.all(acquisition.tick([input]));
+      const capture = acquisition.captureForJob(acquisition.projection().jobs[0]!.jobId)!;
+      const desk = new RuleEvidenceClaimDesk(
+        interpreter(capture),
+        "deepseek-v4-flash",
+        20,
+        store,
+        1,
+        time.now,
+      );
+      const scheduler = new RuleEvidenceClaimScheduler({
+        desk,
+        tickIntervalMs: 1_000,
+        store,
+        now: time.now,
+      });
+      await Promise.all(scheduler.tick([{ requirement: input, capture }]));
+
+      const later = Array.from({ length: 11 }, (_, index) => requirement(
+        `later-${index}`,
+        `https://rules.example.com/later-${index}.txt`,
+      ));
+      expect(() => acquisition.reconcile(later)).not.toThrow();
+      store.close();
+
+      const reopened = new SqliteOperationalStore(path);
+      const restored = new RuleEvidenceClaimDesk(
+        interpreter(capture),
+        "deepseek-v4-flash",
+        20,
+        reopened,
+        1,
+        time.now,
+      );
+      expect(restored.projection()).toMatchObject({ passCount: 1, runCount: 1 });
+      reopened.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
