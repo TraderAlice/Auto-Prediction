@@ -222,12 +222,18 @@ seconds. Browser inspection of the live Evidence route showed the five-stage
 pipeline, the LAFC 110 bps gross hint blocked only on oracle source, and no
 console errors.
 
-This is positive evidence for the plan's `REWORK` signal: deterministic adapter
+This was positive evidence for the plan's `REWORK` signal: deterministic adapter
 extraction should consume all official data the venue already publishes, while
 the Agent remains valuable for the smaller residual set where source location
 or semantics cannot be derived mechanically. The next selection question is
 whether exact resolution-source discovery can produce a named official oracle
 at acceptable provider cost; generic Gemini policy pages remain inadmissible.
+
+The follow-on oracle-evidence layering decision has since classified the
+contract's declared resolution policy as admissible evidence for the
+`ORACLE_SOURCE` claim without relabelling the contract locator. That removed the
+LAFC source-search task entirely; direct outcome-source observation remains a
+stronger, separately typed artifact for eventual settlement verification.
 
 Qualification passes 487 control-plane tests, 17 Studio tests, all 649 workspace
 tests, all TypeScript project checks, and the production build on the available

@@ -2785,6 +2785,43 @@ export function createControlPlane(options?: {
       writeJson(response, 200, ruleEvidenceClaimScheduler.projection());
       return;
     }
+    const ruleEvidenceClaimRunMatch = url.pathname.match(
+      /^\/api\/v1\/rule-evidence-claims\/(sha256:[0-9a-f]{64})\/run$/u,
+    );
+    if (request.method === "POST" && ruleEvidenceClaimRunMatch !== null) {
+      try {
+        await ready;
+        evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+        const inputs = ruleEvidenceClaimInputs();
+        ruleEvidenceClaimScheduler.reconcile(inputs);
+        if (aiRuntimeConfigurationDesk.current().provider !== ruleEvidenceClaimDesk.provider) {
+          throw new Error(
+            "rule evidence claim interpreter does not match the selected runtime provider",
+          );
+        }
+        const run = ruleEvidenceClaimScheduler.runJob(
+          ruleEvidenceClaimRunMatch[1] as Hash,
+          inputs,
+        );
+        void broadcastProjection();
+        void run.then(() => broadcastProjection(), () => broadcastProjection());
+        writeJson(response, 202, {
+          ok: true,
+          jobId: ruleEvidenceClaimRunMatch[1],
+          status: "LEASED",
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "rule evidence claim run could not start",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
     const reviewNotificationAckMatch = url.pathname.match(
       /^\/api\/v1\/semantic-review-notifications\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
     );

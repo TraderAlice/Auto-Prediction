@@ -17,7 +17,7 @@ import {
 import type { OperationalStorageProjection } from "./types.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
-const DEFAULT_RETENTION_LIMIT = 500;
+const DEFAULT_RETENTION_LIMIT = 2_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_REQUESTS_PER_TICK = 3;
 const DEFAULT_LEASE_TIMEOUT_MS = 330_000;
@@ -280,7 +280,8 @@ export class RuleEvidenceClaimScheduler {
       !Number.isSafeInteger(this.#leaseTimeoutMs) || this.#leaseTimeoutMs < 1_000 ||
       this.#leaseTimeoutMs > 600_000 || !Number.isSafeInteger(this.#retryDelayMs) ||
       this.#retryDelayMs < 1_000 || this.#retryDelayMs > 86_400_000 ||
-      !Number.isSafeInteger(this.#retentionLimit) || this.#retentionLimit < 10
+      !Number.isSafeInteger(this.#retentionLimit) || this.#retentionLimit < 10 ||
+      this.#retentionLimit > 5_000
     ) throw new Error("rule evidence claim scheduler configuration is invalid or unbounded");
     this.#jobs = [...(
       this.#store?.loadRuleEvidenceClaimJobRecords(this.#retentionLimit) ?? []
@@ -304,6 +305,9 @@ export class RuleEvidenceClaimScheduler {
       )) throw new Error("retained rule evidence claim input no longer matches its job lineage");
       return [jobId, input] as const;
     })).entries()].sort(([left], [right]) => left.localeCompare(right));
+    if (validated.length > this.#retentionLimit) {
+      throw new Error("active rule evidence claim inputs exceed the durable retention bound");
+    }
     const completedById = new Map(
       this.#desk.projection().records
         .filter((record) => record.status === "PASS")
@@ -378,6 +382,40 @@ export class RuleEvidenceClaimScheduler {
       left.createdAt.localeCompare(right.createdAt) || left.jobId.localeCompare(right.jobId)
     ).slice(0, available);
     return Object.freeze(due.map((job) => this.#dispatch(job, inputByJob.get(job.jobId)!)));
+  }
+
+  public runJob(
+    jobId: Hash,
+    inputs: readonly RuleEvidenceClaimInput[],
+  ): Promise<RuleEvidenceClaimJobRecord> {
+    if (!HASH_PATTERN.test(String(jobId))) {
+      throw new Error("rule evidence claim job identity is malformed");
+    }
+    if (!this.#desk.projection().configured) {
+      throw new Error("rule evidence claim interpreter is not configured");
+    }
+    if (
+      this.#active.size >= this.#concurrencyLimit ||
+      this.#desk.projection().activeCount >= this.#desk.concurrencyLimit
+    ) throw new Error("rule evidence claim concurrency budget is full");
+    const job = this.#jobs.find((item) => item.jobId === jobId);
+    if (job === undefined) throw new Error("rule evidence claim job was not found");
+    if (job.interpreterIdentity !== this.#desk.interpreterIdentity) {
+      throw new Error("rule evidence claim job belongs to a superseded interpreter generation");
+    }
+    if (this.#active.has(jobId) || job.status === "LEASED") {
+      throw new Error("rule evidence claim job is already running");
+    }
+    if (!["PENDING", "RETRY_WAIT"].includes(job.status)) {
+      throw new Error(`rule evidence claim job is terminal: ${job.status}`);
+    }
+    const input = inputs.map(validateInput).find((candidate) =>
+      this.#desk.interpretationIdFor(candidate.requirement, candidate.capture) === jobId
+    );
+    if (input === undefined) {
+      throw new Error("rule evidence claim input is no longer active");
+    }
+    return this.#dispatch(job, input);
   }
 
   #dispatch(
@@ -496,7 +534,7 @@ export class RuleEvidenceClaimScheduler {
     if (index >= 0) this.#jobs.splice(index, 1);
     this.#jobs.push(stored);
     this.#jobs.sort((left, right) =>
-      left.createdAt.localeCompare(right.createdAt) || left.jobId.localeCompare(right.jobId)
+      right.updatedAt.localeCompare(left.updatedAt) || right.jobId.localeCompare(left.jobId)
     );
     if (this.#jobs.length > this.#retentionLimit) this.#jobs.length = this.#retentionLimit;
     return stored;

@@ -432,7 +432,17 @@ export class EvidenceAcquisitionScheduler {
     policyIdentity: Hash;
   }> | null {
     if (requirement.acquisitionRoute !== "DOCUMENT_LOCATOR") return null;
-    for (const binding of requirement.eligibleLocators) {
+    const bindings = [...requirement.eligibleLocators].sort((left, right) => {
+      const roleRank = (role: typeof left.locator.role): number =>
+        requirement.kind === "ORACLE_SOURCE" && role === "OUTCOME_RESOLUTION_SOURCE"
+          ? 0
+          : requirement.kind === "ORACLE_SOURCE" && role === "CONTRACT_RULE_DOCUMENT"
+          ? 1
+          : 0;
+      return roleRank(left.locator.role) - roleRank(right.locator.role) ||
+        left.locator.locatorIdentity.localeCompare(right.locator.locatorIdentity);
+    });
+    for (const binding of bindings) {
       let policy: EvidenceDocumentFetchPolicy | null;
       try {
         policy = this.#fetcher.policyFor(
@@ -765,7 +775,7 @@ export class EvidenceAcquisitionScheduler {
     if (index >= 0) this.#jobs.splice(index, 1);
     this.#jobs.push(record);
     this.#jobs.sort((left, right) =>
-      left.createdAt.localeCompare(right.createdAt) || left.jobId.localeCompare(right.jobId)
+      right.updatedAt.localeCompare(left.updatedAt) || right.jobId.localeCompare(left.jobId)
     );
     if (this.#jobs.length > this.#retentionLimit) {
       const removed = this.#jobs.splice(this.#retentionLimit);

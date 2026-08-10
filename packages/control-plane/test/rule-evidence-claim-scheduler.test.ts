@@ -148,6 +148,54 @@ function interpreter(
 }
 
 describe("durable rule evidence claim scheduler", () => {
+  it("keeps the same newest-job retention window in memory and SQLite", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-rule-claim-window-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const time = clock();
+      const requirements = Array.from({ length: 11 }, (_, index) =>
+        requirement(`retention-${index}`)
+      );
+      const capture = await captureFor(requirements[0]!, time.now);
+      const store = new SqliteOperationalStore(path);
+      const desk = new RuleEvidenceClaimDesk(
+        interpreter(capture),
+        "deepseek-v4-flash",
+        20,
+        store,
+        1,
+        time.now,
+      );
+      const scheduler = new RuleEvidenceClaimScheduler({
+        desk,
+        retentionLimit: 10,
+        store,
+        now: time.now,
+      });
+      for (const source of requirements) {
+        scheduler.reconcile([{ requirement: source, capture }]);
+        time.advance(1_000);
+      }
+      const memoryIds = scheduler.projection().jobs.map((job) => job.jobId);
+      const storedIds = store.loadRuleEvidenceClaimJobRecords(10).map((job) => job.jobId);
+      expect(memoryIds).toEqual(storedIds);
+      expect(memoryIds).toHaveLength(10);
+      expect(scheduler.projection().jobs.some((job) =>
+        job.requirementId === requirements[10]!.requirementId
+      )).toBe(true);
+      expect(scheduler.projection().jobs.some((job) =>
+        job.requirementId === requirements[0]!.requirementId
+      )).toBe(false);
+      expect(() => scheduler.reconcile(requirements.map((source) => ({
+        requirement: source,
+        capture,
+      })))).toThrow("active rule evidence claim inputs exceed the durable retention bound");
+      store.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("interprets proposal-local requirements independently over one shared document", async () => {
     const time = clock();
     const first = requirement("first-proposal");
@@ -180,6 +228,32 @@ describe("durable rule evidence claim scheduler", () => {
     expect(new Set(scheduler.projection().jobs.map((job) => job.documentId))).toEqual(
       new Set([capture.document.record.documentId]),
     );
+  });
+
+  it("runs exactly one selected pending claim without enabling the queue", async () => {
+    const time = clock();
+    const first = requirement("manual-first");
+    const second = requirement("manual-second");
+    const capture = await captureFor(first, time.now);
+    const model = interpreter(capture);
+    const interpret = vi.spyOn(model, "interpret");
+    const desk = new RuleEvidenceClaimDesk(model, "gpt-5.6-terra", 20, undefined, 3, time.now);
+    const scheduler = new RuleEvidenceClaimScheduler({ desk, now: time.now });
+    const inputs = [
+      { requirement: first, capture },
+      { requirement: second, capture },
+    ];
+    scheduler.reconcile(inputs);
+    const selected = scheduler.projection().jobs.find((job) =>
+      job.requirementId === second.requirementId
+    )!;
+    await scheduler.runJob(selected.jobId, inputs);
+    expect(interpret).toHaveBeenCalledOnce();
+    expect(scheduler.projection()).toMatchObject({
+      passedCount: 1,
+      pendingCount: 1,
+      budget: { providerAttemptsStarted: 1 },
+    });
   });
 
   it("bounds provider retries and preserves the terminal diagnostic", async () => {

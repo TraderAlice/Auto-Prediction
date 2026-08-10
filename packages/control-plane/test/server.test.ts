@@ -1081,6 +1081,16 @@ describe("control-plane HTTP surface", () => {
       authority: "ADVISORY_EVIDENCE_INTERPRETATION_ORCHESTRATION_ONLY",
       executionAuthority: false,
     });
+    const manualClaimResponse = await fetch(
+      `${baseUrl}/api/v1/rule-evidence-claims/${"sha256:" + "0".repeat(64)}/run`,
+      { method: "POST" },
+    );
+    expect(manualClaimResponse.status).toBe(409);
+    expect(await manualClaimResponse.json()).toMatchObject({
+      ok: false,
+      diagnostic: "rule evidence claim interpreter does not match the selected runtime provider",
+      executionAuthority: false,
+    });
     expect(projection.ai.semanticReviewAdmission).toMatchObject({
       policy: "TWO_TO_FOUR_DISTINCT_LISTINGS_WITH_PREMISE_LANE_V2",
       candidateCount: 0,

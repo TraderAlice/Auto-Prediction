@@ -1085,6 +1085,7 @@ export class RuleEvidenceClaimDesk {
   readonly #records: RuleEvidenceClaimRecord[];
   readonly #active = new Map<Hash, Promise<RuleEvidenceClaimRecord>>();
   public readonly interpreterIdentity: Hash;
+  public readonly provider = "DEEPSEEK" as const;
 
   public constructor(
     private readonly interpreter: RuleEvidenceClaimModelPort | null,

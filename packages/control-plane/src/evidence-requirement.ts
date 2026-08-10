@@ -140,7 +140,9 @@ function isRequirementKind(value: unknown): value is EvidenceRequirementKind {
 function compatibleLocatorRoles(
   kind: EvidenceRequirementKind,
 ): readonly DiscoveryEvidenceLocator["role"][] {
-  if (kind === "ORACLE_SOURCE") return ["OUTCOME_RESOLUTION_SOURCE"];
+  if (kind === "ORACLE_SOURCE") {
+    return ["OUTCOME_RESOLUTION_SOURCE", "CONTRACT_RULE_DOCUMENT"];
+  }
   if (kind === "VENUE_POLICY") return ["VENUE_RULE_DOCUMENT"];
   if ([
     "RESOLUTION_RULE",

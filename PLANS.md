@@ -43,6 +43,8 @@ with challenge-to-successor review orchestration tracked in
 and repair/evidence debt that lacks a locator advanced through bounded official
 source discovery under
 [`plans/official-source-discovery-agent.md`](plans/official-source-discovery-agent.md),
+with declared oracle policy separated from direct outcome-source observation in
+[`plans/oracle-evidence-layering.md`](plans/oracle-evidence-layering.md),
 and AI resource observability tracked in
 [`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md), with terminal
 protocol efficiency tracked in
@@ -887,6 +889,39 @@ errors. All 649 workspace tests, TypeScript checks, and the production build
 pass on the available Node 22 host; the expected Node 24 engine warning remains.
 The next measured slice is exact resolution-source yield and changed-review
 yield, not wider unbounded web search.
+
+That next slice exposed a category error rather than another missing webpage.
+`ORACLE_SOURCE` described the proposition to prove, but routing accepted only
+an `OUTCOME_RESOLUTION_SOURCE` locator even though Gemini's contract rules
+explicitly name Major League Soccer official announcements and match records
+as the primary resolution source. Oracle evidence layering now keeps locator
+roles distinct while allowing either a direct outcome source or a contract
+document to support the declared-source claim; direct outcome sources have
+deterministic precedence when both exist. Live reconciliation made no provider
+request, retired the LAFC search task, reduced the active source queue from 147
+to 120 and Gemini tasks from 24 to 19, reused the already captured contract PDF,
+and created one zero-attempt `PENDING` interpretation over that document.
+
+The live migration also caught two opposite retention windows: SQLite kept the
+newest acquisition and claim jobs while memory kept the oldest, causing new
+routes to be recreated on every read. Both schedulers now retain `updatedAt`
+descending, tests compare memory with SQLite across pruning, and rule-claim
+retention is 2,000 with an explicit active-input bound. Acquisition, claim, and
+source endpoints now settle in 0.37-0.41 seconds rather than the observed
+27-60 second prune loop. The remaining oracle-layering checkpoint is one
+targeted Terra interpretation citing the exact contract passage; broad
+automatic interpretation remains disabled.
+
+The targeted dispatch itself then falsified two assumptions. Although SQLite
+selected `CODEX / terra / high`, the Rule Evidence Interpreter still came from
+its legacy DeepSeek-only factory and spent one DeepSeek attempt. The retained
+PDF extraction was only 653 characters and did not include the Events-API
+sentence naming Major League Soccer, so the interpreter correctly returned
+`INCONCLUSIVE` instead of laundering catalog knowledge into a citation. Manual
+claim dispatch now fails closed when its interpreter provider differs from the
+selected runtime. The next active work is therefore provider routing for this
+desk plus a source-hashed catalog-rich-text evidence artifact; a second model
+attempt is prohibited until both exist.
 
 ## Deferred future campaigns
 
