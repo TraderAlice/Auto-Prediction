@@ -333,9 +333,34 @@ request:
   existing Studio bundle-size warning remains.
 - **Execution is not migrated yet.** Historical claim jobs have not yet been
   wrapped as historical runs, the six Terra failures and retained interrupted
-  leases still need one-time incident annotations in the new tables, and Pi,
-  Codex Agent, and in-process runtime adapters do not yet consume
-  `ExecutionProfile`. No active campaign dispatcher has been enabled.
+  leases still need one-time incident annotations in the new tables. The
+  Phase 3 adapter boundary now consumes `ExecutionProfile` in mocked
+  qualification, but production Pi/Codex/in-process drivers and an active
+  campaign dispatcher have not been enabled.
+
+### Phase 3 adapter checkpoint
+
+- A common session lifecycle now drives Pi, Codex Agent, and in-process
+  adapters through the same `advance(toolResults)` loop. The runtime kind is
+  independent of the model driver and credential kind; the compatibility
+  matrix is still enforced before a session opens.
+- Logical credential bindings resolve just in time through a broker. Codex
+  OAuth cache and environment API-key resolvers return secret-bearing values
+  only to the adapter-open context; readiness and execution results retain the
+  binding identity and redacted status, never the bearer, account credential,
+  or API key.
+- Each successful runtime turn creates one model invocation record. Invocation,
+  token, tool-call, and wall-clock limits are checked at every loop boundary;
+  exceeding a budget interrupts the run before another model call. Invocation
+  chronology and cumulative token overshoot also fail closed.
+- Tool calls cross a first-party `AgentToolHost`. Accepted and rejected calls
+  become hashed `AgentToolEffect` records with no semantic, certificate,
+  external-write, or value-moving authority. A rejected submission is returned
+  to the session so the Agent can repair it in a later turn.
+- Mocked compatibility qualification covers Pi with Codex OAuth and DeepSeek,
+  Codex Agent with Codex OAuth, and the in-process harness with both model
+  supplies. No credential, provider request, subprocess, or live runtime is
+  used by these tests.
 
 This checkpoint proves the identity, compatibility, persistence, and
 zero-dispatch boundary. It does not claim Phase 3–8 adoption.
