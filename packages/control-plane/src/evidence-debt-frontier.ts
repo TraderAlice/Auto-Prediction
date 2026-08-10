@@ -67,6 +67,9 @@ export type EvidenceDebtFrontierItem = Readonly<{
 export type EvidenceDebtFrontierProjection = Readonly<{
   schemaVersion: "pmh.evidence-debt-frontier.v1";
   contentHash: Hash;
+  retainedUnsupportedJobCount: number;
+  retainedUnsupportedRequirementCount: number;
+  inactiveUnsupportedRequirementCount: number;
   sourceUnsupportedJobCount: number;
   sourceRequirementCount: number;
   sourceProposalCount: number;
@@ -76,7 +79,7 @@ export type EvidenceDebtFrontierProjection = Readonly<{
   items: readonly EvidenceDebtFrontierItem[];
   sortContract: "TIER_THEN_GROSS_EDGE_THEN_PRIORITY_THEN_MISSING_BREADTH";
   groupingContract: "ONE_ITEM_PER_PROPOSAL";
-  sourceWindow: "EVIDENCE_SCHEDULER_RETAINED_WINDOW";
+  sourceWindow: "ACTIVE_REQUIREMENTS_WITHIN_EVIDENCE_SCHEDULER_RETAINED_WINDOW";
   authority: "EVIDENCE_ROUTING_PRIORITY_ONLY";
   semanticDecisionAuthority: false;
   simulationAuthority: false;
@@ -161,25 +164,38 @@ function proposalRefs(requirement: EvidenceRequirement): readonly string[] {
 
 export function buildEvidenceDebtFrontier(input: Readonly<{
   jobs: readonly UnsupportedJobInput[];
+  activeRequirementIds: readonly Hash[];
   economicItems: readonly EconomicInput[];
   reviewItems: readonly ReviewInput[];
 }>): EvidenceDebtFrontierProjection {
+  const activeRequirementIds = new Set(input.activeRequirementIds);
   const economicByProposal = new Map(input.economicItems.map((item) => [item.proposalId, item]));
   const reviewByProposal = new Map(input.reviewItems.map((item) => [item.proposalId, item]));
   const grouped = new Map<Hash, Array<Readonly<{ jobId: Hash; requirement: EvidenceRequirement }>>>();
+  let retainedUnsupportedJobCount = 0;
   let sourceUnsupportedJobCount = 0;
-  let sourceRequirementCount = 0;
+  const retainedUnsupportedRequirementIds = new Set<Hash>();
+  const inactiveUnsupportedRequirementIds = new Set<Hash>();
+  const sourceRequirementIds = new Set<Hash>();
 
   for (const job of input.jobs) {
     if (job.status !== "UNSUPPORTED") continue;
-    sourceUnsupportedJobCount += 1;
+    retainedUnsupportedJobCount += 1;
+    let activeInJob = false;
     for (const requirement of job.requirements) {
       if (requirement.acquisitionRoute !== "UNSUPPORTED") continue;
-      sourceRequirementCount += 1;
+      retainedUnsupportedRequirementIds.add(requirement.requirementId);
+      if (!activeRequirementIds.has(requirement.requirementId)) {
+        inactiveUnsupportedRequirementIds.add(requirement.requirementId);
+        continue;
+      }
+      activeInJob = true;
+      sourceRequirementIds.add(requirement.requirementId);
       const entries = grouped.get(requirement.proposalId) ?? [];
       entries.push(Object.freeze({ jobId: job.jobId, requirement }));
       grouped.set(requirement.proposalId, entries);
     }
+    if (activeInJob) sourceUnsupportedJobCount += 1;
   }
 
   const allItems = [...grouped.entries()].map(([proposalId, rawEntries]) => {
@@ -249,8 +265,11 @@ export function buildEvidenceDebtFrontier(input: Readonly<{
   });
   const body = Object.freeze({
     schemaVersion: "pmh.evidence-debt-frontier.v1" as const,
+    retainedUnsupportedJobCount,
+    retainedUnsupportedRequirementCount: retainedUnsupportedRequirementIds.size,
+    inactiveUnsupportedRequirementCount: inactiveUnsupportedRequirementIds.size,
     sourceUnsupportedJobCount,
-    sourceRequirementCount,
+    sourceRequirementCount: sourceRequirementIds.size,
     sourceProposalCount: allItems.length,
     itemCount: items.length,
     truncated: items.length < allItems.length,
@@ -258,7 +277,7 @@ export function buildEvidenceDebtFrontier(input: Readonly<{
     items,
     sortContract: "TIER_THEN_GROSS_EDGE_THEN_PRIORITY_THEN_MISSING_BREADTH" as const,
     groupingContract: "ONE_ITEM_PER_PROPOSAL" as const,
-    sourceWindow: "EVIDENCE_SCHEDULER_RETAINED_WINDOW" as const,
+    sourceWindow: "ACTIVE_REQUIREMENTS_WITHIN_EVIDENCE_SCHEDULER_RETAINED_WINDOW" as const,
     authority: "EVIDENCE_ROUTING_PRIORITY_ONLY" as const,
     semanticDecisionAuthority: false as const,
     simulationAuthority: false as const,
@@ -270,5 +289,10 @@ export function buildEvidenceDebtFrontier(input: Readonly<{
 }
 
 export function emptyEvidenceDebtFrontier(): EvidenceDebtFrontierProjection {
-  return buildEvidenceDebtFrontier({ jobs: [], economicItems: [], reviewItems: [] });
+  return buildEvidenceDebtFrontier({
+    jobs: [],
+    activeRequirementIds: [],
+    economicItems: [],
+    reviewItems: [],
+  });
 }

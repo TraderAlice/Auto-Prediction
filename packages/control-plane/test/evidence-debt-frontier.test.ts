@@ -121,6 +121,14 @@ describe("evidence debt frontier", () => {
         job("two", [requirement(positiveLow, 0), requirement(triage, 0), duplicate]),
         job("three", [requirement(positiveHigh, 0)]),
       ],
+      activeRequirementIds: [
+        requirement(retained, 0).requirementId,
+        requirement(escalated, 1).requirementId,
+        duplicate.requirementId,
+        requirement(positiveLow, 0).requirementId,
+        requirement(triage, 0).requirementId,
+        requirement(positiveHigh, 0).requirementId,
+      ],
       economicItems: [
         economics(positiveLow, "POSITIVE_GROSS_HINT", "9007199254740993"),
         economics(positiveHigh, "POSITIVE_GROSS_HINT", "9007199254740994"),
@@ -160,11 +168,13 @@ describe("evidence debt frontier", () => {
     );
     const first = buildEvidenceDebtFrontier({
       jobs: [job("wide", requirements)],
+      activeRequirementIds: requirements.map((item) => item.requirementId),
       economicItems: [],
       reviewItems: [],
     });
     const second = buildEvidenceDebtFrontier({
       jobs: [job("wide", [...requirements].reverse())],
+      activeRequirementIds: requirements.map((item) => item.requirementId),
       economicItems: [],
       reviewItems: [],
     });
@@ -176,5 +186,31 @@ describe("evidence debt frontier", () => {
       missingKinds: ["ORACLE_SOURCE", "TIME_BOUNDARY"],
     });
     expect(first.items[0]?.requirements).toHaveLength(20);
+  });
+
+  it("excludes inactive retained requirements without deleting their history", () => {
+    const proposalId = hash("evolved-proposal");
+    const retired = requirement(proposalId, 0, "RESOLUTION_RULE");
+    const active = requirement(proposalId, 1, "ORACLE_SOURCE");
+    const projection = buildEvidenceDebtFrontier({
+      jobs: [job("retired", [retired]), job("active", [active])],
+      activeRequirementIds: [active.requirementId],
+      economicItems: [economics(proposalId, "POSITIVE_GROSS_HINT", "190", 5)],
+      reviewItems: [],
+    });
+
+    expect(projection).toMatchObject({
+      retainedUnsupportedJobCount: 2,
+      retainedUnsupportedRequirementCount: 2,
+      inactiveUnsupportedRequirementCount: 1,
+      sourceUnsupportedJobCount: 1,
+      sourceRequirementCount: 1,
+      sourceProposalCount: 1,
+    });
+    expect(projection.items[0]).toMatchObject({
+      missingKinds: ["ORACLE_SOURCE"],
+      requirementCount: 1,
+      tier: "POSITIVE_GROSS_BLOCKER",
+    });
   });
 });

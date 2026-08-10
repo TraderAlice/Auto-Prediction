@@ -840,6 +840,9 @@ const EMPTY_EVIDENCE_ACQUISITION: StudioProjection["ai"]["evidenceAcquisition"] 
 const EMPTY_EVIDENCE_DEBT_FRONTIER: StudioProjection["ai"]["evidenceDebtFrontier"] = {
   schemaVersion: "pmh.evidence-debt-frontier.v1",
   contentHash: `sha256:${"0".repeat(64)}`,
+  retainedUnsupportedJobCount: 0,
+  retainedUnsupportedRequirementCount: 0,
+  inactiveUnsupportedRequirementCount: 0,
   sourceUnsupportedJobCount: 0,
   sourceRequirementCount: 0,
   sourceProposalCount: 0,
@@ -854,7 +857,7 @@ const EMPTY_EVIDENCE_DEBT_FRONTIER: StudioProjection["ai"]["evidenceDebtFrontier
   items: [],
   sortContract: "TIER_THEN_GROSS_EDGE_THEN_PRIORITY_THEN_MISSING_BREADTH",
   groupingContract: "ONE_ITEM_PER_PROPOSAL",
-  sourceWindow: "EVIDENCE_SCHEDULER_RETAINED_WINDOW",
+  sourceWindow: "ACTIVE_REQUIREMENTS_WITHIN_EVIDENCE_SCHEDULER_RETAINED_WINDOW",
   authority: "EVIDENCE_ROUTING_PRIORITY_ONLY",
   semanticDecisionAuthority: false,
   simulationAuthority: false,
@@ -9465,7 +9468,7 @@ function EvidenceView() {
             <div>
               <span>Without locator</span>
               <strong>{evidenceSourceCounts.withoutLocatorCount}</strong>
-              <small>explicit evidence debt</small>
+              <small>retained no-locator jobs</small>
             </div>
           </div>
           <section className="evidence-debt-frontier" aria-labelledby="evidence-debt-heading">
@@ -9524,9 +9527,11 @@ function EvidenceView() {
             )}
             <footer>
               <span>
-                {evidenceDebtFrontier.sourceRequirementCount} unsupported requirements · {evidenceDebtFrontier.sourceProposalCount} proposals in retained source window
+                {evidenceDebtFrontier.sourceRequirementCount} active unsupported requirements · {evidenceDebtFrontier.sourceProposalCount} proposals
               </span>
-              <span>* Gross hint excludes fees and depth; this queue has routing authority only.</span>
+              <span>
+                {evidenceDebtFrontier.inactiveUnsupportedRequirementCount} inactive requirements retained for replay · gross hints exclude fees and depth.
+              </span>
             </footer>
           </section>
           <div className="evidence-scope-lineage" aria-label="Evidence requirement scope lineage">

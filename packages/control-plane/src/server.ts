@@ -1839,7 +1839,8 @@ export function createControlPlane(options?: {
       premiseEvidenceRoutingCandidates(enrichedReviewCandidates),
     );
     premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
-    evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+    const currentEvidenceRequirements = evidenceRequirements();
+    evidenceAcquisitionScheduler.reconcile(currentEvidenceRequirements);
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
     const premiseAnalysisProjection = premiseAnalysisDesk.projection();
@@ -1868,6 +1869,9 @@ export function createControlPlane(options?: {
     });
     const evidenceDebtFrontier = buildEvidenceDebtFrontier({
       jobs: evidenceAcquisitionProjection.jobs,
+      activeRequirementIds: currentEvidenceRequirements.map((requirement) =>
+        requirement.requirementId
+      ),
       economicItems: economicTriageProjection.items,
       reviewItems: reviewAttention.items,
     });

@@ -51,7 +51,9 @@ with official venue-level rulebook acquisition tracked in
 and evidence requirements that survive proposal-window rotation tracked in
 [`plans/durable-evidence-requirement-scope.md`](plans/durable-evidence-requirement-scope.md),
 with value-ranked missing-source work tracked in
-[`plans/evidence-debt-frontier.md`](plans/evidence-debt-frontier.md).
+[`plans/evidence-debt-frontier.md`](plans/evidence-debt-frontier.md), and its
+active-versus-retained debt correction tracked in
+[`plans/active-evidence-debt.md`](plans/active-evidence-debt.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -745,14 +747,18 @@ The no-locator inventory is now an actionable proposal frontier rather than a
 flat debt count. A deterministic, content-addressed join groups unsupported
 requirements by proposal and orders current positive gross hints, operator
 evidence escalations, active triage, then retained research debt. Fresh live
-reconciliation found three distinct House-control proposals at a 190 bps gross
-hint ahead of six review blockers; the display explicitly says fees and depth
-are absent and grants routing authority only. The retained source window covers
-196 unsupported jobs, 265 unsupported-route requirements, and 113 proposals;
-Studio shows six leading rows with exact missing kinds and URL-stable Review
-handoffs. Desktop and 390 px browser checks keep Inter, a 12 px text floor, no
-horizontal overflow, six Agent-readable Review links, and no console errors.
-All 614 workspace tests, type checks, and the production build pass on the
+reconciliation initially found three distinct House-control proposals at a 190
+bps gross hint ahead of six review blockers. The first frontier then exposed a
+source-set defect: 43 old unsupported requirement identities already had newer
+active generations or captured routes, but remained in the 196-job ledger for
+replay. The frontier now binds to the exact identities in the current reconcile
+without deleting that history. It reports 222 active unsupported requirements
+across 100 proposals, with two House gross blockers; one is now correctly only
+`ORACLE_SOURCE`, while another still lacks active rule/time routes. Studio shows
+six leading rows with exact missing kinds and URL-stable Review handoffs and
+separately reports inactive retained debt. Desktop and 390 px browser checks
+keep Inter, a 12 px text floor, no horizontal overflow, and no console errors.
+All 615 workspace tests, type checks, and the production build pass on the
 available Node 22.22.1 host; the repository's Node 24 engine warning remains.
 
 ## Deferred future campaigns

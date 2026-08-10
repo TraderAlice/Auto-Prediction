@@ -963,6 +963,8 @@ describe("control-plane HTTP surface", () => {
     });
     expect(projection.ai.evidenceDebtFrontier).toMatchObject({
       schemaVersion: "pmh.evidence-debt-frontier.v1",
+      retainedUnsupportedJobCount: 0,
+      inactiveUnsupportedRequirementCount: 0,
       sourceUnsupportedJobCount: 0,
       sourceRequirementCount: 0,
       sourceProposalCount: 0,
