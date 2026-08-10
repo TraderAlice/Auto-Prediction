@@ -102,6 +102,14 @@ can attach a separate expiring microstructure preflight to dossiers whose
 semantic gate is genuinely eligible. It must not spend requests on legacy or
 research-only cases merely because their catalog midpoint looked positive.
 
+Issue #91 clarifies that a deterministic next-gate enum is insufficient unless
+the retained dossier can also support the action. The LA Galaxy canonical-reuse
+capsule knows that three gaps and one counterexample exist, but v1 does not
+retain their text or an acquisition route. Studio now renders that state as a
+blocked research obligation rather than a decorative `NEXT` label. A future
+capsule may retain bounded gap identities/text and a typed route, but historical
+counts are not retroactively expanded or sent to an Agent as invented scope.
+
 The outcome capsule now also retains the first-party semantic constraint's
 `exactCompilerAdmission`. A direct two-listing relation reaches operator or
 fee/depth gating only when that admission is `ELIGIBLE`; research-only

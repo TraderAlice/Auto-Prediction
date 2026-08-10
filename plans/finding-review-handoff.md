@@ -89,3 +89,21 @@ form a 356 px single column, document and body scroll widths remain 390 px, and
 the minimum main-text size is 12 px. Server integration covers the read-only
 endpoint contract and invalid-ID rejection; Studio route tests cover stable
 view names, validation, de-duplication, the five-ID bound, and focus clearing.
+
+Issue #91 reopened the handoff under actual use. The endpoint was bounded only
+on the wire: internally it awaited the complete Studio projection before
+slicing one proposal, leaving the LA Galaxy dossier in `LOADING` for roughly
+30 seconds. It now joins retained Agent proposals, durable semantic-review
+attribution jobs, current semantic-review detail, lifecycle, attention,
+economics, premise jobs, and corpus directly. `Server-Timing` makes this slice
+independently measurable; the live retained desk returned it in 0.327–0.716
+seconds and Findings-to-rendered-dossier took about 3.1 seconds in the browser.
+
+Focused mode now keeps the selected proposal as the page's working context.
+The global Review dashboard is absent until `Browse all review operations` is
+chosen, while clearing focus retains the existing URL contract. The current LA
+Galaxy capsule truthfully exposes a second boundary: it retains three gap
+counts and one counterexample count but not their text or an acquisition route.
+The surface therefore labels the gate `BLOCKED`, distinguishes its
+probabilistic/research-only posture from traded-rule evidence, and refuses to
+fabricate an evidence action from counts alone.

@@ -187,7 +187,17 @@ The Findings-to-Review transition is now proposal-addressable rather than a
 generic page jump. Stable `?view=` routes and at most five validated proposal
 IDs survive refresh and browser history. A proposal-local read-only endpoint
 resolves focused details, durable review jobs, lifecycle cases, and operator
-postures from full retained state without shipping the 8.2 MB full projection.
+postures from durable source projections without first materializing or
+shipping the multi-megabyte global projection. Direct use had exposed that the
+original endpoint still awaited that global build internally and left the
+dossier loading for roughly 30 seconds. The source-local read now publishes
+`Server-Timing`, measured 0.327–0.716 seconds on the retained desk, and the
+Finding-to-actionable-dossier browser path measured about 3.1 seconds including
+navigation/rendering. Focused Review hides unrelated global operations until
+the operator explicitly expands them. A next-gate label is now `BLOCKED` when
+the retained capsule has only evidence-gap counts and no gap text or acquisition
+route; the UI explains why inventing an action from those counts would fabricate
+scope.
 The live House-control specimen restores both proposal statements, both
 duplicate-scope reuse jobs, and both awaiting-review cases after the ordinary
 live window has already evicted them. Desktop and 390 px checks preserve the

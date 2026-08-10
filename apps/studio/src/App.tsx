@@ -5675,6 +5675,7 @@ function OpportunityLifecycleView({
     "IDLE" | "RUNNING" | "FAILED"
   >("IDLE");
   const [lifecycleCaseLimit, setLifecycleCaseLimit] = useState(12);
+  const [showGlobalReview, setShowGlobalReview] = useState(false);
   const [focusedProjection, setFocusedProjection] =
     useState<ProposalHandoffProjection | null>(null);
   const [focusedProjectionStatus, setFocusedProjectionStatus] = useState<
@@ -5683,6 +5684,10 @@ function OpportunityLifecycleView({
   const [focusedProjectionDiagnostic, setFocusedProjectionDiagnostic] =
     useState<string | null>(null);
   const focusedProposalKey = focusedProposalIds.join(",");
+
+  useEffect(() => {
+    setShowGlobalReview(false);
+  }, [focusedProposalKey]);
 
   useEffect(() => {
     let active = true;
@@ -6172,6 +6177,14 @@ function OpportunityLifecycleView({
               <Button variant="outline" size="sm" onClick={onClearFocus}>
                 <X size={13} /> Clear focus
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowGlobalReview((current) => !current)}
+              >
+                <LayoutDashboard size={13} />
+                {showGlobalReview ? "Hide global operations" : "Browse all review operations"}
+              </Button>
             </div>
           </div>
           {focusedProjectionDiagnostic !== null && (
@@ -6204,6 +6217,13 @@ function OpportunityLifecycleView({
               const indicativeEconomics = item.economicTriage?.indicativeEconomics;
               const canRunReview = item.lifecycleCase?.nextAction === "INDEPENDENT_SEMANTIC_REVIEW" &&
                 item.reviewJob === undefined && item.attention === undefined;
+              const evidenceGapDetailUnavailable =
+                item.nextGate === "RESOLVE_EVIDENCE_GAPS" && item.attention === undefined;
+              const nextGatePrefix = evidenceGapDetailUnavailable
+                ? "BLOCKED"
+                : ["AWAIT_REVIEW_RECOVERY", "AWAIT_PREMISE_ANALYSIS"].includes(item.nextGate)
+                  ? "WAITING"
+                  : "NEXT";
               const premiseRouteCandidates = premiseEvidenceRouting.jobs
                 .filter((job) => job.proposal.proposalId === item.proposalId &&
                   (item.premiseOutcome.outcome === null ||
@@ -6224,7 +6244,7 @@ function OpportunityLifecycleView({
                 <article key={item.proposalId}>
                   <div className="focused-review-handoff-topline">
                     <Badge variant={item.nextGate === "OPERATOR_DECISION" || item.nextGate === "FEE_DEPTH_QUALIFICATION" ? "verified" : ["RECOVER_REVIEW_DETAIL", "RESOLVE_EVIDENCE_GAPS", "RETRY_PREMISE_ANALYSIS", "BIND_PREMISE_EVIDENCE"].includes(item.nextGate) ? "warning" : "shadow"}>
-                      NEXT · {item.nextGate.replaceAll("_", " ")}
+                      {nextGatePrefix} · {item.nextGate.replaceAll("_", " ")}
                     </Badge>
                     {item.proposal !== undefined && (
                       <Badge variant="muted">{item.proposal.relationKind.replaceAll("_", " ")}</Badge>
@@ -6317,6 +6337,17 @@ function OpportunityLifecycleView({
                       <span>Semantic outcome</span>
                       <strong>No passing outcome capsule yet</strong>
                       <p>{item.reviewOutcome.diagnostic}</p>
+                    </div>
+                  )}
+                  {evidenceGapDetailUnavailable && (
+                    <div className="decision-dossier-warning" role="status">
+                      <CircleOff size={15} />
+                      <div>
+                        <strong>Evidence-gap work is not actionable from this retained dossier</strong>
+                        <span>
+                          This capsule classifies the relation as {reviewOutcome?.semanticConstraint?.classification.toLowerCase().replaceAll("_", " ") ?? "unresolved"} with {reviewOutcome?.semanticConstraint?.exactCompilerAdmission?.toLowerCase().replaceAll("_", " ") ?? "no"} exact admission, so it is not a traded-rule evidence acquisition job. It proves that {reviewOutcome?.missingEvidenceCount ?? 0} gap{reviewOutcome?.missingEvidenceCount === 1 ? " exists" : "s exist"} and {reviewOutcome?.counterexampleCount ?? 0} counterexample{reviewOutcome?.counterexampleCount === 1 ? " was" : "s were"} retained, but it does not retain their text or an external-research route. Starting work from only these counts would fabricate scope. Recover the canonical review detail or keep this candidate as research-only until a proposal-bound requirement exists.
+                        </span>
+                      </div>
                     </div>
                   )}
                   {((reviewOutcome?.semanticConstraint?.classification === "HARD_SETTLEMENT_CONSTRAINT" &&
@@ -6523,6 +6554,8 @@ function OpportunityLifecycleView({
         </section>
       )}
 
+      {(focusedProposalIds.length === 0 || showGlobalReview) && (
+      <div className="global-review-operations">
       <div className="radar-summary-grid lifecycle-summary-grid">
         <Metric label="Tracked cases" value={`${desk.caseCount}`} detail="AI + deterministic leads" />
         <Metric label="Awaiting work" value={`${awaiting}`} detail="explicit next action" />
@@ -8065,6 +8098,8 @@ function OpportunityLifecycleView({
           gateway exists in this product surface.
         </span>
       </div>
+      </div>
+      )}
     </section>
   );
 }

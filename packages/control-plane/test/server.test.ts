@@ -814,6 +814,8 @@ describe("control-plane HTTP surface", () => {
       `${baseUrl}/api/v1/proposal-handoff?ids=${handoffProposalId}`,
     );
     expect(handoffResponse.status).toBe(200);
+    expect(handoffResponse.headers.get("server-timing"))
+      .toMatch(/^proposal-handoff;dur=\d+(?:\.\d)?$/u);
     expect(await handoffResponse.json()).toMatchObject({
       schemaVersion: "pmh.proposal-handoff.v3",
       requestedProposalIds: [handoffProposalId],

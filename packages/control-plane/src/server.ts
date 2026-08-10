@@ -2628,15 +2628,32 @@ export function createControlPlane(options?: {
     return pending;
   };
   const proposalHandoff = async (proposalIds: readonly Hash[]) => {
-    const full = await projection();
+    await ready;
+    const archaeologist = marketArchaeologistDesk.projection();
+    const reviewJobs = semanticReviewScheduler.attributionSource().jobs;
+    const semanticReviews = semanticReviewDesk.projection();
+    const lifecycle = opportunityLifecycleDesk.projection();
+    const corpus = catalogObservationDesk.corpus();
+    const reviewAttention = buildReviewAttentionProjection({
+      archaeologist,
+      semanticReviews: semanticReviews.records,
+      semanticReviewJobs: reviewJobs,
+      semanticDecisions: lifecycle.semanticDecisions,
+      corpus,
+    });
+    const economicTriage = buildProposalEconomicTriage({
+      candidates: baseSemanticReviewCandidates(),
+      corpus,
+    });
+    const premiseJobsProjection = premiseAnalysisScheduler.projection();
     const proposals = new Map(
-      full.ai.marketArchaeologist.records.flatMap((record) =>
+      archaeologist.records.flatMap((record) =>
         (record.report?.result.proposals ?? []).map((proposal) =>
           [proposal.proposalId, proposal] as const
         )
       ),
     );
-    for (const job of full.ai.semanticReviewScheduler.jobs) {
+    for (const job of reviewJobs) {
       const proposal = job.evidenceBundle?.schemaVersion ===
           "pmh.proposal-evidence-bundle.v2"
         ? job.evidenceBundle.proposal
@@ -2646,22 +2663,22 @@ export function createControlPlane(options?: {
       }
     }
     const jobs = new Map(
-      full.ai.semanticReviewScheduler.jobs.map((job) => [job.proposalId, job] as const),
+      reviewJobs.map((job) => [job.proposalId, job] as const),
     );
     const jobsById = new Map(
-      full.ai.semanticReviewScheduler.jobs.map((job) => [job.jobId, job] as const),
+      reviewJobs.map((job) => [job.jobId, job] as const),
     );
     const cases = new Map(
-      full.opportunityLifecycle.cases.map((item) => [item.opportunityId, item] as const),
+      lifecycle.cases.map((item) => [item.opportunityId, item] as const),
     );
     const attention = new Map(
-      full.ai.reviewAttention.items.map((item) => [item.proposalId, item] as const),
+      reviewAttention.items.map((item) => [item.proposalId, item] as const),
     );
     const economics = new Map(
-      full.ai.proposalEconomicTriage.items.map((item) => [item.proposalId, item] as const),
+      economicTriage.items.map((item) => [item.proposalId, item] as const),
     );
     const premiseJobs = new Map(
-      full.ai.premiseAnalysisScheduler.jobs.map((item) => [item.proposalId, item] as const),
+      premiseJobsProjection.jobs.map((item) => [item.proposalId, item] as const),
     );
     const items = Object.freeze(proposalIds.map((proposalId) => {
       const proposal = proposals.get(proposalId) ?? null;
@@ -2743,7 +2760,42 @@ export function createControlPlane(options?: {
     }));
     const body = Object.freeze({
       schemaVersion: "pmh.proposal-handoff.v3" as const,
-      sourceStateHash: full.identity.stateHash,
+      sourceStateHash: hashCanonical({
+        proposalIds,
+        archaeologistRuns: archaeologist.records.map((record) => Object.freeze({
+          runId: record.runId,
+          status: record.status,
+          artifactHash: record.report?.artifactHash ?? null,
+        })),
+        reviewJobs: reviewJobs.map((job) => Object.freeze({
+          jobId: job.jobId,
+          status: job.status,
+          attemptCount: job.attemptCount,
+          completedAt: job.completedAt,
+          outcomeHash: job.reviewOutcome?.outcomeHash ?? null,
+        })),
+        semanticReviews: semanticReviews.records.map((record) => Object.freeze({
+          reviewId: record.reviewId,
+          status: record.status,
+          completedAt: record.completedAt,
+          artifactHash: record.report?.artifactHash ?? null,
+        })),
+        lifecycleCases: lifecycle.cases.map((item) => Object.freeze({
+          opportunityId: item.opportunityId,
+          state: item.state,
+          nextAction: item.nextAction,
+        })),
+        reviewAttentionContentHash: reviewAttention.contentHash,
+        economicTriageContentHash: economicTriage.contentHash,
+        premiseJobs: premiseJobsProjection.jobs.map((job) => Object.freeze({
+          jobId: job.jobId,
+          status: job.status,
+          attemptCount: job.attemptCount,
+          completedAt: job.completedAt,
+          outcomeHash: job.outcomeCapsule?.outcomeHash ?? null,
+        })),
+        corpusSnapshotIdentity: corpus.snapshotIdentity,
+      }),
       requestedProposalIds: Object.freeze([...proposalIds]),
       resolvedProposalCount: items.filter((item) => item.proposal !== null).length,
       reviewJobCount: items.filter((item) => item.reviewJob !== null).length,
@@ -3023,7 +3075,12 @@ export function createControlPlane(options?: {
         });
         return;
       }
-      writeJson(response, 200, await proposalHandoff(proposalIds as Hash[]));
+      const startedAt = performance.now();
+      const handoff = await proposalHandoff(proposalIds as Hash[]);
+      const elapsedMs = Math.max(0, performance.now() - startedAt);
+      writeJson(response, 200, handoff, {
+        "server-timing": `proposal-handoff;dur=${elapsedMs.toFixed(1)}`,
+      });
       return;
     }
     if (
