@@ -377,8 +377,22 @@ request:
 - Injected-process qualification exercises Pi + DeepSeek, Pi + Codex OAuth,
   and Codex Agent + Codex OAuth without a live model call. Together with the
   common lifecycle suite, all 518 control-plane tests and its TypeScript check
-  pass at this checkpoint. The production in-process AI SDK driver remains the
-  unfinished Phase 3 item.
+  passed at the CLI-driver checkpoint.
+- The in-process Vercel AI SDK driver now composes either Codex Responses OAuth
+  or DeepSeek OpenAI-compatible access behind `HARNESS_IN_PROCESS`. It exposes
+  the same first-party tool manifest plus one reserved completion control tool,
+  carries rejected effects into a bounded transcript, performs exactly one
+  provider invocation per substrate turn, and ignores prose as publication
+  authority. Completion cannot be mixed with domain effects. Model-owned Terra
+  effort and DeepSeek thinking options are translated only inside their own
+  provider adapters.
+- Injected-turn qualification covers both in-process credential/model supplies,
+  rejected-effect recovery, malformed mixed completion, timeout attribution,
+  and secret-free durable results. Phase 3 production drivers are therefore
+  implemented without making a live model call; shadow use still requires a
+  later explicit manual run or active campaign. All 522 control-plane tests,
+  its TypeScript check, and its production bundle pass after this Phase 3
+  checkpoint; the Node 22 versus declared Node 24 host warning remains.
 
 This checkpoint proves the identity, compatibility, persistence, and
 zero-dispatch boundary. It does not claim Phase 3–8 adoption.

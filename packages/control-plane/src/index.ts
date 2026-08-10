@@ -69,6 +69,7 @@ export * from "./ai-runtime-configuration.js";
 export * from "./agent-execution-substrate.js";
 export * from "./agent-runtime-adapter.js";
 export * from "./agent-cli-runtime.js";
+export * from "./agent-in-process-runtime.js";
 export * from "./codex-model.js";
 export * from "./codex-oauth.js";
 export * from "./semantic-price-inequality.js";
