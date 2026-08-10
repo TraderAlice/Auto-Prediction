@@ -169,6 +169,8 @@ import {
 import {
   assertAgentCampaign,
   assertAgentRun,
+  assertAgentRunAnnotation,
+  assertAgentRunArtifact,
   assertAgentRuntimeDefinition,
   assertAgentTask,
   assertAgentToolEffect,
@@ -185,6 +187,8 @@ import {
   type AgentExecutionSnapshot,
   type AgentExecutionStore,
   type AgentRun,
+  type AgentRunAnnotation,
+  type AgentRunArtifact,
   type AgentRuntimeDefinition,
   type AgentTask,
   type AgentToolEffect,
@@ -212,7 +216,7 @@ import {
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
 
-const SCHEMA_VERSION = 35;
+const SCHEMA_VERSION = 36;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -2259,6 +2263,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'rule_evidence_claim_records'`,
       )
       .get() !== undefined;
+    const agentRuntimeDefinitionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'agent_runtime_definitions'`,
+      )
+      .get() !== undefined;
+    const agentRunArtifactTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'agent_run_artifacts'`,
+      )
+      .get() !== undefined;
+    const agentRunAnnotationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'agent_run_annotations'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -2289,6 +2311,9 @@ export class SqliteOperationalStore
       && premiseAnalysisNotificationTableExists
       && premiseEvidenceRoutingJobTableExists
       && premiseRouteExpansionJobTableExists
+      && agentRuntimeDefinitionTableExists
+      && agentRunArtifactTableExists
+      && agentRunAnnotationTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -3457,7 +3482,7 @@ export class SqliteOperationalStore
           );
         `);
       }
-      if (current < 35) {
+      if (current < 35 || !agentRuntimeDefinitionTableExists) {
         this.#database.exec(`
           CREATE TABLE IF NOT EXISTS agent_runtime_definitions (
             runtime_definition_id TEXT PRIMARY KEY NOT NULL CHECK (
@@ -3664,6 +3689,48 @@ export class SqliteOperationalStore
           ) STRICT;
           CREATE INDEX IF NOT EXISTS result_selections_task
             ON result_selections (task_id, selected_at DESC, selection_id DESC);
+        `);
+      }
+      if (current < 36 || !agentRunArtifactTableExists || !agentRunAnnotationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS agent_run_artifacts (
+            artifact_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_id) = 71 AND artifact_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            run_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+            kind TEXT NOT NULL,
+            content_hash TEXT NOT NULL CHECK (
+              length(content_hash) = 71 AND content_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            created_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            UNIQUE (run_id, ordinal),
+            FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS agent_run_artifacts_content
+            ON agent_run_artifacts (content_hash, created_at, artifact_id);
+
+          CREATE TABLE IF NOT EXISTS agent_run_annotations (
+            annotation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(annotation_id) = 71 AND annotation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            run_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS agent_run_annotations_run
+            ON agent_run_annotations (run_id, created_at, annotation_id);
+          CREATE INDEX IF NOT EXISTS agent_run_annotations_category
+            ON agent_run_annotations (category, created_at, annotation_id);
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -5520,6 +5587,20 @@ export class SqliteOperationalStore
         (record: AgentToolEffect) => record.effectId,
         "Agent tool effect",
       ),
+      runArtifacts: load(
+        "agent_run_artifacts",
+        "artifact_id",
+        assertAgentRunArtifact,
+        (record: AgentRunArtifact) => record.artifactId,
+        "Agent run artifact",
+      ),
+      runAnnotations: load(
+        "agent_run_annotations",
+        "annotation_id",
+        assertAgentRunAnnotation,
+        (record: AgentRunAnnotation) => record.annotationId,
+        "Agent run annotation",
+      ),
       campaigns: load(
         "agent_campaigns",
         "campaign_id",
@@ -5587,6 +5668,12 @@ export class SqliteOperationalStore
       toolEffects: Object.freeze(
         (batchInput.toolEffects ?? []).map(assertAgentToolEffect),
       ),
+      runArtifacts: Object.freeze(
+        (batchInput.runArtifacts ?? []).map(assertAgentRunArtifact),
+      ),
+      runAnnotations: Object.freeze(
+        (batchInput.runAnnotations ?? []).map(assertAgentRunAnnotation),
+      ),
       campaigns: Object.freeze(
         (batchInput.campaigns ?? []).map(assertAgentCampaign),
       ),
@@ -5639,6 +5726,12 @@ export class SqliteOperationalStore
     );
     const tasks = indexed(existing.tasks, batch.tasks, (record) => record.taskId, "task");
     const runs = indexed(existing.runs, batch.runs, (record) => record.runId, "run");
+    const artifacts = indexed(
+      existing.runArtifacts,
+      batch.runArtifacts,
+      (record) => record.artifactId,
+      "run artifact",
+    );
 
     for (const profile of batch.executionProfiles) {
       const runtime = runtimes.get(profile.runtimeDefinitionId);
@@ -5673,6 +5766,27 @@ export class SqliteOperationalStore
         throw new Error("Agent tool effect references an unavailable run");
       }
     }
+    for (const artifact of batch.runArtifacts) {
+      const run = runs.get(artifact.runId);
+      if (run === undefined) {
+        throw new Error("Agent run artifact references an unavailable run");
+      }
+      if (Date.parse(artifact.createdAt) < Date.parse(run.createdAt)) {
+        throw new Error("Agent run artifact predates its run");
+      }
+    }
+    for (const annotation of batch.runAnnotations) {
+      const run = runs.get(annotation.runId);
+      if (run === undefined) {
+        throw new Error("Agent run annotation references an unavailable run");
+      }
+      if (Date.parse(annotation.createdAt) < Date.parse(run.createdAt)) {
+        throw new Error("Agent run annotation predates its run");
+      }
+    }
+    const selectableArtifacts = new Set(
+      [...artifacts.values()].map((artifact) => `${artifact.runId}:${artifact.contentHash}`),
+    );
     for (const campaign of batch.campaigns) {
       if (!profiles.has(campaign.executionProfileId) ||
           campaign.taskIds.some((taskId) => !tasks.has(taskId))) {
@@ -5687,6 +5801,9 @@ export class SqliteOperationalStore
       if (run.status !== "SUCCEEDED" || run.completedAt === null ||
           Date.parse(selection.selectedAt) < Date.parse(run.completedAt)) {
         throw new Error("Result selection requires a completed successful run");
+      }
+      if (!selectableArtifacts.has(`${selection.runId}:${selection.artifactHash}`)) {
+        throw new Error("Result selection references an unavailable run artifact");
       }
     }
 
@@ -5873,6 +5990,36 @@ export class SqliteOperationalStore
           record.effectId,
           record,
           "Agent tool effect",
+        );
+      }
+      for (const record of batch.runArtifacts) {
+        persist(
+          `INSERT INTO agent_run_artifacts (
+             artifact_id, run_id, ordinal, kind, content_hash, created_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(artifact_id) DO NOTHING`,
+          [record.artifactId, record.runId, record.ordinal, record.kind,
+            record.contentHash, record.createdAt],
+          "agent_run_artifacts",
+          "artifact_id",
+          record.artifactId,
+          record,
+          "Agent run artifact",
+        );
+      }
+      for (const record of batch.runAnnotations) {
+        persist(
+          `INSERT INTO agent_run_annotations (
+             annotation_id, run_id, category, created_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(annotation_id) DO NOTHING`,
+          [record.annotationId, record.runId, record.category, record.createdAt],
+          "agent_run_annotations",
+          "annotation_id",
+          record.annotationId,
+          record,
+          "Agent run annotation",
         );
       }
       for (const record of batch.resultSelections) {
@@ -6667,6 +6814,61 @@ export class SqliteOperationalStore
       document: parseEvidenceDocument(documentRow),
       extraction: parseEvidenceDocumentText(extractionRow),
     }));
+  }
+
+  public loadRetainedEvidenceDocumentCaptures(): readonly EvidenceDocumentCapture[] {
+    this.#assertOpen();
+    const observationRows = this.#database
+      .prepare(
+        `SELECT observation_id, acquisition_job_id, document_id, record_json, record_hash
+         FROM evidence_document_observations ORDER BY observation_id ASC`,
+      )
+      .all();
+    const documentRows = this.#database
+      .prepare(
+        `SELECT document_id, record_json, record_hash, raw_bytes
+         FROM evidence_documents ORDER BY document_id ASC`,
+      )
+      .all();
+    const extractionRows = this.#database
+      .prepare(
+        `SELECT extraction_id, document_id, record_json, record_hash, extracted_text
+         FROM evidence_document_texts ORDER BY extraction_id ASC`,
+      )
+      .all();
+    if (observationRows.length > 10_000 || documentRows.length > 10_000 ||
+        extractionRows.length > 10_000) {
+      throw new Error("retained evidence capture migration input exceeds its batch bound");
+    }
+    const documents = new Map(documentRows.map((row) => {
+      const document = parseEvidenceDocument(row);
+      return [document.record.documentId, document] as const;
+    }));
+    const extractionsByDocument = new Map<Hash, ReturnType<typeof parseEvidenceDocumentText>[]>();
+    for (const row of extractionRows) {
+      const extraction = parseEvidenceDocumentText(row);
+      const retained = extractionsByDocument.get(extraction.record.documentId) ?? [];
+      retained.push(extraction);
+      extractionsByDocument.set(extraction.record.documentId, retained);
+    }
+    const captures: EvidenceDocumentCapture[] = [];
+    for (const row of observationRows) {
+      const stored = parseEvidenceDocumentObservation(row);
+      const observation = stored.observation;
+      const document = documents.get(observation.documentId);
+      if (document === undefined) {
+        throw new Error("retained evidence observation lost its document");
+      }
+      for (const extraction of extractionsByDocument.get(observation.documentId) ?? []) {
+        captures.push(assertEvidenceDocumentCapture(Object.freeze({
+          status: observation.httpStatus === 304 ? "NOT_MODIFIED" as const : "CAPTURED" as const,
+          observation,
+          document,
+          extraction,
+        })));
+      }
+    }
+    return Object.freeze(captures);
   }
 
   public saveEvidenceAcquisitionCompletion(

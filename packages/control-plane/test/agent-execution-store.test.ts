@@ -8,6 +8,8 @@ import {
   activateAgentCampaign,
   AgentExecutionRegistry,
   buildAgentRun,
+  buildAgentRunAnnotation,
+  buildAgentRunArtifact,
   buildAgentTask,
   buildAgentToolEffect,
   buildModelInvocation,
@@ -85,7 +87,9 @@ describe("SQLite Agent execution substrate", () => {
       modelInvocationCount: 0,
       activeCampaignCount: 0,
       automaticDispatchFromConfiguration: false,
-      storage: { schemaVersion: 35, durable: true },
+      runArtifactCount: 0,
+      runAnnotationCount: 0,
+      storage: { schemaVersion: 36, durable: true },
     });
     first.close();
 
@@ -177,15 +181,36 @@ describe("SQLite Agent execution substrate", () => {
       "2026-08-10T12:01:04.000Z",
       null,
     );
+    const artifactContentHash = hashCanonical({ claim: "fixture" });
+    const artifact = buildAgentRunArtifact({
+      run: completed,
+      ordinal: 1,
+      kind: "RUNTIME_FINAL",
+      contentHash: artifactContentHash,
+      createdAt: "2026-08-10T12:01:04.000Z",
+    });
+    const annotation = buildAgentRunAnnotation({
+      run: completed,
+      category: "QUALIFICATION_FIXTURE",
+      sourceRecordRef: "fixture:agent-execution-store",
+      observedFacts: { invocationId: invocation.invocationId },
+      note: "Fixture annotation proves append-only run context survives restart.",
+      createdAt: "2026-08-10T12:01:04.000Z",
+    });
     const selection = buildResultSelection({
       task: work,
       run: completed,
-      artifactHash: hashCanonical({ claim: "fixture" }),
+      artifactHash: artifactContentHash,
       rationale: "First-party fixture qualification passed.",
       selectedAt: "2026-08-10T12:01:05.000Z",
       selectionAuthorityRef: "operator:test",
     });
-    store.saveAgentExecutionBatch({ runs: [completed], resultSelections: [selection] });
+    store.saveAgentExecutionBatch({
+      runs: [completed],
+      runArtifacts: [artifact],
+      runAnnotations: [annotation],
+      resultSelections: [selection],
+    });
 
     const snapshot = store.loadAgentExecutionSnapshot();
     expect(snapshot).toMatchObject({
@@ -197,6 +222,8 @@ describe("SQLite Agent execution substrate", () => {
         inputTokens: "1234",
       }],
       toolEffects: [{ effectId: effect.effectId, status: "ACCEPTED" }],
+      runArtifacts: [{ artifactId: artifact.artifactId, contentHash: artifactContentHash }],
+      runAnnotations: [{ annotationId: annotation.annotationId }],
       resultSelections: [{ selectionId: selection.selectionId }],
     });
     expect(snapshot.campaigns).toEqual(expect.arrayContaining([
@@ -228,6 +255,8 @@ describe("SQLite Agent execution substrate", () => {
       runs: [],
       modelInvocations: [],
       toolEffects: [],
+      runArtifacts: [],
+      runAnnotations: [],
       campaigns: [],
       resultSelections: [],
     });

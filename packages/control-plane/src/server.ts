@@ -245,6 +245,7 @@ import {
   AgentExecutionRegistry,
   type AgentExecutionStore,
 } from "./agent-execution-substrate.js";
+import { buildRuleEvidenceAgentMigration } from "./rule-evidence-agent-migration.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -1957,6 +1958,22 @@ export function createControlPlane(options?: {
   const reconcileRuleEvidenceAgentTasks = (): void => {
     agentExecutionRegistry.reconcileRuleEvidenceTasks(ruleEvidenceClaimInputs());
   };
+  const migrateLegacyRuleEvidenceAgentRuns = (): void => {
+    const captureSource = options?.discoveryStore as Partial<{
+      loadRetainedEvidenceDocumentCaptures(): readonly import("./evidence-document.js").EvidenceDocumentCapture[];
+    }> | undefined;
+    const migration = buildRuleEvidenceAgentMigration({
+      snapshot: agentExecutionRegistry.snapshot(),
+      jobs: ruleEvidenceClaimScheduler.projection().jobs,
+      records: ruleEvidenceClaimDesk.projection().records,
+      usageEvents: aiUsageLedger.events(),
+      ...(captureSource?.loadRetainedEvidenceDocumentCaptures === undefined
+        ? {}
+        : { captures: captureSource.loadRetainedEvidenceDocumentCaptures() }),
+      observedAt: new Date().toISOString(),
+    });
+    agentExecutionRegistry.saveBatch(migration.batch);
+  };
   const synchronizeLifecycleSources = (): void => {
     opportunityLifecycleDesk.syncMarketArchaeologist(
       marketArchaeologistDesk.projection(),
@@ -1978,6 +1995,7 @@ export function createControlPlane(options?: {
     ]);
     synchronizeLifecycleSources();
     reconcileRuleEvidenceAgentTasks();
+    migrateLegacyRuleEvidenceAgentRuns();
   });
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<

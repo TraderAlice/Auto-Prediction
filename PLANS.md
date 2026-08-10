@@ -10,9 +10,13 @@ place: importing or editing the legacy provider setting creates only profiles
 and routes, Rule Evidence work reconciles to stable provider-neutral tasks,
 and neither operation creates a run, campaign, invocation, or model request.
 It supersedes the flat provider-switch target while retaining its live
-protocol evidence. Runtime adapters, historical run import, incident
-annotations, and the explicit campaign dispatcher remain migration work, so
-the legacy scheduler is still contained rather than declared replaced.
+protocol evidence. Pi, Codex Agent, and in-process production adapters now
+share one tool-first lifecycle, and the provider-free historical import is
+durable: 229 attempt-bearing Rule Evidence runs, all six Terra failures, twelve
+expired leases, and fifty retry-wait incidents are explicit without creating a
+campaign or provider request. The explicit campaign dispatcher and Studio
+operator surfaces remain migration work, so the legacy scheduler is still
+contained rather than declared replaced.
 
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and

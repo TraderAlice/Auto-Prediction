@@ -8,9 +8,11 @@ import {
   assertExecutionProfileCompatibility,
   assertModelProfile,
   buildAgentToolEffect,
+  buildAgentRunArtifact,
   buildModelInvocation,
   completeAgentRun,
   type AgentRun,
+  type AgentRunArtifact,
   type AgentRuntimeDefinition,
   type AgentRuntimeKind,
   type AgentTask,
@@ -295,6 +297,7 @@ export type AgentRuntimeExecutionResult = Readonly<{
   run: AgentRun;
   modelInvocations: readonly ModelInvocation[];
   toolEffects: readonly AgentToolEffect[];
+  runArtifacts: readonly AgentRunArtifact[];
   finalArtifactHash: Hash | null;
   runtimeKind: AgentRuntimeKind;
   credentialBindingId: Hash;
@@ -356,6 +359,7 @@ export async function executePreparedAgentRun(
   const startedAt = now();
   const invocations: ModelInvocation[] = [];
   const effects: AgentToolEffect[] = [];
+  const artifacts: AgentRunArtifact[] = [];
   let totalInputTokens = 0n;
   let totalOutputTokens = 0n;
   let lastInvocationCompletedAt = valid.run.createdAt;
@@ -376,6 +380,7 @@ export async function executePreparedAgentRun(
     ),
     modelInvocations: Object.freeze(invocations),
     toolEffects: Object.freeze(effects),
+    runArtifacts: Object.freeze(artifacts),
     finalArtifactHash,
     runtimeKind: valid.runtime.kind,
     credentialBindingId: valid.credential.credentialBindingId,
@@ -501,7 +506,16 @@ export async function executePreparedAgentRun(
         if (turn.finalArtifact === null) {
           return finish("FAILED", "runtime completed without a final artifact", null);
         }
-        return finish("SUCCEEDED", null, hashCanonical(turn.finalArtifact));
+        const finalArtifactHash = hashCanonical(turn.finalArtifact);
+        artifacts.push(buildAgentRunArtifact({
+          run: valid.run,
+          ordinal: artifacts.length + 1,
+          kind: "RUNTIME_FINAL",
+          contentHash: finalArtifactHash,
+          sourceArtifactRef: null,
+          createdAt: turn.invocation.completedAt,
+        }));
+        return finish("SUCCEEDED", null, finalArtifactHash);
       }
       if (turn.finalArtifact !== null || turn.toolCalls.length === 0) {
         await session.cancel?.();

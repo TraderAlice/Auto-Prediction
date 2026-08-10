@@ -394,6 +394,35 @@ request:
   its TypeScript check, and its production bundle pass after this Phase 3
   checkpoint; the Node 22 versus declared Node 24 host warning remains.
 
+### Historical Rule Evidence migration checkpoint
+
+- SQLite schema 36 adds append-only run artifacts and run annotations. Result
+  selection now requires an artifact retained on the selected run with the
+  exact content hash; a successful transport or a legacy job hash cannot stand
+  in for a result artifact.
+- Schema repair checks table families as well as `user_version`. This repaired
+  a real version-skewed database whose version was already 36 while its schema
+  35 execution tables were absent, and a regression now proves the same repair
+  from a current-version partial database.
+- The provider-free Rule Evidence importer reconstructs stable tasks from
+  retained captures and records three honest legacy-input gaps where bytes are
+  outside retention. It wraps terminal and attempt-bearing jobs as
+  `LEGACY_IMPORT` runs, retains a claim effect/artifact only when the claim body
+  remains available, and adds explicit annotations instead of synthesizing
+  missing content, attempts, timings, or token allocations.
+- The retained local database now reopens with 530 tasks, 229 historical runs,
+  462 model-invocation projections, one accepted claim effect/artifact, and 801
+  annotations. Those annotations include all six failed Terra/Codex requests,
+  all twelve expired leases, and all fifty attempt-bearing retry-wait jobs. It
+  creates no campaign and started zero provider requests.
+- The legacy usage ledger contains 425 older DeepSeek events that cannot be
+  joined to the currently retained job time windows, including 210 requirement
+  identities whose jobs aged out. Their original usage rows remain intact;
+  migration reports the attribution gap and deliberately does not fabricate
+  runs or request-level token splits. Likewise, aggregate usage events retain
+  their observed provider-request count in annotations rather than being
+  expanded into invented per-request records.
+
 This checkpoint proves the identity, compatibility, persistence, and
 zero-dispatch boundary. It does not claim Phase 3–8 adoption.
 

@@ -1377,6 +1377,8 @@ export function buildStudioProjection(input: {
         taskCount: 0,
         runCount: 0,
         modelInvocationCount: 0,
+        runArtifactCount: 0,
+        runAnnotationCount: 0,
         activeCampaignCount: 0,
         automaticDispatchFromConfiguration: false as const,
         credentialSecretTextRetained: false as const,

@@ -191,7 +191,7 @@ export type AgentCampaign = Readonly<{
 }>;
 
 export type AgentRunAuthorization = Readonly<{
-  kind: "MANUAL" | "CAMPAIGN";
+  kind: "MANUAL" | "CAMPAIGN" | "LEGACY_IMPORT";
   authorizationRef: string;
   campaignId: Hash | null;
   authorizedAt: string;
@@ -246,6 +246,36 @@ export type AgentToolEffect = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type AgentRunArtifact = Readonly<{
+  schemaVersion: "pmh.agent-run-artifact.v1";
+  artifactId: Hash;
+  runId: Hash;
+  ordinal: number;
+  kind: string;
+  contentHash: Hash;
+  sourceArtifactRef: string | null;
+  createdAt: string;
+  semanticDecisionAuthority: false;
+  certificateAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type AgentRunAnnotation = Readonly<{
+  schemaVersion: "pmh.agent-run-annotation.v1";
+  annotationId: Hash;
+  runId: Hash;
+  category: string;
+  sourceRecordRef: string;
+  observedFactsHash: Hash;
+  note: string;
+  createdAt: string;
+  semanticDecisionAuthority: false;
+  certificateAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type ResultSelection = Readonly<{
   schemaVersion: "pmh.result-selection.v1";
   selectionId: Hash;
@@ -269,6 +299,8 @@ export type AgentExecutionSnapshot = Readonly<{
   runs: readonly AgentRun[];
   modelInvocations: readonly ModelInvocation[];
   toolEffects: readonly AgentToolEffect[];
+  runArtifacts: readonly AgentRunArtifact[];
+  runAnnotations: readonly AgentRunAnnotation[];
   campaigns: readonly AgentCampaign[];
   resultSelections: readonly ResultSelection[];
 }>;
@@ -285,6 +317,8 @@ export type AgentExecutionRegistryProjection = Readonly<{
   taskCount: number;
   runCount: number;
   modelInvocationCount: number;
+  runArtifactCount: number;
+  runAnnotationCount: number;
   activeCampaignCount: number;
   automaticDispatchFromConfiguration: false;
   credentialSecretTextRetained: false;
@@ -793,7 +827,6 @@ export function buildRuleEvidenceAgentTask(input: Readonly<{
   const requirement = assertEvidenceRequirement(input.requirement);
   const capture = assertEvidenceDocumentCapture(input.capture);
   if (
-    capture.observation.requirementId !== requirement.requirementId ||
     capture.observation.acquisitionScopeIdentity !== requirement.acquisitionScopeIdentity ||
     capture.observation.documentId !== capture.document.record.documentId ||
     capture.extraction.record.documentId !== capture.document.record.documentId ||
@@ -1062,7 +1095,7 @@ export function assertAgentRun(value: unknown): AgentRun {
     record.authorization === null || typeof record.authorization !== "object" ||
     !exactKeys(record.authorization, [
       "kind", "authorizationRef", "campaignId", "authorizedAt",
-    ]) || !["MANUAL", "CAMPAIGN"].includes(record.authorization.kind)
+    ]) || !["MANUAL", "CAMPAIGN", "LEGACY_IMPORT"].includes(record.authorization.kind)
   ) throw new Error("Agent run is invalid");
   const identity = {
     taskId: hash(record.taskId, "Agent run task ID"),
@@ -1071,7 +1104,7 @@ export function assertAgentRun(value: unknown): AgentRun {
   };
   identifier(record.authorization.authorizationRef, "Run authorization ref");
   canonicalIso(record.authorization.authorizedAt, "Run authorizedAt");
-  if ((record.authorization.kind === "MANUAL") !== (record.authorization.campaignId === null)) {
+  if ((record.authorization.kind === "CAMPAIGN") === (record.authorization.campaignId === null)) {
     throw new Error("Agent run authorization campaign binding is invalid");
   }
   if (record.authorization.campaignId !== null) {
@@ -1104,6 +1137,7 @@ export function buildAgentRun(input: Readonly<{
   runOrdinal: number;
   authorization: Readonly<
     | { kind: "MANUAL"; authorizationRef: string; authorizedAt: string }
+    | { kind: "LEGACY_IMPORT"; authorizationRef: string; authorizedAt: string }
     | { kind: "CAMPAIGN"; campaign: AgentCampaign; authorizedAt: string }
   >;
   createdAt: string;
@@ -1111,9 +1145,9 @@ export function buildAgentRun(input: Readonly<{
   const task = assertAgentTask(input.task);
   const profile = assertExecutionProfile(input.executionProfile);
   const runOrdinal = positiveInteger(input.runOrdinal, "Agent run ordinal", Number.MAX_SAFE_INTEGER);
-  const authorization = input.authorization.kind === "MANUAL"
+  const authorization = input.authorization.kind !== "CAMPAIGN"
     ? Object.freeze({
-        kind: "MANUAL" as const,
+        kind: input.authorization.kind,
         authorizationRef: identifier(
           input.authorization.authorizationRef,
           "Run authorization ref",
@@ -1313,6 +1347,134 @@ export function buildAgentToolEffect(input: Readonly<{
   }));
 }
 
+export function assertAgentRunArtifact(value: unknown): AgentRunArtifact {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Agent run artifact is malformed");
+  }
+  const record = value as AgentRunArtifact;
+  if (
+    !exactKeys(record, [
+      "schemaVersion", "artifactId", "runId", "ordinal", "kind", "contentHash",
+      "sourceArtifactRef", "createdAt", "semanticDecisionAuthority",
+      "certificateAuthority", "externalWriteAuthority", "valueMovingAuthority",
+    ]) || record.schemaVersion !== "pmh.agent-run-artifact.v1" ||
+    [record.semanticDecisionAuthority, record.certificateAuthority,
+      record.externalWriteAuthority, record.valueMovingAuthority].some((item) => item !== false)
+  ) throw new Error("Agent run artifact is invalid");
+  const identity = Object.freeze({
+    runId: hash(record.runId, "Agent run artifact run ID"),
+    ordinal: positiveInteger(record.ordinal, "Agent run artifact ordinal", 100_000),
+    kind: identifier(record.kind, "Agent run artifact kind"),
+    contentHash: hash(record.contentHash, "Agent run artifact content hash"),
+    sourceArtifactRef: record.sourceArtifactRef === null
+      ? null
+      : boundedText(record.sourceArtifactRef, "Agent run artifact source ref", 500),
+  });
+  canonicalIso(record.createdAt, "Agent run artifact createdAt");
+  assertHashIdentity(record.artifactId, identity, "Agent run artifact identity");
+  return record;
+}
+
+export function buildAgentRunArtifact(input: Readonly<{
+  run: AgentRun;
+  ordinal: number;
+  kind: string;
+  contentHash: Hash;
+  sourceArtifactRef?: string | null;
+  createdAt: string;
+}>): AgentRunArtifact {
+  const run = assertAgentRun(input.run);
+  const identity = Object.freeze({
+    runId: run.runId,
+    ordinal: positiveInteger(input.ordinal, "Agent run artifact ordinal", 100_000),
+    kind: identifier(input.kind, "Agent run artifact kind"),
+    contentHash: hash(input.contentHash, "Agent run artifact content hash"),
+    sourceArtifactRef: input.sourceArtifactRef === undefined || input.sourceArtifactRef === null
+      ? null
+      : boundedText(input.sourceArtifactRef, "Agent run artifact source ref", 500),
+  });
+  return assertAgentRunArtifact(Object.freeze({
+    schemaVersion: "pmh.agent-run-artifact.v1" as const,
+    artifactId: hashCanonical(identity),
+    ...identity,
+    createdAt: canonicalIso(input.createdAt, "Agent run artifact createdAt"),
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  }));
+}
+
+export function assertAgentRunAnnotation(value: unknown): AgentRunAnnotation {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Agent run annotation is malformed");
+  }
+  const record = value as AgentRunAnnotation;
+  if (
+    !exactKeys(record, [
+      "schemaVersion", "annotationId", "runId", "category", "sourceRecordRef",
+      "observedFactsHash", "note", "createdAt", "semanticDecisionAuthority",
+      "certificateAuthority", "externalWriteAuthority", "valueMovingAuthority",
+    ]) || record.schemaVersion !== "pmh.agent-run-annotation.v1" ||
+    [record.semanticDecisionAuthority, record.certificateAuthority,
+      record.externalWriteAuthority, record.valueMovingAuthority].some((item) => item !== false)
+  ) throw new Error("Agent run annotation is invalid");
+  const body = Object.freeze({
+    schemaVersion: record.schemaVersion,
+    runId: hash(record.runId, "Agent run annotation run ID"),
+    category: identifier(record.category, "Agent run annotation category"),
+    sourceRecordRef: boundedText(
+      record.sourceRecordRef,
+      "Agent run annotation source record ref",
+      500,
+    ),
+    observedFactsHash: hash(
+      record.observedFactsHash,
+      "Agent run annotation observed facts hash",
+    ),
+    note: boundedText(record.note, "Agent run annotation note", 1_000),
+    createdAt: canonicalIso(record.createdAt, "Agent run annotation createdAt"),
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  assertHashIdentity(record.annotationId, body, "Agent run annotation identity");
+  return record;
+}
+
+export function buildAgentRunAnnotation(input: Readonly<{
+  run: AgentRun;
+  category: string;
+  sourceRecordRef: string;
+  observedFacts: unknown;
+  note: string;
+  createdAt: string;
+}>): AgentRunAnnotation {
+  const run = assertAgentRun(input.run);
+  const body = Object.freeze({
+    schemaVersion: "pmh.agent-run-annotation.v1" as const,
+    runId: run.runId,
+    category: identifier(input.category, "Agent run annotation category"),
+    sourceRecordRef: boundedText(
+      input.sourceRecordRef,
+      "Agent run annotation source record ref",
+      500,
+    ),
+    observedFactsHash: hashCanonical(input.observedFacts),
+    note: boundedText(input.note, "Agent run annotation note", 1_000),
+    createdAt: canonicalIso(input.createdAt, "Agent run annotation createdAt"),
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return assertAgentRunAnnotation(Object.freeze({
+    ...body,
+    annotationId: hashCanonical(body),
+  }));
+}
+
 export function assertResultSelection(value: unknown): ResultSelection {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Result selection is malformed");
@@ -1380,6 +1542,8 @@ export function emptyAgentExecutionSnapshot(): AgentExecutionSnapshot {
     runs: Object.freeze([]),
     modelInvocations: Object.freeze([]),
     toolEffects: Object.freeze([]),
+    runArtifacts: Object.freeze([]),
+    runAnnotations: Object.freeze([]),
     campaigns: Object.freeze([]),
     resultSelections: Object.freeze([]),
   });
@@ -1532,6 +1696,13 @@ export class AgentExecutionRegistry {
     return this.#snapshot;
   }
 
+  public saveBatch(batch: AgentExecutionBatch): AgentExecutionSnapshot {
+    this.store?.saveAgentExecutionBatch(batch);
+    this.#snapshot = this.store?.loadAgentExecutionSnapshot() ??
+      mergeSnapshot(this.#snapshot, batch);
+    return this.#snapshot;
+  }
+
   public projection(): AgentExecutionRegistryProjection {
     return Object.freeze({
       schemaVersion: "pmh.agent-execution-registry.v1",
@@ -1543,6 +1714,8 @@ export class AgentExecutionRegistry {
       taskCount: this.#snapshot.tasks.length,
       runCount: this.#snapshot.runs.length,
       modelInvocationCount: this.#snapshot.modelInvocations.length,
+      runArtifactCount: this.#snapshot.runArtifacts.length,
+      runAnnotationCount: this.#snapshot.runAnnotations.length,
       activeCampaignCount: this.#snapshot.campaigns.filter((item) => item.status === "ACTIVE").length,
       automaticDispatchFromConfiguration: false,
       credentialSecretTextRetained: false,
@@ -1595,6 +1768,10 @@ function mergeSnapshot(
     modelInvocations: mergeById(current.modelInvocations, batch.modelInvocations,
       (record) => record.invocationId),
     toolEffects: mergeById(current.toolEffects, batch.toolEffects, (record) => record.effectId),
+    runArtifacts: mergeById(current.runArtifacts, batch.runArtifacts,
+      (record) => record.artifactId),
+    runAnnotations: mergeById(current.runAnnotations, batch.runAnnotations,
+      (record) => record.annotationId),
     campaigns: mergeById(current.campaigns, batch.campaigns, (record) => record.campaignId),
     resultSelections: mergeById(current.resultSelections, batch.resultSelections,
       (record) => record.selectionId),

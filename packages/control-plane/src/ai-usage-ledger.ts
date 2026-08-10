@@ -370,6 +370,13 @@ export class AiUsageLedger implements AiUsageRecorder {
     return event;
   }
 
+  public events(): readonly AiUsageEvent[] {
+    return Object.freeze([...this.#events].sort((left, right) =>
+      left.occurredAt.localeCompare(right.occurredAt) ||
+      left.eventId.localeCompare(right.eventId)
+    ));
+  }
+
   public projection(): AiUsageProjection {
     const events = Object.freeze([...this.#events]
       .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt)));
