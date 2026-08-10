@@ -53,7 +53,9 @@ and evidence requirements that survive proposal-window rotation tracked in
 with value-ranked missing-source work tracked in
 [`plans/evidence-debt-frontier.md`](plans/evidence-debt-frontier.md), and its
 active-versus-retained debt correction tracked in
-[`plans/active-evidence-debt.md`](plans/active-evidence-debt.md).
+[`plans/active-evidence-debt.md`](plans/active-evidence-debt.md), with exact-ref
+durable locator reuse tracked in
+[`plans/durable-locator-capability-reuse.md`](plans/durable-locator-capability-reuse.md).
 The first gives each durable Agent issue a reproducible meaning-space
 trailhead. The second adds a sibling bounded-risk lane for near constraints
 such as “August shooting / September public act,” without weakening the exact
@@ -760,6 +762,20 @@ separately reports inactive retained debt. Desktop and 390 px browser checks
 keep Inter, a 12 px text floor, no horizontal overflow, and no console errors.
 All 615 workspace tests, type checks, and the production build pass on the
 available Node 22.22.1 host; the repository's Node 24 engine warning remains.
+
+Durable official-locator capability can now cross proposal generations without
+copying semantic conclusions. Reuse requires the exact listing ref, venue,
+protocol identity, admitted locator role, and current temporal posture; the
+target keeps its own claim and proposal scope. A captured acquisition scope is
+coalesced without another fetch. Live reconciliation moved three current legacy
+gaps out of the active set while correctly retaining the leading House case's
+historical rule/time gaps: a present contract document is not evidence of an
+older snapshot. The frontier now reports 46 inactive retained requirements and
+219 active unsupported requirements across 100 proposals, and Studio labels
+each row `Current` or `Historical snapshot` instead of presenting both as the
+same work queue. All 616 workspace tests, type checks, and the production build
+pass; desktop and 390 px browser checks have no horizontal overflow or console
+errors and keep the visible type floor at 12 px.
 
 ## Deferred future campaigns
 

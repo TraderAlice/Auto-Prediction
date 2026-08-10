@@ -9502,6 +9502,11 @@ function EvidenceView() {
                         {item.missingKinds.map((kind) => (
                           <span key={kind}>{kind.replaceAll("_", " ")}</span>
                         ))}
+                        {(item.temporalPostures ?? []).map((posture) => (
+                          <span className="evidence-debt-temporal" key={posture}>
+                            {posture === "CURRENT" ? "CURRENT" : "HISTORICAL SNAPSHOT"}
+                          </span>
+                        ))}
                       </div>
                       <strong>{item.statement ?? item.requirements[0]?.claim ?? "Retained proposal evidence route"}</strong>
                       <p>

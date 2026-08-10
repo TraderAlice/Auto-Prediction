@@ -5,6 +5,7 @@ import {
   buildDiscoveryEvidenceLocator,
   buildEvidenceRequirements,
   rebaseEvidenceRequirementToCurrentListings,
+  rebaseEvidenceRequirementToRetainedLocatorCapabilities,
   type DiscoveryCatalogListing,
   type EvidenceRequirementDraft,
 } from "../src/index.js";
@@ -172,6 +173,135 @@ describe("structured evidence requirements", () => {
       listings,
     });
     expect(migrated.schemaVersion).toBe("pmh.evidence-requirement.v2");
+  });
+
+  it("reuses exact-ref retained locator capability without reusing claim authority", () => {
+    const contractListings = Object.freeze([
+      listing("polymarket-us", "CONTRACT_RULE_DOCUMENT", {
+        listingRef: "polymarket-us:house-dem",
+        url: "https://gateway.polymarket.us/v1/market/slug/house-dem",
+      }),
+      listing("polymarket-us", "CONTRACT_RULE_DOCUMENT", {
+        listingRef: "polymarket-us:house-rep",
+        url: "https://gateway.polymarket.us/v1/market/slug/house-rep",
+      }),
+    ]);
+    const refs = contractListings.map((item) => item.listingRef);
+    const withoutLocators = contractListings.map((item) => Object.freeze({
+      ...item,
+      evidenceLocators: Object.freeze([]),
+    }));
+    const target = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId,
+      proposalListingRefs: refs,
+      listings: withoutLocators,
+      drafts: [{ ...draft("TIME_BOUNDARY", refs), temporalPosture: "CURRENT" }],
+    })[0]!;
+    const donor = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId: hashCanonical({ proposal: "donor" }),
+      proposalListingRefs: refs,
+      listings: contractListings,
+      drafts: [{
+        ...draft("TIME_BOUNDARY", refs),
+        claim: "The donor asks a different time-boundary question.",
+        temporalPosture: "CURRENT",
+      }],
+    })[0]!;
+    const rebased = rebaseEvidenceRequirementToRetainedLocatorCapabilities(
+      target,
+      [donor],
+    );
+
+    expect(rebased).toMatchObject({
+      schemaVersion: "pmh.evidence-requirement.v2",
+      proposalId: target.proposalId,
+      kind: "TIME_BOUNDARY",
+      claim: target.claim,
+      acquisitionRoute: "DOCUMENT_LOCATOR",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(rebased.requirementId).not.toBe(target.requirementId);
+    expect(rebased.eligibleLocators).toHaveLength(2);
+    expect(rebased.acquisitionScopeIdentity).toBe(donor.acquisitionScopeIdentity);
+    expect(rebaseEvidenceRequirementToRetainedLocatorCapabilities(
+      target,
+      [donor],
+    )).toEqual(rebased);
+
+    const oracleTarget = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId,
+      proposalListingRefs: refs,
+      listings: withoutLocators,
+      drafts: [{ ...draft("ORACLE_SOURCE", refs), temporalPosture: "CURRENT" }],
+    })[0]!;
+    expect(rebaseEvidenceRequirementToRetainedLocatorCapabilities(
+      oracleTarget,
+      [donor],
+    )).toBe(oracleTarget);
+
+    const changedProtocolListings = contractListings.map((item) => {
+      const protocolIdentity = "polymarket-us:v2";
+      const locator = buildDiscoveryEvidenceLocator({
+        venueId: item.venueId,
+        protocolIdentity,
+        role: "CONTRACT_RULE_DOCUMENT",
+        url: item.evidenceLocators![0]!.url,
+      });
+      if (locator === null) throw new Error("missing changed-protocol locator");
+      return Object.freeze({
+        ...item,
+        protocolIdentity,
+        evidenceLocators: Object.freeze([locator]),
+      });
+    });
+    const changedProtocolDonor = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId: hashCanonical({ proposal: "changed-protocol" }),
+      proposalListingRefs: refs,
+      listings: changedProtocolListings,
+      drafts: [{ ...draft("TIME_BOUNDARY", refs), temporalPosture: "CURRENT" }],
+    })[0]!;
+    expect(rebaseEvidenceRequirementToRetainedLocatorCapabilities(
+      target,
+      [changedProtocolDonor],
+    )).toBe(target);
+
+    const oneRefCurrent = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId,
+      proposalListingRefs: refs,
+      listings: withoutLocators,
+      drafts: [{
+        ...draft("TIME_BOUNDARY", [refs[0]!]),
+        temporalPosture: "CURRENT",
+      }],
+    })[0]!;
+    if (oneRefCurrent.schemaVersion !== "pmh.evidence-requirement.v2") {
+      throw new Error("expected current evidence requirement schema");
+    }
+    const {
+      proposalListingRefs: _proposalListingRefs,
+      requirementId: _requirementId,
+      schemaVersion: _schemaVersion,
+      ...legacyFields
+    } = oneRefCurrent;
+    const legacyBody = Object.freeze({
+      ...legacyFields,
+      schemaVersion: "pmh.evidence-requirement.v1" as const,
+    });
+    const oneRefLegacy = assertEvidenceRequirement(Object.freeze({
+      ...legacyBody,
+      requirementId: hashCanonical(legacyBody),
+    }));
+    expect(rebaseEvidenceRequirementToRetainedLocatorCapabilities(
+      oneRefLegacy,
+      [donor],
+    )).toBe(oneRefLegacy);
   });
 
   it("keeps contract rules and venue policy as separate evidence routes", () => {

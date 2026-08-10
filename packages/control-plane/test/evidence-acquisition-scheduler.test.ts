@@ -229,6 +229,16 @@ describe("durable evidence acquisition scheduler", () => {
     expect(job.requirementIds).toEqual([first.requirementId, second.requirementId].sort());
     expect(scheduler.captureForJob(job.jobId)?.extraction.text)
       .toBe("Official shared settlement rule.");
+
+    const retainedScopeReuse = requirement("proposal-three", { url });
+    scheduler.reconcile([first, second, retainedScopeReuse]);
+    expect(scheduler.tick([first, second, retainedScopeReuse])).toEqual([]);
+    expect(read).toHaveBeenCalledOnce();
+    expect(scheduler.projection()).toMatchObject({
+      capturedCount: 1,
+      requirementCount: 3,
+      coalescedRequirementCount: 2,
+    });
   });
 
   it("retains requirements that coalesce while the shared fetch is already leased", async () => {

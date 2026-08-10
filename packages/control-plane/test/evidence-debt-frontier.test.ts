@@ -209,6 +209,7 @@ describe("evidence debt frontier", () => {
     });
     expect(projection.items[0]).toMatchObject({
       missingKinds: ["ORACLE_SOURCE"],
+      temporalPostures: ["CURRENT"],
       requirementCount: 1,
       tier: "POSITIVE_GROSS_BLOCKER",
     });

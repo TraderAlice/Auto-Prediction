@@ -25,6 +25,7 @@ export type EvidenceDebtFrontierRequirement = Readonly<{
   kind: EvidenceRequirementKind;
   claim: string;
   listingRefs: readonly string[];
+  temporalPosture: EvidenceRequirement["temporalPosture"];
   acquisitionRoute: "UNSUPPORTED";
 }>;
 
@@ -45,6 +46,7 @@ export type EvidenceDebtFrontierItem = Readonly<{
   reviewNextAction: ReviewAttentionItem["nextAction"] | null;
   reviewMissingEvidenceCount: number | null;
   missingKinds: readonly EvidenceRequirementKind[];
+  temporalPostures: readonly EvidenceRequirement["temporalPosture"][];
   requirementCount: number;
   includedRequirementCount: number;
   jobCount: number;
@@ -217,6 +219,7 @@ export function buildEvidenceDebtFrontier(input: Readonly<{
         kind: requirement.kind,
         claim: requirement.claim,
         listingRefs: requirement.listingRefs,
+        temporalPosture: requirement.temporalPosture,
         acquisitionRoute: "UNSUPPORTED" as const,
       }),
     ));
@@ -236,6 +239,9 @@ export function buildEvidenceDebtFrontier(input: Readonly<{
       reviewNextAction: review?.nextAction ?? null,
       reviewMissingEvidenceCount: review?.missingEvidenceCount ?? null,
       missingKinds: Object.freeze([...new Set(uniqueEntries.map(({ requirement }) => requirement.kind))].sort()),
+      temporalPostures: Object.freeze([...new Set(uniqueEntries.map(
+        ({ requirement }) => requirement.temporalPosture,
+      ))].sort()),
       requirementCount: uniqueEntries.length,
       includedRequirementCount: requirements.length,
       jobCount: new Set(uniqueEntries.map(({ jobId }) => jobId)).size,

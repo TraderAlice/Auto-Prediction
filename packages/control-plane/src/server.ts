@@ -157,6 +157,7 @@ import {
 import { EvidenceDocumentFetcher } from "./evidence-document.js";
 import {
   rebaseEvidenceRequirementToCurrentListings,
+  rebaseEvidenceRequirementsToRetainedLocatorCapabilities,
   type EvidenceRequirement,
 } from "./evidence-requirement.js";
 import {
@@ -1766,7 +1767,9 @@ export function createControlPlane(options?: {
           })
         : requirement;
     });
-    return Object.freeze(rebased.filter((requirement, index, all) =>
+    const capabilityRebased =
+      rebaseEvidenceRequirementsToRetainedLocatorCapabilities(rebased);
+    return Object.freeze(capabilityRebased.filter((requirement, index, all) =>
       all.findIndex((candidate) =>
         candidate.requirementId === requirement.requirementId
       ) === index

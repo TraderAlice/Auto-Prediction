@@ -60,6 +60,11 @@ pre,
   letter-spacing: -0.02em;
 }
 
+.evidence-bottleneck code,
+.evidence-document-list code {
+  font-size: 12px;
+}
+
 .sidebar {
   width: 224px;
   border-color: #24282e;
@@ -100,6 +105,21 @@ pre,
 
 .sidebar nav {
   padding-top: 20px;
+  scrollbar-color: #363d3a transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar nav::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #363d3a;
+}
+
+.sidebar nav::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .nav-label,
@@ -1734,6 +1754,12 @@ footer {
 .evidence-debt-labels > span:not([data-slot="badge"]) {
   color: #86908b;
   font-size: 12px;
+}
+
+.evidence-debt-labels > .evidence-debt-temporal {
+  border-left: 1px solid #39413d;
+  padding-left: 7px;
+  color: #b2bbb6;
 }
 
 .evidence-debt-list dl {
