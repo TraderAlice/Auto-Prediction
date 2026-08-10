@@ -101,6 +101,8 @@ opaque.
   `CHALLENGED`, not `ABSTAINED`.
 
 The observed selection signal is positive: the gate stopped a broken premise
-before numeric work and reduced the case to one attributable repair task. The
-next slice is not another estimator retry; it is a new semantic-review lineage
-that can accept, reject, or reformulate the challenged state.
+before numeric work and reduced the case to one attributable repair task. That
+next slice is now qualified in `probability-semantic-repair-loop.md`: one
+Terra/high successor review reduced the MLS relation to textual relatedness,
+generated four typed Gemini evidence requirements, and did not re-enter
+probability estimation.

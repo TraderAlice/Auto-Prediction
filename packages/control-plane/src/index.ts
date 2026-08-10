@@ -56,6 +56,8 @@ export * from "./probability-estimation-scheduler.js";
 export * from "./probability-evidence-debt.js";
 export * from "./probability-case-integrity.js";
 export * from "./probability-case-challenge-queue.js";
+export * from "./probability-semantic-repair.js";
+export * from "./probability-semantic-repair-progress.js";
 export * from "./probability-calibration.js";
 export * from "./probability-calibration-desk.js";
 export * from "./probability-resolution-acquisition.js";

@@ -6,10 +6,13 @@ import {
   type ProbabilityEstimationRunRecord,
   type ProbabilityEstimatorRole,
 } from "./probability-estimation-agent.js";
+import type { ProbabilityAdverseStateInterpretation } from "./probability-case-integrity.js";
 
 export type ProbabilityCaseRepairItem = Readonly<{
   repairId: Hash;
+  sourceSemanticReviewArtifactHash: Hash;
   interpretationArtifactHash: Hash;
+  adverseStateInterpretation: ProbabilityAdverseStateInterpretation;
   proposalId: Hash;
   semanticConstraintArtifactHash: Hash;
   kind: ProbabilityCaseChallengeKind;
@@ -88,9 +91,15 @@ export function buildProbabilityCaseRepairQueue(input: Readonly<{
   }
   const items = Object.freeze([...groups.entries()].map(([repairId, group]) => {
     const first = group[0]!.challenge;
+    const interpretation = group[0]!.run.adverseStateInterpretation;
+    if (interpretation === undefined) {
+      throw new Error("probability repair item requires a current adverse-state interpretation");
+    }
     return Object.freeze({
       repairId,
+      sourceSemanticReviewArtifactHash: first.semanticReviewArtifactHash,
       interpretationArtifactHash: first.interpretationArtifactHash,
+      adverseStateInterpretation: interpretation,
       proposalId: first.proposalId,
       semanticConstraintArtifactHash: first.semanticConstraintArtifactHash,
       kind: first.kind,

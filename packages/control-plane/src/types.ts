@@ -484,6 +484,7 @@ export type StudioProjection = Readonly<{
     evidenceDebtFrontier: import("./evidence-debt-frontier.js").EvidenceDebtFrontierProjection;
     probabilityEvidenceDebt: import("./probability-evidence-debt.js").ProbabilityEvidenceDebtProjection;
     probabilityCaseRepairQueue: import("./probability-case-challenge-queue.js").ProbabilityCaseRepairQueue;
+    probabilitySemanticRepairProgress: import("./probability-semantic-repair-progress.js").ProbabilitySemanticRepairProgressProjection;
     ruleEvidenceClaims: import("./rule-evidence-claim-scheduler.js").RuleEvidenceClaimSchedulerProjection;
     reviewAttention: import("./review-attention.js").ReviewAttentionProjection;
     proposalEconomicTriage: import("./proposal-economic-triage.js").ProposalEconomicTriageProjection;

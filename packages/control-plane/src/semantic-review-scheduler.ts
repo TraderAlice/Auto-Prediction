@@ -31,6 +31,15 @@ import {
   assertRuleEvidenceClaim,
   type RuleEvidenceClaim,
 } from "./rule-evidence-claim.js";
+import type {
+  ProbabilityCaseRepairQueue,
+} from "./probability-case-challenge-queue.js";
+import {
+  assertProbabilitySemanticRepairRequest,
+  buildProbabilitySemanticRepairRequest,
+  type ProbabilitySemanticRepairRequest,
+} from "./probability-semantic-repair.js";
+import type { ProbabilityEstimationJobRecord } from "./probability-estimation-scheduler.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 250;
@@ -116,7 +125,8 @@ export type SemanticReviewJobRecord = Readonly<{
     | "pmh.semantic-review-job.v1"
     | "pmh.semantic-review-job.v2"
     | "pmh.semantic-review-job.v3"
-    | "pmh.semantic-review-job.v4";
+    | "pmh.semantic-review-job.v4"
+    | "pmh.semantic-review-job.v5";
   jobId: Hash;
   opportunityId: string;
   proposalId: Hash;
@@ -138,6 +148,7 @@ export type SemanticReviewJobRecord = Readonly<{
   recommendation: SemanticReviewRecommendation | null;
   reviewOutcome?: SemanticReviewOutcomeCapsule;
   detailRecovery?: SemanticReviewDetailRecovery;
+  repairRequest?: ProbabilitySemanticRepairRequest;
   diagnostic: string | null;
   lastFailure?: SemanticReviewFailure | null;
   createdAt: string;
@@ -239,6 +250,18 @@ export type SemanticReviewSchedulerProjection = Readonly<{
     valueMovingActions: false;
     liveExecutionEnabled: false;
   }>;
+}>;
+
+export type ProbabilitySemanticRepairReconcileResult = Readonly<{
+  schemaVersion: "pmh.probability-semantic-repair-reconcile.v1";
+  sourceItemCount: number;
+  enqueuedRequestIds: readonly Hash[];
+  retainedRequestIds: readonly Hash[];
+  manualRequestIds: readonly Hash[];
+  providerRequestsStarted: 0;
+  authority: "REPAIR_ENQUEUE_ONLY";
+  semanticDecisionAuthority: false;
+  executionAuthority: false;
 }>;
 
 export type SemanticReviewAttributionSource = Readonly<{
@@ -378,6 +401,7 @@ export function assertSemanticReviewOutcomeCapsule(
       "pmh.semantic-review-report.v2",
       "pmh.semantic-review-report.v3",
       "pmh.semantic-review-report.v4",
+      "pmh.semantic-review-report.v5",
     ].includes(capsule.reportSchemaVersion) ||
     !HASH_PATTERN.test(String(capsule.proposalId)) ||
     !HASH_PATTERN.test(String(capsule.corpusSnapshotIdentity)) ||
@@ -499,13 +523,18 @@ function withoutJobHashAndClaims(
   record: SemanticReviewJobRecord,
 ): Omit<
   SemanticReviewJobRecord,
-  "artifactHash" | "evidenceClaims" | "reviewOutcome" | "detailRecovery"
+  | "artifactHash"
+  | "evidenceClaims"
+  | "reviewOutcome"
+  | "detailRecovery"
+  | "repairRequest"
 > {
   const {
     artifactHash: _artifactHash,
     evidenceClaims: _evidenceClaims,
     reviewOutcome: _reviewOutcome,
     detailRecovery: _detailRecovery,
+    repairRequest: _repairRequest,
     ...body
   } = record;
   return body;
@@ -515,12 +544,13 @@ function withoutJobHashAndOutcome(
   record: SemanticReviewJobRecord,
 ): Omit<
   SemanticReviewJobRecord,
-  "artifactHash" | "reviewOutcome" | "detailRecovery"
+  "artifactHash" | "reviewOutcome" | "detailRecovery" | "repairRequest"
 > {
   const {
     artifactHash: _artifactHash,
     reviewOutcome: _reviewOutcome,
     detailRecovery: _detailRecovery,
+    repairRequest: _repairRequest,
     ...body
   } = record;
   return body;
@@ -536,12 +566,16 @@ function reviewMatchesJobScope(
       "pmh.proposal-evidence-bundle.v2"
     ? job.evidenceBundle.evidenceCorpusSnapshotIdentity
     : null;
-  return enriched
+  const repairMatches = job.repairRequest === undefined
+    ? review.repairRequest === undefined
+    : review.repairRequest?.requestId === job.repairRequest.requestId;
+  return repairMatches && (enriched
     ? review.corpusSnapshotIdentity === job.reviewScopeIdentity &&
-      review.report.schemaVersion === "pmh.semantic-review-report.v4"
+      ["pmh.semantic-review-report.v4", "pmh.semantic-review-report.v5"]
+        .includes(review.report.schemaVersion)
     : (bundledCorpusSnapshotIdentity === null ||
         review.corpusSnapshotIdentity === bundledCorpusSnapshotIdentity) &&
-      review.report.schemaVersion !== "pmh.semantic-review-report.v4";
+      review.report.schemaVersion !== "pmh.semantic-review-report.v4");
 }
 
 export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJobRecord {
@@ -559,12 +593,16 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
   const lastFailure = record.lastFailure ?? null;
   const reviewOutcome = record.reviewOutcome ?? null;
   const detailRecovery = record.detailRecovery ?? null;
+  const repairRequest = record.repairRequest === undefined
+    ? undefined
+    : assertProbabilitySemanticRepairRequest(record.repairRequest);
   if (
     ![
       "pmh.semantic-review-job.v1",
       "pmh.semantic-review-job.v2",
       "pmh.semantic-review-job.v3",
       "pmh.semantic-review-job.v4",
+      "pmh.semantic-review-job.v5",
     ]
       .includes(record.schemaVersion) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
@@ -647,7 +685,8 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
       reviewOutcome.completedAt !== record.completedAt ||
       reviewOutcome.recommendation !== record.recommendation ||
       ((record.evidenceClaims?.length ?? 0) > 0
-        ? reviewOutcome.reportSchemaVersion !== "pmh.semantic-review-report.v4" ||
+        ? !["pmh.semantic-review-report.v4", "pmh.semantic-review-report.v5"]
+            .includes(reviewOutcome.reportSchemaVersion) ||
           reviewOutcome.corpusSnapshotIdentity !== reviewScopeIdentity
         : reviewOutcome.reportSchemaVersion === "pmh.semantic-review-report.v4")
     )) ||
@@ -667,16 +706,35 @@ export function assertSemanticReviewJobRecord(value: unknown): SemanticReviewJob
         reviewOutcome.completedAt !== record.completedAt ||
         reviewOutcome.recommendation !== record.recommendation ||
         ((record.evidenceClaims?.length ?? 0) > 0
-          ? reviewOutcome.reportSchemaVersion !== "pmh.semantic-review-report.v4" ||
+          ? !["pmh.semantic-review-report.v4", "pmh.semantic-review-report.v5"]
+              .includes(reviewOutcome.reportSchemaVersion) ||
             reviewOutcome.corpusSnapshotIdentity !== reviewScopeIdentity
           : reviewOutcome.reportSchemaVersion === "pmh.semantic-review-report.v4")
       ) : record.reviewOutcome !== undefined)
     )) ||
+    (record.schemaVersion === "pmh.semantic-review-job.v5" && (
+      repairRequest === undefined ||
+      repairRequest.sourceSemanticConstraint.proposalId !== record.proposalId ||
+      detailRecovery !== null ||
+      duplicateOfJobId !== null ||
+      (record.status === "PASS" ? (
+        reviewOutcome === null ||
+        assertSemanticReviewOutcomeCapsule(reviewOutcome) !== reviewOutcome ||
+        reviewOutcome.proposalId !== record.proposalId ||
+        reviewOutcome.reviewId !== record.lastReviewId ||
+        reviewOutcome.completedAt !== record.completedAt ||
+        reviewOutcome.recommendation !== record.recommendation ||
+        reviewOutcome.reportSchemaVersion !== "pmh.semantic-review-report.v5"
+      ) : record.reviewOutcome !== undefined)
+    )) ||
     (record.schemaVersion !== "pmh.semantic-review-job.v3" &&
       record.schemaVersion !== "pmh.semantic-review-job.v4" &&
+      record.schemaVersion !== "pmh.semantic-review-job.v5" &&
       record.reviewOutcome !== undefined) ||
     (record.schemaVersion !== "pmh.semantic-review-job.v4" &&
       record.detailRecovery !== undefined) ||
+    (record.schemaVersion !== "pmh.semantic-review-job.v5" &&
+      record.repairRequest !== undefined) ||
     (record.status === "RESEARCH_ONLY" && (
       record.lastReviewId !== null || record.recommendation !== null ||
       !boundedText(record.diagnostic, 500)
@@ -847,6 +905,7 @@ export class SemanticReviewScheduler {
       }
     }
     const passedByProposal = new Map(sortedCandidates.flatMap((candidate) => {
+      const retainedJob = existingByProposal.get(candidate.proposal.proposalId);
       const scopeIdentity = scopesByProposal.get(candidate.proposal.proposalId)?.scopeIdentity;
       const enriched = (candidate.evidenceClaims?.length ?? 0) > 0;
       const bundledCorpusSnapshotIdentity = candidate.evidenceBundle?.schemaVersion ===
@@ -855,6 +914,9 @@ export class SemanticReviewScheduler {
         : null;
       const review = passedReviews.find((item) =>
         item.proposalId === candidate.proposal.proposalId &&
+        (retainedJob?.repairRequest === undefined
+          ? item.repairRequest === undefined
+          : item.repairRequest?.requestId === retainedJob.repairRequest.requestId) &&
         (enriched
           ? item.corpusSnapshotIdentity === scopeIdentity &&
             item.report?.schemaVersion === "pmh.semantic-review-report.v4"
@@ -1109,6 +1171,8 @@ export class SemanticReviewScheduler {
                 ? "pmh.semantic-review-job.v3" as const
                 : existing.schemaVersion === "pmh.semantic-review-job.v4"
                   ? "pmh.semantic-review-job.v4" as const
+                  : existing.schemaVersion === "pmh.semantic-review-job.v5"
+                    ? "pmh.semantic-review-job.v5" as const
                   : "pmh.semantic-review-job.v2" as const,
               evidenceClaims,
             }),
@@ -1119,6 +1183,112 @@ export class SemanticReviewScheduler {
       }
     }
     this.#recoverExpiredLeases();
+  }
+
+  public reconcileProbabilityCaseRepairs(
+    queue: ProbabilityCaseRepairQueue,
+    reviews: readonly SemanticReviewRecord[],
+    probabilityJobs: readonly ProbabilityEstimationJobRecord[] = [],
+  ): ProbabilitySemanticRepairReconcileResult {
+    const enqueuedRequestIds: Hash[] = [];
+    const retainedRequestIds: Hash[] = [];
+    const manualRequestIds: Hash[] = [];
+    const passedReviews = reviews.map(assertSemanticReviewRecord).filter((review) =>
+      review.status === "PASS" && review.report !== null
+    );
+    for (const item of queue.items) {
+      const sourceReview = passedReviews.find((review) =>
+        review.report?.artifactHash === item.sourceSemanticReviewArtifactHash
+      );
+      const retainedProbabilityJob = probabilityJobs.find((candidate) =>
+        candidate.proposalId === item.proposalId &&
+        candidate.semanticReviewArtifactHash === item.sourceSemanticReviewArtifactHash &&
+        candidate.semanticConstraintArtifactHash === item.semanticConstraintArtifactHash
+      );
+      const sourceConstraint = sourceReview?.report?.result.semanticConstraint ??
+        retainedProbabilityJob?.semanticConstraint;
+      const job = this.#jobs.find((candidate) => candidate.proposalId === item.proposalId);
+      const sourceReviewId = sourceReview?.reviewId ?? (
+        job?.lastReviewId !== null && job?.lastReviewId !== undefined &&
+          (job.reviewOutcome === undefined ||
+            job.reviewOutcome.reportArtifactHash === item.sourceSemanticReviewArtifactHash)
+          ? job.lastReviewId
+          : undefined
+      );
+      if (
+        job?.repairRequest?.repairId === item.repairId &&
+        job.repairRequest.sourceSemanticReviewArtifactHash ===
+          item.sourceSemanticReviewArtifactHash
+      ) {
+        retainedRequestIds.push(job.repairRequest.requestId);
+        continue;
+      }
+      if (
+        sourceReviewId === undefined || sourceConstraint === undefined || job === undefined ||
+        sourceConstraint.artifactHash !== item.semanticConstraintArtifactHash
+      ) continue;
+      let request: ProbabilitySemanticRepairRequest;
+      try {
+        request = buildProbabilitySemanticRepairRequest({
+          item,
+          sourceReviewId,
+          sourceSemanticConstraint: sourceConstraint,
+          parentRepairRequest: sourceReview === undefined
+            ? job.repairRequest ?? null
+            : sourceReview.repairRequest ?? null,
+        });
+      } catch {
+        continue;
+      }
+      if (request.admission !== "AUTOMATIC_MULTI_ROLE") {
+        manualRequestIds.push(request.requestId);
+        continue;
+      }
+      if (
+        job.repairRequest?.requestId === request.requestId ||
+        passedReviews.some((review) =>
+          review.repairRequest?.requestId === request.requestId
+        )
+      ) {
+        retainedRequestIds.push(request.requestId);
+        continue;
+      }
+      if (["LEASED", "PENDING", "RETRY_WAIT"].includes(job.status) &&
+        job.repairRequest !== undefined) {
+        retainedRequestIds.push(job.repairRequest.requestId);
+        continue;
+      }
+      const now = new Date(this.#now()).toISOString();
+      this.#saveJob(withJobHash({
+        ...withoutJobHashAndOutcome(job),
+        schemaVersion: "pmh.semantic-review-job.v5",
+        repairRequest: request,
+        duplicateOfJobId: null,
+        status: "PENDING",
+        attemptCount: 0,
+        nextAttemptAt: now,
+        leasedAt: null,
+        leaseExpiresAt: null,
+        completedAt: null,
+        lastReviewId: null,
+        recommendation: null,
+        diagnostic: null,
+        lastFailure: null,
+        updatedAt: now,
+      }));
+      enqueuedRequestIds.push(request.requestId);
+    }
+    return Object.freeze({
+      schemaVersion: "pmh.probability-semantic-repair-reconcile.v1" as const,
+      sourceItemCount: queue.itemCount,
+      enqueuedRequestIds: Object.freeze(enqueuedRequestIds.sort()),
+      retainedRequestIds: Object.freeze([...new Set(retainedRequestIds)].sort()),
+      manualRequestIds: Object.freeze([...new Set(manualRequestIds)].sort()),
+      providerRequestsStarted: 0 as const,
+      authority: "REPAIR_ENQUEUE_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      executionAuthority: false as const,
+    });
   }
 
   public tick(
@@ -1282,6 +1452,7 @@ export class SemanticReviewScheduler {
         proposalCorpusSnapshotIdentity,
         evidenceBundle ?? undefined,
         evidenceClaims,
+        leased.repairRequest,
       );
     } catch (error) {
       const reverted = this.#saveJob(withJobHash({
@@ -1466,7 +1637,9 @@ export class SemanticReviewScheduler {
     const completed = this.#saveJob(withJobHash({
       ...this.#withoutJobHash(job),
       schemaVersion: job.detailRecovery === undefined
-        ? "pmh.semantic-review-job.v3"
+        ? job.repairRequest === undefined
+          ? "pmh.semantic-review-job.v3"
+          : "pmh.semantic-review-job.v5"
         : "pmh.semantic-review-job.v4",
       duplicateOfJobId: null,
       status: "PASS",

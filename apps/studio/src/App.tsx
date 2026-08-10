@@ -529,16 +529,21 @@ const EMPTY_PROBABILITY_EVIDENCE_DEBT:
     },
   };
 
-const EMPTY_PROBABILITY_CASE_REPAIR_QUEUE:
-  StudioProjection["ai"]["probabilityCaseRepairQueue"] = {
-    schemaVersion: "pmh.probability-case-repair-queue.v1",
+const EMPTY_PROBABILITY_SEMANTIC_REPAIR_PROGRESS:
+  StudioProjection["ai"]["probabilitySemanticRepairProgress"] = {
+    schemaVersion: "pmh.probability-semantic-repair-progress.v1",
     contentHash: `sha256:${"0".repeat(64)}`,
-    sourceRunCount: 0,
+    sourceItemCount: 0,
     sourceChallengeCount: 0,
-    itemCount: 0,
+    openCount: 0,
+    pendingCount: 0,
+    runningCount: 0,
+    repairedCount: 0,
+    reducedToResearchCount: 0,
+    rejectedCount: 0,
+    manualAttentionCount: 0,
     items: [],
-    rankingContract: "ROLE_SUPPORT_DESC_THEN_REPAIR_ID",
-    authority: "SEMANTIC_REPAIR_PRIORITY_ONLY",
+    authority: "SEMANTIC_REPAIR_OBSERVATION_ONLY",
     providerRequestAuthority: false,
     semanticDecisionAuthority: false,
     probabilityCertificateAuthority: false,
@@ -9491,9 +9496,9 @@ function FailureBudgetView() {
     studioProjection.ai.runtimeConfiguration.configuration.deepseekAutomationEnabled;
   const evidenceDebt =
     studioProjection.ai.probabilityEvidenceDebt ?? EMPTY_PROBABILITY_EVIDENCE_DEBT;
-  const repairQueue =
-    studioProjection.ai.probabilityCaseRepairQueue ??
-      EMPTY_PROBABILITY_CASE_REPAIR_QUEUE;
+  const repairProgress =
+    studioProjection.ai.probabilitySemanticRepairProgress ??
+      EMPTY_PROBABILITY_SEMANTIC_REPAIR_PROGRESS;
 
   async function load(): Promise<void> {
     setLoading(true);
@@ -9583,32 +9588,52 @@ function FailureBudgetView() {
         </div>
       )}
 
-      {repairQueue.items.length > 0 && (
+      {repairProgress.items.length > 0 && (
         <Card className="probability-evidence-debt-card probability-repair-card">
           <CardHeader>
             <div>
-              <span className="eyebrow">Semantic repair queue</span>
-              <h2>The probability premise needs repair</h2>
+              <span className="eyebrow">Semantic repair lifecycle</span>
+              <h2>Challenge the premise, then estimate again</h2>
               <p>
                 An estimator found that the retained relation, outcome direction, or adverse-state
-                mapping is internally inconsistent. These cases cannot produce a probability bound.
+                mapping is internally inconsistent. The source case stays terminal while a new
+                semantic review either repairs, reduces, or rejects the relation.
               </p>
             </div>
-            <Badge variant="warning">{repairQueue.sourceChallengeCount} CHALLENGES</Badge>
+            <Badge variant="warning">{repairProgress.sourceChallengeCount} CHALLENGES</Badge>
           </CardHeader>
           <CardContent>
             <div className="probability-evidence-debt-list">
-              {repairQueue.items.slice(0, 6).map((item) => (
+              {repairProgress.items.slice(0, 6).map((item) => (
                 <article key={item.repairId}>
                   <div>
-                    <Badge variant="warning">{item.kind.replaceAll("_", " ")}</Badge>
-                    <span>{item.roles.join(" + ")} · {item.stateIds.join("+")}</span>
+                    <Badge variant={
+                      item.status === "REPAIRED" ? "verified" :
+                      item.status === "REVIEW_RUNNING" || item.status === "REVIEW_PENDING" ? "shadow" :
+                      item.status === "OPEN" ? "warning" : "muted"
+                    }>{item.status.replaceAll("_", " ")}</Badge>
+                    <span>generation {item.generation} · {item.roles.map((role) => role.replaceAll("_", " ")).join(" + ")} · {item.stateIds.join("+")}</span>
                   </div>
-                  <strong>{item.explanation}</strong>
+                  <strong>{({
+                    RELATION_DIRECTION: "The retained relation points in the wrong direction",
+                    COUNTEREXAMPLE_STATE_CONFLICT: "The counterexample points to a different joint state",
+                    OUTCOME_MAPPING: "The outcome labels do not support the retained mapping",
+                    ADVERSE_STATE_SELECTION: "The selected failure state does not match the premise",
+                    EVIDENCE_SCOPE: "The estimate relies on evidence outside its retained scope",
+                  } as const)[item.kind]}</strong>
                   <p>{item.observedConflicts[0]}</p>
-                  <small>{item.listingRefs.length} contracts · {item.roles.length} independent role{item.roles.length === 1 ? "" : "s"} · new semantic review required</small>
+                  <small>
+                    {item.listingRefs.length} contracts · {item.nextAction.replaceAll("_", " ").toLowerCase()}
+                    {item.engine === null ? "" : ` · ${item.engine.provider} ${item.engine.model}${item.engine.reasoningEffort === null ? "" : ` / ${item.engine.reasoningEffort}`}`}
+                    {item.successorReviewId === null ? "" : ` · successor ${item.successorReviewId.slice(0, 18)}…`}
+                  </small>
                 </article>
               ))}
+            </div>
+            <div className="probability-evidence-debt-summary">
+              <span>{repairProgress.pendingCount + repairProgress.runningCount} active review</span>
+              <span>{repairProgress.repairedCount} repaired · {repairProgress.reducedToResearchCount} reduced</span>
+              <span>{repairProgress.rejectedCount} rejected · {repairProgress.manualAttentionCount} manual</span>
             </div>
           </CardContent>
         </Card>

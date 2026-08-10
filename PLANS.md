@@ -38,6 +38,8 @@ with structured estimator abstention and research routing tracked in
 [`plans/probability-estimation-evidence-debt.md`](plans/probability-estimation-evidence-debt.md),
 and probability-premise challenges plus semantic repair tracked in
 [`plans/probability-case-integrity.md`](plans/probability-case-integrity.md),
+with challenge-to-successor review orchestration tracked in
+[`plans/probability-semantic-repair-loop.md`](plans/probability-semantic-repair-loop.md),
 and AI resource observability tracked in
 [`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md), with terminal
 protocol efficiency tracked in
@@ -827,6 +829,25 @@ horizontal overflow at desktop or 390 px, and no console diagnostics. The next
 product decision is which external reference family should close the first
 statistical evidence loop; it remains batched in `QUESTIONS.md` rather than
 authorizing open-ended browsing.
+
+Probability premise challenges now close the loop instead of ending at a
+queue label. Multi-role conflicts create a content-addressed semantic-repair
+request, reopen the proposal under a new review identity, bind the selected
+runtime provider/model/effort, and preserve the challenged case unchanged.
+One-role conflicts and a fourth repair generation require manual attention.
+The first-party disposition also now treats a counterexample as a refutation
+of a hard constraint but as the adverse state of a probabilistic dependence;
+this prevents the fuzzy-arbitrage lane from silently collapsing back to
+strict-only semantics.
+
+The live MLS repair ran once on `CODEX / gpt-5.6-terra / high` after recovering
+its source constraint from the durable probability job even though the old
+review had rotated out of Studio. In 85.6 seconds and 95,895 reported tokens it
+created a new review and constraint, reduced the pair to textual relatedness,
+marked all four joint states unresolved, and emitted four structured Gemini
+rule requirements. It did not fabricate a probability or launch another
+estimator generation. Failure Budgets now shows the lifecycle and successor
+identity as `REDUCED TO RESEARCH`; desktop inspection has no console errors.
 
 ## Deferred future campaigns
 

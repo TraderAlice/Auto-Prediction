@@ -68,6 +68,10 @@ import {
   emptyProbabilityCaseRepairQueue,
   type ProbabilityCaseRepairQueue,
 } from "./probability-case-challenge-queue.js";
+import {
+  emptyProbabilitySemanticRepairProgress,
+  type ProbabilitySemanticRepairProgressProjection,
+} from "./probability-semantic-repair-progress.js";
 import type { RuleEvidenceClaimSchedulerProjection } from "./rule-evidence-claim-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
@@ -154,6 +158,7 @@ export function buildStudioProjection(input: {
   evidenceDebtFrontier?: EvidenceDebtFrontierProjection;
   probabilityEvidenceDebt?: ProbabilityEvidenceDebtProjection;
   probabilityCaseRepairQueue?: ProbabilityCaseRepairQueue;
+  probabilitySemanticRepairProgress?: ProbabilitySemanticRepairProgressProjection;
   ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
   proposalEconomicTriage?: ProposalEconomicTriageProjection;
@@ -1330,6 +1335,8 @@ export function buildStudioProjection(input: {
         input.probabilityEvidenceDebt ?? emptyProbabilityEvidenceDebt(),
       probabilityCaseRepairQueue:
         input.probabilityCaseRepairQueue ?? emptyProbabilityCaseRepairQueue(),
+      probabilitySemanticRepairProgress:
+        input.probabilitySemanticRepairProgress ?? emptyProbabilitySemanticRepairProgress(),
       ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),
       proposalEconomicTriage: input.proposalEconomicTriage ?? emptyProposalEconomicTriage(),

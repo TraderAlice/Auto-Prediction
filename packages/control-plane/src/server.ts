@@ -64,6 +64,7 @@ import { buildEvidenceDebtFrontier } from "./evidence-debt-frontier.js";
 import { buildFailureBudgetFrontier } from "./failure-budget-frontier.js";
 import { buildProbabilityEvidenceDebt } from "./probability-evidence-debt.js";
 import { buildProbabilityCaseRepairQueue } from "./probability-case-challenge-queue.js";
+import { buildProbabilitySemanticRepairProgress } from "./probability-semantic-repair-progress.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
   createMarketArchaeologistDesk,
@@ -93,6 +94,7 @@ import {
   SemanticReviewNotConfiguredError,
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
+import { CodexAuthCacheCredentialProvider } from "./codex-oauth.js";
 import {
   createProbabilityEstimationDesk,
   ProbabilityEstimationDesk,
@@ -917,6 +919,14 @@ export function createControlPlane(options?: {
     ));
   let modelRuntime = options?.modelRuntime ??
     modelRuntimeFactory(aiRuntimeConfigurationDesk.current());
+  const semanticReviewCodexCredential = new CodexAuthCacheCredentialProvider(process.env);
+  const semanticReviewCodexCredentialProvider = Object.freeze({
+    configured: () =>
+      aiRuntimeConfigurationDesk.current().provider === "CODEX" &&
+      modelRuntime.projection.configured &&
+      semanticReviewCodexCredential.configured(),
+    resolve: () => semanticReviewCodexCredential.resolve(),
+  });
   const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime(process.env, {
     usageRecorder: aiUsageLedger,
   });
@@ -1145,6 +1155,8 @@ export function createControlPlane(options?: {
     options?.semanticReviewDesk ??
     createSemanticReviewDesk(process.env, {
       usageRecorder: aiUsageLedger,
+      runtimeConfiguration: () => aiRuntimeConfigurationDesk.current(),
+      codexCredentialProvider: semanticReviewCodexCredentialProvider,
       ...(supportsSemanticReviewRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -1934,6 +1946,14 @@ export function createControlPlane(options?: {
       enrichedReviewCandidates,
       semanticReviewProjection.records,
     );
+    const probabilityCaseRepairQueue = buildProbabilityCaseRepairQueue({
+      runs: probabilityEstimationDesk.projection().records,
+    });
+    semanticReviewScheduler.reconcileProbabilityCaseRepairs(
+      probabilityCaseRepairQueue,
+      semanticReviewProjection.records,
+      probabilityEstimationScheduler.projection().jobs,
+    );
     const semanticReviewAttributionSource = semanticReviewScheduler.attributionSource();
     probabilityEstimationScheduler.reconcile(
       probabilityEstimationCandidates(semanticReviewAttributionSource),
@@ -1948,6 +1968,11 @@ export function createControlPlane(options?: {
     evidenceAcquisitionScheduler.reconcile(currentEvidenceRequirements);
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
+    const probabilitySemanticRepairProgress = buildProbabilitySemanticRepairProgress({
+      queue: probabilityCaseRepairQueue,
+      jobs: semanticReviewSchedulerProjection.jobs,
+      reviews: semanticReviewDesk.projection().records,
+    });
     const premiseAnalysisProjection = premiseAnalysisDesk.projection();
     const premiseAnalysisSchedulerProjection = premiseAnalysisScheduler.projection();
     const premiseEvidenceRoutingProjection = premiseEvidenceRoutingScheduler.projection();
@@ -1984,9 +2009,6 @@ export function createControlPlane(options?: {
       runs: probabilityEstimationDesk.projection().records,
       estimatorJobs: probabilityEstimationScheduler.projection().jobs,
       acquisitionJobs: evidenceAcquisitionProjection.jobs,
-    });
-    const probabilityCaseRepairQueue = buildProbabilityCaseRepairQueue({
-      runs: probabilityEstimationDesk.projection().records,
     });
     const semanticRelationGraph = buildSemanticRelationGraph({
       corpus: catalogObservationDesk.corpus(),
@@ -2041,6 +2063,7 @@ export function createControlPlane(options?: {
       evidenceDebtFrontier,
       probabilityEvidenceDebt,
       probabilityCaseRepairQueue,
+      probabilitySemanticRepairProgress,
       ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
@@ -2646,6 +2669,13 @@ export function createControlPlane(options?: {
       url.pathname === "/api/v1/probability-case-repairs"
     ) {
       writeJson(response, 200, (await projection()).ai.probabilityCaseRepairQueue);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/probability-semantic-repair-progress"
+    ) {
+      writeJson(response, 200, (await projection()).ai.probabilitySemanticRepairProgress);
       return;
     }
     if (
@@ -4128,7 +4158,8 @@ export function createControlPlane(options?: {
   if (semanticReviewTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
-        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
+        const runtime = aiRuntimeConfigurationDesk.current();
+        if (runtime.provider === "DEEPSEEK" && !runtime.deepseekAutomationEnabled) return;
         try {
           const runs = semanticReviewScheduler.tick(
             semanticReviewCandidates(),

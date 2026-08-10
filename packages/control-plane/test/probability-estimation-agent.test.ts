@@ -15,6 +15,8 @@ import {
   buildProbabilityAdverseStateInterpretation,
   buildProbabilityCaseChallenge,
   buildProbabilityCaseRepairQueue,
+  buildProbabilitySemanticRepairProgress,
+  buildProbabilitySemanticRepairRequest,
   buildProbabilityEvidenceNeed,
   buildProbabilityEvidenceDebt,
   buildProbabilitySearchOrigin,
@@ -23,8 +25,10 @@ import {
   buildSemanticConstraintArtifact,
   codexCredentialForTest,
   createProbabilityEstimationDesk,
+  createSemanticReviewDesk,
   deriveProbabilityAdverseStates,
   ProbabilityEstimationScheduler,
+  SemanticReviewScheduler,
   type AiRuntimeConfiguration,
   type MarketRelationProposal,
   type ProbabilityEstimationModelInput,
@@ -1364,12 +1368,265 @@ describe("durable probability estimation scheduling", () => {
       expect(() => firstScheduler.retryExhaustedCase(challengedCaseIdentity)).toThrow(
         /requires a new semantic review/u,
       );
-      expect(buildProbabilityCaseRepairQueue({
+      const repairQueue = buildProbabilityCaseRepairQueue({
         runs: firstDesk.projection().records,
-      })).toMatchObject({
+      });
+      expect(repairQueue).toMatchObject({
         sourceChallengeCount: 3,
         itemCount: 1,
         items: [{ roles: ["CAUSAL", "INDEPENDENT", "REFERENCE_CLASS"] }],
+      });
+      const repairRequest = buildProbabilitySemanticRepairRequest({
+        item: repairQueue.items[0]!,
+        sourceReviewId: review.reviewId,
+        sourceSemanticConstraint: constraint,
+      });
+      expect(repairRequest).toMatchObject({
+        generation: 1,
+        admission: "AUTOMATIC_MULTI_ROLE",
+        sourceReviewId: review.reviewId,
+        sourceSemanticReviewArtifactHash: review.report!.artifactHash,
+        sourceSemanticConstraint: { artifactHash: constraint.artifactHash },
+        adverseStateInterpretation: {
+          artifactHash: repairQueue.items[0]!.interpretationArtifactHash,
+        },
+        roles: ["CAUSAL", "INDEPENDENT", "REFERENCE_CLASS"],
+        authority: "SEMANTIC_REVIEW_INPUT_ONLY",
+        providerRequestAuthority: false,
+      });
+      expect(() => buildProbabilitySemanticRepairRequest({
+        item: { ...repairQueue.items[0]!, stateIds: ["TF"] },
+        sourceReviewId: review.reviewId,
+        sourceSemanticConstraint: constraint,
+      })).toThrow(/input lineage/u);
+      const singleRoleRequest = buildProbabilitySemanticRepairRequest({
+        item: {
+          ...repairQueue.items[0]!,
+          roles: Object.freeze(["CAUSAL" as const]),
+        },
+        sourceReviewId: review.reviewId,
+        sourceSemanticConstraint: constraint,
+      });
+      expect(singleRoleRequest).toMatchObject({
+        generation: 1,
+        admission: "MANUAL_SINGLE_ROLE",
+      });
+
+      const successorRequest = (
+        parent: typeof repairRequest,
+        generation: number,
+      ): typeof repairRequest => {
+        const { artifactHash: _artifactHash, ...constraintFields } = constraint;
+        const constraintBody = Object.freeze({
+          ...constraintFields,
+          assumptions: Object.freeze([`semantic repair generation ${generation}`]),
+        });
+        const successorConstraint = Object.freeze({
+          ...constraintBody,
+          artifactHash: hashCanonical(constraintBody),
+        });
+        const successorInterpretation = buildProbabilityAdverseStateInterpretation({
+          semanticConstraint: successorConstraint,
+          evidenceContextIdentity: hashCanonical({ repairEvidence: generation }),
+          listings,
+          adverseStateIds: ["TT"],
+        });
+        return buildProbabilitySemanticRepairRequest({
+          item: {
+            ...repairQueue.items[0]!,
+            repairId: hashCanonical({ repairGroup: generation }),
+            sourceSemanticReviewArtifactHash: hashCanonical({ repairReport: generation }),
+            semanticConstraintArtifactHash: successorConstraint.artifactHash,
+            interpretationArtifactHash: successorInterpretation.artifactHash,
+            adverseStateInterpretation: successorInterpretation,
+          },
+          sourceReviewId: hashCanonical({ repairedReview: generation }),
+          sourceSemanticConstraint: successorConstraint,
+          parentRepairRequest: parent,
+        });
+      };
+      const generationTwo = successorRequest(repairRequest, 2);
+      const generationThree = successorRequest(generationTwo, 3);
+      const generationFour = successorRequest(generationThree, 4);
+      expect([
+        generationTwo.admission,
+        generationThree.admission,
+        generationFour.admission,
+      ]).toEqual([
+        "AUTOMATIC_MULTI_ROLE",
+        "AUTOMATIC_MULTI_ROLE",
+        "MANUAL_GENERATION_LIMIT",
+      ]);
+      expect(() => successorRequest(generationFour, 5)).toThrow(/input lineage/u);
+
+      let repairProviderCalls = 0;
+      let observedRepairRequestId: string | null = null;
+      const semanticDesk = createSemanticReviewDesk({}, {
+        store: firstStore,
+        reviewer: {
+          async review(input) {
+            repairProviderCalls += 1;
+            observedRepairRequestId = input.repairRequest?.requestId ?? null;
+            return Object.freeze({
+              recommendation: "ACCEPT_FOR_RESEARCH_SIMULATION" as const,
+              relationConclusion: "MUTUALLY_EXCLUSIVE" as const,
+              assessments: Object.freeze({
+                outcomeMapping: "The exact binary labels map directly.",
+                timingAndClose: "The later public act follows the earlier event window.",
+                voidAndCancellation: "No hard exclusion is claimed.",
+                resolutionSources: "Each venue retains independent resolution authority.",
+              }),
+              counterexamples: Object.freeze([
+                "A non-fatal injury followed by recovery concretely preserves TT.",
+              ]),
+              missingEvidence: Object.freeze([]),
+              evidenceRequirementDrafts: Object.freeze([]),
+              rationale: "The repaired state direction retains a probabilistic relation.",
+              constraintDraft: Object.freeze({
+                classification: "PROBABILISTIC_DEPENDENCE" as const,
+                relationKind: "MUTUALLY_EXCLUSIVE" as const,
+                assumptions: Object.freeze([]),
+                counterexampleAttempt: Object.freeze({
+                  attempted: true,
+                  result: "FOUND" as const,
+                  narrative: "A non-fatal injury followed by recovery concretely preserves TT.",
+                  truths: Object.freeze([true, true]),
+                }),
+                truthTable: Object.freeze([
+                  [false, false], [false, true], [true, false], [true, true],
+                ].map((truths) => Object.freeze({
+                  truths: Object.freeze(truths),
+                  disposition: "FEASIBLE" as const,
+                  rationale: truths[0] && truths[1]
+                    ? "This is the repaired adverse recovery state."
+                    : "The joint state remains feasible.",
+                  evidenceListingRefs: Object.freeze([...proposal.listingRefs]),
+                }))),
+                unresolvedEvidence: Object.freeze([]),
+              }),
+            });
+          },
+        },
+      });
+      const semanticScheduler = new SemanticReviewScheduler({
+        reviewDesk: semanticDesk,
+        store: firstStore,
+        tickIntervalMs: 1_000,
+        now: () => Date.parse("2026-08-02T00:12:30.000Z"),
+      });
+      const semanticCandidate = Object.freeze({
+        proposal,
+        proposalCorpusSnapshotIdentity: snapshot.snapshotIdentity,
+        evidenceBundle: buildProposalEvidenceBundle(proposal, snapshot),
+        issueIds: Object.freeze([hashCanonical({ issue: "repair-loop" })]),
+        priority: 5 as const,
+      });
+      semanticScheduler.reconcile([semanticCandidate], [review]);
+      const singleRoleQueue = Object.freeze({
+        ...repairQueue,
+        items: Object.freeze([Object.freeze({
+          ...repairQueue.items[0]!,
+          roles: Object.freeze(["CAUSAL" as const]),
+        })]),
+      });
+      expect(semanticScheduler.reconcileProbabilityCaseRepairs(singleRoleQueue, [review]))
+        .toMatchObject({
+          enqueuedRequestIds: [],
+          manualRequestIds: [singleRoleRequest.requestId],
+          providerRequestsStarted: 0,
+        });
+      const enqueue = semanticScheduler.reconcileProbabilityCaseRepairs(
+        repairQueue,
+        [],
+        firstScheduler.projection().jobs,
+      );
+      expect(enqueue).toMatchObject({
+        sourceItemCount: 1,
+        enqueuedRequestIds: [repairRequest.requestId],
+        providerRequestsStarted: 0,
+        authority: "REPAIR_ENQUEUE_ONLY",
+      });
+      expect(semanticScheduler.projection().jobs[0]).toMatchObject({
+        schemaVersion: "pmh.semantic-review-job.v5",
+        status: "PENDING",
+        attemptCount: 0,
+        lastReviewId: null,
+        repairRequest: { requestId: repairRequest.requestId, generation: 1 },
+      });
+      expect(buildProbabilitySemanticRepairProgress({
+        queue: repairQueue,
+        jobs: semanticScheduler.projection().jobs,
+        reviews: [review],
+      })).toMatchObject({
+        pendingCount: 1,
+        runningCount: 0,
+        repairedCount: 0,
+        items: [{
+          status: "REVIEW_PENDING",
+          nextAction: "WAIT_FOR_SEMANTIC_REVIEW",
+          generation: 1,
+          requestId: repairRequest.requestId,
+        }],
+      });
+      expect(semanticScheduler.reconcileProbabilityCaseRepairs(repairQueue, [review]))
+        .toMatchObject({
+          enqueuedRequestIds: [],
+          retainedRequestIds: [repairRequest.requestId],
+          providerRequestsStarted: 0,
+        });
+      expect(repairProviderCalls).toBe(0);
+      const repairRuns = semanticScheduler.tick([semanticCandidate], snapshot);
+      expect(repairRuns).toHaveLength(1);
+      await Promise.all(repairRuns);
+      expect(repairProviderCalls).toBe(1);
+      expect(observedRepairRequestId).toBe(repairRequest.requestId);
+      const repairedJob = semanticScheduler.projection().jobs[0]!;
+      expect(repairedJob).toMatchObject({
+        schemaVersion: "pmh.semantic-review-job.v5",
+        status: "PASS",
+        repairRequest: { requestId: repairRequest.requestId },
+        reviewOutcome: { reportSchemaVersion: "pmh.semantic-review-report.v5" },
+      });
+      const repairedReview = semanticDesk.projection().records.find((item) =>
+        item.reviewId === repairedJob.lastReviewId
+      )!;
+      expect(repairedReview).toMatchObject({
+        status: "PASS",
+        repairRequest: { requestId: repairRequest.requestId },
+        report: {
+          schemaVersion: "pmh.semantic-review-report.v5",
+          input: {
+            evidencePosture: "SEMANTIC_REPAIR_SCOPE",
+            repairRequest: { requestId: repairRequest.requestId },
+          },
+          result: {
+            semanticConstraint: { classification: "PROBABILISTIC_DEPENDENCE" },
+          },
+        },
+      });
+      expect(repairedReview.report!.result.semanticConstraint!.artifactHash)
+        .not.toBe(constraint.artifactHash);
+      expect(buildProbabilitySemanticRepairProgress({
+        queue: repairQueue,
+        jobs: semanticScheduler.projection().jobs,
+        reviews: [review, ...semanticDesk.projection().records],
+      })).toMatchObject({
+        pendingCount: 0,
+        repairedCount: 1,
+        manualAttentionCount: 0,
+        items: [{
+          status: "REPAIRED",
+          nextAction: "REENTER_PROBABILITY_ESTIMATION",
+          successorReviewId: repairedReview.reviewId,
+          successorSemanticConstraintArtifactHash:
+            repairedReview.report!.result.semanticConstraint!.artifactHash,
+        }],
+      });
+      firstScheduler.reconcile([{ review: repairedReview }], snapshot);
+      expect(firstScheduler.projection()).toMatchObject({
+        caseCount: 2,
+        challengedCount: 3,
+        pendingCount: 3,
       });
       firstStore.close();
 
@@ -1400,6 +1657,23 @@ describe("durable probability estimation scheduling", () => {
         notifications: [{ kind: "SEMANTIC_REPAIR_REQUIRED" }],
       });
       expect(secondDesk.projection().challengedCount).toBe(3);
+      const restoredSemanticScheduler = new SemanticReviewScheduler({
+        reviewDesk: createSemanticReviewDesk({}, {
+          store: secondStore,
+          reviewer: {
+            async review() {
+              throw new Error("restart replay must not call the semantic reviewer");
+            },
+          },
+        }),
+        store: secondStore,
+        tickIntervalMs: 1_000,
+      });
+      expect(restoredSemanticScheduler.projection().jobs[0]).toMatchObject({
+        schemaVersion: "pmh.semantic-review-job.v5",
+        status: "PASS",
+        repairRequest: { requestId: repairRequest.requestId },
+      });
       expect(calls).toBe(3);
       secondStore.close();
     } finally {
