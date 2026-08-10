@@ -18,10 +18,32 @@ export type FailureBudgetFactor = Readonly<{
   source: "ASSUMPTION" | "COUNTER_SCENARIO";
 }>;
 
+export type FailureBudgetAttemptStatus =
+  | "ESTIMATES_COMPLETE"
+  | "AWAITING_ESTIMATES"
+  | "ESTIMATION_ABSTAINED"
+  | "ESTIMATION_EXHAUSTED"
+  | "EVIDENCE_BLOCKED"
+  | "SEMANTIC_REPAIR_REQUIRED";
+
+export type FailureBudgetEstimationAttempt = Readonly<{
+  caseIdentity: Hash;
+  status: FailureBudgetAttemptStatus;
+  provider: "DEEPSEEK" | "CODEX";
+  model: string;
+  reasoningEffort: string | null;
+  inputProtocol: string;
+  jobCount: number;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
 export type FailureBudgetFrontierItem = Readonly<{
   itemId: Hash;
+  workIdentity: Hash;
   proposalId: Hash;
   listingRefs: readonly string[];
+  adverseStateIds: readonly string[];
   status:
     | "BOUNDED_ARBITRAGE_CANDIDATE"
     | "RESEARCH_MARGIN"
@@ -43,6 +65,8 @@ export type FailureBudgetFrontierItem = Readonly<{
   calibrationStatus: "UNCALIBRATED" | "CALIBRATED" | "PENDING";
   blockers: readonly string[];
   failureFactors: readonly FailureBudgetFactor[];
+  attemptCount: number;
+  estimationAttempts: readonly FailureBudgetEstimationAttempt[];
   estimatorJobCount: number;
   estimationCase: Readonly<{
     caseIdentity: Hash;
@@ -60,10 +84,12 @@ export type FailureBudgetFrontierItem = Readonly<{
 }>;
 
 export type FailureBudgetFrontier = Readonly<{
-  schemaVersion: "pmh.failure-budget-frontier.v3";
+  schemaVersion: "pmh.failure-budget-frontier.v4";
   contentHash: Hash;
   evaluatedAt: string;
   itemCount: number;
+  rawEstimatorCaseCount: number;
+  collapsedEstimatorCaseCount: number;
   positiveMarginCount: number;
   boundedCandidateCount: number;
   awaitingEstimateCount: number;
@@ -204,16 +230,88 @@ function estimationCase(
   });
 }
 
+function workIdentity(input: Readonly<{
+  proposalId: Hash;
+  semanticConstraintArtifactHash: Hash;
+  adverseStateIds: readonly string[];
+}>): Hash {
+  return hashCanonical({
+    proposalId: input.proposalId,
+    semanticConstraintArtifactHash: input.semanticConstraintArtifactHash,
+    adverseStateIds: input.adverseStateIds,
+  });
+}
+
+function attemptStatus(
+  jobs: readonly ProbabilityEstimationJobRecord[],
+): FailureBudgetAttemptStatus {
+  if (jobs.length > 0 && jobs.every((job) => job.status === "PASS")) {
+    return "ESTIMATES_COMPLETE";
+  }
+  const terminal = jobs.every((job) =>
+    ["PASS", "ABSTAINED", "CHALLENGED", "EXHAUSTED"].includes(job.status)
+  );
+  return terminal && jobs.some((job) => job.status === "CHALLENGED")
+    ? "SEMANTIC_REPAIR_REQUIRED"
+    : jobs.every((job) => job.status === "BLOCKED_EVIDENCE")
+      ? "EVIDENCE_BLOCKED"
+      : terminal && jobs.some((job) => job.status === "EXHAUSTED")
+        ? "ESTIMATION_EXHAUSTED"
+        : terminal && jobs.some((job) => job.status === "ABSTAINED")
+          ? "ESTIMATION_ABSTAINED"
+          : "AWAITING_ESTIMATES";
+}
+
+function orderedCases(
+  cases: readonly (readonly ProbabilityEstimationJobRecord[])[],
+): readonly (readonly ProbabilityEstimationJobRecord[])[] {
+  return Object.freeze([...cases].sort((left, right) =>
+    (right[0]?.createdAt ?? "").localeCompare(left[0]?.createdAt ?? "") ||
+    (left[0]?.caseIdentity ?? "").localeCompare(right[0]?.caseIdentity ?? "")
+  ));
+}
+
+function estimationAttempts(
+  cases: readonly (readonly ProbabilityEstimationJobRecord[])[],
+): readonly FailureBudgetEstimationAttempt[] {
+  return Object.freeze(orderedCases(cases).map((jobs) => {
+    const first = jobs[0]!;
+    return Object.freeze({
+      caseIdentity: first.caseIdentity,
+      status: attemptStatus(jobs),
+      provider: first.engine?.provider ?? "DEEPSEEK",
+      model: first.model,
+      reasoningEffort: first.engine?.reasoningEffort ?? null,
+      inputProtocol: first.inputProtocol ?? "pmh.probability-estimation-input.v1",
+      jobCount: jobs.length,
+      createdAt: first.createdAt,
+      updatedAt: [...jobs].sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt)
+      )[0]!.updatedAt,
+    });
+  }));
+}
+
 function evaluatedItem(input: Readonly<{
   bound: ProbabilisticSemanticBoundArtifact;
   evaluation: ProbabilisticSemanticArbitrageEvaluation | null;
-  estimatorJobs: readonly ProbabilityEstimationJobRecord[];
+  estimatorCases: readonly (readonly ProbabilityEstimationJobRecord[])[];
+  matchedEstimatorJobs: readonly ProbabilityEstimationJobRecord[];
 }>): FailureBudgetFrontierItem {
   const evaluation = input.evaluation;
+  const attempts = estimationAttempts(input.estimatorCases);
+  const estimatorJobs = input.estimatorCases.flat();
+  const identity = workIdentity({
+    proposalId: input.bound.proposalId,
+    semanticConstraintArtifactHash: input.bound.semanticConstraintArtifactHash,
+    adverseStateIds: input.bound.adverseStateIds,
+  });
   if (evaluation === null) {
     const body = Object.freeze({
+      workIdentity: identity,
       proposalId: input.bound.proposalId,
       listingRefs: input.bound.listingRefs,
+      adverseStateIds: input.bound.adverseStateIds,
       status: "PRICE_UNAVAILABLE" as const,
       portfolioLabel: null,
       breakEvenEpsilonPpm: null,
@@ -226,8 +324,10 @@ function evaluatedItem(input: Readonly<{
       calibrationStatus: input.bound.calibration.status,
       blockers: Object.freeze(["INDICATIVE_BINARY_QUOTES_UNAVAILABLE"]),
       failureFactors: factors(input.bound),
-      estimatorJobCount: input.estimatorJobs.length || input.bound.estimates.length,
-      estimationCase: estimationCase(input.estimatorJobs),
+      attemptCount: attempts.length,
+      estimationAttempts: attempts,
+      estimatorJobCount: estimatorJobs.length || input.bound.estimates.length,
+      estimationCase: estimationCase(input.matchedEstimatorJobs),
       evaluationArtifactHash: null,
       authority: "FAILURE_BUDGET_RANKING_ONLY" as const,
       guaranteedProfit: false as const,
@@ -255,8 +355,10 @@ function evaluatedItem(input: Readonly<{
     `${quote.outcome === "TRUE" ? "YES" : "NO"} ${quote.listingRef}`
   ).join(" + ");
   const body = Object.freeze({
+    workIdentity: identity,
     proposalId: input.bound.proposalId,
     listingRefs: input.bound.listingRefs,
+    adverseStateIds: input.bound.adverseStateIds,
     status,
     portfolioLabel,
     breakEvenEpsilonPpm: evaluation.breakEvenEpsilonPpm,
@@ -269,8 +371,10 @@ function evaluatedItem(input: Readonly<{
     calibrationStatus: evaluation.calibrationStatus,
     blockers,
     failureFactors: factors(input.bound),
-    estimatorJobCount: input.estimatorJobs.length || input.bound.estimates.length,
-    estimationCase: estimationCase(input.estimatorJobs),
+    attemptCount: attempts.length,
+    estimationAttempts: attempts,
+    estimatorJobCount: estimatorJobs.length || input.bound.estimates.length,
+    estimationCase: estimationCase(input.matchedEstimatorJobs),
     evaluationArtifactHash: evaluation.artifactHash,
     authority: "FAILURE_BUDGET_RANKING_ONLY" as const,
     guaranteedProfit: false as const,
@@ -281,27 +385,29 @@ function evaluatedItem(input: Readonly<{
 }
 
 function pendingItem(
-  jobs: readonly ProbabilityEstimationJobRecord[],
+  cases: readonly (readonly ProbabilityEstimationJobRecord[])[],
 ): FailureBudgetFrontierItem {
-  const first = jobs[0]!;
-  const blockers = Object.freeze([...new Set(jobs.map((job) =>
+  const ordered = orderedCases(cases);
+  const current = ordered[0]!;
+  const first = current[0]!;
+  const jobs = cases.flat();
+  const blockers = Object.freeze([...new Set(current.map((job) =>
     `ESTIMATOR_${job.role}_${job.status}`
   ))].sort());
-  const terminal = jobs.every((job) =>
-    ["PASS", "ABSTAINED", "CHALLENGED", "EXHAUSTED"].includes(job.status)
-  );
-  const status = terminal && jobs.some((job) => job.status === "CHALLENGED")
-    ? "SEMANTIC_REPAIR_REQUIRED" as const
-    : jobs.every((job) => job.status === "BLOCKED_EVIDENCE")
-    ? "EVIDENCE_BLOCKED" as const
-    : terminal && jobs.some((job) => job.status === "EXHAUSTED")
-      ? "ESTIMATION_EXHAUSTED" as const
-      : terminal && jobs.some((job) => job.status === "ABSTAINED")
-        ? "ESTIMATION_ABSTAINED" as const
-        : "AWAITING_ESTIMATES" as const;
+  const currentAttemptStatus = attemptStatus(current);
+  const status = currentAttemptStatus === "ESTIMATES_COMPLETE"
+    ? "AWAITING_ESTIMATES" as const
+    : currentAttemptStatus;
+  const attempts = estimationAttempts(cases);
   const body = Object.freeze({
+    workIdentity: workIdentity({
+      proposalId: first.proposalId,
+      semanticConstraintArtifactHash: first.semanticConstraintArtifactHash,
+      adverseStateIds: first.adverseStateIds,
+    }),
     proposalId: first.proposalId,
     listingRefs: first.semanticConstraint.listingRefs,
+    adverseStateIds: first.adverseStateIds,
     status,
     portfolioLabel: null,
     breakEvenEpsilonPpm: null,
@@ -314,8 +420,10 @@ function pendingItem(
     calibrationStatus: "PENDING" as const,
     blockers,
     failureFactors: Object.freeze([]),
+    attemptCount: attempts.length,
+    estimationAttempts: attempts,
     estimatorJobCount: jobs.length,
-    estimationCase: estimationCase(jobs),
+    estimationCase: estimationCase(current),
     evaluationArtifactHash: null,
     authority: "FAILURE_BUDGET_RANKING_ONLY" as const,
     guaranteedProfit: false as const,
@@ -347,12 +455,31 @@ export function buildFailureBudgetFrontier(input: Readonly<{
     jobs.push(job);
     jobsByCase.set(job.caseIdentity, jobs);
   }
-  const matchedCaseIds = new Set<Hash>();
+  const casesByWork = new Map<Hash, (readonly ProbabilityEstimationJobRecord[])[]>();
+  for (const jobs of jobsByCase.values()) {
+    const first = jobs[0];
+    if (first === undefined) continue;
+    const identity = workIdentity({
+      proposalId: first.proposalId,
+      semanticConstraintArtifactHash: first.semanticConstraintArtifactHash,
+      adverseStateIds: first.adverseStateIds,
+    });
+    const cases = casesByWork.get(identity) ?? [];
+    cases.push(Object.freeze([...jobs]));
+    casesByWork.set(identity, cases);
+  }
+  const matchedWorkIds = new Set<Hash>();
   const boundItems = input.bounds.map((bound) => {
+    const identity = workIdentity({
+      proposalId: bound.proposalId,
+      semanticConstraintArtifactHash: bound.semanticConstraintArtifactHash,
+      adverseStateIds: bound.adverseStateIds,
+    });
+    const cases = casesByWork.get(identity) ?? Object.freeze([]);
     const estimateIdentities = new Set(bound.estimates.map((estimate) =>
       estimate.estimateIdentity
     ));
-    const matched = [...jobsByCase.entries()].find(([_caseId, jobs]) => {
+    const matched = cases.find((jobs) => {
       const first = jobs[0];
       if (
         first === undefined ||
@@ -367,7 +494,7 @@ export function buildFailureBudgetFrontier(input: Readonly<{
       return passingIdentities.length === estimateIdentities.size &&
         passingIdentities.every((identity) => estimateIdentities.has(identity));
     });
-    if (matched !== undefined) matchedCaseIds.add(matched[0]);
+    if (cases.length > 0) matchedWorkIds.add(identity);
     return evaluatedItem({
       bound,
       evaluation: selectPortfolio(portfolioCandidates({
@@ -375,13 +502,14 @@ export function buildFailureBudgetFrontier(input: Readonly<{
         listings,
         evaluatedAt: input.evaluatedAt,
       })),
-      estimatorJobs: matched?.[1] ?? Object.freeze([]),
+      estimatorCases: cases,
+      matchedEstimatorJobs: matched ?? Object.freeze([]),
     });
   });
   const items = [
     ...boundItems,
-    ...[...jobsByCase.entries()].flatMap(([caseId, jobs]) =>
-      matchedCaseIds.has(caseId) ? [] : [pendingItem(jobs)]
+    ...[...casesByWork.entries()].flatMap(([identity, cases]) =>
+      matchedWorkIds.has(identity) ? [] : [pendingItem(cases)]
     ),
   ].sort((left, right) => {
     const leftMargin = left.remainingFailureBudgetPpm === null
@@ -398,9 +526,14 @@ export function buildFailureBudgetFrontier(input: Readonly<{
       : leftEdge > rightEdge ? -1 : 1;
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.failure-budget-frontier.v3" as const,
+    schemaVersion: "pmh.failure-budget-frontier.v4" as const,
     evaluatedAt: input.evaluatedAt,
     itemCount: items.length,
+    rawEstimatorCaseCount: jobsByCase.size,
+    collapsedEstimatorCaseCount: [...casesByWork.values()].reduce(
+      (sum, cases) => sum + Math.max(0, cases.length - 1),
+      0,
+    ),
     positiveMarginCount: items.filter((item) =>
       item.remainingFailureBudgetPpm !== null &&
       BigInt(item.remainingFailureBudgetPpm) > 0n

@@ -934,6 +934,18 @@ rule requirements. It did not fabricate a probability or launch another
 estimator generation. Failure Budgets now shows the lifecycle and successor
 identity as `REDUCED TO RESEARCH`; desktop inspection has no console errors.
 
+Direct use then showed that the five visible frontier rows were not five
+semantic opportunities at all: they were five estimator generations over the
+same LAFC proposal, semantic constraint, and `TF` adverse state. Failure-budget
+v4 makes that tuple the work identity. The live frontier now reports one unique
+work item, five raw estimator cases, four collapsed historical attempts, and
+fifteen retained role jobs. Its current posture is the newest Terra/high V4
+semantic challenge; the older Terra abstentions and legacy DeepSeek evidence
+block remain visible in an expandable, newest-first history without inflating
+opportunity count. Distinct constraints or adverse-state sets still rank
+separately, and completed bounds keep their economic result while later
+attempts remain attribution rather than duplicate cards.
+
 Those four unsupported Gemini requirements now enter a bounded official-source
 discovery loop instead of stopping at prose debt. Terra/high inspected the
 official Gemini surfaces for outcome mapping, time boundary,

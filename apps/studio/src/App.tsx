@@ -237,10 +237,12 @@ type AgentExecutionConsole = Readonly<{
   valueMovingAuthority: false;
 }>;
 type FailureBudgetFrontierProjection = Readonly<{
-  schemaVersion: "pmh.failure-budget-frontier.v3";
+  schemaVersion: "pmh.failure-budget-frontier.v4";
   contentHash: string;
   evaluatedAt: string;
   itemCount: number;
+  rawEstimatorCaseCount: number;
+  collapsedEstimatorCaseCount: number;
   positiveMarginCount: number;
   boundedCandidateCount: number;
   awaitingEstimateCount: number;
@@ -255,8 +257,10 @@ type FailureBudgetFrontierProjection = Readonly<{
   effects: Readonly<{ providerRequests: false; externalWrites: false }>;
   items: ReadonlyArray<Readonly<{
     itemId: string;
+    workIdentity: string;
     proposalId: string;
     listingRefs: readonly string[];
+    adverseStateIds: readonly string[];
     status:
       | "BOUNDED_ARBITRAGE_CANDIDATE"
       | "RESEARCH_MARGIN"
@@ -281,6 +285,24 @@ type FailureBudgetFrontierProjection = Readonly<{
       factorId: string;
       label: string;
       source: "ASSUMPTION" | "COUNTER_SCENARIO";
+    }>>;
+    attemptCount: number;
+    estimationAttempts: ReadonlyArray<Readonly<{
+      caseIdentity: string;
+      status:
+        | "ESTIMATES_COMPLETE"
+        | "AWAITING_ESTIMATES"
+        | "ESTIMATION_ABSTAINED"
+        | "ESTIMATION_EXHAUSTED"
+        | "EVIDENCE_BLOCKED"
+        | "SEMANTIC_REPAIR_REQUIRED";
+      provider: "DEEPSEEK" | "CODEX";
+      model: string;
+      reasoningEffort: string | null;
+      inputProtocol: string;
+      jobCount: number;
+      createdAt: string;
+      updatedAt: string;
     }>>;
     estimatorJobCount: number;
     estimationCase: null | Readonly<{
@@ -1870,12 +1892,19 @@ async function requestFailureBudgetFrontier(): Promise<FailureBudgetFrontierProj
   if (!response.ok) throw new Error("failure budget frontier failed to load");
   const result = (await response.json()) as FailureBudgetFrontierProjection;
   if (
-    result.schemaVersion !== "pmh.failure-budget-frontier.v3" ||
+    result.schemaVersion !== "pmh.failure-budget-frontier.v4" ||
     result.authority !== "FAILURE_BUDGET_RANKING_ONLY" ||
     result.certificateAuthority !== false ||
     result.executionAuthority !== false ||
     result.effects.providerRequests !== false ||
-    result.effects.externalWrites !== false
+    result.effects.externalWrites !== false ||
+    result.itemCount !== result.items.length ||
+    result.rawEstimatorCaseCount < result.collapsedEstimatorCaseCount ||
+    new Set(result.items.map((item) => item.workIdentity)).size !== result.items.length ||
+    result.items.some((item) =>
+      item.attemptCount !== item.estimationAttempts.length ||
+      item.estimatorJobCount < item.attemptCount
+    )
   ) {
     throw new Error("failure budget frontier crossed its authority boundary");
   }
@@ -10159,7 +10188,11 @@ function FailureBudgetView() {
           <Metric label="Positive margin" value={`${frontier.positiveMarginCount}`} detail="price budget exceeds adverse bound" />
           <Metric label="Bound candidates" value={`${frontier.boundedCandidateCount}`} detail="all research gates clear" />
           <Metric label="Unbounded cases" value={`${frontier.unboundedCaseCount}`} detail={`${frontier.challengedCaseCount} challenged · ${frontier.abstainedCaseCount} abstained · ${frontier.evidenceBlockedCount} evidence-blocked`} />
-          <Metric label="Frontier size" value={`${frontier.itemCount}`} detail="ranked semantic portfolios" />
+          <Metric
+            label="Frontier size"
+            value={`${frontier.itemCount}`}
+            detail={`${frontier.rawEstimatorCaseCount} estimator cases · ${frontier.collapsedEstimatorCaseCount} historical attempts collapsed`}
+          />
         </div>
       )}
 
@@ -10303,6 +10336,32 @@ function FailureBudgetView() {
                     <div><dt>Expected edge floor*</dt><dd>{formatScaledUnits(item.expectedEdgeFloorUnits, item.commonPriceScale)}</dd></div>
                     <div><dt>Loss in adverse state*</dt><dd>{formatScaledUnits(item.adverseTailLossUnits, item.commonPriceScale)}</dd></div>
                   </dl>
+                  {item.estimationAttempts.length > 0 && (
+                    <details className="failure-budget-attempts">
+                      <summary>
+                        <span>{item.attemptCount} estimator generation{item.attemptCount === 1 ? "" : "s"}</span>
+                        <small>adverse {item.adverseStateIds.join("+")} · show history</small>
+                        <ChevronRight size={14} />
+                      </summary>
+                      <div>
+                        {item.estimationAttempts.map((attempt, attemptIndex) => (
+                          <article key={attempt.caseIdentity}>
+                            <span>{String(attemptIndex + 1).padStart(2, "0")}</span>
+                            <div>
+                              <strong>{attempt.status.replaceAll("_", " ")}</strong>
+                              <small>
+                                {attempt.provider} · {attempt.model}
+                                {attempt.reasoningEffort === null ? "" : ` · ${attempt.reasoningEffort}`}
+                                {` · ${attempt.inputProtocol.replace("pmh.probability-estimation-input.", "")}`}
+                                {` · ${attempt.jobCount} jobs`}
+                              </small>
+                            </div>
+                            <time>{new Date(attempt.createdAt).toLocaleString()}</time>
+                          </article>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                   {item.failureFactors.length > 0 && (
                     <div className="failure-budget-factors">
                       <strong>What can break the relation</strong>
@@ -10319,7 +10378,7 @@ function FailureBudgetView() {
                     <div>
                       <span>
                         {item.estimationCase === null ? "" : `${item.estimationCase.provider} · ${item.estimationCase.model}${item.estimationCase.reasoningEffort === null ? "" : ` · ${item.estimationCase.reasoningEffort}`} · `}
-                        {item.estimatorJobCount} estimator job{item.estimatorJobCount === 1 ? "" : "s"}
+                        {item.attemptCount} attempt{item.attemptCount === 1 ? "" : "s"} · {item.estimatorJobCount} estimator job{item.estimatorJobCount === 1 ? "" : "s"}
                       </span>
                       {item.status === "ESTIMATION_EXHAUSTED" && item.estimationCase !== null && (
                         <Button

@@ -216,6 +216,88 @@
   font-weight: 610;
 }
 
+.failure-budget-attempts {
+  border: 1px solid #2c3d37;
+  border-radius: 9px;
+  background: #111815;
+}
+
+.failure-budget-attempts > summary {
+  display: grid;
+  cursor: pointer;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  list-style: none;
+}
+
+.failure-budget-attempts > summary::-webkit-details-marker {
+  display: none;
+}
+
+.failure-budget-attempts > summary > span {
+  color: #dce7e2;
+  font-size: 12.5px;
+  font-weight: 620;
+}
+
+.failure-budget-attempts > summary > small {
+  color: #84918b;
+  font-size: 12px;
+}
+
+.failure-budget-attempts > summary > svg {
+  transition: transform 140ms ease;
+}
+
+.failure-budget-attempts[open] > summary > svg {
+  transform: rotate(90deg);
+}
+
+.failure-budget-attempts > div {
+  border-top: 1px solid #2c3d37;
+}
+
+.failure-budget-attempts article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #25342f;
+  padding: 9px 12px;
+}
+
+.failure-budget-attempts article:last-child {
+  border-bottom: 0;
+}
+
+.failure-budget-attempts article > span,
+.failure-budget-attempts article time {
+  color: #74817b;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.failure-budget-attempts article > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.failure-budget-attempts article strong {
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.failure-budget-attempts article small {
+  overflow: hidden;
+  color: #84918b;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .failure-budget-factors {
   margin-top: 18px;
 }
@@ -499,6 +581,29 @@
 
   .failure-budget-numbers > div:last-child {
     border-bottom: 0;
+  }
+
+  .failure-budget-attempts > summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .failure-budget-attempts article {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .failure-budget-attempts > summary > span,
+  .failure-budget-attempts > summary > small,
+  .failure-budget-attempts article time {
+    grid-column: 1;
+  }
+
+  .failure-budget-attempts > summary > svg {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .failure-budget-attempts article time {
+    grid-column: 2;
   }
 }
 

@@ -186,8 +186,10 @@ describe("failure budget frontier", () => {
     });
 
     expect(frontier).toMatchObject({
-      schemaVersion: "pmh.failure-budget-frontier.v3",
+      schemaVersion: "pmh.failure-budget-frontier.v4",
       itemCount: 1,
+      rawEstimatorCaseCount: 0,
+      collapsedEstimatorCaseCount: 0,
       positiveMarginCount: 1,
       boundedCandidateCount: 0,
       quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY",
@@ -236,7 +238,7 @@ describe("failure budget frontier", () => {
     });
   });
 
-  it("keeps provider-effort cases separate for the same semantic proposal", () => {
+  it("collapses provider-effort generations into one semantic work item", () => {
     const readyBound = bound("50000");
     const readyCase = hashCanonical({ engine: "terra-high" });
     const pendingCase = hashCanonical({ engine: "terra-max" });
@@ -253,43 +255,66 @@ describe("failure budget frontier", () => {
         effort: "high",
         estimateIdentity: readyBound.estimates[1]!.estimateIdentity,
       }),
-      estimatorJob({ caseIdentity: pendingCase, role: "REFERENCE_CLASS", effort: "max" }),
-      estimatorJob({ caseIdentity: pendingCase, role: "CAUSAL", effort: "max" }),
-      estimatorJob({ caseIdentity: pendingCase, role: "INDEPENDENT", effort: "max" }),
+      Object.freeze({
+        ...estimatorJob({ caseIdentity: pendingCase, role: "REFERENCE_CLASS", effort: "max" }),
+        createdAt: "2026-08-02T00:03:00.000Z",
+        updatedAt: "2026-08-02T00:03:00.000Z",
+      }),
+      Object.freeze({
+        ...estimatorJob({ caseIdentity: pendingCase, role: "CAUSAL", effort: "max" }),
+        createdAt: "2026-08-02T00:03:00.000Z",
+        updatedAt: "2026-08-02T00:03:00.000Z",
+      }),
+      Object.freeze({
+        ...estimatorJob({ caseIdentity: pendingCase, role: "INDEPENDENT", effort: "max" }),
+        createdAt: "2026-08-02T00:03:00.000Z",
+        updatedAt: "2026-08-02T00:03:00.000Z",
+      }),
     ]);
     const frontier = buildFailureBudgetFrontier({
       bounds: [readyBound], jobs, corpus, evaluatedAt,
     });
 
-    expect(frontier).toMatchObject({ itemCount: 2, awaitingEstimateCount: 1 });
-    expect(frontier.items.find((item) => item.status === "RESEARCH_MARGIN"))
-      .toMatchObject({ estimatorJobCount: 2 });
-    expect(frontier.items.find((item) => item.status === "AWAITING_ESTIMATES"))
-      .toMatchObject({
-        estimatorJobCount: 3,
-        estimationCase: {
-          provider: "CODEX",
-          model: "gpt-5.6-terra",
-          reasoningEffort: "max",
-        },
-      });
+    expect(frontier).toMatchObject({
+      itemCount: 1,
+      rawEstimatorCaseCount: 2,
+      collapsedEstimatorCaseCount: 1,
+      awaitingEstimateCount: 0,
+    });
+    expect(frontier.items[0]).toMatchObject({
+      status: "RESEARCH_MARGIN",
+      attemptCount: 2,
+      estimatorJobCount: 5,
+      estimationCase: {
+        provider: "CODEX",
+        model: "gpt-5.6-terra",
+        reasoningEffort: "high",
+      },
+      estimationAttempts: [
+        { status: "AWAITING_ESTIMATES", reasoningEffort: "max", jobCount: 3 },
+        { status: "ESTIMATES_COMPLETE", reasoningEffort: "high", jobCount: 2 },
+      ],
+    });
   });
 
-  it("distinguishes terminal abstention and evidence debt from in-flight work", () => {
+  it("keeps distinct adverse states separate while classifying current posture", () => {
     const abstainedCase = hashCanonical({ engine: "terra-abstained" });
     const blockedCase = hashCanonical({ engine: "legacy-blocked" });
     const challengedCase = hashCanonical({ engine: "terra-challenged" });
     const roles = ["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"] as const;
     const abstained = roles.map((role) => Object.freeze({
       ...estimatorJob({ caseIdentity: abstainedCase, role, effort: "high" }),
+      adverseStateIds: Object.freeze(["TF"]),
       status: "ABSTAINED" as const,
     }));
     const blocked = roles.map((role) => Object.freeze({
       ...estimatorJob({ caseIdentity: blockedCase, role, effort: "high" }),
+      adverseStateIds: Object.freeze(["FT"]),
       status: "BLOCKED_EVIDENCE" as const,
     }));
     const challenged = roles.map((role) => Object.freeze({
       ...estimatorJob({ caseIdentity: challengedCase, role, effort: "high" }),
+      adverseStateIds: Object.freeze(["TT"]),
       status: "CHALLENGED" as const,
     }));
     const frontier = buildFailureBudgetFrontier({
@@ -298,6 +323,8 @@ describe("failure budget frontier", () => {
 
     expect(frontier).toMatchObject({
       itemCount: 3,
+      rawEstimatorCaseCount: 3,
+      collapsedEstimatorCaseCount: 0,
       awaitingEstimateCount: 0,
       abstainedCaseCount: 1,
       evidenceBlockedCount: 1,

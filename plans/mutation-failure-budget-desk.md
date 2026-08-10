@@ -145,6 +145,15 @@ arbitrage objects into the primary workspace.
   external-source-policy decisions. This is selection evidence that the product
   can turn a failed numeric bound into attributable research work, but not yet
   evidence that it can produce positive-margin opportunities.
+- Issue #92 corrected the frontier's product identity after direct use showed
+  that five rows were five estimator generations for one LAFC/`TF` work object.
+  V4 binds one item to proposal × semantic-constraint artifact × ordered adverse
+  states, while retaining provider/model/effort/protocol/status/timestamps for
+  each case attempt. The live desk now shows one work item, five raw cases, four
+  collapsed historical attempts, and fifteen role jobs; the current V4 challenge
+  drives posture while V1–V3 Terra abstentions and the legacy DeepSeek blocker
+  remain inspectable history. Different adverse states remain separate in
+  deterministic tests.
 - SQLite provider policy keeps the live desk on `gpt-5.6-terra / high` and blocks
   automatic DeepSeek spend.
 

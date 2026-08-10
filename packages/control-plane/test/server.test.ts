@@ -1046,8 +1046,10 @@ describe("control-plane HTTP surface", () => {
     );
     expect(failureBudgetResponse.status).toBe(200);
     expect(await failureBudgetResponse.json()).toMatchObject({
-      schemaVersion: "pmh.failure-budget-frontier.v3",
+      schemaVersion: "pmh.failure-budget-frontier.v4",
       itemCount: 0,
+      rawEstimatorCaseCount: 0,
+      collapsedEstimatorCaseCount: 0,
       positiveMarginCount: 0,
       rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC",
       quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY",
