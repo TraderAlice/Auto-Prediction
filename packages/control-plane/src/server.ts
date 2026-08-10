@@ -243,8 +243,29 @@ import {
 } from "./ai-runtime-configuration.js";
 import {
   AgentExecutionRegistry,
+  activateAgentCampaign,
+  buildPausedAgentCampaign,
+  buildRuleEvidenceAgentTask,
+  buildRuleEvidenceAgentTaskPayload,
+  effectiveAgentCampaigns,
+  pauseAgentCampaign,
   type AgentExecutionStore,
 } from "./agent-execution-substrate.js";
+import { buildDefaultAgentRuntimePortfolio } from "./agent-runtime-portfolio.js";
+import {
+  AgentCampaignDispatcher,
+} from "./agent-campaign-dispatcher.js";
+import {
+  AgentCredentialBroker,
+  CodexOAuthCredentialResolver,
+  EnvironmentCredentialResolver,
+} from "./agent-runtime-adapter.js";
+import {
+  createCodexCliAgentRuntimeAdapter,
+  createPiCliAgentRuntimeAdapter,
+} from "./agent-cli-runtime.js";
+import { createInProcessAiSdkAgentRuntimeAdapter } from "./agent-in-process-runtime.js";
+import { RuleEvidenceAgentToolHost } from "./rule-evidence-agent-tool-host.js";
 import { buildRuleEvidenceAgentMigration } from "./rule-evidence-agent-migration.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -899,6 +920,7 @@ export function createControlPlane(options?: {
   aiUsageLedger?: AiUsageLedger;
   aiRuntimeConfigurationDesk?: AiRuntimeConfigurationDesk;
   agentExecutionRegistry?: AgentExecutionRegistry;
+  agentCampaignDispatcher?: AgentCampaignDispatcher;
   modelRuntimeFactory?: (configuration: AiRuntimeConfiguration) => DiscoveryModelRuntime;
   semanticReviewScheduler?: SemanticReviewScheduler;
   premiseAnalysisDesk?: ReturnType<typeof createPremiseAnalysisDesk>;
@@ -956,6 +978,9 @@ export function createControlPlane(options?: {
   agentExecutionRegistry.importLegacyConfiguration(
     aiRuntimeConfigurationDesk.current(),
   );
+  agentExecutionRegistry.saveBatch(buildDefaultAgentRuntimePortfolio(
+    aiRuntimeConfigurationDesk.current(),
+  ));
   const modelRuntimeFactory = options?.modelRuntimeFactory ??
     ((configuration: AiRuntimeConfiguration) => createDiscoveryModelRuntime(
       process.env,
@@ -1955,9 +1980,40 @@ export function createControlPlane(options?: {
       return job.requirements.map((requirement) => Object.freeze({ requirement, capture }));
     }),
   );
-  const reconcileRuleEvidenceAgentTasks = (): void => {
-    agentExecutionRegistry.reconcileRuleEvidenceTasks(ruleEvidenceClaimInputs());
+  const ruleEvidenceAgentInputsByTaskId = new Map<Hash, RuleEvidenceClaimInput>();
+  const refreshRuleEvidenceAgentInputs = (): readonly RuleEvidenceClaimInput[] => {
+    const inputs = ruleEvidenceClaimInputs();
+    ruleEvidenceAgentInputsByTaskId.clear();
+    for (const input of inputs) {
+      ruleEvidenceAgentInputsByTaskId.set(buildRuleEvidenceAgentTask(input).taskId, input);
+    }
+    return inputs;
   };
+  const reconcileRuleEvidenceAgentTasks = (): void => {
+    agentExecutionRegistry.reconcileRuleEvidenceTasks(refreshRuleEvidenceAgentInputs());
+  };
+  const ruleEvidenceAgentInput = (taskId: Hash) =>
+    ruleEvidenceAgentInputsByTaskId.get(taskId) ?? null;
+  const agentCredentialBroker = new AgentCredentialBroker([
+    new EnvironmentCredentialResolver(process.env),
+    new CodexOAuthCredentialResolver(semanticReviewCodexCredential),
+  ]);
+  const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
+    new AgentCampaignDispatcher({
+      registry: agentExecutionRegistry,
+      credentialBroker: agentCredentialBroker,
+      adapters: [
+        createPiCliAgentRuntimeAdapter({ environment: process.env, timeoutMs: 300_000 }),
+        createCodexCliAgentRuntimeAdapter({ environment: process.env, timeoutMs: 300_000 }),
+        createInProcessAiSdkAgentRuntimeAdapter({ timeoutMs: 300_000 }),
+      ],
+      toolHost: new RuleEvidenceAgentToolHost(ruleEvidenceAgentInput),
+      taskPayload: (task) => {
+        const input = ruleEvidenceAgentInput(task.taskId);
+        if (input === null) throw new Error("retained Agent task input is unavailable");
+        return buildRuleEvidenceAgentTaskPayload(input);
+      },
+    });
   const migrateLegacyRuleEvidenceAgentRuns = (): void => {
     const captureSource = options?.discoveryStore as Partial<{
       loadRetainedEvidenceDocumentCaptures(): readonly import("./evidence-document.js").EvidenceDocumentCapture[];
@@ -1996,7 +2052,177 @@ export function createControlPlane(options?: {
     synchronizeLifecycleSources();
     reconcileRuleEvidenceAgentTasks();
     migrateLegacyRuleEvidenceAgentRuns();
+    agentCampaignDispatcher.recoverPreparedRuns();
   });
+
+  const agentExecutionConsole = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const effectiveCampaignIds = new Set(effectiveAgentCampaigns(snapshot.campaigns).map((item) =>
+      item.campaignId
+    ));
+    const readiness = await Promise.all(snapshot.credentialBindings.map((binding) =>
+      agentCredentialBroker.readiness(binding)
+    ));
+    const orderedTasks = [...snapshot.tasks].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || left.taskId.localeCompare(right.taskId)
+    );
+    const orderedRuns = [...snapshot.runs].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || left.runId.localeCompare(right.runId)
+    );
+    const visibleRunIds = new Set(orderedRuns.slice(0, 250).map((run) => run.runId));
+    const inputTokens = snapshot.modelInvocations.reduce(
+      (total, item) => total + BigInt(item.inputTokens ?? "0"),
+      0n,
+    );
+    const outputTokens = snapshot.modelInvocations.reduce(
+      (total, item) => total + BigInt(item.outputTokens ?? "0"),
+      0n,
+    );
+    const reasoningTokens = snapshot.modelInvocations.reduce(
+      (total, item) => total + BigInt(item.reasoningTokens ?? "0"),
+      0n,
+    );
+    const runsById = new Map(snapshot.runs.map((run) => [run.runId, run] as const));
+    const tasksById = new Map(snapshot.tasks.map((task) => [task.taskId, task] as const));
+    const profilesById = new Map(snapshot.executionProfiles.map((profile) =>
+      [profile.executionProfileId, profile] as const
+    ));
+    const modelsById = new Map(snapshot.modelProfiles.map((profile) =>
+      [profile.modelProfileId, profile] as const
+    ));
+    const runtimesById = new Map(snapshot.runtimeDefinitions.map((runtime) =>
+      [runtime.runtimeDefinitionId, runtime] as const
+    ));
+    const usageBreakdown = new Map<string, {
+      runtimeKind: string;
+      model: string;
+      taskKind: string;
+      invocationCount: number;
+      failedInvocationCount: number;
+      inputTokens: bigint;
+      outputTokens: bigint;
+      reasoningTokens: bigint;
+    }>();
+    const dailyUsage = new Map<string, {
+      invocationCount: number;
+      inputTokens: bigint;
+      outputTokens: bigint;
+    }>();
+    for (const invocation of snapshot.modelInvocations) {
+      const run = runsById.get(invocation.runId);
+      const task = run === undefined ? undefined : tasksById.get(run.taskId);
+      const profile = run === undefined ? undefined : profilesById.get(run.executionProfileId);
+      const model = profile === undefined ? undefined : modelsById.get(profile.modelProfileId);
+      const runtime = profile === undefined ? undefined : runtimesById.get(
+        profile.runtimeDefinitionId,
+      );
+      const identity = `${runtime?.kind ?? "UNKNOWN"}|${model?.model ?? "UNKNOWN"}|${task?.kind ?? "UNKNOWN"}`;
+      const aggregate = usageBreakdown.get(identity) ?? {
+        runtimeKind: runtime?.kind ?? "UNKNOWN",
+        model: model?.model ?? "UNKNOWN",
+        taskKind: task?.kind ?? "UNKNOWN",
+        invocationCount: 0,
+        failedInvocationCount: 0,
+        inputTokens: 0n,
+        outputTokens: 0n,
+        reasoningTokens: 0n,
+      };
+      aggregate.invocationCount += 1;
+      if (invocation.status !== "SUCCEEDED") aggregate.failedInvocationCount += 1;
+      aggregate.inputTokens += BigInt(invocation.inputTokens ?? "0");
+      aggregate.outputTokens += BigInt(invocation.outputTokens ?? "0");
+      aggregate.reasoningTokens += BigInt(invocation.reasoningTokens ?? "0");
+      usageBreakdown.set(identity, aggregate);
+      const day = invocation.completedAt.slice(0, 10);
+      const daily = dailyUsage.get(day) ?? {
+        invocationCount: 0,
+        inputTokens: 0n,
+        outputTokens: 0n,
+      };
+      daily.invocationCount += 1;
+      daily.inputTokens += BigInt(invocation.inputTokens ?? "0");
+      daily.outputTokens += BigInt(invocation.outputTokens ?? "0");
+      dailyUsage.set(day, daily);
+    }
+    return Object.freeze({
+      schemaVersion: "pmh.agent-execution-console.v1" as const,
+      summary: agentExecutionRegistry.projection(),
+      runtimeDefinitions: snapshot.runtimeDefinitions,
+      credentialBindings: snapshot.credentialBindings.map((binding) => Object.freeze({
+        ...binding,
+        readiness: readiness.find((item) =>
+          item.credentialBindingId === binding.credentialBindingId
+        ) ?? null,
+      })),
+      modelProfiles: snapshot.modelProfiles,
+      executionProfiles: snapshot.executionProfiles,
+      workloadRoutes: snapshot.workloadRoutes,
+      campaigns: snapshot.campaigns.map((campaign) => Object.freeze({
+        ...campaign,
+        superseded: !effectiveCampaignIds.has(campaign.campaignId),
+        preview: campaign.status === "ACTIVE" && effectiveCampaignIds.has(campaign.campaignId)
+          ? agentCampaignDispatcher.preview(campaign.campaignId)
+          : null,
+      })),
+      tasks: Object.freeze(orderedTasks.slice(0, 250)),
+      runs: Object.freeze(orderedRuns.slice(0, 250)),
+      modelInvocations: Object.freeze(snapshot.modelInvocations.filter((item) =>
+        visibleRunIds.has(item.runId)
+      )),
+      toolEffects: Object.freeze(snapshot.toolEffects.filter((item) =>
+        visibleRunIds.has(item.runId)
+      )),
+      runArtifacts: Object.freeze(snapshot.runArtifacts.filter((item) =>
+        visibleRunIds.has(item.runId)
+      )),
+      runAnnotations: Object.freeze(snapshot.runAnnotations.filter((item) =>
+        visibleRunIds.has(item.runId)
+      )),
+      resultSelections: snapshot.resultSelections,
+      usage: Object.freeze({
+        invocationCount: snapshot.modelInvocations.length,
+        inputTokens: inputTokens.toString(),
+        outputTokens: outputTokens.toString(),
+        reasoningTokens: reasoningTokens.toString(),
+        incompleteTokenInvocationCount: snapshot.modelInvocations.filter((item) =>
+          item.inputTokens === null || item.outputTokens === null
+        ).length,
+        currencyCost: null,
+        currencyCostDiagnostic: "No immutable model-price schedule is retained for these runs.",
+        byRuntimeModelPurpose: Object.freeze([...usageBreakdown.values()].map((item) =>
+          Object.freeze({
+            ...item,
+            inputTokens: item.inputTokens.toString(),
+            outputTokens: item.outputTokens.toString(),
+            reasoningTokens: item.reasoningTokens.toString(),
+          })
+        ).sort((left, right) => {
+          const leftTotal = BigInt(left.inputTokens) + BigInt(left.outputTokens);
+          const rightTotal = BigInt(right.inputTokens) + BigInt(right.outputTokens);
+          return rightTotal > leftTotal ? 1 : rightTotal < leftTotal ? -1 :
+            left.model.localeCompare(right.model);
+        })),
+        byDay: Object.freeze([...dailyUsage.entries()].map(([day, item]) => Object.freeze({
+          day,
+          invocationCount: item.invocationCount,
+          inputTokens: item.inputTokens.toString(),
+          outputTokens: item.outputTokens.toString(),
+        })).sort((left, right) => right.day.localeCompare(left.day))),
+      }),
+      incidentCounts: Object.freeze(Object.fromEntries(
+        [...new Set(snapshot.runAnnotations.map((item) => item.category))]
+          .sort()
+          .map((category) => [
+            category,
+            snapshot.runAnnotations.filter((item) => item.category === category).length,
+          ]),
+      )),
+      providerRequestsStartedByRead: 0 as const,
+      credentialSecretTextRetained: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+  };
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
     string,
@@ -2581,6 +2807,7 @@ export function createControlPlane(options?: {
         const update = parseAiRuntimeConfigurationUpdate(await readJson(request));
         const configuration = aiRuntimeConfigurationDesk.update(update);
         agentExecutionRegistry.importLegacyConfiguration(configuration);
+        agentExecutionRegistry.saveBatch(buildDefaultAgentRuntimePortfolio(configuration));
         if (options?.modelRuntime === undefined) {
           modelRuntime = modelRuntimeFactory(configuration);
           if (options?.discoveryPool === undefined) {
@@ -2838,7 +3065,181 @@ export function createControlPlane(options?: {
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/v1/agent-execution") {
-      writeJson(response, 200, agentExecutionRegistry.projection());
+      writeJson(response, 200, await agentExecutionConsole());
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/agent-campaigns") {
+      try {
+        await ready;
+        reconcileRuleEvidenceAgentTasks();
+        const body = await readJson(request) as Record<string, unknown>;
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).sort().join("|") !==
+              "budget|campaignKey|executionProfileId|schedule|taskIds") {
+          throw new Error("paused campaign request is malformed");
+        }
+        const snapshot = agentExecutionRegistry.snapshot();
+        const latestRevision = snapshot.campaigns
+          .filter((item) => item.campaignKey === body.campaignKey)
+          .reduce((maximum, item) => Math.max(maximum, item.revision), 0);
+        const campaign = buildPausedAgentCampaign({
+          campaignKey: body.campaignKey as string,
+          revision: latestRevision + 1,
+          executionProfileId: body.executionProfileId as Hash,
+          taskIds: body.taskIds as readonly Hash[],
+          schedule: body.schedule as Parameters<typeof buildPausedAgentCampaign>[0]["schedule"],
+          budget: body.budget as Parameters<typeof buildPausedAgentCampaign>[0]["budget"],
+          createdAt: new Date().toISOString(),
+        });
+        agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
+        await broadcastProjection();
+        writeJson(response, 201, { ok: true, campaign, providerRequestsStarted: 0 });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "campaign could not be created",
+          providerRequestsStarted: 0,
+        });
+      }
+      return;
+    }
+    const campaignActivationMatch = url.pathname.match(
+      /^\/api\/v1\/agent-campaigns\/(sha256:[0-9a-f]{64})\/activate$/u,
+    );
+    if (request.method === "POST" && campaignActivationMatch !== null) {
+      try {
+        await ready;
+        const body = await readJson(request) as { activationRef?: unknown };
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 1 || typeof body.activationRef !== "string") {
+          throw new Error("campaign activation requires exactly one activationRef");
+        }
+        const paused = effectiveAgentCampaigns(agentExecutionRegistry.snapshot().campaigns).find((item) =>
+          item.campaignId === campaignActivationMatch[1]
+        );
+        if (paused === undefined) throw new Error("campaign is unavailable");
+        const active = activateAgentCampaign(paused, body.activationRef, new Date().toISOString());
+        agentExecutionRegistry.saveBatch({ campaigns: [active] });
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          campaign: active,
+          preview: agentCampaignDispatcher.preview(active.campaignId),
+          providerRequestsStarted: 0,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "campaign could not activate",
+          providerRequestsStarted: 0,
+        });
+      }
+      return;
+    }
+    const campaignDispatchMatch = url.pathname.match(
+      /^\/api\/v1\/agent-campaigns\/(sha256:[0-9a-f]{64})\/dispatch$/u,
+    );
+    if (request.method === "POST" && campaignDispatchMatch !== null) {
+      try {
+        await ready;
+        const dispatched = agentCampaignDispatcher.dispatchCampaign(
+          campaignDispatchMatch[1] as Hash,
+        );
+        void broadcastProjection();
+        for (const completion of dispatched.completions) {
+          void completion.then(() => broadcastProjection(), () => broadcastProjection());
+        }
+        writeJson(response, 202, {
+          ok: true,
+          campaignId: dispatched.campaignId,
+          preparedRunIds: dispatched.preparedRuns.map((run) => run.runId),
+          preview: dispatched.preview,
+          externalWriteAuthority: false,
+          valueMovingAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "campaign dispatch failed",
+          externalWriteAuthority: false,
+          valueMovingAuthority: false,
+        });
+      }
+      return;
+    }
+    const campaignPauseMatch = url.pathname.match(
+      /^\/api\/v1\/agent-campaigns\/(sha256:[0-9a-f]{64})\/pause$/u,
+    );
+    if (request.method === "POST" && campaignPauseMatch !== null) {
+      try {
+        await ready;
+        const active = effectiveAgentCampaigns(agentExecutionRegistry.snapshot().campaigns)
+          .find((item) => item.campaignId === campaignPauseMatch[1]);
+        if (active === undefined) throw new Error("campaign is unavailable or superseded");
+        const paused = pauseAgentCampaign(active);
+        agentExecutionRegistry.saveBatch({ campaigns: [paused] });
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          campaign: paused,
+          providerRequestsStarted: 0,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "campaign could not pause",
+          providerRequestsStarted: 0,
+        });
+      }
+      return;
+    }
+    const manualAgentRunMatch = url.pathname.match(
+      /^\/api\/v1\/agent-tasks\/(sha256:[0-9a-f]{64})\/runs$/u,
+    );
+    if (request.method === "POST" && manualAgentRunMatch !== null) {
+      try {
+        await ready;
+        reconcileRuleEvidenceAgentTasks();
+        const body = await readJson(request) as Record<string, unknown>;
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            !["PREVIEW", "EXECUTE"].includes(String(body.mode)) ||
+            typeof body.executionProfileId !== "string" ||
+            (body.mode === "EXECUTE" && typeof body.authorizationRef !== "string")) {
+          throw new Error("manual Agent run request is malformed");
+        }
+        const preview = agentCampaignDispatcher.previewManual(
+          manualAgentRunMatch[1] as Hash,
+          body.executionProfileId as Hash,
+        );
+        if (body.mode === "PREVIEW") {
+          writeJson(response, 200, { ok: true, preview });
+        } else {
+          const dispatched = agentCampaignDispatcher.dispatchManual(
+            manualAgentRunMatch[1] as Hash,
+            body.executionProfileId as Hash,
+            body.authorizationRef as string,
+          );
+          void broadcastProjection();
+          void dispatched.completion.then(
+            () => broadcastProjection(),
+            () => broadcastProjection(),
+          );
+          writeJson(response, 202, {
+            ok: true,
+            run: dispatched.run,
+            preview,
+            externalWriteAuthority: false,
+            valueMovingAuthority: false,
+          });
+        }
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "manual Agent run failed",
+          externalWriteAuthority: false,
+          valueMovingAuthority: false,
+        });
+      }
       return;
     }
     const ruleEvidenceClaimRunMatch = url.pathname.match(
@@ -4262,6 +4663,7 @@ export function createControlPlane(options?: {
   let officialSourceDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
+  let agentCampaignTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
   if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
@@ -4521,7 +4923,10 @@ export function createControlPlane(options?: {
       evidenceAcquisitionTimer.unref();
     });
   }
-  const ruleEvidenceClaimTickMs = ruleEvidenceClaimScheduler.tickIntervalMs;
+  // Rule Evidence automatic spend now belongs exclusively to explicit active
+  // Agent campaigns. The legacy provider-shaped scheduler remains readable and
+  // manually callable during compatibility migration, but never owns a timer.
+  const ruleEvidenceClaimTickMs = null;
   if (ruleEvidenceClaimTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
@@ -4540,6 +4945,24 @@ export function createControlPlane(options?: {
       ruleEvidenceClaimTimer.unref();
     });
   }
+  void ready.then(() => {
+    const tickAgentCampaigns = () => {
+      try {
+        const dispatches = agentCampaignDispatcher.tick();
+        if (dispatches.length === 0) return;
+        void broadcastProjection();
+        for (const dispatch of dispatches) {
+          for (const completion of dispatch.completions) {
+            void completion.then(() => broadcastProjection(), () => broadcastProjection());
+          }
+        }
+      } catch {
+        // A later bounded tick retries only campaigns that still retain authority.
+      }
+    };
+    agentCampaignTimer = setInterval(tickAgentCampaigns, 1_000);
+    agentCampaignTimer.unref();
+  });
   server.once("close", () => {
     if (invalidationFlushTimer !== null) clearTimeout(invalidationFlushTimer);
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
@@ -4554,6 +4977,7 @@ export function createControlPlane(options?: {
     if (officialSourceDiscoveryTimer !== null) clearInterval(officialSourceDiscoveryTimer);
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
+    if (agentCampaignTimer !== null) clearInterval(agentCampaignTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
     discoveryLedger.close();
   });

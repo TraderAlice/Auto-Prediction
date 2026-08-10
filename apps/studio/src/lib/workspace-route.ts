@@ -12,7 +12,8 @@ export type WorkspaceView =
   | "cases"
   | "venues"
   | "books"
-  | "evidence";
+  | "evidence"
+  | "agents";
 
 const ROUTE_BY_VIEW: Readonly<Record<WorkspaceView, string>> = Object.freeze({
   archaeologist: "discover",
@@ -26,6 +27,7 @@ const ROUTE_BY_VIEW: Readonly<Record<WorkspaceView, string>> = Object.freeze({
   radar: "radar",
   cases: "cases",
   books: "books",
+  agents: "agents",
 });
 
 const VIEW_BY_ROUTE = new Map(

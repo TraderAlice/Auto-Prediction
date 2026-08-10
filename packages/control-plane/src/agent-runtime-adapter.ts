@@ -316,6 +316,17 @@ export type ExecutePreparedAgentRunInput = Readonly<{
   credentialBroker: AgentCredentialBroker;
   toolHost: AgentToolHost;
   now?: () => number;
+  beforeModelInvocation?: (state: Readonly<{
+    run: AgentRun;
+    completedInvocationCount: number;
+    inputTokens: string;
+    outputTokens: string;
+    elapsedMs: number;
+  }>) => Promise<void> | void;
+  onProgress?: (batch: Readonly<{
+    modelInvocations?: readonly ModelInvocation[];
+    toolEffects?: readonly AgentToolEffect[];
+  }>) => Promise<void> | void;
 }>;
 
 function validateExecutionInput(input: ExecutePreparedAgentRunInput): Readonly<{
@@ -438,6 +449,14 @@ export async function executePreparedAgentRun(
         return finish("INTERRUPTED", "token budget exhausted", null);
       }
 
+      await input.beforeModelInvocation?.(Object.freeze({
+        run: valid.run,
+        completedInvocationCount: invocations.length,
+        inputTokens: totalInputTokens.toString(),
+        outputTokens: totalOutputTokens.toString(),
+        elapsedMs: Math.max(0, now() - startedAt),
+      }));
+
       const turn = await session.advance(toolResults);
       const ordinal = invocations.length + 1;
       const invocationStartedAt = canonicalIso(
@@ -465,6 +484,9 @@ export async function executePreparedAgentRun(
         failureCategory: turn.invocation.failureCategory,
       });
       invocations.push(invocation);
+      await input.onProgress?.(Object.freeze({
+        modelInvocations: Object.freeze([invocation]),
+      }));
       lastInvocationCompletedAt = invocation.completedAt;
       totalInputTokens += tokenCount(invocation.inputTokens, "Invocation input tokens") ?? 0n;
       totalOutputTokens += tokenCount(invocation.outputTokens, "Invocation output tokens") ?? 0n;
@@ -565,6 +587,9 @@ export async function executePreparedAgentRun(
           occurredAt: turn.invocation.completedAt,
         });
         effects.push(effect);
+        await input.onProgress?.(Object.freeze({
+          toolEffects: Object.freeze([effect]),
+        }));
         nextResults.push(Object.freeze({
           callId,
           status: result.status,
@@ -579,6 +604,8 @@ export async function executePreparedAgentRun(
     } catch {
       // Cancellation is best-effort; terminal state remains explicit below.
     }
-    return finish("FAILED", redactedDiagnostic(error, "runtime adapter failed"), null);
+    return error instanceof Error && error.name === "AgentCampaignBudgetExhausted"
+      ? finish("INTERRUPTED", "campaign budget exhausted", null)
+      : finish("FAILED", redactedDiagnostic(error, "runtime adapter failed"), null);
   }
 }

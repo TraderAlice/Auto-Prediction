@@ -857,22 +857,31 @@ export function buildRuleEvidenceAgentTask(input: Readonly<{
         artifactHash: capture.extraction.record.textHash,
       }),
     ]),
-    taskPayload: Object.freeze({
-      requirementId: requirement.requirementId,
-      proposalId: requirement.proposalId,
-      requirementKind: requirement.kind,
-      temporalPosture: requirement.temporalPosture,
-      acquisitionScopeIdentity: requirement.acquisitionScopeIdentity,
-      observationId: capture.observation.observationId,
-      documentId: capture.document.record.documentId,
-      documentRawHash: capture.document.record.rawHash,
-      extractionId: capture.extraction.record.extractionId,
-      extractionTextHash: capture.extraction.record.textHash,
-    }),
+    taskPayload: buildRuleEvidenceAgentTaskPayload({ requirement, capture }),
     requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
     provenanceRef: `rule-evidence:${requirement.requirementId}`,
     priority: input.priority ?? 0,
     createdAt: capture.observation.receivedAt,
+  });
+}
+
+export function buildRuleEvidenceAgentTaskPayload(input: Readonly<{
+  requirement: EvidenceRequirement;
+  capture: EvidenceDocumentCapture;
+}>): Readonly<Record<string, unknown>> {
+  const requirement = assertEvidenceRequirement(input.requirement);
+  const capture = assertEvidenceDocumentCapture(input.capture);
+  return Object.freeze({
+    requirementId: requirement.requirementId,
+    proposalId: requirement.proposalId,
+    requirementKind: requirement.kind,
+    temporalPosture: requirement.temporalPosture,
+    acquisitionScopeIdentity: requirement.acquisitionScopeIdentity,
+    observationId: capture.observation.observationId,
+    documentId: capture.document.record.documentId,
+    documentRawHash: capture.document.record.rawHash,
+    extractionId: capture.extraction.record.extractionId,
+    extractionTextHash: capture.extraction.record.textHash,
   });
 }
 
@@ -1077,6 +1086,43 @@ export function activateAgentCampaign(
     ...withoutUndefined,
     campaignId: hashCanonical(withoutUndefined),
   }));
+}
+
+export function pauseAgentCampaign(
+  campaignInput: AgentCampaign,
+): AgentCampaign {
+  const campaign = assertAgentCampaign(campaignInput);
+  if (campaign.status !== "ACTIVE") throw new Error("Only an active campaign can be paused");
+  const body = Object.freeze({
+    ...campaign,
+    campaignId: undefined,
+    revision: campaign.revision + 1,
+    status: "PAUSED" as const,
+    activatedAt: null,
+    activationRef: null,
+  });
+  const { campaignId: _ignored, ...withoutUndefined } = body;
+  return assertAgentCampaign(Object.freeze({
+    ...withoutUndefined,
+    campaignId: hashCanonical(withoutUndefined),
+  }));
+}
+
+export function effectiveAgentCampaigns(
+  campaigns: readonly AgentCampaign[],
+): readonly AgentCampaign[] {
+  const latest = new Map<string, AgentCampaign>();
+  for (const campaignInput of campaigns) {
+    const campaign = assertAgentCampaign(campaignInput);
+    const retained = latest.get(campaign.campaignKey);
+    if (retained === undefined || campaign.revision > retained.revision ||
+        (campaign.revision === retained.revision && campaign.campaignId > retained.campaignId)) {
+      latest.set(campaign.campaignKey, campaign);
+    }
+  }
+  return Object.freeze([...latest.values()].sort((left, right) =>
+    left.campaignKey.localeCompare(right.campaignKey)
+  ));
 }
 
 export function assertAgentRun(value: unknown): AgentRun {
@@ -1716,7 +1762,8 @@ export class AgentExecutionRegistry {
       modelInvocationCount: this.#snapshot.modelInvocations.length,
       runArtifactCount: this.#snapshot.runArtifacts.length,
       runAnnotationCount: this.#snapshot.runAnnotations.length,
-      activeCampaignCount: this.#snapshot.campaigns.filter((item) => item.status === "ACTIVE").length,
+      activeCampaignCount: effectiveAgentCampaigns(this.#snapshot.campaigns)
+        .filter((item) => item.status === "ACTIVE").length,
       automaticDispatchFromConfiguration: false,
       credentialSecretTextRetained: false,
       storage: this.store?.agentExecutionStorage ?? Object.freeze({

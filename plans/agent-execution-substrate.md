@@ -423,8 +423,52 @@ request:
   their observed provider-request count in annotations rather than being
   expanded into invented per-request records.
 
-This checkpoint proves the identity, compatibility, persistence, and
-zero-dispatch boundary. It does not claim Phase 3–8 adoption.
+### Campaign dispatcher and Studio checkpoint
+
+- The execution catalog now registers Pi CLI, Codex CLI, and the in-process AI
+  SDK loop independently from Codex OAuth and DeepSeek key bindings. The
+  current model configuration seeds five Rule Evidence compositions: Pi with
+  either model supply, Codex Agent with Codex OAuth, and the in-process loop
+  with either model supply. Terra/Luna effort remains inside its immutable
+  model profile. Saving the catalog or changing a route starts zero requests.
+- `AgentCampaignDispatcher` supports provider-free manual previews, explicitly
+  authorized manual runs, paused/active append-only campaign revisions,
+  bounded interval ticks, concurrency, invocation, token, and wall-clock
+  checks before every model turn, and incremental invocation/tool-effect
+  persistence. Only the latest revision of a campaign key is effective; pause
+  supersedes the old active revision so it cannot keep dispatching.
+- A restart converts durable `PREPARED` runs to visible `INTERRUPTED` outcomes
+  without inferring retry authority. The legacy Rule Evidence scheduler keeps
+  its compatibility projection and manual endpoint, but its automatic timer is
+  removed; recurring spend for this workload now exists only in effective
+  active campaigns.
+- The first-party Rule Evidence tool host owns bounded retained-text search,
+  reads, passage-handle resolution, draft validation, and advisory claim
+  submission. Models receive repairable rejections and cannot publish through
+  free-form text. Accepted effects remain non-semantic, non-certificate, and
+  non-execution authority.
+- Studio now has a URL-stable `?view=agents` operations surface. It separates
+  runtime capability, credential readiness, model-owned profiles, execution
+  compositions, routes, tasks, runs, invocations, incidents, token purpose
+  breakdown, manual preview/execute, and paused/active campaign controls.
+  Currency cost stays explicitly unavailable until immutable price schedules
+  are retained. A configuration or credential-ready badge is not presented as
+  spend authority.
+- Mock qualification proves a concurrency-three interval campaign starts at
+  most three invocations, stops at its request ceiling, and cannot dispatch an
+  older active revision after pause. HTTP qualification proves create,
+  activate, and pause start zero requests. A manually previewed local Studio
+  run created no run or invocation. No live model request was made during this
+  checkpoint.
+- Visual qualification at 1280×720 and 390×844 found no horizontal overflow
+  and a 12 px minimum main-text size. The desktop surface fits its primary
+  metrics and capability/cost split without the former mixed-scale control
+  rack; the mobile surface collapses to one column.
+
+This checkpoint proves the identity, compatibility, persistence, explicit
+dispatch, and operator-surface boundaries for the Rule Evidence proving
+ground. It does not claim that the remaining legacy workloads have migrated or
+that the operator has authorized the optional live one-task comparison.
 
 ## Migration sequence
 

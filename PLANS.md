@@ -14,9 +14,13 @@ protocol evidence. Pi, Codex Agent, and in-process production adapters now
 share one tool-first lifecycle, and the provider-free historical import is
 durable: 229 attempt-bearing Rule Evidence runs, all six Terra failures, twelve
 expired leases, and fifty retry-wait incidents are explicit without creating a
-campaign or provider request. The explicit campaign dispatcher and Studio
-operator surfaces remain migration work, so the legacy scheduler is still
-contained rather than declared replaced.
+campaign or provider request. Rule Evidence now uses an explicit, budgeted
+manual/campaign dispatcher with append-only pause semantics; its legacy timer
+is removed. Studio exposes runtime, credential, model profile, route, task,
+run, incident, purpose/token, preview, and campaign controls at `?view=agents`.
+The proving workload is reviewable and provider-free qualification passes;
+other legacy AI workloads and an optional operator-reviewed live comparison
+remain later adoption work.
 
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and

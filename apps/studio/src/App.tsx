@@ -35,6 +35,7 @@ import {
   Sparkles,
   SquareTerminal,
   TestTubeDiagonal,
+  Bot,
   TimerReset,
   Waypoints,
   X,
@@ -76,6 +77,147 @@ type SearchAttentionMessage = StudioProjection["ai"]["searchAttention"]["message
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
+type AgentExecutionConsole = Readonly<{
+  schemaVersion: "pmh.agent-execution-console.v1";
+  summary: Readonly<{
+    runtimeDefinitionCount: number;
+    credentialBindingCount: number;
+    modelProfileCount: number;
+    executionProfileCount: number;
+    taskCount: number;
+    runCount: number;
+    modelInvocationCount: number;
+    runArtifactCount: number;
+    runAnnotationCount: number;
+    activeCampaignCount: number;
+  }>;
+  runtimeDefinitions: ReadonlyArray<Readonly<{
+    runtimeDefinitionId: string;
+    kind: "PI" | "CODEX" | "HARNESS_IN_PROCESS";
+    version: string;
+    capabilities: Readonly<{ resume: boolean; compaction: boolean; cancellation: boolean }>;
+  }>>;
+  credentialBindings: ReadonlyArray<Readonly<{
+    credentialBindingId: string;
+    kind: string;
+    logicalAccountRef: string;
+    readiness: null | Readonly<{ status: "READY" | "UNAVAILABLE"; diagnostic: string | null }>;
+  }>>;
+  modelProfiles: ReadonlyArray<Readonly<{
+    modelProfileId: string;
+    profileKey: string;
+    revision: number;
+    accessDriver: string;
+    model: string;
+    configuration: unknown;
+    createdAt: string;
+  }>>;
+  executionProfiles: ReadonlyArray<Readonly<{
+    executionProfileId: string;
+    profileKey: string;
+    revision: number;
+    runtimeDefinitionId: string;
+    credentialBindingId: string;
+    modelProfileId: string;
+    toolPolicy: Readonly<{ protocol: string }>;
+    runBudget: Readonly<{
+      maximumModelInvocations: number;
+      maximumInputTokens: string | null;
+      maximumOutputTokens: string | null;
+      maximumWallClockMs: number;
+    }>;
+    createdAt: string;
+  }>>;
+  workloadRoutes: ReadonlyArray<Readonly<{
+    workloadRouteId: string;
+    routeKey: string;
+    revision: number;
+    taskKind: string;
+    executionProfileId: string;
+    automaticDispatch: false;
+  }>>;
+  campaigns: ReadonlyArray<Readonly<{
+    campaignId: string;
+    campaignKey: string;
+    revision: number;
+    status: "PAUSED" | "ACTIVE";
+    superseded: boolean;
+    executionProfileId: string;
+    taskIds: readonly string[];
+    schedule: Readonly<{ kind: "MANUAL_ONLY" | "INTERVAL"; intervalMs: number | null }>;
+    budget: Readonly<{
+      maximumConcurrentRuns: number;
+      maximumModelInvocations: number;
+      maximumInputTokens: string | null;
+      maximumOutputTokens: string | null;
+      maximumWallClockMs: number;
+    }>;
+    preview: null | Readonly<{
+      maximumImmediateFanout: number;
+      consumedModelInvocations: number;
+      remainingModelInvocations: number;
+      activeRunCount: number;
+    }>;
+  }>>;
+  tasks: ReadonlyArray<Readonly<{
+    taskId: string;
+    kind: string;
+    protocol: string;
+    provenanceRef: string;
+    priority: number;
+    createdAt: string;
+  }>>;
+  runs: ReadonlyArray<Readonly<{
+    runId: string;
+    taskId: string;
+    executionProfileId: string;
+    runOrdinal: number;
+    authorization: Readonly<{ kind: "MANUAL" | "CAMPAIGN" | "LEGACY_IMPORT" }>;
+    status: "PREPARED" | "INTERRUPTED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+    createdAt: string;
+    completedAt: string | null;
+    terminalDiagnostic: string | null;
+  }>>;
+  modelInvocations: ReadonlyArray<Readonly<{
+    invocationId: string;
+    runId: string;
+    accessDriver: string;
+    status: string;
+    inputTokens: string | null;
+    outputTokens: string | null;
+    reasoningTokens: string | null;
+    completedAt: string;
+  }>>;
+  usage: Readonly<{
+    invocationCount: number;
+    inputTokens: string;
+    outputTokens: string;
+    reasoningTokens: string;
+    incompleteTokenInvocationCount: number;
+    currencyCost: null;
+    currencyCostDiagnostic: string;
+    byRuntimeModelPurpose: ReadonlyArray<Readonly<{
+      runtimeKind: string;
+      model: string;
+      taskKind: string;
+      invocationCount: number;
+      failedInvocationCount: number;
+      inputTokens: string;
+      outputTokens: string;
+      reasoningTokens: string;
+    }>>;
+    byDay: ReadonlyArray<Readonly<{
+      day: string;
+      invocationCount: number;
+      inputTokens: string;
+      outputTokens: string;
+    }>>;
+  }>;
+  incidentCounts: Readonly<Record<string, number>>;
+  credentialSecretTextRetained: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type FailureBudgetFrontierProjection = Readonly<{
   schemaVersion: "pmh.failure-budget-frontier.v3";
   contentHash: string;
@@ -1621,6 +1763,7 @@ const navigation = [
   { id: "venues", label: "Markets", icon: Network },
   { id: "evidence", label: "Evidence", icon: Fingerprint },
   { id: "overview", label: "System overview", icon: LayoutDashboard },
+  { id: "agents", label: "Agent operations", icon: Bot },
   { id: "radar", label: "Similarity radar", icon: Radar },
   { id: "cases", label: "Research cases", icon: Waypoints },
   { id: "books", label: "Order books", icon: BookOpenCheck },
@@ -2827,6 +2970,244 @@ function CapitalSilhouette() {
   );
 }
 
+function AgentOperationsView() {
+  const [consoleData, setConsoleData] = useState<AgentExecutionConsole | null>(null);
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [taskId, setTaskId] = useState("");
+  const [profileId, setProfileId] = useState("");
+  const [manualPreview, setManualPreview] = useState<unknown | null>(null);
+
+  async function refresh() {
+    const response = await fetch("/api/v1/agent-execution", {
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`Agent console returned HTTP ${response.status}`);
+    const next = await response.json() as AgentExecutionConsole;
+    if (next.schemaVersion !== "pmh.agent-execution-console.v1" ||
+        next.credentialSecretTextRetained !== false ||
+        next.externalWriteAuthority !== false || next.valueMovingAuthority !== false) {
+      throw new Error("Agent console crossed its authority boundary");
+    }
+    setConsoleData(next);
+    setTaskId((current) => current || next.tasks.find((task) =>
+      task.protocol === "RULE_EVIDENCE_TASK_V1"
+    )?.taskId || next.tasks[0]?.taskId || "");
+    setProfileId((current) => {
+      if (current) return current;
+      const route = [...next.workloadRoutes]
+        .filter((item) => item.taskKind === "RULE_EVIDENCE_CLAIM")
+        .sort((left, right) => right.revision - left.revision)[0];
+      return route?.executionProfileId || next.executionProfiles.find((profile) =>
+        profile.toolPolicy.protocol === "RULE_EVIDENCE_TOOLS_V1"
+      )?.executionProfileId || "";
+    });
+    setDiagnostic(null);
+  }
+
+  useEffect(() => {
+    void refresh().catch((error: unknown) => setDiagnostic(
+      error instanceof Error ? error.message : "Agent console is unavailable",
+    ));
+  }, []);
+
+  async function post(path: string, body?: unknown): Promise<unknown> {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body ?? {}),
+    });
+    const result = await response.json() as { ok?: boolean; diagnostic?: string };
+    if (!response.ok || result.ok === false) {
+      throw new Error(result.diagnostic ?? `Agent operation returned HTTP ${response.status}`);
+    }
+    return result;
+  }
+
+  async function perform(key: string, action: () => Promise<unknown>) {
+    setBusy(key);
+    setDiagnostic(null);
+    try {
+      const result = await action();
+      if (key === "manual-preview") setManualPreview(result);
+      else setManualPreview(null);
+      await refresh();
+    } catch (error) {
+      setDiagnostic(error instanceof Error ? error.message : "Agent operation failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (consoleData === null) {
+    return (
+      <section className="page-section agent-console">
+        <div className="section-heading">
+          <div><span className="eyebrow">Execution substrate</span><h1>Agent operations</h1></div>
+        </div>
+        <Card><CardContent className="empty-state"><LoaderCircle className="spin" size={18} />{diagnostic ?? "Loading Agent ledger…"}</CardContent></Card>
+      </section>
+    );
+  }
+
+  const runtimes = new Map(consoleData.runtimeDefinitions.map((item) =>
+    [item.runtimeDefinitionId, item] as const
+  ));
+  const credentials = new Map(consoleData.credentialBindings.map((item) =>
+    [item.credentialBindingId, item] as const
+  ));
+  const models = new Map(consoleData.modelProfiles.map((item) =>
+    [item.modelProfileId, item] as const
+  ));
+  const profiles = consoleData.executionProfiles.filter((item) =>
+    item.toolPolicy.protocol === "RULE_EVIDENCE_TOOLS_V1"
+  );
+  const invocationsByRun = new Map<string, AgentExecutionConsole["modelInvocations"]>();
+  for (const invocation of consoleData.modelInvocations) {
+    invocationsByRun.set(invocation.runId, [
+      ...(invocationsByRun.get(invocation.runId) ?? []),
+      invocation,
+    ]);
+  }
+
+  return (
+    <section className="page-section agent-console">
+      <div className="section-heading agent-console-heading">
+        <div>
+          <span className="eyebrow">Execution substrate</span>
+          <h1>Agent operations</h1>
+          <p>Runtime, credential, model and effort are composed here. Only a manual run or an active campaign can spend tokens.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void perform("refresh", refresh)} disabled={busy !== null}>
+          <RefreshCw size={13} /> Refresh
+        </Button>
+      </div>
+
+      {diagnostic !== null && <div className="inline-alert"><CircleOff size={14} />{diagnostic}</div>}
+
+      <div className="metric-grid agent-metrics">
+        <Metric label="Runtimes" value={`${consoleData.summary.runtimeDefinitionCount}`} detail="Pi · Codex · in-process" />
+        <Metric label="Execution profiles" value={`${consoleData.summary.executionProfileCount}`} detail="immutable runtime/model compositions" />
+        <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail="task identity is provider-neutral" />
+        <Metric label="Known tokens" value={formatTokenCount((BigInt(consoleData.usage.inputTokens) + BigInt(consoleData.usage.outputTokens)).toString())} detail={`${consoleData.usage.incompleteTokenInvocationCount} invocations incomplete`} />
+      </div>
+
+      <div className="agent-console-grid">
+        <Card>
+          <CardHeader>
+            <div><span className="eyebrow">Capability</span><h2>Runtime and credential readiness</h2></div>
+          </CardHeader>
+          <CardContent className="agent-runtime-list">
+            {consoleData.runtimeDefinitions.map((runtime) => {
+              const compatibleProfiles = profiles.filter((profile) =>
+                profile.runtimeDefinitionId === runtime.runtimeDefinitionId
+              );
+              const readyCount = compatibleProfiles.filter((profile) =>
+                credentials.get(profile.credentialBindingId)?.readiness?.status === "READY"
+              ).length;
+              return (
+                <div className="agent-runtime-row" key={runtime.runtimeDefinitionId}>
+                  <div><strong>{runtime.kind.replace("HARNESS_IN_PROCESS", "In-process")}</strong><span>{runtime.version}</span></div>
+                  <Badge variant={readyCount > 0 ? "verified" : "warning"}>{readyCount}/{compatibleProfiles.length} ready</Badge>
+                </div>
+              );
+            })}
+            {consoleData.credentialBindings.map((binding) => (
+              <div className="agent-credential-row" key={binding.credentialBindingId}>
+                <span>{binding.kind}</span>
+                <span>{binding.readiness?.status === "READY" ? "Ready" : binding.readiness?.diagnostic ?? "Unavailable"}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div><span className="eyebrow">Attribution</span><h2>Token and incident ledger</h2></div>
+          </CardHeader>
+          <CardContent className="agent-usage-ledger">
+            <div><span>Input</span><strong>{formatTokenCount(consoleData.usage.inputTokens)}</strong></div>
+            <div><span>Output</span><strong>{formatTokenCount(consoleData.usage.outputTokens)}</strong></div>
+            <div><span>Reasoning</span><strong>{formatTokenCount(consoleData.usage.reasoningTokens)}</strong></div>
+            <p>{consoleData.usage.currencyCostDiagnostic}</p>
+            <div className="agent-usage-breakdown">
+              {consoleData.usage.byRuntimeModelPurpose.slice(0, 5).map((item) => (
+                <div key={`${item.runtimeKind}:${item.model}:${item.taskKind}`}>
+                  <span>{item.runtimeKind} · {item.model}<small>{item.taskKind} · {item.invocationCount} calls · {item.failedInvocationCount} failed</small></span>
+                  <strong>{formatTokenCount((BigInt(item.inputTokens) + BigInt(item.outputTokens)).toString())}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="incident-chips">
+              {Object.entries(consoleData.incidentCounts).filter(([, count]) => count > 0).map(([category, count]) => (
+                <Badge key={category} variant={category.includes("CODEX") ? "warning" : "muted"}>{category.replaceAll("_", " ").toLowerCase()} · {count}</Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="agent-control-card">
+        <CardHeader>
+          <div><span className="eyebrow">Explicit authority</span><h2>Prepare work</h2><p>Previewing and creating a paused campaign make zero model requests.</p></div>
+        </CardHeader>
+        <CardContent>
+          <div className="agent-control-form">
+            <label><span>Task</span><Select value={taskId} onValueChange={(value) => { setTaskId(value); setManualPreview(null); }}><SelectTrigger><SelectValue placeholder="Select task" /></SelectTrigger><SelectContent>{consoleData.tasks.slice(0, 100).map((task) => <SelectItem key={task.taskId} value={task.taskId}>{task.kind} · {task.taskId.slice(7, 17)}</SelectItem>)}</SelectContent></Select></label>
+            <label><span>Execution profile</span><Select value={profileId} onValueChange={(value) => { setProfileId(value); setManualPreview(null); }}><SelectTrigger><SelectValue placeholder="Select profile" /></SelectTrigger><SelectContent>{profiles.map((profile) => {
+              const runtime = runtimes.get(profile.runtimeDefinitionId);
+              const model = models.get(profile.modelProfileId);
+              return <SelectItem key={profile.executionProfileId} value={profile.executionProfileId}>{runtime?.kind ?? "runtime"} · {model?.model ?? "model"} · r{profile.revision}</SelectItem>;
+            })}</SelectContent></Select></label>
+          </div>
+          <div className="agent-control-actions">
+            <Button variant="outline" disabled={!taskId || !profileId || busy !== null} onClick={() => void perform("manual-preview", () => post(`/api/v1/agent-tasks/${taskId}/runs`, { mode: "PREVIEW", executionProfileId: profileId }))}>Preview manual run</Button>
+            <Button variant="outline" disabled={!taskId || !profileId || busy !== null} onClick={() => void perform("campaign-create", () => post("/api/v1/agent-campaigns", {
+              campaignKey: `studio-rule-evidence-${Date.now()}`,
+              executionProfileId: profileId,
+              taskIds: [taskId],
+              schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+              budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 3, maximumInputTokens: "100000", maximumOutputTokens: "20000", maximumWallClockMs: 300000 },
+            }))}>Create paused campaign</Button>
+            {manualPreview !== null && <Button disabled={busy !== null} onClick={() => void perform("manual-execute", () => post(`/api/v1/agent-tasks/${taskId}/runs`, { mode: "EXECUTE", executionProfileId: profileId, authorizationRef: "operator:studio-manual" }))}><Play size={12} /> Run reviewed snapshot</Button>}
+          </div>
+          {manualPreview !== null && <pre className="agent-preview">{JSON.stringify(manualPreview, null, 2)}</pre>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><div><span className="eyebrow">Campaigns</span><h2>Spend authority</h2></div></CardHeader>
+        <CardContent className="agent-campaign-list">
+          {consoleData.campaigns.length === 0 && <div className="empty-state">No campaign exists. Routes and credentials alone cannot dispatch work.</div>}
+          {consoleData.campaigns.slice().reverse().slice(0, 20).map((campaign) => (
+            <div className="agent-campaign-row" key={campaign.campaignId}>
+              <div><strong>{campaign.campaignKey}</strong><span>{campaign.superseded ? "SUPERSEDED" : campaign.status} · {campaign.taskIds.length} task · max {campaign.budget.maximumModelInvocations} invocations</span></div>
+              <div>
+                {!campaign.superseded && campaign.status === "PAUSED" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void perform(`activate-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/activate`, { activationRef: "operator:studio" }))}>Activate only</Button>}
+                {!campaign.superseded && campaign.status === "ACTIVE" && <><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void perform(`pause-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/pause`))}><Pause size={11} /> Pause</Button><Button size="sm" disabled={busy !== null || campaign.preview?.maximumImmediateFanout === 0} onClick={() => void perform(`dispatch-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/dispatch`))}><Play size={11} /> Dispatch {campaign.preview?.maximumImmediateFanout ?? 0}</Button></>}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><div><span className="eyebrow">Recent lineage</span><h2>Runs and model invocations</h2></div></CardHeader>
+        <CardContent className="agent-run-list">
+          {consoleData.runs.slice(0, 40).map((run) => {
+            const profile = consoleData.executionProfiles.find((item) => item.executionProfileId === run.executionProfileId);
+            const model = profile === undefined ? undefined : models.get(profile.modelProfileId);
+            const runtime = profile === undefined ? undefined : runtimes.get(profile.runtimeDefinitionId);
+            const invocations = invocationsByRun.get(run.runId) ?? [];
+            const runTokens = invocations.reduce((total, item) => total + BigInt(item.inputTokens ?? "0") + BigInt(item.outputTokens ?? "0"), 0n);
+            return <div className="agent-run-row" key={run.runId}><Badge variant={run.status === "SUCCEEDED" ? "verified" : run.status === "PREPARED" ? "shadow" : "warning"}>{run.status}</Badge><div><strong>{runtime?.kind ?? "legacy"} · {model?.model ?? "unresolved model"}</strong><span>{run.authorization.kind} · run {run.runOrdinal} · {invocations.length} calls · {formatTokenCount(runTokens.toString())} tokens</span>{run.terminalDiagnostic !== null && <small>{run.terminalDiagnostic}</small>}</div><code>{run.runId.slice(7, 19)}</code></div>;
+          })}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
 function Overview({
   onInspect,
 }: {
@@ -2971,7 +3352,7 @@ function Overview({
         <div className="ai-runtime-panel">
           <div className="ai-runtime-panel-heading">
             <div>
-              <span>Scout provider</span>
+              <span>Legacy discovery route</span>
               <strong>{studioProjection.ai.modelProvider.model}</strong>
             </div>
             <span className={cn(
@@ -2989,8 +3370,8 @@ function Overview({
                       : `Session · revision ${runtimeConfiguration.configuration.revision}`}
             </span>
           </div>
-          <div className="ai-runtime-controls" aria-label="AI runtime configuration">
-            <div className="ai-provider-toggle" role="group" aria-label="Scout provider">
+          <div className="ai-runtime-controls" aria-label="Legacy AI route configuration">
+            <div className="ai-provider-toggle" role="group" aria-label="Legacy model access">
               {runtimeConfiguration.availableProviders.map((provider) => (
                 <Button
                   key={provider}
@@ -3008,7 +3389,7 @@ function Overview({
               ))}
             </div>
             <label>
-              <span>Model</span>
+              <span>Codex model profile</span>
             <Select
               aria-label="Codex model"
               value={runtimeConfiguration.configuration.codexModel}
@@ -3045,7 +3426,7 @@ function Overview({
             </Select>
             </label>
             <label className="ai-automation-toggle">
-              <span>DeepSeek automation</span>
+              <span>Legacy schedulers</span>
               <Button
                 size="sm"
                 variant={runtimeConfiguration.configuration.deepseekAutomationEnabled
@@ -3059,7 +3440,7 @@ function Overview({
               >
                 {runtimeConfiguration.configuration.deepseekAutomationEnabled
                   ? "Enabled"
-                  : "Off · manual only"}
+                  : "Off · contained"}
               </Button>
             </label>
           </div>
@@ -3069,8 +3450,9 @@ function Overview({
             {studioProjection.ai.modelProvider.timeoutMs / 1_000}s timeout ·{" "}
             {studioProjection.ai.modelProvider.transport.replaceAll("_", " ").toLowerCase()}
             {runtimeConfiguration.configuration.deepseekAutomationEnabled
-              ? " · DeepSeek automation enabled"
-              : " · DeepSeek automatic spend blocked"}
+              ? " · legacy DeepSeek schedulers enabled"
+              : " · legacy automatic spend contained"}
+            {" · Agent runtime and campaign authority are configured in Agent operations"}
           </p>
         </div>
 
@@ -10425,6 +10807,7 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
         />
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
+          {view === "agents" && <AgentOperationsView />}
           {view === "archaeologist" && <MarketArchaeologistView />}
           {view === "lifecycle" && (
             <OpportunityLifecycleView

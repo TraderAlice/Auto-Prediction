@@ -2132,6 +2132,234 @@ footer {
   }
 }
 
+.agent-console {
+  display: grid;
+  gap: 20px;
+}
+
+.agent-console-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 4px;
+}
+
+.agent-console-heading h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(30px, 3vw, 40px);
+  font-weight: 640;
+  letter-spacing: -0.035em;
+}
+
+.agent-console-heading p,
+.agent-control-card [data-slot="card-header"] p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.agent-metrics {
+  margin: 0;
+}
+
+.agent-console-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.agent-runtime-list,
+.agent-usage-ledger,
+.agent-campaign-list,
+.agent-run-list {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-runtime-row,
+.agent-credential-row,
+.agent-campaign-row,
+.agent-run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  font-size: 13px;
+}
+
+.agent-runtime-row:first-child,
+.agent-campaign-row:first-child,
+.agent-run-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.agent-runtime-row > div,
+.agent-campaign-row > div:first-child,
+.agent-run-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.agent-campaign-row > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.agent-runtime-row span,
+.agent-campaign-row span,
+.agent-run-row span,
+.agent-run-row small,
+.agent-credential-row span:last-child {
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-credential-row {
+  padding-block: 8px;
+}
+
+.agent-usage-ledger > div:not(.incident-chips):not(.agent-usage-breakdown) {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 9px;
+  font-size: 13px;
+}
+
+.agent-usage-breakdown {
+  display: grid;
+  gap: 8px;
+  margin-block: 4px;
+}
+
+.agent-usage-breakdown > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.agent-usage-breakdown span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.agent-usage-breakdown small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.agent-usage-ledger p {
+  margin: 4px 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.incident-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-control-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.agent-control-form label {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.agent-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.agent-preview {
+  max-height: 240px;
+  overflow: auto;
+  margin: 14px 0 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  padding: 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-run-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.agent-run-row code {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.inline-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--destructive) 45%, var(--border));
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--destructive);
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .agent-console-grid,
+  .agent-control-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .agent-console-heading,
+  .agent-campaign-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agent-run-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .agent-run-row code {
+    grid-column: 2;
+  }
+}
+
 .evidence-debt-frontier {
   margin: 14px 0;
   border: 1px solid var(--border);

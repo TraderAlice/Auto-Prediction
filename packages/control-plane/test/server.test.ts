@@ -7,10 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
   AiRuntimeConfigurationDesk,
+  AgentExecutionRegistry,
   AnonymousSimulationMaterializerDesk,
   CandidateWatchDesk,
   candidateWatchSources,
   createControlPlane,
+  buildAgentTask,
   CatalogObservationDesk,
   CatalogRefreshScheduler,
   catalogObservationSources,
@@ -93,6 +95,93 @@ async function closeTracked(
 }
 
 describe("control-plane HTTP surface", () => {
+  it("creates and activates a bounded Agent campaign without dispatching from configuration", async () => {
+    const registry = new AgentExecutionRegistry();
+    const task = buildAgentTask({
+      kind: "RULE_EVIDENCE_CLAIM",
+      protocol: "RULE_EVIDENCE_TASK_V1",
+      inputArtifacts: [],
+      taskPayload: { fixture: "server-campaign" },
+      requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
+      provenanceRef: "fixture:server-campaign",
+      priority: 1,
+      createdAt: "2026-08-10T10:00:00.000Z",
+    });
+    registry.saveBatch({ tasks: [task] });
+    const { baseUrl } = await listenControlPlane({ agentExecutionRegistry: registry });
+    const consoleResponse = await fetch(`${baseUrl}/api/v1/agent-execution`);
+    expect(consoleResponse.status).toBe(200);
+    const consoleProjection = await consoleResponse.json() as {
+      executionProfiles: Array<{ executionProfileId: string; profileKey: string }>;
+      summary: { runCount: number; modelInvocationCount: number };
+      providerRequestsStartedByRead: number;
+    };
+    const profile = consoleProjection.executionProfiles.find((item) =>
+      item.profileKey === "rule-evidence-codex-agent"
+    )!;
+    expect(consoleProjection).toMatchObject({
+      summary: { runCount: 0, modelInvocationCount: 0 },
+      providerRequestsStartedByRead: 0,
+    });
+
+    const createdResponse = await fetch(`${baseUrl}/api/v1/agent-campaigns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        campaignKey: "server-campaign-fixture",
+        executionProfileId: profile.executionProfileId,
+        taskIds: [task.taskId],
+        schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+        budget: {
+          maximumConcurrentRuns: 1,
+          maximumModelInvocations: 2,
+          maximumInputTokens: "1000",
+          maximumOutputTokens: "100",
+          maximumWallClockMs: 60_000,
+        },
+      }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const created = await createdResponse.json() as {
+      campaign: { campaignId: string; status: string };
+      providerRequestsStarted: number;
+    };
+    expect(created).toMatchObject({
+      campaign: { status: "PAUSED" },
+      providerRequestsStarted: 0,
+    });
+    const activatedResponse = await fetch(
+      `${baseUrl}/api/v1/agent-campaigns/${created.campaign.campaignId}/activate`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ activationRef: "operator:server-fixture" }),
+      },
+    );
+    expect(activatedResponse.status).toBe(200);
+    const activated = await activatedResponse.json() as {
+      campaign: { campaignId: string; status: string };
+      preview: { maximumImmediateFanout: number };
+      providerRequestsStarted: number;
+    };
+    expect(activated).toMatchObject({
+      campaign: { status: "ACTIVE" },
+      preview: { maximumImmediateFanout: 1 },
+      providerRequestsStarted: 0,
+    });
+    const pausedResponse = await fetch(
+      `${baseUrl}/api/v1/agent-campaigns/${activated.campaign.campaignId}/pause`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(pausedResponse.status).toBe(200);
+    expect(await pausedResponse.json()).toMatchObject({
+      campaign: { status: "PAUSED" },
+      providerRequestsStarted: 0,
+    });
+    expect(registry.snapshot()).toMatchObject({ runs: [], modelInvocations: [] });
+    expect(registry.projection().activeCampaignCount).toBe(0);
+  });
+
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
     const baseUrl = await listen();
 
@@ -1244,11 +1333,11 @@ describe("control-plane HTTP surface", () => {
         reasoningEffort: "max",
       },
       agentExecution: {
-        runtimeDefinitionCount: 1,
-        credentialBindingCount: 1,
-        modelProfileCount: 2,
-        executionProfileCount: 2,
-        workloadRouteCount: 2,
+        runtimeDefinitionCount: 3,
+        credentialBindingCount: 2,
+        modelProfileCount: 6,
+        executionProfileCount: 12,
+        workloadRouteCount: 4,
         taskCount: 0,
         runCount: 0,
         modelInvocationCount: 0,
@@ -1271,9 +1360,9 @@ describe("control-plane HTTP surface", () => {
       reasoningEffort: "max",
     });
     expect(projection.ai.agentExecution).toMatchObject({
-      modelProfileCount: 2,
-      executionProfileCount: 2,
-      workloadRouteCount: 2,
+      modelProfileCount: 6,
+      executionProfileCount: 12,
+      workloadRouteCount: 4,
       taskCount: 0,
       runCount: 0,
       modelInvocationCount: 0,
