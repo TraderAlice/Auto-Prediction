@@ -276,6 +276,11 @@
   border-color: color-mix(in srgb, var(--warning) 24%, var(--border));
 }
 
+.probability-repair-card {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--border));
+  background: color-mix(in srgb, var(--warning) 4%, var(--card));
+}
+
 .probability-evidence-debt-card [data-slot="card-header"] {
   align-items: flex-start;
   display: flex;

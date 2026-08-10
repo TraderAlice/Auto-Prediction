@@ -186,7 +186,7 @@ describe("failure budget frontier", () => {
     });
 
     expect(frontier).toMatchObject({
-      schemaVersion: "pmh.failure-budget-frontier.v2",
+      schemaVersion: "pmh.failure-budget-frontier.v3",
       itemCount: 1,
       positiveMarginCount: 1,
       boundedCandidateCount: 0,
@@ -278,6 +278,7 @@ describe("failure budget frontier", () => {
   it("distinguishes terminal abstention and evidence debt from in-flight work", () => {
     const abstainedCase = hashCanonical({ engine: "terra-abstained" });
     const blockedCase = hashCanonical({ engine: "legacy-blocked" });
+    const challengedCase = hashCanonical({ engine: "terra-challenged" });
     const roles = ["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"] as const;
     const abstained = roles.map((role) => Object.freeze({
       ...estimatorJob({ caseIdentity: abstainedCase, role, effort: "high" }),
@@ -287,20 +288,26 @@ describe("failure budget frontier", () => {
       ...estimatorJob({ caseIdentity: blockedCase, role, effort: "high" }),
       status: "BLOCKED_EVIDENCE" as const,
     }));
+    const challenged = roles.map((role) => Object.freeze({
+      ...estimatorJob({ caseIdentity: challengedCase, role, effort: "high" }),
+      status: "CHALLENGED" as const,
+    }));
     const frontier = buildFailureBudgetFrontier({
-      bounds: [], jobs: [...abstained, ...blocked], corpus, evaluatedAt,
+      bounds: [], jobs: [...abstained, ...blocked, ...challenged], corpus, evaluatedAt,
     });
 
     expect(frontier).toMatchObject({
-      itemCount: 2,
+      itemCount: 3,
       awaitingEstimateCount: 0,
       abstainedCaseCount: 1,
       evidenceBlockedCount: 1,
-      unboundedCaseCount: 2,
+      challengedCaseCount: 1,
+      unboundedCaseCount: 3,
     });
     expect(frontier.items.map((item) => item.status).sort()).toEqual([
       "ESTIMATION_ABSTAINED",
       "EVIDENCE_BLOCKED",
+      "SEMANTIC_REPAIR_REQUIRED",
     ]);
   });
 

@@ -36,6 +36,8 @@ and exact reviewed listing ownership across catalog rotation tracked in
 [`plans/durable-probability-evidence-context.md`](plans/durable-probability-evidence-context.md),
 with structured estimator abstention and research routing tracked in
 [`plans/probability-estimation-evidence-debt.md`](plans/probability-estimation-evidence-debt.md),
+and probability-premise challenges plus semantic repair tracked in
+[`plans/probability-case-integrity.md`](plans/probability-case-integrity.md),
 and AI resource observability tracked in
 [`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md), with terminal
 protocol efficiency tracked in
@@ -322,15 +324,29 @@ and independent risk gates, while being structurally unable to claim a hard
 certificate or guaranteed profit.
 
 Probability estimation is now a native tool-effect loop rather than a fixed
-response schema. Reference-class, causal, and independent roles must record an
-adverse counter-scenario before submitting an evidence-bound interval or an
-explicit abstention. Their runs are content-addressed, survive SQLite restart,
+response schema. Reference-class, causal, and independent roles must accept an
+exact adverse-state interpretation, then record an adverse counter-scenario
+before submitting an evidence-bound interval or an explicit abstention. Their
+runs are content-addressed, survive SQLite restart,
 and appear as estimate-only records in Studio. A durable scheduler now derives
 relation-specific adverse states, leases all three roles concurrently, retries
 within explicit budgets, and recovers expired work after restart. Two distinct
 passing roles are required before first-party code assembles a conservative
 upper bound; ready, abstained, and exhausted outcomes enter a durable inbox.
 Resolved-outcome calibration is now the active probability-quality checkpoint.
+
+Live probability work exposed a stricter prerequisite than evidence quality.
+The retained MLS case selected `TF`—Gemini YES / Polymarket NO—while its main
+postponement counterexample described Gemini non-YES or undefined / Polymarket
+YES. Current run V4/job V7 cases therefore bind a content-addressed expansion of
+every adverse state and require each role to accept it before probability
+effects. A role may instead issue a terminal, scope-bound semantic challenge.
+All three Terra/high roles independently challenged the MLS direction on their
+first request, using 16,530 reported tokens total; first-party code grouped them
+into one `NEW_SEMANTIC_REVIEW_REQUIRED` item and excluded the case from bounds,
+evidence debt, and automatic retry. SQLite schema 33 preserves historical
+artifacts while persisting this new terminal posture. Usage attribution now
+distinguishes `CHALLENGED` from an ordinary estimator abstention.
 
 That calibration checkpoint now has its first deterministic artifact. Every
 resolved joint state binds the exact historical probability bound plus one

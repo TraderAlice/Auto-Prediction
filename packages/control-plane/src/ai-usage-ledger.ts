@@ -16,6 +16,7 @@ export const AI_USAGE_PURPOSES = Object.freeze([
 export type AiUsagePurpose = (typeof AI_USAGE_PURPOSES)[number];
 export type AiUsageOutcome =
   | "SUCCEEDED"
+  | "CHALLENGED"
   | "ABSTAINED"
   | "FAILED"
   | "TIMED_OUT";
@@ -199,7 +200,9 @@ export function assertAiUsageEvent(value: AiUsageEvent): AiUsageEvent {
   parseIso(value.occurredAt);
   tokenValue(value.durationMs);
   if (!AI_USAGE_PURPOSES.includes(value.purpose)) throw new Error("AI usage purpose is invalid");
-  if (!["SUCCEEDED", "ABSTAINED", "FAILED", "TIMED_OUT"].includes(value.outcome)) {
+  if (!["SUCCEEDED", "CHALLENGED", "ABSTAINED", "FAILED", "TIMED_OUT"].includes(
+    value.outcome,
+  )) {
     throw new Error("AI usage outcome is invalid");
   }
   if (!["COMPLETE", "PARTIAL", "UNAVAILABLE"].includes(value.coverage)) {

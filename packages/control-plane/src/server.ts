@@ -63,6 +63,7 @@ import { buildReviewAttentionProjection } from "./review-attention.js";
 import { buildEvidenceDebtFrontier } from "./evidence-debt-frontier.js";
 import { buildFailureBudgetFrontier } from "./failure-budget-frontier.js";
 import { buildProbabilityEvidenceDebt } from "./probability-evidence-debt.js";
+import { buildProbabilityCaseRepairQueue } from "./probability-case-challenge-queue.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
   createMarketArchaeologistDesk,
@@ -1984,6 +1985,9 @@ export function createControlPlane(options?: {
       estimatorJobs: probabilityEstimationScheduler.projection().jobs,
       acquisitionJobs: evidenceAcquisitionProjection.jobs,
     });
+    const probabilityCaseRepairQueue = buildProbabilityCaseRepairQueue({
+      runs: probabilityEstimationDesk.projection().records,
+    });
     const semanticRelationGraph = buildSemanticRelationGraph({
       corpus: catalogObservationDesk.corpus(),
       archaeologist: archaeologistProjection,
@@ -2036,6 +2040,7 @@ export function createControlPlane(options?: {
       evidenceAcquisition: evidenceAcquisitionProjection,
       evidenceDebtFrontier,
       probabilityEvidenceDebt,
+      probabilityCaseRepairQueue,
       ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
@@ -2638,6 +2643,13 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/probability-case-repairs"
+    ) {
+      writeJson(response, 200, (await projection()).ai.probabilityCaseRepairQueue);
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/rule-evidence-claims"
     ) {
       await ready;
@@ -2704,6 +2716,36 @@ export function createControlPlane(options?: {
           diagnostic: error instanceof Error
             ? error.message
             : "probability estimation notification acknowledgement failed",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    const probabilityCaseRetryMatch = url.pathname.match(
+      /^\/api\/v1\/probability-estimation\/cases\/(sha256:[0-9a-f]{64})\/retries$/u,
+    );
+    if (request.method === "POST" && probabilityCaseRetryMatch !== null) {
+      try {
+        const jobs = probabilityEstimationScheduler.retryExhaustedCase(
+          probabilityCaseRetryMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          caseIdentity: probabilityCaseRetryMatch[1],
+          reopenedRoleCount: jobs.length,
+          providerRequestStarted: false,
+          semanticDecisionAuthority: false,
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "probability estimation case retry failed",
+          providerRequestStarted: false,
+          semanticDecisionAuthority: false,
           executionAuthority: false,
         });
       }

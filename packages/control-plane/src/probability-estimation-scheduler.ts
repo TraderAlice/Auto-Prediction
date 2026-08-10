@@ -23,6 +23,12 @@ import {
 } from "./semantic-constraint.js";
 import { assertSemanticReviewRecord, type SemanticReviewRecord } from "./semantic-review.js";
 import type { DiscoveryCatalogListing, OperationalStorageProjection } from "./types.js";
+import {
+  assertProbabilityAdverseStateInterpretation,
+  assertProbabilityInterpretationLineage,
+  buildProbabilityAdverseStateInterpretation,
+  type ProbabilityAdverseStateInterpretation,
+} from "./probability-case-integrity.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const DEFAULT_RETENTION_LIMIT = 750;
@@ -31,10 +37,13 @@ const DEFAULT_MAX_REQUESTS_PER_TICK = 3;
 const DEFAULT_LEASE_TIMEOUT_MS = 330_000;
 const DEFAULT_RETRY_DELAY_MS = 30_000;
 const MAX_EVIDENCE_CONTEXT_BYTES = 512_000;
-const PREVIOUS_PROBABILITY_ESTIMATION_INPUT_PROTOCOL =
+const LEGACY_PROBABILITY_ESTIMATION_INPUT_PROTOCOL_V2 =
   "pmh.probability-estimation-input.v2" as const;
+const LEGACY_PROBABILITY_ESTIMATION_INPUT_PROTOCOL_V3 =
+  "pmh.probability-estimation-input.v3" as const;
 type ProbabilityEstimationInputProtocol =
-  | typeof PREVIOUS_PROBABILITY_ESTIMATION_INPUT_PROTOCOL
+  | typeof LEGACY_PROBABILITY_ESTIMATION_INPUT_PROTOCOL_V2
+  | typeof LEGACY_PROBABILITY_ESTIMATION_INPUT_PROTOCOL_V3
   | typeof PROBABILITY_ESTIMATION_INPUT_PROTOCOL;
 
 export type ProbabilityEstimationJobStatus =
@@ -44,6 +53,7 @@ export type ProbabilityEstimationJobStatus =
   | "BLOCKED_EVIDENCE"
   | "PASS"
   | "ABSTAINED"
+  | "CHALLENGED"
   | "EXHAUSTED";
 
 export type ProbabilityAdverseStateDerivation = Readonly<{
@@ -95,7 +105,8 @@ export type ProbabilityEstimationJobRecord = Readonly<{
     | "pmh.probability-estimation-job.v3"
     | "pmh.probability-estimation-job.v4"
     | "pmh.probability-estimation-job.v5"
-    | "pmh.probability-estimation-job.v6";
+    | "pmh.probability-estimation-job.v6"
+    | "pmh.probability-estimation-job.v7";
   jobId: Hash;
   caseIdentity: Hash;
   proposalId: Hash;
@@ -110,6 +121,7 @@ export type ProbabilityEstimationJobRecord = Readonly<{
   engine?: ProbabilityEstimatorEngine;
   evidenceContext?: ProbabilityEstimationEvidenceContext;
   inputProtocol?: ProbabilityEstimationInputProtocol;
+  adverseStateInterpretation?: ProbabilityAdverseStateInterpretation;
   status: ProbabilityEstimationJobStatus;
   attemptCount: number;
   maxAttempts: number;
@@ -136,7 +148,11 @@ export type ProbabilityEstimationNotificationRecord = Readonly<{
   dedupeIdentity: Hash;
   caseIdentity: Hash;
   proposalId: Hash;
-  kind: "BOUND_READY" | "ESTIMATION_ABSTAINED" | "ESTIMATION_EXHAUSTED";
+  kind:
+    | "BOUND_READY"
+    | "ESTIMATION_ABSTAINED"
+    | "ESTIMATION_EXHAUSTED"
+    | "SEMANTIC_REPAIR_REQUIRED";
   status: "UNREAD" | "READ";
   boundArtifactHash: Hash | null;
   title: string;
@@ -180,6 +196,7 @@ export type ProbabilityEstimationSchedulerProjection = Readonly<{
   policyBlockedCount: number;
   passedCount: number;
   abstainedCount: number;
+  challengedCount: number;
   exhaustedCount: number;
   caseCount: number;
   boundReadyCount: number;
@@ -473,10 +490,13 @@ function caseIdentity(input: Readonly<{
   engine?: ProbabilityEstimatorEngine;
   evidenceContextIdentity?: Hash;
   inputProtocol?: ProbabilityEstimationInputProtocol;
+  adverseStateInterpretationArtifactHash?: Hash;
 }>): Hash {
   return hashCanonical({
-    schemaVersion: input.inputProtocol !== undefined
-      ? "pmh.probability-estimation-case-id.v4"
+    schemaVersion: input.inputProtocol === PROBABILITY_ESTIMATION_INPUT_PROTOCOL
+      ? "pmh.probability-estimation-case-id.v5"
+      : input.inputProtocol !== undefined
+        ? "pmh.probability-estimation-case-id.v4"
       : input.evidenceContextIdentity !== undefined
         ? "pmh.probability-estimation-case-id.v3"
       : input.engine === undefined
@@ -544,7 +564,8 @@ export function assertProbabilityEstimationJobRecord(
   const searchOrigin = record.searchOrigin === undefined
     ? undefined
     : assertProbabilitySearchOrigin(record.searchOrigin);
-  const terminal = ["PASS", "ABSTAINED", "EXHAUSTED"].includes(record.status);
+  const terminal = ["PASS", "ABSTAINED", "CHALLENGED", "EXHAUSTED"]
+    .includes(record.status);
   const leased = record.status === "LEASED";
   const engine = record.engine === undefined
     ? undefined
@@ -552,6 +573,9 @@ export function assertProbabilityEstimationJobRecord(
   const evidenceContext = record.evidenceContext === undefined
     ? undefined
     : assertProbabilityEstimationEvidenceContext(record.evidenceContext);
+  const adverseStateInterpretation = record.adverseStateInterpretation === undefined
+    ? undefined
+    : assertProbabilityAdverseStateInterpretation(record.adverseStateInterpretation);
   const expectedCaseIdentity = caseIdentity({
     semanticReviewArtifactHash: record.semanticReviewArtifactHash,
     semanticConstraintArtifactHash: record.semanticConstraintArtifactHash,
@@ -565,6 +589,9 @@ export function assertProbabilityEstimationJobRecord(
     ...(record.inputProtocol === undefined
       ? {}
       : { inputProtocol: record.inputProtocol }),
+    ...(adverseStateInterpretation === undefined
+      ? {}
+      : { adverseStateInterpretationArtifactHash: adverseStateInterpretation.artifactHash }),
   });
   const evidenceByRef = new Map(constraint.ruleEvidence.map((evidence) =>
     [evidence.listingRef, evidence] as const
@@ -577,6 +604,7 @@ export function assertProbabilityEstimationJobRecord(
       "pmh.probability-estimation-job.v4",
       "pmh.probability-estimation-job.v5",
       "pmh.probability-estimation-job.v6",
+      "pmh.probability-estimation-job.v7",
     ].includes(record.schemaVersion) ||
     (record.schemaVersion === "pmh.probability-estimation-job.v1" &&
       searchOrigin !== undefined) ||
@@ -591,13 +619,20 @@ export function assertProbabilityEstimationJobRecord(
       (engine === undefined || evidenceContext === undefined)) ||
     (record.schemaVersion === "pmh.probability-estimation-job.v5" &&
       (engine === undefined || evidenceContext === undefined ||
-        record.inputProtocol !== PREVIOUS_PROBABILITY_ESTIMATION_INPUT_PROTOCOL)) ||
+        record.inputProtocol !== LEGACY_PROBABILITY_ESTIMATION_INPUT_PROTOCOL_V2 ||
+        adverseStateInterpretation !== undefined)) ||
     (record.schemaVersion === "pmh.probability-estimation-job.v6" &&
       (engine === undefined || evidenceContext === undefined ||
-        record.inputProtocol !== PROBABILITY_ESTIMATION_INPUT_PROTOCOL)) ||
-    (!["pmh.probability-estimation-job.v5", "pmh.probability-estimation-job.v6"]
+        record.inputProtocol !== LEGACY_PROBABILITY_ESTIMATION_INPUT_PROTOCOL_V3 ||
+        adverseStateInterpretation !== undefined)) ||
+    (record.schemaVersion === "pmh.probability-estimation-job.v7" &&
+      (engine === undefined || evidenceContext === undefined ||
+        record.inputProtocol !== PROBABILITY_ESTIMATION_INPUT_PROTOCOL ||
+        adverseStateInterpretation === undefined)) ||
+    (!["pmh.probability-estimation-job.v5", "pmh.probability-estimation-job.v6",
+      "pmh.probability-estimation-job.v7"]
       .includes(record.schemaVersion) &&
-      record.inputProtocol !== undefined) ||
+      (record.inputProtocol !== undefined || adverseStateInterpretation !== undefined)) ||
     (engine !== undefined && engine.model !== record.model) ||
     (evidenceContext !== undefined && (
       evidenceContext.semanticReviewArtifactHash !== record.semanticReviewArtifactHash ||
@@ -612,6 +647,16 @@ export function assertProbabilityEstimationJobRecord(
           listing.sourceRawHash !== evidence.sourceRawHash ||
           listing.protocolIdentity !== evidence.protocolIdentity;
       })
+    )) ||
+    (adverseStateInterpretation !== undefined && (
+      evidenceContext === undefined ||
+      assertProbabilityInterpretationLineage({
+        interpretation: adverseStateInterpretation,
+        semanticConstraint: constraint,
+        evidenceContextIdentity: evidenceContext.contextIdentity,
+        listings: evidenceContext.listings,
+        adverseStateIds: record.adverseStateIds,
+      }).artifactHash !== adverseStateInterpretation.artifactHash
     )) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
     record.jobId !== jobId(record.caseIdentity, record.role) ||
@@ -632,7 +677,7 @@ export function assertProbabilityEstimationJobRecord(
     !boundedText(record.model, 100) ||
     ![
       "PENDING", "LEASED", "RETRY_WAIT", "BLOCKED_EVIDENCE", "PASS",
-      "ABSTAINED", "EXHAUSTED",
+      "ABSTAINED", "CHALLENGED", "EXHAUSTED",
     ].includes(record.status) ||
     !Number.isSafeInteger(record.attemptCount) || record.attemptCount < 0 ||
     !Number.isSafeInteger(record.maxAttempts) || record.maxAttempts < 1 ||
@@ -643,7 +688,8 @@ export function assertProbabilityEstimationJobRecord(
     (record.leaseExpiresAt !== null && !isIso(record.leaseExpiresAt)) ||
     terminal !== (record.completedAt !== null) ||
     (record.completedAt !== null && !isIso(record.completedAt)) ||
-    (["PASS", "ABSTAINED"].includes(record.status) && record.lastRunId === null) ||
+    (["PASS", "ABSTAINED", "CHALLENGED"].includes(record.status) &&
+      record.lastRunId === null) ||
     (["PENDING", "RETRY_WAIT", "BLOCKED_EVIDENCE", "EXHAUSTED"].includes(
       record.status,
     ) && record.lastRunId !== null) ||
@@ -653,6 +699,7 @@ export function assertProbabilityEstimationJobRecord(
       !HASH_PATTERN.test(String(record.lastEstimateIdentity))) ||
     (record.status === "PASS" && record.diagnostic !== null) ||
     (record.status === "ABSTAINED" && !boundedText(record.diagnostic, 500)) ||
+    (record.status === "CHALLENGED" && !boundedText(record.diagnostic, 500)) ||
     (record.status === "BLOCKED_EVIDENCE" && !boundedText(record.diagnostic, 500)) ||
     (record.status === "EXHAUSTED" && !boundedText(record.diagnostic, 500)) ||
     (record.diagnostic !== null && !boundedText(record.diagnostic, 500)) ||
@@ -681,7 +728,10 @@ export function assertProbabilityEstimationNotificationRecord(
     !HASH_PATTERN.test(String(record.dedupeIdentity)) ||
     !HASH_PATTERN.test(String(record.caseIdentity)) ||
     !HASH_PATTERN.test(String(record.proposalId)) ||
-    !["BOUND_READY", "ESTIMATION_ABSTAINED", "ESTIMATION_EXHAUSTED"]
+    ![
+      "BOUND_READY", "ESTIMATION_ABSTAINED", "ESTIMATION_EXHAUSTED",
+      "SEMANTIC_REPAIR_REQUIRED",
+    ]
       .includes(record.kind) ||
     !["UNREAD", "READ"].includes(record.status) ||
     ((record.kind === "BOUND_READY") !== (record.boundArtifactHash !== null)) ||
@@ -843,6 +893,14 @@ export class ProbabilityEstimationScheduler {
       )?.evidenceContext;
       const evidenceContext = suppliedContext ?? currentContext ?? retainedContext;
       const exactEvidence = evidenceContext !== undefined;
+      const adverseStateInterpretation = evidenceContext === undefined
+        ? undefined
+        : buildProbabilityAdverseStateInterpretation({
+            semanticConstraint: constraint,
+            evidenceContextIdentity: evidenceContext.contextIdentity,
+            listings: evidenceContext.listings,
+            adverseStateIds: derived.adverseStateIds,
+          });
       const caseId = caseIdentity({
         semanticReviewArtifactHash: candidate.semanticReviewArtifactHash,
         semanticConstraintArtifactHash: constraint.artifactHash,
@@ -856,6 +914,12 @@ export class ProbabilityEstimationScheduler {
         ...(evidenceContext === undefined
           ? {}
           : { inputProtocol: PROBABILITY_ESTIMATION_INPUT_PROTOCOL }),
+        ...(adverseStateInterpretation === undefined
+          ? {}
+          : {
+              adverseStateInterpretationArtifactHash:
+                adverseStateInterpretation.artifactHash,
+            }),
       });
       for (const role of PROBABILITY_ESTIMATOR_ROLES) {
         const id = jobId(caseId, role);
@@ -867,6 +931,8 @@ export class ProbabilityEstimationScheduler {
             hashCanonical(jobEngine(item)) === hashCanonical(engine) &&
             (item.evidenceContext?.contextIdentity ?? null) ===
               (evidenceContext?.contextIdentity ?? null) &&
+            (item.adverseStateInterpretation?.artifactHash ?? null) ===
+              (adverseStateInterpretation?.artifactHash ?? null) &&
             (item.inputProtocol ?? null) === (evidenceContext === undefined
               ? null
               : PROBABILITY_ESTIMATION_INPUT_PROTOCOL)
@@ -876,7 +942,7 @@ export class ProbabilityEstimationScheduler {
           job = this.#save(withHash({
             schemaVersion: evidenceContext === undefined
               ? "pmh.probability-estimation-job.v3"
-              : "pmh.probability-estimation-job.v6",
+              : "pmh.probability-estimation-job.v7",
             jobId: id,
             caseIdentity: caseId,
             proposalId: constraint.proposalId,
@@ -892,6 +958,9 @@ export class ProbabilityEstimationScheduler {
             model,
             engine,
             ...(evidenceContext === undefined ? {} : { evidenceContext }),
+            ...(adverseStateInterpretation === undefined
+              ? {}
+              : { adverseStateInterpretation }),
             ...(evidenceContext === undefined
               ? {}
               : { inputProtocol: PROBABILITY_ESTIMATION_INPUT_PROTOCOL }),
@@ -918,7 +987,8 @@ export class ProbabilityEstimationScheduler {
         }
         if (job.lastRunId !== null) {
           const run = runById.get(job.lastRunId);
-          if (run !== undefined && ["PASS", "ABSTAINED", "FAILED"].includes(run.status)) {
+          if (run !== undefined &&
+            ["PASS", "ABSTAINED", "CHALLENGED", "FAILED"].includes(run.status)) {
             job = this.#completeFromRun(job, run);
           }
         }
@@ -1016,6 +1086,13 @@ export class ProbabilityEstimationScheduler {
             semanticConstraint: leased.semanticConstraint,
             evidenceScopeIdentity: leased.evidenceScopeIdentity,
             listings: leased.evidenceContext.listings,
+            adverseStateInterpretation: leased.adverseStateInterpretation ??
+              buildProbabilityAdverseStateInterpretation({
+                semanticConstraint: leased.semanticConstraint,
+                evidenceContextIdentity: leased.evidenceContext.contextIdentity,
+                listings: leased.evidenceContext.listings,
+                adverseStateIds: leased.adverseStateIds,
+              }),
           }), leased.adverseStateIds, leased.role, jobEngine(leased));
     } catch (error) {
       const capacity = /requires configured .* credentials|concurrency limit/u.test(
@@ -1068,11 +1145,15 @@ export class ProbabilityEstimationScheduler {
       run.evidenceScopeIdentity !== job.evidenceScopeIdentity || run.role !== job.role ||
       run.model !== job.model ||
       hashCanonical(run.engine ?? jobEngine(job)) !== hashCanonical(jobEngine(job)) ||
-      run.adverseStateIds.join("\n") !== job.adverseStateIds.join("\n")
+      run.adverseStateIds.join("\n") !== job.adverseStateIds.join("\n") ||
+      (job.adverseStateInterpretation !== undefined &&
+        run.adverseStateInterpretation?.artifactHash !==
+          job.adverseStateInterpretation.artifactHash)
     ) throw new Error("probability estimation job completion lineage is inconsistent");
     if (run.status === "RUNNING") return job;
     const timestamp = run.completedAt ?? new Date(this.#now()).toISOString();
-    if (run.status === "PASS" || run.status === "ABSTAINED") {
+    if (run.status === "PASS" || run.status === "ABSTAINED" ||
+      run.status === "CHALLENGED") {
       if (job.status === run.status && job.lastRunId === run.runId) return job;
       return this.#save(withHash({
         ...withoutHash(job),
@@ -1081,7 +1162,9 @@ export class ProbabilityEstimationScheduler {
         leaseExpiresAt: null,
         completedAt: timestamp,
         lastRunId: run.runId,
-        lastEstimateIdentity: run.estimate?.estimateIdentity ?? null,
+        lastEstimateIdentity: run.status === "PASS"
+          ? run.estimate?.estimateIdentity ?? null
+          : null,
         diagnostic: run.status === "PASS" ? null : run.diagnostic,
         updatedAt: timestamp,
       }));
@@ -1187,12 +1270,16 @@ export class ProbabilityEstimationScheduler {
         continue;
       }
       if (jobs.length !== PROBABILITY_ESTIMATOR_ROLES.length ||
-        jobs.some((job) => !["PASS", "ABSTAINED", "EXHAUSTED"].includes(job.status))) continue;
+        jobs.some((job) => ![
+          "PASS", "ABSTAINED", "CHALLENGED", "EXHAUSTED",
+        ].includes(job.status))) continue;
       this.#notify(
         jobs[0]!,
-        jobs.some((job) => job.status === "ABSTAINED")
-          ? "ESTIMATION_ABSTAINED"
-          : "ESTIMATION_EXHAUSTED",
+        jobs.some((job) => job.status === "CHALLENGED")
+          ? "SEMANTIC_REPAIR_REQUIRED"
+          : jobs.some((job) => job.status === "ABSTAINED")
+            ? "ESTIMATION_ABSTAINED"
+            : "ESTIMATION_EXHAUSTED",
         null,
       );
     }
@@ -1225,11 +1312,15 @@ export class ProbabilityEstimationScheduler {
       boundArtifactHash: bound?.artifactHash ?? null,
       title: kind === "BOUND_READY"
         ? "Probabilistic semantic bound ready"
+        : kind === "SEMANTIC_REPAIR_REQUIRED"
+          ? "Probability case needs semantic repair"
         : kind === "ESTIMATION_ABSTAINED"
           ? "Probability estimators abstained"
           : "Probability estimation exhausted",
       summary: kind === "BOUND_READY"
         ? `${bound!.estimates.length} independent roles bound adverse states ${bound!.adverseStateIds.join("+")} at no more than ${bound!.epsilonPpm} ppm; price and risk compilation may now evaluate the case.`
+        : kind === "SEMANTIC_REPAIR_REQUIRED"
+          ? "At least one independent role found an internally inconsistent relation direction, outcome mapping, adverse-state selection, or evidence scope. The case cannot produce a probability bound until a new semantic review repairs its lineage."
         : kind === "ESTIMATION_ABSTAINED"
           ? "Fewer than two independent roles could support a numeric interval; the semantic opportunity remains retained without a fabricated probability."
           : "Fewer than two independent roles completed within the bounded provider-attempt budget.",
@@ -1249,6 +1340,36 @@ export class ProbabilityEstimationScheduler {
       status: "READ",
       readAt: new Date(this.#now()).toISOString(),
     }));
+  }
+
+  public retryExhaustedCase(caseId: Hash): readonly ProbabilityEstimationJobRecord[] {
+    if (!HASH_PATTERN.test(String(caseId))) {
+      throw new Error("probability estimation retry case identity is invalid");
+    }
+    const jobs = this.#jobs.filter((job) => job.caseIdentity === caseId);
+    if (jobs.length === 0) throw new Error("probability estimation case was not found");
+    if (jobs.some((job) => job.status === "CHALLENGED")) {
+      throw new Error("a challenged probability case requires a new semantic review");
+    }
+    const retryable = jobs.filter((job) => job.status === "EXHAUSTED");
+    if (retryable.length === 0) {
+      throw new Error("probability estimation case has no exhausted roles to retry");
+    }
+    const timestamp = new Date(this.#now()).toISOString();
+    const reopened = retryable.map((job) => this.#save(withHash({
+      ...withoutHash(job),
+      status: "PENDING",
+      attemptCount: 0,
+      nextAttemptAt: timestamp,
+      leasedAt: null,
+      leaseExpiresAt: null,
+      completedAt: null,
+      lastRunId: null,
+      lastEstimateIdentity: null,
+      diagnostic: null,
+      updatedAt: timestamp,
+    })));
+    return Object.freeze(reopened);
   }
 
   #save(input: ProbabilityEstimationJobRecord): ProbabilityEstimationJobRecord {
@@ -1319,6 +1440,7 @@ export class ProbabilityEstimationScheduler {
       policyBlockedCount,
       passedCount: jobs.filter((job) => job.status === "PASS").length,
       abstainedCount: jobs.filter((job) => job.status === "ABSTAINED").length,
+      challengedCount: jobs.filter((job) => job.status === "CHALLENGED").length,
       exhaustedCount: jobs.filter((job) => job.status === "EXHAUSTED").length,
       caseCount: new Set(jobs.map((job) => job.caseIdentity)).size,
       boundReadyCount: bounds.length,

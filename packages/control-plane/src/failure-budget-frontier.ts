@@ -30,6 +30,7 @@ export type FailureBudgetFrontierItem = Readonly<{
     | "ESTIMATION_ABSTAINED"
     | "ESTIMATION_EXHAUSTED"
     | "EVIDENCE_BLOCKED"
+    | "SEMANTIC_REPAIR_REQUIRED"
     | "PRICE_UNAVAILABLE";
   portfolioLabel: string | null;
   breakEvenEpsilonPpm: string | null;
@@ -59,7 +60,7 @@ export type FailureBudgetFrontierItem = Readonly<{
 }>;
 
 export type FailureBudgetFrontier = Readonly<{
-  schemaVersion: "pmh.failure-budget-frontier.v2";
+  schemaVersion: "pmh.failure-budget-frontier.v3";
   contentHash: Hash;
   evaluatedAt: string;
   itemCount: number;
@@ -68,6 +69,7 @@ export type FailureBudgetFrontier = Readonly<{
   awaitingEstimateCount: number;
   abstainedCaseCount: number;
   evidenceBlockedCount: number;
+  challengedCaseCount: number;
   unboundedCaseCount: number;
   items: readonly FailureBudgetFrontierItem[];
   rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC";
@@ -286,9 +288,11 @@ function pendingItem(
     `ESTIMATOR_${job.role}_${job.status}`
   ))].sort());
   const terminal = jobs.every((job) =>
-    ["PASS", "ABSTAINED", "EXHAUSTED"].includes(job.status)
+    ["PASS", "ABSTAINED", "CHALLENGED", "EXHAUSTED"].includes(job.status)
   );
-  const status = jobs.every((job) => job.status === "BLOCKED_EVIDENCE")
+  const status = terminal && jobs.some((job) => job.status === "CHALLENGED")
+    ? "SEMANTIC_REPAIR_REQUIRED" as const
+    : jobs.every((job) => job.status === "BLOCKED_EVIDENCE")
     ? "EVIDENCE_BLOCKED" as const
     : terminal && jobs.some((job) => job.status === "EXHAUSTED")
       ? "ESTIMATION_EXHAUSTED" as const
@@ -394,7 +398,7 @@ export function buildFailureBudgetFrontier(input: Readonly<{
       : leftEdge > rightEdge ? -1 : 1;
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.failure-budget-frontier.v2" as const,
+    schemaVersion: "pmh.failure-budget-frontier.v3" as const,
     evaluatedAt: input.evaluatedAt,
     itemCount: items.length,
     positiveMarginCount: items.filter((item) =>
@@ -413,9 +417,13 @@ export function buildFailureBudgetFrontier(input: Readonly<{
     evidenceBlockedCount: items.filter((item) =>
       item.status === "EVIDENCE_BLOCKED"
     ).length,
+    challengedCaseCount: items.filter((item) =>
+      item.status === "SEMANTIC_REPAIR_REQUIRED"
+    ).length,
     unboundedCaseCount: items.filter((item) => [
       "AWAITING_ESTIMATES", "ESTIMATION_ABSTAINED", "ESTIMATION_EXHAUSTED",
       "EVIDENCE_BLOCKED",
+      "SEMANTIC_REPAIR_REQUIRED",
     ].includes(item.status)).length,
     items: Object.freeze(items),
     rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC" as const,

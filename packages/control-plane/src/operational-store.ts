@@ -178,7 +178,7 @@ import {
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
 
-const SCHEMA_VERSION = 32;
+const SCHEMA_VERSION = 33;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -3012,6 +3012,74 @@ export class SqliteOperationalStore
             ON premise_route_expansion_jobs (status, next_attempt_at, job_id);
         `);
       }
+      if (
+        current >= 24 && current < 33 && probabilityEstimationRunTableExists &&
+        probabilityEstimationJobTableExists
+      ) {
+        this.#database.exec(`
+          DROP INDEX IF EXISTS probability_estimation_runs_scope;
+          ALTER TABLE probability_estimation_runs RENAME TO probability_estimation_runs_v32;
+          CREATE TABLE probability_estimation_runs (
+            run_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(run_id) = 71 AND run_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_review_artifact_hash TEXT NOT NULL CHECK (
+              length(semantic_review_artifact_hash) = 71 AND
+              semantic_review_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_constraint_artifact_hash TEXT NOT NULL CHECK (
+              length(semantic_constraint_artifact_hash) = 71 AND
+              semantic_constraint_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            role TEXT NOT NULL CHECK (
+              role IN ('REFERENCE_CLASS', 'CAUSAL', 'INDEPENDENT')
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN ('RUNNING', 'PASS', 'ABSTAINED', 'CHALLENGED', 'FAILED')
+            ),
+            started_at TEXT NOT NULL CHECK (length(started_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          INSERT INTO probability_estimation_runs
+            SELECT * FROM probability_estimation_runs_v32;
+          DROP TABLE probability_estimation_runs_v32;
+          CREATE INDEX probability_estimation_runs_scope
+            ON probability_estimation_runs (
+              semantic_review_artifact_hash,
+              semantic_constraint_artifact_hash,
+              started_at DESC,
+              run_id DESC
+            );
+
+          DROP INDEX IF EXISTS probability_estimation_jobs_due;
+          ALTER TABLE probability_estimation_jobs RENAME TO probability_estimation_jobs_v32;
+          CREATE TABLE probability_estimation_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN (
+                'PENDING', 'LEASED', 'RETRY_WAIT', 'BLOCKED_EVIDENCE',
+                'PASS', 'ABSTAINED', 'CHALLENGED', 'EXHAUSTED'
+              )
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          INSERT INTO probability_estimation_jobs
+            SELECT * FROM probability_estimation_jobs_v32;
+          DROP TABLE probability_estimation_jobs_v32;
+          CREATE INDEX probability_estimation_jobs_due
+            ON probability_estimation_jobs (status, next_attempt_at, job_id);
+        `);
+      }
       if (current < 24 || !probabilityEstimationRunTableExists) {
         this.#database.exec(`
           CREATE TABLE IF NOT EXISTS probability_estimation_runs (
@@ -3030,7 +3098,7 @@ export class SqliteOperationalStore
               role IN ('REFERENCE_CLASS', 'CAUSAL', 'INDEPENDENT')
             ),
             status TEXT NOT NULL CHECK (
-              status IN ('RUNNING', 'PASS', 'ABSTAINED', 'FAILED')
+              status IN ('RUNNING', 'PASS', 'ABSTAINED', 'CHALLENGED', 'FAILED')
             ),
             started_at TEXT NOT NULL CHECK (length(started_at) > 0),
             record_json TEXT NOT NULL CHECK (json_valid(record_json)),
@@ -3059,7 +3127,7 @@ export class SqliteOperationalStore
             status TEXT NOT NULL CHECK (
               status IN (
                 'PENDING', 'LEASED', 'RETRY_WAIT', 'BLOCKED_EVIDENCE',
-                'PASS', 'ABSTAINED', 'EXHAUSTED'
+                'PASS', 'ABSTAINED', 'CHALLENGED', 'EXHAUSTED'
               )
             ),
             next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),

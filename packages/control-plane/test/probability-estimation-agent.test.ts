@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { hashCanonical } from "@pmh/domain";
 import {
   AiUsageLedger,
   assertProbabilityEstimationEvidenceContext,
+  assertProbabilityAdverseStateInterpretation,
   assertProbabilityEstimationJobRecord,
   assertProbabilityEstimationRunRecord,
   buildMarketCorpusSnapshot,
   buildProbabilityEstimationEvidenceContext,
+  buildProbabilityAdverseStateInterpretation,
+  buildProbabilityCaseChallenge,
+  buildProbabilityCaseRepairQueue,
   buildProbabilityEvidenceNeed,
   buildProbabilityEvidenceDebt,
   buildProbabilitySearchOrigin,
@@ -22,6 +27,7 @@ import {
   ProbabilityEstimationScheduler,
   type AiRuntimeConfiguration,
   type MarketRelationProposal,
+  type ProbabilityEstimationModelInput,
   type SemanticReviewRecord,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
@@ -240,6 +246,22 @@ function toolCompletion(name: string, payload: unknown, id: number): Response {
   });
 }
 
+function directInterpretationHash(
+  adverseStateIds: readonly string[] = ["TT"],
+): string {
+  const evidenceContextIdentity = hashCanonical({
+    schemaVersion: "pmh.legacy-probability-interpretation-context.v1",
+    semanticReviewArtifactHash: review.report!.artifactHash,
+    listings,
+  });
+  return buildProbabilityAdverseStateInterpretation({
+    semanticConstraint: constraint,
+    evidenceContextIdentity,
+    listings,
+    adverseStateIds,
+  }).artifactHash;
+}
+
 describe("Agent-first probability estimation", () => {
   it("uses counter-scenario and estimate tools instead of whole-response parsing", async () => {
     const allowedEvidenceHash = constraint.ruleEvidence[0]!.sourceRawHash;
@@ -256,9 +278,19 @@ describe("Agent-first probability estimation", () => {
           return bodies.length === 1
             ? toolCompletion("record_counter_scenario", {
                 stateId: "TT",
-                narrative: "A non-fatal wound followed by recovery permits both events.",
+                narrative: "This premature effect must be rejected.",
                 evidenceHashes: [allowedEvidenceHash],
               }, 1)
+            : bodies.length === 2
+              ? toolCompletion("accept_probability_case", {
+                interpretationArtifactHash: directInterpretationHash(),
+              }, 2)
+            : bodies.length === 3
+              ? toolCompletion("record_counter_scenario", {
+                stateId: "TT",
+                narrative: "A non-fatal wound followed by recovery permits both events.",
+                evidenceHashes: [allowedEvidenceHash],
+              }, 3)
             : toolCompletion("submit_probability_estimate", {
                 lowerPpm: "20000",
                 upperPpm: "50000",
@@ -266,7 +298,7 @@ describe("Agent-first probability estimation", () => {
                 assumptions: ["Recorded appearances do not count."],
                 validForMs: 3_600_000,
                 rationale: "Causal recovery path gives a small but non-zero joint-state interval.",
-              }, 2);
+              }, 4);
         },
       },
     );
@@ -285,11 +317,13 @@ describe("Agent-first probability estimation", () => {
       },
       trace: {
         protocol: "AI_SDK_TOOL_LOOP",
-        stepCount: 2,
-        toolCallCount: 2,
-        providerRequestAttemptCount: 2,
+        stepCount: 4,
+        toolCallCount: 4,
+        providerRequestAttemptCount: 4,
         counterScenarioEffectCount: 1,
         evidenceNeedEffectCount: 0,
+        caseAcknowledgementEffectCount: 1,
+        caseChallengeEffectCount: 0,
         wholeResponseSchemaParsing: false,
       },
       authority: "ESTIMATE_ONLY",
@@ -310,14 +344,163 @@ describe("Agent-first probability estimation", () => {
       }],
       artifactHash: record.artifactHash,
     })).toThrow(/lineage or authority/u);
-    expect(bodies).toHaveLength(2);
+    expect(bodies).toHaveLength(4);
     expect(bodies.every((body) => !("response_format" in body))).toBe(true);
     expect(JSON.stringify(bodies[0])).toContain("record_counter_scenario");
     expect(JSON.stringify(bodies[0])).toContain("abstain_probability_estimate");
-    expect(JSON.stringify(bodies[0])).toContain("pmh.probability-estimation-input.v3");
+    expect(JSON.stringify(bodies[0])).toContain("pmh.probability-estimation-input.v4");
+    expect(JSON.stringify(bodies[0])).toContain("probability-adverse-state-interpretation.v1");
     expect(JSON.stringify(bodies[0])).toContain("truthByListingRef");
     expect(JSON.stringify(bodies[0])).toContain("Recovery after a non-fatal injury");
     expect(JSON.stringify(record)).not.toContain("test-only-key");
+  });
+
+  it("expands compact state symbols into exact outcome assignments and rejects tampering", () => {
+    const artifact = buildProbabilityAdverseStateInterpretation({
+      semanticConstraint: constraint,
+      evidenceContextIdentity: hashCanonical({ context: "interpretation-test" }),
+      listings,
+      adverseStateIds: ["TT"],
+    });
+    expect(artifact).toMatchObject({
+      schemaVersion: "pmh.probability-adverse-state-interpretation.v1",
+      adverseStateIds: ["TT"],
+      outcomeMappingPosture: "EXACT_BINARY_LABELS",
+      states: [{
+        stateId: "TT",
+        claimedByCounterexample: true,
+        assignments: [
+          {
+            ordinal: 0,
+            listingRef: listings[0]!.listingRef,
+            truth: true,
+            selectedOutcome: { venueOutcomeId: "shot-yes", label: "Yes" },
+          },
+          {
+            ordinal: 1,
+            listingRef: listings[1]!.listingRef,
+            truth: true,
+            selectedOutcome: { venueOutcomeId: "cola-yes", label: "Yes" },
+          },
+        ],
+      }],
+      authority: "CASE_INTERPRETATION_ONLY",
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
+    expect(() => assertProbabilityAdverseStateInterpretation(artifact)).not.toThrow();
+    expect(() => assertProbabilityAdverseStateInterpretation({
+      ...artifact,
+      states: [{
+        ...artifact.states[0]!,
+        assignments: [{
+          ...artifact.states[0]!.assignments[0]!,
+          truth: false,
+        }, artifact.states[0]!.assignments[1]!],
+      }],
+    })).toThrow(/bounded contract/u);
+
+    const input: ProbabilityEstimationModelInput = Object.freeze({
+      role: "INDEPENDENT",
+      model: "deepseek-v4-flash",
+      semanticReviewArtifactHash: review.report!.artifactHash,
+      semanticConstraintArtifactHash: constraint.artifactHash,
+      semanticConstraint: constraint,
+      adverseStateInterpretation: artifact,
+      adverseStateIds: artifact.adverseStateIds,
+      listings,
+      allowedEvidenceHashes: Object.freeze([...new Set(
+        constraint.ruleEvidence.flatMap((item) => [item.listingHash, item.sourceRawHash]),
+      )].sort()),
+    });
+    const challengeDraft = {
+      interpretationArtifactHash: artifact.artifactHash,
+      kind: "COUNTEREXAMPLE_STATE_CONFLICT" as const,
+      stateIds: ["TT"],
+      listingRefs: listings.map((listing) => listing.listingRef),
+      explanation: "The retained prose reverses the structured state.",
+      expectedInterpretation: "TT selects both exact YES outcomes.",
+      observedConflict: "The prose describes one venue settling NO.",
+      evidenceHashes: [constraint.ruleEvidence[0]!.sourceRawHash],
+    };
+    expect(() => buildProbabilityCaseChallenge({
+      ...challengeDraft,
+      stateIds: ["TF"],
+    }, input)).toThrow(/exceeds its estimation case scope/u);
+    expect(() => buildProbabilityCaseChallenge({
+      ...challengeDraft,
+      listingRefs: ["invented:contract"],
+    }, input)).toThrow(/exceeds its estimation case scope/u);
+    expect(() => buildProbabilityCaseChallenge({
+      ...challengeDraft,
+      evidenceHashes: [hashCanonical({ invented: "evidence" })],
+    }, input)).toThrow(/exceeds its estimation case scope/u);
+  });
+
+  it("terminates through a structured semantic challenge before probability work", async () => {
+    const evidenceHash = constraint.ruleEvidence[0]!.sourceRawHash;
+    let calls = 0;
+    const usageLedger = new AiUsageLedger();
+    const desk = createProbabilityEstimationDesk(
+      {
+        DEEPSEEK_API_KEY: "test-only-key",
+        PMH_PROBABILITY_ESTIMATION_TIMEOUT_MS: "3000",
+      },
+      {
+        usageRecorder: usageLedger,
+        now: () => Date.parse("2026-08-02T00:02:15.000Z"),
+        async fetcher() {
+          calls += 1;
+          return toolCompletion("challenge_probability_case", {
+            interpretationArtifactHash: directInterpretationHash(),
+            kind: "COUNTEREXAMPLE_STATE_CONFLICT",
+            stateIds: ["TT"],
+            listingRefs: listings.map((listing) => listing.listingRef),
+            explanation: "The retained prose describes the reverse truth direction.",
+            expectedInterpretation: "TT means both exact YES outcomes settle true.",
+            observedConflict: "The counterexample narrative describes one listing settling NO.",
+            evidenceHashes: [evidenceHash],
+          }, calls);
+        },
+      },
+    );
+    const record = await desk.begin(review, snapshot, ["TT"], "INDEPENDENT").promise;
+    expect(record).toMatchObject({
+      schemaVersion: "pmh.probability-estimation-run.v4",
+      status: "CHALLENGED",
+      estimate: null,
+      counterScenarios: [],
+      evidenceNeeds: [],
+      caseChallenge: {
+        kind: "COUNTEREXAMPLE_STATE_CONFLICT",
+        stateIds: ["TT"],
+        authority: "SEMANTIC_REPAIR_REQUEST_ONLY",
+        semanticDecisionAuthority: false,
+      },
+      trace: {
+        stepCount: 1,
+        toolCallCount: 1,
+        caseAcknowledgementEffectCount: 0,
+        caseChallengeEffectCount: 1,
+      },
+    });
+    expect(calls).toBe(1);
+    expect(usageLedger.projection()).toMatchObject({
+      eventCount: 1,
+      byOutcome: [{ key: "CHALLENGED", durableEffectCount: "1" }],
+      recentEvents: [{ outcome: "CHALLENGED", durableEffect: true }],
+    });
+    expect(() => assertProbabilityEstimationRunRecord(record)).not.toThrow();
+    expect(buildProbabilityCaseRepairQueue({ runs: [record] })).toMatchObject({
+      sourceChallengeCount: 1,
+      itemCount: 1,
+      items: [{
+        kind: "COUNTEREXAMPLE_STATE_CONFLICT",
+        roles: ["INDEPENDENT"],
+        nextAction: "NEW_SEMANTIC_REVIEW_REQUIRED",
+        providerRequestAuthority: false,
+      }],
+    });
   });
 
   it("retains provider usage when the estimator omits its terminal effect", async () => {
@@ -366,16 +549,19 @@ describe("Agent-first probability estimation", () => {
         async fetcher(_request, init) {
           callCount += 1;
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-          if (callCount === 1) return toolCompletion("record_counter_scenario", {
+          if (callCount === 1) return toolCompletion("accept_probability_case", {
+            interpretationArtifactHash: directInterpretationHash(),
+          }, callCount);
+          if (callCount === 2) return toolCompletion("record_counter_scenario", {
             stateId: "TT",
             narrative: "Recovery can preserve the later live appearance.",
             evidenceHashes: [allowedEvidenceHash],
           }, callCount);
-          if (callCount === 2) return toolCompletion("abstain_probability_estimate", {
+          if (callCount === 3) return toolCompletion("abstain_probability_estimate", {
             reason: "Premature abstention should be rejected.",
             evidenceNeedIds: [hashCanonical({ notAccepted: true })],
           }, callCount);
-          if (callCount === 3) return toolCompletion("request_probability_evidence", {
+          if (callCount === 4) return toolCompletion("request_probability_evidence", {
             kind: "REFERENCE_CLASS",
             listingRefs: listings.map((listing) => listing.listingRef),
             adverseStateIds: ["TT"],
@@ -399,8 +585,8 @@ describe("Agent-first probability estimation", () => {
 
     const record = await desk.begin(review, snapshot, ["TT"], "REFERENCE_CLASS").promise;
     expect(record).toMatchObject({
-      schemaVersion: "pmh.probability-estimation-run.v3",
-      inputProtocol: "pmh.probability-estimation-input.v3",
+      schemaVersion: "pmh.probability-estimation-run.v4",
+      inputProtocol: "pmh.probability-estimation-input.v4",
       status: "ABSTAINED",
       evidenceNeeds: [{
         kind: "REFERENCE_CLASS",
@@ -409,15 +595,17 @@ describe("Agent-first probability estimation", () => {
         fetchAuthority: false,
       }],
       trace: {
-        stepCount: 4,
-        toolCallCount: 4,
+        stepCount: 5,
+        toolCallCount: 5,
         evidenceNeedEffectCount: 1,
+        caseAcknowledgementEffectCount: 1,
+        caseChallengeEffectCount: 0,
       },
     });
     expect(record.blockingEvidenceNeedIds).toEqual([
       record.evidenceNeeds![0]!.needId,
     ]);
-    expect(callCount).toBe(4);
+    expect(callCount).toBe(5);
   });
 
   it("binds Codex OAuth, Terra effort, streaming posture, and usage to each run", async () => {
@@ -452,8 +640,13 @@ describe("Agent-first probability estimation", () => {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
           bodies.push(body);
           const ordinal = bodies.length;
-          return ordinal % 2 === 1
-            ? openAiStreamToolResponse("record_counter_scenario", {
+          const phase = (ordinal - 1) % 3;
+          return phase === 0
+            ? openAiStreamToolResponse("accept_probability_case", {
+                interpretationArtifactHash: directInterpretationHash(),
+              }, ordinal)
+            : phase === 1
+              ? openAiStreamToolResponse("record_counter_scenario", {
                 stateId: "TT",
                 narrative: "A non-fatal wound followed by recovery permits both events.",
                 evidenceHashes: [allowedEvidenceHash],
@@ -474,7 +667,7 @@ describe("Agent-first probability estimation", () => {
 
     const high = await desk.begin(review, snapshot, ["TT"], "CAUSAL").promise;
     expect(high).toMatchObject({
-      schemaVersion: "pmh.probability-estimation-run.v3",
+      schemaVersion: "pmh.probability-estimation-run.v4",
       status: "PASS",
       model: "gpt-5.6-terra",
       engine: {
@@ -485,7 +678,7 @@ describe("Agent-first probability estimation", () => {
       },
       estimate: { estimator: "CODEX:gpt-5.6-terra:CAUSAL", upperPpm: "50000" },
     });
-    expect(bodies).toHaveLength(2);
+    expect(bodies).toHaveLength(3);
     expect(bodies.every((body) =>
       body.stream === true && body.store === false &&
       !("max_output_tokens" in body) && !("response_format" in body)
@@ -501,7 +694,7 @@ describe("Agent-first probability estimation", () => {
       provider: "CODEX",
       model: "gpt-5.6-terra",
       outcome: "SUCCEEDED",
-      providerRequestCount: "2",
+      providerRequestCount: "3",
     });
     expect(JSON.stringify({ high, projection: desk.projection() })).not.toContain(secret);
 
@@ -517,7 +710,7 @@ describe("Agent-first probability estimation", () => {
       engine: { provider: "CODEX", reasoningEffort: "max" },
       estimate: { upperPpm: "60000" },
     });
-    expect(bodies[2]).toMatchObject({ reasoning: { effort: "max" } });
+    expect(bodies[3]).toMatchObject({ reasoning: { effort: "max" } });
   });
 
   it("aggregates separate role runs conservatively and replays idempotently", async () => {
@@ -547,11 +740,13 @@ describe("Agent-first probability estimation", () => {
               trace: Object.freeze({
                 protocol: "AI_SDK_TOOL_LOOP" as const,
                 maximumSteps: 10 as const,
-                stepCount: 2,
-                toolCallCount: 2,
-                providerRequestAttemptCount: 2,
+                stepCount: 3,
+                toolCallCount: 3,
+                providerRequestAttemptCount: 3,
                 counterScenarioEffectCount: 1,
                 evidenceNeedEffectCount: 0,
+                caseAcknowledgementEffectCount: 1,
+                caseChallengeEffectCount: 0,
                 submittedEffectHash: hashCanonical({ role: input.role }),
                 wholeResponseSchemaParsing: false as const,
               }),
@@ -629,11 +824,13 @@ describe("Agent-first probability estimation", () => {
               trace: Object.freeze({
                 protocol: "AI_SDK_TOOL_LOOP" as const,
                 maximumSteps: 10 as const,
-                stepCount: 2,
-                toolCallCount: 3,
-                providerRequestAttemptCount: 2,
+                stepCount: 3,
+                toolCallCount: 4,
+                providerRequestAttemptCount: 3,
                 counterScenarioEffectCount: 1,
                 evidenceNeedEffectCount: 1,
+                caseAcknowledgementEffectCount: 1,
+                caseChallengeEffectCount: 0,
                 submittedEffectHash: hashCanonical({ abstain: true }),
                 wholeResponseSchemaParsing: false as const,
               }),
@@ -721,11 +918,13 @@ describe("Agent-first probability estimation", () => {
               trace: Object.freeze({
                 protocol: "AI_SDK_TOOL_LOOP" as const,
                 maximumSteps: 10 as const,
-                stepCount: 3,
-                toolCallCount: 3,
-                providerRequestAttemptCount: 3,
+                stepCount: 4,
+                toolCallCount: 4,
+                providerRequestAttemptCount: 4,
                 counterScenarioEffectCount: 1,
                 evidenceNeedEffectCount: 1,
+                caseAcknowledgementEffectCount: 1,
+                caseChallengeEffectCount: 0,
                 submittedEffectHash: hashCanonical({ role: input.role, need: need.needId }),
                 wholeResponseSchemaParsing: false as const,
               }),
@@ -797,6 +996,10 @@ describe("Agent-first probability estimation", () => {
       });
       firstStore.close();
 
+      const legacyVersion = new DatabaseSync(path);
+      legacyVersion.exec("PRAGMA user_version = 32");
+      legacyVersion.close();
+
       const secondStore = new SqliteOperationalStore(path);
       const secondDesk = createProbabilityEstimationDesk(
         { DEEPSEEK_API_KEY: "ignored-by-injected-port" },
@@ -823,11 +1026,13 @@ describe("Agent-first probability estimation", () => {
                 trace: Object.freeze({
                   protocol: "AI_SDK_TOOL_LOOP" as const,
                   maximumSteps: 10 as const,
-                  stepCount: 2,
-                  toolCallCount: 2,
-                  providerRequestAttemptCount: 2,
+                  stepCount: 3,
+                  toolCallCount: 3,
+                  providerRequestAttemptCount: 3,
                   counterScenarioEffectCount: 1,
                   evidenceNeedEffectCount: 0,
+                  caseAcknowledgementEffectCount: 1,
+                  caseChallengeEffectCount: 0,
                   submittedEffectHash: hashCanonical({ restarted: input.role }),
                   wholeResponseSchemaParsing: false as const,
                 }),
@@ -896,11 +1101,13 @@ describe("Agent-first probability estimation", () => {
                 trace: Object.freeze({
                   protocol: "AI_SDK_TOOL_LOOP" as const,
                   maximumSteps: 10 as const,
-                  stepCount: 2,
-                  toolCallCount: 3,
-                  providerRequestAttemptCount: 2,
+                  stepCount: 3,
+                  toolCallCount: 4,
+                  providerRequestAttemptCount: 3,
                   counterScenarioEffectCount: 1,
                   evidenceNeedEffectCount: 1,
+                  caseAcknowledgementEffectCount: 1,
+                  caseChallengeEffectCount: 0,
                   submittedEffectHash: hashCanonical({ persistedNeed: need.needId }),
                   wholeResponseSchemaParsing: false as const,
                 }),
@@ -1008,11 +1215,13 @@ describe("durable probability estimation scheduling", () => {
               trace: Object.freeze({
                 protocol: "AI_SDK_TOOL_LOOP" as const,
                 maximumSteps: 10 as const,
-                stepCount: abstained ? 3 : 2,
-                toolCallCount: abstained ? 3 : 2,
-                providerRequestAttemptCount: 2,
+                stepCount: abstained ? 4 : 3,
+                toolCallCount: abstained ? 4 : 3,
+                providerRequestAttemptCount: 3,
                 counterScenarioEffectCount: 1,
                 evidenceNeedEffectCount: abstained ? 1 : 0,
+                caseAcknowledgementEffectCount: 1,
+                caseChallengeEffectCount: 0,
                 submittedEffectHash: hashCanonical({ role: input.role }),
                 wholeResponseSchemaParsing: false as const,
               }),
@@ -1061,7 +1270,7 @@ describe("durable probability estimation scheduling", () => {
       probabilityCertificateAuthority: false,
     });
     expect(projection.jobs.every((job) =>
-      job.schemaVersion === "pmh.probability-estimation-job.v6" &&
+      job.schemaVersion === "pmh.probability-estimation-job.v7" &&
       job.engine?.provider === "DEEPSEEK" &&
       job.evidenceContext?.sourceKind === "CURRENT_CATALOG_EXACT" &&
       job.searchOrigin?.originIdentity === searchOrigin.originIdentity
@@ -1079,6 +1288,165 @@ describe("durable probability estimation scheduling", () => {
     expect(scheduler.projection().unreadNotificationCount).toBe(0);
   });
 
+  it("persists a challenged case as semantic repair instead of retrying or bounding", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-probability-challenge-"));
+    const path = join(directory, "operations.sqlite");
+    const evidenceHash = constraint.ruleEvidence[0]!.sourceRawHash;
+    let calls = 0;
+    try {
+      const firstStore = new SqliteOperationalStore(path);
+      const firstDesk = createProbabilityEstimationDesk(
+        { DEEPSEEK_API_KEY: "ignored-by-injected-port" },
+        {
+          store: firstStore,
+          now: () => Date.parse("2026-08-02T00:12:00.000Z"),
+          estimator: {
+            async estimate(input) {
+              calls += 1;
+              const challenge = buildProbabilityCaseChallenge({
+                interpretationArtifactHash:
+                  input.adverseStateInterpretation.artifactHash,
+                kind: "COUNTEREXAMPLE_STATE_CONFLICT",
+                stateIds: ["TT"],
+                listingRefs: input.listings.map((listing) => listing.listingRef),
+                explanation: "The retained counterexample prose reverses the structured state.",
+                expectedInterpretation: "TT selects both exact YES outcomes.",
+                observedConflict: "The prose describes one venue settling NO.",
+                evidenceHashes: [evidenceHash],
+              }, input);
+              return Object.freeze({
+                status: "CHALLENGED" as const,
+                lowerPpm: null,
+                upperPpm: null,
+                evidenceHashes: Object.freeze([]),
+                assumptions: Object.freeze([]),
+                validForMs: null,
+                rationale: challenge.explanation,
+                counterScenarios: Object.freeze([]),
+                evidenceNeeds: Object.freeze([]),
+                blockingEvidenceNeedIds: Object.freeze([]),
+                caseChallenge: challenge,
+                trace: Object.freeze({
+                  protocol: "AI_SDK_TOOL_LOOP" as const,
+                  maximumSteps: 10 as const,
+                  stepCount: 1,
+                  toolCallCount: 1,
+                  providerRequestAttemptCount: 1,
+                  counterScenarioEffectCount: 0,
+                  evidenceNeedEffectCount: 0,
+                  caseAcknowledgementEffectCount: 0,
+                  caseChallengeEffectCount: 1,
+                  submittedEffectHash: challenge.challengeId,
+                  wholeResponseSchemaParsing: false as const,
+                }),
+              });
+            },
+          },
+        },
+      );
+      const firstScheduler = new ProbabilityEstimationScheduler({
+        desk: firstDesk,
+        store: firstStore,
+        tickIntervalMs: 1_000,
+        concurrencyLimit: 3,
+        maxRequestsPerTick: 3,
+        now: () => Date.parse("2026-08-02T00:12:00.000Z"),
+      });
+      await Promise.all(firstScheduler.tick([{ review }], snapshot));
+      expect(firstScheduler.projection()).toMatchObject({
+        challengedCount: 3,
+        passedCount: 0,
+        abstainedCount: 0,
+        boundReadyCount: 0,
+        notifications: [{ kind: "SEMANTIC_REPAIR_REQUIRED" }],
+      });
+      const challengedCaseIdentity = firstScheduler.projection().jobs[0]!.caseIdentity;
+      expect(() => firstScheduler.retryExhaustedCase(challengedCaseIdentity)).toThrow(
+        /requires a new semantic review/u,
+      );
+      expect(buildProbabilityCaseRepairQueue({
+        runs: firstDesk.projection().records,
+      })).toMatchObject({
+        sourceChallengeCount: 3,
+        itemCount: 1,
+        items: [{ roles: ["CAUSAL", "INDEPENDENT", "REFERENCE_CLASS"] }],
+      });
+      firstStore.close();
+
+      const legacyVersion = new DatabaseSync(path);
+      legacyVersion.exec("PRAGMA user_version = 32");
+      legacyVersion.close();
+
+      const secondStore = new SqliteOperationalStore(path);
+      const secondDesk = createProbabilityEstimationDesk(
+        { DEEPSEEK_API_KEY: "ignored-by-injected-port" },
+        {
+          store: secondStore,
+          estimator: {
+            async estimate() {
+              throw new Error("SQLite challenge replay must not invoke an estimator");
+            },
+          },
+        },
+      );
+      const secondScheduler = new ProbabilityEstimationScheduler({
+        desk: secondDesk,
+        store: secondStore,
+        tickIntervalMs: 1_000,
+      });
+      expect(secondScheduler.projection()).toMatchObject({
+        challengedCount: 3,
+        boundReadyCount: 0,
+        notifications: [{ kind: "SEMANTIC_REPAIR_REQUIRED" }],
+      });
+      expect(secondDesk.projection().challengedCount).toBe(3);
+      expect(calls).toBe(3);
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reopens only exhausted roles without starting a provider request", async () => {
+    let calls = 0;
+    const desk = createProbabilityEstimationDesk(
+      { DEEPSEEK_API_KEY: "ignored-by-injected-port" },
+      {
+        estimator: {
+          async estimate() {
+            calls += 1;
+            throw new Error("synthetic provider interruption");
+          },
+        },
+      },
+    );
+    const scheduler = new ProbabilityEstimationScheduler({
+      desk,
+      maxAttempts: 1,
+      concurrencyLimit: 3,
+      maxRequestsPerTick: 3,
+      tickIntervalMs: 1_000,
+      now: () => Date.parse("2026-08-02T00:13:00.000Z"),
+    });
+    await Promise.all(scheduler.tick([{ review }], snapshot));
+    const exhausted = scheduler.projection().jobs;
+    expect(exhausted).toHaveLength(3);
+    expect(exhausted.every((job) =>
+      job.status === "EXHAUSTED" && job.attemptCount === 1
+    )).toBe(true);
+    expect(calls).toBe(3);
+
+    const reopened = scheduler.retryExhaustedCase(exhausted[0]!.caseIdentity);
+    expect(reopened).toHaveLength(3);
+    expect(reopened.every((job) =>
+      job.status === "PENDING" && job.attemptCount === 0 && job.lastRunId === null
+    )).toBe(true);
+    expect(calls).toBe(3);
+    expect(() => scheduler.retryExhaustedCase(exhausted[0]!.caseIdentity)).toThrow(
+      /no exhausted roles/u,
+    );
+  });
+
   it("does not rewrite retained provider-bound jobs when search origin becomes available", () => {
     const desk = createProbabilityEstimationDesk(
       { DEEPSEEK_API_KEY: "ignored-by-injected-port" },
@@ -1094,7 +1462,7 @@ describe("durable probability estimation scheduling", () => {
     scheduler.reconcile([{ review }], snapshot);
     const retainedJobIds = scheduler.projection().jobs.map((job) => job.jobId);
     expect(scheduler.projection().jobs.every((job) =>
-      job.schemaVersion === "pmh.probability-estimation-job.v6" &&
+      job.schemaVersion === "pmh.probability-estimation-job.v7" &&
       job.engine?.provider === "DEEPSEEK" &&
       job.evidenceContext?.sourceKind === "CURRENT_CATALOG_EXACT" &&
       job.searchOrigin === undefined
@@ -1109,7 +1477,7 @@ describe("durable probability estimation scheduling", () => {
     }], snapshot);
     expect(scheduler.projection().jobs.map((job) => job.jobId)).toEqual(retainedJobIds);
     expect(scheduler.projection().jobs.every((job) =>
-      job.schemaVersion === "pmh.probability-estimation-job.v6" &&
+      job.schemaVersion === "pmh.probability-estimation-job.v7" &&
       job.engine?.provider === "DEEPSEEK" &&
       job.evidenceContext?.sourceKind === "CURRENT_CATALOG_EXACT" &&
       job.searchOrigin === undefined
@@ -1135,7 +1503,11 @@ describe("durable probability estimation scheduling", () => {
       evidenceContextIdentity: current.evidenceContext!.contextIdentity,
       inputProtocol: "pmh.probability-estimation-input.v2",
     });
-    const { artifactHash: _artifactHash, ...currentBody } = current;
+    const {
+      artifactHash: _artifactHash,
+      adverseStateInterpretation: _adverseStateInterpretation,
+      ...currentBody
+    } = current;
     const body = Object.freeze({
       ...currentBody,
       schemaVersion: "pmh.probability-estimation-job.v5" as const,
@@ -1171,7 +1543,7 @@ describe("durable probability estimation scheduling", () => {
     const highJobHashes = highJobs.map((job) => job.artifactHash).sort();
     expect(highJobs).toHaveLength(3);
     expect(highJobs.every((job) =>
-      job.schemaVersion === "pmh.probability-estimation-job.v6" &&
+      job.schemaVersion === "pmh.probability-estimation-job.v7" &&
       job.engine?.provider === "CODEX" &&
       job.evidenceContext?.sourceKind === "CURRENT_CATALOG_EXACT" &&
       job.engine.reasoningEffort === "high"
@@ -1263,7 +1635,7 @@ describe("durable probability estimation scheduling", () => {
         blockedEvidenceCount: 0,
       });
       expect(firstScheduler.projection().jobs.every((job) =>
-        job.schemaVersion === "pmh.probability-estimation-job.v6" &&
+        job.schemaVersion === "pmh.probability-estimation-job.v7" &&
         job.evidenceContext?.contextIdentity === evidenceContext.contextIdentity
       )).toBe(true);
       firstStore.close();
@@ -1293,11 +1665,13 @@ describe("durable probability estimation scheduling", () => {
                 trace: Object.freeze({
                   protocol: "AI_SDK_TOOL_LOOP" as const,
                   maximumSteps: 10 as const,
-                  stepCount: 2,
-                  toolCallCount: 2,
-                  providerRequestAttemptCount: 2,
+                  stepCount: 3,
+                  toolCallCount: 3,
+                  providerRequestAttemptCount: 3,
                   counterScenarioEffectCount: 1,
                   evidenceNeedEffectCount: 0,
+                  caseAcknowledgementEffectCount: 1,
+                  caseChallengeEffectCount: 0,
                   submittedEffectHash: hashCanonical({ retained: input.role }),
                   wholeResponseSchemaParsing: false as const,
                 }),
@@ -1389,11 +1763,13 @@ describe("durable probability estimation scheduling", () => {
           trace: Object.freeze({
             protocol: "AI_SDK_TOOL_LOOP" as const,
             maximumSteps: 10 as const,
-            stepCount: 2,
-            toolCallCount: 2,
-            providerRequestAttemptCount: 2,
+            stepCount: 3,
+            toolCallCount: 3,
+            providerRequestAttemptCount: 3,
             counterScenarioEffectCount: 1,
             evidenceNeedEffectCount: 0,
+            caseAcknowledgementEffectCount: 1,
+            caseChallengeEffectCount: 0,
             submittedEffectHash: hashCanonical({ role: input.role }),
             wholeResponseSchemaParsing: false as const,
           }),
@@ -1438,12 +1814,12 @@ describe("durable probability estimation scheduling", () => {
         passedCount: 2,
         unreadNotificationCount: 1,
         storage: {
-          jobs: { durable: true, schemaVersion: 32 },
-          notifications: { durable: true, schemaVersion: 32 },
+          jobs: { durable: true, schemaVersion: 33 },
+          notifications: { durable: true, schemaVersion: 33 },
         },
       });
       expect(secondScheduler.projection().jobs.every((job) =>
-        job.schemaVersion === "pmh.probability-estimation-job.v6" &&
+        job.schemaVersion === "pmh.probability-estimation-job.v7" &&
         job.engine?.provider === "DEEPSEEK" &&
         job.evidenceContext?.sourceKind === "CURRENT_CATALOG_EXACT" &&
         job.searchOrigin?.originIdentity === searchOrigin.originIdentity

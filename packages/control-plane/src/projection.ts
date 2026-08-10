@@ -64,6 +64,10 @@ import {
   emptyProbabilityEvidenceDebt,
   type ProbabilityEvidenceDebtProjection,
 } from "./probability-evidence-debt.js";
+import {
+  emptyProbabilityCaseRepairQueue,
+  type ProbabilityCaseRepairQueue,
+} from "./probability-case-challenge-queue.js";
 import type { RuleEvidenceClaimSchedulerProjection } from "./rule-evidence-claim-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
@@ -149,6 +153,7 @@ export function buildStudioProjection(input: {
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
   evidenceDebtFrontier?: EvidenceDebtFrontierProjection;
   probabilityEvidenceDebt?: ProbabilityEvidenceDebtProjection;
+  probabilityCaseRepairQueue?: ProbabilityCaseRepairQueue;
   ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
   proposalEconomicTriage?: ProposalEconomicTriageProjection;
@@ -928,6 +933,7 @@ export function buildStudioProjection(input: {
     runCount: 0,
     passCount: 0,
     abstainedCount: 0,
+    challengedCount: 0,
     failedCount: 0,
     roles: Object.freeze(["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"] as const),
     records: Object.freeze([]),
@@ -963,6 +969,7 @@ export function buildStudioProjection(input: {
     policyBlockedCount: 0,
     passedCount: 0,
     abstainedCount: 0,
+    challengedCount: 0,
     exhaustedCount: 0,
     caseCount: 0,
     boundReadyCount: 0,
@@ -1321,6 +1328,8 @@ export function buildStudioProjection(input: {
       evidenceDebtFrontier: input.evidenceDebtFrontier ?? emptyEvidenceDebtFrontier(),
       probabilityEvidenceDebt:
         input.probabilityEvidenceDebt ?? emptyProbabilityEvidenceDebt(),
+      probabilityCaseRepairQueue:
+        input.probabilityCaseRepairQueue ?? emptyProbabilityCaseRepairQueue(),
       ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),
       proposalEconomicTriage: input.proposalEconomicTriage ?? emptyProposalEconomicTriage(),

@@ -907,7 +907,7 @@ describe("control-plane HTTP surface", () => {
     );
     expect(failureBudgetResponse.status).toBe(200);
     expect(await failureBudgetResponse.json()).toMatchObject({
-      schemaVersion: "pmh.failure-budget-frontier.v2",
+      schemaVersion: "pmh.failure-budget-frontier.v3",
       itemCount: 0,
       positiveMarginCount: 0,
       rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC",
@@ -920,6 +920,33 @@ describe("control-plane HTTP surface", () => {
         externalWrites: false,
         valueMovingActions: false,
       },
+    });
+    const probabilityRepairResponse = await fetch(
+      `${baseUrl}/api/v1/probability-case-repairs`,
+    );
+    expect(probabilityRepairResponse.status).toBe(200);
+    expect(await probabilityRepairResponse.json()).toMatchObject({
+      schemaVersion: "pmh.probability-case-repair-queue.v1",
+      sourceChallengeCount: 0,
+      itemCount: 0,
+      authority: "SEMANTIC_REPAIR_PRIORITY_ONLY",
+      providerRequestAuthority: false,
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
+    const probabilityRetryResponse = await fetch(
+      `${baseUrl}/api/v1/probability-estimation/cases/${
+        hashCanonical({ missing: "probability-case" })
+      }/retries`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(probabilityRetryResponse.status).toBe(409);
+    expect(await probabilityRetryResponse.json()).toMatchObject({
+      ok: false,
+      diagnostic: "probability estimation case was not found",
+      providerRequestStarted: false,
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
     });
     expect(projection.ai.aiUsage).toMatchObject({
       schemaVersion: "pmh.ai-usage-ledger.v1",
@@ -2491,7 +2518,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 32,
+        schemaVersion: 33,
         },
         records: [{ investigationId: created.investigationId }],
       });

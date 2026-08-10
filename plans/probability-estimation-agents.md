@@ -1,10 +1,10 @@
 # Role-separated probability estimation agents
 
-Status: active; tool loop, typed evidence requests, abstention, durable run
-journal, concurrent automatic scheduling, conservative bound assembly,
-notification inbox, Studio observability, and first-party calibration replay
-implemented; approved external reference sources and durable resolution
-ingestion remain
+Status: active; exact case acknowledgement, semantic challenges, typed evidence
+requests, abstention, durable run journal, concurrent automatic scheduling,
+conservative bound assembly, notification inbox, Studio observability, and
+first-party calibration replay implemented; approved external reference sources
+and durable resolution ingestion remain
 
 Created: 2026-08-02
 
@@ -18,20 +18,22 @@ whole-response schema or treating model confidence as probability.
 
 - Three independent roles are available: `REFERENCE_CLASS`, `CAUSAL`, and
   `INDEPENDENT`. The role fixes the estimation method outside the model.
-- Every Agent invocation is a bounded AI SDK tool loop. It must first call
-  `record_counter_scenario` for a concrete route by which an adverse state can
-  occur, then either `submit_probability_estimate` or
-  `abstain_probability_estimate`.
+- Every current Agent invocation is a bounded AI SDK tool loop. It first accepts
+  a content-addressed interpretation that expands compact states into exact
+  contracts and TRUE/FALSE outcomes, or terminates with a structured semantic
+  challenge. Only an accepted case may record a counter-scenario, evidence
+  need, estimate, or abstention.
 - Submitted evidence hashes must belong to the exact reviewed listing scope.
   Invented hashes and out-of-scope adverse states fail at the tool boundary and
   again at the model-port boundary.
 - Numeric submissions use integer ppm intervals, explicit assumptions, a
   bounded validity period, and evidence hashes. Abstention is retained as a
   successful research outcome rather than converted into a fabricated number.
-- `pmh.probability-estimation-run.v1` binds review, semantic constraint,
-  retained catalog context, role, model, counter-scenarios, estimate, trace,
-  and authority. Whole-response schema parsing is explicitly false.
-- SQLite schema v26 persists running and terminal records. A process restart
+- Current run V4/job V7 artifacts bind the exact adverse-state interpretation,
+  acknowledgement or challenge effect, review, semantic constraint, retained
+  catalog context, role, engine, counter-scenarios, estimate, trace, and
+  authority. Historical run V1-V3/job V1-V6 identities replay unchanged.
+- SQLite schema 33 persists running and terminal records. A process restart
   converts an interrupted run to retryable `FAILED` instead of leaving an
   immortal lease.
 - The control plane exposes the desk and scheduler at
@@ -43,9 +45,11 @@ whole-response schema or treating model confidence as probability.
 - Two distinct passing roles are required before first-party code assembles a
   conservative bound. The maximum compatible upper interval endpoint is used;
   an Agent never selects the final epsilon.
-- Deduplicated `BOUND_READY`, `ESTIMATION_ABSTAINED`, and
-  `ESTIMATION_EXHAUSTED` notifications persist through restart and can be
-  acknowledged from the API or Studio.
+- Deduplicated `BOUND_READY`, `SEMANTIC_REPAIR_REQUIRED`,
+  `ESTIMATION_ABSTAINED`, and `ESTIMATION_EXHAUSTED` notifications persist
+  through restart and can be acknowledged from the API or Studio. Challenges
+  group into a first-party repair queue and cannot be retried as probability
+  work.
 - Full and live Studio projections retain a bounded run window. The lifecycle
   dashboard labels intervals as estimate-only, displays abstentions and
   counter-scenario counts, and never calls them guaranteed profit.
@@ -86,3 +90,12 @@ whole-response schema or treating model confidence as probability.
 - Terminal records replay idempotently after SQLite restart; interrupted work
   becomes retryable failure.
 - No artifact grants semantic-decision, certificate, or execution authority.
+
+## Live case-integrity qualification
+
+The retained MLS case selected `TF`, meaning Gemini YES / Polymarket NO, while
+its principal postponement narrative described Gemini non-YES or undefined /
+Polymarket YES. On `gpt-5.6-terra / high`, all three roles challenged that exact
+direction on their first request. The scheduler emitted one repair item with
+three-role support and no numeric estimate. See
+[`probability-case-integrity.md`](probability-case-integrity.md).

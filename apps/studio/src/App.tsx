@@ -28,6 +28,7 @@ import {
   Radar,
   Radio,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   ShieldCheck,
@@ -76,7 +77,7 @@ type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
 type FailureBudgetFrontierProjection = Readonly<{
-  schemaVersion: "pmh.failure-budget-frontier.v2";
+  schemaVersion: "pmh.failure-budget-frontier.v3";
   contentHash: string;
   evaluatedAt: string;
   itemCount: number;
@@ -85,6 +86,7 @@ type FailureBudgetFrontierProjection = Readonly<{
   awaitingEstimateCount: number;
   abstainedCaseCount: number;
   evidenceBlockedCount: number;
+  challengedCaseCount: number;
   unboundedCaseCount: number;
   quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY";
   authority: "FAILURE_BUDGET_RANKING_ONLY";
@@ -103,6 +105,7 @@ type FailureBudgetFrontierProjection = Readonly<{
       | "ESTIMATION_ABSTAINED"
       | "ESTIMATION_EXHAUSTED"
       | "EVIDENCE_BLOCKED"
+      | "SEMANTIC_REPAIR_REQUIRED"
       | "PRICE_UNAVAILABLE";
     portfolioLabel: string | null;
     breakEvenEpsilonPpm: string | null;
@@ -424,6 +427,7 @@ const EMPTY_PROBABILITY_ESTIMATION: StudioProjection["ai"]["probabilityEstimatio
   runCount: 0,
   passCount: 0,
   abstainedCount: 0,
+  challengedCount: 0,
   failedCount: 0,
   roles: ["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"],
   records: [],
@@ -461,6 +465,7 @@ const EMPTY_PROBABILITY_ESTIMATION_SCHEDULER:
     policyBlockedCount: 0,
     passedCount: 0,
     abstainedCount: 0,
+    challengedCount: 0,
     exhaustedCount: 0,
     caseCount: 0,
     boundReadyCount: 0,
@@ -515,6 +520,28 @@ const EMPTY_PROBABILITY_EVIDENCE_DEBT:
     providerRequestAuthority: false,
     semanticDecisionAuthority: false,
     certificateAuthority: false,
+    executionAuthority: false,
+    effects: {
+      providerRequests: false,
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    },
+  };
+
+const EMPTY_PROBABILITY_CASE_REPAIR_QUEUE:
+  StudioProjection["ai"]["probabilityCaseRepairQueue"] = {
+    schemaVersion: "pmh.probability-case-repair-queue.v1",
+    contentHash: `sha256:${"0".repeat(64)}`,
+    sourceRunCount: 0,
+    sourceChallengeCount: 0,
+    itemCount: 0,
+    items: [],
+    rankingContract: "ROLE_SUPPORT_DESC_THEN_REPAIR_ID",
+    authority: "SEMANTIC_REPAIR_PRIORITY_ONLY",
+    providerRequestAuthority: false,
+    semanticDecisionAuthority: false,
+    probabilityCertificateAuthority: false,
     executionAuthority: false,
     effects: {
       providerRequests: false,
@@ -1676,7 +1703,7 @@ async function requestFailureBudgetFrontier(): Promise<FailureBudgetFrontierProj
   if (!response.ok) throw new Error("failure budget frontier failed to load");
   const result = (await response.json()) as FailureBudgetFrontierProjection;
   if (
-    result.schemaVersion !== "pmh.failure-budget-frontier.v2" ||
+    result.schemaVersion !== "pmh.failure-budget-frontier.v3" ||
     result.authority !== "FAILURE_BUDGET_RANKING_ONLY" ||
     result.certificateAuthority !== false ||
     result.executionAuthority !== false ||
@@ -1988,6 +2015,17 @@ async function requestProbabilityNotificationAcknowledgement(
   const result = (await response.json()) as { diagnostic?: string };
   if (!response.ok) {
     throw new Error(result.diagnostic ?? "probability notification acknowledgement failed");
+  }
+}
+
+async function requestProbabilityCaseRetry(caseIdentity: string): Promise<void> {
+  const response = await fetch(
+    `/api/v1/probability-estimation/cases/${caseIdentity}/retries`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+  );
+  const result = (await response.json()) as { diagnostic?: string };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "probability case retry failed");
   }
 }
 
@@ -6032,6 +6070,7 @@ function OpportunityLifecycleView({
           <div><strong>{probabilityScheduler.passedCount}</strong><span>intervals</span></div>
           <div><strong>{probabilityScheduler.boundReadyCount}</strong><span>bounds ready</span></div>
           <div><strong>{probabilityScheduler.abstainedCount}</strong><span>abstained</span></div>
+          <div><strong>{probabilityScheduler.challengedCount}</strong><span>semantic challenges</span></div>
           <div><strong>{probabilityScheduler.blockedEvidenceCount}</strong><span>evidence blocked</span></div>
         </div>
         <div className="attention-item-list">
@@ -6312,7 +6351,7 @@ function OpportunityLifecycleView({
           {aiUsage.recentEvents.slice(0, 8).map((event) => (
             <article key={event.eventId}>
               <div className="attention-item-topline">
-                <Badge variant={event.outcome === "SUCCEEDED" ? "verified" : event.outcome === "ABSTAINED" ? "muted" : "warning"}>
+                <Badge variant={event.outcome === "SUCCEEDED" ? "verified" : ["ABSTAINED", "CHALLENGED"].includes(event.outcome) ? "muted" : "warning"}>
                   {event.outcome}
                 </Badge>
                 <time>{new Date(event.occurredAt).toLocaleString()}</time>
@@ -9447,10 +9486,14 @@ function FailureBudgetView() {
   const [frontier, setFrontier] = useState<FailureBudgetFrontierProjection | null>(null);
   const [loading, setLoading] = useState(true);
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const [retryingCase, setRetryingCase] = useState<string | null>(null);
   const deepseekAutomationEnabled =
     studioProjection.ai.runtimeConfiguration.configuration.deepseekAutomationEnabled;
   const evidenceDebt =
     studioProjection.ai.probabilityEvidenceDebt ?? EMPTY_PROBABILITY_EVIDENCE_DEBT;
+  const repairQueue =
+    studioProjection.ai.probabilityCaseRepairQueue ??
+      EMPTY_PROBABILITY_CASE_REPAIR_QUEUE;
 
   async function load(): Promise<void> {
     setLoading(true);
@@ -9461,6 +9504,19 @@ function FailureBudgetView() {
       setDiagnostic(error instanceof Error ? error.message : "failure budget frontier failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function retryCase(caseIdentity: string): Promise<void> {
+    setRetryingCase(caseIdentity);
+    setDiagnostic(null);
+    try {
+      await requestProbabilityCaseRetry(caseIdentity);
+      await load();
+    } catch (error) {
+      setDiagnostic(error instanceof Error ? error.message : "probability case retry failed");
+    } finally {
+      setRetryingCase(null);
     }
   }
 
@@ -9476,6 +9532,7 @@ function FailureBudgetView() {
     ESTIMATION_ABSTAINED: "ESTIMATORS ABSTAINED",
     ESTIMATION_EXHAUSTED: "ESTIMATION EXHAUSTED",
     EVIDENCE_BLOCKED: "EVIDENCE BLOCKED",
+    SEMANTIC_REPAIR_REQUIRED: "SEMANTIC REPAIR REQUIRED",
     PRICE_UNAVAILABLE: "PRICE UNAVAILABLE",
   })[status];
 
@@ -9521,9 +9578,40 @@ function FailureBudgetView() {
         <div className="metric-grid failure-budget-summary">
           <Metric label="Positive margin" value={`${frontier.positiveMarginCount}`} detail="price budget exceeds adverse bound" />
           <Metric label="Bound candidates" value={`${frontier.boundedCandidateCount}`} detail="all research gates clear" />
-          <Metric label="Unbounded cases" value={`${frontier.unboundedCaseCount}`} detail={`${frontier.abstainedCaseCount} abstained · ${frontier.evidenceBlockedCount} evidence-blocked`} />
+          <Metric label="Unbounded cases" value={`${frontier.unboundedCaseCount}`} detail={`${frontier.challengedCaseCount} challenged · ${frontier.abstainedCaseCount} abstained · ${frontier.evidenceBlockedCount} evidence-blocked`} />
           <Metric label="Frontier size" value={`${frontier.itemCount}`} detail="ranked semantic portfolios" />
         </div>
+      )}
+
+      {repairQueue.items.length > 0 && (
+        <Card className="probability-evidence-debt-card probability-repair-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Semantic repair queue</span>
+              <h2>The probability premise needs repair</h2>
+              <p>
+                An estimator found that the retained relation, outcome direction, or adverse-state
+                mapping is internally inconsistent. These cases cannot produce a probability bound.
+              </p>
+            </div>
+            <Badge variant="warning">{repairQueue.sourceChallengeCount} CHALLENGES</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="probability-evidence-debt-list">
+              {repairQueue.items.slice(0, 6).map((item) => (
+                <article key={item.repairId}>
+                  <div>
+                    <Badge variant="warning">{item.kind.replaceAll("_", " ")}</Badge>
+                    <span>{item.roles.join(" + ")} · {item.stateIds.join("+")}</span>
+                  </div>
+                  <strong>{item.explanation}</strong>
+                  <p>{item.observedConflicts[0]}</p>
+                  <small>{item.listingRefs.length} contracts · {item.roles.length} independent role{item.roles.length === 1 ? "" : "s"} · new semantic review required</small>
+                </article>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {evidenceDebt.items.length > 0 && (
@@ -9590,7 +9678,7 @@ function FailureBudgetView() {
                   <div className="failure-budget-rank">{String(index + 1).padStart(2, "0")}</div>
                   <div className="failure-budget-title">
                     <div>
-                      <Badge variant={positive ? "verified" : item.status === "AWAITING_ESTIMATES" ? "shadow" : ["ESTIMATION_ABSTAINED", "EVIDENCE_BLOCKED"].includes(item.status) ? "warning" : "muted"}>
+                      <Badge variant={positive ? "verified" : item.status === "AWAITING_ESTIMATES" ? "shadow" : ["ESTIMATION_ABSTAINED", "EVIDENCE_BLOCKED", "SEMANTIC_REPAIR_REQUIRED"].includes(item.status) ? "warning" : "muted"}>
                         {statusLabel(item.status)}
                       </Badge>
                       <span>{item.calibrationStatus.replaceAll("_", " ")}</span>
@@ -9628,10 +9716,23 @@ function FailureBudgetView() {
                       {item.blockers.map((blocker) => <code key={blocker}>{blocker.replaceAll("_", " ")}</code>)}
                       {item.blockers.length === 0 && <code>RESEARCH GATES CLEAR</code>}
                     </div>
-                    <span>
-                      {item.estimationCase === null ? "" : `${item.estimationCase.provider} · ${item.estimationCase.model}${item.estimationCase.reasoningEffort === null ? "" : ` · ${item.estimationCase.reasoningEffort}`} · `}
-                      {item.estimatorJobCount} estimator job{item.estimatorJobCount === 1 ? "" : "s"}
-                    </span>
+                    <div>
+                      <span>
+                        {item.estimationCase === null ? "" : `${item.estimationCase.provider} · ${item.estimationCase.model}${item.estimationCase.reasoningEffort === null ? "" : ` · ${item.estimationCase.reasoningEffort}`} · `}
+                        {item.estimatorJobCount} estimator job{item.estimatorJobCount === 1 ? "" : "s"}
+                      </span>
+                      {item.status === "ESTIMATION_EXHAUSTED" && item.estimationCase !== null && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={retryingCase === item.estimationCase.caseIdentity}
+                          onClick={() => void retryCase(item.estimationCase!.caseIdentity)}
+                        >
+                          <RotateCcw size={14} />
+                          {retryingCase === item.estimationCase.caseIdentity ? "Reopening…" : "Retry exhausted roles"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>

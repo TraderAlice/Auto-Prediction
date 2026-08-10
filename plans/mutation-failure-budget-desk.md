@@ -134,10 +134,12 @@ arbitrage objects into the primary workspace.
 - Deterministic tests show a 22% price-implied tolerance minus a 5% adverse upper
   bound leaves a 17% research margin while zero depth and no calibration remain
   explicit blockers.
-- The live retained desk has no fabricated completed bound: three current-protocol
-  Terra/high roles all terminated as `ABSTAINED`, while one older case remains
-  `BLOCKED_EVIDENCE`. The frontier now distinguishes these postures instead of
-  reporting all four as generic pending work.
+- The live retained desk has no fabricated completed bound. The first three
+  Terra/high roles initially abstained, but a richer content-addressed state
+  interpretation revealed that the MLS case itself was inconsistent. All three
+  roles then challenged `TF` on their first request, and the frontier now labels
+  it `SEMANTIC_REPAIR_REQUIRED` rather than spending more estimator retries or
+  treating the defect as ordinary evidence debt.
 - The current estimator protocol produced 15 blocking evidence needs and grouped
   them into nine exact work scopes: five official acquisition-route gaps and four
   external-source-policy decisions. This is selection evidence that the product
@@ -174,8 +176,8 @@ arbitrage objects into the primary workspace.
   acceptable token cost and operators prefer this ranking for research triage.
 - **PARTIAL_ADOPT** if the remaining-failure-budget metric improves existing cards
   but the dedicated desk does not improve decisions.
-- **HOLD**: the live Agent loop now exposes its evidence debt, but completed
-  probability bounds and executable anonymous fee/depth observations are still
-  missing.
+- **HOLD**: the live Agent loop now separates evidence debt from broken semantic
+  premises, but completed probability bounds and executable anonymous
+  fee/depth observations are still missing.
 - **ABANDON** if margins are dominated by estimator variance, disappear after
   basic market qualification, or fail to improve operator decisions.
