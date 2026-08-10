@@ -35,6 +35,15 @@ function identifier(value: unknown, name: string): string {
   return compact;
 }
 
+function boundedText(value: unknown, name: string, maximum = 500): string {
+  if (typeof value !== "string") throw new Error(`${name} must be text`);
+  const compact = value.trim().replace(/\s+/gu, " ");
+  if (compact === "" || compact.length > maximum) {
+    throw new Error(`${name} must be non-empty and bounded`);
+  }
+  return compact;
+}
+
 function canonicalIso(value: unknown, name: string): string {
   if (typeof value !== "string") throw new Error(`${name} must be text`);
   const parsed = Date.parse(value);
@@ -64,6 +73,8 @@ export type ResolvedAgentCredential = Readonly<
       accessToken: string;
       accountId: string;
       expiresAt: string;
+      idToken?: string;
+      refreshToken?: string;
     }
   | {
       kind: "DEEPSEEK_API_KEY";
@@ -120,6 +131,10 @@ export class CodexOAuthCredentialResolver implements AgentCredentialResolver {
       accessToken: credential.accessToken,
       accountId: credential.accountId,
       expiresAt: credential.expiresAt,
+      ...(credential.idToken === undefined ? {} : { idToken: credential.idToken }),
+      ...(credential.refreshToken === undefined
+        ? {}
+        : { refreshToken: credential.refreshToken }),
     });
   }
 }
@@ -214,6 +229,13 @@ export type AgentRuntimeOpenContext = Readonly<{
   executionProfile: ExecutionProfile;
   modelProfile: ModelProfile;
   credential: ResolvedAgentCredential;
+  toolManifest: readonly AgentRuntimeToolDefinition[];
+}>;
+
+export type AgentRuntimeToolDefinition = Readonly<{
+  name: string;
+  description: string;
+  inputSchema: unknown;
 }>;
 
 export interface AgentRuntimeSession {
@@ -262,6 +284,7 @@ export type AgentToolHostContext = Readonly<{
 }>;
 
 export interface AgentToolHost {
+  manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[];
   execute(context: AgentToolHostContext): Promise<Readonly<{
     status: "ACCEPTED" | "REJECTED";
     output: unknown;
@@ -361,6 +384,19 @@ export async function executePreparedAgentRun(
 
   try {
     const credential = await input.credentialBroker.resolve(valid.credential);
+    const toolManifest = Object.freeze(input.toolHost
+      .manifest(valid.profile.toolPolicy.protocol)
+      .map((definition) => Object.freeze({
+        name: identifier(definition.name, "Agent tool manifest name"),
+        description: boundedText(
+          definition.description,
+          "Agent tool manifest description",
+        ),
+        inputSchema: definition.inputSchema,
+      })));
+    if (new Set(toolManifest.map((definition) => definition.name)).size !== toolManifest.length) {
+      throw new Error("Agent tool manifest repeats a tool name");
+    }
     session = await input.adapter.open(Object.freeze({
       run: valid.run,
       task: valid.task,
@@ -369,6 +405,7 @@ export async function executePreparedAgentRun(
       executionProfile: valid.profile,
       modelProfile: valid.model,
       credential,
+      toolManifest,
     }));
 
     while (true) {
@@ -483,6 +520,10 @@ export async function executePreparedAgentRun(
         }
         seenToolCallIds.add(callId);
         const toolName = identifier(call.toolName, "Runtime tool name");
+        if (!toolManifest.some((definition) => definition.name === toolName)) {
+          await session.cancel?.();
+          return finish("FAILED", "runtime requested a tool outside its manifest", null);
+        }
         let result: Awaited<ReturnType<AgentToolHost["execute"]>>;
         try {
           result = await input.toolHost.execute(Object.freeze({

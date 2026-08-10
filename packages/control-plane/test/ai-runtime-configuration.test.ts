@@ -110,7 +110,12 @@ describe("AI runtime configuration", () => {
     });
     const cache = JSON.stringify({
       auth_mode: "chatgpt",
-      tokens: { access_token: token, account_id: accountId },
+      tokens: {
+        access_token: token,
+        account_id: accountId,
+        id_token: "test-only-id-token",
+        refresh_token: "test-only-refresh-token",
+      },
     });
     const provider = new CodexAuthCacheCredentialProvider(
       { PMH_CODEX_AUTH_FILE: "/test-only/auth.json" },
@@ -122,6 +127,8 @@ describe("AI runtime configuration", () => {
       accessToken: token,
       accountId,
       expiresAt: "2026-08-09T02:00:00.000Z",
+      idToken: "test-only-id-token",
+      refreshToken: "test-only-refresh-token",
     });
 
     const expired = new CodexAuthCacheCredentialProvider(

@@ -27,6 +27,17 @@ const LATER = "2026-08-10T12:00:02.000Z";
 const PAYLOAD = Object.freeze({ requirementId: "requirement:test", documentId: "document:test" });
 const DEEPSEEK_SECRET = "test-only-deepseek-secret";
 const CODEX_SECRET = "test-only-codex-secret";
+const TOOL_MANIFEST = [{
+  name: "submit_rule_evidence_claim",
+  description: "Submit one advisory evidence interpretation",
+  inputSchema: { type: "object" },
+}, {
+  name: "inspect_evidence",
+  description: "Inspect retained evidence bytes",
+  inputSchema: { type: "object" },
+}] as const;
+
+const manifest = () => TOOL_MANIFEST;
 
 function task() {
   return buildAgentTask({
@@ -259,6 +270,7 @@ describe("Agent runtime adapters", () => {
       const result = await executePreparedAgentRun({
         ...input,
         toolHost: {
+          manifest,
           execute: async () => ({
             status: "REJECTED",
             output: { diagnostic: "quote offsets do not match retained bytes" },
@@ -330,7 +342,10 @@ describe("Agent runtime adapters", () => {
     });
     const result = await executePreparedAgentRun({
       ...input,
-      toolHost: { execute: async () => ({ status: "ACCEPTED", output: { ok: true } }) },
+      toolHost: {
+        manifest,
+        execute: async () => ({ status: "ACCEPTED", output: { ok: true } }),
+      },
       now: () => Date.parse(NEXT),
     });
     expect(advances).toBe(1);
@@ -353,7 +368,7 @@ describe("Agent runtime adapters", () => {
     await expect(executePreparedAgentRun({
       ...input,
       taskPayload: { different: true },
-      toolHost: { execute: async () => ({ status: "ACCEPTED", output: {} }) },
+      toolHost: { manifest, execute: async () => ({ status: "ACCEPTED", output: {} }) },
     })).rejects.toThrow(/adapter kind/);
 
     const correctAdapter = new InProcessAgentRuntimeAdapter(async () =>
@@ -363,7 +378,7 @@ describe("Agent runtime adapters", () => {
       ...input,
       adapter: correctAdapter,
       taskPayload: { different: true },
-      toolHost: { execute: async () => ({ status: "ACCEPTED", output: {} }) },
+      toolHost: { manifest, execute: async () => ({ status: "ACCEPTED", output: {} }) },
     })).rejects.toThrow(/task payload/);
   });
 });

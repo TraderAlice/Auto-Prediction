@@ -8,6 +8,8 @@ export type CodexOAuthCredential = Readonly<{
   accessToken: string;
   accountId: string;
   expiresAt: string;
+  idToken?: string;
+  refreshToken?: string;
 }>;
 
 export interface CodexOAuthCredentialProvider {
@@ -20,6 +22,8 @@ type CodexAuthCache = Readonly<{
   tokens?: Readonly<{
     access_token?: unknown;
     account_id?: unknown;
+    id_token?: unknown;
+    refresh_token?: unknown;
   }>;
 }>;
 
@@ -61,10 +65,14 @@ function credentialFromCache(value: CodexAuthCache, now: number): CodexOAuthCred
   if (typeof accountId !== "string" || accountId === "") {
     throw new Error("Codex OAuth access token has no ChatGPT account ID");
   }
+  const idToken = value.tokens?.id_token;
+  const refreshToken = value.tokens?.refresh_token;
   return Object.freeze({
     accessToken: token,
     accountId,
     expiresAt: new Date(expiresAtMs).toISOString(),
+    ...(typeof idToken === "string" && idToken !== "" ? { idToken } : {}),
+    ...(typeof refreshToken === "string" && refreshToken !== "" ? { refreshToken } : {}),
   });
 }
 

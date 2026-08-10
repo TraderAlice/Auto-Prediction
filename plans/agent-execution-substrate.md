@@ -361,6 +361,24 @@ request:
   Codex Agent with Codex OAuth, and the in-process harness with both model
   supplies. No credential, provider request, subprocess, or live runtime is
   used by these tests.
+- Production CLI drivers now exist for Pi and Codex Agent behind that same
+  lifecycle. Pi runs with built-in tools, extensions, skills, prompt templates,
+  themes, and context files disabled; Codex runs in an isolated `CODEX_HOME`
+  with user configuration/rules ignored and a read-only sandbox. Both accept
+  only the advertised first-party tool manifest and a small control-flow action
+  schema; domain claims and results still cross first-party tools instead of a
+  brittle fixed business-output schema.
+- Codex OAuth material is written only to a mode-0600 per-session temporary
+  runtime home and removed at completion/cancellation. DeepSeek API keys exist
+  only in the Pi child environment. Bounded subprocess runners enforce timeout
+  and output ceilings, parse token usage, preserve Pi session IDs and Codex
+  thread resume, and fail closed when either CLI reports an undeclared shell,
+  file, MCP, web, or internal tool event.
+- Injected-process qualification exercises Pi + DeepSeek, Pi + Codex OAuth,
+  and Codex Agent + Codex OAuth without a live model call. Together with the
+  common lifecycle suite, all 518 control-plane tests and its TypeScript check
+  pass at this checkpoint. The production in-process AI SDK driver remains the
+  unfinished Phase 3 item.
 
 This checkpoint proves the identity, compatibility, persistence, and
 zero-dispatch boundary. It does not claim Phase 3–8 adoption.
