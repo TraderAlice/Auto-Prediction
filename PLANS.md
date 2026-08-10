@@ -946,6 +946,18 @@ opportunity count. Distinct constraints or adverse-state sets still rank
 separately, and completed bounds keep their economic result while later
 attempts remain attribution rather than duplicate cards.
 
+A second direct-use pass exposed a product-continuity failure after that
+identity repair: the sole LAFC work item produced nine precise probability
+research questions, but Failure Budgets had no handoff and the Evidence page
+replaced it with a global 65-proposal frontier. Issue #93 now carries proposal
+focus through the URL from Failure Budgets into Evidence. The focused page
+renders all nine retained questions, their route posture, estimator roles, and
+engine lineage before the global pipeline, survives reload, returns to the
+same focused Review, and can explicitly clear focus. This read grants no model,
+fetch, scheduler, certificate, or execution authority. The source-discovery
+stage also now reports the live 120 queued / 0 running / 0 terminal tasks as
+`QUEUED`, replacing the misleading `0/0 WAITING` presentation.
+
 Those four unsupported Gemini requirements now enter a bounded official-source
 discovery loop instead of stopping at prose debt. Terra/high inspected the
 official Gemini surfaces for outcome mapping, time boundary,

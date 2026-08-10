@@ -154,6 +154,15 @@ arbitrage objects into the primary workspace.
   drives posture while V1–V3 Terra abstentions and the legacy DeepSeek blocker
   remain inspectable history. Different adverse states remain separate in
   deterministic tests.
+- Issue #93 made that identity navigable after another direct-use pass showed
+  that Failure Budgets ended with nine typed LAFC questions while Evidence
+  opened an unrelated global frontier. A proposal-scoped Evidence route now
+  survives reload, renders the nine retained probability-debt items and their
+  engine/role lineage, links back to focused Review, and clears focus only on an
+  explicit operator action. Source discovery now truthfully reports 120 queued,
+  zero running, and zero terminal tasks instead of `0/0 WAITING`. This improves
+  operator continuity without spending a provider request or changing any
+  scheduler or authority boundary.
 - SQLite provider policy keeps the live desk on `gpt-5.6-terra / high` and blocks
   automatic DeepSeek spend.
 

@@ -2492,6 +2492,103 @@ footer {
   }
 }
 
+.focused-evidence-work {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 7%, var(--card)), var(--card));
+}
+
+.focused-evidence-work .card-header {
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.focused-evidence-work .card-header h2,
+.focused-evidence-work .card-header p {
+  margin: 0;
+}
+
+.focused-evidence-work .card-header p {
+  max-width: 760px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.focused-evidence-identities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.focused-evidence-identities code {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focused-evidence-debt-list {
+  display: grid;
+  gap: 10px;
+}
+
+.focused-evidence-debt-list article {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: color-mix(in srgb, var(--background) 70%, transparent);
+}
+
+.focused-evidence-debt-list article > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.focused-evidence-debt-list article > div > span,
+.focused-evidence-debt-list small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.focused-evidence-debt-list strong {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.focused-evidence-debt-list p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.focused-evidence-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.focused-evidence-summary a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--foreground);
+  font-weight: 600;
+  text-decoration: none;
+}
+
 .evidence-debt-frontier {
   margin: 14px 0;
   border: 1px solid var(--border);

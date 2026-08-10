@@ -11,6 +11,7 @@ import {
   Command,
   Database,
   FileCheck2,
+  FileSearch,
   Fingerprint,
   Gauge,
   GitBranch,
@@ -10090,7 +10091,11 @@ function BookDeskView() {
   );
 }
 
-function FailureBudgetView() {
+function FailureBudgetView({
+  onOpenEvidence,
+}: {
+  onOpenEvidence: (proposalIds: readonly string[]) => void;
+}) {
   const studioProjection = useStudioProjection();
   const [frontier, setFrontier] = useState<FailureBudgetFrontierProjection | null>(null);
   const [loading, setLoading] = useState(true);
@@ -10391,6 +10396,14 @@ function FailureBudgetView() {
                           {retryingCase === item.estimationCase.caseIdentity ? "Reopening…" : "Retry exhausted roles"}
                         </Button>
                       )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onOpenEvidence([item.proposalId])}
+                      >
+                        <FileSearch size={14} />
+                        Continue research
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
@@ -10438,13 +10451,21 @@ function FailureBudgetView() {
   );
 }
 
-function EvidenceView() {
+function EvidenceView({
+  focusedProposalIds,
+  onClearFocus,
+}: {
+  focusedProposalIds: readonly string[];
+  onClearFocus: () => void;
+}) {
   const studioProjection = useStudioProjection();
   const officialSourceDiscovery = studioProjection.ai.officialSourceDiscovery;
   const evidenceAcquisition =
     studioProjection.ai.evidenceAcquisition ?? EMPTY_EVIDENCE_ACQUISITION;
   const evidenceDebtFrontier =
     studioProjection.ai.evidenceDebtFrontier ?? EMPTY_EVIDENCE_DEBT_FRONTIER;
+  const probabilityEvidenceDebt =
+    studioProjection.ai.probabilityEvidenceDebt ?? EMPTY_PROBABILITY_EVIDENCE_DEBT;
   const ruleEvidenceClaims =
     studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
   const semanticReviewScheduler =
@@ -10515,6 +10536,19 @@ function EvidenceView() {
     job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" &&
     job.evidenceBundle.captureKind === "EXACT_CURRENT_REBASE"
   );
+  const focusedProposalSet = new Set(focusedProposalIds);
+  const focusedProbabilityDebt = probabilityEvidenceDebt.items.filter((item) =>
+    focusedProposalSet.has(item.proposalId)
+  );
+  const focusedFrontierItems = evidenceDebtFrontier.items.filter((item) =>
+    focusedProposalSet.has(item.proposalId)
+  );
+  const sourceDiscoveryQueuedCount = officialSourceDiscovery.pendingCount +
+    officialSourceDiscovery.retryWaitCount;
+  const sourceDiscoveryRunningCount = officialSourceDiscovery.leasedCount;
+  const sourceDiscoveryTerminalCount = officialSourceDiscovery.admittedCount +
+    officialSourceDiscovery.noSourceCount + officialSourceDiscovery.abstainedCount +
+    officialSourceDiscovery.exhaustedCount;
   const evidencePipeline = [
     {
       step: "01",
@@ -10526,10 +10560,11 @@ function EvidenceView() {
     {
       step: "02",
       label: "Source discovery",
-      value: `${officialSourceDiscovery.admittedCount}/${officialSourceDiscovery.admittedCount + officialSourceDiscovery.noSourceCount + officialSourceDiscovery.abstainedCount + officialSourceDiscovery.exhaustedCount}`,
-      detail: `${officialSourceDiscovery.pendingCount + officialSourceDiscovery.leasedCount + officialSourceDiscovery.retryWaitCount} queued · ${officialSourceDiscovery.noSourceCount} no source`,
-      state: officialSourceDiscovery.admittedCount > 0 ? "ADMITTED" :
-        officialSourceDiscovery.activeCount > 0 ? "RUNNING" : "WAITING",
+      value: sourceDiscoveryQueuedCount + sourceDiscoveryRunningCount,
+      detail: `${sourceDiscoveryQueuedCount} queued · ${sourceDiscoveryRunningCount} running · ${sourceDiscoveryTerminalCount} terminal`,
+      state: sourceDiscoveryRunningCount > 0 ? "RUNNING" :
+        sourceDiscoveryQueuedCount > 0 ? "QUEUED" :
+          sourceDiscoveryTerminalCount > 0 ? "OBSERVED" : "WAITING",
     },
     {
       step: "03",
@@ -10584,6 +10619,62 @@ function EvidenceView() {
           stronger evidence without rewriting its history.
         </p>
       </div>
+      {focusedProposalIds.length > 0 && (
+        <Card className="focused-evidence-work">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Focused research object</span>
+              <h2>Continue the same work, without losing its identity</h2>
+              <p>
+                This view was handed off from Failure budgets. It reads retained debt only;
+                opening it does not call a model, fetch a source, or change a scheduler.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={onClearFocus}>
+              Browse all evidence
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="focused-evidence-identities">
+              {focusedProposalIds.map((proposalId) => (
+                <code key={proposalId}>{proposalId}</code>
+              ))}
+            </div>
+            {focusedProbabilityDebt.length > 0 ? (
+              <div className="focused-evidence-debt-list">
+                {focusedProbabilityDebt.map((item) => (
+                  <article key={item.debtId}>
+                    <div>
+                      <Badge variant={item.status === "EVIDENCE_CAPTURED" ? "verified" : item.status === "ACQUISITION_IN_PROGRESS" ? "shadow" : "muted"}>
+                        {item.status.replaceAll("_", " ")}
+                      </Badge>
+                      <span>{item.kind.replaceAll("_", " ")} · adverse {item.adverseStateIds.join("+")}</span>
+                    </div>
+                    <strong>{item.question}</strong>
+                    <p>{item.reason}</p>
+                    <small>
+                      {item.roles.join(" + ")} · {item.engines.join(" · ")}
+                      {item.questionVariants.length > 1 ? ` · ${item.questionVariants.length} formulations` : ""}
+                    </small>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="review-operation-empty">
+                <strong>No active probability research debt is retained for this proposal</strong>
+                <span>The identity remains in the URL so a refresh cannot silently replace it with unrelated work.</span>
+              </div>
+            )}
+            <div className="focused-evidence-summary">
+              <span>{focusedProbabilityDebt.length} typed probability questions</span>
+              <span>{focusedFrontierItems.length} active unsupported-source frontier items</span>
+              <a href={serializeWorkspaceRoute("lifecycle", focusedProposalIds)}>
+                Open focused Review <ChevronRight size={15} />
+              </a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <Card className="evidence-pipeline-card">
         <CardHeader>
           <div>
@@ -11072,11 +11163,20 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
               onOpenReview={(proposalIds) => navigate("lifecycle", proposalIds)}
             />
           )}
-          {view === "budgets" && <FailureBudgetView />}
+          {view === "budgets" && (
+            <FailureBudgetView
+              onOpenEvidence={(proposalIds) => navigate("evidence", proposalIds)}
+            />
+          )}
           {view === "cases" && <ResearchCaseDeskView />}
           {view === "venues" && <VenueMatrix />}
           {view === "books" && <BookDeskView />}
-          {view === "evidence" && <EvidenceView />}
+          {view === "evidence" && (
+            <EvidenceView
+              focusedProposalIds={focusedProposalIds}
+              onClearFocus={() => navigate("evidence")}
+            />
+          )}
         </main>
         <footer>
           <span>
