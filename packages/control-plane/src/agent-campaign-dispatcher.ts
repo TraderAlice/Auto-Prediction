@@ -16,6 +16,7 @@ import {
 import {
   executePreparedAgentRun,
   type AgentCredentialBroker,
+  type AgentExecutionCapabilityService,
   type AgentRuntimeAdapter,
   type AgentToolHost,
 } from "./agent-runtime-adapter.js";
@@ -79,6 +80,7 @@ export type ManualAgentDispatchPreview = Readonly<{
 export type AgentCampaignDispatcherOptions = Readonly<{
   registry: AgentExecutionRegistry;
   credentialBroker: AgentCredentialBroker;
+  capabilityService?: AgentExecutionCapabilityService;
   adapters: readonly AgentRuntimeAdapter[];
   toolHost: AgentToolHost;
   taskPayload: (task: AgentTask) => unknown;
@@ -95,6 +97,7 @@ class AgentCampaignBudgetExhausted extends Error {
 export class AgentCampaignDispatcher {
   readonly #registry: AgentExecutionRegistry;
   readonly #credentialBroker: AgentCredentialBroker;
+  readonly #capabilityService: AgentExecutionCapabilityService | undefined;
   readonly #adapters: ReadonlyMap<string, AgentRuntimeAdapter>;
   readonly #toolHost: AgentToolHost;
   readonly #taskPayload: (task: AgentTask) => unknown;
@@ -106,6 +109,7 @@ export class AgentCampaignDispatcher {
   public constructor(options: AgentCampaignDispatcherOptions) {
     this.#registry = options.registry;
     this.#credentialBroker = options.credentialBroker;
+    this.#capabilityService = options.capabilityService;
     this.#toolHost = options.toolHost;
     this.#taskPayload = options.taskPayload;
     this.#now = options.now ?? Date.now;
@@ -165,6 +169,7 @@ export class AgentCampaignDispatcher {
     authorizationRef: string,
   ): Readonly<{ run: AgentRun; completion: Promise<AgentRun> }> {
     const preview = this.previewManual(taskId, executionProfileId);
+    this.#capabilityService?.assertServiceDispatchEligible(preview.executionProfile);
     const now = canonicalIso(this.#now());
     const run = buildAgentRun({
       task: preview.task,
@@ -221,6 +226,7 @@ export class AgentCampaignDispatcher {
       for (const task of tasks) {
         const snapshot = this.#registry.snapshot();
         const profile = this.#executionProfile(snapshot, validCampaign.executionProfileId);
+        this.#capabilityService?.assertServiceDispatchEligible(profile);
         const runOrdinal = snapshot.runs.filter((run) => run.taskId === task.taskId).length + 1;
         const now = canonicalIso(this.#now());
         const run = buildAgentRun({

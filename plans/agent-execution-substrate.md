@@ -258,6 +258,7 @@ singleton and workload-specific job tables:
 - `credential_bindings` (metadata only);
 - `model_profiles`;
 - `execution_profiles`;
+- `execution_capability_observations` (non-secret, expiring preflight evidence);
 - `workload_routes`;
 - `agent_tasks`;
 - `agent_runs`;
@@ -294,7 +295,7 @@ Replace the single provider/model/effort control with explicit surfaces:
 7. **Task review** — one task with its alternative runs, model invocations,
    tool effects, artifacts, costs, and selected result.
 
-The UI must make “configured,” “credential ready,” “route selected,” and
+The UI must make “configured,” “runtime available,” “service usable,” “route selected,” and
 “campaign authorized” visually distinct. Saving a model or route must never
 look like starting work. Activation previews the maximum immediate fan-out and
 budget before the operator confirms it.
@@ -612,6 +613,43 @@ Selection signals from this checkpoint:
 - block further Codex/Terra shadow comparison on an honest OAuth capability
   preflight rather than increasing timeout or retry budgets.
 
+### Execution-profile capability checkpoint
+
+The former credential `READY` state has been replaced by four separately
+projected layers: credential configuration, runtime availability, expiring
+service capability, and dispatch eligibility. A capability observation belongs
+to the complete immutable execution profile, because the same OAuth material
+can behave differently under Pi, Codex CLI, an in-process SDK, or another
+runtime integration. SQLite schema 37 stores only the profile ID, outcome,
+probe kind, bounded diagnostic, observation/expiry times, and zero-inference
+authority flags; bearer, account header, response body, and model output are
+never retained.
+
+The bounded preflight uses a non-inference service request for Codex-backed
+profiles. It classifies accepted, authentication-rejected, transient, missing-
+configuration, and unsupported-probe outcomes. A fresh `USABLE` observation is
+required before a Codex OAuth profile can create a run. Missing, rejected,
+transient, unverified, or stale Codex capability blocks dispatch before the run
+and model-invocation records exist. DeepSeek API-key profiles remain eligible
+when configured but explicitly `UNVERIFIED`, because no zero-inference service
+probe is currently defined for that access driver.
+
+Real host evidence materially changed the runtime choice:
+
+- `codex login status` proved only that credentials were present;
+- the supported Codex app-server path successfully initialized, listed models,
+  and read service-backed rate limits without inference;
+- the same cached ChatGPT credential was rejected by the current direct
+  `codex_cli_rs`, `pi`, and `prediction-market-harness` originators (HTTP 403),
+  matching the earlier CLI run's 401/451 transport failure;
+- therefore OAuth capability is execution-path-specific. Copying or reshaping
+  `auth.json` is not evidence that Pi or a custom SDK route can use it.
+
+The current Codex CLI, Pi+Codex, and in-process Codex profiles must remain
+blocked on this host. The next runtime specimen should integrate the supported
+Codex app-server account/model surface (or another officially supported Codex
+runtime route), then earn its own `USABLE` observation before shadow work.
+
 ## Qualification gates
 
 ### Identity and compatibility
@@ -625,6 +663,8 @@ Selection signals from this checkpoint:
 - A DeepSeek profile never accepts a global OpenAI effort value by accident.
 - Refreshing a secret for one logical credential binding changes no durable
   identity and exposes no secret material.
+- Capability evidence is scoped to an execution profile, expires to `STALE`,
+  survives SQLite restart, and never changes task or profile identity.
 
 ### Dispatch and spend safety
 
@@ -638,6 +678,8 @@ Selection signals from this checkpoint:
 - Runtime fallback creates a new attributed run only when explicitly enabled.
 - Projection, API GET, Studio rendering, reconciliation, and result selection
   are provider-free.
+- A known Codex authentication rejection and a stale/unverified Codex profile
+  block dispatch before an Agent run or model invocation is created.
 
 ### Runtime and effect semantics
 

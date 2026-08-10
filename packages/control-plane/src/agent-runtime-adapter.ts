@@ -1,4 +1,7 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
+import { accessSync, constants as fsConstants } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import {
   assertAgentRun,
   assertAgentRuntimeDefinition,
@@ -11,6 +14,8 @@ import {
   buildAgentRunArtifact,
   buildModelInvocation,
   completeAgentRun,
+  buildExecutionCapabilityObservation,
+  type AgentExecutionRegistry,
   type AgentRun,
   type AgentRunArtifact,
   type AgentRuntimeDefinition,
@@ -19,6 +24,7 @@ import {
   type AgentToolEffect,
   type CredentialBinding,
   type ExecutionProfile,
+  type ExecutionCapabilityObservation,
   type ModelInvocation,
   type ModelProfile,
 } from "./agent-execution-substrate.js";
@@ -29,6 +35,26 @@ import type {
 
 const IDENTIFIER_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/u;
 const MAX_TOOL_CALLS_PER_TURN = 64;
+
+function installedRuntime(kind: AgentRuntimeKind): boolean {
+  if (kind === "HARNESS_IN_PROCESS") return true;
+  if (kind === "PI") {
+    try {
+      accessSync(
+        resolve(import.meta.dirname, "../node_modules/.bin/pi"),
+        fsConstants.X_OK,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const result = spawnSync("codex", ["--version"], {
+    timeout: 2_000,
+    stdio: "ignore",
+  });
+  return result.status === 0;
+}
 
 function identifier(value: unknown, name: string): string {
   if (typeof value !== "string") throw new Error(`${name} must be text`);
@@ -84,10 +110,10 @@ export type ResolvedAgentCredential = Readonly<
     }
 >;
 
-export type CredentialReadiness = Readonly<{
+export type CredentialConfiguration = Readonly<{
   credentialBindingId: Hash;
   kind: CredentialBinding["kind"];
-  status: "READY" | "UNAVAILABLE";
+  status: "CONFIGURED" | "MISSING";
   diagnostic: string | null;
   secretMaterialRetained: false;
 }>;
@@ -155,14 +181,16 @@ export class AgentCredentialBroker {
     this.#resolvers = byKind;
   }
 
-  public async readiness(bindingInput: CredentialBinding): Promise<CredentialReadiness> {
+  public async configuration(
+    bindingInput: CredentialBinding,
+  ): Promise<CredentialConfiguration> {
     const binding = assertCredentialBinding(bindingInput);
     try {
       await this.resolve(binding);
       return Object.freeze({
         credentialBindingId: binding.credentialBindingId,
         kind: binding.kind,
-        status: "READY" as const,
+        status: "CONFIGURED" as const,
         diagnostic: null,
         secretMaterialRetained: false as const,
       });
@@ -170,7 +198,7 @@ export class AgentCredentialBroker {
       return Object.freeze({
         credentialBindingId: binding.credentialBindingId,
         kind: binding.kind,
-        status: "UNAVAILABLE" as const,
+        status: "MISSING" as const,
         diagnostic: redactedDiagnostic(error, "credential unavailable"),
         secretMaterialRetained: false as const,
       });
@@ -193,6 +221,221 @@ export class AgentCredentialBroker {
       ))
     ) throw new Error("credential resolver returned malformed secret material");
     return resolved;
+  }
+}
+
+export type ExecutionCapabilityProjection = Readonly<{
+  executionProfileId: Hash;
+  configurationStatus: CredentialConfiguration["status"];
+  runtimeStatus: "AVAILABLE" | "UNAVAILABLE";
+  serviceCapability: "USABLE" | "REJECTED" | "TRANSIENT_FAILURE" | "UNVERIFIED" | "STALE";
+  dispatchEligibility: "ELIGIBLE" | "BLOCKED";
+  diagnostic: string;
+  observation: ExecutionCapabilityObservation | null;
+  inferenceRequestsStarted: 0;
+  modelInvocationsStarted: 0;
+  secretMaterialRetained: false;
+}>;
+
+type CapabilityFetch = (
+  input: string,
+  init: Readonly<Record<string, unknown>>,
+) => Promise<Readonly<{ status: number; ok: boolean }>>;
+
+export class AgentExecutionCapabilityService {
+  readonly #runtimeAvailability: ReadonlyMap<Hash, boolean>;
+
+  public constructor(
+    private readonly registry: AgentExecutionRegistry,
+    private readonly credentialBroker: AgentCredentialBroker,
+    private readonly fetcher: CapabilityFetch = fetch as CapabilityFetch,
+    private readonly now: () => number = Date.now,
+    private readonly validityMs = 15 * 60_000,
+    runtimeAvailable: (kind: AgentRuntimeKind) => boolean = installedRuntime,
+  ) {
+    this.#runtimeAvailability = new Map(
+      registry.snapshot().runtimeDefinitions.map((runtime) => [
+        runtime.runtimeDefinitionId,
+        runtimeAvailable(runtime.kind),
+      ] as const),
+    );
+  }
+
+  public latestObservation(
+    executionProfileId: Hash,
+  ): ExecutionCapabilityObservation | null {
+    return [...this.registry.snapshot().capabilityObservations]
+      .filter((item) => item.executionProfileId === executionProfileId)
+      .sort((left, right) =>
+        right.observedAt.localeCompare(left.observedAt) ||
+        right.observationId.localeCompare(left.observationId)
+      )[0] ?? null;
+  }
+
+  public project(
+    profileInput: ExecutionProfile,
+    configuration: CredentialConfiguration,
+  ): ExecutionCapabilityProjection {
+    const profile = assertExecutionProfile(profileInput);
+    const snapshot = this.registry.snapshot();
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (binding === undefined) throw new Error("Execution profile credential is unavailable");
+    const runtimeAvailable = this.#runtimeAvailability.get(profile.runtimeDefinitionId) === true;
+    const observation = this.latestObservation(profile.executionProfileId);
+    const stale = observation !== null && Date.parse(observation.validUntil) <= this.now();
+    const serviceCapability = stale
+      ? "STALE" as const
+      : observation === null || observation.outcome === "UNSUPPORTED_PROBE" ||
+          observation.outcome === "CONFIGURATION_MISSING"
+        ? "UNVERIFIED" as const
+        : observation.outcome === "USABLE"
+          ? "USABLE" as const
+          : observation.outcome === "AUTH_REJECTED"
+            ? "REJECTED" as const
+            : "TRANSIENT_FAILURE" as const;
+    const dispatchEligibility = !runtimeAvailable || configuration.status === "MISSING" ||
+        (binding.kind === "CODEX_OAUTH" && serviceCapability !== "USABLE")
+      ? "BLOCKED" as const
+      : "ELIGIBLE" as const;
+    return Object.freeze({
+      executionProfileId: profile.executionProfileId,
+      configurationStatus: configuration.status,
+      runtimeStatus: runtimeAvailable ? "AVAILABLE" as const : "UNAVAILABLE" as const,
+      serviceCapability,
+      dispatchEligibility,
+      diagnostic: !runtimeAvailable
+        ? "Agent runtime is not installed"
+        : configuration.status === "MISSING"
+        ? configuration.diagnostic ?? "credential configuration is missing"
+        : observation?.diagnostic ?? "service capability has not been checked",
+      observation,
+      inferenceRequestsStarted: 0 as const,
+      modelInvocationsStarted: 0 as const,
+      secretMaterialRetained: false as const,
+    });
+  }
+
+  public async preflight(profileInput: ExecutionProfile): Promise<ExecutionCapabilityProjection> {
+    const profile = assertExecutionProfile(profileInput);
+    const snapshot = this.registry.snapshot();
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    const runtime = snapshot.runtimeDefinitions.find((item) =>
+      item.runtimeDefinitionId === profile.runtimeDefinitionId
+    );
+    const model = snapshot.modelProfiles.find((item) =>
+      item.modelProfileId === profile.modelProfileId
+    );
+    if (binding === undefined || runtime === undefined || model === undefined) {
+      throw new Error("Execution profile substrate is incomplete");
+    }
+    const configuration = await this.credentialBroker.configuration(binding);
+    const observedAt = new Date(this.now()).toISOString();
+    const validUntil = new Date(this.now() + this.validityMs).toISOString();
+    let outcome: ExecutionCapabilityObservation["outcome"];
+    let probeKind: ExecutionCapabilityObservation["probeKind"];
+    let diagnostic: string;
+    if (this.#runtimeAvailability.get(runtime.runtimeDefinitionId) !== true) {
+      outcome = "UNSUPPORTED_PROBE";
+      probeKind = "CONFIGURATION_ONLY";
+      diagnostic = `${runtime.kind} runtime is not installed`;
+    } else if (configuration.status === "MISSING") {
+      outcome = "CONFIGURATION_MISSING";
+      probeKind = "CONFIGURATION_ONLY";
+      diagnostic = configuration.diagnostic ?? "credential configuration is missing";
+    } else if (binding.kind !== "CODEX_OAUTH") {
+      outcome = "UNSUPPORTED_PROBE";
+      probeKind = "CONFIGURATION_ONLY";
+      diagnostic = "credential is configured; no zero-inference service probe is defined";
+    } else {
+      probeKind = "CODEX_USAGE";
+      const credential = await this.credentialBroker.resolve(binding);
+      if (credential.kind !== "CODEX_OAUTH") {
+        throw new Error("Codex capability probe resolved the wrong credential kind");
+      }
+      const originator = runtime.kind === "PI"
+        ? "pi"
+        : runtime.kind === "CODEX"
+          ? "codex_cli_rs"
+          : "prediction-market-harness";
+      const userAgent = runtime.kind === "PI" ? "pi" : originator;
+      try {
+        const response = await this.fetcher("https://chatgpt.com/backend-api/codex/usage", {
+          method: "GET",
+          headers: Object.freeze({
+            authorization: `Bearer ${credential.accessToken}`,
+            "chatgpt-account-id": credential.accountId,
+            originator,
+            "user-agent": userAgent,
+          }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (response.ok) {
+          outcome = "USABLE";
+          diagnostic = `${runtime.kind}/${model.accessDriver} accepted the non-inference probe`;
+        } else if ([401, 403, 451].includes(response.status)) {
+          outcome = "AUTH_REJECTED";
+          diagnostic = `${runtime.kind}/${model.accessDriver} rejected the non-inference probe (HTTP ${response.status})`;
+        } else {
+          outcome = "TRANSIENT_FAILURE";
+          diagnostic = `${runtime.kind}/${model.accessDriver} probe returned HTTP ${response.status}`;
+        }
+      } catch (error) {
+        outcome = "TRANSIENT_FAILURE";
+        diagnostic = redactedDiagnostic(error, `${runtime.kind}/${model.accessDriver} probe failed`);
+      }
+    }
+    const observation = buildExecutionCapabilityObservation({
+      executionProfile: profile,
+      outcome,
+      probeKind,
+      observedAt,
+      validUntil,
+      diagnostic,
+    });
+    this.registry.saveBatch({ capabilityObservations: [observation] });
+    return this.project(profile, configuration);
+  }
+
+  public async assertDispatchEligible(profileInput: ExecutionProfile): Promise<void> {
+    const profile = assertExecutionProfile(profileInput);
+    const binding = this.registry.snapshot().credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (binding === undefined) throw new Error("Execution profile credential is unavailable");
+    if (this.#runtimeAvailability.get(profile.runtimeDefinitionId) !== true) {
+      throw new Error("Execution profile is blocked: Agent runtime is not installed");
+    }
+    const configuration = await this.credentialBroker.configuration(binding);
+    const projection = this.project(profile, configuration);
+    if (projection.dispatchEligibility !== "ELIGIBLE") {
+      throw new Error(`Execution profile is blocked: ${projection.diagnostic}`);
+    }
+  }
+
+  public assertServiceDispatchEligible(profileInput: ExecutionProfile): void {
+    const profile = assertExecutionProfile(profileInput);
+    const binding = this.registry.snapshot().credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (binding === undefined) throw new Error("Execution profile credential is unavailable");
+    if (this.#runtimeAvailability.get(profile.runtimeDefinitionId) !== true) {
+      throw new Error("Execution profile is blocked: Agent runtime is not installed");
+    }
+    if (binding.kind !== "CODEX_OAUTH") return;
+    const observation = this.latestObservation(profile.executionProfileId);
+    if (observation === null) {
+      throw new Error("Execution profile is blocked: run a capability preflight first");
+    }
+    if (Date.parse(observation.validUntil) <= this.now()) {
+      throw new Error("Execution profile is blocked: capability preflight is stale");
+    }
+    if (observation.outcome !== "USABLE") {
+      throw new Error(`Execution profile is blocked: ${observation.diagnostic}`);
+    }
   }
 }
 

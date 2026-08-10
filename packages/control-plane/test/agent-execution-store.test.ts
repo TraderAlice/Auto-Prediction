@@ -10,6 +10,7 @@ import {
   buildAgentRun,
   buildAgentRunAnnotation,
   buildAgentRunArtifact,
+  buildExecutionCapabilityObservation,
   buildAgentTask,
   buildAgentToolEffect,
   buildModelInvocation,
@@ -89,7 +90,7 @@ describe("SQLite Agent execution substrate", () => {
       automaticDispatchFromConfiguration: false,
       runArtifactCount: 0,
       runAnnotationCount: 0,
-      storage: { schemaVersion: 36, durable: true },
+      storage: { schemaVersion: 37, durable: true },
     });
     first.close();
 
@@ -234,6 +235,33 @@ describe("SQLite Agent execution substrate", () => {
     store.close();
   });
 
+  it("persists execution capability observations across restart without secret material", async () => {
+    const path = await databasePath();
+    const first = new SqliteOperationalStore(path);
+    const imported = importLegacyAiRuntimeConfiguration(configuration());
+    first.saveAgentExecutionBatch({
+      runtimeDefinitions: [imported.runtimeDefinition],
+      credentialBindings: [imported.credentialBinding],
+      modelProfiles: [imported.modelProfile],
+      executionProfiles: [imported.executionProfile],
+    });
+    const observation = buildExecutionCapabilityObservation({
+      executionProfile: imported.executionProfile,
+      outcome: "AUTH_REJECTED",
+      probeKind: "CODEX_USAGE",
+      observedAt: NOW,
+      validUntil: LATER,
+      diagnostic: "CODEX/CODEX_RESPONSES rejected the non-inference probe (HTTP 403)",
+    });
+    first.saveAgentExecutionBatch({ capabilityObservations: [observation] });
+    first.close();
+
+    const reopened = new SqliteOperationalStore(path);
+    expect(reopened.loadAgentExecutionSnapshot().capabilityObservations).toEqual([observation]);
+    expect(JSON.stringify(observation)).not.toContain("Bearer");
+    reopened.close();
+  });
+
   it("replays bounded v2 invocation diagnostics while preserving historical v1 compatibility", async () => {
     const path = await databasePath();
     const store = new SqliteOperationalStore(path);
@@ -299,6 +327,7 @@ describe("SQLite Agent execution substrate", () => {
       credentialBindings: [],
       modelProfiles: [],
       executionProfiles: [],
+      capabilityObservations: [],
       workloadRoutes: [],
       tasks: [],
       runs: [],

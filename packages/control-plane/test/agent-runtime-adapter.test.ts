@@ -2,6 +2,8 @@ import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it, vi } from "vitest";
 import {
   AgentCredentialBroker,
+  AgentExecutionCapabilityService,
+  AgentExecutionRegistry,
   buildAgentRun,
   buildAgentRuntimeDefinition,
   buildAgentTask,
@@ -219,7 +221,7 @@ function twoTurnSession(captureResults: (value: unknown) => void): AgentRuntimeS
 }
 
 describe("Agent runtime adapters", () => {
-  it("resolves logical credentials just in time and projects readiness without secrets", async () => {
+  it("resolves logical credentials just in time and projects configuration without secrets", async () => {
     const credentials = broker();
     const codex = codexCredential();
     const deepseek = deepSeekCredential();
@@ -232,20 +234,118 @@ describe("Agent runtime adapters", () => {
       kind: "DEEPSEEK_API_KEY",
       apiKey: DEEPSEEK_SECRET,
     });
-    const readiness = await Promise.all([
-      credentials.readiness(codex),
-      credentials.readiness(deepseek),
+    const configuration = await Promise.all([
+      credentials.configuration(codex),
+      credentials.configuration(deepseek),
     ]);
-    expect(readiness.every((item) => item.status === "READY")).toBe(true);
-    expect(JSON.stringify(readiness)).not.toContain(CODEX_SECRET);
-    expect(JSON.stringify(readiness)).not.toContain(DEEPSEEK_SECRET);
+    expect(configuration.every((item) => item.status === "CONFIGURED")).toBe(true);
+    expect(JSON.stringify(configuration)).not.toContain(CODEX_SECRET);
+    expect(JSON.stringify(configuration)).not.toContain(DEEPSEEK_SECRET);
 
     const unavailable = new AgentCredentialBroker([
       new EnvironmentCredentialResolver({}),
     ]);
-    const status = await unavailable.readiness(deepseek);
-    expect(status).toMatchObject({ status: "UNAVAILABLE", secretMaterialRetained: false });
+    const status = await unavailable.configuration(deepseek);
+    expect(status).toMatchObject({ status: "MISSING", secretMaterialRetained: false });
     expect(status.diagnostic).toBe("credential unavailable");
+  });
+
+  it("preflights an exact execution profile, persists rejection, and derives staleness", async () => {
+    const item = execution({
+      kind: "PI",
+      credential: codexCredential(),
+      model: codexModel(),
+      adapter: new PiAgentRuntimeAdapter(async () => twoTurnSession(() => undefined)),
+    });
+    const registry = new AgentExecutionRegistry();
+    registry.saveBatch({
+      runtimeDefinitions: [item.runtimeDefinition],
+      credentialBindings: [item.credentialBinding],
+      modelProfiles: [item.modelProfile],
+      executionProfiles: [item.executionProfile],
+    });
+    const fetcher = vi.fn(async () => ({ status: 403, ok: false }));
+    const capability = new AgentExecutionCapabilityService(
+      registry,
+      item.credentialBroker,
+      fetcher,
+      () => Date.parse(NOW),
+      60_000,
+      () => true,
+    );
+    const configuration = await item.credentialBroker.configuration(item.credentialBinding);
+    expect(capability.project(item.executionProfile, configuration)).toMatchObject({
+      configurationStatus: "CONFIGURED",
+      serviceCapability: "UNVERIFIED",
+      dispatchEligibility: "BLOCKED",
+    });
+    await expect(capability.preflight(item.executionProfile)).resolves.toMatchObject({
+      serviceCapability: "REJECTED",
+      dispatchEligibility: "BLOCKED",
+      diagnostic: expect.stringContaining("HTTP 403"),
+      inferenceRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      secretMaterialRetained: false,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(registry.snapshot().capabilityObservations).toHaveLength(1);
+    expect(JSON.stringify(registry.snapshot().capabilityObservations)).not.toContain(CODEX_SECRET);
+    expect(() => capability.assertServiceDispatchEligible(item.executionProfile))
+      .toThrow(/HTTP 403/);
+
+    const stale = new AgentExecutionCapabilityService(
+      registry,
+      item.credentialBroker,
+      fetcher,
+      () => Date.parse(NOW) + 60_001,
+      60_000,
+      () => true,
+    );
+    expect(stale.project(item.executionProfile, configuration)).toMatchObject({
+      serviceCapability: "STALE",
+      dispatchEligibility: "BLOCKED",
+    });
+  });
+
+  it("keeps a configured API-key profile eligible when no zero-inference probe exists", async () => {
+    const item = execution({
+      kind: "HARNESS_IN_PROCESS",
+      credential: deepSeekCredential(),
+      model: deepSeekModel(),
+      adapter: new InProcessAgentRuntimeAdapter(async () => twoTurnSession(() => undefined)),
+    });
+    const registry = new AgentExecutionRegistry();
+    registry.saveBatch({
+      runtimeDefinitions: [item.runtimeDefinition],
+      credentialBindings: [item.credentialBinding],
+      modelProfiles: [item.modelProfile],
+      executionProfiles: [item.executionProfile],
+    });
+    const fetcher = vi.fn(async () => ({ status: 500, ok: false }));
+    const capability = new AgentExecutionCapabilityService(
+      registry,
+      item.credentialBroker,
+      fetcher,
+      () => Date.parse(NOW),
+      15 * 60_000,
+      () => true,
+    );
+    await expect(capability.preflight(item.executionProfile)).resolves.toMatchObject({
+      serviceCapability: "UNVERIFIED",
+      dispatchEligibility: "ELIGIBLE",
+      diagnostic: expect.stringContaining("no zero-inference service probe"),
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    const unavailableRuntime = new AgentExecutionCapabilityService(
+      registry,
+      item.credentialBroker,
+      fetcher,
+      () => Date.parse(NOW),
+      15 * 60_000,
+      () => false,
+    );
+    expect(() => unavailableRuntime.assertServiceDispatchEligible(item.executionProfile))
+      .toThrow(/runtime is not installed/);
   });
 
   for (const candidate of [

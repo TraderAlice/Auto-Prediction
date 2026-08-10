@@ -126,6 +126,33 @@ export type ExecutionProfile = Readonly<{
   createdAt: string;
 }>;
 
+export const EXECUTION_CAPABILITY_OUTCOMES = Object.freeze([
+  "USABLE",
+  "AUTH_REJECTED",
+  "TRANSIENT_FAILURE",
+  "UNSUPPORTED_PROBE",
+  "CONFIGURATION_MISSING",
+] as const);
+
+export type ExecutionCapabilityOutcome =
+  (typeof EXECUTION_CAPABILITY_OUTCOMES)[number];
+
+export type ExecutionCapabilityObservation = Readonly<{
+  schemaVersion: "pmh.execution-capability-observation.v1";
+  observationId: Hash;
+  executionProfileId: Hash;
+  outcome: ExecutionCapabilityOutcome;
+  probeKind: "CODEX_USAGE" | "CONFIGURATION_ONLY";
+  observedAt: string;
+  validUntil: string;
+  diagnostic: string;
+  inferenceRequestsStarted: 0;
+  modelInvocationsStarted: 0;
+  secretMaterialRetained: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type AgentTaskArtifactRef = Readonly<{
   kind: string;
   artifactId: string;
@@ -303,6 +330,7 @@ export type AgentExecutionSnapshot = Readonly<{
   credentialBindings: readonly CredentialBinding[];
   modelProfiles: readonly ModelProfile[];
   executionProfiles: readonly ExecutionProfile[];
+  capabilityObservations: readonly ExecutionCapabilityObservation[];
   workloadRoutes: readonly WorkloadRoute[];
   tasks: readonly AgentTask[];
   runs: readonly AgentRun[];
@@ -322,6 +350,7 @@ export type AgentExecutionRegistryProjection = Readonly<{
   credentialBindingCount: number;
   modelProfileCount: number;
   executionProfileCount: number;
+  capabilityObservationCount: number;
   workloadRouteCount: number;
   taskCount: number;
   runCount: number;
@@ -776,6 +805,84 @@ export function assertExecutionProfile(value: unknown): ExecutionProfile {
   canonicalIso(record.createdAt, "Execution profile createdAt");
   assertHashIdentity(record.executionProfileId, identity, "Execution profile identity");
   return record;
+}
+
+export function assertExecutionCapabilityObservation(
+  value: unknown,
+): ExecutionCapabilityObservation {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Execution capability observation is malformed");
+  }
+  const record = value as ExecutionCapabilityObservation;
+  if (
+    !exactKeys(record, [
+      "schemaVersion", "observationId", "executionProfileId", "outcome",
+      "probeKind", "observedAt", "validUntil", "diagnostic",
+      "inferenceRequestsStarted", "modelInvocationsStarted", "secretMaterialRetained",
+      "externalWriteAuthority", "valueMovingAuthority",
+    ]) ||
+    record.schemaVersion !== "pmh.execution-capability-observation.v1" ||
+    !EXECUTION_CAPABILITY_OUTCOMES.includes(record.outcome) ||
+    !["CODEX_USAGE", "CONFIGURATION_ONLY"].includes(record.probeKind) ||
+    record.inferenceRequestsStarted !== 0 || record.modelInvocationsStarted !== 0 ||
+    record.secretMaterialRetained !== false || record.externalWriteAuthority !== false ||
+    record.valueMovingAuthority !== false
+  ) throw new Error("Execution capability observation is invalid");
+  const body = Object.freeze({
+    schemaVersion: record.schemaVersion,
+    executionProfileId: hash(
+      record.executionProfileId,
+      "Execution capability profile ID",
+    ),
+    outcome: record.outcome,
+    probeKind: record.probeKind,
+    observedAt: canonicalIso(record.observedAt, "Capability observedAt"),
+    validUntil: canonicalIso(record.validUntil, "Capability validUntil"),
+    diagnostic: boundedText(record.diagnostic, "Capability diagnostic", 500),
+    inferenceRequestsStarted: 0 as const,
+    modelInvocationsStarted: 0 as const,
+    secretMaterialRetained: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  if (Date.parse(body.validUntil) <= Date.parse(body.observedAt)) {
+    throw new Error("Execution capability validity must follow observation time");
+  }
+  assertHashIdentity(
+    record.observationId,
+    body,
+    "Execution capability observation identity",
+  );
+  return record;
+}
+
+export function buildExecutionCapabilityObservation(input: Readonly<{
+  executionProfile: ExecutionProfile;
+  outcome: ExecutionCapabilityOutcome;
+  probeKind: ExecutionCapabilityObservation["probeKind"];
+  observedAt: string;
+  validUntil: string;
+  diagnostic: string;
+}>): ExecutionCapabilityObservation {
+  const profile = assertExecutionProfile(input.executionProfile);
+  const body = Object.freeze({
+    schemaVersion: "pmh.execution-capability-observation.v1" as const,
+    executionProfileId: profile.executionProfileId,
+    outcome: input.outcome,
+    probeKind: input.probeKind,
+    observedAt: canonicalIso(input.observedAt, "Capability observedAt"),
+    validUntil: canonicalIso(input.validUntil, "Capability validUntil"),
+    diagnostic: boundedText(input.diagnostic, "Capability diagnostic", 500),
+    inferenceRequestsStarted: 0 as const,
+    modelInvocationsStarted: 0 as const,
+    secretMaterialRetained: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return assertExecutionCapabilityObservation(Object.freeze({
+    ...body,
+    observationId: hashCanonical(body),
+  }));
 }
 
 export function buildAgentTask(input: Readonly<{
@@ -1609,6 +1716,7 @@ export function emptyAgentExecutionSnapshot(): AgentExecutionSnapshot {
     credentialBindings: Object.freeze([]),
     modelProfiles: Object.freeze([]),
     executionProfiles: Object.freeze([]),
+    capabilityObservations: Object.freeze([]),
     workloadRoutes: Object.freeze([]),
     tasks: Object.freeze([]),
     runs: Object.freeze([]),
@@ -1782,6 +1890,7 @@ export class AgentExecutionRegistry {
       credentialBindingCount: this.#snapshot.credentialBindings.length,
       modelProfileCount: this.#snapshot.modelProfiles.length,
       executionProfileCount: this.#snapshot.executionProfiles.length,
+      capabilityObservationCount: this.#snapshot.capabilityObservations.length,
       workloadRouteCount: this.#snapshot.workloadRoutes.length,
       taskCount: this.#snapshot.tasks.length,
       runCount: this.#snapshot.runs.length,
@@ -1834,6 +1943,11 @@ function mergeSnapshot(
       (record) => record.modelProfileId),
     executionProfiles: mergeById(current.executionProfiles, batch.executionProfiles,
       (record) => record.executionProfileId),
+    capabilityObservations: mergeById(
+      current.capabilityObservations,
+      batch.capabilityObservations,
+      (record) => record.observationId,
+    ),
     workloadRoutes: mergeById(current.workloadRoutes, batch.workloadRoutes,
       (record) => record.workloadRouteId),
     tasks: mergeById(current.tasks, batch.tasks, (record) => record.taskId),

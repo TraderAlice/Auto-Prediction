@@ -101,7 +101,10 @@ type AgentExecutionConsole = Readonly<{
     credentialBindingId: string;
     kind: string;
     logicalAccountRef: string;
-    readiness: null | Readonly<{ status: "READY" | "UNAVAILABLE"; diagnostic: string | null }>;
+    configuration: null | Readonly<{
+      status: "CONFIGURED" | "MISSING";
+      diagnostic: string | null;
+    }>;
   }>>;
   modelProfiles: ReadonlyArray<Readonly<{
     modelProfileId: string;
@@ -127,6 +130,18 @@ type AgentExecutionConsole = Readonly<{
       maximumWallClockMs: number;
     }>;
     createdAt: string;
+  }>>;
+  capabilities: ReadonlyArray<Readonly<{
+    executionProfileId: string;
+    configurationStatus: "CONFIGURED" | "MISSING";
+    runtimeStatus: "AVAILABLE" | "UNAVAILABLE";
+    serviceCapability: "USABLE" | "REJECTED" | "TRANSIENT_FAILURE" | "UNVERIFIED" | "STALE";
+    dispatchEligibility: "ELIGIBLE" | "BLOCKED";
+    diagnostic: string;
+    observation: null | Readonly<{ observedAt: string; validUntil: string }>;
+    inferenceRequestsStarted: 0;
+    modelInvocationsStarted: 0;
+    secretMaterialRetained: false;
   }>>;
   workloadRoutes: ReadonlyArray<Readonly<{
     workloadRouteId: string;
@@ -3064,6 +3079,10 @@ function AgentOperationsView() {
   const profiles = consoleData.executionProfiles.filter((item) =>
     item.toolPolicy.protocol === "RULE_EVIDENCE_TOOLS_V1"
   );
+  const capabilities = new Map(consoleData.capabilities.map((item) =>
+    [item.executionProfileId, item] as const
+  ));
+  const selectedCapability = capabilities.get(profileId);
   const invocationsByRun = new Map<string, AgentExecutionConsole["modelInvocations"]>();
   for (const invocation of consoleData.modelInvocations) {
     invocationsByRun.set(invocation.runId, [
@@ -3097,7 +3116,7 @@ function AgentOperationsView() {
       <div className="agent-console-grid">
         <Card>
           <CardHeader>
-            <div><span className="eyebrow">Capability</span><h2>Runtime and credential readiness</h2></div>
+            <div><span className="eyebrow">Capability</span><h2>Execution capability</h2><p>Configuration, runtime presence, service access and dispatch eligibility are separate signals.</p></div>
           </CardHeader>
           <CardContent className="agent-runtime-list">
             {consoleData.runtimeDefinitions.map((runtime) => {
@@ -3105,21 +3124,45 @@ function AgentOperationsView() {
                 profile.runtimeDefinitionId === runtime.runtimeDefinitionId
               );
               const readyCount = compatibleProfiles.filter((profile) =>
-                credentials.get(profile.credentialBindingId)?.readiness?.status === "READY"
+                capabilities.get(profile.executionProfileId)?.dispatchEligibility === "ELIGIBLE"
               ).length;
               return (
                 <div className="agent-runtime-row" key={runtime.runtimeDefinitionId}>
                   <div><strong>{runtime.kind.replace("HARNESS_IN_PROCESS", "In-process")}</strong><span>{runtime.version}</span></div>
-                  <Badge variant={readyCount > 0 ? "verified" : "warning"}>{readyCount}/{compatibleProfiles.length} ready</Badge>
+                  <Badge variant={readyCount > 0 ? "verified" : "warning"}>{readyCount}/{compatibleProfiles.length} dispatchable</Badge>
                 </div>
               );
             })}
             {consoleData.credentialBindings.map((binding) => (
               <div className="agent-credential-row" key={binding.credentialBindingId}>
                 <span>{binding.kind}</span>
-                <span>{binding.readiness?.status === "READY" ? "Ready" : binding.readiness?.diagnostic ?? "Unavailable"}</span>
+                <span>{binding.configuration?.status === "CONFIGURED" ? "Configured" : binding.configuration?.diagnostic ?? "Missing"}</span>
               </div>
             ))}
+            {profiles.map((profile) => {
+              const runtime = runtimes.get(profile.runtimeDefinitionId);
+              const model = models.get(profile.modelProfileId);
+              const capability = capabilities.get(profile.executionProfileId);
+              return (
+                <div className="agent-runtime-row" key={`capability:${profile.executionProfileId}`}>
+                  <div>
+                    <strong>{runtime?.kind ?? "runtime"} · {model?.model ?? "model"}</strong>
+                    <span>{capability?.serviceCapability ?? "UNVERIFIED"} · {capability?.diagnostic ?? "not checked"}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy !== null}
+                    onClick={() => void perform(
+                      `preflight-${profile.executionProfileId}`,
+                      () => post(`/api/v1/execution-profiles/${profile.executionProfileId}/preflight`),
+                    )}
+                  >
+                    {capability?.observation == null ? "Preflight" : "Recheck"}
+                  </Button>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
 
@@ -3171,8 +3214,11 @@ function AgentOperationsView() {
               schedule: { kind: "MANUAL_ONLY", intervalMs: null },
               budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 3, maximumInputTokens: "100000", maximumOutputTokens: "20000", maximumWallClockMs: 300000 },
             }))}>Create paused campaign</Button>
-            {manualPreview !== null && <Button disabled={busy !== null} onClick={() => void perform("manual-execute", () => post(`/api/v1/agent-tasks/${taskId}/runs`, { mode: "EXECUTE", executionProfileId: profileId, authorizationRef: "operator:studio-manual" }))}><Play size={12} /> Run reviewed snapshot</Button>}
+            {manualPreview !== null && <Button disabled={busy !== null || selectedCapability?.dispatchEligibility !== "ELIGIBLE"} onClick={() => void perform("manual-execute", () => post(`/api/v1/agent-tasks/${taskId}/runs`, { mode: "EXECUTE", executionProfileId: profileId, authorizationRef: "operator:studio-manual" }))}><Play size={12} /> Run reviewed snapshot</Button>}
           </div>
+          {selectedCapability?.dispatchEligibility === "BLOCKED" && (
+            <div className="inline-alert"><CircleOff size={14} />Selected profile is blocked: {selectedCapability.diagnostic}</div>
+          )}
           {manualPreview !== null && <pre className="agent-preview">{JSON.stringify(manualPreview, null, 2)}</pre>}
         </CardContent>
       </Card>

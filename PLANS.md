@@ -23,8 +23,15 @@ first operator-authorized one-task Codex/Terra shadow run also completed its
 failure path: the runtime retained zero known tokens and no tool effects, while
 the new bounded invocation diagnostic exposed rejected Codex OAuth transport
 (HTTP 401/451) instead of the former opaque `CODEX_CLI_EXIT`. That evidence
-separates usable service capability from credential-shaped readiness; live
-capability qualification is the next adoption gate. Other legacy AI workloads
+separates usable service capability from credential-shaped readiness. SQLite
+schema 37 now retains zero-inference, execution-profile-scoped capability
+observations. Studio distinguishes credential configuration, runtime presence,
+service capability, and dispatch eligibility; Codex-backed runs require a fresh
+usable observation before a run is created. Real non-inference probes showed
+that this Codex OAuth cache is accepted by the Codex desktop/app-server path
+but rejected for the current `codex_cli_rs`, `pi`, and in-process originators,
+so all three misleading green paths are blocked without spending model tokens.
+An app-server-backed Codex runtime is the next usable-route candidate. Other legacy AI workloads
 remain later adoption work.
 
 The active construction plans are

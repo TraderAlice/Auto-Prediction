@@ -175,6 +175,7 @@ import {
   assertAgentTask,
   assertAgentToolEffect,
   assertCredentialBinding,
+  assertExecutionCapabilityObservation,
   assertExecutionProfile,
   assertExecutionProfileCompatibility,
   assertModelInvocation,
@@ -194,6 +195,7 @@ import {
   type AgentToolEffect,
   type CredentialBinding,
   type ExecutionProfile,
+  type ExecutionCapabilityObservation,
   type ModelInvocation,
   type ModelProfile,
   type ResultSelection,
@@ -216,7 +218,7 @@ import {
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
 
-const SCHEMA_VERSION = 36;
+const SCHEMA_VERSION = 37;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -2281,6 +2283,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'agent_run_annotations'`,
       )
       .get() !== undefined;
+    const executionCapabilityObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'execution_capability_observations'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -2314,6 +2322,7 @@ export class SqliteOperationalStore
       && agentRuntimeDefinitionTableExists
       && agentRunArtifactTableExists
       && agentRunAnnotationTableExists
+      && executionCapabilityObservationTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -3731,6 +3740,32 @@ export class SqliteOperationalStore
             ON agent_run_annotations (run_id, created_at, annotation_id);
           CREATE INDEX IF NOT EXISTS agent_run_annotations_category
             ON agent_run_annotations (category, created_at, annotation_id);
+        `);
+      }
+      if (current < 37 || !executionCapabilityObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS execution_capability_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            execution_profile_id TEXT NOT NULL,
+            outcome TEXT NOT NULL CHECK (outcome IN (
+              'USABLE', 'AUTH_REJECTED', 'TRANSIENT_FAILURE',
+              'UNSUPPORTED_PROBE', 'CONFIGURATION_MISSING'
+            )),
+            observed_at TEXT NOT NULL,
+            valid_until TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (execution_profile_id)
+              REFERENCES execution_profiles(execution_profile_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS execution_capability_profile_time
+            ON execution_capability_observations (
+              execution_profile_id, observed_at DESC, observation_id DESC
+            );
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -5552,6 +5587,13 @@ export class SqliteOperationalStore
         (record: ExecutionProfile) => record.executionProfileId,
         "execution profile",
       ),
+      capabilityObservations: load(
+        "execution_capability_observations",
+        "observation_id",
+        assertExecutionCapabilityObservation,
+        (record: ExecutionCapabilityObservation) => record.observationId,
+        "execution capability observation",
+      ),
       workloadRoutes: load(
         "workload_routes",
         "workload_route_id",
@@ -5657,6 +5699,11 @@ export class SqliteOperationalStore
       executionProfiles: Object.freeze(
         (batchInput.executionProfiles ?? []).map(assertExecutionProfile),
       ),
+      capabilityObservations: Object.freeze(
+        (batchInput.capabilityObservations ?? []).map(
+          assertExecutionCapabilityObservation,
+        ),
+      ),
       workloadRoutes: Object.freeze(
         (batchInput.workloadRoutes ?? []).map(assertWorkloadRoute),
       ),
@@ -5724,6 +5771,12 @@ export class SqliteOperationalStore
       (record) => record.executionProfileId,
       "execution profile",
     );
+    indexed(
+      existing.capabilityObservations,
+      batch.capabilityObservations,
+      (record) => record.observationId,
+      "execution capability observation",
+    );
     const tasks = indexed(existing.tasks, batch.tasks, (record) => record.taskId, "task");
     const runs = indexed(existing.runs, batch.runs, (record) => record.runId, "run");
     const artifacts = indexed(
@@ -5741,6 +5794,13 @@ export class SqliteOperationalStore
         throw new Error("Execution profile references unavailable substrate records");
       }
       assertExecutionProfileCompatibility(runtime, credential, model);
+    }
+    for (const observation of batch.capabilityObservations) {
+      if (!profiles.has(observation.executionProfileId)) {
+        throw new Error(
+          "Execution capability observation references an unavailable profile",
+        );
+      }
     }
     for (const route of batch.workloadRoutes) {
       if (!profiles.has(route.executionProfileId)) {
@@ -5884,6 +5944,22 @@ export class SqliteOperationalStore
           record.executionProfileId,
           record,
           "Execution profile",
+        );
+      }
+      for (const record of batch.capabilityObservations) {
+        persist(
+          `INSERT INTO execution_capability_observations (
+             observation_id, execution_profile_id, outcome, observed_at,
+             valid_until, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+          [record.observationId, record.executionProfileId, record.outcome,
+            record.observedAt, record.validUntil],
+          "execution_capability_observations",
+          "observation_id",
+          record.observationId,
+          record,
+          "Execution capability observation",
         );
       }
       for (const record of batch.workloadRoutes) {

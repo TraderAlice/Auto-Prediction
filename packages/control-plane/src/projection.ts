@@ -1373,6 +1373,7 @@ export function buildStudioProjection(input: {
         credentialBindingCount: 0,
         modelProfileCount: 0,
         executionProfileCount: 0,
+        capabilityObservationCount: 0,
         workloadRouteCount: 0,
         taskCount: 0,
         runCount: 0,

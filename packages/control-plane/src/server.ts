@@ -257,6 +257,7 @@ import {
 } from "./agent-campaign-dispatcher.js";
 import {
   AgentCredentialBroker,
+  AgentExecutionCapabilityService,
   CodexOAuthCredentialResolver,
   EnvironmentCredentialResolver,
 } from "./agent-runtime-adapter.js";
@@ -1998,10 +1999,15 @@ export function createControlPlane(options?: {
     new EnvironmentCredentialResolver(process.env),
     new CodexOAuthCredentialResolver(semanticReviewCodexCredential),
   ]);
+  const agentExecutionCapabilityService = new AgentExecutionCapabilityService(
+    agentExecutionRegistry,
+    agentCredentialBroker,
+  );
   const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
     new AgentCampaignDispatcher({
       registry: agentExecutionRegistry,
       credentialBroker: agentCredentialBroker,
+      capabilityService: agentExecutionCapabilityService,
       adapters: [
         createPiCliAgentRuntimeAdapter({ environment: process.env, timeoutMs: 300_000 }),
         createCodexCliAgentRuntimeAdapter({ environment: process.env, timeoutMs: 300_000 }),
@@ -2060,9 +2066,19 @@ export function createControlPlane(options?: {
     const effectiveCampaignIds = new Set(effectiveAgentCampaigns(snapshot.campaigns).map((item) =>
       item.campaignId
     ));
-    const readiness = await Promise.all(snapshot.credentialBindings.map((binding) =>
-      agentCredentialBroker.readiness(binding)
+    const configurations = await Promise.all(snapshot.credentialBindings.map((binding) =>
+      agentCredentialBroker.configuration(binding)
     ));
+    const configurationById = new Map(configurations.map((item) =>
+      [item.credentialBindingId, item] as const
+    ));
+    const capabilities = snapshot.executionProfiles.map((profile) => {
+      const configuration = configurationById.get(profile.credentialBindingId);
+      if (configuration === undefined) {
+        throw new Error("Execution profile credential configuration is unavailable");
+      }
+      return agentExecutionCapabilityService.project(profile, configuration);
+    });
     const orderedTasks = [...snapshot.tasks].sort((left, right) =>
       right.createdAt.localeCompare(left.createdAt) || left.taskId.localeCompare(right.taskId)
     );
@@ -2150,12 +2166,13 @@ export function createControlPlane(options?: {
       runtimeDefinitions: snapshot.runtimeDefinitions,
       credentialBindings: snapshot.credentialBindings.map((binding) => Object.freeze({
         ...binding,
-        readiness: readiness.find((item) =>
+        configuration: configurations.find((item) =>
           item.credentialBindingId === binding.credentialBindingId
         ) ?? null,
       })),
       modelProfiles: snapshot.modelProfiles,
       executionProfiles: snapshot.executionProfiles,
+      capabilities,
       workloadRoutes: snapshot.workloadRoutes,
       campaigns: snapshot.campaigns.map((campaign) => Object.freeze({
         ...campaign,
@@ -3066,6 +3083,30 @@ export function createControlPlane(options?: {
     }
     if (request.method === "GET" && url.pathname === "/api/v1/agent-execution") {
       writeJson(response, 200, await agentExecutionConsole());
+      return;
+    }
+    const executionProfilePreflightMatch = url.pathname.match(
+      /^\/api\/v1\/execution-profiles\/(sha256:[0-9a-f]{64})\/preflight$/u,
+    );
+    if (request.method === "POST" && executionProfilePreflightMatch !== null) {
+      try {
+        await ready;
+        const profile = agentExecutionRegistry.snapshot().executionProfiles.find((item) =>
+          item.executionProfileId === executionProfilePreflightMatch[1]
+        );
+        if (profile === undefined) throw new Error("Execution profile is unavailable");
+        const capability = await agentExecutionCapabilityService.preflight(profile);
+        await broadcastProjection();
+        writeJson(response, 200, { ok: true, capability });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "capability preflight failed",
+          inferenceRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          secretMaterialRetained: false,
+        });
+      }
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/v1/agent-campaigns") {
