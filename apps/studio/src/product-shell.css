@@ -2184,7 +2184,7 @@ footer {
 .agent-campaign-row,
 .agent-run-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
@@ -2224,6 +2224,33 @@ footer {
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.agent-invocation-diagnostics {
+  margin-top: 0.45rem;
+  max-width: 72rem;
+}
+
+.agent-invocation-diagnostics summary {
+  color: var(--warning);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-invocation-diagnostics > div {
+  margin-top: 0.45rem;
+  border-left: 2px solid var(--border);
+  padding-left: 0.65rem;
+}
+
+.agent-invocation-diagnostics p {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .agent-credential-row {

@@ -186,6 +186,8 @@ type AgentExecutionConsole = Readonly<{
     inputTokens: string | null;
     outputTokens: string | null;
     reasoningTokens: string | null;
+    failureCategory?: string | null;
+    diagnostic?: string | null;
     completedAt: string;
   }>>;
   usage: Readonly<{
@@ -3199,8 +3201,41 @@ function AgentOperationsView() {
             const model = profile === undefined ? undefined : models.get(profile.modelProfileId);
             const runtime = profile === undefined ? undefined : runtimes.get(profile.runtimeDefinitionId);
             const invocations = invocationsByRun.get(run.runId) ?? [];
+            const failedInvocations = invocations.filter((item) =>
+              item.failureCategory !== undefined && item.failureCategory !== null
+            );
             const runTokens = invocations.reduce((total, item) => total + BigInt(item.inputTokens ?? "0") + BigInt(item.outputTokens ?? "0"), 0n);
-            return <div className="agent-run-row" key={run.runId}><Badge variant={run.status === "SUCCEEDED" ? "verified" : run.status === "PREPARED" ? "shadow" : "warning"}>{run.status}</Badge><div><strong>{runtime?.kind ?? "legacy"} · {model?.model ?? "unresolved model"}</strong><span>{run.authorization.kind} · run {run.runOrdinal} · {invocations.length} calls · {formatTokenCount(runTokens.toString())} tokens</span>{run.terminalDiagnostic !== null && <small>{run.terminalDiagnostic}</small>}</div><code>{run.runId.slice(7, 19)}</code></div>;
+            return (
+              <div className="agent-run-row" key={run.runId}>
+                <Badge variant={run.status === "SUCCEEDED" ? "verified" : run.status === "PREPARED" ? "shadow" : "warning"}>
+                  {run.status}
+                </Badge>
+                <div>
+                  <strong>{runtime?.kind ?? "legacy"} · {model?.model ?? "unresolved model"}</strong>
+                  <span>
+                    {run.authorization.kind} · run {run.runOrdinal} · {invocations.length} calls · {formatTokenCount(runTokens.toString())} tokens
+                  </span>
+                  {run.terminalDiagnostic !== null && <small>{run.terminalDiagnostic}</small>}
+                  {failedInvocations.length > 0 && (
+                    <details className="agent-invocation-diagnostics">
+                      <summary>
+                        {failedInvocations.length} invocation failure{failedInvocations.length === 1 ? "" : "s"}
+                      </summary>
+                      {failedInvocations.map((invocation) => (
+                        <div key={invocation.invocationId}>
+                          <code>{invocation.failureCategory}</code>
+                          <p>
+                            {invocation.diagnostic ??
+                              "No bounded transport diagnostic was retained for this historical invocation."}
+                          </p>
+                        </div>
+                      ))}
+                    </details>
+                  )}
+                </div>
+                <code>{run.runId.slice(7, 19)}</code>
+              </div>
+            );
           })}
         </CardContent>
       </Card>

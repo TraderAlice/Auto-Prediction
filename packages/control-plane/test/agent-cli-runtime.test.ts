@@ -286,6 +286,64 @@ describe("production Agent CLI runtime drivers", () => {
     expect(JSON.stringify(result)).not.toContain(CODEX_SECRET);
   });
 
+  it("retains bounded actionable CLI exit diagnostics while redacting both credential supplies", async () => {
+    const codexRunner: AgentCliProcessRunner = async () => Object.freeze({
+      ...processResult(`access_token=${CODEX_SECRET}`, 1),
+      exitCode: 23,
+      stderr: `OAuth backend rejected Bearer ${CODEX_SECRET}; refresh_token=test-only-refresh-token`,
+    });
+    const codexAdapter = createCodexCliAgentRuntimeAdapter({
+      runner: codexRunner,
+      command: "codex-test",
+    });
+    const codexResult = await executePreparedAgentRun({
+      ...execution({
+        kind: "CODEX",
+        credential: codexCredential(),
+        model: codexModel(),
+        adapter: codexAdapter,
+      }),
+      toolHost,
+      now: () => Date.parse(LATER),
+    });
+    expect(codexResult.modelInvocations[0]).toMatchObject({
+      schemaVersion: "pmh.model-invocation.v2",
+      status: "FAILED",
+      failureCategory: "CODEX_CLI_EXIT",
+      diagnostic: expect.stringContaining("exitCode=23"),
+    });
+    expect(codexResult.modelInvocations[0]).toMatchObject({
+      diagnostic: expect.stringContaining("OAuth backend rejected Bearer [REDACTED]"),
+    });
+    expect(JSON.stringify(codexResult)).not.toContain(CODEX_SECRET);
+    expect(JSON.stringify(codexResult)).not.toContain("test-only-refresh-token");
+
+    const piRunner: AgentCliProcessRunner = async () => Object.freeze({
+      ...processResult(`api_key=${DEEPSEEK_SECRET}`, 1),
+      exitCode: 17,
+      stderr: `DeepSeek rejected ${DEEPSEEK_SECRET}; api_key=sk-another-secret-value`,
+    });
+    const piAdapter = createPiCliAgentRuntimeAdapter({ runner: piRunner, command: "pi-test" });
+    const piResult = await executePreparedAgentRun({
+      ...execution({
+        kind: "PI",
+        credential: deepSeekCredential(),
+        model: deepSeekModel(),
+        adapter: piAdapter,
+      }),
+      toolHost,
+      now: () => Date.parse(LATER),
+    });
+    expect(piResult.modelInvocations[0]).toMatchObject({
+      schemaVersion: "pmh.model-invocation.v2",
+      status: "FAILED",
+      failureCategory: "PI_CLI_EXIT",
+      diagnostic: expect.stringContaining("exitCode=17"),
+    });
+    expect(JSON.stringify(piResult)).not.toContain(DEEPSEEK_SECRET);
+    expect(JSON.stringify(piResult)).not.toContain("sk-another-secret-value");
+  });
+
   it("fails closed when a CLI runtime reports an undeclared built-in tool", async () => {
     const runner: AgentCliProcessRunner = async () => processResult([
       JSON.stringify({ type: "thread.started", thread_id: "thread:unsafe" }),

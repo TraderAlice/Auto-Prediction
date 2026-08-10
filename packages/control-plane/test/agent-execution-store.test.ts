@@ -234,6 +234,55 @@ describe("SQLite Agent execution substrate", () => {
     store.close();
   });
 
+  it("replays bounded v2 invocation diagnostics while preserving historical v1 compatibility", async () => {
+    const path = await databasePath();
+    const store = new SqliteOperationalStore(path);
+    const imported = importLegacyAiRuntimeConfiguration(configuration());
+    const work = task(85);
+    const run = buildAgentRun({
+      task: work,
+      executionProfile: imported.executionProfile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:diagnostic-test",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const invocation = buildModelInvocation({
+      run,
+      modelProfile: imported.modelProfile,
+      ordinal: 1,
+      status: "FAILED",
+      startedAt: NOW,
+      completedAt: LATER,
+      failureCategory: "CODEX_CLI_EXIT",
+      diagnostic: "exitCode=23; timedOut=false; stderr=\"model is unavailable\"",
+    });
+    store.saveAgentExecutionBatch({
+      runtimeDefinitions: [imported.runtimeDefinition],
+      credentialBindings: [imported.credentialBinding],
+      modelProfiles: [imported.modelProfile],
+      executionProfiles: [imported.executionProfile],
+      workloadRoutes: [imported.workloadRoute],
+      tasks: [work],
+      runs: [run],
+      modelInvocations: [invocation],
+    });
+    store.close();
+
+    const reopened = new SqliteOperationalStore(path);
+    expect(reopened.loadAgentExecutionSnapshot().modelInvocations).toEqual([
+      expect.objectContaining({
+        schemaVersion: "pmh.model-invocation.v2",
+        invocationId: invocation.invocationId,
+        diagnostic: "exitCode=23; timedOut=false; stderr=\"model is unavailable\"",
+      }),
+    ]);
+    reopened.close();
+  });
+
   it("rejects dangling routes atomically", async () => {
     const store = new SqliteOperationalStore(await databasePath());
     const route = buildWorkloadRoute({

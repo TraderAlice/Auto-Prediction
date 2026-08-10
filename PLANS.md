@@ -18,8 +18,13 @@ campaign or provider request. Rule Evidence now uses an explicit, budgeted
 manual/campaign dispatcher with append-only pause semantics; its legacy timer
 is removed. Studio exposes runtime, credential, model profile, route, task,
 run, incident, purpose/token, preview, and campaign controls at `?view=agents`.
-The proving workload is reviewable and provider-free qualification passes;
-other legacy AI workloads and an optional operator-reviewed live comparison
+The proving workload is reviewable and provider-free qualification passes. A
+first operator-authorized one-task Codex/Terra shadow run also completed its
+failure path: the runtime retained zero known tokens and no tool effects, while
+the new bounded invocation diagnostic exposed rejected Codex OAuth transport
+(HTTP 401/451) instead of the former opaque `CODEX_CLI_EXIT`. That evidence
+separates usable service capability from credential-shaped readiness; live
+capability qualification is the next adoption gate. Other legacy AI workloads
 remain later adoption work.
 
 The active construction plans are

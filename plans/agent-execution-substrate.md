@@ -577,6 +577,41 @@ closed by default.
 - Adopt runtime routes per workload from evidence; do not force one runtime to
   win every workload.
 
+## Use-driven qualification checkpoint — 2026-08-10
+
+The first Studio-driven, one-task Codex/Terra campaign exposed a product defect
+before it produced any research artifact. Run `sha256:05fc06406146…` made one
+model invocation, retained zero known tokens and zero tool effects, and failed
+with `CODEX_CLI_EXIT`. The original projection only named that wrapper error,
+which made an authentication failure look indistinguishable from a timeout,
+model failure, or runtime crash.
+
+Model invocation protocol v2 now retains a bounded, credential-redacted process
+diagnostic for failed CLI turns. The diagnostic survives SQLite restart and is
+available from the Agent run ledger in Studio. Historical v1 invocations remain
+honest: their identities and bytes are preserved, and Studio explicitly says
+that no transport diagnostic was retained rather than inventing one during
+projection. The legacy Rule Evidence importer constructs exact v1 invocations
+so a restart cannot rebind an existing invocation identity to a v2 record.
+
+The retained live evidence identifies the next product gate: the configured
+Codex OAuth binding and Codex runtime both projected `READY`, but the isolated
+CLI received HTTP 401 from the model and websocket endpoints and HTTP 451 from
+the transport. Readiness currently proves credential shape, not usable service
+capability. No blind retry is justified until configuration readiness and live
+capability have distinct, operator-readable states.
+
+Selection signals from this checkpoint:
+
+- keep the bounded diagnostic because it changed the diagnosis without adding
+  another provider request;
+- keep v1/v2 records distinct because additive migration otherwise rewrites
+  retained invocation identity on restart;
+- treat zero known tokens as incomplete transport telemetry, not proof that the
+  failed request was free;
+- block further Codex/Terra shadow comparison on an honest OAuth capability
+  preflight rather than increasing timeout or retry budgets.
+
 ## Qualification gates
 
 ### Identity and compatibility

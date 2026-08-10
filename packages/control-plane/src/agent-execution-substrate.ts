@@ -212,8 +212,7 @@ export type AgentRun = Readonly<{
   valueMovingAuthority: false;
 }>;
 
-export type ModelInvocation = Readonly<{
-  schemaVersion: "pmh.model-invocation.v1";
+type ModelInvocationFields = Readonly<{
   invocationId: Hash;
   runId: Hash;
   ordinal: number;
@@ -228,6 +227,16 @@ export type ModelInvocation = Readonly<{
   failureCategory: string | null;
   responseStorage: false;
 }>;
+
+export type ModelInvocation = Readonly<
+  | (ModelInvocationFields & {
+      schemaVersion: "pmh.model-invocation.v1";
+    })
+  | (ModelInvocationFields & {
+      schemaVersion: "pmh.model-invocation.v2";
+      diagnostic: string | null;
+    })
+>;
 
 export type AgentToolEffect = Readonly<{
   schemaVersion: "pmh.agent-tool-effect.v1";
@@ -1259,12 +1268,17 @@ export function assertModelInvocation(value: unknown): ModelInvocation {
     throw new Error("Model invocation is malformed");
   }
   const record = value as ModelInvocation;
+  const commonKeys = [
+    "schemaVersion", "invocationId", "runId", "ordinal", "accessDriver",
+    "modelProfileId", "status", "startedAt", "completedAt", "inputTokens",
+    "outputTokens", "reasoningTokens", "failureCategory", "responseStorage",
+  ] as const;
+  const isV1 = record.schemaVersion === "pmh.model-invocation.v1" &&
+    exactKeys(record, commonKeys);
+  const isV2 = record.schemaVersion === "pmh.model-invocation.v2" &&
+    exactKeys(record, [...commonKeys, "diagnostic"]);
   if (
-    !exactKeys(record, [
-      "schemaVersion", "invocationId", "runId", "ordinal", "accessDriver",
-      "modelProfileId", "status", "startedAt", "completedAt", "inputTokens",
-      "outputTokens", "reasoningTokens", "failureCategory", "responseStorage",
-    ]) || record.schemaVersion !== "pmh.model-invocation.v1" ||
+    (!isV1 && !isV2) ||
     !MODEL_ACCESS_DRIVERS.includes(record.accessDriver) ||
     !["SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"].includes(record.status) ||
     record.responseStorage !== false
@@ -1288,6 +1302,14 @@ export function assertModelInvocation(value: unknown): ModelInvocation {
   if (record.status === "SUCCEEDED" && record.failureCategory !== null) {
     throw new Error("Successful model invocation cannot have a failure category");
   }
+  if (record.schemaVersion === "pmh.model-invocation.v2") {
+    if (record.diagnostic !== null) {
+      boundedText(record.diagnostic, "Model invocation diagnostic", 2_000);
+    }
+    if (record.status === "SUCCEEDED" && record.diagnostic !== null) {
+      throw new Error("Successful model invocation cannot have a diagnostic");
+    }
+  }
   assertHashIdentity(record.invocationId, identity, "Model invocation identity");
   return record;
 }
@@ -1303,6 +1325,7 @@ export function buildModelInvocation(input: Readonly<{
   outputTokens?: string | null;
   reasoningTokens?: string | null;
   failureCategory?: string | null;
+  diagnostic?: string | null;
 }>): ModelInvocation {
   const run = assertAgentRun(input.run);
   const model = assertModelProfile(input.modelProfile);
@@ -1311,7 +1334,7 @@ export function buildModelInvocation(input: Readonly<{
     ordinal: positiveInteger(input.ordinal, "Model invocation ordinal", 100_000),
   });
   return assertModelInvocation(Object.freeze({
-    schemaVersion: "pmh.model-invocation.v1" as const,
+    schemaVersion: "pmh.model-invocation.v2" as const,
     invocationId: hashCanonical(identity),
     ...identity,
     accessDriver: model.accessDriver,
@@ -1328,6 +1351,9 @@ export function buildModelInvocation(input: Readonly<{
     failureCategory: input.failureCategory === undefined || input.failureCategory === null
       ? null
       : identifier(input.failureCategory, "Model invocation failure category"),
+    diagnostic: input.diagnostic === undefined || input.diagnostic === null
+      ? null
+      : boundedText(input.diagnostic, "Model invocation diagnostic", 2_000),
     responseStorage: false as const,
   }));
 }

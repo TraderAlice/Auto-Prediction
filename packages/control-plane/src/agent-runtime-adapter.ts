@@ -217,6 +217,7 @@ export type AgentRuntimeTurn = Readonly<{
     outputTokens: string | null;
     reasoningTokens: string | null;
     failureCategory: string | null;
+    diagnostic?: string | null;
   }>;
   toolCalls: readonly AgentRuntimeToolCall[];
   completed: boolean;
@@ -482,6 +483,7 @@ export async function executePreparedAgentRun(
         outputTokens: turn.invocation.outputTokens,
         reasoningTokens: turn.invocation.reasoningTokens,
         failureCategory: turn.invocation.failureCategory,
+        diagnostic: turn.invocation.diagnostic ?? null,
       });
       invocations.push(invocation);
       await input.onProgress?.(Object.freeze({

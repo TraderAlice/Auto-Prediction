@@ -6,6 +6,7 @@ import {
 } from "./ai-runtime-configuration.js";
 import type { AiUsageEvent } from "./ai-usage-ledger.js";
 import {
+  assertModelInvocation,
   buildAgentRun,
   buildAgentRunAnnotation,
   buildAgentRunArtifact,
@@ -41,6 +42,18 @@ const LEGACY_PROTOCOLS = Object.freeze([
   "FORCED_TERMINAL_V4",
   "PASSAGE_HANDLES_V5",
 ] as const satisfies readonly RuleEvidenceInterpreterProtocol[]);
+
+function buildLegacyModelInvocation(
+  input: Parameters<typeof buildModelInvocation>[0],
+): ReturnType<typeof buildModelInvocation> {
+  const current = buildModelInvocation(input);
+  if (current.schemaVersion !== "pmh.model-invocation.v2") return current;
+  const { diagnostic: _diagnostic, ...legacy } = current;
+  return assertModelInvocation(Object.freeze({
+    ...legacy,
+    schemaVersion: "pmh.model-invocation.v1" as const,
+  }));
+}
 
 type ResolvedLegacyEngine = Readonly<{
   engine: RuleEvidenceInterpreterEngine;
@@ -540,7 +553,7 @@ export function buildRuleEvidenceAgentMigration(input: Readonly<{
     assignedEvents.forEach((event, eventIndex) => {
       const requests = requestCount(event);
       representedProviderRequests += requests;
-      invocations.push(buildModelInvocation({
+      invocations.push(buildLegacyModelInvocation({
         run: prepared,
         modelProfile: profile.modelProfile,
         ordinal: eventIndex + 1,
@@ -580,7 +593,7 @@ export function buildRuleEvidenceAgentMigration(input: Readonly<{
     });
     if (assignedEvents.length === 0 && item.record !== undefined &&
         item.record.completedAt !== null) {
-      invocations.push(buildModelInvocation({
+      invocations.push(buildLegacyModelInvocation({
         run: prepared,
         modelProfile: profile.modelProfile,
         ordinal: 1,

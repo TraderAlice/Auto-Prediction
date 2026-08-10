@@ -16,6 +16,7 @@ import type { CodexModelConfiguration } from "./agent-execution-substrate.js";
 const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 4_000_000;
 const MAX_ACTION_TEXT_BYTES = 1_000_000;
+const MAX_RUNTIME_DIAGNOSTIC_CHARACTERS = 2_000;
 
 export type AgentCliProcessRequest = Readonly<{
   command: string;
@@ -228,6 +229,7 @@ function failedTurn(
   result: AgentCliProcessResult,
   failureCategory: string,
   status: "FAILED" | "TIMED_OUT" = "FAILED",
+  sensitiveValues: readonly string[] = [],
 ): AgentRuntimeTurn {
   return Object.freeze({
     invocation: Object.freeze({
@@ -238,11 +240,67 @@ function failedTurn(
       outputTokens: null,
       reasoningTokens: null,
       failureCategory,
+      diagnostic: processFailureDiagnostic(result, sensitiveValues),
     }),
     toolCalls: Object.freeze([]),
     completed: false,
     finalArtifact: null,
   });
+}
+
+function redactRuntimeText(value: string, sensitiveValues: readonly string[]): string {
+  let redacted = value;
+  for (const sensitive of sensitiveValues) {
+    if (sensitive.length >= 4) redacted = redacted.split(sensitive).join("[REDACTED]");
+  }
+  return redacted
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/giu, "Bearer [REDACTED]")
+    .replace(
+      /\b((?:access|refresh|id)[_-]?token|api[_-]?key|authorization)\s*[:=]\s*["']?[^"'\s,}]+/giu,
+      "$1=[REDACTED]",
+    )
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, "[REDACTED]");
+}
+
+function boundedRuntimeExcerpt(value: string, sensitiveValues: readonly string[]): string | null {
+  const compact = redactRuntimeText(value, sensitiveValues).trim().replace(/\s+/gu, " ");
+  if (compact === "") return null;
+  const maximum = 1_500;
+  return compact.length <= maximum
+    ? compact
+    : `${compact.slice(0, maximum - 14)}…[truncated]`;
+}
+
+function processFailureDiagnostic(
+  result: AgentCliProcessResult,
+  sensitiveValues: readonly string[],
+): string {
+  const stderr = boundedRuntimeExcerpt(result.stderr, sensitiveValues);
+  const stdout = stderr === null
+    ? boundedRuntimeExcerpt(result.stdout, sensitiveValues)
+    : null;
+  const diagnostic = [
+    `exitCode=${result.exitCode}`,
+    `timedOut=${String(result.timedOut)}`,
+    `outputLimitExceeded=${String(result.outputLimitExceeded)}`,
+    ...(stderr === null ? [] : [`stderr=${JSON.stringify(stderr)}`]),
+    ...(stdout === null ? [] : [`stdout=${JSON.stringify(stdout)}`]),
+  ].join("; ");
+  return diagnostic.length <= MAX_RUNTIME_DIAGNOSTIC_CHARACTERS
+    ? diagnostic
+    : `${diagnostic.slice(0, MAX_RUNTIME_DIAGNOSTIC_CHARACTERS - 14)}…[truncated]`;
+}
+
+function credentialSensitiveValues(
+  credential: AgentRuntimeOpenContext["credential"],
+): readonly string[] {
+  return credential.kind === "DEEPSEEK_API_KEY"
+    ? Object.freeze([credential.apiKey])
+    : Object.freeze([
+        credential.accessToken,
+        credential.idToken ?? "",
+        credential.refreshToken ?? "",
+      ]);
 }
 
 function successfulTurn(
@@ -261,6 +319,7 @@ function successfulTurn(
       completedAt: result.completedAt,
       ...usage,
       failureCategory: null,
+      diagnostic: null,
     }),
     toolCalls: action.kind === "tool_call" ? action.calls : Object.freeze([]),
     completed: action.kind === "complete",
@@ -448,6 +507,7 @@ class PiCliSession implements AgentRuntimeSession {
       ? modelConfiguration.reasoning.effort
       : modelConfiguration.thinking.mode === "enabled" ? "high" : "off";
     const prompt = this.#turn === 0 ? initialPrompt(this.context) : continuationPrompt(toolResults);
+    const sensitiveValues = credentialSensitiveValues(this.context.credential);
     this.#turn += 1;
     const result = await this.options.runner(Object.freeze({
       command: this.options.command,
@@ -463,17 +523,25 @@ class PiCliSession implements AgentRuntimeSession {
       timeoutMs: this.options.timeoutMs,
       maxOutputBytes: this.options.maxOutputBytes,
     }));
-    if (result.timedOut) return failedTurn(result, "PI_CLI_TIMEOUT", "TIMED_OUT");
-    if (result.outputLimitExceeded) return failedTurn(result, "PI_CLI_OUTPUT_LIMIT");
-    if (result.exitCode !== 0) return failedTurn(result, "PI_CLI_EXIT");
+    if (result.timedOut) {
+      return failedTurn(result, "PI_CLI_TIMEOUT", "TIMED_OUT", sensitiveValues);
+    }
+    if (result.outputLimitExceeded) {
+      return failedTurn(result, "PI_CLI_OUTPUT_LIMIT", "FAILED", sensitiveValues);
+    }
+    if (result.exitCode !== 0) {
+      return failedTurn(result, "PI_CLI_EXIT", "FAILED", sensitiveValues);
+    }
     try {
       const parsed = parsePiCliTurn(result.stdout);
-      if (parsed.undeclaredRuntimeTool) return failedTurn(result, "UNDECLARED_RUNTIME_TOOL");
+      if (parsed.undeclaredRuntimeTool) {
+        return failedTurn(result, "UNDECLARED_RUNTIME_TOOL", "FAILED", sensitiveValues);
+      }
       const action = parseRuntimeActionText(parsed.actionText);
       if (action.kind === "complete") await this.cancel();
       return successfulTurn(result, action, parsed);
     } catch {
-      return failedTurn(result, "PI_CLI_PROTOCOL");
+      return failedTurn(result, "PI_CLI_PROTOCOL", "FAILED", sensitiveValues);
     }
   }
 
@@ -522,6 +590,7 @@ class CodexCliSession implements AgentRuntimeSession {
     await writePrivateJson(schemaPath, ACTION_SCHEMA);
     const configuration = this.context.modelProfile.configuration as CodexModelConfiguration;
     const prompt = this.#turn === 0 ? initialPrompt(this.context) : continuationPrompt(toolResults);
+    const sensitiveValues = credentialSensitiveValues(this.context.credential);
     const common = [
       "--json", "--ignore-user-config", "--ignore-rules",
       "--model", this.context.modelProfile.model,
@@ -543,23 +612,33 @@ class CodexCliSession implements AgentRuntimeSession {
       timeoutMs: this.options.timeoutMs,
       maxOutputBytes: this.options.maxOutputBytes,
     }));
-    if (result.timedOut) return failedTurn(result, "CODEX_CLI_TIMEOUT", "TIMED_OUT");
-    if (result.outputLimitExceeded) return failedTurn(result, "CODEX_CLI_OUTPUT_LIMIT");
-    if (result.exitCode !== 0) return failedTurn(result, "CODEX_CLI_EXIT");
+    if (result.timedOut) {
+      return failedTurn(result, "CODEX_CLI_TIMEOUT", "TIMED_OUT", sensitiveValues);
+    }
+    if (result.outputLimitExceeded) {
+      return failedTurn(result, "CODEX_CLI_OUTPUT_LIMIT", "FAILED", sensitiveValues);
+    }
+    if (result.exitCode !== 0) {
+      return failedTurn(result, "CODEX_CLI_EXIT", "FAILED", sensitiveValues);
+    }
     try {
       const parsed = parseCodexCliTurn(result.stdout);
-      if (parsed.undeclaredRuntimeTool) return failedTurn(result, "UNDECLARED_RUNTIME_TOOL");
+      if (parsed.undeclaredRuntimeTool) {
+        return failedTurn(result, "UNDECLARED_RUNTIME_TOOL", "FAILED", sensitiveValues);
+      }
       if (this.#threadId === null) {
-        if (parsed.sessionId === null) return failedTurn(result, "CODEX_CLI_SESSION_MISSING");
+        if (parsed.sessionId === null) {
+          return failedTurn(result, "CODEX_CLI_SESSION_MISSING", "FAILED", sensitiveValues);
+        }
         this.#threadId = parsed.sessionId;
       } else if (parsed.sessionId !== null && parsed.sessionId !== this.#threadId) {
-        return failedTurn(result, "CODEX_CLI_SESSION_CHANGED");
+        return failedTurn(result, "CODEX_CLI_SESSION_CHANGED", "FAILED", sensitiveValues);
       }
       const action = parseRuntimeActionText(parsed.actionText);
       if (action.kind === "complete") await this.cancel();
       return successfulTurn(result, action, parsed);
     } catch {
-      return failedTurn(result, "CODEX_CLI_PROTOCOL");
+      return failedTurn(result, "CODEX_CLI_PROTOCOL", "FAILED", sensitiveValues);
     }
   }
 
