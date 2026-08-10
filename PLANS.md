@@ -40,6 +40,9 @@ and probability-premise challenges plus semantic repair tracked in
 [`plans/probability-case-integrity.md`](plans/probability-case-integrity.md),
 with challenge-to-successor review orchestration tracked in
 [`plans/probability-semantic-repair-loop.md`](plans/probability-semantic-repair-loop.md),
+and repair/evidence debt that lacks a locator advanced through bounded official
+source discovery under
+[`plans/official-source-discovery-agent.md`](plans/official-source-discovery-agent.md),
 and AI resource observability tracked in
 [`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md), with terminal
 protocol efficiency tracked in
