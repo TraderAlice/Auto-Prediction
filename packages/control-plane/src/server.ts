@@ -2346,6 +2346,56 @@ export function createControlPlane(options?: {
       valueMovingAuthority: false as const,
     });
   };
+  const discoveryExecutionCapability = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (route === undefined) {
+      throw new Error("Discovery execution workload route is unavailable");
+    }
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) {
+      throw new Error("Discovery execution profile is unavailable");
+    }
+    const runtime = snapshot.runtimeDefinitions.find((item) =>
+      item.runtimeDefinitionId === profile.runtimeDefinitionId
+    );
+    const model = snapshot.modelProfiles.find((item) =>
+      item.modelProfileId === profile.modelProfileId
+    );
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (runtime === undefined || model === undefined || binding === undefined) {
+      throw new Error("Discovery execution substrate is incomplete");
+    }
+    const configuration = await agentCredentialBroker.configuration(binding);
+    return Object.freeze({
+      schemaVersion: "pmh.discovery-execution-capability.v1" as const,
+      workloadRoute: route,
+      executionProfile: profile,
+      runtime: Object.freeze({
+        runtimeDefinitionId: runtime.runtimeDefinitionId,
+        kind: runtime.kind,
+        version: runtime.version,
+      }),
+      model: Object.freeze({
+        modelProfileId: model.modelProfileId,
+        accessDriver: model.accessDriver,
+        model: model.model,
+        configuration: model.configuration,
+      }),
+      capability: agentExecutionCapabilityService.project(profile, configuration),
+      providerRequestsStarted: 0 as const,
+      modelInvocationsStarted: 0 as const,
+      credentialSecretTextRetained: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+  };
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
     string,
@@ -2851,6 +2901,33 @@ export function createControlPlane(options?: {
         readiness,
         { "cache-control": "no-store" },
       );
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/discovery-execution-capability"
+    ) {
+      try {
+        await ready;
+        writeJson(
+          response,
+          200,
+          await discoveryExecutionCapability(),
+          { "cache-control": "no-store" },
+        );
+      } catch (error) {
+        writeJson(response, 503, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "Discovery execution capability is unavailable",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          credentialSecretTextRetained: false,
+          externalWriteAuthority: false,
+          valueMovingAuthority: false,
+        });
+      }
       return;
     }
     if (request.method === "GET" && url.pathname === "/health") {

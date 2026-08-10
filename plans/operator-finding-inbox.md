@@ -78,3 +78,11 @@ fast leads, exhausted deep work, and scan failures remain inspectable without
 becoming urgent. The prior manual scout and Pi history remains available under
 an explicitly secondary disclosure, so claim monitoring survives without
 defining the product's discovery method.
+
+Issue #90 removed a contradictory action boundary found in direct use:
+Findings no longer offers `Explore next` while the routed discovery profile is
+blocked. It shares the lightweight discovery-capability projection and
+preflight control with Discover, so the operator sees one
+runtime/model/capability fact at both scan entry points. The backend scheduler
+remains the fail-closed final gate even if a stale client attempts the request
+directly.

@@ -61,6 +61,7 @@ import {
   type StudioProjection,
 } from "@/data/studio-projection";
 import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
+import { useDiscoveryExecutionCapability } from "@/data/discovery-execution";
 import { cn } from "@/lib/utils";
 import {
   parseWorkspaceRoute,
@@ -4398,68 +4399,16 @@ function MarketArchaeologistView() {
   const [newIssueQuestion, setNewIssueQuestion] = useState("");
   const [newIssueLens, setNewIssueLens] = useState<SearchIssue["lens"]>("EQUIVALENCE");
   const [newIssueCadenceMinutes, setNewIssueCadenceMinutes] = useState(15);
-  const [executionConsole, setExecutionConsole] = useState<AgentExecutionConsole | null>(null);
-  const [executionDiagnostic, setExecutionDiagnostic] = useState<string | null>(null);
-  const [preflightBusy, setPreflightBusy] = useState(false);
-  const discoveryRoute = [...(executionConsole?.workloadRoutes ?? [])]
-    .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
-    .sort((left, right) => right.revision - left.revision)[0];
-  const discoveryProfile = executionConsole?.executionProfiles.find((item) =>
-    item.executionProfileId === discoveryRoute?.executionProfileId
-  );
-  const discoveryCapability = executionConsole?.capabilities.find((item) =>
-    item.executionProfileId === discoveryProfile?.executionProfileId
-  );
-  const discoveryRuntime = executionConsole?.runtimeDefinitions.find((item) =>
-    item.runtimeDefinitionId === discoveryProfile?.runtimeDefinitionId
-  );
-  const discoveryModel = executionConsole?.modelProfiles.find((item) =>
-    item.modelProfileId === discoveryProfile?.modelProfileId
-  );
+  const discoveryExecution = useDiscoveryExecutionCapability();
+  const discoveryCapability = discoveryExecution.data?.capability;
+  const discoveryRuntime = discoveryExecution.data?.runtime;
+  const discoveryModel = discoveryExecution.data?.model;
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
   const nextLens = scheduler.lensOrder.find(
     (lens) => !currentLensRecords.some((record) => record.lease.lens === lens),
   );
-
-  async function refreshExecutionConsole(): Promise<void> {
-    try {
-      setExecutionConsole(await requestAgentExecutionConsole());
-      setExecutionDiagnostic(null);
-    } catch (error) {
-      setExecutionDiagnostic(
-        error instanceof Error ? error.message : "Discovery execution profile is unavailable",
-      );
-    }
-  }
-
-  useEffect(() => {
-    void refreshExecutionConsole();
-  }, []);
-
-  async function preflightDiscovery(): Promise<void> {
-    if (discoveryProfile === undefined) return;
-    setPreflightBusy(true);
-    setExecutionDiagnostic(null);
-    try {
-      const response = await fetch(
-        `/api/v1/execution-profiles/${discoveryProfile.executionProfileId}/preflight`,
-        { method: "POST", headers: { accept: "application/json" } },
-      );
-      const result = await response.json() as { ok?: boolean; diagnostic?: string };
-      if (!response.ok || result.ok === false) {
-        throw new Error(result.diagnostic ?? `Capability preflight returned HTTP ${response.status}`);
-      }
-      await refreshExecutionConsole();
-    } catch (error) {
-      setExecutionDiagnostic(
-        error instanceof Error ? error.message : "Capability preflight failed",
-      );
-    } finally {
-      setPreflightBusy(false);
-    }
-  }
 
   async function run(): Promise<void> {
     setLocalStatus("RUNNING");
@@ -4597,10 +4546,10 @@ function MarketArchaeologistView() {
           <Button
             variant="outline"
             size="sm"
-            disabled={discoveryProfile === undefined || preflightBusy}
-            onClick={() => void preflightDiscovery()}
+            disabled={discoveryExecution.data === null || discoveryExecution.preflightBusy}
+            onClick={() => void discoveryExecution.preflight()}
           >
-            {preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
+            {discoveryExecution.preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
             {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
           </Button>
           <Button
@@ -4623,10 +4572,10 @@ function MarketArchaeologistView() {
         </div>
       </div>
 
-      {(executionDiagnostic !== null || discoveryCapability?.dispatchEligibility === "BLOCKED") && (
+      {(discoveryExecution.diagnostic !== null || discoveryCapability?.dispatchEligibility === "BLOCKED") && (
         <div className="inline-alert" role="status">
           <CircleOff size={14} />
-          {executionDiagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
+          {discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
         </div>
       )}
 
@@ -8490,6 +8439,10 @@ function ScoutInboxView({
   const [explorationStatus, setExplorationStatus] = useState<
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
+  const discoveryExecution = useDiscoveryExecutionCapability();
+  const discoveryCapability = discoveryExecution.data?.capability;
+  const discoveryRuntime = discoveryExecution.data?.runtime;
+  const discoveryModel = discoveryExecution.data?.model;
   const liveContextEligible =
     catalogMode === "VERIFIED_FIXTURES" ||
     selectedVenueIds.every(
@@ -8590,24 +8543,51 @@ function ScoutInboxView({
             or permission to trade.
           </p>
         </div>
-        <Button
-          disabled={scheduler.status === "RUNNING" || explorationStatus === "RUNNING"}
-          onClick={() => void exploreNext()}
-        >
-          {explorationStatus === "RUNNING" ? (
-            <RefreshCw className="is-spinning" size={13} />
-          ) : (
-            <Sparkles size={13} />
-          )}
-          {explorationStatus === "RUNNING"
-            ? "Exploring…"
-            : explorationStatus === "RESTORED"
-              ? "Latest scan restored"
-              : explorationStatus === "FAILED"
-                ? "Retry exploration"
-                : "Explore next"}
-        </Button>
+        <div className="archaeology-heading-badges">
+          <Badge variant={discoveryCapability?.dispatchEligibility === "ELIGIBLE" ? "verified" : "warning"}>
+            {discoveryRuntime?.kind?.replace("HARNESS_IN_PROCESS", "In-process") ?? "Runtime"}
+            {" · "}{discoveryModel?.model ?? "loading"}
+            {" · "}{discoveryCapability?.serviceCapability ?? "UNVERIFIED"}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={discoveryExecution.data === null || discoveryExecution.preflightBusy}
+            onClick={() => void discoveryExecution.preflight()}
+          >
+            {discoveryExecution.preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
+            {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
+          </Button>
+          <Button
+            disabled={
+              scheduler.status === "RUNNING" ||
+              explorationStatus === "RUNNING" ||
+              discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
+            }
+            onClick={() => void exploreNext()}
+          >
+            {explorationStatus === "RUNNING" ? (
+              <RefreshCw className="is-spinning" size={13} />
+            ) : (
+              <Sparkles size={13} />
+            )}
+            {explorationStatus === "RUNNING"
+              ? "Exploring…"
+              : explorationStatus === "RESTORED"
+                ? "Latest scan restored"
+                : explorationStatus === "FAILED"
+                  ? "Retry exploration"
+                  : "Explore next"}
+          </Button>
+        </div>
       </div>
+
+      {(discoveryExecution.diagnostic !== null || discoveryCapability?.dispatchEligibility === "BLOCKED") && (
+        <div className="inline-alert" role="status">
+          <CircleOff size={14} />
+          {discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
+        </div>
+      )}
 
       <div className="finding-inbox-summary" aria-label="Finding inbox summary">
         <Metric label="Needs attention" value={`${attentionCount}`} detail="retry, review, or inspect" />

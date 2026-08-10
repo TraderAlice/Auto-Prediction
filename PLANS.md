@@ -34,12 +34,15 @@ so all three misleading green paths are blocked without spending model tokens.
 The first legacy workload is now routed through that boundary: heuristic
 discovery resolves the current `DISCOVERY_SCOUT` workload route and evaluates
 its immutable execution profile before any manual, scheduled, issue-driven,
-restart-resumed, or deep-retry provider work. Studio shows the routed
-runtime/model/capability beside both discovery launch controls and disables
-them while blocked. API-key profiles also require a fresh configuration-only
-preflight, so configured-but-missing secrets cannot bypass the synchronous
-dispatcher. An app-server-backed Codex runtime is the next usable-route
-candidate. Other legacy AI workloads remain later adoption work.
+restart-resumed, or deep-retry provider work. A bounded, provider-free
+discovery-capability endpoint projects only that route, profile, runtime,
+model, and current preflight evidence. Discover and Findings consume it through
+one hook, expose the same preflight control, and disable every scan launch while
+blocked; Agent Operations retains the full execution console rather than making
+ordinary scan pages download it. API-key profiles also require a fresh
+configuration-only preflight, so configured-but-missing secrets cannot bypass
+the synchronous dispatcher. An app-server-backed Codex runtime is the next
+usable-route candidate. Other legacy AI workloads remain later adoption work.
 Cold-start use then exposed a separate operability failure: the listener was
 reachable while Studio waited 8–25 seconds with a generic Connecting screen.
 The control plane now exposes a provider-free `/api/v1/readiness` envelope with

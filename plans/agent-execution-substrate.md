@@ -682,6 +682,26 @@ creation. The scheduler test asserts zero retained records and zero `runFast`
 calls; the server configuration test proves the routed profile is blocked with
 zero Agent runs and model invocations.
 
+Issue #90 exposed a presentation split after that dispatch guard shipped.
+Discover fetched the roughly 1.43 MB full Agent Operations projection to read
+one capability, while Findings still offered an enabled `Explore next` action
+under the same rejected route. The control plane now exposes a bounded
+`/api/v1/discovery-execution-capability` projection containing only the newest
+`DISCOVERY_SCOUT` route, its exact execution profile, runtime, model, and
+capability evidence. The read performs no provider or model request, retains no
+credential text, and grants no external-write or value-moving authority.
+
+Discover and Findings share one parser/hook for that projection, show the same
+runtime/model/capability and preflight control, and fail closed while the
+projection is loading, malformed, unavailable, or blocked. The scheduler's
+synchronous dispatch guard remains the final authority boundary. Agent
+Operations continues to own the full task/run/campaign console; discovery
+launch surfaces no longer download it merely to decide whether one button is
+safe to enable. The retained live profile projected as a 2,890-byte response,
+versus the former roughly 1.43 MB console read, and a zero-inference Recheck
+moved its expired `STALE` evidence to the current `REJECTED` HTTP 403 result on
+both pages.
+
 ### Cold-start readiness checkpoint
 
 Issue #88 was filed after repeated product restarts left Studio on an

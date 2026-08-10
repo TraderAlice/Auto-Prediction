@@ -1440,6 +1440,33 @@ describe("control-plane HTTP surface", () => {
     expect(agentConsole.runs).toHaveLength(0);
     expect(agentConsole.modelInvocations).toHaveLength(0);
 
+    const discoveryCapabilityResponse = await fetch(
+      `${baseUrl}/api/v1/discovery-execution-capability`,
+    );
+    expect(discoveryCapabilityResponse.status).toBe(200);
+    expect(Number(discoveryCapabilityResponse.headers.get("content-length") ?? "0"))
+      .toBeLessThan(10_000);
+    const discoveryCapabilityText = await discoveryCapabilityResponse.text();
+    expect(discoveryCapabilityText).not.toContain("test-only-codex-token");
+    expect(JSON.parse(discoveryCapabilityText)).toMatchObject({
+      schemaVersion: "pmh.discovery-execution-capability.v1",
+      workloadRoute: { taskKind: "DISCOVERY_SCOUT" },
+      runtime: { kind: "HARNESS_IN_PROCESS" },
+      model: { model: "gpt-5.6-terra" },
+      capability: {
+        dispatchEligibility: "BLOCKED",
+        diagnostic: expect.stringContaining("preflight"),
+      },
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      credentialSecretTextRetained: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(discoveryCapabilityText).not.toContain('"tasks"');
+    expect(discoveryCapabilityText).not.toContain('"runs"');
+    expect(discoveryCapabilityText).not.toContain('"campaigns"');
+
     const stale = await fetch(`${baseUrl}/api/v1/ai-runtime/configuration`, {
       method: "POST",
       headers: { "content-type": "application/json" },
