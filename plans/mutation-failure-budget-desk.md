@@ -1,14 +1,21 @@
 # Mutation plan: failure-budget desk
 
-Status: candidate under selection
+Status: ADOPTED into mainline on 2026-08-11
 
 Issue: [#82](https://github.com/luokerenx4/my-little-pony/issues/82)
 
 Branch: `codex/mutation-failure-budget`
 
-This is a mutation specimen, not an active mainline decision. It is intentionally
-not indexed as an active plan in `PLANS.md` until portfolio review produces
-`ADOPT` or `PARTIAL_ADOPT`.
+This began as a mutation specimen. Operator portfolio review selected `ADOPT`
+after four direct-use loops made the work object identity-first, proposal-scoped,
+and navigable through Review and Evidence. It is now indexed by `PLANS.md` as an
+active mainline research direction.
+
+Adoption is deliberately narrower than a success claim: the infrastructure and
+workflow become the baseline for measuring bounded semantic relative value,
+while positive-margin yield, calibration, fees, depth, and token cost remain
+open qualification gates. The exact verifier retains sole certificate authority
+and the repository retains no live-execution authority.
 
 ## Product proposition
 
@@ -189,6 +196,13 @@ arbitrage objects into the primary workspace.
 - [x] Open a draft mutation PR and leave it unmerged for comparative review.
 
 ## Selection rule
+
+Portfolio decision: **ADOPT** (2026-08-11). The operator selected the complete
+candidate as the next mainline baseline because the direct-use loop demonstrated
+useful, durable research work even when the first live specimen failed to
+produce a numeric bound. The negative LAFC result remains selection evidence,
+not a fabricated success. Reversibility remains high because historical
+artifacts and authority boundaries are unchanged.
 
 - **ADOPT** if live scans produce calibrated positive-margin candidates at an
   acceptable token cost and operators prefer this ranking for research triage.

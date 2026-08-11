@@ -75,6 +75,9 @@ with Studio invalidation transport tracked in
 [`plans/studio-invalidation-stream.md`](plans/studio-invalidation-stream.md),
 and the primary price-positive opportunity frontier tracked in
 [`plans/opportunity-frontier.md`](plans/opportunity-frontier.md),
+with the operator-adopted failure-budget research object and its remaining
+yield/calibration gates tracked in
+[`plans/mutation-failure-budget-desk.md`](plans/mutation-failure-budget-desk.md),
 with durable proposal-local review evidence and decision dossiers tracked in
 [`plans/durable-decision-dossier.md`](plans/durable-decision-dossier.md),
 and actionable recovery of physically-rotated semantic-review detail tracked in
@@ -957,6 +960,15 @@ same focused Review, and can explicitly clear focus. This read grants no model,
 fetch, scheduler, certificate, or execution authority. The source-discovery
 stage also now reports the live 120 queued / 0 running / 0 terminal tasks as
 `QUEUED`, replacing the misleading `0/0 WAITING` presentation.
+
+Portfolio review on 2026-08-11 selected **ADOPT** for the infrastructure and
+operator workflow in PR #83. The selection does not claim that the desk already
+produces calibrated or executable opportunities: it adopts failure budget as a
+first-class mainline research object, its proposal-scoped lifecycle, the
+provider-neutral Agent substrate, and the fail-closed evidence machinery so
+that those missing yield and calibration observations can be measured on the
+mainline rather than maintained as a divergent specimen. Hard-arbitrage
+certificate authority remains separate, and real execution remains disabled.
 
 Those four unsupported Gemini requirements now enter a bounded official-source
 discovery loop instead of stopping at prose debt. Terra/high inspected the
