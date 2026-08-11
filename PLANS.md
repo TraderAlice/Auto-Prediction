@@ -1,5 +1,60 @@
 # Plans
 
+The active AI architecture migration is
+[`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
+separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,
+logical credentials, model-owned inference configuration, immutable runs,
+model invocations, first-party tool effects, and explicitly authorized
+campaigns. Its Phase 1 contracts and additive SQLite v35 substrate are now in
+place: importing or editing the legacy provider setting creates only profiles
+and routes, Rule Evidence work reconciles to stable provider-neutral tasks,
+and neither operation creates a run, campaign, invocation, or model request.
+It supersedes the flat provider-switch target while retaining its live
+protocol evidence. Pi, Codex Agent, and in-process production adapters now
+share one tool-first lifecycle, and the provider-free historical import is
+durable: 229 attempt-bearing Rule Evidence runs, all six Terra failures, twelve
+expired leases, and fifty retry-wait incidents are explicit without creating a
+campaign or provider request. Rule Evidence now uses an explicit, budgeted
+manual/campaign dispatcher with append-only pause semantics; its legacy timer
+is removed. Studio exposes runtime, credential, model profile, route, task,
+run, incident, purpose/token, preview, and campaign controls at `?view=agents`.
+The proving workload is reviewable and provider-free qualification passes. A
+first operator-authorized one-task Codex/Terra shadow run also completed its
+failure path: the runtime retained zero known tokens and no tool effects, while
+the new bounded invocation diagnostic exposed rejected Codex OAuth transport
+(HTTP 401/451) instead of the former opaque `CODEX_CLI_EXIT`. That evidence
+separates usable service capability from credential-shaped readiness. SQLite
+schema 37 now retains zero-inference, execution-profile-scoped capability
+observations. Studio distinguishes credential configuration, runtime presence,
+service capability, and dispatch eligibility; Codex-backed runs require a fresh
+usable observation before a run is created. Real non-inference probes showed
+that this Codex OAuth cache is accepted by the Codex desktop/app-server path
+but rejected for the current `codex_cli_rs`, `pi`, and in-process originators,
+so all three misleading green paths are blocked without spending model tokens.
+The first legacy workload is now routed through that boundary: heuristic
+discovery resolves the current `DISCOVERY_SCOUT` workload route and evaluates
+its immutable execution profile before any manual, scheduled, issue-driven,
+restart-resumed, or deep-retry provider work. A bounded, provider-free
+discovery-capability endpoint projects only that route, profile, runtime,
+model, and current preflight evidence. Discover and Findings consume it through
+one hook, expose the same preflight control, and disable every scan launch while
+blocked; Agent Operations retains the full execution console rather than making
+ordinary scan pages download it. API-key profiles also require a fresh
+configuration-only preflight, so configured-but-missing secrets cannot bypass
+the synchronous dispatcher. An app-server-backed Codex runtime is the next
+usable-route candidate. Other legacy AI workloads remain later adoption work.
+Cold-start use then exposed a separate operability failure: the listener was
+reachable while Studio waited 8–25 seconds with a generic Connecting screen.
+The control plane now exposes a provider-free `/api/v1/readiness` envelope with
+timed startup-gate, durable-recovery, Agent-reconciliation, and first-projection
+phases. Studio polls that small envelope alongside the coalesced projection and
+shows the real phase and elapsed time. A complete retained-desk phase trace
+measured 3.131 seconds of durable recovery, 0.825 seconds of Agent
+reconciliation, and 8.203 seconds of projection materialization; time spent
+waiting for the browser to request its first projection is recorded separately
+and is not misclassified as backend work. This gives later performance work an
+evidence-backed target without delaying the listener or fabricating content.
+
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
 [`plans/heuristic-origin-discovery.md`](plans/heuristic-origin-discovery.md),
@@ -20,6 +75,9 @@ with Studio invalidation transport tracked in
 [`plans/studio-invalidation-stream.md`](plans/studio-invalidation-stream.md),
 and the primary price-positive opportunity frontier tracked in
 [`plans/opportunity-frontier.md`](plans/opportunity-frontier.md),
+with the operator-adopted failure-budget research object and its remaining
+yield/calibration gates tracked in
+[`plans/mutation-failure-budget-desk.md`](plans/mutation-failure-budget-desk.md),
 with durable proposal-local review evidence and decision dossiers tracked in
 [`plans/durable-decision-dossier.md`](plans/durable-decision-dossier.md),
 and actionable recovery of physically-rotated semantic-review detail tracked in
@@ -32,6 +90,19 @@ with traded-state routes evaluated as exact-ref Pi reformulations under
 [`plans/premise-route-expansion.md`](plans/premise-route-expansion.md),
 with the Agent workflow tracked in
 [`plans/probability-estimation-agents.md`](plans/probability-estimation-agents.md),
+and exact reviewed listing ownership across catalog rotation tracked in
+[`plans/durable-probability-evidence-context.md`](plans/durable-probability-evidence-context.md),
+with structured estimator abstention and research routing tracked in
+[`plans/probability-estimation-evidence-debt.md`](plans/probability-estimation-evidence-debt.md),
+and probability-premise challenges plus semantic repair tracked in
+[`plans/probability-case-integrity.md`](plans/probability-case-integrity.md),
+with challenge-to-successor review orchestration tracked in
+[`plans/probability-semantic-repair-loop.md`](plans/probability-semantic-repair-loop.md),
+and repair/evidence debt that lacks a locator advanced through bounded official
+source discovery under
+[`plans/official-source-discovery-agent.md`](plans/official-source-discovery-agent.md),
+with declared oracle policy separated from direct outcome-source observation in
+[`plans/oracle-evidence-layering.md`](plans/oracle-evidence-layering.md),
 and AI resource observability tracked in
 [`plans/ai-token-usage-ledger.md`](plans/ai-token-usage-ledger.md), with terminal
 protocol efficiency tracked in
@@ -76,12 +147,18 @@ one divided status surface, a readable exploration card, and claim monitoring
 inside secondary operations. Final aesthetic acceptance remains with the
 operator rather than another mechanical audit.
 
-AI provider selection is now a spending policy rather than a cosmetic fast-lane
-choice. SQLite configuration v2 persists provider, Codex model/effort, and a
-separate automatic-DeepSeek gate. Credentials alone no longer authorize Pi,
-review, estimation, premise, or evidence-interpretation schedulers to spend.
-The live desk is revision 20 on `CODEX / gpt-5.6-terra / high` with automatic
-DeepSeek disabled; manual DeepSeek remains an explicit operator action.
+The compatibility layer still persists the flat SQLite provider choice, Codex
+model/effort, and automatic-DeepSeek gate while the new substrate imports it
+as configuration evidence. Live evidence showed why it cannot remain the
+execution model: Codex and Pi are Agent runtimes, credentials are independent
+capabilities, and inference options belong to the selected model's schema. A
+routing change also caused provider-shaped Rule Evidence Claim job fan-out and
+six failed Terra requests before containment. The new substrate now gives the
+same Rule Evidence input one stable task across runtime/model/effort changes;
+an expired legacy lease is projected as interrupted and is not silently
+requeued. Until the runtime and campaign phases qualify, automatic Rule
+Evidence Claim dispatch remains closed and configuration changes must make
+zero model calls.
 
 The first traded-state reformulation portfolio is a measured `HOLD`, not a new
 default Agent loop. Three exact groups produced one honest zero-result and two
@@ -113,7 +190,17 @@ The Findings-to-Review transition is now proposal-addressable rather than a
 generic page jump. Stable `?view=` routes and at most five validated proposal
 IDs survive refresh and browser history. A proposal-local read-only endpoint
 resolves focused details, durable review jobs, lifecycle cases, and operator
-postures from full retained state without shipping the 8.2 MB full projection.
+postures from durable source projections without first materializing or
+shipping the multi-megabyte global projection. Direct use had exposed that the
+original endpoint still awaited that global build internally and left the
+dossier loading for roughly 30 seconds. The source-local read now publishes
+`Server-Timing`, measured 0.327–0.716 seconds on the retained desk, and the
+Finding-to-actionable-dossier browser path measured about 3.1 seconds including
+navigation/rendering. Focused Review hides unrelated global operations until
+the operator explicitly expands them. A next-gate label is now `BLOCKED` when
+the retained capsule has only evidence-gap counts and no gap text or acquisition
+route; the UI explains why inventing an action from those counts would fabricate
+scope.
 The live House-control specimen restores both proposal statements, both
 duplicate-scope reuse jobs, and both awaiting-review cases after the ordinary
 live window has already evicted them. Desktop and 390 px checks preserve the
@@ -144,6 +231,15 @@ Review handoff. The three proposals previously absent from the live economic
 detail window each restore their proposal, review job, and lifecycle case.
 Every card names semantic review, fees, and depth as outstanding, so a gross
 hint cannot masquerade as executable profit.
+Product use on the expanded frontier then showed that eight visible raw hints
+represented only four exact relation/contract structures: repeated Agent
+arguments for Atlanta, House control, and LAFC occupied half the bounded view.
+The frontier is now identity-first without rewriting evidence. Symmetric
+relations group by relation kind plus sorted exact listing refs; directional
+relations preserve order. One deterministic edge/coverage/priority-ranked
+representative is shown with its variant count and merged issue lineage, while
+the UI separately reports unique visible opportunities, raw hints, collapsed
+variants, and raw detail outside the projection window.
 
 Live frontier use exposed the next persistence cliff. Four price-positive jobs
 are direct PASS and two reuse one canonical PASS, yet only one underlying
@@ -318,15 +414,29 @@ and independent risk gates, while being structurally unable to claim a hard
 certificate or guaranteed profit.
 
 Probability estimation is now a native tool-effect loop rather than a fixed
-response schema. Reference-class, causal, and independent roles must record an
-adverse counter-scenario before submitting an evidence-bound interval or an
-explicit abstention. Their runs are content-addressed, survive SQLite restart,
+response schema. Reference-class, causal, and independent roles must accept an
+exact adverse-state interpretation, then record an adverse counter-scenario
+before submitting an evidence-bound interval or an explicit abstention. Their
+runs are content-addressed, survive SQLite restart,
 and appear as estimate-only records in Studio. A durable scheduler now derives
 relation-specific adverse states, leases all three roles concurrently, retries
 within explicit budgets, and recovers expired work after restart. Two distinct
 passing roles are required before first-party code assembles a conservative
 upper bound; ready, abstained, and exhausted outcomes enter a durable inbox.
 Resolved-outcome calibration is now the active probability-quality checkpoint.
+
+Live probability work exposed a stricter prerequisite than evidence quality.
+The retained MLS case selected `TF`—Gemini YES / Polymarket NO—while its main
+postponement counterexample described Gemini non-YES or undefined / Polymarket
+YES. Current run V4/job V7 cases therefore bind a content-addressed expansion of
+every adverse state and require each role to accept it before probability
+effects. A role may instead issue a terminal, scope-bound semantic challenge.
+All three Terra/high roles independently challenged the MLS direction on their
+first request, using 16,530 reported tokens total; first-party code grouped them
+into one `NEW_SEMANTIC_REVIEW_REQUIRED` item and excluded the case from bounds,
+evidence debt, and automatic retry. SQLite schema 33 preserves historical
+artifacts while persisting this new terminal posture. Usage attribution now
+distinguishes `CHALLENGED` from an ordinary estimator abstention.
 
 That calibration checkpoint now has its first deterministic artifact. Every
 resolved joint state binds the exact historical probability bound plus one
@@ -785,6 +895,149 @@ each row `Current` or `Historical snapshot` instead of presenting both as the
 same work queue. All 616 workspace tests, type checks, and the production build
 pass; desktop and 390 px browser checks have no horizontal overflow or console
 errors and keep the visible type floor at 12 px.
+
+Probability estimation now survives the same retention boundary. A bounded,
+content-addressed evidence context owns the exact reviewed listings, semantic
+constraint, review lineage, and source bundle, so a provider case can run after
+both the review and catalog generation leave memory. Live LAFC qualification
+advanced three Terra/high roles through V2 readable truth mapping and then V3
+Agent-native evidence tools. All three honestly abstained once rather than
+fabricating an adverse-state probability.
+
+Those abstentions are no longer dead prose. The Agent records typed evidence
+needs before it may abstain; first-party code validates exact contract/state
+scope, compiles compatible official gaps into the ordinary acquisition
+scheduler, and groups wording variants without deleting their raw effects. The
+live run retained fifteen needs as nine work units: five official-rule groups
+with missing Gemini locators and four policy-gated external research groups for
+resolution history, reference classes, causal parameters, and anchors. Studio
+shows this queue above the failure-budget cases with 3 terminal abstentions, 1
+legacy evidence blocker, zero false awaiting cases, a 12 px text floor, no
+horizontal overflow at desktop or 390 px, and no console diagnostics. The next
+product decision is which external reference family should close the first
+statistical evidence loop; it remains batched in `QUESTIONS.md` rather than
+authorizing open-ended browsing.
+
+Probability premise challenges now close the loop instead of ending at a
+queue label. Multi-role conflicts create a content-addressed semantic-repair
+request, reopen the proposal under a new review identity, bind the selected
+runtime provider/model/effort, and preserve the challenged case unchanged.
+One-role conflicts and a fourth repair generation require manual attention.
+The first-party disposition also now treats a counterexample as a refutation
+of a hard constraint but as the adverse state of a probabilistic dependence;
+this prevents the fuzzy-arbitrage lane from silently collapsing back to
+strict-only semantics.
+
+The live MLS repair ran once on `CODEX / gpt-5.6-terra / high` after recovering
+its source constraint from the durable probability job even though the old
+review had rotated out of Studio. In 85.6 seconds and 95,895 reported tokens it
+created a new review and constraint, reduced the pair to textual relatedness,
+marked all four joint states unresolved, and emitted four structured Gemini
+rule requirements. It did not fabricate a probability or launch another
+estimator generation. Failure Budgets now shows the lifecycle and successor
+identity as `REDUCED TO RESEARCH`; desktop inspection has no console errors.
+
+Direct use then showed that the five visible frontier rows were not five
+semantic opportunities at all: they were five estimator generations over the
+same LAFC proposal, semantic constraint, and `TF` adverse state. Failure-budget
+v4 makes that tuple the work identity. The live frontier now reports one unique
+work item, five raw estimator cases, four collapsed historical attempts, and
+fifteen retained role jobs. Its current posture is the newest Terra/high V4
+semantic challenge; the older Terra abstentions and legacy DeepSeek evidence
+block remain visible in an expandable, newest-first history without inflating
+opportunity count. Distinct constraints or adverse-state sets still rank
+separately, and completed bounds keep their economic result while later
+attempts remain attribution rather than duplicate cards.
+
+A second direct-use pass exposed a product-continuity failure after that
+identity repair: the sole LAFC work item produced nine precise probability
+research questions, but Failure Budgets had no handoff and the Evidence page
+replaced it with a global 65-proposal frontier. Issue #93 now carries proposal
+focus through the URL from Failure Budgets into Evidence. The focused page
+renders all nine retained questions, their route posture, estimator roles, and
+engine lineage before the global pipeline, survives reload, returns to the
+same focused Review, and can explicitly clear focus. This read grants no model,
+fetch, scheduler, certificate, or execution authority. The source-discovery
+stage also now reports the live 120 queued / 0 running / 0 terminal tasks as
+`QUEUED`, replacing the misleading `0/0 WAITING` presentation.
+
+Portfolio review on 2026-08-11 selected **ADOPT** for the infrastructure and
+operator workflow in PR #83. The selection does not claim that the desk already
+produces calibrated or executable opportunities: it adopts failure budget as a
+first-class mainline research object, its proposal-scoped lifecycle, the
+provider-neutral Agent substrate, and the fail-closed evidence machinery so
+that those missing yield and calibration observations can be measured on the
+mainline rather than maintained as a divergent specimen. Hard-arbitrage
+certificate authority remains separate, and real execution remains disabled.
+
+Those four unsupported Gemini requirements now enter a bounded official-source
+discovery loop instead of stopping at prose debt. Terra/high inspected the
+official Gemini surfaces for outcome mapping, time boundary,
+void/cancellation, and oracle source in 30 provider/tool turns. Every run ended
+`NO_OFFICIAL_SOURCE_FOUND`: the public documentation is venue-generic and does
+not establish the listing-specific LAFC predicate or settlement semantics. No
+locator was minted and no review was reopened. This negative qualification was
+the intended honest result, and the follow-up has now shown why: the Agent was
+searching generic documentation while Gemini already returned the exact
+contract rules and a contract-bound full-rules PDF in its anonymous Events
+payload. The adapter now retains that rich text and locator under a new
+normalizer identity. Source discovery v2 coalesces requirements by exact
+venue/protocol/listing/role/temporal supply scope, splits cross-venue coverage,
+shares one admitted locator across as many as twelve obligations, retires stale
+bundles from the runnable queue, and only raises priority. Current retained
+state has 147 active source jobs covering 223 obligations, with 353 superseded
+generations retained for replay. Only 24 active jobs target Gemini. The four
+LAFC Gemini gaps have collapsed to one positive-gross-blocking oracle-source
+obligation: contract predicate, timing, and contingency rules are now supplied
+deterministically, while an exact named resolution authority remains missing.
+No additional provider request was spent.
+
+That result selects a narrower Agent role. Adapter-owned official data is
+machine work and must be exhausted before source-search prompting; the Agent
+works the residual source-location and semantic ambiguity. Retention pruning
+now preserves any document referenced by a durable evidence claim, and the
+new high-cardinality evidence schedulers are explicitly windowed in Studio.
+The live bounded projection is 2.12 MB and cached reads return in about 0.02
+seconds, while the dedicated 147-job source endpoint reconciles in 0.39
+seconds. Browser qualification of the Evidence route shows the LAFC 110 bps
+gross hint at the correct remaining oracle-source bottleneck with no console
+errors. All 649 workspace tests, TypeScript checks, and the production build
+pass on the available Node 22 host; the expected Node 24 engine warning remains.
+The next measured slice is exact resolution-source yield and changed-review
+yield, not wider unbounded web search.
+
+That next slice exposed a category error rather than another missing webpage.
+`ORACLE_SOURCE` described the proposition to prove, but routing accepted only
+an `OUTCOME_RESOLUTION_SOURCE` locator even though Gemini's contract rules
+explicitly name Major League Soccer official announcements and match records
+as the primary resolution source. Oracle evidence layering now keeps locator
+roles distinct while allowing either a direct outcome source or a contract
+document to support the declared-source claim; direct outcome sources have
+deterministic precedence when both exist. Live reconciliation made no provider
+request, retired the LAFC search task, reduced the active source queue from 147
+to 120 and Gemini tasks from 24 to 19, reused the already captured contract PDF,
+and created one zero-attempt `PENDING` interpretation over that document.
+
+The live migration also caught two opposite retention windows: SQLite kept the
+newest acquisition and claim jobs while memory kept the oldest, causing new
+routes to be recreated on every read. Both schedulers now retain `updatedAt`
+descending, tests compare memory with SQLite across pruning, and rule-claim
+retention is 2,000 with an explicit active-input bound. Acquisition, claim, and
+source endpoints now settle in 0.37-0.41 seconds rather than the observed
+27-60 second prune loop. The remaining oracle-layering checkpoint is one
+targeted Terra interpretation citing the exact contract passage; broad
+automatic interpretation remains disabled.
+
+The targeted dispatch itself then falsified two assumptions. Although SQLite
+selected `CODEX / terra / high`, the Rule Evidence Interpreter still came from
+its legacy DeepSeek-only factory and spent one DeepSeek attempt. The retained
+PDF extraction was only 653 characters and did not include the Events-API
+sentence naming Major League Soccer, so the interpreter correctly returned
+`INCONCLUSIVE` instead of laundering catalog knowledge into a citation. Manual
+claim dispatch now fails closed when its interpreter provider differs from the
+selected runtime. The next active work is therefore provider routing for this
+desk plus a source-hashed catalog-rich-text evidence artifact; a second model
+attempt is prohibited until both exist.
 
 ## Deferred future campaigns
 

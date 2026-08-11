@@ -147,6 +147,103 @@ function rehash(
 }
 
 describe("durable evidence acquisition scheduler", () => {
+  it("keeps the same newest-job retention window in memory and SQLite", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-acquisition-window-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const time = clock();
+      const store = new SqliteOperationalStore(path);
+      const scheduler = new EvidenceAcquisitionScheduler({
+        fetcher: fetcher(vi.fn<EvidenceDocumentFetchLike>(), time.now),
+        retentionLimit: 10,
+        store,
+        now: time.now,
+      });
+      const jobs: EvidenceRequirement[] = [];
+      for (let index = 0; index < 11; index += 1) {
+        const source = requirement(`retention-${index}`, {
+          url: `https://rules.example.com/retention-${index}.txt`,
+        });
+        jobs.push(source);
+        scheduler.reconcile([source]);
+        time.advance(1_000);
+      }
+      const memoryIds = scheduler.projection().jobs.map((job) => job.jobId);
+      const storedIds = store.loadEvidenceAcquisitionJobRecords(10).map((job) => job.jobId);
+      expect(memoryIds).toEqual(storedIds);
+      expect(memoryIds).toHaveLength(10);
+      expect(scheduler.projection().jobs.some((job) =>
+        job.requirementIds.includes(jobs[10]!.requirementId)
+      )).toBe(true);
+      expect(scheduler.projection().jobs.some((job) =>
+        job.requirementIds.includes(jobs[0]!.requirementId)
+      )).toBe(false);
+      store.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers a direct outcome source over a contract rule for oracle evidence", () => {
+    const time = clock();
+    const contract = buildDiscoveryEvidenceLocator({
+      venueId: "test-venue",
+      protocolIdentity: "test-protocol:v1",
+      role: "CONTRACT_RULE_DOCUMENT",
+      url: "https://rules.example.com/oracle/contract.txt",
+    });
+    const outcome = buildDiscoveryEvidenceLocator({
+      venueId: "test-venue",
+      protocolIdentity: "test-protocol:v1",
+      role: "OUTCOME_RESOLUTION_SOURCE",
+      url: "https://rules.example.com/oracle/outcome.txt",
+    });
+    if (contract === null || outcome === null) throw new Error("missing oracle locators");
+    const first = Object.freeze({
+      ...listing("oracle:a"),
+      evidenceLocators: Object.freeze([contract, outcome]),
+    });
+    const second = listing("oracle:b");
+    const source = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId: hashCanonical({ proposal: "oracle-role-preference" }),
+      proposalListingRefs: [first.listingRef, second.listingRef],
+      listings: [first, second],
+      drafts: [{
+        kind: "ORACLE_SOURCE",
+        listingRefs: [first.listingRef],
+        claim: "The contract names the official source used for resolution.",
+        reason: "The declared source controls the outcome mapping.",
+        satisfyingObservation: "The official source publishes the named outcome.",
+        contradictingObservation: "The official source contradicts the named outcome.",
+        temporalPosture: "CURRENT",
+      }],
+    })[0]!;
+    const scheduler = new EvidenceAcquisitionScheduler({
+      fetcher: new EvidenceDocumentFetcher({
+        policies: ["CONTRACT_RULE_DOCUMENT", "OUTCOME_RESOLUTION_SOURCE"].map((role) =>
+          buildEvidenceDocumentFetchPolicy({
+            venueId: "test-venue",
+            protocolIdentity: "test-protocol:v1",
+            role: role as "CONTRACT_RULE_DOCUMENT" | "OUTCOME_RESOLUTION_SOURCE",
+            allowedHostnames: ["rules.example.com"],
+            allowedContentTypes: ["text/plain"],
+          })
+        ),
+        fetch: vi.fn<EvidenceDocumentFetchLike>(),
+        resolve: publicResolver,
+        now: time.now,
+      }),
+      now: time.now,
+    });
+    scheduler.reconcile([source]);
+    expect(source.eligibleLocators).toHaveLength(2);
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      locatorIdentity: outcome.locatorIdentity,
+      status: "PENDING",
+    });
+  });
+
   it("replaces a retained v1 requirement with its proposal-scoped v2 generation", () => {
     const time = clock();
     const current = requirement("proposal-scope-migration", {

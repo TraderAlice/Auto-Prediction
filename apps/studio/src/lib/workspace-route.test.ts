@@ -12,6 +12,8 @@ describe("Studio workspace routes", () => {
       proposalIds: [],
     });
     expect(parseWorkspaceRoute("?view=review").view).toBe("lifecycle");
+    expect(parseWorkspaceRoute("?view=budgets").view).toBe("budgets");
+    expect(parseWorkspaceRoute("?view=agents").view).toBe("agents");
     expect(parseWorkspaceRoute("?view=unknown").view).toBe("archaeologist");
   });
 
@@ -22,7 +24,7 @@ describe("Studio workspace routes", () => {
     expect(route.proposalIds).toEqual(hashes.slice(0, 5));
   });
 
-  it("drops proposal focus outside the review route", () => {
+  it("drops proposal focus outside focused research routes", () => {
     expect(parseWorkspaceRoute(`?view=findings&proposals=${hashes[0]}`).proposalIds)
       .toEqual([]);
     expect(serializeWorkspaceRoute("scouts", [hashes[0]!])).toBe("?view=findings");
@@ -32,6 +34,14 @@ describe("Studio workspace routes", () => {
     const search = serializeWorkspaceRoute("lifecycle", hashes.slice(0, 2));
     expect(parseWorkspaceRoute(search)).toEqual({
       view: "lifecycle",
+      proposalIds: hashes.slice(0, 2),
+    });
+  });
+
+  it("serializes and restores a focused evidence handoff", () => {
+    const search = serializeWorkspaceRoute("evidence", hashes.slice(0, 2));
+    expect(parseWorkspaceRoute(search)).toEqual({
+      view: "evidence",
       proposalIds: hashes.slice(0, 2),
     });
   });

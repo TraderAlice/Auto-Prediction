@@ -6,9 +6,9 @@ the project no longer needs it; do not record secrets in this file.
 
 ## Open
 
-- [ ] Which external reference-data family should probability-estimation Agents
-  qualify first: public-figure health/appearance history, elections/politics,
-  crypto/financial events, or another domain?
+- [ ] The first live estimator debt is an MLS championship case. Which external
+  research adapter should be qualified first: official venue resolution
+  history, sports schedule/result history, or a broader event-reference source?
 
 - [ ] Which external notification destination should be qualified first when
   the in-app Finding Inbox is no longer enough: webhook, email, Slack, or

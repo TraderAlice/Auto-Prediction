@@ -7,10 +7,12 @@ import {
   assertSemanticReviewRecord,
   AiUsageLedger,
   buildMarketCorpusSnapshot,
+  codexCredentialForTest,
   createSemanticReviewDesk,
   type MarketRelationProposal,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
+import { openAiStreamToolResponse } from "./model-agent-fixtures.js";
 
 const listings = [
   {
@@ -181,6 +183,7 @@ const finalizationPayload = {
 function incrementalCompletionSequence(options: Readonly<{
   counterexampleResult: "FOUND" | "NOT_FOUND" | "INCONCLUSIVE";
   includeEvidenceGap?: boolean;
+  classification?: "HARD_SETTLEMENT_CONSTRAINT" | "PROBABILISTIC_DEPENDENCE";
 }>): Response[] {
   return [
     toolCompletion("record_counterexample", {
@@ -209,13 +212,94 @@ function incrementalCompletionSequence(options: Readonly<{
         )]),
     toolCompletion(
       "submit_semantic_review",
-      finalizationPayload,
+      {
+        ...finalizationPayload,
+        classification: options.classification ?? finalizationPayload.classification,
+      },
       "call-submit",
     ),
   ];
 }
 
 describe("adversarial semantic review", () => {
+  it("routes current semantic reviews through persisted Codex model and effort", async () => {
+    const responses = [
+      openAiStreamToolResponse(
+        "record_counterexample",
+        {
+          result: "FOUND",
+          narrative: reviewPayload.counterexamples[0],
+          truths: [false, true],
+        },
+        1,
+      ),
+      openAiStreamToolResponse(
+        "record_semantic_assessment",
+        assessmentEffectPayload,
+        2,
+      ),
+      ...truthStateEffectPayloads.map((state, index) =>
+        openAiStreamToolResponse("record_truth_state", state, index + 3)
+      ),
+      openAiStreamToolResponse(
+        "record_evidence_gap",
+        evidenceGapEffectPayload,
+        7,
+      ),
+      openAiStreamToolResponse("submit_semantic_review", finalizationPayload, 8),
+    ];
+    const bodies: Record<string, unknown>[] = [];
+    const desk = createSemanticReviewDesk(
+      { PMH_SEMANTIC_REVIEW_TIMEOUT_MS: "3000" },
+      {
+        runtimeConfiguration: () => Object.freeze({
+          schemaVersion: "pmh.ai-runtime-configuration.v2" as const,
+          revision: 7,
+          provider: "CODEX" as const,
+          codexModel: "gpt-5.6-terra" as const,
+          codexReasoningEffort: "high" as const,
+          deepseekAutomationEnabled: false,
+          updatedAt: "2026-08-10T00:00:00.000Z",
+        }),
+        codexCredentialProvider: codexCredentialForTest("token", "account"),
+        async fetcher(_input, init) {
+          bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          return responses[bodies.length - 1]!;
+        },
+      },
+    );
+    const record = await desk.begin(
+      `ai:${proposal.proposalId}`,
+      proposal,
+      snapshot,
+    ).promise;
+    expect(record).toMatchObject({
+      status: "PASS",
+      model: "gpt-5.6-terra",
+      engine: {
+        provider: "CODEX",
+        model: "gpt-5.6-terra",
+        reasoningEffort: "high",
+        responseStorage: false,
+      },
+      report: {
+        schemaVersion: "pmh.semantic-review-report.v5",
+        engine: {
+          provider: "CODEX",
+          model: "gpt-5.6-terra",
+          reasoningEffort: "high",
+          responseStorage: false,
+        },
+        input: { evidencePosture: "ORIGINAL_CORPUS" },
+      },
+    });
+    expect(() => assertSemanticReviewRecord(record)).not.toThrow();
+    expect(bodies).toHaveLength(responses.length);
+    expect(bodies.every((body) => body.store === false)).toBe(true);
+    expect(bodies.every((body) => body.parallel_tool_calls === false)).toBe(true);
+    expect(bodies.every((body) => !("max_output_tokens" in body))).toBe(true);
+  });
+
   it("runs one bounded AI SDK review and preserves advisory-only authority", async () => {
     let requestBody = "";
     let requestCount = 0;
@@ -303,11 +387,19 @@ describe("adversarial semantic review", () => {
   it.each([
     {
       counterexampleResult: "NOT_FOUND" as const,
+      classification: "PROBABILISTIC_DEPENDENCE" as const,
       expectedRecommendation: "ACCEPT_FOR_RESEARCH_SIMULATION" as const,
       expectedRelationConclusion: "CONDITIONAL" as const,
     },
     {
       counterexampleResult: "FOUND" as const,
+      classification: "PROBABILISTIC_DEPENDENCE" as const,
+      expectedRecommendation: "ACCEPT_FOR_RESEARCH_SIMULATION" as const,
+      expectedRelationConclusion: "CONDITIONAL" as const,
+    },
+    {
+      counterexampleResult: "FOUND" as const,
+      classification: "HARD_SETTLEMENT_CONSTRAINT" as const,
       expectedRecommendation: "REJECT" as const,
       expectedRelationConclusion: "CONFLICTING" as const,
     },
@@ -315,12 +407,14 @@ describe("adversarial semantic review", () => {
     "derives $expectedRecommendation outside the Agent tool payload",
     async ({
       counterexampleResult,
+      classification,
       expectedRecommendation,
       expectedRelationConclusion,
     }) => {
       let requestCount = 0;
       const responses = incrementalCompletionSequence({
         counterexampleResult,
+        classification,
         includeEvidenceGap: false,
       });
       const desk = createSemanticReviewDesk(

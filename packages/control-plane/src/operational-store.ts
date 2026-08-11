@@ -88,6 +88,11 @@ import {
   type EvidenceAcquisitionSchedulerStore,
 } from "./evidence-acquisition-scheduler.js";
 import {
+  assertOfficialSourceDiscoveryJobRecord,
+  type OfficialSourceDiscoveryJobRecord,
+  type OfficialSourceDiscoverySchedulerStore,
+} from "./official-source-discovery-scheduler.js";
+import {
   assertEvidenceDocumentCapture,
   assertEvidenceDocumentObservation,
   assertStoredEvidenceDocument,
@@ -162,6 +167,41 @@ import {
   type AiRuntimeConfigurationStore,
 } from "./ai-runtime-configuration.js";
 import {
+  assertAgentCampaign,
+  assertAgentRun,
+  assertAgentRunAnnotation,
+  assertAgentRunArtifact,
+  assertAgentRuntimeDefinition,
+  assertAgentTask,
+  assertAgentToolEffect,
+  assertCredentialBinding,
+  assertExecutionCapabilityObservation,
+  assertExecutionProfile,
+  assertExecutionProfileCompatibility,
+  assertModelInvocation,
+  assertModelProfile,
+  assertResultSelection,
+  assertWorkloadRoute,
+  emptyAgentExecutionSnapshot,
+  type AgentCampaign,
+  type AgentExecutionBatch,
+  type AgentExecutionSnapshot,
+  type AgentExecutionStore,
+  type AgentRun,
+  type AgentRunAnnotation,
+  type AgentRunArtifact,
+  type AgentRuntimeDefinition,
+  type AgentTask,
+  type AgentToolEffect,
+  type CredentialBinding,
+  type ExecutionProfile,
+  type ExecutionCapabilityObservation,
+  type ModelInvocation,
+  type ModelProfile,
+  type ResultSelection,
+  type WorkloadRoute,
+} from "./agent-execution-substrate.js";
+import {
   assertProbabilityCalibrationArtifact,
   assertProbabilityCalibrationObservation,
   type ProbabilityCalibrationArtifact,
@@ -178,7 +218,7 @@ import {
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
 
-const SCHEMA_VERSION = 32;
+const SCHEMA_VERSION = 37;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -210,6 +250,12 @@ type StoredAiUsageEventRow = Readonly<{
 
 type StoredAiRuntimeConfigurationRow = Readonly<{
   singleton_key: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type AgentExecutionRecordRow = Readonly<{
+  record_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -388,6 +434,8 @@ type EvidenceAcquisitionJobRow = Readonly<{
   record_json: string;
   record_hash: string;
 }>;
+
+type OfficialSourceDiscoveryJobRow = EvidenceAcquisitionJobRow;
 
 type EvidenceDocumentRow = Readonly<{
   document_id: string;
@@ -1179,6 +1227,30 @@ function parseEvidenceAcquisitionJobRecord(value: unknown): EvidenceAcquisitionJ
   return record;
 }
 
+function parseOfficialSourceDiscoveryJobRecord(
+  value: unknown,
+): OfficialSourceDiscoveryJobRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite official source discovery job row is malformed");
+  }
+  const row = value as Partial<OfficialSourceDiscoveryJobRow>;
+  if (
+    typeof row.job_id !== "string" || typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error("SQLite official source discovery job row has invalid column types");
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error("SQLite official source discovery job contains invalid JSON");
+  }
+  const record = assertOfficialSourceDiscoveryJobRecord(decoded);
+  if (record.jobId !== row.job_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error("SQLite official source discovery job identity mismatch");
+  }
+  return record;
+}
+
 function parseEvidenceDocument(value: unknown): StoredEvidenceDocument {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite evidence document row is malformed");
@@ -1464,6 +1536,34 @@ function parseAiRuntimeConfiguration(value: unknown): AiRuntimeConfiguration {
   return migrateAiRuntimeConfiguration(decoded);
 }
 
+function parseAgentExecutionRecord<T>(
+  value: unknown,
+  identity: (record: T) => string,
+  validator: (record: unknown) => T,
+  label: string,
+): T {
+  if (value === null || typeof value !== "object") {
+    throw new Error(`SQLite ${label} row is malformed`);
+  }
+  const row = value as Partial<AgentExecutionRecordRow>;
+  if (
+    typeof row.record_id !== "string" ||
+    typeof row.record_json !== "string" ||
+    typeof row.record_hash !== "string"
+  ) throw new Error(`SQLite ${label} row has invalid columns`);
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.record_json);
+  } catch {
+    throw new Error(`SQLite ${label} contains invalid JSON`);
+  }
+  const record = validator(decoded);
+  if (identity(record) !== row.record_id || hashCanonical(record) !== row.record_hash) {
+    throw new Error(`SQLite ${label} identity mismatch`);
+  }
+  return record;
+}
+
 function parseProbabilityCalibrationObservation(
   value: unknown,
 ): ProbabilityCalibrationObservation {
@@ -1602,11 +1702,13 @@ export class SqliteOperationalStore
     ProbabilityEstimationSchedulerStore,
     AiUsageEventStore,
     AiRuntimeConfigurationStore,
+    AgentExecutionStore,
     PremiseAnalysisRecordStore,
     PremiseAnalysisSchedulerStore,
     PremiseEvidenceRoutingSchedulerStore,
     PremiseRouteExpansionSchedulerStore,
     SemanticReviewSchedulerStore,
+    OfficialSourceDiscoverySchedulerStore,
     EvidenceAcquisitionSchedulerStore,
     RuleEvidenceClaimRecordStore,
     RuleEvidenceClaimSchedulerStore,
@@ -1668,6 +1770,8 @@ export class SqliteOperationalStore
   public readonly aiUsageStorage: OperationalStorageProjection<"eventId">;
   public readonly aiRuntimeConfigurationStorage:
     OperationalStorageProjection<"singleton">;
+  public readonly agentExecutionStorage:
+    OperationalStorageProjection<"recordId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -1675,6 +1779,7 @@ export class SqliteOperationalStore
   public readonly premiseRouteExpansionJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewJobStorage: OperationalStorageProjection<"jobId">;
   public readonly semanticReviewNotificationStorage: OperationalStorageProjection<"notificationId">;
+  public readonly officialSourceDiscoveryJobStorage: OperationalStorageProjection<"jobId">;
   public readonly evidenceAcquisitionJobStorage: OperationalStorageProjection<"jobId">;
   public readonly evidenceDocumentStorage: OperationalStorageProjection<"documentId">;
   public readonly evidenceDocumentTextStorage: OperationalStorageProjection<"extractionId">;
@@ -1863,6 +1968,12 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "singleton",
     });
+    this.agentExecutionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "recordId",
+    });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -1904,6 +2015,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "notificationId",
+    });
+    this.officialSourceDiscoveryJobStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "jobId",
     });
     this.evidenceAcquisitionJobStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2112,6 +2229,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'evidence_acquisition_jobs'`,
       )
       .get() !== undefined;
+    const officialSourceDiscoveryJobTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'official_source_discovery_jobs'`,
+      )
+      .get() !== undefined;
     const evidenceDocumentTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2142,6 +2265,30 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'rule_evidence_claim_records'`,
       )
       .get() !== undefined;
+    const agentRuntimeDefinitionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'agent_runtime_definitions'`,
+      )
+      .get() !== undefined;
+    const agentRunArtifactTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'agent_run_artifacts'`,
+      )
+      .get() !== undefined;
+    const agentRunAnnotationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'agent_run_annotations'`,
+      )
+      .get() !== undefined;
+    const executionCapabilityObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'execution_capability_observations'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -2163,6 +2310,7 @@ export class SqliteOperationalStore
       aiUsageEventTableExists &&
       aiRuntimeConfigurationTableExists &&
       searchQuoteObservationTableExists &&
+      officialSourceDiscoveryJobTableExists &&
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
       ruleEvidenceClaimJobTableExists && ruleEvidenceClaimRecordTableExists
@@ -2171,6 +2319,10 @@ export class SqliteOperationalStore
       && premiseAnalysisNotificationTableExists
       && premiseEvidenceRoutingJobTableExists
       && premiseRouteExpansionJobTableExists
+      && agentRuntimeDefinitionTableExists
+      && agentRunArtifactTableExists
+      && agentRunAnnotationTableExists
+      && executionCapabilityObservationTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -3012,6 +3164,74 @@ export class SqliteOperationalStore
             ON premise_route_expansion_jobs (status, next_attempt_at, job_id);
         `);
       }
+      if (
+        current >= 24 && current < 33 && probabilityEstimationRunTableExists &&
+        probabilityEstimationJobTableExists
+      ) {
+        this.#database.exec(`
+          DROP INDEX IF EXISTS probability_estimation_runs_scope;
+          ALTER TABLE probability_estimation_runs RENAME TO probability_estimation_runs_v32;
+          CREATE TABLE probability_estimation_runs (
+            run_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(run_id) = 71 AND run_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_review_artifact_hash TEXT NOT NULL CHECK (
+              length(semantic_review_artifact_hash) = 71 AND
+              semantic_review_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_constraint_artifact_hash TEXT NOT NULL CHECK (
+              length(semantic_constraint_artifact_hash) = 71 AND
+              semantic_constraint_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            role TEXT NOT NULL CHECK (
+              role IN ('REFERENCE_CLASS', 'CAUSAL', 'INDEPENDENT')
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN ('RUNNING', 'PASS', 'ABSTAINED', 'CHALLENGED', 'FAILED')
+            ),
+            started_at TEXT NOT NULL CHECK (length(started_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          INSERT INTO probability_estimation_runs
+            SELECT * FROM probability_estimation_runs_v32;
+          DROP TABLE probability_estimation_runs_v32;
+          CREATE INDEX probability_estimation_runs_scope
+            ON probability_estimation_runs (
+              semantic_review_artifact_hash,
+              semantic_constraint_artifact_hash,
+              started_at DESC,
+              run_id DESC
+            );
+
+          DROP INDEX IF EXISTS probability_estimation_jobs_due;
+          ALTER TABLE probability_estimation_jobs RENAME TO probability_estimation_jobs_v32;
+          CREATE TABLE probability_estimation_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (
+              status IN (
+                'PENDING', 'LEASED', 'RETRY_WAIT', 'BLOCKED_EVIDENCE',
+                'PASS', 'ABSTAINED', 'CHALLENGED', 'EXHAUSTED'
+              )
+            ),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          INSERT INTO probability_estimation_jobs
+            SELECT * FROM probability_estimation_jobs_v32;
+          DROP TABLE probability_estimation_jobs_v32;
+          CREATE INDEX probability_estimation_jobs_due
+            ON probability_estimation_jobs (status, next_attempt_at, job_id);
+        `);
+      }
       if (current < 24 || !probabilityEstimationRunTableExists) {
         this.#database.exec(`
           CREATE TABLE IF NOT EXISTS probability_estimation_runs (
@@ -3030,7 +3250,7 @@ export class SqliteOperationalStore
               role IN ('REFERENCE_CLASS', 'CAUSAL', 'INDEPENDENT')
             ),
             status TEXT NOT NULL CHECK (
-              status IN ('RUNNING', 'PASS', 'ABSTAINED', 'FAILED')
+              status IN ('RUNNING', 'PASS', 'ABSTAINED', 'CHALLENGED', 'FAILED')
             ),
             started_at TEXT NOT NULL CHECK (length(started_at) > 0),
             record_json TEXT NOT NULL CHECK (json_valid(record_json)),
@@ -3059,7 +3279,7 @@ export class SqliteOperationalStore
             status TEXT NOT NULL CHECK (
               status IN (
                 'PENDING', 'LEASED', 'RETRY_WAIT', 'BLOCKED_EVIDENCE',
-                'PASS', 'ABSTAINED', 'EXHAUSTED'
+                'PASS', 'ABSTAINED', 'CHALLENGED', 'EXHAUSTED'
               )
             ),
             next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
@@ -3242,6 +3462,310 @@ export class SqliteOperationalStore
             ON probability_resolution_captures (listing_ref, fetched_at DESC, artifact_hash DESC);
           CREATE INDEX IF NOT EXISTS probability_resolution_captures_status
             ON probability_resolution_captures (status, fetched_at DESC);
+        `);
+      }
+      if (current < 34 || !officialSourceDiscoveryJobTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS official_source_discovery_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(job_id) = 71 AND job_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN (
+              'PENDING', 'LEASED', 'RETRY_WAIT', 'ADMITTED',
+              'NO_OFFICIAL_SOURCE_FOUND', 'ABSTAINED', 'EXHAUSTED'
+            )),
+            priority_tier TEXT NOT NULL CHECK (priority_tier IN (
+              'POSITIVE_GROSS_BLOCKER', 'EVIDENCE_ESCALATION',
+              'ACTIVE_TRIAGE_DEBT', 'RETAINED_RESEARCH_DEBT'
+            )),
+            next_attempt_at TEXT NOT NULL CHECK (length(next_attempt_at) > 0),
+            updated_at TEXT NOT NULL CHECK (length(updated_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS official_source_discovery_jobs_due
+            ON official_source_discovery_jobs (
+              status, priority_tier, next_attempt_at, job_id
+          );
+        `);
+      }
+      if (current < 35 || !agentRuntimeDefinitionTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS agent_runtime_definitions (
+            runtime_definition_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(runtime_definition_id) = 71 AND
+              runtime_definition_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            runtime_kind TEXT NOT NULL CHECK (
+              runtime_kind IN ('PI', 'CODEX', 'HARNESS_IN_PROCESS')
+            ),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+
+          CREATE TABLE IF NOT EXISTS credential_bindings (
+            credential_binding_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(credential_binding_id) = 71 AND
+              credential_binding_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            credential_kind TEXT NOT NULL CHECK (
+              credential_kind IN ('CODEX_OAUTH', 'DEEPSEEK_API_KEY')
+            ),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+
+          CREATE TABLE IF NOT EXISTS model_profiles (
+            model_profile_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(model_profile_id) = 71 AND model_profile_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            profile_key TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK (revision > 0),
+            access_driver TEXT NOT NULL CHECK (
+              access_driver IN ('CODEX_RESPONSES', 'DEEPSEEK_OPENAI_COMPATIBLE')
+            ),
+            model TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            UNIQUE (profile_key, revision)
+          ) STRICT;
+
+          CREATE TABLE IF NOT EXISTS execution_profiles (
+            execution_profile_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(execution_profile_id) = 71 AND
+              execution_profile_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            profile_key TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK (revision > 0),
+            runtime_definition_id TEXT NOT NULL,
+            credential_binding_id TEXT NOT NULL,
+            model_profile_id TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            UNIQUE (profile_key, revision),
+            FOREIGN KEY (runtime_definition_id)
+              REFERENCES agent_runtime_definitions(runtime_definition_id),
+            FOREIGN KEY (credential_binding_id)
+              REFERENCES credential_bindings(credential_binding_id),
+            FOREIGN KEY (model_profile_id) REFERENCES model_profiles(model_profile_id)
+          ) STRICT;
+
+          CREATE TABLE IF NOT EXISTS workload_routes (
+            workload_route_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(workload_route_id) = 71 AND workload_route_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            route_key TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK (revision > 0),
+            task_kind TEXT NOT NULL,
+            execution_profile_id TEXT NOT NULL,
+            automatic_dispatch INTEGER NOT NULL CHECK (automatic_dispatch = 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            UNIQUE (route_key, revision),
+            FOREIGN KEY (execution_profile_id)
+              REFERENCES execution_profiles(execution_profile_id)
+          ) STRICT;
+
+          CREATE TABLE IF NOT EXISTS agent_tasks (
+            task_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(task_id) = 71 AND task_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            task_kind TEXT NOT NULL,
+            priority INTEGER NOT NULL CHECK (priority >= 0),
+            created_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS agent_tasks_priority
+            ON agent_tasks (task_kind, priority DESC, created_at, task_id);
+
+          CREATE TABLE IF NOT EXISTS agent_runs (
+            run_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(run_id) = 71 AND run_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            task_id TEXT NOT NULL,
+            execution_profile_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (
+              status IN ('PREPARED', 'INTERRUPTED', 'SUCCEEDED', 'FAILED', 'CANCELLED')
+            ),
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (task_id) REFERENCES agent_tasks(task_id),
+            FOREIGN KEY (execution_profile_id)
+              REFERENCES execution_profiles(execution_profile_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS agent_runs_task
+            ON agent_runs (task_id, created_at, run_id);
+          CREATE INDEX IF NOT EXISTS agent_runs_status
+            ON agent_runs (status, created_at, run_id);
+
+          CREATE TABLE IF NOT EXISTS model_invocations (
+            invocation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(invocation_id) = 71 AND invocation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            run_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+            model_profile_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (
+              status IN ('SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELLED')
+            ),
+            started_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            UNIQUE (run_id, ordinal),
+            FOREIGN KEY (run_id) REFERENCES agent_runs(run_id),
+            FOREIGN KEY (model_profile_id) REFERENCES model_profiles(model_profile_id)
+          ) STRICT;
+
+          CREATE TABLE IF NOT EXISTS agent_tool_effects (
+            effect_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(effect_id) = 71 AND effect_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            run_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+            status TEXT NOT NULL CHECK (status IN ('ACCEPTED', 'REJECTED')),
+            occurred_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            UNIQUE (run_id, ordinal),
+            FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+
+          CREATE TABLE IF NOT EXISTS agent_campaigns (
+            campaign_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(campaign_id) = 71 AND campaign_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            campaign_key TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK (revision > 0),
+            execution_profile_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('PAUSED', 'ACTIVE')),
+            created_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            UNIQUE (campaign_key, revision),
+            FOREIGN KEY (execution_profile_id)
+              REFERENCES execution_profiles(execution_profile_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS agent_campaigns_status
+            ON agent_campaigns (status, created_at, campaign_id);
+
+          CREATE TABLE IF NOT EXISTS agent_campaign_memberships (
+            campaign_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            PRIMARY KEY (campaign_id, task_id),
+            FOREIGN KEY (campaign_id) REFERENCES agent_campaigns(campaign_id),
+            FOREIGN KEY (task_id) REFERENCES agent_tasks(task_id)
+          ) STRICT;
+
+          CREATE TABLE IF NOT EXISTS result_selections (
+            selection_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(selection_id) = 71 AND selection_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            task_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            selected_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (task_id) REFERENCES agent_tasks(task_id),
+            FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS result_selections_task
+            ON result_selections (task_id, selected_at DESC, selection_id DESC);
+        `);
+      }
+      if (current < 36 || !agentRunArtifactTableExists || !agentRunAnnotationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS agent_run_artifacts (
+            artifact_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_id) = 71 AND artifact_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            run_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+            kind TEXT NOT NULL,
+            content_hash TEXT NOT NULL CHECK (
+              length(content_hash) = 71 AND content_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            created_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            UNIQUE (run_id, ordinal),
+            FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS agent_run_artifacts_content
+            ON agent_run_artifacts (content_hash, created_at, artifact_id);
+
+          CREATE TABLE IF NOT EXISTS agent_run_annotations (
+            annotation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(annotation_id) = 71 AND annotation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            run_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS agent_run_annotations_run
+            ON agent_run_annotations (run_id, created_at, annotation_id);
+          CREATE INDEX IF NOT EXISTS agent_run_annotations_category
+            ON agent_run_annotations (category, created_at, annotation_id);
+        `);
+      }
+      if (current < 37 || !executionCapabilityObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS execution_capability_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            execution_profile_id TEXT NOT NULL,
+            outcome TEXT NOT NULL CHECK (outcome IN (
+              'USABLE', 'AUTH_REJECTED', 'TRANSIENT_FAILURE',
+              'UNSUPPORTED_PROBE', 'CONFIGURATION_MISSING'
+            )),
+            observed_at TEXT NOT NULL,
+            valid_until TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (execution_profile_id)
+              REFERENCES execution_profiles(execution_profile_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS execution_capability_profile_time
+            ON execution_capability_observations (
+              execution_profile_id, observed_at DESC, observation_id DESC
+            );
         `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
@@ -5015,6 +5539,586 @@ export class SqliteOperationalStore
     }
   }
 
+  public loadAgentExecutionSnapshot(): AgentExecutionSnapshot {
+    this.#assertOpen();
+    const load = <T>(
+      table: string,
+      idColumn: string,
+      validator: (record: unknown) => T,
+      identity: (record: T) => string,
+      label: string,
+    ): readonly T[] => Object.freeze(
+      this.#database
+        .prepare(
+          `SELECT ${idColumn} AS record_id, record_json, record_hash
+           FROM ${table} ORDER BY ${idColumn} ASC`,
+        )
+        .all()
+        .map((row) => parseAgentExecutionRecord(row, identity, validator, label)),
+    );
+    const snapshot = emptyAgentExecutionSnapshot();
+    const result = Object.freeze({
+      ...snapshot,
+      runtimeDefinitions: load(
+        "agent_runtime_definitions",
+        "runtime_definition_id",
+        assertAgentRuntimeDefinition,
+        (record: AgentRuntimeDefinition) => record.runtimeDefinitionId,
+        "Agent runtime definition",
+      ),
+      credentialBindings: load(
+        "credential_bindings",
+        "credential_binding_id",
+        assertCredentialBinding,
+        (record: CredentialBinding) => record.credentialBindingId,
+        "credential binding",
+      ),
+      modelProfiles: load(
+        "model_profiles",
+        "model_profile_id",
+        assertModelProfile,
+        (record: ModelProfile) => record.modelProfileId,
+        "model profile",
+      ),
+      executionProfiles: load(
+        "execution_profiles",
+        "execution_profile_id",
+        assertExecutionProfile,
+        (record: ExecutionProfile) => record.executionProfileId,
+        "execution profile",
+      ),
+      capabilityObservations: load(
+        "execution_capability_observations",
+        "observation_id",
+        assertExecutionCapabilityObservation,
+        (record: ExecutionCapabilityObservation) => record.observationId,
+        "execution capability observation",
+      ),
+      workloadRoutes: load(
+        "workload_routes",
+        "workload_route_id",
+        assertWorkloadRoute,
+        (record: WorkloadRoute) => record.workloadRouteId,
+        "workload route",
+      ),
+      tasks: load(
+        "agent_tasks",
+        "task_id",
+        assertAgentTask,
+        (record: AgentTask) => record.taskId,
+        "Agent task",
+      ),
+      runs: load(
+        "agent_runs",
+        "run_id",
+        assertAgentRun,
+        (record: AgentRun) => record.runId,
+        "Agent run",
+      ),
+      modelInvocations: load(
+        "model_invocations",
+        "invocation_id",
+        assertModelInvocation,
+        (record: ModelInvocation) => record.invocationId,
+        "model invocation",
+      ),
+      toolEffects: load(
+        "agent_tool_effects",
+        "effect_id",
+        assertAgentToolEffect,
+        (record: AgentToolEffect) => record.effectId,
+        "Agent tool effect",
+      ),
+      runArtifacts: load(
+        "agent_run_artifacts",
+        "artifact_id",
+        assertAgentRunArtifact,
+        (record: AgentRunArtifact) => record.artifactId,
+        "Agent run artifact",
+      ),
+      runAnnotations: load(
+        "agent_run_annotations",
+        "annotation_id",
+        assertAgentRunAnnotation,
+        (record: AgentRunAnnotation) => record.annotationId,
+        "Agent run annotation",
+      ),
+      campaigns: load(
+        "agent_campaigns",
+        "campaign_id",
+        assertAgentCampaign,
+        (record: AgentCampaign) => record.campaignId,
+        "Agent campaign",
+      ),
+      resultSelections: load(
+        "result_selections",
+        "selection_id",
+        assertResultSelection,
+        (record: ResultSelection) => record.selectionId,
+        "result selection",
+      ),
+    });
+    const storedMemberships = this.#database
+      .prepare(
+        `SELECT campaign_id, task_id FROM agent_campaign_memberships
+         ORDER BY campaign_id ASC, task_id ASC`,
+      )
+      .all()
+      .map((row) => {
+        const membership = row as Readonly<{
+          campaign_id?: unknown;
+          task_id?: unknown;
+        }>;
+        if (typeof membership.campaign_id !== "string" ||
+            typeof membership.task_id !== "string") {
+          throw new Error("SQLite Agent campaign membership is malformed");
+        }
+        return `${membership.campaign_id}:${membership.task_id}`;
+      });
+    const expectedMemberships = result.campaigns.flatMap((campaign) =>
+      campaign.taskIds.map((taskId) => `${campaign.campaignId}:${taskId}`)
+    ).sort();
+    if (JSON.stringify(storedMemberships) !== JSON.stringify(expectedMemberships)) {
+      throw new Error("SQLite Agent campaign membership does not match its campaign record");
+    }
+    return result;
+  }
+
+  public saveAgentExecutionBatch(batchInput: AgentExecutionBatch): void {
+    this.#assertOpen();
+    const batch = Object.freeze({
+      runtimeDefinitions: Object.freeze(
+        (batchInput.runtimeDefinitions ?? []).map(assertAgentRuntimeDefinition),
+      ),
+      credentialBindings: Object.freeze(
+        (batchInput.credentialBindings ?? []).map(assertCredentialBinding),
+      ),
+      modelProfiles: Object.freeze(
+        (batchInput.modelProfiles ?? []).map(assertModelProfile),
+      ),
+      executionProfiles: Object.freeze(
+        (batchInput.executionProfiles ?? []).map(assertExecutionProfile),
+      ),
+      capabilityObservations: Object.freeze(
+        (batchInput.capabilityObservations ?? []).map(
+          assertExecutionCapabilityObservation,
+        ),
+      ),
+      workloadRoutes: Object.freeze(
+        (batchInput.workloadRoutes ?? []).map(assertWorkloadRoute),
+      ),
+      tasks: Object.freeze((batchInput.tasks ?? []).map(assertAgentTask)),
+      runs: Object.freeze((batchInput.runs ?? []).map(assertAgentRun)),
+      modelInvocations: Object.freeze(
+        (batchInput.modelInvocations ?? []).map(assertModelInvocation),
+      ),
+      toolEffects: Object.freeze(
+        (batchInput.toolEffects ?? []).map(assertAgentToolEffect),
+      ),
+      runArtifacts: Object.freeze(
+        (batchInput.runArtifacts ?? []).map(assertAgentRunArtifact),
+      ),
+      runAnnotations: Object.freeze(
+        (batchInput.runAnnotations ?? []).map(assertAgentRunAnnotation),
+      ),
+      campaigns: Object.freeze(
+        (batchInput.campaigns ?? []).map(assertAgentCampaign),
+      ),
+      resultSelections: Object.freeze(
+        (batchInput.resultSelections ?? []).map(assertResultSelection),
+      ),
+    });
+    const existing = this.loadAgentExecutionSnapshot();
+    const indexed = <T>(
+      retained: readonly T[],
+      incoming: readonly T[],
+      identity: (record: T) => string,
+      label: string,
+    ): Map<string, T> => {
+      const records = new Map(retained.map((record) => [identity(record), record] as const));
+      const incomingIdentities = new Set<string>();
+      for (const record of incoming) {
+        const key = identity(record);
+        if (incomingIdentities.has(key)) {
+          throw new Error(`Agent execution batch repeats a ${label} identity`);
+        }
+        incomingIdentities.add(key);
+        records.set(key, record);
+      }
+      return records;
+    };
+    const runtimes = indexed(
+      existing.runtimeDefinitions,
+      batch.runtimeDefinitions,
+      (record) => record.runtimeDefinitionId,
+      "runtime",
+    );
+    const credentials = indexed(
+      existing.credentialBindings,
+      batch.credentialBindings,
+      (record) => record.credentialBindingId,
+      "credential",
+    );
+    const models = indexed(
+      existing.modelProfiles,
+      batch.modelProfiles,
+      (record) => record.modelProfileId,
+      "model profile",
+    );
+    const profiles = indexed(
+      existing.executionProfiles,
+      batch.executionProfiles,
+      (record) => record.executionProfileId,
+      "execution profile",
+    );
+    indexed(
+      existing.capabilityObservations,
+      batch.capabilityObservations,
+      (record) => record.observationId,
+      "execution capability observation",
+    );
+    const tasks = indexed(existing.tasks, batch.tasks, (record) => record.taskId, "task");
+    const runs = indexed(existing.runs, batch.runs, (record) => record.runId, "run");
+    const artifacts = indexed(
+      existing.runArtifacts,
+      batch.runArtifacts,
+      (record) => record.artifactId,
+      "run artifact",
+    );
+
+    for (const profile of batch.executionProfiles) {
+      const runtime = runtimes.get(profile.runtimeDefinitionId);
+      const credential = credentials.get(profile.credentialBindingId);
+      const model = models.get(profile.modelProfileId);
+      if (runtime === undefined || credential === undefined || model === undefined) {
+        throw new Error("Execution profile references unavailable substrate records");
+      }
+      assertExecutionProfileCompatibility(runtime, credential, model);
+    }
+    for (const observation of batch.capabilityObservations) {
+      if (!profiles.has(observation.executionProfileId)) {
+        throw new Error(
+          "Execution capability observation references an unavailable profile",
+        );
+      }
+    }
+    for (const route of batch.workloadRoutes) {
+      if (!profiles.has(route.executionProfileId)) {
+        throw new Error("Workload route references an unavailable execution profile");
+      }
+    }
+    for (const run of batch.runs) {
+      if (!tasks.has(run.taskId) || !profiles.has(run.executionProfileId)) {
+        throw new Error("Agent run references unavailable task or execution profile");
+      }
+    }
+    for (const invocation of batch.modelInvocations) {
+      const run = runs.get(invocation.runId);
+      const model = models.get(invocation.modelProfileId);
+      const profile = run === undefined ? undefined : profiles.get(run.executionProfileId);
+      if (run === undefined || model === undefined || profile === undefined ||
+          profile.modelProfileId !== model.modelProfileId) {
+        throw new Error("Model invocation references an incompatible run or model profile");
+      }
+    }
+    for (const effect of batch.toolEffects) {
+      if (!runs.has(effect.runId)) {
+        throw new Error("Agent tool effect references an unavailable run");
+      }
+    }
+    for (const artifact of batch.runArtifacts) {
+      const run = runs.get(artifact.runId);
+      if (run === undefined) {
+        throw new Error("Agent run artifact references an unavailable run");
+      }
+      if (Date.parse(artifact.createdAt) < Date.parse(run.createdAt)) {
+        throw new Error("Agent run artifact predates its run");
+      }
+    }
+    for (const annotation of batch.runAnnotations) {
+      const run = runs.get(annotation.runId);
+      if (run === undefined) {
+        throw new Error("Agent run annotation references an unavailable run");
+      }
+      if (Date.parse(annotation.createdAt) < Date.parse(run.createdAt)) {
+        throw new Error("Agent run annotation predates its run");
+      }
+    }
+    const selectableArtifacts = new Set(
+      [...artifacts.values()].map((artifact) => `${artifact.runId}:${artifact.contentHash}`),
+    );
+    for (const campaign of batch.campaigns) {
+      if (!profiles.has(campaign.executionProfileId) ||
+          campaign.taskIds.some((taskId) => !tasks.has(taskId))) {
+        throw new Error("Agent campaign references unavailable tasks or execution profile");
+      }
+    }
+    for (const selection of batch.resultSelections) {
+      const run = runs.get(selection.runId);
+      if (!tasks.has(selection.taskId) || run?.taskId !== selection.taskId) {
+        throw new Error("Result selection references an incompatible task or run");
+      }
+      if (run.status !== "SUCCEEDED" || run.completedAt === null ||
+          Date.parse(selection.selectedAt) < Date.parse(run.completedAt)) {
+        throw new Error("Result selection requires a completed successful run");
+      }
+      if (!selectableArtifacts.has(`${selection.runId}:${selection.artifactHash}`)) {
+        throw new Error("Result selection references an unavailable run artifact");
+      }
+    }
+
+    const persist = (
+      sql: string,
+      values: readonly (string | number | null)[],
+      table: string,
+      idColumn: string,
+      identity: string,
+      record: unknown,
+      label: string,
+    ): void => {
+      const recordJson = canonicalJson(record);
+      const recordHash = hashCanonical(record);
+      this.#database.prepare(sql).run(...values, recordJson, recordHash);
+      const row = this.#database
+        .prepare(`SELECT record_hash FROM ${table} WHERE ${idColumn} = ?`)
+        .get(identity) as Readonly<{ record_hash?: unknown }> | undefined;
+      if (row?.record_hash !== recordHash) {
+        throw new Error(`${label} identity is already bound to another record`);
+      }
+    };
+
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const record of batch.runtimeDefinitions) {
+        persist(
+          `INSERT INTO agent_runtime_definitions (
+             runtime_definition_id, runtime_kind, record_json, record_hash
+           ) VALUES (?, ?, ?, ?) ON CONFLICT(runtime_definition_id) DO NOTHING`,
+          [record.runtimeDefinitionId, record.kind],
+          "agent_runtime_definitions",
+          "runtime_definition_id",
+          record.runtimeDefinitionId,
+          record,
+          "Agent runtime definition",
+        );
+      }
+      for (const record of batch.credentialBindings) {
+        persist(
+          `INSERT INTO credential_bindings (
+             credential_binding_id, credential_kind, record_json, record_hash
+           ) VALUES (?, ?, ?, ?) ON CONFLICT(credential_binding_id) DO NOTHING`,
+          [record.credentialBindingId, record.kind],
+          "credential_bindings",
+          "credential_binding_id",
+          record.credentialBindingId,
+          record,
+          "Credential binding",
+        );
+      }
+      for (const record of batch.modelProfiles) {
+        persist(
+          `INSERT INTO model_profiles (
+             model_profile_id, profile_key, revision, access_driver, model,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(model_profile_id) DO NOTHING`,
+          [record.modelProfileId, record.profileKey, record.revision,
+            record.accessDriver, record.model],
+          "model_profiles",
+          "model_profile_id",
+          record.modelProfileId,
+          record,
+          "Model profile",
+        );
+      }
+      for (const record of batch.executionProfiles) {
+        persist(
+          `INSERT INTO execution_profiles (
+             execution_profile_id, profile_key, revision, runtime_definition_id,
+             credential_binding_id, model_profile_id, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(execution_profile_id) DO NOTHING`,
+          [record.executionProfileId, record.profileKey, record.revision,
+            record.runtimeDefinitionId, record.credentialBindingId, record.modelProfileId],
+          "execution_profiles",
+          "execution_profile_id",
+          record.executionProfileId,
+          record,
+          "Execution profile",
+        );
+      }
+      for (const record of batch.capabilityObservations) {
+        persist(
+          `INSERT INTO execution_capability_observations (
+             observation_id, execution_profile_id, outcome, observed_at,
+             valid_until, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+          [record.observationId, record.executionProfileId, record.outcome,
+            record.observedAt, record.validUntil],
+          "execution_capability_observations",
+          "observation_id",
+          record.observationId,
+          record,
+          "Execution capability observation",
+        );
+      }
+      for (const record of batch.workloadRoutes) {
+        persist(
+          `INSERT INTO workload_routes (
+             workload_route_id, route_key, revision, task_kind,
+             execution_profile_id, automatic_dispatch, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+           ON CONFLICT(workload_route_id) DO NOTHING`,
+          [record.workloadRouteId, record.routeKey, record.revision,
+            record.taskKind, record.executionProfileId],
+          "workload_routes",
+          "workload_route_id",
+          record.workloadRouteId,
+          record,
+          "Workload route",
+        );
+      }
+      for (const record of batch.tasks) {
+        persist(
+          `INSERT INTO agent_tasks (
+             task_id, task_kind, priority, created_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(task_id) DO UPDATE SET
+             priority = excluded.priority,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+          [record.taskId, record.kind, record.priority, record.createdAt],
+          "agent_tasks",
+          "task_id",
+          record.taskId,
+          record,
+          "Agent task",
+        );
+      }
+      for (const record of batch.campaigns) {
+        persist(
+          `INSERT INTO agent_campaigns (
+             campaign_id, campaign_key, revision, execution_profile_id, status,
+             created_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(campaign_id) DO NOTHING`,
+          [record.campaignId, record.campaignKey, record.revision,
+            record.executionProfileId, record.status, record.createdAt],
+          "agent_campaigns",
+          "campaign_id",
+          record.campaignId,
+          record,
+          "Agent campaign",
+        );
+        for (const taskId of record.taskIds) {
+          this.#database.prepare(
+            `INSERT INTO agent_campaign_memberships (campaign_id, task_id)
+             VALUES (?, ?) ON CONFLICT(campaign_id, task_id) DO NOTHING`,
+          ).run(record.campaignId, taskId);
+        }
+      }
+      for (const record of batch.runs) {
+        persist(
+          `INSERT INTO agent_runs (
+             run_id, task_id, execution_profile_id, status, created_at, completed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(run_id) DO UPDATE SET
+             status = excluded.status,
+             completed_at = excluded.completed_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash
+           WHERE agent_runs.status = 'PREPARED' AND excluded.status != 'PREPARED'`,
+          [record.runId, record.taskId, record.executionProfileId, record.status,
+            record.createdAt, record.completedAt],
+          "agent_runs",
+          "run_id",
+          record.runId,
+          record,
+          "Agent run",
+        );
+      }
+      for (const record of batch.modelInvocations) {
+        persist(
+          `INSERT INTO model_invocations (
+             invocation_id, run_id, ordinal, model_profile_id, status, started_at,
+             completed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(invocation_id) DO NOTHING`,
+          [record.invocationId, record.runId, record.ordinal, record.modelProfileId,
+            record.status, record.startedAt, record.completedAt],
+          "model_invocations",
+          "invocation_id",
+          record.invocationId,
+          record,
+          "Model invocation",
+        );
+      }
+      for (const record of batch.toolEffects) {
+        persist(
+          `INSERT INTO agent_tool_effects (
+             effect_id, run_id, ordinal, status, occurred_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(effect_id) DO NOTHING`,
+          [record.effectId, record.runId, record.ordinal, record.status, record.occurredAt],
+          "agent_tool_effects",
+          "effect_id",
+          record.effectId,
+          record,
+          "Agent tool effect",
+        );
+      }
+      for (const record of batch.runArtifacts) {
+        persist(
+          `INSERT INTO agent_run_artifacts (
+             artifact_id, run_id, ordinal, kind, content_hash, created_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(artifact_id) DO NOTHING`,
+          [record.artifactId, record.runId, record.ordinal, record.kind,
+            record.contentHash, record.createdAt],
+          "agent_run_artifacts",
+          "artifact_id",
+          record.artifactId,
+          record,
+          "Agent run artifact",
+        );
+      }
+      for (const record of batch.runAnnotations) {
+        persist(
+          `INSERT INTO agent_run_annotations (
+             annotation_id, run_id, category, created_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(annotation_id) DO NOTHING`,
+          [record.annotationId, record.runId, record.category, record.createdAt],
+          "agent_run_annotations",
+          "annotation_id",
+          record.annotationId,
+          record,
+          "Agent run annotation",
+        );
+      }
+      for (const record of batch.resultSelections) {
+        persist(
+          `INSERT INTO result_selections (
+             selection_id, task_id, run_id, selected_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(selection_id) DO NOTHING`,
+          [record.selectionId, record.taskId, record.runId, record.selectedAt],
+          "result_selections",
+          "selection_id",
+          record.selectionId,
+          record,
+          "Result selection",
+        );
+      }
+      this.#database.exec("COMMIT");
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   public loadPremiseAnalysisRecords(
     limit: number,
   ): readonly PremiseAnalysisRecord[] {
@@ -5555,6 +6659,87 @@ export class SqliteOperationalStore
     }
   }
 
+  public loadOfficialSourceDiscoveryJobRecords(
+    limit: number,
+  ): readonly OfficialSourceDiscoveryJobRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM official_source_discovery_jobs
+         ORDER BY updated_at DESC, job_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseOfficialSourceDiscoveryJobRecord));
+  }
+
+  public saveOfficialSourceDiscoveryJobRecord(
+    recordInput: OfficialSourceDiscoveryJobRecord,
+    retentionLimit: number,
+  ): OfficialSourceDiscoveryJobRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const record = assertOfficialSourceDiscoveryJobRecord(recordInput);
+    const recordJson = canonicalJson(record);
+    const recordHash = hashCanonical(record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO official_source_discovery_jobs (
+             job_id, status, priority_tier, next_attempt_at, updated_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(job_id) DO UPDATE SET
+             status = excluded.status,
+             priority_tier = excluded.priority_tier,
+             next_attempt_at = excluded.next_attempt_at,
+             updated_at = excluded.updated_at,
+             record_json = excluded.record_json,
+             record_hash = excluded.record_hash`,
+        )
+        .run(
+          record.jobId,
+          record.status,
+          record.priorityTier,
+          record.nextAttemptAt,
+          record.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      this.#database
+        .prepare(
+          `DELETE FROM official_source_discovery_jobs
+           WHERE job_id IN (
+             SELECT job_id FROM official_source_discovery_jobs
+             ORDER BY updated_at DESC, job_id DESC
+             LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const row = this.#database
+        .prepare(
+          `SELECT job_id, record_json, record_hash
+           FROM official_source_discovery_jobs WHERE job_id = ?`,
+        )
+        .get(record.jobId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain the official source discovery job");
+      }
+      const stored = parseOfficialSourceDiscoveryJobRecord(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("jobId is already bound to another official source discovery job");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   public loadEvidenceAcquisitionJobRecords(
     limit: number,
   ): readonly EvidenceAcquisitionJobRecord[] {
@@ -5627,6 +6812,10 @@ export class SqliteOperationalStore
          WHERE NOT EXISTS (
            SELECT 1 FROM evidence_document_observations
            WHERE evidence_document_observations.document_id =
+                 evidence_documents.document_id
+         ) AND NOT EXISTS (
+           SELECT 1 FROM rule_evidence_claim_records
+           WHERE rule_evidence_claim_records.document_id =
                  evidence_documents.document_id
          )`,
       )
@@ -5701,6 +6890,61 @@ export class SqliteOperationalStore
       document: parseEvidenceDocument(documentRow),
       extraction: parseEvidenceDocumentText(extractionRow),
     }));
+  }
+
+  public loadRetainedEvidenceDocumentCaptures(): readonly EvidenceDocumentCapture[] {
+    this.#assertOpen();
+    const observationRows = this.#database
+      .prepare(
+        `SELECT observation_id, acquisition_job_id, document_id, record_json, record_hash
+         FROM evidence_document_observations ORDER BY observation_id ASC`,
+      )
+      .all();
+    const documentRows = this.#database
+      .prepare(
+        `SELECT document_id, record_json, record_hash, raw_bytes
+         FROM evidence_documents ORDER BY document_id ASC`,
+      )
+      .all();
+    const extractionRows = this.#database
+      .prepare(
+        `SELECT extraction_id, document_id, record_json, record_hash, extracted_text
+         FROM evidence_document_texts ORDER BY extraction_id ASC`,
+      )
+      .all();
+    if (observationRows.length > 10_000 || documentRows.length > 10_000 ||
+        extractionRows.length > 10_000) {
+      throw new Error("retained evidence capture migration input exceeds its batch bound");
+    }
+    const documents = new Map(documentRows.map((row) => {
+      const document = parseEvidenceDocument(row);
+      return [document.record.documentId, document] as const;
+    }));
+    const extractionsByDocument = new Map<Hash, ReturnType<typeof parseEvidenceDocumentText>[]>();
+    for (const row of extractionRows) {
+      const extraction = parseEvidenceDocumentText(row);
+      const retained = extractionsByDocument.get(extraction.record.documentId) ?? [];
+      retained.push(extraction);
+      extractionsByDocument.set(extraction.record.documentId, retained);
+    }
+    const captures: EvidenceDocumentCapture[] = [];
+    for (const row of observationRows) {
+      const stored = parseEvidenceDocumentObservation(row);
+      const observation = stored.observation;
+      const document = documents.get(observation.documentId);
+      if (document === undefined) {
+        throw new Error("retained evidence observation lost its document");
+      }
+      for (const extraction of extractionsByDocument.get(observation.documentId) ?? []) {
+        captures.push(assertEvidenceDocumentCapture(Object.freeze({
+          status: observation.httpStatus === 304 ? "NOT_MODIFIED" as const : "CAPTURED" as const,
+          observation,
+          document,
+          extraction,
+        })));
+      }
+    }
+    return Object.freeze(captures);
   }
 
   public saveEvidenceAcquisitionCompletion(
@@ -5893,6 +7137,79 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public saveRuleEvidenceClaimJobRecords(
+    recordInputs: readonly RuleEvidenceClaimJobRecord[],
+    retentionLimit: number,
+  ): readonly RuleEvidenceClaimJobRecord[] {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    if (recordInputs.length < 1 || recordInputs.length > retentionLimit) {
+      throw new Error("SQLite rule evidence claim job batch is empty or unbounded");
+    }
+    const records = recordInputs.map(assertRuleEvidenceClaimJobRecord);
+    if (new Set(records.map((record) => record.jobId)).size !== records.length) {
+      throw new Error("SQLite rule evidence claim job batch repeats a job identity");
+    }
+    const rows = records.map((record) => Object.freeze({
+      record,
+      recordJson: canonicalJson(record),
+      recordHash: hashCanonical(record),
+    }));
+    const upsert = this.#database.prepare(
+      `INSERT INTO rule_evidence_claim_jobs (
+         job_id, status, next_attempt_at, updated_at, record_json, record_hash
+       ) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(job_id) DO UPDATE SET
+         status = excluded.status,
+         next_attempt_at = excluded.next_attempt_at,
+         updated_at = excluded.updated_at,
+         record_json = excluded.record_json,
+         record_hash = excluded.record_hash`,
+    );
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const { record, recordJson, recordHash } of rows) {
+        upsert.run(
+          record.jobId,
+          record.status,
+          record.nextAttemptAt,
+          record.updatedAt,
+          recordJson,
+          recordHash,
+        );
+      }
+      this.#database
+        .prepare(
+          `DELETE FROM rule_evidence_claim_jobs
+           WHERE job_id IN (
+             SELECT job_id FROM rule_evidence_claim_jobs
+             ORDER BY updated_at DESC, job_id DESC LIMIT -1 OFFSET ?
+           )`,
+        )
+        .run(retentionLimit);
+      const retained = this.#database
+        .prepare(
+          `SELECT job_id, record_json, record_hash
+           FROM rule_evidence_claim_jobs
+           ORDER BY updated_at DESC, job_id DESC LIMIT ?`,
+        )
+        .all(retentionLimit)
+        .map(parseRuleEvidenceClaimJobRecord);
+      const retainedById = new Map(retained.map((record) => [record.jobId, record] as const));
+      for (const { record, recordHash } of rows) {
+        const stored = retainedById.get(record.jobId);
+        if (stored === undefined || hashCanonical(stored) !== recordHash) {
+          throw new Error("SQLite rule evidence claim job batch changed during persistence");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return Object.freeze(retained);
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

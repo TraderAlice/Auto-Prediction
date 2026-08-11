@@ -9,9 +9,6 @@ export type DiscoveryCatalogMode =
   | "CURRENT_OBSERVATIONS";
 
 export type DiscoveryEvidenceLocator = Readonly<{
-  schemaVersion:
-    | "pmh.discovery-evidence-locator.v1"
-    | "pmh.discovery-evidence-locator.v2";
   locatorIdentity: Hash;
   role:
     | "CONTRACT_RULE_DOCUMENT"
@@ -20,7 +17,21 @@ export type DiscoveryEvidenceLocator = Readonly<{
   url: string;
   authority: "EVIDENCE_LOCATOR_ONLY";
   fetchAuthority: false;
-}>;
+} & (
+  Readonly<{
+  schemaVersion:
+    | "pmh.discovery-evidence-locator.v1"
+    | "pmh.discovery-evidence-locator.v2";
+  }> | Readonly<{
+  schemaVersion: "pmh.discovery-evidence-locator.v3";
+  provenance: Readonly<{
+    kind: "FIRST_PARTY_OFFICIAL_SOURCE_ADMISSION";
+    admissionId: Hash;
+    taskId: Hash;
+    candidateId: Hash;
+  }>;
+  }>
+)>;
 
 export type DiscoveryCatalogListing = Readonly<{
   listingRef: string;
@@ -474,14 +485,19 @@ export type StudioProjection = Readonly<{
     probabilityResolutionAcquisition: import("./probability-resolution-acquisition.js").ProbabilityResolutionAcquisitionProjection;
     aiUsage: import("./ai-usage-ledger.js").AiUsageProjection;
     runtimeConfiguration: import("./ai-runtime-configuration.js").AiRuntimeConfigurationProjection;
+    agentExecution: import("./agent-execution-substrate.js").AgentExecutionRegistryProjection;
     semanticReviewAdmission: import("./semantic-review-admission.js").SemanticReviewAdmissionProjection;
     semanticReviewScheduler: import("./semantic-review-scheduler.js").SemanticReviewSchedulerProjection;
     premiseAnalysis: import("./premise-analysis.js").PremiseAnalysisDeskProjection;
     premiseAnalysisScheduler: import("./premise-analysis-scheduler.js").PremiseAnalysisSchedulerProjection;
     premiseEvidenceRouting: import("./premise-evidence-routing-scheduler.js").PremiseEvidenceRoutingSchedulerProjection;
     premiseRouteExpansion: import("./premise-route-expansion-scheduler.js").PremiseRouteExpansionSchedulerProjection;
+    officialSourceDiscovery: import("./official-source-discovery-scheduler.js").OfficialSourceDiscoverySchedulerProjection;
     evidenceAcquisition: import("./evidence-acquisition-scheduler.js").EvidenceAcquisitionSchedulerProjection;
     evidenceDebtFrontier: import("./evidence-debt-frontier.js").EvidenceDebtFrontierProjection;
+    probabilityEvidenceDebt: import("./probability-evidence-debt.js").ProbabilityEvidenceDebtProjection;
+    probabilityCaseRepairQueue: import("./probability-case-challenge-queue.js").ProbabilityCaseRepairQueue;
+    probabilitySemanticRepairProgress: import("./probability-semantic-repair-progress.js").ProbabilitySemanticRepairProgressProjection;
     ruleEvidenceClaims: import("./rule-evidence-claim-scheduler.js").RuleEvidenceClaimSchedulerProjection;
     reviewAttention: import("./review-attention.js").ReviewAttentionProjection;
     proposalEconomicTriage: import("./proposal-economic-triage.js").ProposalEconomicTriageProjection;

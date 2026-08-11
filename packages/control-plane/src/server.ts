@@ -61,6 +61,10 @@ import {
 } from "./proposal-decision-dossier.js";
 import { buildReviewAttentionProjection } from "./review-attention.js";
 import { buildEvidenceDebtFrontier } from "./evidence-debt-frontier.js";
+import { buildFailureBudgetFrontier } from "./failure-budget-frontier.js";
+import { buildProbabilityEvidenceDebt } from "./probability-evidence-debt.js";
+import { buildProbabilityCaseRepairQueue } from "./probability-case-challenge-queue.js";
+import { buildProbabilitySemanticRepairProgress } from "./probability-semantic-repair-progress.js";
 import { RealCandidatePreflightDesk } from "./real-candidate-preflight.js";
 import {
   createMarketArchaeologistDesk,
@@ -90,6 +94,7 @@ import {
   SemanticReviewNotConfiguredError,
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
+import { CodexAuthCacheCredentialProvider } from "./codex-oauth.js";
 import {
   createProbabilityEstimationDesk,
   ProbabilityEstimationDesk,
@@ -98,9 +103,12 @@ import {
   type ProbabilityEstimatorRole,
 } from "./probability-estimation-agent.js";
 import {
+  buildProbabilityEstimationEvidenceContext,
+  buildRetainedProbabilityEstimationEvidenceContext,
   parseProbabilityEstimationTickInterval,
   ProbabilityEstimationScheduler,
   type ProbabilityEstimationCandidate,
+  type ProbabilityEstimationJobRecord,
   type ProbabilityEstimationSchedulerStore,
 } from "./probability-estimation-scheduler.js";
 import { buildProbabilitySearchOrigin } from "./probabilistic-semantic-arbitrage.js";
@@ -154,6 +162,13 @@ import {
   parseEvidenceAcquisitionTickInterval,
   type EvidenceAcquisitionSchedulerStore,
 } from "./evidence-acquisition-scheduler.js";
+import { AiSdkOfficialSourceDiscoveryAgent } from "./official-source-discovery-agent.js";
+import {
+  OfficialSourceDiscoveryScheduler,
+  parseOfficialSourceDiscoveryTickInterval,
+  type OfficialSourceDiscoveryAgentPort,
+  type OfficialSourceDiscoverySchedulerStore,
+} from "./official-source-discovery-scheduler.js";
 import { EvidenceDocumentFetcher } from "./evidence-document.js";
 import {
   rebaseEvidenceRequirementToCurrentListings,
@@ -226,6 +241,33 @@ import {
   type AiRuntimeConfiguration,
   type AiRuntimeConfigurationStore,
 } from "./ai-runtime-configuration.js";
+import {
+  AgentExecutionRegistry,
+  activateAgentCampaign,
+  buildPausedAgentCampaign,
+  buildRuleEvidenceAgentTask,
+  buildRuleEvidenceAgentTaskPayload,
+  effectiveAgentCampaigns,
+  pauseAgentCampaign,
+  type AgentExecutionStore,
+} from "./agent-execution-substrate.js";
+import { buildDefaultAgentRuntimePortfolio } from "./agent-runtime-portfolio.js";
+import {
+  AgentCampaignDispatcher,
+} from "./agent-campaign-dispatcher.js";
+import {
+  AgentCredentialBroker,
+  AgentExecutionCapabilityService,
+  CodexOAuthCredentialResolver,
+  EnvironmentCredentialResolver,
+} from "./agent-runtime-adapter.js";
+import {
+  createCodexCliAgentRuntimeAdapter,
+  createPiCliAgentRuntimeAdapter,
+} from "./agent-cli-runtime.js";
+import { createInProcessAiSdkAgentRuntimeAdapter } from "./agent-in-process-runtime.js";
+import { RuleEvidenceAgentToolHost } from "./rule-evidence-agent-tool-host.js";
+import { buildRuleEvidenceAgentMigration } from "./rule-evidence-agent-migration.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -657,6 +699,16 @@ function supportsEvidenceAcquisitionRecords(
   );
 }
 
+function supportsOfficialSourceDiscoveryRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & OfficialSourceDiscoverySchedulerStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<OfficialSourceDiscoverySchedulerStore>;
+  return candidate.officialSourceDiscoveryJobStorage !== undefined &&
+    typeof candidate.loadOfficialSourceDiscoveryJobRecords === "function" &&
+    typeof candidate.saveOfficialSourceDiscoveryJobRecord === "function";
+}
+
 function supportsRuleEvidenceClaimRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & RuleEvidenceClaimRecordStore {
@@ -746,6 +798,16 @@ function supportsAiRuntimeConfiguration(
   return candidate.aiRuntimeConfigurationStorage !== undefined &&
     typeof candidate.loadAiRuntimeConfiguration === "function" &&
     typeof candidate.saveAiRuntimeConfiguration === "function";
+}
+
+function supportsAgentExecution(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & AgentExecutionStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<AgentExecutionStore>;
+  return candidate.agentExecutionStorage !== undefined &&
+    typeof candidate.loadAgentExecutionSnapshot === "function" &&
+    typeof candidate.saveAgentExecutionBatch === "function";
 }
 
 function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
@@ -858,6 +920,8 @@ export function createControlPlane(options?: {
   probabilityResolutionAcquisitionScheduler?: ProbabilityResolutionAcquisitionScheduler;
   aiUsageLedger?: AiUsageLedger;
   aiRuntimeConfigurationDesk?: AiRuntimeConfigurationDesk;
+  agentExecutionRegistry?: AgentExecutionRegistry;
+  agentCampaignDispatcher?: AgentCampaignDispatcher;
   modelRuntimeFactory?: (configuration: AiRuntimeConfiguration) => DiscoveryModelRuntime;
   semanticReviewScheduler?: SemanticReviewScheduler;
   premiseAnalysisDesk?: ReturnType<typeof createPremiseAnalysisDesk>;
@@ -865,6 +929,8 @@ export function createControlPlane(options?: {
   premiseEvidenceRouter?: PremiseEvidenceRouterPort | null;
   premiseEvidenceRoutingScheduler?: PremiseEvidenceRoutingScheduler;
   premiseRouteExpansionScheduler?: PremiseRouteExpansionScheduler;
+  officialSourceDiscoveryAgent?: OfficialSourceDiscoveryAgentPort | null;
+  officialSourceDiscoveryScheduler?: OfficialSourceDiscoveryScheduler;
   evidenceAcquisitionScheduler?: EvidenceAcquisitionScheduler;
   ruleEvidenceClaimDesk?: ReturnType<typeof createRuleEvidenceClaimDesk>;
   ruleEvidenceClaimScheduler?: RuleEvidenceClaimScheduler;
@@ -904,6 +970,18 @@ export function createControlPlane(options?: {
         ? options.discoveryStore
         : undefined,
     );
+  const agentExecutionRegistry = options?.agentExecutionRegistry ??
+    new AgentExecutionRegistry(
+      supportsAgentExecution(options?.discoveryStore)
+        ? options.discoveryStore
+        : undefined,
+    );
+  agentExecutionRegistry.importLegacyConfiguration(
+    aiRuntimeConfigurationDesk.current(),
+  );
+  agentExecutionRegistry.saveBatch(buildDefaultAgentRuntimePortfolio(
+    aiRuntimeConfigurationDesk.current(),
+  ));
   const modelRuntimeFactory = options?.modelRuntimeFactory ??
     ((configuration: AiRuntimeConfiguration) => createDiscoveryModelRuntime(
       process.env,
@@ -911,6 +989,46 @@ export function createControlPlane(options?: {
     ));
   let modelRuntime = options?.modelRuntime ??
     modelRuntimeFactory(aiRuntimeConfigurationDesk.current());
+  const semanticReviewCodexCredential = new CodexAuthCacheCredentialProvider(process.env);
+  const semanticReviewCodexCredentialProvider = Object.freeze({
+    configured: () =>
+      aiRuntimeConfigurationDesk.current().provider === "CODEX" &&
+      modelRuntime.projection.configured &&
+      semanticReviewCodexCredential.configured(),
+    resolve: () => semanticReviewCodexCredential.resolve(),
+  });
+  const agentCredentialBroker = new AgentCredentialBroker([
+    new EnvironmentCredentialResolver(process.env),
+    new CodexOAuthCredentialResolver(semanticReviewCodexCredential),
+  ]);
+  const agentExecutionCapabilityService = new AgentExecutionCapabilityService(
+    agentExecutionRegistry,
+    agentCredentialBroker,
+  );
+  const discoveryExecutionProfile = () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (route === undefined) {
+      throw new Error("Discovery execution profile is blocked: workload route is unavailable");
+    }
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) {
+      throw new Error("Discovery execution profile is blocked: routed profile is unavailable");
+    }
+    return profile;
+  };
+  const assertDiscoveryDispatchEligible = (): void => {
+    // An unconfigured pool contains only the first-party heuristic worker and
+    // therefore has no model-spend path to authorize.
+    if (!modelRuntime.projection.configured) return;
+    agentExecutionCapabilityService.assertServiceDispatchEligible(
+      discoveryExecutionProfile(),
+    );
+  };
   const piRuntime = options?.piRuntime ?? createPiInvestigatorRuntime(process.env, {
     usageRecorder: aiUsageLedger,
   });
@@ -988,6 +1106,7 @@ export function createControlPlane(options?: {
       concurrencyLimit: 3,
       registeredVenueIds: catalogObservationDesk.registeredVenueIds(),
       ...searchLeaseStageBudget,
+      assertDispatchEligible: assertDiscoveryDispatchEligible,
       onRecordChange: () => publishSearchLeaseChange(),
       context: (
         question,
@@ -1139,6 +1258,8 @@ export function createControlPlane(options?: {
     options?.semanticReviewDesk ??
     createSemanticReviewDesk(process.env, {
       usageRecorder: aiUsageLedger,
+      runtimeConfiguration: () => aiRuntimeConfigurationDesk.current(),
+      codexCredentialProvider: semanticReviewCodexCredentialProvider,
       ...(supportsSemanticReviewRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -1147,6 +1268,7 @@ export function createControlPlane(options?: {
     options?.probabilityEstimationDesk ??
     createProbabilityEstimationDesk(process.env, {
       usageRecorder: aiUsageLedger,
+      runtimeConfiguration: () => aiRuntimeConfigurationDesk.current(),
       ...(supportsProbabilityEstimationRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -1158,6 +1280,9 @@ export function createControlPlane(options?: {
       tickIntervalMs: parseProbabilityEstimationTickInterval(process.env),
       concurrencyLimit: 3,
       maxRequestsPerTick: 3,
+      engineAllowed: (engine) =>
+        engine.provider === "CODEX" ||
+        aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled,
       ...(supportsProbabilityEstimationSchedulerRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -1255,6 +1380,22 @@ export function createControlPlane(options?: {
         ? { store: options.discoveryStore }
         : {}),
     });
+  const officialSourceDiscoveryAgent = options?.officialSourceDiscoveryAgent ??
+    new AiSdkOfficialSourceDiscoveryAgent(
+      process.env,
+      () => aiRuntimeConfigurationDesk.current(),
+    );
+  const officialSourceDiscoveryScheduler =
+    options?.officialSourceDiscoveryScheduler ??
+    new OfficialSourceDiscoveryScheduler({
+      agent: officialSourceDiscoveryAgent,
+      tickIntervalMs: parseOfficialSourceDiscoveryTickInterval(process.env),
+      concurrencyLimit: 2,
+      maxRequestsPerTick: 2,
+      ...(supportsOfficialSourceDiscoveryRecords(options?.discoveryStore)
+        ? { store: options.discoveryStore }
+        : {}),
+    });
   const evidenceAcquisitionScheduler =
     options?.evidenceAcquisitionScheduler ??
     new EvidenceAcquisitionScheduler({
@@ -1271,6 +1412,8 @@ export function createControlPlane(options?: {
   const ruleEvidenceClaimDesk = options?.ruleEvidenceClaimDesk ??
     createRuleEvidenceClaimDesk(process.env, {
       usageRecorder: aiUsageLedger,
+      runtimeConfiguration: () => aiRuntimeConfigurationDesk.current(),
+      codexCredentialProvider: semanticReviewCodexCredentialProvider,
       ...(supportsRuleEvidenceClaimRecords(options?.discoveryStore)
         ? { store: options.discoveryStore }
         : {}),
@@ -1656,6 +1799,10 @@ export function createControlPlane(options?: {
   };
   const probabilitySearchOriginByReview = new Map<Hash,
     ReturnType<typeof buildProbabilitySearchOrigin> | null>();
+  const probabilityEvidenceContextByReview = new Map<Hash,
+    import("./probability-estimation-scheduler.js").ProbabilityEstimationEvidenceContext>();
+  const probabilityEvidenceContextByArtifact = new Map<Hash,
+    import("./probability-estimation-scheduler.js").ProbabilityEstimationEvidenceContext | null>();
   const probabilityEstimationCandidates = (
     retainedAttribution?: SemanticReviewAttributionSource,
   ): readonly ProbabilityEstimationCandidate[] => {
@@ -1663,22 +1810,20 @@ export function createControlPlane(options?: {
       review.status === "PASS" && review.report !== null &&
       review.report.result.semanticConstraint?.classification === "PROBABILISTIC_DEPENDENCE"
     );
+    const liveJobs = semanticReviewScheduler.projection().jobs;
+    let durableJobs: SemanticReviewAttributionSource["jobs"] | null =
+      retainedAttribution?.jobs ?? null;
+    const allDurableJobs = (): SemanticReviewAttributionSource["jobs"] => {
+      durableJobs ??= semanticReviewScheduler.attributionSource().jobs;
+      return durableJobs;
+    };
     const missingReviews = reviews.filter((review) =>
-      !probabilitySearchOriginByReview.has(review.reviewId)
+      !probabilitySearchOriginByReview.has(review.reviewId) ||
+      !probabilityEvidenceContextByReview.has(review.reviewId)
     );
-    if (missingReviews.length === 0) {
-      return Object.freeze(reviews.map((review) => {
-        const searchOrigin = probabilitySearchOriginByReview.get(review.reviewId) ?? null;
-        return Object.freeze({
-          review,
-          ...(searchOrigin === null ? {} : { searchOrigin }),
-        });
-      }));
-    }
     const issues = new Map(searchIssueScheduler.projection().issues.map((issue) =>
       [issue.issueId, issue] as const
     ));
-    const liveJobs = semanticReviewScheduler.projection().jobs;
     const liveJobKeys = new Set(liveJobs.map((job) =>
       `${job.lastReviewId ?? "none"}\u0000${job.proposalId}`
     ));
@@ -1687,7 +1832,7 @@ export function createControlPlane(options?: {
       return !liveJobKeys.has(`${review.reviewId}\u0000${proposalId}`);
     });
     const reviewJobs = needsDurableFallback
-      ? (retainedAttribution ?? semanticReviewScheduler.attributionSource()).jobs
+      ? allDurableJobs()
       : liveJobs;
     const jobsByReviewProposal = new Map<string, (typeof reviewJobs)[number][]>();
     for (const job of reviewJobs) {
@@ -1703,28 +1848,107 @@ export function createControlPlane(options?: {
       const matchingJobs = jobsByReviewProposal.get(
         `${review.reviewId}\u0000${constraint.proposalId}`,
       ) ?? [];
-      const issueIds = Object.freeze([...new Set(matchingJobs.flatMap((job) =>
-        job.issueIds
-      ))].sort());
-      const semanticFamilies = Object.freeze([...new Set(issueIds.flatMap((issueId) => {
-        const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
-        return family === undefined ? [] : [family];
-      }))].sort());
-      const searchOrigin = issueIds.length === 0 || semanticFamilies.length === 0
-        ? null
-        : buildProbabilitySearchOrigin({ issueIds, semanticFamilies });
-      probabilitySearchOriginByReview.set(review.reviewId, searchOrigin);
+      if (!probabilitySearchOriginByReview.has(review.reviewId)) {
+        const issueIds = Object.freeze([...new Set(matchingJobs.flatMap((job) =>
+          job.issueIds
+        ))].sort());
+        const semanticFamilies = Object.freeze([...new Set(issueIds.flatMap((issueId) => {
+          const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
+          return family === undefined ? [] : [family];
+        }))].sort());
+        const searchOrigin = issueIds.length === 0 || semanticFamilies.length === 0
+          ? null
+          : buildProbabilitySearchOrigin({ issueIds, semanticFamilies });
+        probabilitySearchOriginByReview.set(review.reviewId, searchOrigin);
+      }
+      if (!probabilityEvidenceContextByReview.has(review.reviewId)) {
+        const evidenceContext = matchingJobs.flatMap((job) => {
+          const bundle = job.evidenceBundle;
+          if (bundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2") return [];
+          try {
+            return [buildProbabilityEstimationEvidenceContext({
+              review,
+              listings: bundle.listings,
+              sourceKind: "DURABLE_REVIEW_BUNDLE",
+              sourceArtifactHash: bundle.bundleId,
+            })];
+          } catch {
+            return [];
+          }
+        })[0] ?? null;
+        if (evidenceContext !== null) {
+          probabilityEvidenceContextByReview.set(review.reviewId, evidenceContext);
+        }
+      }
     }
-    return Object.freeze(reviews.map((review) => {
+    const reviewCandidates = reviews.map((review) => {
       const searchOrigin = probabilitySearchOriginByReview.get(review.reviewId) ?? null;
+      const evidenceContext = probabilityEvidenceContextByReview.get(review.reviewId) ?? null;
       return Object.freeze({
         review,
         ...(searchOrigin === null ? {} : { searchOrigin }),
+        ...(evidenceContext === null ? {} : { evidenceContext }),
       });
-    }));
+    });
+    const activeArtifacts = new Set(reviewCandidates.flatMap((candidate) =>
+      candidate.review.report === null ? [] : [candidate.review.report.artifactHash]
+    ));
+    const retainedLineages = new Map<Hash, ProbabilityEstimationJobRecord>();
+    for (const job of probabilityEstimationScheduler.projection().jobs) {
+      if (!activeArtifacts.has(job.semanticReviewArtifactHash) &&
+        !retainedLineages.has(job.semanticReviewArtifactHash)) {
+        retainedLineages.set(job.semanticReviewArtifactHash, job);
+      }
+    }
+    const unresolvedLineages = [...retainedLineages.values()].filter((job) =>
+      job.evidenceContext === undefined &&
+      !probabilityEvidenceContextByArtifact.has(job.semanticReviewArtifactHash)
+    );
+    const retainedReviewJobs = unresolvedLineages.length === 0
+      ? []
+      : allDurableJobs();
+    const retainedCandidates = [...retainedLineages.values()].flatMap((job) => {
+      let evidenceContext = job.evidenceContext ??
+        probabilityEvidenceContextByArtifact.get(job.semanticReviewArtifactHash) ?? null;
+      if (evidenceContext === null &&
+        !probabilityEvidenceContextByArtifact.has(job.semanticReviewArtifactHash)) {
+        evidenceContext = retainedReviewJobs.flatMap((reviewJob) => {
+          const bundle = reviewJob.proposalId === job.proposalId
+            ? reviewJob.evidenceBundle
+            : null;
+          if (bundle?.schemaVersion !== "pmh.proposal-evidence-bundle.v2") return [];
+          try {
+            return [buildRetainedProbabilityEstimationEvidenceContext({
+              semanticReviewArtifactHash: job.semanticReviewArtifactHash,
+              semanticConstraint: job.semanticConstraint,
+              evidenceScopeIdentity: job.evidenceScopeIdentity,
+              listings: bundle.listings,
+              sourceKind: "DURABLE_REVIEW_BUNDLE",
+              sourceArtifactHash: bundle.bundleId,
+            })];
+          } catch {
+            return [];
+          }
+        })[0] ?? null;
+        if (evidenceContext !== null) {
+          probabilityEvidenceContextByArtifact.set(
+            job.semanticReviewArtifactHash,
+            evidenceContext,
+          );
+        }
+      }
+      return evidenceContext === null ? [] : [Object.freeze({
+        semanticReviewArtifactHash: job.semanticReviewArtifactHash,
+        semanticConstraint: job.semanticConstraint,
+        evidenceScopeIdentity: job.evidenceScopeIdentity,
+        evidenceContext,
+        ...(job.searchOrigin === undefined ? {} : { searchOrigin: job.searchOrigin }),
+      })];
+    });
+    return Object.freeze([...retainedCandidates, ...reviewCandidates]);
   };
-  const evidenceRequirements = (): readonly EvidenceRequirement[] => {
-    const retained = [
+  const retainedEvidenceRequirements = (): readonly EvidenceRequirement[] => {
+    const retained = [...new Map([
       ...marketArchaeologistDesk.projection().records.flatMap((record) =>
         record.status === "PASS" && record.report !== null
           ? record.report.result.evidenceRequirements ?? []
@@ -1735,14 +1959,15 @@ export function createControlPlane(options?: {
           ? record.report.result.evidenceRequirements ?? []
           : []
       ),
+      ...probabilityEstimationDesk.projection().records.flatMap((record) =>
+        (record.evidenceNeeds ?? []).flatMap((need) =>
+          need.acquisitionRequirement === null ? [] : [need.acquisitionRequirement]
+        )
+      ),
       ...evidenceAcquisitionScheduler.projection().jobs.flatMap((job) =>
         job.requirements
       ),
-    ].filter((requirement, index, all) =>
-      all.findIndex((candidate) =>
-        candidate.requirementId === requirement.requirementId
-      ) === index
-    );
+    ].map((requirement) => [requirement.requirementId, requirement] as const)).values()];
     const currentByProposal = new Map(baseSemanticReviewCandidates().map((candidate) =>
       [candidate.proposal.proposalId, candidate] as const
     ));
@@ -1775,12 +2000,12 @@ export function createControlPlane(options?: {
     });
     const capabilityRebased =
       rebaseEvidenceRequirementsToRetainedLocatorCapabilities(rebased);
-    return Object.freeze(capabilityRebased.filter((requirement, index, all) =>
-      all.findIndex((candidate) =>
-        candidate.requirementId === requirement.requirementId
-      ) === index
-    ));
+    return Object.freeze([...new Map(capabilityRebased.map((requirement) =>
+      [requirement.requirementId, requirement] as const
+    )).values()]);
   };
+  const evidenceRequirements = (): readonly EvidenceRequirement[] =>
+    officialSourceDiscoveryScheduler.applyAdmissions(retainedEvidenceRequirements());
   const ruleEvidenceClaimInputs = (): readonly RuleEvidenceClaimInput[] => Object.freeze(
     evidenceAcquisitionScheduler.projection().jobs.flatMap((job) => {
       if (job.status !== "CAPTURED") return [];
@@ -1789,6 +2014,53 @@ export function createControlPlane(options?: {
       return job.requirements.map((requirement) => Object.freeze({ requirement, capture }));
     }),
   );
+  const ruleEvidenceAgentInputsByTaskId = new Map<Hash, RuleEvidenceClaimInput>();
+  const refreshRuleEvidenceAgentInputs = (): readonly RuleEvidenceClaimInput[] => {
+    const inputs = ruleEvidenceClaimInputs();
+    ruleEvidenceAgentInputsByTaskId.clear();
+    for (const input of inputs) {
+      ruleEvidenceAgentInputsByTaskId.set(buildRuleEvidenceAgentTask(input).taskId, input);
+    }
+    return inputs;
+  };
+  const reconcileRuleEvidenceAgentTasks = (): void => {
+    agentExecutionRegistry.reconcileRuleEvidenceTasks(refreshRuleEvidenceAgentInputs());
+  };
+  const ruleEvidenceAgentInput = (taskId: Hash) =>
+    ruleEvidenceAgentInputsByTaskId.get(taskId) ?? null;
+  const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
+    new AgentCampaignDispatcher({
+      registry: agentExecutionRegistry,
+      credentialBroker: agentCredentialBroker,
+      capabilityService: agentExecutionCapabilityService,
+      adapters: [
+        createPiCliAgentRuntimeAdapter({ environment: process.env, timeoutMs: 300_000 }),
+        createCodexCliAgentRuntimeAdapter({ environment: process.env, timeoutMs: 300_000 }),
+        createInProcessAiSdkAgentRuntimeAdapter({ timeoutMs: 300_000 }),
+      ],
+      toolHost: new RuleEvidenceAgentToolHost(ruleEvidenceAgentInput),
+      taskPayload: (task) => {
+        const input = ruleEvidenceAgentInput(task.taskId);
+        if (input === null) throw new Error("retained Agent task input is unavailable");
+        return buildRuleEvidenceAgentTaskPayload(input);
+      },
+    });
+  const migrateLegacyRuleEvidenceAgentRuns = (): void => {
+    const captureSource = options?.discoveryStore as Partial<{
+      loadRetainedEvidenceDocumentCaptures(): readonly import("./evidence-document.js").EvidenceDocumentCapture[];
+    }> | undefined;
+    const migration = buildRuleEvidenceAgentMigration({
+      snapshot: agentExecutionRegistry.snapshot(),
+      jobs: ruleEvidenceClaimScheduler.projection().jobs,
+      records: ruleEvidenceClaimDesk.projection().records,
+      usageEvents: aiUsageLedger.events(),
+      ...(captureSource?.loadRetainedEvidenceDocumentCaptures === undefined
+        ? {}
+        : { captures: captureSource.loadRetainedEvidenceDocumentCaptures() }),
+      observedAt: new Date().toISOString(),
+    });
+    agentExecutionRegistry.saveBatch(migration.batch);
+  };
   const synchronizeLifecycleSources = (): void => {
     opportunityLifecycleDesk.syncMarketArchaeologist(
       marketArchaeologistDesk.projection(),
@@ -1797,7 +2069,79 @@ export function createControlPlane(options?: {
       realCandidatePreflightDesk.dispositionProjection(),
     );
   };
+  type StartupReadinessPhase =
+    | "STARTUP_GATE"
+    | "DURABLE_RECOVERY"
+    | "AGENT_RECONCILIATION"
+    | "WAITING_FOR_PROJECTION"
+    | "MATERIALIZING_PROJECTION"
+    | "READY"
+    | "FAILED";
+  const startupStartedAtMs = Date.now();
+  let startupPhaseStartedAtMs = startupStartedAtMs;
+  const startupPhaseTimings: Array<Readonly<{
+    phase: StartupReadinessPhase;
+    startedAt: string;
+    completedAt: string;
+    durationMs: number;
+  }>> = [];
+  let startupReadiness = Object.freeze({
+    schemaVersion: "pmh.startup-readiness.v1" as const,
+    status: "STARTING" as "STARTING" | "READY" | "FAILED",
+    phase: "STARTUP_GATE" as StartupReadinessPhase,
+    startedAt: new Date(startupStartedAtMs).toISOString(),
+    phaseStartedAt: new Date(startupPhaseStartedAtMs).toISOString(),
+    completedAt: null as string | null,
+    elapsedMs: 0 as number,
+    phaseElapsedMs: 0 as number,
+    diagnostic: null as string | null,
+    phaseTimings: Object.freeze([...startupPhaseTimings]),
+    projectionResource: "/api/v1/projection" as const,
+    providerRequestsStarted: 0 as const,
+    modelInvocationsStarted: 0 as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  const transitionStartup = (
+    phase: StartupReadinessPhase,
+    status: "STARTING" | "READY" | "FAILED" = "STARTING",
+    diagnostic: string | null = null,
+  ): void => {
+    const nowMs = Date.now();
+    const completedPhaseElapsedMs = Math.max(0, nowMs - startupPhaseStartedAtMs);
+    startupPhaseTimings.push(Object.freeze({
+      phase: startupReadiness.phase,
+      startedAt: new Date(startupPhaseStartedAtMs).toISOString(),
+      completedAt: new Date(nowMs).toISOString(),
+      durationMs: completedPhaseElapsedMs,
+    }));
+    startupPhaseStartedAtMs = nowMs;
+    startupReadiness = Object.freeze({
+      ...startupReadiness,
+      status,
+      phase,
+      phaseStartedAt: new Date(nowMs).toISOString(),
+      completedAt: status === "STARTING" ? null : new Date(nowMs).toISOString(),
+      elapsedMs: Math.max(0, nowMs - startupStartedAtMs),
+      phaseElapsedMs: status === "STARTING" ? 0 : completedPhaseElapsedMs,
+      diagnostic,
+      phaseTimings: Object.freeze([...startupPhaseTimings]),
+    });
+  };
+  const startupReadinessProjection = () => {
+    const nowMs = Date.now();
+    return Object.freeze({
+      ...startupReadiness,
+      elapsedMs: startupReadiness.completedAt === null
+        ? Math.max(0, nowMs - startupStartedAtMs)
+        : startupReadiness.elapsedMs,
+      phaseElapsedMs: startupReadiness.completedAt === null
+        ? Math.max(0, nowMs - startupPhaseStartedAtMs)
+        : startupReadiness.phaseElapsedMs,
+    });
+  };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
+    transitionStartup("DURABLE_RECOVERY");
     const realCandidateReady = realCandidatePreflightDesk.load();
     await Promise.all([
       bookDesk.replay(),
@@ -1808,8 +2152,250 @@ export function createControlPlane(options?: {
         ? [catalogRefreshScheduler.runNow("STARTUP").promise]
         : []),
     ]);
+    transitionStartup("AGENT_RECONCILIATION");
     synchronizeLifecycleSources();
+    reconcileRuleEvidenceAgentTasks();
+    migrateLegacyRuleEvidenceAgentRuns();
+    agentCampaignDispatcher.recoverPreparedRuns();
+    transitionStartup("WAITING_FOR_PROJECTION");
   });
+  void ready.catch((error: unknown) => {
+    transitionStartup(
+      "FAILED",
+      "FAILED",
+      error instanceof Error ? error.message : "control-plane startup failed",
+    );
+  });
+
+  const agentExecutionConsole = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const effectiveCampaignIds = new Set(effectiveAgentCampaigns(snapshot.campaigns).map((item) =>
+      item.campaignId
+    ));
+    const configurations = await Promise.all(snapshot.credentialBindings.map((binding) =>
+      agentCredentialBroker.configuration(binding)
+    ));
+    const configurationById = new Map(configurations.map((item) =>
+      [item.credentialBindingId, item] as const
+    ));
+    const capabilities = snapshot.executionProfiles.map((profile) => {
+      const configuration = configurationById.get(profile.credentialBindingId);
+      if (configuration === undefined) {
+        throw new Error("Execution profile credential configuration is unavailable");
+      }
+      return agentExecutionCapabilityService.project(profile, configuration);
+    });
+    const orderedTasks = [...snapshot.tasks].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || left.taskId.localeCompare(right.taskId)
+    );
+    const orderedRuns = [...snapshot.runs].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || left.runId.localeCompare(right.runId)
+    );
+    const visibleRunIds = new Set(orderedRuns.slice(0, 250).map((run) => run.runId));
+    const inputTokens = snapshot.modelInvocations.reduce(
+      (total, item) => total + BigInt(item.inputTokens ?? "0"),
+      0n,
+    );
+    const outputTokens = snapshot.modelInvocations.reduce(
+      (total, item) => total + BigInt(item.outputTokens ?? "0"),
+      0n,
+    );
+    const reasoningTokens = snapshot.modelInvocations.reduce(
+      (total, item) => total + BigInt(item.reasoningTokens ?? "0"),
+      0n,
+    );
+    const runsById = new Map(snapshot.runs.map((run) => [run.runId, run] as const));
+    const tasksById = new Map(snapshot.tasks.map((task) => [task.taskId, task] as const));
+    const profilesById = new Map(snapshot.executionProfiles.map((profile) =>
+      [profile.executionProfileId, profile] as const
+    ));
+    const modelsById = new Map(snapshot.modelProfiles.map((profile) =>
+      [profile.modelProfileId, profile] as const
+    ));
+    const runtimesById = new Map(snapshot.runtimeDefinitions.map((runtime) =>
+      [runtime.runtimeDefinitionId, runtime] as const
+    ));
+    const usageBreakdown = new Map<string, {
+      runtimeKind: string;
+      model: string;
+      taskKind: string;
+      invocationCount: number;
+      failedInvocationCount: number;
+      inputTokens: bigint;
+      outputTokens: bigint;
+      reasoningTokens: bigint;
+    }>();
+    const dailyUsage = new Map<string, {
+      invocationCount: number;
+      inputTokens: bigint;
+      outputTokens: bigint;
+    }>();
+    for (const invocation of snapshot.modelInvocations) {
+      const run = runsById.get(invocation.runId);
+      const task = run === undefined ? undefined : tasksById.get(run.taskId);
+      const profile = run === undefined ? undefined : profilesById.get(run.executionProfileId);
+      const model = profile === undefined ? undefined : modelsById.get(profile.modelProfileId);
+      const runtime = profile === undefined ? undefined : runtimesById.get(
+        profile.runtimeDefinitionId,
+      );
+      const identity = `${runtime?.kind ?? "UNKNOWN"}|${model?.model ?? "UNKNOWN"}|${task?.kind ?? "UNKNOWN"}`;
+      const aggregate = usageBreakdown.get(identity) ?? {
+        runtimeKind: runtime?.kind ?? "UNKNOWN",
+        model: model?.model ?? "UNKNOWN",
+        taskKind: task?.kind ?? "UNKNOWN",
+        invocationCount: 0,
+        failedInvocationCount: 0,
+        inputTokens: 0n,
+        outputTokens: 0n,
+        reasoningTokens: 0n,
+      };
+      aggregate.invocationCount += 1;
+      if (invocation.status !== "SUCCEEDED") aggregate.failedInvocationCount += 1;
+      aggregate.inputTokens += BigInt(invocation.inputTokens ?? "0");
+      aggregate.outputTokens += BigInt(invocation.outputTokens ?? "0");
+      aggregate.reasoningTokens += BigInt(invocation.reasoningTokens ?? "0");
+      usageBreakdown.set(identity, aggregate);
+      const day = invocation.completedAt.slice(0, 10);
+      const daily = dailyUsage.get(day) ?? {
+        invocationCount: 0,
+        inputTokens: 0n,
+        outputTokens: 0n,
+      };
+      daily.invocationCount += 1;
+      daily.inputTokens += BigInt(invocation.inputTokens ?? "0");
+      daily.outputTokens += BigInt(invocation.outputTokens ?? "0");
+      dailyUsage.set(day, daily);
+    }
+    return Object.freeze({
+      schemaVersion: "pmh.agent-execution-console.v1" as const,
+      summary: agentExecutionRegistry.projection(),
+      runtimeDefinitions: snapshot.runtimeDefinitions,
+      credentialBindings: snapshot.credentialBindings.map((binding) => Object.freeze({
+        ...binding,
+        configuration: configurations.find((item) =>
+          item.credentialBindingId === binding.credentialBindingId
+        ) ?? null,
+      })),
+      modelProfiles: snapshot.modelProfiles,
+      executionProfiles: snapshot.executionProfiles,
+      capabilities,
+      workloadRoutes: snapshot.workloadRoutes,
+      campaigns: snapshot.campaigns.map((campaign) => Object.freeze({
+        ...campaign,
+        superseded: !effectiveCampaignIds.has(campaign.campaignId),
+        preview: campaign.status === "ACTIVE" && effectiveCampaignIds.has(campaign.campaignId)
+          ? agentCampaignDispatcher.preview(campaign.campaignId)
+          : null,
+      })),
+      tasks: Object.freeze(orderedTasks.slice(0, 250)),
+      runs: Object.freeze(orderedRuns.slice(0, 250)),
+      modelInvocations: Object.freeze(snapshot.modelInvocations.filter((item) =>
+        visibleRunIds.has(item.runId)
+      )),
+      toolEffects: Object.freeze(snapshot.toolEffects.filter((item) =>
+        visibleRunIds.has(item.runId)
+      )),
+      runArtifacts: Object.freeze(snapshot.runArtifacts.filter((item) =>
+        visibleRunIds.has(item.runId)
+      )),
+      runAnnotations: Object.freeze(snapshot.runAnnotations.filter((item) =>
+        visibleRunIds.has(item.runId)
+      )),
+      resultSelections: snapshot.resultSelections,
+      usage: Object.freeze({
+        invocationCount: snapshot.modelInvocations.length,
+        inputTokens: inputTokens.toString(),
+        outputTokens: outputTokens.toString(),
+        reasoningTokens: reasoningTokens.toString(),
+        incompleteTokenInvocationCount: snapshot.modelInvocations.filter((item) =>
+          item.inputTokens === null || item.outputTokens === null
+        ).length,
+        currencyCost: null,
+        currencyCostDiagnostic: "No immutable model-price schedule is retained for these runs.",
+        byRuntimeModelPurpose: Object.freeze([...usageBreakdown.values()].map((item) =>
+          Object.freeze({
+            ...item,
+            inputTokens: item.inputTokens.toString(),
+            outputTokens: item.outputTokens.toString(),
+            reasoningTokens: item.reasoningTokens.toString(),
+          })
+        ).sort((left, right) => {
+          const leftTotal = BigInt(left.inputTokens) + BigInt(left.outputTokens);
+          const rightTotal = BigInt(right.inputTokens) + BigInt(right.outputTokens);
+          return rightTotal > leftTotal ? 1 : rightTotal < leftTotal ? -1 :
+            left.model.localeCompare(right.model);
+        })),
+        byDay: Object.freeze([...dailyUsage.entries()].map(([day, item]) => Object.freeze({
+          day,
+          invocationCount: item.invocationCount,
+          inputTokens: item.inputTokens.toString(),
+          outputTokens: item.outputTokens.toString(),
+        })).sort((left, right) => right.day.localeCompare(left.day))),
+      }),
+      incidentCounts: Object.freeze(Object.fromEntries(
+        [...new Set(snapshot.runAnnotations.map((item) => item.category))]
+          .sort()
+          .map((category) => [
+            category,
+            snapshot.runAnnotations.filter((item) => item.category === category).length,
+          ]),
+      )),
+      providerRequestsStartedByRead: 0 as const,
+      credentialSecretTextRetained: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+  };
+  const discoveryExecutionCapability = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "DISCOVERY_SCOUT")
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (route === undefined) {
+      throw new Error("Discovery execution workload route is unavailable");
+    }
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) {
+      throw new Error("Discovery execution profile is unavailable");
+    }
+    const runtime = snapshot.runtimeDefinitions.find((item) =>
+      item.runtimeDefinitionId === profile.runtimeDefinitionId
+    );
+    const model = snapshot.modelProfiles.find((item) =>
+      item.modelProfileId === profile.modelProfileId
+    );
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (runtime === undefined || model === undefined || binding === undefined) {
+      throw new Error("Discovery execution substrate is incomplete");
+    }
+    const configuration = await agentCredentialBroker.configuration(binding);
+    return Object.freeze({
+      schemaVersion: "pmh.discovery-execution-capability.v1" as const,
+      workloadRoute: route,
+      executionProfile: profile,
+      runtime: Object.freeze({
+        runtimeDefinitionId: runtime.runtimeDefinitionId,
+        kind: runtime.kind,
+        version: runtime.version,
+      }),
+      model: Object.freeze({
+        modelProfileId: model.modelProfileId,
+        accessDriver: model.accessDriver,
+        model: model.model,
+        configuration: model.configuration,
+      }),
+      capability: agentExecutionCapabilityService.project(profile, configuration),
+      providerRequestsStarted: 0 as const,
+      modelInvocationsStarted: 0 as const,
+      credentialSecretTextRetained: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+  };
   const subscribers = new Set<ServerResponse>();
   const pendingRuns = new Map<
     string,
@@ -1838,6 +2424,14 @@ export function createControlPlane(options?: {
       enrichedReviewCandidates,
       semanticReviewProjection.records,
     );
+    const probabilityCaseRepairQueue = buildProbabilityCaseRepairQueue({
+      runs: probabilityEstimationDesk.projection().records,
+    });
+    semanticReviewScheduler.reconcileProbabilityCaseRepairs(
+      probabilityCaseRepairQueue,
+      semanticReviewProjection.records,
+      probabilityEstimationScheduler.projection().jobs,
+    );
     const semanticReviewAttributionSource = semanticReviewScheduler.attributionSource();
     probabilityEstimationScheduler.reconcile(
       probabilityEstimationCandidates(semanticReviewAttributionSource),
@@ -1848,10 +2442,18 @@ export function createControlPlane(options?: {
       premiseEvidenceRoutingCandidates(enrichedReviewCandidates),
     );
     premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
-    const currentEvidenceRequirements = evidenceRequirements();
+    const retainedCurrentEvidenceRequirements = retainedEvidenceRequirements();
+    const currentEvidenceRequirements = officialSourceDiscoveryScheduler.applyAdmissions(
+      retainedCurrentEvidenceRequirements,
+    );
     evidenceAcquisitionScheduler.reconcile(currentEvidenceRequirements);
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
+    const probabilitySemanticRepairProgress = buildProbabilitySemanticRepairProgress({
+      queue: probabilityCaseRepairQueue,
+      jobs: semanticReviewSchedulerProjection.jobs,
+      reviews: semanticReviewDesk.projection().records,
+    });
     const premiseAnalysisProjection = premiseAnalysisDesk.projection();
     const premiseAnalysisSchedulerProjection = premiseAnalysisScheduler.projection();
     const premiseEvidenceRoutingProjection = premiseEvidenceRoutingScheduler.projection();
@@ -1883,6 +2485,21 @@ export function createControlPlane(options?: {
       ),
       economicItems: economicTriageProjection.items,
       reviewItems: reviewAttention.items,
+    });
+    const tierByProposal = new Map(evidenceDebtFrontier.items.map((item) =>
+      [item.proposalId, item.tier] as const
+    ));
+    officialSourceDiscoveryScheduler.reconcile(
+      retainedCurrentEvidenceRequirements.map((requirement) => Object.freeze({
+        requirement,
+        priorityTier: tierByProposal.get(requirement.proposalId) ??
+          "RETAINED_RESEARCH_DEBT",
+      })),
+    );
+    const probabilityEvidenceDebt = buildProbabilityEvidenceDebt({
+      runs: probabilityEstimationDesk.projection().records,
+      estimatorJobs: probabilityEstimationScheduler.projection().jobs,
+      acquisitionJobs: evidenceAcquisitionProjection.jobs,
     });
     const semanticRelationGraph = buildSemanticRelationGraph({
       corpus: catalogObservationDesk.corpus(),
@@ -1927,14 +2544,19 @@ export function createControlPlane(options?: {
       probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
       aiUsage: aiUsageLedger.projection(),
       runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+      agentExecution: agentExecutionRegistry.projection(),
       semanticReviewAdmission,
       semanticReviewScheduler: semanticReviewSchedulerProjection,
       premiseAnalysis: premiseAnalysisProjection,
       premiseAnalysisScheduler: premiseAnalysisSchedulerProjection,
       premiseEvidenceRouting: premiseEvidenceRoutingProjection,
       premiseRouteExpansion: premiseRouteExpansionProjection,
+      officialSourceDiscovery: officialSourceDiscoveryScheduler.projection(),
       evidenceAcquisition: evidenceAcquisitionProjection,
       evidenceDebtFrontier,
+      probabilityEvidenceDebt,
+      probabilityCaseRepairQueue,
+      probabilitySemanticRepairProgress,
       ruleEvidenceClaims: ruleEvidenceClaimProjection,
       reviewAttention,
       proposalEconomicTriage: economicTriageProjection,
@@ -1974,14 +2596,31 @@ export function createControlPlane(options?: {
     // second full derivation; the next request advances to the latest revision.
     if (liveProjectionBuild !== null) return liveProjectionBuild.promise;
     let pending: Promise<LiveProjectionSnapshot>;
-    pending = liveProjection().then((current) => {
+    pending = ready.then(() => {
+      if (startupReadiness.status === "STARTING") {
+        transitionStartup("MATERIALIZING_PROJECTION");
+      }
+      return liveProjection();
+    }).then((current) => {
       const snapshot = Object.freeze({
         revision,
         projection: current,
         etag: `"${current.identity.viewHash}"`,
       });
       if (projectionRevision === revision) liveProjectionCache = snapshot;
+      if (startupReadiness.status === "STARTING") {
+        transitionStartup("READY", "READY");
+      }
       return snapshot;
+    }).catch((error: unknown) => {
+      if (startupReadiness.status === "STARTING") {
+        transitionStartup(
+          "FAILED",
+          "FAILED",
+          error instanceof Error ? error.message : "Studio projection materialization failed",
+        );
+      }
+      throw error;
     }).finally(() => {
       if (liveProjectionBuild?.promise === pending) liveProjectionBuild = null;
     });
@@ -1989,15 +2628,32 @@ export function createControlPlane(options?: {
     return pending;
   };
   const proposalHandoff = async (proposalIds: readonly Hash[]) => {
-    const full = await projection();
+    await ready;
+    const archaeologist = marketArchaeologistDesk.projection();
+    const reviewJobs = semanticReviewScheduler.attributionSource().jobs;
+    const semanticReviews = semanticReviewDesk.projection();
+    const lifecycle = opportunityLifecycleDesk.projection();
+    const corpus = catalogObservationDesk.corpus();
+    const reviewAttention = buildReviewAttentionProjection({
+      archaeologist,
+      semanticReviews: semanticReviews.records,
+      semanticReviewJobs: reviewJobs,
+      semanticDecisions: lifecycle.semanticDecisions,
+      corpus,
+    });
+    const economicTriage = buildProposalEconomicTriage({
+      candidates: baseSemanticReviewCandidates(),
+      corpus,
+    });
+    const premiseJobsProjection = premiseAnalysisScheduler.projection();
     const proposals = new Map(
-      full.ai.marketArchaeologist.records.flatMap((record) =>
+      archaeologist.records.flatMap((record) =>
         (record.report?.result.proposals ?? []).map((proposal) =>
           [proposal.proposalId, proposal] as const
         )
       ),
     );
-    for (const job of full.ai.semanticReviewScheduler.jobs) {
+    for (const job of reviewJobs) {
       const proposal = job.evidenceBundle?.schemaVersion ===
           "pmh.proposal-evidence-bundle.v2"
         ? job.evidenceBundle.proposal
@@ -2007,22 +2663,22 @@ export function createControlPlane(options?: {
       }
     }
     const jobs = new Map(
-      full.ai.semanticReviewScheduler.jobs.map((job) => [job.proposalId, job] as const),
+      reviewJobs.map((job) => [job.proposalId, job] as const),
     );
     const jobsById = new Map(
-      full.ai.semanticReviewScheduler.jobs.map((job) => [job.jobId, job] as const),
+      reviewJobs.map((job) => [job.jobId, job] as const),
     );
     const cases = new Map(
-      full.opportunityLifecycle.cases.map((item) => [item.opportunityId, item] as const),
+      lifecycle.cases.map((item) => [item.opportunityId, item] as const),
     );
     const attention = new Map(
-      full.ai.reviewAttention.items.map((item) => [item.proposalId, item] as const),
+      reviewAttention.items.map((item) => [item.proposalId, item] as const),
     );
     const economics = new Map(
-      full.ai.proposalEconomicTriage.items.map((item) => [item.proposalId, item] as const),
+      economicTriage.items.map((item) => [item.proposalId, item] as const),
     );
     const premiseJobs = new Map(
-      full.ai.premiseAnalysisScheduler.jobs.map((item) => [item.proposalId, item] as const),
+      premiseJobsProjection.jobs.map((item) => [item.proposalId, item] as const),
     );
     const items = Object.freeze(proposalIds.map((proposalId) => {
       const proposal = proposals.get(proposalId) ?? null;
@@ -2104,7 +2760,42 @@ export function createControlPlane(options?: {
     }));
     const body = Object.freeze({
       schemaVersion: "pmh.proposal-handoff.v3" as const,
-      sourceStateHash: full.identity.stateHash,
+      sourceStateHash: hashCanonical({
+        proposalIds,
+        archaeologistRuns: archaeologist.records.map((record) => Object.freeze({
+          runId: record.runId,
+          status: record.status,
+          artifactHash: record.report?.artifactHash ?? null,
+        })),
+        reviewJobs: reviewJobs.map((job) => Object.freeze({
+          jobId: job.jobId,
+          status: job.status,
+          attemptCount: job.attemptCount,
+          completedAt: job.completedAt,
+          outcomeHash: job.reviewOutcome?.outcomeHash ?? null,
+        })),
+        semanticReviews: semanticReviews.records.map((record) => Object.freeze({
+          reviewId: record.reviewId,
+          status: record.status,
+          completedAt: record.completedAt,
+          artifactHash: record.report?.artifactHash ?? null,
+        })),
+        lifecycleCases: lifecycle.cases.map((item) => Object.freeze({
+          opportunityId: item.opportunityId,
+          state: item.state,
+          nextAction: item.nextAction,
+        })),
+        reviewAttentionContentHash: reviewAttention.contentHash,
+        economicTriageContentHash: economicTriage.contentHash,
+        premiseJobs: premiseJobsProjection.jobs.map((job) => Object.freeze({
+          jobId: job.jobId,
+          status: job.status,
+          attemptCount: job.attemptCount,
+          completedAt: job.completedAt,
+          outcomeHash: job.outcomeCapsule?.outcomeHash ?? null,
+        })),
+        corpusSnapshotIdentity: corpus.snapshotIdentity,
+      }),
       requestedProposalIds: Object.freeze([...proposalIds]),
       resolvedProposalCount: items.filter((item) => item.proposal !== null).length,
       reviewJobCount: items.filter((item) => item.reviewJob !== null).length,
@@ -2254,6 +2945,43 @@ export function createControlPlane(options?: {
       response.end();
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/v1/readiness") {
+      const readiness = startupReadinessProjection();
+      writeJson(
+        response,
+        readiness.status === "READY" ? 200 : readiness.status === "FAILED" ? 503 : 202,
+        readiness,
+        { "cache-control": "no-store" },
+      );
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/discovery-execution-capability"
+    ) {
+      try {
+        await ready;
+        writeJson(
+          response,
+          200,
+          await discoveryExecutionCapability(),
+          { "cache-control": "no-store" },
+        );
+      } catch (error) {
+        writeJson(response, 503, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "Discovery execution capability is unavailable",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          credentialSecretTextRetained: false,
+          externalWriteAuthority: false,
+          valueMovingAuthority: false,
+        });
+      }
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       await ready;
       const discoveryDesk = discoveryLedger.projection();
@@ -2281,10 +3009,12 @@ export function createControlPlane(options?: {
         probabilityResolutionAcquisition: probabilityResolutionAcquisitionScheduler.projection(),
         aiUsage: aiUsageLedger.projection(),
         runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+        agentExecution: agentExecutionRegistry.projection(),
         premiseAnalysis: premiseAnalysisDesk.projection(),
         premiseAnalysisScheduler: premiseAnalysisScheduler.projection(),
         premiseEvidenceRouting: premiseEvidenceRoutingScheduler.projection(),
         premiseRouteExpansion: premiseRouteExpansionScheduler.projection(),
+        officialSourceDiscovery: officialSourceDiscoveryScheduler.projection(),
         evidenceAcquisition: evidenceAcquisitionScheduler.projection(),
         ruleEvidenceClaims: ruleEvidenceClaimScheduler.projection(),
         semanticReviewAdmission: buildSemanticReviewAdmissionProjection(
@@ -2345,7 +3075,12 @@ export function createControlPlane(options?: {
         });
         return;
       }
-      writeJson(response, 200, await proposalHandoff(proposalIds as Hash[]));
+      const startedAt = performance.now();
+      const handoff = await proposalHandoff(proposalIds as Hash[]);
+      const elapsedMs = Math.max(0, performance.now() - startedAt);
+      writeJson(response, 200, handoff, {
+        "server-timing": `proposal-handoff;dur=${elapsedMs.toFixed(1)}`,
+      });
       return;
     }
     if (
@@ -2355,6 +3090,8 @@ export function createControlPlane(options?: {
       try {
         const update = parseAiRuntimeConfigurationUpdate(await readJson(request));
         const configuration = aiRuntimeConfigurationDesk.update(update);
+        agentExecutionRegistry.importLegacyConfiguration(configuration);
+        agentExecutionRegistry.saveBatch(buildDefaultAgentRuntimePortfolio(configuration));
         if (options?.modelRuntime === undefined) {
           modelRuntime = modelRuntimeFactory(configuration);
           if (options?.discoveryPool === undefined) {
@@ -2368,6 +3105,7 @@ export function createControlPlane(options?: {
         writeJson(response, 200, {
           ok: true,
           runtimeConfiguration: aiRuntimeConfigurationDesk.projection(),
+          agentExecution: agentExecutionRegistry.projection(),
           modelProvider: modelRuntime.projection,
           executionAuthority: false,
         });
@@ -2514,6 +3252,57 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/official-source-discovery"
+    ) {
+      await ready;
+      officialSourceDiscoveryScheduler.reconcile(
+        retainedEvidenceRequirements().map((requirement) => Object.freeze({
+          requirement,
+          priorityTier: "RETAINED_RESEARCH_DEBT" as const,
+        })),
+      );
+      writeJson(response, 200, officialSourceDiscoveryScheduler.projection());
+      return;
+    }
+    const officialSourceRunMatch = url.pathname.match(
+      /^\/api\/v1\/official-source-discovery\/(sha256:[0-9a-f]{64})\/run$/u,
+    );
+    if (request.method === "POST" && officialSourceRunMatch !== null) {
+      try {
+        await ready;
+        officialSourceDiscoveryScheduler.reconcile(
+          retainedEvidenceRequirements().map((requirement) => Object.freeze({
+            requirement,
+            priorityTier: "RETAINED_RESEARCH_DEBT" as const,
+          })),
+        );
+        const run = officialSourceDiscoveryScheduler.runJob(
+          officialSourceRunMatch[1] as Hash,
+        );
+        void broadcastProjection();
+        void run.then(() => {
+          evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+          return broadcastProjection();
+        }, () => broadcastProjection());
+        writeJson(response, 202, {
+          ok: true,
+          jobId: officialSourceRunMatch[1],
+          status: "LEASED",
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "official source discovery run could not start",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/evidence-acquisition"
     ) {
       await ready;
@@ -2530,12 +3319,273 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/probability-evidence-debt"
+    ) {
+      writeJson(response, 200, (await projection()).ai.probabilityEvidenceDebt);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/probability-case-repairs"
+    ) {
+      writeJson(response, 200, (await projection()).ai.probabilityCaseRepairQueue);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/probability-semantic-repair-progress"
+    ) {
+      writeJson(response, 200, (await projection()).ai.probabilitySemanticRepairProgress);
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/rule-evidence-claims"
     ) {
       await ready;
       evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
       ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
       writeJson(response, 200, ruleEvidenceClaimScheduler.projection());
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/agent-execution") {
+      writeJson(response, 200, await agentExecutionConsole());
+      return;
+    }
+    const executionProfilePreflightMatch = url.pathname.match(
+      /^\/api\/v1\/execution-profiles\/(sha256:[0-9a-f]{64})\/preflight$/u,
+    );
+    if (request.method === "POST" && executionProfilePreflightMatch !== null) {
+      try {
+        await ready;
+        const profile = agentExecutionRegistry.snapshot().executionProfiles.find((item) =>
+          item.executionProfileId === executionProfilePreflightMatch[1]
+        );
+        if (profile === undefined) throw new Error("Execution profile is unavailable");
+        const capability = await agentExecutionCapabilityService.preflight(profile);
+        await broadcastProjection();
+        writeJson(response, 200, { ok: true, capability });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "capability preflight failed",
+          inferenceRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          secretMaterialRetained: false,
+        });
+      }
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/agent-campaigns") {
+      try {
+        await ready;
+        reconcileRuleEvidenceAgentTasks();
+        const body = await readJson(request) as Record<string, unknown>;
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).sort().join("|") !==
+              "budget|campaignKey|executionProfileId|schedule|taskIds") {
+          throw new Error("paused campaign request is malformed");
+        }
+        const snapshot = agentExecutionRegistry.snapshot();
+        const latestRevision = snapshot.campaigns
+          .filter((item) => item.campaignKey === body.campaignKey)
+          .reduce((maximum, item) => Math.max(maximum, item.revision), 0);
+        const campaign = buildPausedAgentCampaign({
+          campaignKey: body.campaignKey as string,
+          revision: latestRevision + 1,
+          executionProfileId: body.executionProfileId as Hash,
+          taskIds: body.taskIds as readonly Hash[],
+          schedule: body.schedule as Parameters<typeof buildPausedAgentCampaign>[0]["schedule"],
+          budget: body.budget as Parameters<typeof buildPausedAgentCampaign>[0]["budget"],
+          createdAt: new Date().toISOString(),
+        });
+        agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
+        await broadcastProjection();
+        writeJson(response, 201, { ok: true, campaign, providerRequestsStarted: 0 });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "campaign could not be created",
+          providerRequestsStarted: 0,
+        });
+      }
+      return;
+    }
+    const campaignActivationMatch = url.pathname.match(
+      /^\/api\/v1\/agent-campaigns\/(sha256:[0-9a-f]{64})\/activate$/u,
+    );
+    if (request.method === "POST" && campaignActivationMatch !== null) {
+      try {
+        await ready;
+        const body = await readJson(request) as { activationRef?: unknown };
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 1 || typeof body.activationRef !== "string") {
+          throw new Error("campaign activation requires exactly one activationRef");
+        }
+        const paused = effectiveAgentCampaigns(agentExecutionRegistry.snapshot().campaigns).find((item) =>
+          item.campaignId === campaignActivationMatch[1]
+        );
+        if (paused === undefined) throw new Error("campaign is unavailable");
+        const active = activateAgentCampaign(paused, body.activationRef, new Date().toISOString());
+        agentExecutionRegistry.saveBatch({ campaigns: [active] });
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          campaign: active,
+          preview: agentCampaignDispatcher.preview(active.campaignId),
+          providerRequestsStarted: 0,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "campaign could not activate",
+          providerRequestsStarted: 0,
+        });
+      }
+      return;
+    }
+    const campaignDispatchMatch = url.pathname.match(
+      /^\/api\/v1\/agent-campaigns\/(sha256:[0-9a-f]{64})\/dispatch$/u,
+    );
+    if (request.method === "POST" && campaignDispatchMatch !== null) {
+      try {
+        await ready;
+        const dispatched = agentCampaignDispatcher.dispatchCampaign(
+          campaignDispatchMatch[1] as Hash,
+        );
+        void broadcastProjection();
+        for (const completion of dispatched.completions) {
+          void completion.then(() => broadcastProjection(), () => broadcastProjection());
+        }
+        writeJson(response, 202, {
+          ok: true,
+          campaignId: dispatched.campaignId,
+          preparedRunIds: dispatched.preparedRuns.map((run) => run.runId),
+          preview: dispatched.preview,
+          externalWriteAuthority: false,
+          valueMovingAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "campaign dispatch failed",
+          externalWriteAuthority: false,
+          valueMovingAuthority: false,
+        });
+      }
+      return;
+    }
+    const campaignPauseMatch = url.pathname.match(
+      /^\/api\/v1\/agent-campaigns\/(sha256:[0-9a-f]{64})\/pause$/u,
+    );
+    if (request.method === "POST" && campaignPauseMatch !== null) {
+      try {
+        await ready;
+        const active = effectiveAgentCampaigns(agentExecutionRegistry.snapshot().campaigns)
+          .find((item) => item.campaignId === campaignPauseMatch[1]);
+        if (active === undefined) throw new Error("campaign is unavailable or superseded");
+        const paused = pauseAgentCampaign(active);
+        agentExecutionRegistry.saveBatch({ campaigns: [paused] });
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          campaign: paused,
+          providerRequestsStarted: 0,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "campaign could not pause",
+          providerRequestsStarted: 0,
+        });
+      }
+      return;
+    }
+    const manualAgentRunMatch = url.pathname.match(
+      /^\/api\/v1\/agent-tasks\/(sha256:[0-9a-f]{64})\/runs$/u,
+    );
+    if (request.method === "POST" && manualAgentRunMatch !== null) {
+      try {
+        await ready;
+        reconcileRuleEvidenceAgentTasks();
+        const body = await readJson(request) as Record<string, unknown>;
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            !["PREVIEW", "EXECUTE"].includes(String(body.mode)) ||
+            typeof body.executionProfileId !== "string" ||
+            (body.mode === "EXECUTE" && typeof body.authorizationRef !== "string")) {
+          throw new Error("manual Agent run request is malformed");
+        }
+        const preview = agentCampaignDispatcher.previewManual(
+          manualAgentRunMatch[1] as Hash,
+          body.executionProfileId as Hash,
+        );
+        if (body.mode === "PREVIEW") {
+          writeJson(response, 200, { ok: true, preview });
+        } else {
+          const dispatched = agentCampaignDispatcher.dispatchManual(
+            manualAgentRunMatch[1] as Hash,
+            body.executionProfileId as Hash,
+            body.authorizationRef as string,
+          );
+          void broadcastProjection();
+          void dispatched.completion.then(
+            () => broadcastProjection(),
+            () => broadcastProjection(),
+          );
+          writeJson(response, 202, {
+            ok: true,
+            run: dispatched.run,
+            preview,
+            externalWriteAuthority: false,
+            valueMovingAuthority: false,
+          });
+        }
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message : "manual Agent run failed",
+          externalWriteAuthority: false,
+          valueMovingAuthority: false,
+        });
+      }
+      return;
+    }
+    const ruleEvidenceClaimRunMatch = url.pathname.match(
+      /^\/api\/v1\/rule-evidence-claims\/(sha256:[0-9a-f]{64})\/run$/u,
+    );
+    if (request.method === "POST" && ruleEvidenceClaimRunMatch !== null) {
+      try {
+        await ready;
+        evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+        const inputs = ruleEvidenceClaimInputs();
+        agentExecutionRegistry.reconcileRuleEvidenceTasks(inputs);
+        ruleEvidenceClaimScheduler.reconcile(inputs);
+        if (aiRuntimeConfigurationDesk.current().provider !== ruleEvidenceClaimDesk.provider) {
+          throw new Error(
+            "rule evidence claim interpreter does not match the selected runtime provider",
+          );
+        }
+        const run = ruleEvidenceClaimScheduler.runJob(
+          ruleEvidenceClaimRunMatch[1] as Hash,
+          inputs,
+        );
+        void broadcastProjection();
+        void run.then(() => broadcastProjection(), () => broadcastProjection());
+        writeJson(response, 202, {
+          ok: true,
+          jobId: ruleEvidenceClaimRunMatch[1],
+          status: "LEASED",
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "rule evidence claim run could not start",
+          executionAuthority: false,
+        });
+      }
       return;
     }
     const reviewNotificationAckMatch = url.pathname.match(
@@ -2596,6 +3646,36 @@ export function createControlPlane(options?: {
           diagnostic: error instanceof Error
             ? error.message
             : "probability estimation notification acknowledgement failed",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    const probabilityCaseRetryMatch = url.pathname.match(
+      /^\/api\/v1\/probability-estimation\/cases\/(sha256:[0-9a-f]{64})\/retries$/u,
+    );
+    if (request.method === "POST" && probabilityCaseRetryMatch !== null) {
+      try {
+        const jobs = probabilityEstimationScheduler.retryExhaustedCase(
+          probabilityCaseRetryMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, {
+          ok: true,
+          caseIdentity: probabilityCaseRetryMatch[1],
+          reopenedRoleCount: jobs.length,
+          providerRequestStarted: false,
+          semanticDecisionAuthority: false,
+          executionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "probability estimation case retry failed",
+          providerRequestStarted: false,
+          semanticDecisionAuthority: false,
           executionAuthority: false,
         });
       }
@@ -3058,6 +4138,23 @@ export function createControlPlane(options?: {
       writeJson(response, 200, Object.freeze({
         desk: probabilityEstimationDesk.projection(),
         scheduler: probabilityEstimationScheduler.projection(),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/failure-budget-frontier"
+    ) {
+      await ready;
+      const probability = probabilityEstimationScheduler.projection();
+      const evaluatedAt = new Date(
+        Math.floor(Date.now() / 60_000) * 60_000,
+      ).toISOString();
+      writeJson(response, 200, buildFailureBudgetFrontier({
+        bounds: probability.bounds,
+        jobs: probability.jobs,
+        corpus: catalogObservationDesk.corpus(),
+        evaluatedAt,
       }));
       return;
     }
@@ -3871,8 +4968,10 @@ export function createControlPlane(options?: {
   let premiseAnalysisTimer: ReturnType<typeof setInterval> | null = null;
   let premiseEvidenceRoutingTimer: ReturnType<typeof setInterval> | null = null;
   let premiseRouteExpansionTimer: ReturnType<typeof setInterval> | null = null;
+  let officialSourceDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
+  let agentCampaignTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
   if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
@@ -3961,7 +5060,8 @@ export function createControlPlane(options?: {
   if (semanticReviewTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
-        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
+        const runtime = aiRuntimeConfigurationDesk.current();
+        if (runtime.provider === "DEEPSEEK" && !runtime.deepseekAutomationEnabled) return;
         try {
           const runs = semanticReviewScheduler.tick(
             semanticReviewCandidates(),
@@ -3985,7 +5085,6 @@ export function createControlPlane(options?: {
   if (probabilityEstimationTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
-        if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           const runs = probabilityEstimationScheduler.tick(
             probabilityEstimationCandidates(),
@@ -4025,6 +5124,7 @@ export function createControlPlane(options?: {
   if (premiseAnalysisTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
+        reconcileRuleEvidenceAgentTasks();
         if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
         try {
           const runs = premiseAnalysisScheduler.tick(premiseAnalysisCandidates());
@@ -4092,6 +5192,27 @@ export function createControlPlane(options?: {
       premiseRouteExpansionTimer.unref();
     });
   }
+  const officialSourceDiscoveryTickMs = officialSourceDiscoveryScheduler.tickIntervalMs;
+  if (officialSourceDiscoveryTickMs !== null) {
+    void ready.then(() => {
+      const tick = () => {
+        void projection().then(() => {
+          const runs = officialSourceDiscoveryScheduler.tick();
+          if (runs.length === 0) return;
+          void broadcastProjection();
+          for (const run of runs) {
+            void run.then(() => {
+              evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+              return broadcastProjection();
+            }, () => broadcastProjection());
+          }
+        }).catch(() => undefined);
+      };
+      tick();
+      officialSourceDiscoveryTimer = setInterval(tick, officialSourceDiscoveryTickMs);
+      officialSourceDiscoveryTimer.unref();
+    });
+  }
   const evidenceAcquisitionTickMs = evidenceAcquisitionScheduler.tickIntervalMs;
   if (evidenceAcquisitionTickMs !== null) {
     void ready.then(() => {
@@ -4110,7 +5231,10 @@ export function createControlPlane(options?: {
       evidenceAcquisitionTimer.unref();
     });
   }
-  const ruleEvidenceClaimTickMs = ruleEvidenceClaimScheduler.tickIntervalMs;
+  // Rule Evidence automatic spend now belongs exclusively to explicit active
+  // Agent campaigns. The legacy provider-shaped scheduler remains readable and
+  // manually callable during compatibility migration, but never owns a timer.
+  const ruleEvidenceClaimTickMs = null;
   if (ruleEvidenceClaimTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
@@ -4129,6 +5253,24 @@ export function createControlPlane(options?: {
       ruleEvidenceClaimTimer.unref();
     });
   }
+  void ready.then(() => {
+    const tickAgentCampaigns = () => {
+      try {
+        const dispatches = agentCampaignDispatcher.tick();
+        if (dispatches.length === 0) return;
+        void broadcastProjection();
+        for (const dispatch of dispatches) {
+          for (const completion of dispatch.completions) {
+            void completion.then(() => broadcastProjection(), () => broadcastProjection());
+          }
+        }
+      } catch {
+        // A later bounded tick retries only campaigns that still retain authority.
+      }
+    };
+    agentCampaignTimer = setInterval(tickAgentCampaigns, 1_000);
+    agentCampaignTimer.unref();
+  });
   server.once("close", () => {
     if (invalidationFlushTimer !== null) clearTimeout(invalidationFlushTimer);
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
@@ -4140,8 +5282,10 @@ export function createControlPlane(options?: {
     if (premiseAnalysisTimer !== null) clearInterval(premiseAnalysisTimer);
     if (premiseEvidenceRoutingTimer !== null) clearInterval(premiseEvidenceRoutingTimer);
     if (premiseRouteExpansionTimer !== null) clearInterval(premiseRouteExpansionTimer);
+    if (officialSourceDiscoveryTimer !== null) clearInterval(officialSourceDiscoveryTimer);
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
+    if (agentCampaignTimer !== null) clearInterval(agentCampaignTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
     discoveryLedger.close();
   });
@@ -4174,6 +5318,8 @@ export function createControlPlane(options?: {
     premiseEvidenceRouter,
     premiseEvidenceRoutingScheduler,
     premiseRouteExpansionScheduler,
+    officialSourceDiscoveryAgent,
+    officialSourceDiscoveryScheduler,
     evidenceAcquisitionScheduler,
     ruleEvidenceClaimDesk,
     ruleEvidenceClaimScheduler,

@@ -59,7 +59,20 @@ import type { SemanticReviewSchedulerProjection } from "./semantic-review-schedu
 import type { PremiseAnalysisDeskProjection } from "./premise-analysis.js";
 import type { PremiseAnalysisSchedulerProjection } from "./premise-analysis-scheduler.js";
 import type { EvidenceAcquisitionSchedulerProjection } from "./evidence-acquisition-scheduler.js";
+import type { OfficialSourceDiscoverySchedulerProjection } from "./official-source-discovery-scheduler.js";
 import { emptyEvidenceDebtFrontier, type EvidenceDebtFrontierProjection } from "./evidence-debt-frontier.js";
+import {
+  emptyProbabilityEvidenceDebt,
+  type ProbabilityEvidenceDebtProjection,
+} from "./probability-evidence-debt.js";
+import {
+  emptyProbabilityCaseRepairQueue,
+  type ProbabilityCaseRepairQueue,
+} from "./probability-case-challenge-queue.js";
+import {
+  emptyProbabilitySemanticRepairProgress,
+  type ProbabilitySemanticRepairProgressProjection,
+} from "./probability-semantic-repair-progress.js";
 import type { RuleEvidenceClaimSchedulerProjection } from "./rule-evidence-claim-scheduler.js";
 import { buildSemanticRelationGraph, type SemanticRelationGraphProjection } from "./semantic-relation-graph.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
@@ -136,14 +149,19 @@ export function buildStudioProjection(input: {
   probabilityResolutionAcquisition?: ProbabilityResolutionAcquisitionProjection;
   aiUsage?: AiUsageProjection;
   runtimeConfiguration?: import("./ai-runtime-configuration.js").AiRuntimeConfigurationProjection;
+  agentExecution?: import("./agent-execution-substrate.js").AgentExecutionRegistryProjection;
   semanticReviewAdmission?: SemanticReviewAdmissionProjection;
   semanticReviewScheduler?: SemanticReviewSchedulerProjection;
   premiseAnalysis?: PremiseAnalysisDeskProjection;
   premiseAnalysisScheduler?: PremiseAnalysisSchedulerProjection;
   premiseEvidenceRouting?: PremiseEvidenceRoutingSchedulerProjection;
   premiseRouteExpansion?: PremiseRouteExpansionSchedulerProjection;
+  officialSourceDiscovery?: OfficialSourceDiscoverySchedulerProjection;
   evidenceAcquisition?: EvidenceAcquisitionSchedulerProjection;
   evidenceDebtFrontier?: EvidenceDebtFrontierProjection;
+  probabilityEvidenceDebt?: ProbabilityEvidenceDebtProjection;
+  probabilityCaseRepairQueue?: ProbabilityCaseRepairQueue;
+  probabilitySemanticRepairProgress?: ProbabilitySemanticRepairProgressProjection;
   ruleEvidenceClaims?: RuleEvidenceClaimSchedulerProjection;
   reviewAttention?: ReviewAttentionProjection;
   proposalEconomicTriage?: ProposalEconomicTriageProjection;
@@ -568,6 +586,7 @@ export function buildStudioProjection(input: {
     legacyEvidenceDebtCount: 0,
     passedCount: 0,
     exhaustedCount: 0,
+    supersededCount: 0,
     recoveryRequestedCount: 0,
     recoveryInFlightCount: 0,
     recoveryCompletedCount: 0,
@@ -776,6 +795,46 @@ export function buildStudioProjection(input: {
       liveExecutionEnabled: false as const,
     },
   };
+  const officialSourceDiscovery = input.officialSourceDiscovery ?? {
+    schemaVersion: "pmh.official-source-discovery-scheduler.v1" as const,
+    enabled: false,
+    configured: false,
+    status: "NEEDS_PROVIDER" as const,
+    tickIntervalMs: null,
+    concurrencyLimit: 2,
+    activeCount: 0,
+    dueCount: 0,
+    pendingCount: 0,
+    leasedCount: 0,
+    retryWaitCount: 0,
+    admittedCount: 0,
+    noSourceCount: 0,
+    abstainedCount: 0,
+    exhaustedCount: 0,
+    supersededCount: 0,
+    candidateCount: 0,
+    rejectedCandidateCount: 0,
+    providerRequestCount: 0,
+    toolCallCount: 0,
+    jobs: [],
+    storage: {
+      mode: "MEMORY" as const,
+      durable: false,
+      schemaVersion: 0,
+      idempotencyKey: "jobId" as const,
+    },
+    authority: "OFFICIAL_SOURCE_DISCOVERY_ORCHESTRATION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    effects: {
+      externalWrites: false as const,
+      anonymousOfficialReadsOnly: true as const,
+      credentialsUsedForOfficialSources: false as const,
+      valueMovingActions: false as const,
+      liveExecutionEnabled: false as const,
+    },
+  };
   const evidenceAcquisition = input.evidenceAcquisition ?? {
     schemaVersion: "pmh.evidence-acquisition-scheduler.v1" as const,
     enabled: false,
@@ -845,6 +904,7 @@ export function buildStudioProjection(input: {
     dueCount: 0,
     pendingCount: 0,
     leasedCount: 0,
+    interruptedLeaseCount: 0,
     retryWaitCount: 0,
     passedCount: 0,
     exhaustedCount: 0,
@@ -911,11 +971,19 @@ export function buildStudioProjection(input: {
     schemaVersion: "pmh.probability-estimation-desk.v1" as const,
     configured: false,
     model: "unavailable",
+    engine: Object.freeze({
+      provider: "DEEPSEEK" as const,
+      transport: "VERCEL_AI_SDK" as const,
+      model: "unavailable",
+      reasoningEffort: null,
+      responseStorage: false as const,
+    }),
     status: "NEEDS_KEY" as const,
     activeCount: 0,
     runCount: 0,
     passCount: 0,
     abstainedCount: 0,
+    challengedCount: 0,
     failedCount: 0,
     roles: Object.freeze(["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"] as const),
     records: Object.freeze([]),
@@ -948,8 +1016,10 @@ export function buildStudioProjection(input: {
     leasedCount: 0,
     retryWaitCount: 0,
     blockedEvidenceCount: 0,
+    policyBlockedCount: 0,
     passedCount: 0,
     abstainedCount: 0,
+    challengedCount: 0,
     exhaustedCount: 0,
     caseCount: 0,
     boundReadyCount: 0,
@@ -1297,6 +1367,29 @@ export function buildStudioProjection(input: {
         credentialTextRetained: false as const,
         executionAuthority: false as const,
       }),
+      agentExecution: input.agentExecution ?? Object.freeze({
+        schemaVersion: "pmh.agent-execution-registry.v1" as const,
+        runtimeDefinitionCount: 0,
+        credentialBindingCount: 0,
+        modelProfileCount: 0,
+        executionProfileCount: 0,
+        capabilityObservationCount: 0,
+        workloadRouteCount: 0,
+        taskCount: 0,
+        runCount: 0,
+        modelInvocationCount: 0,
+        runArtifactCount: 0,
+        runAnnotationCount: 0,
+        activeCampaignCount: 0,
+        automaticDispatchFromConfiguration: false as const,
+        credentialSecretTextRetained: false as const,
+        storage: Object.freeze({
+          mode: "MEMORY" as const,
+          durable: false,
+          schemaVersion: 0,
+          idempotencyKey: "recordId" as const,
+        }),
+      }),
       semanticReviewAdmission: input.semanticReviewAdmission ??
         buildSemanticReviewAdmissionProjection([]),
       semanticReviewScheduler,
@@ -1304,8 +1397,15 @@ export function buildStudioProjection(input: {
       premiseAnalysisScheduler,
       premiseEvidenceRouting,
       premiseRouteExpansion,
+      officialSourceDiscovery,
       evidenceAcquisition,
       evidenceDebtFrontier: input.evidenceDebtFrontier ?? emptyEvidenceDebtFrontier(),
+      probabilityEvidenceDebt:
+        input.probabilityEvidenceDebt ?? emptyProbabilityEvidenceDebt(),
+      probabilityCaseRepairQueue:
+        input.probabilityCaseRepairQueue ?? emptyProbabilityCaseRepairQueue(),
+      probabilitySemanticRepairProgress:
+        input.probabilitySemanticRepairProgress ?? emptyProbabilitySemanticRepairProgress(),
       ruleEvidenceClaims,
       reviewAttention: input.reviewAttention ?? emptyReviewAttentionProjection(),
       proposalEconomicTriage: input.proposalEconomicTriage ?? emptyProposalEconomicTriage(),

@@ -42,7 +42,7 @@ import type {
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_MAX_RESPONSE_BYTES = 2_000_000;
+const DEFAULT_MAX_RESPONSE_BYTES = 10_000_000;
 const DEFAULT_RETENTION_PER_SOURCE = 5;
 const DEFAULT_CONTEXT_MAX_AGE_MS = 15 * 60 * 1_000;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -357,10 +357,10 @@ export const catalogObservationSources: readonly CatalogObservationSource[] =
       protocolIdentity: geminiManifest.protocolIdentity,
       normalizerIdentity: catalogNormalizerIdentity(
         geminiManifest.venueId,
-        "predictions-catalog.v1",
+        "predictions-catalog.v2:contract-rich-text-and-full-rules-link",
       ),
       sourceUrl:
-        "https://api.gemini.com/v1/prediction-markets/events?status=active&limit=5",
+        "https://api.gemini.com/v1/prediction-markets/events?status=active&limit=500&offset=0",
       decode: normalizeGeminiCatalog,
     },
     {
@@ -719,7 +719,13 @@ export class CatalogObservationDesk {
             verified.record.listingIdentity,
             retiredPolymarketUsRevision,
           );
-        if (retiredPolymarketUsNormalizer) {
+        const retiredGeminiNormalizer =
+          verified.record.venueId === geminiManifest.venueId &&
+          storedNormalizerIdentity === catalogNormalizerIdentity(
+            geminiManifest.venueId,
+            "predictions-catalog.v1",
+          ) && listings.length === verified.record.listingCount;
+        if (retiredPolymarketUsNormalizer || retiredGeminiNormalizer) {
           retiredNormalizerSources.add(verified.record.venueId);
           state.lastAttemptAt = verified.record.receivedAt;
           state.diagnostic =

@@ -8,14 +8,17 @@ export type WorkspaceView =
   | "radar"
   | "preflight"
   | "scouts"
+  | "budgets"
   | "cases"
   | "venues"
   | "books"
-  | "evidence";
+  | "evidence"
+  | "agents";
 
 const ROUTE_BY_VIEW: Readonly<Record<WorkspaceView, string>> = Object.freeze({
   archaeologist: "discover",
   scouts: "findings",
+  budgets: "budgets",
   lifecycle: "review",
   preflight: "preflight",
   venues: "markets",
@@ -24,6 +27,7 @@ const ROUTE_BY_VIEW: Readonly<Record<WorkspaceView, string>> = Object.freeze({
   radar: "radar",
   cases: "cases",
   books: "books",
+  agents: "agents",
 });
 
 const VIEW_BY_ROUTE = new Map(
@@ -43,7 +47,7 @@ function validProposalIds(values: readonly string[]): readonly string[] {
 export function parseWorkspaceRoute(search: string): WorkspaceRoute {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const view = VIEW_BY_ROUTE.get(params.get("view") ?? "") ?? "archaeologist";
-  const proposalIds = view === "lifecycle"
+  const proposalIds = view === "lifecycle" || view === "evidence"
     ? validProposalIds((params.get("proposals") ?? "").split(",").filter(Boolean))
     : Object.freeze([]);
   return Object.freeze({ view, proposalIds });
@@ -54,8 +58,9 @@ export function serializeWorkspaceRoute(
   proposalIds: readonly string[] = [],
 ): string {
   const params = new URLSearchParams({ view: ROUTE_BY_VIEW[view] });
-  const focused = view === "lifecycle" ? validProposalIds(proposalIds) : [];
+  const focused = view === "lifecycle" || view === "evidence"
+    ? validProposalIds(proposalIds)
+    : [];
   if (focused.length > 0) params.set("proposals", focused.join(","));
   return `?${params.toString()}`;
 }
-

@@ -6,6 +6,7 @@ import {
   ReplayBookDesk,
 } from "@pmh/control-plane";
 import {
+  parseStartupReadiness,
   parseProjectionInvalidation,
   resolveReviewIntake,
 } from "./studio-projection.js";
@@ -45,6 +46,34 @@ describe("Studio projection safety", () => {
       refreshRequired: true,
       authority: "PRESENTATION_INVALIDATION_ONLY",
     })).toThrow(/refresh contract/u);
+  });
+
+  it("accepts only provider-free startup readiness envelopes", () => {
+    const readiness = {
+      schemaVersion: "pmh.startup-readiness.v1",
+      status: "STARTING",
+      phase: "MATERIALIZING_PROJECTION",
+      startedAt: "2026-08-11T00:00:00.000Z",
+      phaseStartedAt: "2026-08-11T00:00:03.000Z",
+      completedAt: null,
+      elapsedMs: 4_000,
+      phaseElapsedMs: 1_000,
+      diagnostic: null,
+      phaseTimings: [],
+      projectionResource: "/api/v1/projection",
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    };
+    expect(parseStartupReadiness(readiness)).toMatchObject({
+      phase: "MATERIALIZING_PROJECTION",
+      elapsedMs: 4_000,
+    });
+    expect(() => parseStartupReadiness({
+      ...readiness,
+      providerRequestsStarted: 1,
+    })).toThrow(/authority contract/u);
   });
 
   it("shows the fail-closed model budget without exposing credentials", () => {

@@ -1,5 +1,6 @@
 import { createDeepSeek, type DeepSeekProviderSettings } from "@ai-sdk/deepseek";
-import { generateText, jsonSchema, stepCountIs, tool } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateText, jsonSchema, stepCountIs, streamText, tool } from "ai";
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type {
   MarketRelationKind,
@@ -28,15 +29,29 @@ import {
 } from "./rule-evidence-claim.js";
 import { deriveSemanticReviewScope } from "./semantic-review-scope.js";
 import type { AiUsageRecorder } from "./ai-usage-ledger.js";
+import {
+  assertProbabilitySemanticRepairRequest,
+  type ProbabilitySemanticRepairRequest,
+} from "./probability-semantic-repair.js";
+import type {
+  CodexReasoningEffort,
+  AiRuntimeConfiguration,
+} from "./ai-runtime-configuration.js";
+import {
+  CodexAuthCacheCredentialProvider,
+  type CodexOAuthCredentialProvider,
+} from "./codex-oauth.js";
 
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const DEFAULT_MAX_OUTPUT_TOKENS = 1_800;
 const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_RETENTION_LIMIT = 50;
+const CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 export const SEMANTIC_REVIEW_PROTOCOL_IDENTITY =
-  "pmh.semantic-review-agent-effects.v3" as const;
+  "pmh.semantic-review-agent-effects.v4" as const;
 const SEMANTIC_REVIEW_PROTOCOL_IDENTITIES = Object.freeze([
   "pmh.semantic-review-agent-effects.v2",
+  "pmh.semantic-review-agent-effects.v3",
   SEMANTIC_REVIEW_PROTOCOL_IDENTITY,
 ] as const);
 type SemanticReviewProtocolIdentity =
@@ -95,22 +110,33 @@ export type SemanticReviewAssessment = Readonly<{
   resolutionSources: string;
 }>;
 
+export type SemanticReviewEngine = Readonly<{
+  transport: "VERCEL_AI_SDK";
+  provider: "DEEPSEEK" | "CODEX";
+  model: string;
+  reasoningEffort: CodexReasoningEffort | null;
+  responseStorage: false;
+}>;
+
 export type SemanticReviewReport = Readonly<{
   schemaVersion:
     | "pmh.semantic-review-report.v1"
     | "pmh.semantic-review-report.v2"
     | "pmh.semantic-review-report.v3"
-    | "pmh.semantic-review-report.v4";
+    | "pmh.semantic-review-report.v4"
+    | "pmh.semantic-review-report.v5";
   artifactHash: Hash;
   status: "PASS";
   startedAt: string;
   completedAt: string;
   engine: Readonly<{
     transport: "VERCEL_AI_SDK";
-    provider: "deepseek";
+    provider: "deepseek" | "DEEPSEEK" | "CODEX";
     model: string;
     role: "ADVERSARIAL_SEMANTIC_REVIEWER";
     independenceGrade: "SEPARATE_INVOCATION_SAME_PROVIDER";
+    reasoningEffort?: CodexReasoningEffort | null;
+    responseStorage?: false;
   }>;
   input: Readonly<{
     opportunityId: string;
@@ -120,9 +146,11 @@ export type SemanticReviewReport = Readonly<{
     evidencePosture:
       | "ORIGINAL_CORPUS"
       | "REBASED_CURRENT_CORPUS"
-      | "ENRICHED_EVIDENCE_SCOPE";
+      | "ENRICHED_EVIDENCE_SCOPE"
+      | "SEMANTIC_REPAIR_SCOPE";
     semanticReviewScopeIdentity?: Hash;
     evidenceClaims?: readonly RuleEvidenceClaim[];
+    repairRequest?: ProbabilitySemanticRepairRequest;
     relationKind: MarketRelationKind;
     statement: string;
     listingEvidence: readonly Readonly<{
@@ -189,6 +217,8 @@ export type SemanticReviewRecord = Readonly<{
   corpusSnapshotIdentity: Hash;
   model: string;
   protocolIdentity?: SemanticReviewProtocolIdentity;
+  engine?: SemanticReviewEngine;
+  repairRequest?: ProbabilitySemanticRepairRequest;
   status: "RUNNING" | "PASS" | "FAILED";
   startedAt: string;
   completedAt: string | null;
@@ -352,10 +382,13 @@ export type SemanticReviewModelInput = Readonly<{
   proposal: MarketRelationProposal;
   listings: MarketCorpusSnapshot["listings"];
   evidenceClaims?: readonly RuleEvidenceClaim[];
+  repairRequest?: ProbabilitySemanticRepairRequest;
 }>;
 
 export interface SemanticReviewModelPort {
   review(input: SemanticReviewModelInput): Promise<RawSemanticReview>;
+  engine?(): SemanticReviewEngine | undefined;
+  configured?(): boolean;
 }
 
 export type SemanticReviewFetchLike = NonNullable<
@@ -1152,10 +1185,11 @@ function validateSubmission(
  * The Agent supplies semantic observations; this first-party policy alone maps
  * them onto the retained relation conclusion and operator workflow. The
  * ordering is intentionally conservative: incomplete work becomes RELATED and
- * escalates before a discovered counterexample can mark the proposal
- * CONFLICTING, and only a complete, counterexample-free result retains the
- * proposed relation for research simulation. This disposition never grants
- * certificate or execution authority.
+ * escalates first. A discovered counterexample invalidates a claimed hard
+ * settlement constraint, but is an explicit adverse state—not a refutation—of
+ * a probabilistic dependence. This distinction is what lets the probability
+ * desk estimate epsilon instead of silently collapsing back to strict-only
+ * arbitrage. This disposition never grants certificate or execution authority.
  */
 function deriveSemanticReviewDisposition(
   proposalRelationKind: MarketRelationKind,
@@ -1184,10 +1218,23 @@ function deriveSemanticReviewDisposition(
     });
   }
 
-  if (counterexampleEffects.some((effect) => effect.result === "FOUND")) {
+  const foundCounterexample = counterexampleEffects.some(
+    (effect) => effect.result === "FOUND",
+  );
+  if (
+    foundCounterexample &&
+    submission.constraint.classification === "HARD_SETTLEMENT_CONSTRAINT"
+  ) {
     return Object.freeze({
       recommendation: "REJECT" as const,
       relationConclusion: "CONFLICTING" as const,
+    });
+  }
+
+  if (submission.constraint.classification === "TEXTUAL_RELATEDNESS") {
+    return Object.freeze({
+      recommendation: "ESCALATE" as const,
+      relationConclusion: "RELATED" as const,
     });
   }
 
@@ -1260,6 +1307,10 @@ export function assertSemanticReviewRecord(
   const passed = record.status === "PASS";
   const failed = record.status === "FAILED";
   const failure = record.failure ?? null;
+  const engine = record.engine;
+  const repairRequest = record.repairRequest === undefined
+    ? undefined
+    : assertProbabilitySemanticRepairRequest(record.repairRequest);
   if (
     !HASH_PATTERN.test(record.reviewId) ||
     !HASH_PATTERN.test(record.proposalId) ||
@@ -1268,6 +1319,16 @@ export function assertSemanticReviewRecord(
     !MODEL_ID_PATTERN.test(record.model) ||
     (record.protocolIdentity !== undefined &&
       !SEMANTIC_REVIEW_PROTOCOL_IDENTITIES.includes(record.protocolIdentity)) ||
+    (engine !== undefined && (
+      engine.transport !== "VERCEL_AI_SDK" ||
+      !["DEEPSEEK", "CODEX"].includes(engine.provider) ||
+      engine.model !== record.model ||
+      (engine.provider === "DEEPSEEK"
+        ? engine.reasoningEffort !== null
+        : engine.reasoningEffort === null) ||
+      engine.responseStorage !== false ||
+      record.protocolIdentity !== SEMANTIC_REVIEW_PROTOCOL_IDENTITY
+    )) ||
     typeof record.opportunityId !== "string" ||
     record.opportunityId.trim() === "" ||
     !isIsoDate(record.startedAt) ||
@@ -1283,8 +1344,18 @@ export function assertSemanticReviewRecord(
     throw new Error("stored semantic review record violates its contract");
   }
   if (
-    record.reviewId !==
-    (record.protocolIdentity === undefined
+    record.reviewId !== (engine !== undefined
+      ? hashCanonical({
+          schemaVersion: "pmh.semantic-review-run.v3",
+          opportunityId: record.opportunityId,
+          proposalId: record.proposalId,
+          proposalCorpusSnapshotIdentity: record.proposalCorpusSnapshotIdentity,
+          corpusSnapshotIdentity: record.corpusSnapshotIdentity,
+          engine,
+          protocolIdentity: record.protocolIdentity,
+          repairRequestId: repairRequest?.requestId ?? null,
+        })
+      : record.protocolIdentity === undefined
       ? hashCanonical({
           schemaVersion: "pmh.semantic-review-run.v1",
           opportunityId: record.opportunityId,
@@ -1308,7 +1379,12 @@ export function assertSemanticReviewRecord(
   if (passed) {
     const report = record.report as SemanticReviewReport;
     const { artifactHash, ...reportBody } = report;
-    const expectedPosture = report.schemaVersion === "pmh.semantic-review-report.v4"
+    const expectedPosture = report.schemaVersion === "pmh.semantic-review-report.v5" &&
+        repairRequest !== undefined
+      ? "SEMANTIC_REPAIR_SCOPE"
+      : report.schemaVersion === "pmh.semantic-review-report.v4" ||
+          (report.schemaVersion === "pmh.semantic-review-report.v5" &&
+            report.input.evidenceClaims !== undefined)
       ? "ENRICHED_EVIDENCE_SCOPE"
       : record.proposalCorpusSnapshotIdentity === record.corpusSnapshotIdentity
         ? "ORIGINAL_CORPUS"
@@ -1319,6 +1395,7 @@ export function assertSemanticReviewRecord(
         "pmh.semantic-review-report.v2",
         "pmh.semantic-review-report.v3",
         "pmh.semantic-review-report.v4",
+        "pmh.semantic-review-report.v5",
       ].includes(report.schemaVersion) ||
       report.status !== "PASS" || !HASH_PATTERN.test(artifactHash) ||
       artifactHash !== hashCanonical(reportBody)
@@ -1332,10 +1409,16 @@ export function assertSemanticReviewRecord(
     ) throw new Error("stored semantic review report violates input lineage");
     if (
       report.engine.transport !== "VERCEL_AI_SDK" ||
-      report.engine.provider !== "deepseek" ||
       report.engine.role !== "ADVERSARIAL_SEMANTIC_REVIEWER" ||
       report.engine.independenceGrade !== "SEPARATE_INVOCATION_SAME_PROVIDER" ||
-      report.engine.model !== record.model
+      report.engine.model !== record.model ||
+      (report.schemaVersion === "pmh.semantic-review-report.v5"
+        ? engine === undefined || report.engine.provider !== engine.provider ||
+          report.engine.reasoningEffort !== engine.reasoningEffort ||
+          report.engine.responseStorage !== false
+        : report.engine.provider !== "deepseek" ||
+          report.engine.reasoningEffort !== undefined ||
+          report.engine.responseStorage !== undefined)
     ) throw new Error("stored semantic review report violates engine identity");
     if (
       !isIsoDate(report.startedAt) || !isIsoDate(report.completedAt) ||
@@ -1392,7 +1475,8 @@ export function assertSemanticReviewRecord(
     if (
       report.schemaVersion === "pmh.semantic-review-report.v2" ||
       report.schemaVersion === "pmh.semantic-review-report.v3" ||
-      report.schemaVersion === "pmh.semantic-review-report.v4"
+      report.schemaVersion === "pmh.semantic-review-report.v4" ||
+      report.schemaVersion === "pmh.semantic-review-report.v5"
     ) {
       if (
         report.result.semanticConstraint === undefined ||
@@ -1443,7 +1527,8 @@ export function assertSemanticReviewRecord(
     }
     if (
       report.schemaVersion === "pmh.semantic-review-report.v3" ||
-      report.schemaVersion === "pmh.semantic-review-report.v4"
+      report.schemaVersion === "pmh.semantic-review-report.v4" ||
+      report.schemaVersion === "pmh.semantic-review-report.v5"
     ) {
       if (
         report.trace?.structuredEvidenceRequirements !== true ||
@@ -1495,10 +1580,28 @@ export function assertSemanticReviewRecord(
         new Set(claims.map((claim) => claim.requirementId)).size !== claims.length ||
         claims.some((claim) => claim.proposalId !== report.input.proposalId)
       ) throw new Error("stored enriched semantic review claim lineage is inconsistent");
+    } else if (report.schemaVersion === "pmh.semantic-review-report.v5") {
+      if (
+        (repairRequest === undefined
+          ? report.input.repairRequest !== undefined
+          : report.input.repairRequest?.requestId !== repairRequest.requestId ||
+            report.input.repairRequest.sourceSemanticReviewArtifactHash !==
+              repairRequest.sourceSemanticReviewArtifactHash) ||
+        (report.input.evidenceClaims === undefined) !==
+          (report.trace?.structuredRuleEvidenceClaims === undefined) ||
+        (report.input.evidenceClaims !== undefined && (
+          report.input.evidenceClaims.length < 1 ||
+          report.input.evidenceClaims.length > 100 ||
+          report.input.evidenceClaims.map(assertRuleEvidenceClaim).some((claim) =>
+            claim.proposalId !== report.input.proposalId
+          )
+        ))
+      ) throw new Error("stored semantic repair review violates repair lineage");
     } else if (
       report.input.semanticReviewScopeIdentity !== undefined ||
       report.input.evidenceClaims !== undefined ||
-      report.trace?.structuredRuleEvidenceClaims !== undefined
+      report.trace?.structuredRuleEvidenceClaims !== undefined ||
+      report.input.repairRequest !== undefined
     ) {
       throw new Error("legacy semantic review report contains v4 evidence fields");
     }
@@ -1528,11 +1631,13 @@ export class DeepSeekSemanticReviewModelPort
     private readonly timeoutMs = DEFAULT_TIMEOUT_MS,
     fetcher?: SemanticReviewFetchLike,
     private readonly usageRecorder?: AiUsageRecorder,
+    private readonly runtimeConfiguration?: () => AiRuntimeConfiguration,
+    private readonly codexCredentialProvider?: CodexOAuthCredentialProvider,
   ) {
     this.#apiKey = apiKey.trim();
     this.#fetcher = fetcher;
     if (
-      this.#apiKey === "" ||
+      (this.#apiKey === "" && runtimeConfiguration === undefined) ||
       !MODEL_ID_PATTERN.test(model) ||
       !Number.isSafeInteger(maxOutputTokens) ||
       maxOutputTokens < 512 ||
@@ -1545,18 +1650,80 @@ export class DeepSeekSemanticReviewModelPort
     }
   }
 
+  public engine(): SemanticReviewEngine | undefined {
+    const configuration = this.runtimeConfiguration?.();
+    if (configuration === undefined) return undefined;
+    return configuration?.provider === "CODEX"
+      ? Object.freeze({
+          transport: "VERCEL_AI_SDK" as const,
+          provider: "CODEX" as const,
+          model: configuration.codexModel,
+          reasoningEffort: configuration.codexReasoningEffort,
+          responseStorage: false as const,
+        })
+      : Object.freeze({
+          transport: "VERCEL_AI_SDK" as const,
+          provider: "DEEPSEEK" as const,
+          model: this.model,
+          reasoningEffort: null,
+          responseStorage: false as const,
+        });
+  }
+
+  public configured(): boolean {
+    const engine = this.engine() ?? Object.freeze({
+      transport: "VERCEL_AI_SDK" as const,
+      provider: "DEEPSEEK" as const,
+      model: this.model,
+      reasoningEffort: null,
+      responseStorage: false as const,
+    });
+    return engine.provider === "CODEX"
+      ? this.codexCredentialProvider?.configured() === true
+      : this.#apiKey !== "";
+  }
+
   public async review(
     input: SemanticReviewModelInput,
   ): Promise<RawSemanticReview> {
+    const engine = this.engine() ?? Object.freeze({
+      transport: "VERCEL_AI_SDK" as const,
+      provider: "DEEPSEEK" as const,
+      model: this.model,
+      reasoningEffort: null,
+      responseStorage: false as const,
+    });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAtMs = Date.now();
     let usageRecorded = false;
     try {
-      const provider = createDeepSeek({
-        apiKey: this.#apiKey,
-        ...(this.#fetcher === undefined ? {} : { fetch: this.#fetcher }),
-      });
+      let providerRequestCount = 0;
+      const countedFetch: SemanticReviewFetchLike = async (request, init) => {
+        providerRequestCount += 1;
+        return (this.#fetcher ?? fetch)(request, init);
+      };
+      const codexCredential = engine.provider === "CODEX"
+        ? await this.codexCredentialProvider?.resolve()
+        : undefined;
+      if (!this.configured() || (engine.provider === "CODEX" && codexCredential === undefined)) {
+        throw new Error(`semantic review ${engine.provider} credentials are not configured`);
+      }
+      const languageModel = engine.provider === "CODEX"
+        ? createOpenAI({
+            apiKey: codexCredential!.accessToken,
+            baseURL: CODEX_BASE_URL,
+            headers: {
+              "chatgpt-account-id": codexCredential!.accountId,
+              originator: "prediction-market-harness",
+              "OpenAI-Beta": "responses=experimental",
+            },
+            fetch: countedFetch,
+          }).responses(engine.model)
+        : createDeepSeek({
+            apiKey: this.#apiKey,
+            fetch: countedFetch,
+          })(engine.model);
       const counterexampleEffects: CounterexampleEffect[] = [];
       const assessmentEffects: SemanticAssessmentEffect[] = [];
       const truthStateEffects: TruthStateEffect[] = [];
@@ -1901,9 +2068,11 @@ export class DeepSeekSemanticReviewModelPort
           },
         }),
       };
-      const result = await generateText({
-        model: provider(this.model),
-        maxOutputTokens: this.maxOutputTokens,
+      const request: Parameters<typeof generateText>[0] = {
+        model: languageModel,
+        ...(engine.provider === "CODEX"
+          ? {}
+          : { maxOutputTokens: this.maxOutputTokens }),
         maxRetries: 0,
         abortSignal: controller.signal,
         tools,
@@ -1938,25 +2107,47 @@ export class DeepSeekSemanticReviewModelPort
           "When ruleEvidenceClaims are present, treat them as advisory, untrusted " +
           "requirement-specific interpretations with program-verified exact passages. " +
           "Reassess their reasoning against the cited quote and use CONTRADICTS or " +
-          "INCONCLUSIVE claims to preserve or expand unresolved states. A claim is not " +
           "itself a semantic decision or certificate. " +
           "Probabilistic dependence and textual relatedness are research-only. " +
           "Do not choose or emit a relationConclusion or workflow recommendation. " +
           "First-party policy derives the conservative semantic and workflow posture " +
           "after your semantic tool effect. A materially changed relation belongs in a " +
-          "new proposal, not this review effect.",
+          "new proposal, not this review effect. " +
+          (input.repairRequest === undefined
+            ? ""
+            : "This invocation is a probability-case semantic repair. Inspect every " +
+              "challenge, the exact adverse-state assignments, and the prior constraint. " +
+              "Reconstruct the truth states from the supplied contracts; do not preserve " +
+              "the challenged state direction merely for compatibility. A repair may " +
+              "produce a coherent successor constraint, conservatively reduce the case " +
+              "to RELATED/research-only, or abstain. Never mutate or endorse the source artifact."),
         prompt: JSON.stringify({
-          schemaVersion: "pmh.semantic-review-input.v1",
+          schemaVersion: input.repairRequest === undefined
+            ? "pmh.semantic-review-input.v1"
+            : "pmh.semantic-review-input.v2",
           proposal: input.proposal,
           listings: input.listings,
           ruleEvidenceClaims: input.evidenceClaims ?? [],
+          ...(input.repairRequest === undefined
+            ? {}
+            : { probabilitySemanticRepairRequest: input.repairRequest }),
         }),
-        providerOptions: {
-          deepseek: {
-            thinking: { type: "disabled" },
-            strictJsonSchema: false,
-          },
-        },
+        providerOptions: engine.provider === "CODEX"
+          ? {
+              openai: {
+                store: false,
+                reasoningEffort: engine.reasoningEffort ?? undefined,
+                reasoningSummary: null,
+                strictJsonSchema: false,
+                parallelToolCalls: false,
+              },
+            }
+          : {
+              deepseek: {
+                thinking: { type: "disabled" },
+                strictJsonSchema: false,
+              },
+            },
         prepareStep({ stepNumber }) {
           if (counterexampleEffects.length === 0) {
             if (rejectedTerminalEffectCount === 0 && stepNumber < 8) {
@@ -2007,7 +2198,12 @@ export class DeepSeekSemanticReviewModelPort
             toolChoice: "required" as const,
           });
         },
-      });
+      };
+      const result = engine.provider === "CODEX"
+        ? streamText(request)
+        : await generateText(request);
+      const resultSteps = await result.steps;
+      const resultUsage = await result.usage;
       if (submitted === null && counterexampleEffects.length > 0) {
         const recoveryReason = compactDiagnostic(
           "First-party terminal recovery: the reviewer recorded a counterexample " +
@@ -2072,14 +2268,16 @@ export class DeepSeekSemanticReviewModelPort
           durationMs: Math.max(0, Date.now() - startedAtMs),
           purpose: "SEMANTIC_REVIEW",
           role: "ADVERSARIAL_REVIEW",
-          provider: "DEEPSEEK",
-          model: this.model,
+          provider: engine.provider,
+          model: engine.model,
           transport: "VERCEL_AI_SDK",
-          operationIdentity: `proposal:${input.proposal.proposalId}`,
+          operationIdentity: input.repairRequest === undefined
+            ? `proposal:${input.proposal.proposalId}`
+            : `semantic-repair:${input.repairRequest.requestId}`,
           outcome: "FAILED",
           durableEffect: false,
-          providerRequestCount: result.steps.length,
-          usage: result.usage,
+          providerRequestCount: providerRequestCount || resultSteps.length,
+          usage: resultUsage,
         });
         usageRecorded = true;
         throw new SemanticReviewRunError(
@@ -2091,16 +2289,18 @@ export class DeepSeekSemanticReviewModelPort
         durationMs: Math.max(0, Date.now() - startedAtMs),
         purpose: "SEMANTIC_REVIEW",
         role: "ADVERSARIAL_REVIEW",
-        provider: "DEEPSEEK",
-        model: this.model,
+        provider: engine.provider,
+        model: engine.model,
         transport: "VERCEL_AI_SDK",
-        operationIdentity: `proposal:${input.proposal.proposalId}`,
+        operationIdentity: input.repairRequest === undefined
+          ? `proposal:${input.proposal.proposalId}`
+          : `semantic-repair:${input.repairRequest.requestId}`,
         outcome: submitted.toolTrace?.terminalEffect === "SUBMITTED"
           ? "SUCCEEDED"
           : "ABSTAINED",
         durableEffect: true,
-        providerRequestCount: result.steps.length,
-        usage: result.usage,
+        providerRequestCount: providerRequestCount || resultSteps.length,
+        usage: resultUsage,
       });
       usageRecorded = true;
       return submitted;
@@ -2109,10 +2309,12 @@ export class DeepSeekSemanticReviewModelPort
         durationMs: Math.max(0, Date.now() - startedAtMs),
         purpose: "SEMANTIC_REVIEW",
         role: "ADVERSARIAL_REVIEW",
-        provider: "DEEPSEEK",
-        model: this.model,
+        provider: engine.provider,
+        model: engine.model,
         transport: "VERCEL_AI_SDK",
-        operationIdentity: `proposal:${input.proposal.proposalId}`,
+        operationIdentity: input.repairRequest === undefined
+          ? `proposal:${input.proposal.proposalId}`
+          : `semantic-repair:${input.repairRequest.requestId}`,
         outcome: controller.signal.aborted ? "TIMED_OUT" : "FAILED",
         durableEffect: false,
       });
@@ -2172,13 +2374,19 @@ export class SemanticReviewDesk {
     proposalCorpusSnapshotIdentity: Hash = snapshot.snapshotIdentity,
     evidenceBundle?: ProposalEvidenceBundle,
     evidenceClaims: readonly RuleEvidenceClaim[] = [],
+    repairRequest?: ProbabilitySemanticRepairRequest,
   ): Readonly<{
     promise: Promise<SemanticReviewRecord>;
     idempotentReplay: boolean;
   }> {
     if (this.reviewer === null) {
       throw new SemanticReviewNotConfiguredError(
-        "semantic review requires DEEPSEEK_API_KEY",
+        "semantic review requires DEEPSEEK_API_KEY or configured Codex OAuth",
+      );
+    }
+    if (this.reviewer.configured?.() === false) {
+      throw new SemanticReviewNotConfiguredError(
+        "semantic review requires configured runtime credentials",
       );
     }
     if (
@@ -2199,11 +2407,18 @@ export class SemanticReviewDesk {
       throw new Error("semantic review evidence bundle lineage mismatch");
     }
     const claims = Object.freeze(evidenceClaims.map(assertRuleEvidenceClaim));
+    const repair = repairRequest === undefined
+      ? undefined
+      : assertProbabilitySemanticRepairRequest(repairRequest);
     if (
       claims.length > 100 || new Set(claims.map((claim) => claim.requirementId)).size !==
         claims.length || claims.some((claim) => claim.proposalId !== proposal.proposalId) ||
       (claims.length > 0 && captured?.schemaVersion !== "pmh.proposal-evidence-bundle.v2")
     ) throw new Error("semantic review enriched evidence claim lineage mismatch");
+    if (repair !== undefined && (
+      repair.sourceSemanticConstraint.proposalId !== proposal.proposalId ||
+      repair.listingRefs.join("\n") !== proposal.listingRefs.join("\n")
+    )) throw new Error("semantic repair request belongs to another proposal");
     const listings = captured?.listings ?? proposal.listingRefs.map((listingRef) => {
       const listing = snapshot.listings.find(
         (candidate) => candidate.listingRef === listingRef,
@@ -2218,14 +2433,33 @@ export class SemanticReviewDesk {
       : deriveSemanticReviewScope(proposal, captured, claims);
     const corpusSnapshotIdentity = enrichedScope?.scopeIdentity ??
       captured?.evidenceCorpusSnapshotIdentity ?? snapshot.snapshotIdentity;
-    const reviewId = hashCanonical({
+    const engine = this.reviewer.engine?.() ?? (repair === undefined
+      ? undefined
+      : Object.freeze({
+          transport: "VERCEL_AI_SDK" as const,
+          provider: "DEEPSEEK" as const,
+          model: this.model,
+          reasoningEffort: null,
+          responseStorage: false as const,
+        }));
+    const selectedModel = engine?.model ?? this.model;
+    const reviewId = hashCanonical(engine === undefined ? {
       schemaVersion: "pmh.semantic-review-run.v2",
       opportunityId,
       proposalId: proposal.proposalId,
       proposalCorpusSnapshotIdentity,
       corpusSnapshotIdentity,
-      model: this.model,
+      model: selectedModel,
       protocolIdentity: SEMANTIC_REVIEW_PROTOCOL_IDENTITY,
+    } : {
+      schemaVersion: "pmh.semantic-review-run.v3",
+      opportunityId,
+      proposalId: proposal.proposalId,
+      proposalCorpusSnapshotIdentity,
+      corpusSnapshotIdentity,
+      engine,
+      protocolIdentity: SEMANTIC_REVIEW_PROTOCOL_IDENTITY,
+      repairRequestId: repair?.requestId ?? null,
     });
     const active = this.#active.get(reviewId);
     if (active !== undefined) {
@@ -2250,8 +2484,10 @@ export class SemanticReviewDesk {
       proposalId: proposal.proposalId,
       proposalCorpusSnapshotIdentity,
       corpusSnapshotIdentity,
-      model: this.model,
+      model: selectedModel,
       protocolIdentity: SEMANTIC_REVIEW_PROTOCOL_IDENTITY,
+      ...(engine === undefined ? {} : { engine }),
+      ...(repair === undefined ? {} : { repairRequest: repair }),
       status: "RUNNING",
       startedAt,
       completedAt: null,
@@ -2266,6 +2502,7 @@ export class SemanticReviewDesk {
         proposal,
         listings: Object.freeze(listings),
         ...(claims.length === 0 ? {} : { evidenceClaims: claims }),
+        ...(repair === undefined ? {} : { repairRequest: repair }),
       }))
       .then(
         (raw): SemanticReviewRecord => {
@@ -2317,7 +2554,7 @@ export class SemanticReviewDesk {
                 listingEvidence,
               });
           const evidenceRequirements = evidenceRequirementDrafts === undefined
-            ? undefined
+            ? engine === undefined ? undefined : Object.freeze([])
             : buildEvidenceRequirements({
                 origin: "SEMANTIC_REVIEW",
                 proposalId: proposal.proposalId,
@@ -2326,7 +2563,9 @@ export class SemanticReviewDesk {
                 drafts: evidenceRequirementDrafts,
               });
           const reportBody = Object.freeze({
-            schemaVersion: claims.length > 0
+            schemaVersion: engine !== undefined
+              ? ("pmh.semantic-review-report.v5" as const)
+              : claims.length > 0
               ? ("pmh.semantic-review-report.v4" as const)
               : semanticConstraint === undefined
               ? ("pmh.semantic-review-report.v1" as const)
@@ -2336,19 +2575,27 @@ export class SemanticReviewDesk {
             status: "PASS" as const,
             startedAt,
             completedAt,
-            engine: Object.freeze({
-              transport: "VERCEL_AI_SDK" as const,
-              provider: "deepseek" as const,
-              model: this.model,
-              role: "ADVERSARIAL_SEMANTIC_REVIEWER" as const,
-              independenceGrade: "SEPARATE_INVOCATION_SAME_PROVIDER" as const,
-            }),
+            engine: engine === undefined
+              ? Object.freeze({
+                  transport: "VERCEL_AI_SDK" as const,
+                  provider: "deepseek" as const,
+                  model: selectedModel,
+                  role: "ADVERSARIAL_SEMANTIC_REVIEWER" as const,
+                  independenceGrade: "SEPARATE_INVOCATION_SAME_PROVIDER" as const,
+                })
+              : Object.freeze({
+                  ...engine,
+                  role: "ADVERSARIAL_SEMANTIC_REVIEWER" as const,
+                  independenceGrade: "SEPARATE_INVOCATION_SAME_PROVIDER" as const,
+                }),
             input: Object.freeze({
               opportunityId,
               proposalId: proposal.proposalId,
               proposalCorpusSnapshotIdentity,
               corpusSnapshotIdentity,
-              evidencePosture: claims.length > 0
+              evidencePosture: repair !== undefined
+                ? ("SEMANTIC_REPAIR_SCOPE" as const)
+                : claims.length > 0
                 ? ("ENRICHED_EVIDENCE_SCOPE" as const)
                 : proposalCorpusSnapshotIdentity === corpusSnapshotIdentity
                   ? ("ORIGINAL_CORPUS" as const)
@@ -2359,6 +2606,7 @@ export class SemanticReviewDesk {
                     semanticReviewScopeIdentity: corpusSnapshotIdentity,
                     evidenceClaims: claims,
                   }),
+              ...(repair === undefined ? {} : { repairRequest: repair }),
               relationKind: proposal.relationKind,
               statement: proposal.statement,
               listingEvidence,
@@ -2516,12 +2764,15 @@ export class SemanticReviewDesk {
 
   public projection(): SemanticReviewDeskProjection {
     const records = Object.freeze([...this.#records]);
+    const configured = this.reviewer !== null &&
+      this.reviewer.configured?.() !== false;
+    const currentModel = this.reviewer?.engine?.()?.model ?? this.model;
     return Object.freeze({
       schemaVersion: "pmh.semantic-review-desk.v1",
-      configured: this.reviewer !== null,
-      model: this.model,
+      configured,
+      model: currentModel,
       status:
-        this.reviewer === null
+        !configured
           ? "NEEDS_KEY"
           : this.#active.size === 0
             ? "IDLE"
@@ -2561,6 +2812,8 @@ export function createSemanticReviewDesk(
     concurrencyLimit?: number;
     store?: SemanticReviewRecordStore;
     usageRecorder?: AiUsageRecorder;
+    runtimeConfiguration?: () => AiRuntimeConfiguration;
+    codexCredentialProvider?: CodexOAuthCredentialProvider;
   }> = {},
 ): SemanticReviewDesk {
   const model =
@@ -2590,9 +2843,18 @@ export function createSemanticReviewDesk(
     "PMH_SEMANTIC_REVIEW_CONCURRENCY",
   );
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";
+  const codexCredentialProvider = options.codexCredentialProvider ??
+    new CodexAuthCacheCredentialProvider(environment);
+  // Keep one provider-routed port alive whenever either credential source is
+  // available. `configured()` evaluates the persisted policy at dispatch time,
+  // so switching from a disabled DeepSeek lane to Codex does not require a
+  // process restart or reconstructing the durable desk.
+  const hasAnyConfiguredProvider = options.runtimeConfiguration === undefined
+    ? apiKey !== ""
+    : apiKey !== "" || codexCredentialProvider.configured();
   const reviewer =
     options.reviewer ??
-    (apiKey === ""
+    (!hasAnyConfiguredProvider
       ? null
       : new DeepSeekSemanticReviewModelPort(
           model,
@@ -2601,6 +2863,8 @@ export function createSemanticReviewDesk(
           timeoutMs,
           options.fetcher,
           options.usageRecorder,
+          options.runtimeConfiguration,
+          codexCredentialProvider,
         ));
   return new SemanticReviewDesk(
     reviewer,

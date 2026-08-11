@@ -245,7 +245,7 @@ describe("opportunity lifecycle desk", () => {
     });
     first.recordOpportunitySimulation(opportunityId, simulation);
     expect(first.projection()).toMatchObject({
-      storage: { mode: "MEMORY", schemaVersion: 32 },
+      storage: { mode: "MEMORY", schemaVersion: 37 },
       semanticDecisions: [{ decisionId: decision.decisionId }],
       simulationBundles: [{ artifactHash: simulation.artifactHash }],
       cases: [

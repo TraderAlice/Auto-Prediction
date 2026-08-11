@@ -7,10 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashCanonical } from "@pmh/domain";
 import {
   AiRuntimeConfigurationDesk,
+  AgentExecutionRegistry,
   AnonymousSimulationMaterializerDesk,
   CandidateWatchDesk,
   candidateWatchSources,
   createControlPlane,
+  buildAgentTask,
   CatalogObservationDesk,
   CatalogRefreshScheduler,
   catalogObservationSources,
@@ -20,6 +22,7 @@ import {
   type CatalogObservationSource,
   createOpenAiDiscoveryRuntime,
   createPiInvestigatorRuntime,
+  createProbabilityEstimationDesk,
   createSemanticReviewDesk,
   DiscoveryPool,
   EvidenceAcquisitionScheduler,
@@ -64,6 +67,10 @@ async function listenControlPlane(
     ...(options?.modelRuntime === undefined && options?.modelRuntimeFactory === undefined
       ? { modelRuntime: createOpenAiDiscoveryRuntime({}) }
       : {}),
+    ...(options?.probabilityEstimationDesk === undefined &&
+      options?.probabilityEstimationScheduler === undefined
+      ? { probabilityEstimationDesk: createProbabilityEstimationDesk({}) }
+      : {}),
     ...options,
   });
   servers.push(controlPlane.server);
@@ -88,6 +95,93 @@ async function closeTracked(
 }
 
 describe("control-plane HTTP surface", () => {
+  it("creates and activates a bounded Agent campaign without dispatching from configuration", async () => {
+    const registry = new AgentExecutionRegistry();
+    const task = buildAgentTask({
+      kind: "RULE_EVIDENCE_CLAIM",
+      protocol: "RULE_EVIDENCE_TASK_V1",
+      inputArtifacts: [],
+      taskPayload: { fixture: "server-campaign" },
+      requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
+      provenanceRef: "fixture:server-campaign",
+      priority: 1,
+      createdAt: "2026-08-10T10:00:00.000Z",
+    });
+    registry.saveBatch({ tasks: [task] });
+    const { baseUrl } = await listenControlPlane({ agentExecutionRegistry: registry });
+    const consoleResponse = await fetch(`${baseUrl}/api/v1/agent-execution`);
+    expect(consoleResponse.status).toBe(200);
+    const consoleProjection = await consoleResponse.json() as {
+      executionProfiles: Array<{ executionProfileId: string; profileKey: string }>;
+      summary: { runCount: number; modelInvocationCount: number };
+      providerRequestsStartedByRead: number;
+    };
+    const profile = consoleProjection.executionProfiles.find((item) =>
+      item.profileKey === "rule-evidence-codex-agent"
+    )!;
+    expect(consoleProjection).toMatchObject({
+      summary: { runCount: 0, modelInvocationCount: 0 },
+      providerRequestsStartedByRead: 0,
+    });
+
+    const createdResponse = await fetch(`${baseUrl}/api/v1/agent-campaigns`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        campaignKey: "server-campaign-fixture",
+        executionProfileId: profile.executionProfileId,
+        taskIds: [task.taskId],
+        schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+        budget: {
+          maximumConcurrentRuns: 1,
+          maximumModelInvocations: 2,
+          maximumInputTokens: "1000",
+          maximumOutputTokens: "100",
+          maximumWallClockMs: 60_000,
+        },
+      }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const created = await createdResponse.json() as {
+      campaign: { campaignId: string; status: string };
+      providerRequestsStarted: number;
+    };
+    expect(created).toMatchObject({
+      campaign: { status: "PAUSED" },
+      providerRequestsStarted: 0,
+    });
+    const activatedResponse = await fetch(
+      `${baseUrl}/api/v1/agent-campaigns/${created.campaign.campaignId}/activate`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ activationRef: "operator:server-fixture" }),
+      },
+    );
+    expect(activatedResponse.status).toBe(200);
+    const activated = await activatedResponse.json() as {
+      campaign: { campaignId: string; status: string };
+      preview: { maximumImmediateFanout: number };
+      providerRequestsStarted: number;
+    };
+    expect(activated).toMatchObject({
+      campaign: { status: "ACTIVE" },
+      preview: { maximumImmediateFanout: 1 },
+      providerRequestsStarted: 0,
+    });
+    const pausedResponse = await fetch(
+      `${baseUrl}/api/v1/agent-campaigns/${activated.campaign.campaignId}/pause`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(pausedResponse.status).toBe(200);
+    expect(await pausedResponse.json()).toMatchObject({
+      campaign: { status: "PAUSED" },
+      providerRequestsStarted: 0,
+    });
+    expect(registry.snapshot()).toMatchObject({ runs: [], modelInvocations: [] });
+    expect(registry.projection().activeCampaignCount).toBe(0);
+  });
+
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
     const baseUrl = await listen();
 
@@ -174,7 +268,7 @@ describe("control-plane HTTP surface", () => {
       tickIntervalMs: 1_000,
     });
     const aiRuntimeConfigurationDesk = new AiRuntimeConfigurationDesk({
-      PMH_DEEPSEEK_AUTOMATION_ENABLED: "1",
+      PMH_DISCOVERY_PROVIDER: "codex",
     });
     const ruleEvidenceClaimTick = vi.spyOn(ruleEvidenceClaimScheduler, "tick");
     const controlPlane = createControlPlane({
@@ -208,7 +302,55 @@ describe("control-plane HTTP surface", () => {
     expect(fetchCount).toBe(1);
     expect(catalogRefreshScheduler.projection().runCount).toBe(1);
     expect(evidenceTick).toHaveBeenCalledOnce();
-    expect(ruleEvidenceClaimTick).toHaveBeenCalledOnce();
+    expect(ruleEvidenceClaimTick).not.toHaveBeenCalled();
+  });
+
+  it("exposes provider-free startup phases before the first bounded projection", async () => {
+    let releaseStartup: (() => void) | undefined;
+    const startupGate = new Promise<void>((resolveStartup) => {
+      releaseStartup = resolveStartup;
+    });
+    const controlPlane = createControlPlane({
+      modelRuntime: createOpenAiDiscoveryRuntime({}),
+      probabilityEstimationDesk: createProbabilityEstimationDesk({}),
+      startupGate,
+    });
+    servers.push(controlPlane.server);
+    await new Promise<void>((resolveListen) =>
+      controlPlane.server.listen(0, "127.0.0.1", resolveListen),
+    );
+    const address = controlPlane.server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const waitingResponse = await fetch(`${baseUrl}/api/v1/readiness`);
+    expect(waitingResponse.status).toBe(202);
+    expect(Number(waitingResponse.headers.get("content-length") ?? "0")).toBeLessThan(2_000);
+    await expect(waitingResponse.json()).resolves.toMatchObject({
+      status: "STARTING",
+      phase: "STARTUP_GATE",
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+
+    const firstProjection = fetch(`${baseUrl}/api/v1/projection`);
+    const duplicateProjection = fetch(`${baseUrl}/api/v1/projection`);
+    releaseStartup?.();
+    const [first, duplicate] = await Promise.all([firstProjection, duplicateProjection]);
+    expect(first.status).toBe(200);
+    expect(duplicate.status).toBe(200);
+    expect(first.headers.get("etag")).toBe(duplicate.headers.get("etag"));
+
+    const readyResponse = await fetch(`${baseUrl}/api/v1/readiness`);
+    expect(readyResponse.status).toBe(200);
+    await expect(readyResponse.json()).resolves.toMatchObject({
+      status: "READY",
+      phase: "READY",
+      completedAt: expect.any(String),
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+    });
   });
 
   it("holds due issues during refresh and dispatches them on the new corpus", async () => {
@@ -672,6 +814,8 @@ describe("control-plane HTTP surface", () => {
       `${baseUrl}/api/v1/proposal-handoff?ids=${handoffProposalId}`,
     );
     expect(handoffResponse.status).toBe(200);
+    expect(handoffResponse.headers.get("server-timing"))
+      .toMatch(/^proposal-handoff;dur=\d+(?:\.\d)?$/u);
     expect(await handoffResponse.json()).toMatchObject({
       schemaVersion: "pmh.proposal-handoff.v3",
       requestedProposalIds: [handoffProposalId],
@@ -897,6 +1041,54 @@ describe("control-plane HTTP surface", () => {
         executionAuthority: false,
       },
     });
+    const failureBudgetResponse = await fetch(
+      `${baseUrl}/api/v1/failure-budget-frontier`,
+    );
+    expect(failureBudgetResponse.status).toBe(200);
+    expect(await failureBudgetResponse.json()).toMatchObject({
+      schemaVersion: "pmh.failure-budget-frontier.v4",
+      itemCount: 0,
+      rawEstimatorCaseCount: 0,
+      collapsedEstimatorCaseCount: 0,
+      positiveMarginCount: 0,
+      rankingContract: "REMAINING_FAILURE_BUDGET_DESC_THEN_EDGE_DESC",
+      quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY",
+      authority: "FAILURE_BUDGET_RANKING_ONLY",
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        providerRequests: false,
+        externalWrites: false,
+        valueMovingActions: false,
+      },
+    });
+    const probabilityRepairResponse = await fetch(
+      `${baseUrl}/api/v1/probability-case-repairs`,
+    );
+    expect(probabilityRepairResponse.status).toBe(200);
+    expect(await probabilityRepairResponse.json()).toMatchObject({
+      schemaVersion: "pmh.probability-case-repair-queue.v1",
+      sourceChallengeCount: 0,
+      itemCount: 0,
+      authority: "SEMANTIC_REPAIR_PRIORITY_ONLY",
+      providerRequestAuthority: false,
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
+    const probabilityRetryResponse = await fetch(
+      `${baseUrl}/api/v1/probability-estimation/cases/${
+        hashCanonical({ missing: "probability-case" })
+      }/retries`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(probabilityRetryResponse.status).toBe(409);
+    expect(await probabilityRetryResponse.json()).toMatchObject({
+      ok: false,
+      diagnostic: "probability estimation case was not found",
+      providerRequestStarted: false,
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
     expect(projection.ai.aiUsage).toMatchObject({
       schemaVersion: "pmh.ai-usage-ledger.v1",
       eventCount: 0,
@@ -987,6 +1179,28 @@ describe("control-plane HTTP surface", () => {
       itemCount: 0,
       executionAuthority: false,
     });
+    expect(projection.ai.probabilityEvidenceDebt).toMatchObject({
+      schemaVersion: "pmh.probability-evidence-debt.v1",
+      sourceRunCount: 0,
+      sourceNeedCount: 0,
+      itemCount: 0,
+      blockingItemCount: 0,
+      authority: "RESEARCH_PRIORITY_ONLY",
+      fetchAuthority: false,
+      providerRequestAuthority: false,
+      executionAuthority: false,
+      effects: { providerRequests: false, externalWrites: false },
+    });
+    const probabilityDebtResponse = await fetch(
+      `${baseUrl}/api/v1/probability-evidence-debt`,
+    );
+    expect(probabilityDebtResponse.status).toBe(200);
+    expect(await probabilityDebtResponse.json()).toMatchObject({
+      schemaVersion: "pmh.probability-evidence-debt.v1",
+      rankingContract: "BLOCKING_THEN_ROUTE_POSTURE_THEN_NEED_ID",
+      itemCount: 0,
+      executionAuthority: false,
+    });
     expect(projection.ai.ruleEvidenceClaims).toMatchObject({
       enabled: false,
       configured: false,
@@ -1006,6 +1220,16 @@ describe("control-plane HTTP surface", () => {
       schemaVersion: "pmh.rule-evidence-claim-scheduler.v2",
       passedCount: 0,
       authority: "ADVISORY_EVIDENCE_INTERPRETATION_ORCHESTRATION_ONLY",
+      executionAuthority: false,
+    });
+    const manualClaimResponse = await fetch(
+      `${baseUrl}/api/v1/rule-evidence-claims/${"sha256:" + "0".repeat(64)}/run`,
+      { method: "POST" },
+    );
+    expect(manualClaimResponse.status).toBe(409);
+    expect(await manualClaimResponse.json()).toMatchObject({
+      ok: false,
+      diagnostic: "rule evidence claim interpreter is not configured",
       executionAuthority: false,
     });
     expect(projection.ai.semanticReviewAdmission).toMatchObject({
@@ -1160,6 +1384,18 @@ describe("control-plane HTTP surface", () => {
         model: "gpt-5.6-terra",
         reasoningEffort: "max",
       },
+      agentExecution: {
+        runtimeDefinitionCount: 3,
+        credentialBindingCount: 2,
+        modelProfileCount: 6,
+        executionProfileCount: 12,
+        workloadRouteCount: 4,
+        taskCount: 0,
+        runCount: 0,
+        modelInvocationCount: 0,
+        activeCampaignCount: 0,
+        automaticDispatchFromConfiguration: false,
+      },
       executionAuthority: false,
     });
 
@@ -1175,6 +1411,65 @@ describe("control-plane HTTP surface", () => {
       model: "gpt-5.6-terra",
       reasoningEffort: "max",
     });
+    expect(projection.ai.agentExecution).toMatchObject({
+      modelProfileCount: 6,
+      executionProfileCount: 12,
+      workloadRouteCount: 4,
+      taskCount: 0,
+      runCount: 0,
+      modelInvocationCount: 0,
+      activeCampaignCount: 0,
+      automaticDispatchFromConfiguration: false,
+      credentialSecretTextRetained: false,
+    });
+
+    const agentConsole = await fetch(`${baseUrl}/api/v1/agent-execution`).then(
+      (response) => response.json() as Promise<{
+        workloadRoutes: { taskKind: string; executionProfileId: string }[];
+        capabilities: { executionProfileId: string; dispatchEligibility: string; diagnostic: string }[];
+        runs: unknown[];
+        modelInvocations: unknown[];
+      }>,
+    );
+    const discoveryRoute = agentConsole.workloadRoutes.find((item) =>
+      item.taskKind === "DISCOVERY_SCOUT"
+    );
+    expect(discoveryRoute).toBeDefined();
+    expect(agentConsole.capabilities.find((item) =>
+      item.executionProfileId === discoveryRoute?.executionProfileId
+    )).toMatchObject({
+      dispatchEligibility: "BLOCKED",
+      diagnostic: expect.stringContaining("preflight"),
+    });
+    expect(agentConsole.runs).toHaveLength(0);
+    expect(agentConsole.modelInvocations).toHaveLength(0);
+
+    const discoveryCapabilityResponse = await fetch(
+      `${baseUrl}/api/v1/discovery-execution-capability`,
+    );
+    expect(discoveryCapabilityResponse.status).toBe(200);
+    expect(Number(discoveryCapabilityResponse.headers.get("content-length") ?? "0"))
+      .toBeLessThan(10_000);
+    const discoveryCapabilityText = await discoveryCapabilityResponse.text();
+    expect(discoveryCapabilityText).not.toContain("test-only-codex-token");
+    expect(JSON.parse(discoveryCapabilityText)).toMatchObject({
+      schemaVersion: "pmh.discovery-execution-capability.v1",
+      workloadRoute: { taskKind: "DISCOVERY_SCOUT" },
+      runtime: { kind: "HARNESS_IN_PROCESS" },
+      model: { model: "gpt-5.6-terra" },
+      capability: {
+        dispatchEligibility: "BLOCKED",
+        diagnostic: expect.stringContaining("preflight"),
+      },
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      credentialSecretTextRetained: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(discoveryCapabilityText).not.toContain('"tasks"');
+    expect(discoveryCapabilityText).not.toContain('"runs"');
+    expect(discoveryCapabilityText).not.toContain('"campaigns"');
 
     const stale = await fetch(`${baseUrl}/api/v1/ai-runtime/configuration`, {
       method: "POST",
@@ -2445,7 +2740,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-          schemaVersion: 32,
+        schemaVersion: 37,
         },
         records: [{ investigationId: created.investigationId }],
       });

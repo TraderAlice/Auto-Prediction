@@ -14,6 +14,16 @@ import {
 } from "@pmh/protocol";
 import { z } from "zod";
 
+type RichTextNode = Readonly<{
+  value?: string | undefined;
+  content?: readonly RichTextNode[] | undefined;
+}>;
+
+const RichTextNodeSchema: z.ZodType<RichTextNode> = z.lazy(() => z.object({
+  value: z.string().optional(),
+  content: z.array(RichTextNodeSchema).optional(),
+}).passthrough());
+
 const ResponseSchema = z.object({
   data: z.array(
     z.object({
@@ -32,6 +42,7 @@ const ResponseSchema = z.object({
           ticker: z.string(),
           instrumentSymbol: z.string(),
           status: z.string(),
+          description: RichTextNodeSchema.optional(),
           termsAndConditionsUrl: z.string().optional(),
           prices: z
             .object({
@@ -48,6 +59,31 @@ const ResponseSchema = z.object({
     }),
   ),
 });
+
+function richTextValue(
+  node: RichTextNode | undefined,
+): string | undefined {
+  if (node === undefined) return undefined;
+  const values: string[] = [];
+  const visit = (current: RichTextNode): void => {
+    if (current.value?.trim()) values.push(current.value.trim());
+    current.content?.forEach(visit);
+  };
+  visit(node);
+  const text = values.join("\n\n").trim();
+  return text === "" ? undefined : text;
+}
+
+function fullRulesLink(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const match = value.match(/\[full rules\]\((https:\/\/[^)\s]+)\)/iu);
+  return match?.[1];
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+}
 
 const DepthUpdateSchema = z.object({
   e: z.literal("depthUpdate"),
@@ -231,21 +267,22 @@ export function normalizeGeminiCatalog(
     parseJsonWithNumberLexemes(new TextDecoder().decode(fixture.bytes)),
   );
   return response.data.flatMap((event) =>
-    event.contracts.map((contract) => ({
-      venueId: geminiManifest.venueId,
-      venueEventId: event.id,
-      venueInstrumentId: contract.instrumentSymbol,
-      title: `${event.title} — ${contract.label}`,
-      description: event.description ?? "",
-      status: contract.status.toUpperCase(),
-      mechanism: "CENTRALIZED_ORDER_BOOK" as const,
-      closesAt: event.expiryDate,
-      ...((contract.termsAndConditionsUrl ?? event.termsLink) === undefined
-        ? {}
-        : {
-            rulesUrl: contract.termsAndConditionsUrl ?? event.termsLink ?? "",
-          }),
-      outcomes: [
+    event.contracts.map((contract) => {
+      const rulesText = richTextValue(contract.description);
+      const rulesUrl = nonEmpty(contract.termsAndConditionsUrl) ??
+        nonEmpty(event.termsLink) ?? fullRulesLink(rulesText);
+      return ({
+        venueId: geminiManifest.venueId,
+        venueEventId: event.id,
+        venueInstrumentId: contract.instrumentSymbol,
+        title: `${event.title} — ${contract.label}`,
+        description: event.description ?? "",
+        status: contract.status.toUpperCase(),
+        mechanism: "CENTRALIZED_ORDER_BOOK" as const,
+        closesAt: event.expiryDate,
+        ...(rulesText === undefined ? {} : { rulesText }),
+        ...(rulesUrl === undefined ? {} : { rulesUrl }),
+        outcomes: [
         {
           venueOutcomeId: `${contract.id}:YES`,
           label: "Yes",
@@ -270,14 +307,15 @@ export function normalizeGeminiCatalog(
                 ),
               }),
         },
-      ],
-      collateralId: "USD",
-      priceScale: 100_000_000n,
-      quantityScale: 100_000_000n,
-      minPriceTick: 1_000_000n,
-      sourceFixtureHash: fixture.rawHash,
-      protocolIdentity: fixture.metadata.protocolVersion,
-    })),
+        ],
+        collateralId: "USD",
+        priceScale: 100_000_000n,
+        quantityScale: 100_000_000n,
+        minPriceTick: 1_000_000n,
+        sourceFixtureHash: fixture.rawHash,
+        protocolIdentity: fixture.metadata.protocolVersion,
+      });
+    }),
   );
 }
 

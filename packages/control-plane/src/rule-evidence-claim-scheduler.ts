@@ -17,7 +17,7 @@ import {
 import type { OperationalStorageProjection } from "./types.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
-const DEFAULT_RETENTION_LIMIT = 500;
+const DEFAULT_RETENTION_LIMIT = 2_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_REQUESTS_PER_TICK = 3;
 const DEFAULT_LEASE_TIMEOUT_MS = 330_000;
@@ -83,6 +83,10 @@ export interface RuleEvidenceClaimSchedulerStore {
     record: RuleEvidenceClaimJobRecord,
     retentionLimit: number,
   ): RuleEvidenceClaimJobRecord;
+  saveRuleEvidenceClaimJobRecords?(
+    records: readonly RuleEvidenceClaimJobRecord[],
+    retentionLimit: number,
+  ): readonly RuleEvidenceClaimJobRecord[];
 }
 
 export type RuleEvidenceClaimSchedulerProjection = Readonly<{
@@ -100,6 +104,7 @@ export type RuleEvidenceClaimSchedulerProjection = Readonly<{
   dueCount: number;
   pendingCount: number;
   leasedCount: number;
+  interruptedLeaseCount: number;
   retryWaitCount: number;
   passedCount: number;
   exhaustedCount: number;
@@ -124,6 +129,32 @@ export type RuleEvidenceClaimSchedulerProjection = Readonly<{
     liveExecutionEnabled: false;
   }>;
 }>;
+
+function ruleEvidenceBusinessLineage(input: RuleEvidenceClaimInput): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.rule-evidence-business-lineage.v1",
+    requirementId: input.requirement.requirementId,
+    proposalId: input.requirement.proposalId,
+    observationId: input.capture.observation.observationId,
+    documentId: input.capture.document.record.documentId,
+    extractionId: input.capture.extraction.record.extractionId,
+    documentRawHash: input.capture.document.record.rawHash,
+    extractionTextHash: input.capture.extraction.record.textHash,
+  });
+}
+
+function storedRuleEvidenceBusinessLineage(record: RuleEvidenceClaimJobRecord): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.rule-evidence-business-lineage.v1",
+    requirementId: record.requirementId,
+    proposalId: record.proposalId,
+    observationId: record.observationId,
+    documentId: record.documentId,
+    extractionId: record.extractionId,
+    documentRawHash: record.documentRawHash,
+    extractionTextHash: record.extractionTextHash,
+  });
+}
 
 type SchedulerOptions = Readonly<{
   desk: RuleEvidenceClaimDesk;
@@ -280,7 +311,8 @@ export class RuleEvidenceClaimScheduler {
       !Number.isSafeInteger(this.#leaseTimeoutMs) || this.#leaseTimeoutMs < 1_000 ||
       this.#leaseTimeoutMs > 600_000 || !Number.isSafeInteger(this.#retryDelayMs) ||
       this.#retryDelayMs < 1_000 || this.#retryDelayMs > 86_400_000 ||
-      !Number.isSafeInteger(this.#retentionLimit) || this.#retentionLimit < 10
+      !Number.isSafeInteger(this.#retentionLimit) || this.#retentionLimit < 10 ||
+      this.#retentionLimit > 5_000
     ) throw new Error("rule evidence claim scheduler configuration is invalid or unbounded");
     this.#jobs = [...(
       this.#store?.loadRuleEvidenceClaimJobRecords(this.#retentionLimit) ?? []
@@ -289,9 +321,20 @@ export class RuleEvidenceClaimScheduler {
 
   public reconcile(inputs: readonly RuleEvidenceClaimInput[]): void {
     const existingById = new Map(this.#jobs.map((job) => [job.jobId, job] as const));
+    const existingByBusinessLineage = new Map<Hash, RuleEvidenceClaimJobRecord>();
+    for (const job of [...this.#jobs].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) || right.jobId.localeCompare(left.jobId)
+    )) {
+      const lineage = storedRuleEvidenceBusinessLineage(job);
+      if (!existingByBusinessLineage.has(lineage)) {
+        existingByBusinessLineage.set(lineage, job);
+      }
+    }
     const validated = [...new Map(inputs.map((raw) => {
-      const jobId = this.#desk.interpretationIdFor(raw.requirement, raw.capture);
-      const existing = existingById.get(jobId);
+      const currentJobId = this.#desk.interpretationIdFor(raw.requirement, raw.capture);
+      const equivalent = existingByBusinessLineage.get(ruleEvidenceBusinessLineage(raw));
+      const existing = existingById.get(currentJobId) ?? equivalent;
+      const jobId = existing?.jobId ?? currentJobId;
       const input = existing === undefined ? validateInput(raw) : Object.freeze(raw);
       if (existing !== undefined && (
         existing.requirementId !== input.requirement.requirementId ||
@@ -304,17 +347,21 @@ export class RuleEvidenceClaimScheduler {
       )) throw new Error("retained rule evidence claim input no longer matches its job lineage");
       return [jobId, input] as const;
     })).entries()].sort(([left], [right]) => left.localeCompare(right));
+    if (validated.length > this.#retentionLimit) {
+      throw new Error("active rule evidence claim inputs exceed the durable retention bound");
+    }
     const completedById = new Map(
       this.#desk.projection().records
         .filter((record) => record.status === "PASS")
         .map((record) => [record.interpretationId, record] as const),
     );
+    const newJobs: RuleEvidenceClaimJobRecord[] = [];
     const timestamp = new Date(this.#now()).toISOString();
     for (const [jobId, input] of validated) {
-      const existing = this.#jobs.find((job) => job.jobId === jobId);
+      const existing = existingById.get(jobId);
       const completed = completedById.get(jobId);
       if (existing === undefined) {
-        this.#saveJob(withHash({
+        newJobs.push(withHash({
           schemaVersion: "pmh.rule-evidence-claim-job.v1",
           jobId,
           requirementId: input.requirement.requirementId,
@@ -350,7 +397,18 @@ export class RuleEvidenceClaimScheduler {
         this.#complete(existing, completed);
       }
     }
-    this.#recoverExpiredLeases();
+    if (newJobs.length > 0) {
+      if (this.#store?.saveRuleEvidenceClaimJobRecords !== undefined) {
+        const retained = this.#store.saveRuleEvidenceClaimJobRecords(
+          Object.freeze(newJobs),
+          this.#retentionLimit,
+        );
+        this.#jobs.length = 0;
+        this.#jobs.push(...retained.map(assertRuleEvidenceClaimJobRecord));
+      } else {
+        for (const job of newJobs) this.#saveJob(job);
+      }
+    }
   }
 
   public tick(inputs: readonly RuleEvidenceClaimInput[]): readonly Promise<RuleEvidenceClaimJobRecord>[] {
@@ -378,6 +436,40 @@ export class RuleEvidenceClaimScheduler {
       left.createdAt.localeCompare(right.createdAt) || left.jobId.localeCompare(right.jobId)
     ).slice(0, available);
     return Object.freeze(due.map((job) => this.#dispatch(job, inputByJob.get(job.jobId)!)));
+  }
+
+  public runJob(
+    jobId: Hash,
+    inputs: readonly RuleEvidenceClaimInput[],
+  ): Promise<RuleEvidenceClaimJobRecord> {
+    if (!HASH_PATTERN.test(String(jobId))) {
+      throw new Error("rule evidence claim job identity is malformed");
+    }
+    if (!this.#desk.projection().configured) {
+      throw new Error("rule evidence claim interpreter is not configured");
+    }
+    if (
+      this.#active.size >= this.#concurrencyLimit ||
+      this.#desk.projection().activeCount >= this.#desk.concurrencyLimit
+    ) throw new Error("rule evidence claim concurrency budget is full");
+    const job = this.#jobs.find((item) => item.jobId === jobId);
+    if (job === undefined) throw new Error("rule evidence claim job was not found");
+    if (job.interpreterIdentity !== this.#desk.interpreterIdentity) {
+      throw new Error("rule evidence claim job belongs to a superseded interpreter generation");
+    }
+    if (this.#active.has(jobId) || job.status === "LEASED") {
+      throw new Error("rule evidence claim job is already running");
+    }
+    if (!["PENDING", "RETRY_WAIT"].includes(job.status)) {
+      throw new Error(`rule evidence claim job is terminal: ${job.status}`);
+    }
+    const input = inputs.map(validateInput).find((candidate) =>
+      this.#desk.interpretationIdFor(candidate.requirement, candidate.capture) === jobId
+    );
+    if (input === undefined) {
+      throw new Error("rule evidence claim input is no longer active");
+    }
+    return this.#dispatch(job, input);
   }
 
   #dispatch(
@@ -455,37 +547,6 @@ export class RuleEvidenceClaimScheduler {
     }));
   }
 
-  #recoverExpiredLeases(): void {
-    const now = this.#now();
-    for (const job of this.#jobs.filter((item) =>
-      item.status === "LEASED" && item.leaseExpiresAt !== null &&
-      Date.parse(item.leaseExpiresAt) <= now && !this.#active.has(item.jobId)
-    )) {
-      const completed = this.#desk.projection().records.find((record) =>
-        record.interpretationId === job.jobId && record.status === "PASS"
-      );
-      if (completed !== undefined) {
-        this.#complete(job, completed);
-        continue;
-      }
-      const exhausted = job.attemptCount >= job.maxAttempts;
-      this.#saveJob(withHash({
-        ...withoutHash(job),
-        status: exhausted ? "EXHAUSTED" : "RETRY_WAIT",
-        nextAttemptAt: new Date(
-          exhausted ? now : now + this.#retryDelayMs * Math.max(1, job.attemptCount),
-        ).toISOString(),
-        leasedAt: null,
-        leaseExpiresAt: null,
-        completedAt: exhausted ? new Date(now).toISOString() : null,
-        diagnostic: exhausted
-          ? "rule evidence claim lease expired after provider budget exhaustion"
-          : "rule evidence claim lease expired before a durable result was observed",
-        updatedAt: new Date(now).toISOString(),
-      }));
-    }
-  }
-
   #saveJob(recordInput: RuleEvidenceClaimJobRecord): RuleEvidenceClaimJobRecord {
     const valid = assertRuleEvidenceClaimJobRecord(recordInput);
     const stored = this.#store?.saveRuleEvidenceClaimJobRecord(
@@ -496,7 +557,7 @@ export class RuleEvidenceClaimScheduler {
     if (index >= 0) this.#jobs.splice(index, 1);
     this.#jobs.push(stored);
     this.#jobs.sort((left, right) =>
-      left.createdAt.localeCompare(right.createdAt) || left.jobId.localeCompare(right.jobId)
+      right.updatedAt.localeCompare(left.updatedAt) || right.jobId.localeCompare(left.jobId)
     );
     if (this.#jobs.length > this.#retentionLimit) this.#jobs.length = this.#retentionLimit;
     return stored;
@@ -539,6 +600,10 @@ export class RuleEvidenceClaimScheduler {
       ).length,
       pendingCount: currentJobs.filter((job) => job.status === "PENDING").length,
       leasedCount: currentJobs.filter((job) => job.status === "LEASED").length,
+      interruptedLeaseCount: jobs.filter((job) =>
+        job.status === "LEASED" && job.leaseExpiresAt !== null &&
+        Date.parse(job.leaseExpiresAt) <= now && !this.#active.has(job.jobId)
+      ).length,
       retryWaitCount: currentJobs.filter((job) => job.status === "RETRY_WAIT").length,
       passedCount: currentJobs.filter((job) => job.status === "PASS").length,
       exhaustedCount: currentJobs.filter((job) => job.status === "EXHAUSTED").length,

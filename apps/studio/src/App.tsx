@@ -11,6 +11,7 @@ import {
   Command,
   Database,
   FileCheck2,
+  FileSearch,
   Fingerprint,
   Gauge,
   GitBranch,
@@ -28,12 +29,14 @@ import {
   Radar,
   Radio,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   ShieldCheck,
   Sparkles,
   SquareTerminal,
   TestTubeDiagonal,
+  Bot,
   TimerReset,
   Waypoints,
   X,
@@ -59,6 +62,7 @@ import {
   type StudioProjection,
 } from "@/data/studio-projection";
 import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
+import { useDiscoveryExecutionCapability } from "@/data/discovery-execution";
 import { cn } from "@/lib/utils";
 import {
   parseWorkspaceRoute,
@@ -75,6 +79,246 @@ type SearchAttentionMessage = StudioProjection["ai"]["searchAttention"]["message
 type CatalogMode = "VERIFIED_FIXTURES" | "CURRENT_OBSERVATIONS";
 type AiRuntimeConfiguration =
   StudioProjection["ai"]["runtimeConfiguration"]["configuration"];
+type AgentExecutionConsole = Readonly<{
+  schemaVersion: "pmh.agent-execution-console.v1";
+  summary: Readonly<{
+    runtimeDefinitionCount: number;
+    credentialBindingCount: number;
+    modelProfileCount: number;
+    executionProfileCount: number;
+    taskCount: number;
+    runCount: number;
+    modelInvocationCount: number;
+    runArtifactCount: number;
+    runAnnotationCount: number;
+    activeCampaignCount: number;
+  }>;
+  runtimeDefinitions: ReadonlyArray<Readonly<{
+    runtimeDefinitionId: string;
+    kind: "PI" | "CODEX" | "HARNESS_IN_PROCESS";
+    version: string;
+    capabilities: Readonly<{ resume: boolean; compaction: boolean; cancellation: boolean }>;
+  }>>;
+  credentialBindings: ReadonlyArray<Readonly<{
+    credentialBindingId: string;
+    kind: string;
+    logicalAccountRef: string;
+    configuration: null | Readonly<{
+      status: "CONFIGURED" | "MISSING";
+      diagnostic: string | null;
+    }>;
+  }>>;
+  modelProfiles: ReadonlyArray<Readonly<{
+    modelProfileId: string;
+    profileKey: string;
+    revision: number;
+    accessDriver: string;
+    model: string;
+    configuration: unknown;
+    createdAt: string;
+  }>>;
+  executionProfiles: ReadonlyArray<Readonly<{
+    executionProfileId: string;
+    profileKey: string;
+    revision: number;
+    runtimeDefinitionId: string;
+    credentialBindingId: string;
+    modelProfileId: string;
+    toolPolicy: Readonly<{ protocol: string }>;
+    runBudget: Readonly<{
+      maximumModelInvocations: number;
+      maximumInputTokens: string | null;
+      maximumOutputTokens: string | null;
+      maximumWallClockMs: number;
+    }>;
+    createdAt: string;
+  }>>;
+  capabilities: ReadonlyArray<Readonly<{
+    executionProfileId: string;
+    configurationStatus: "CONFIGURED" | "MISSING";
+    runtimeStatus: "AVAILABLE" | "UNAVAILABLE";
+    serviceCapability: "USABLE" | "REJECTED" | "TRANSIENT_FAILURE" | "UNVERIFIED" | "STALE";
+    dispatchEligibility: "ELIGIBLE" | "BLOCKED";
+    diagnostic: string;
+    observation: null | Readonly<{ observedAt: string; validUntil: string }>;
+    inferenceRequestsStarted: 0;
+    modelInvocationsStarted: 0;
+    secretMaterialRetained: false;
+  }>>;
+  workloadRoutes: ReadonlyArray<Readonly<{
+    workloadRouteId: string;
+    routeKey: string;
+    revision: number;
+    taskKind: string;
+    executionProfileId: string;
+    automaticDispatch: false;
+  }>>;
+  campaigns: ReadonlyArray<Readonly<{
+    campaignId: string;
+    campaignKey: string;
+    revision: number;
+    status: "PAUSED" | "ACTIVE";
+    superseded: boolean;
+    executionProfileId: string;
+    taskIds: readonly string[];
+    schedule: Readonly<{ kind: "MANUAL_ONLY" | "INTERVAL"; intervalMs: number | null }>;
+    budget: Readonly<{
+      maximumConcurrentRuns: number;
+      maximumModelInvocations: number;
+      maximumInputTokens: string | null;
+      maximumOutputTokens: string | null;
+      maximumWallClockMs: number;
+    }>;
+    preview: null | Readonly<{
+      maximumImmediateFanout: number;
+      consumedModelInvocations: number;
+      remainingModelInvocations: number;
+      activeRunCount: number;
+    }>;
+  }>>;
+  tasks: ReadonlyArray<Readonly<{
+    taskId: string;
+    kind: string;
+    protocol: string;
+    provenanceRef: string;
+    priority: number;
+    createdAt: string;
+  }>>;
+  runs: ReadonlyArray<Readonly<{
+    runId: string;
+    taskId: string;
+    executionProfileId: string;
+    runOrdinal: number;
+    authorization: Readonly<{ kind: "MANUAL" | "CAMPAIGN" | "LEGACY_IMPORT" }>;
+    status: "PREPARED" | "INTERRUPTED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+    createdAt: string;
+    completedAt: string | null;
+    terminalDiagnostic: string | null;
+  }>>;
+  modelInvocations: ReadonlyArray<Readonly<{
+    invocationId: string;
+    runId: string;
+    accessDriver: string;
+    status: string;
+    inputTokens: string | null;
+    outputTokens: string | null;
+    reasoningTokens: string | null;
+    failureCategory?: string | null;
+    diagnostic?: string | null;
+    completedAt: string;
+  }>>;
+  usage: Readonly<{
+    invocationCount: number;
+    inputTokens: string;
+    outputTokens: string;
+    reasoningTokens: string;
+    incompleteTokenInvocationCount: number;
+    currencyCost: null;
+    currencyCostDiagnostic: string;
+    byRuntimeModelPurpose: ReadonlyArray<Readonly<{
+      runtimeKind: string;
+      model: string;
+      taskKind: string;
+      invocationCount: number;
+      failedInvocationCount: number;
+      inputTokens: string;
+      outputTokens: string;
+      reasoningTokens: string;
+    }>>;
+    byDay: ReadonlyArray<Readonly<{
+      day: string;
+      invocationCount: number;
+      inputTokens: string;
+      outputTokens: string;
+    }>>;
+  }>;
+  incidentCounts: Readonly<Record<string, number>>;
+  credentialSecretTextRetained: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+type FailureBudgetFrontierProjection = Readonly<{
+  schemaVersion: "pmh.failure-budget-frontier.v4";
+  contentHash: string;
+  evaluatedAt: string;
+  itemCount: number;
+  rawEstimatorCaseCount: number;
+  collapsedEstimatorCaseCount: number;
+  positiveMarginCount: number;
+  boundedCandidateCount: number;
+  awaitingEstimateCount: number;
+  abstainedCaseCount: number;
+  evidenceBlockedCount: number;
+  challengedCaseCount: number;
+  unboundedCaseCount: number;
+  quotePosture: "INDICATIVE_ZERO_FEE_ZERO_DEPTH_ONLY";
+  authority: "FAILURE_BUDGET_RANKING_ONLY";
+  certificateAuthority: false;
+  executionAuthority: false;
+  effects: Readonly<{ providerRequests: false; externalWrites: false }>;
+  items: ReadonlyArray<Readonly<{
+    itemId: string;
+    workIdentity: string;
+    proposalId: string;
+    listingRefs: readonly string[];
+    adverseStateIds: readonly string[];
+    status:
+      | "BOUNDED_ARBITRAGE_CANDIDATE"
+      | "RESEARCH_MARGIN"
+      | "BUDGET_EXHAUSTED"
+      | "AWAITING_ESTIMATES"
+      | "ESTIMATION_ABSTAINED"
+      | "ESTIMATION_EXHAUSTED"
+      | "EVIDENCE_BLOCKED"
+      | "SEMANTIC_REPAIR_REQUIRED"
+      | "PRICE_UNAVAILABLE";
+    portfolioLabel: string | null;
+    breakEvenEpsilonPpm: string | null;
+    adverseProbabilityUpperPpm: string | null;
+    remainingFailureBudgetPpm: string | null;
+    budgetUtilizationBps: string | null;
+    expectedEdgeFloorUnits: string | null;
+    adverseTailLossUnits: string | null;
+    commonPriceScale: string | null;
+    calibrationStatus: "UNCALIBRATED" | "CALIBRATED" | "PENDING";
+    blockers: readonly string[];
+    failureFactors: ReadonlyArray<Readonly<{
+      factorId: string;
+      label: string;
+      source: "ASSUMPTION" | "COUNTER_SCENARIO";
+    }>>;
+    attemptCount: number;
+    estimationAttempts: ReadonlyArray<Readonly<{
+      caseIdentity: string;
+      status:
+        | "ESTIMATES_COMPLETE"
+        | "AWAITING_ESTIMATES"
+        | "ESTIMATION_ABSTAINED"
+        | "ESTIMATION_EXHAUSTED"
+        | "EVIDENCE_BLOCKED"
+        | "SEMANTIC_REPAIR_REQUIRED";
+      provider: "DEEPSEEK" | "CODEX";
+      model: string;
+      reasoningEffort: string | null;
+      inputProtocol: string;
+      jobCount: number;
+      createdAt: string;
+      updatedAt: string;
+    }>>;
+    estimatorJobCount: number;
+    estimationCase: null | Readonly<{
+      caseIdentity: string;
+      provider: "DEEPSEEK" | "CODEX";
+      model: string;
+      reasoningEffort: string | null;
+      inputProtocol: string;
+      evidenceSource: "CURRENT_CATALOG_EXACT" | "DURABLE_REVIEW_BUNDLE" | "LEGACY_CURRENT_CATALOG";
+    }>;
+    guaranteedProfit: false;
+    certificateAuthority: false;
+    executionAuthority: false;
+  }>>;
+}>;
 type ProposalHandoffProjection = Readonly<{
   schemaVersion: "pmh.proposal-handoff.v3";
   sourceStateHash: string;
@@ -255,6 +499,31 @@ function formatFixedBps(value: string | null): string {
   }
 }
 
+function formatPpm(value: string | null): string {
+  if (value === null) return "—";
+  try {
+    const parsed = BigInt(value);
+    const sign = parsed < 0n ? "−" : "";
+    const absolute = parsed < 0n ? -parsed : parsed;
+    const hundredths = absolute / 100n;
+    return `${sign}${hundredths / 100n}.${String(hundredths % 100n).padStart(2, "0")}%`;
+  } catch {
+    return value;
+  }
+}
+
+function formatScaledUnits(value: string | null, scale: string | null): string {
+  if (value === null || scale === null) return "—";
+  try {
+    const units = BigInt(value);
+    const denominator = BigInt(scale);
+    if (denominator <= 0n) return "—";
+    return formatFixedBps(((units * 10_000n) / denominator).toString());
+  } catch {
+    return "—";
+  }
+}
+
 function formatTokenCount(value: string | null): string {
   if (value === null) return "unknown";
   try {
@@ -329,11 +598,19 @@ const EMPTY_PROBABILITY_ESTIMATION: StudioProjection["ai"]["probabilityEstimatio
   schemaVersion: "pmh.probability-estimation-desk.v1",
   configured: false,
   model: "unavailable",
+  engine: {
+    provider: "DEEPSEEK",
+    transport: "VERCEL_AI_SDK",
+    model: "unavailable",
+    reasoningEffort: null,
+    responseStorage: false,
+  },
   status: "NEEDS_KEY",
   activeCount: 0,
   runCount: 0,
   passCount: 0,
   abstainedCount: 0,
+  challengedCount: 0,
   failedCount: 0,
   roles: ["REFERENCE_CLASS", "CAUSAL", "INDEPENDENT"],
   records: [],
@@ -368,8 +645,10 @@ const EMPTY_PROBABILITY_ESTIMATION_SCHEDULER:
     leasedCount: 0,
     retryWaitCount: 0,
     blockedEvidenceCount: 0,
+    policyBlockedCount: 0,
     passedCount: 0,
     abstainedCount: 0,
+    challengedCount: 0,
     exhaustedCount: 0,
     caseCount: 0,
     boundReadyCount: 0,
@@ -400,6 +679,64 @@ const EMPTY_PROBABILITY_ESTIMATION_SCHEDULER:
     hardArbitrageAuthority: false,
     executionAuthority: false,
     effects: { externalWrites: false, valueMovingActions: false, liveExecutionEnabled: false },
+  };
+
+const EMPTY_PROBABILITY_EVIDENCE_DEBT:
+  StudioProjection["ai"]["probabilityEvidenceDebt"] = {
+    schemaVersion: "pmh.probability-evidence-debt.v1",
+    contentHash: `sha256:${"0".repeat(64)}`,
+    sourceRunCount: 0,
+    sourceNeedCount: 0,
+    itemCount: 0,
+    blockingItemCount: 0,
+    counts: {
+      EVIDENCE_CAPTURED: 0,
+      ACQUISITION_IN_PROGRESS: 0,
+      ACQUISITION_READY: 0,
+      ACQUISITION_ROUTE_MISSING: 0,
+      EXTERNAL_SOURCE_POLICY_REQUIRED: 0,
+    },
+    items: [],
+    rankingContract: "BLOCKING_THEN_ROUTE_POSTURE_THEN_NEED_ID",
+    authority: "RESEARCH_PRIORITY_ONLY",
+    fetchAuthority: false,
+    providerRequestAuthority: false,
+    semanticDecisionAuthority: false,
+    certificateAuthority: false,
+    executionAuthority: false,
+    effects: {
+      providerRequests: false,
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    },
+  };
+
+const EMPTY_PROBABILITY_SEMANTIC_REPAIR_PROGRESS:
+  StudioProjection["ai"]["probabilitySemanticRepairProgress"] = {
+    schemaVersion: "pmh.probability-semantic-repair-progress.v1",
+    contentHash: `sha256:${"0".repeat(64)}`,
+    sourceItemCount: 0,
+    sourceChallengeCount: 0,
+    openCount: 0,
+    pendingCount: 0,
+    runningCount: 0,
+    repairedCount: 0,
+    reducedToResearchCount: 0,
+    rejectedCount: 0,
+    manualAttentionCount: 0,
+    items: [],
+    authority: "SEMANTIC_REPAIR_OBSERVATION_ONLY",
+    providerRequestAuthority: false,
+    semanticDecisionAuthority: false,
+    probabilityCertificateAuthority: false,
+    executionAuthority: false,
+    effects: {
+      providerRequests: false,
+      externalWrites: false,
+      valueMovingActions: false,
+      liveExecutionEnabled: false,
+    },
   };
 
 const EMPTY_PROBABILITY_CALIBRATION:
@@ -752,6 +1089,7 @@ const EMPTY_RULE_EVIDENCE_CLAIMS: StudioProjection["ai"]["ruleEvidenceClaims"] =
   dueCount: 0,
   pendingCount: 0,
   leasedCount: 0,
+  interruptedLeaseCount: 0,
   retryWaitCount: 0,
   passedCount: 0,
   exhaustedCount: 0,
@@ -1460,18 +1798,20 @@ const EMPTY_CANDIDATE_WATCH: StudioProjection["qualification"]["candidateWatch"]
 const navigation = [
   { id: "archaeologist", label: "Discover", icon: Search },
   { id: "scouts", label: "Findings", icon: Inbox },
+  { id: "budgets", label: "Failure budgets", icon: Gauge },
   { id: "lifecycle", label: "Review queue", icon: GitBranch },
   { id: "preflight", label: "Preflight", icon: FileCheck2 },
   { id: "venues", label: "Markets", icon: Network },
   { id: "evidence", label: "Evidence", icon: Fingerprint },
   { id: "overview", label: "System overview", icon: LayoutDashboard },
+  { id: "agents", label: "Agent operations", icon: Bot },
   { id: "radar", label: "Similarity radar", icon: Radar },
   { id: "cases", label: "Research cases", icon: Waypoints },
   { id: "books", label: "Order books", icon: BookOpenCheck },
 ] as const;
 
-const primaryNavigation = navigation.slice(0, 6);
-const systemNavigation = navigation.slice(6);
+const primaryNavigation = navigation.slice(0, 7);
+const systemNavigation = navigation.slice(7);
 
 function SignalMark() {
   return (
@@ -1546,6 +1886,30 @@ async function requestProbabilityResolutionRun(): Promise<void> {
   if (result.executionAuthority !== false) {
     throw new Error("resolution acquisition crossed its authority boundary");
   }
+}
+
+async function requestFailureBudgetFrontier(): Promise<FailureBudgetFrontierProjection> {
+  const response = await fetch("/api/v1/failure-budget-frontier");
+  if (!response.ok) throw new Error("failure budget frontier failed to load");
+  const result = (await response.json()) as FailureBudgetFrontierProjection;
+  if (
+    result.schemaVersion !== "pmh.failure-budget-frontier.v4" ||
+    result.authority !== "FAILURE_BUDGET_RANKING_ONLY" ||
+    result.certificateAuthority !== false ||
+    result.executionAuthority !== false ||
+    result.effects.providerRequests !== false ||
+    result.effects.externalWrites !== false ||
+    result.itemCount !== result.items.length ||
+    result.rawEstimatorCaseCount < result.collapsedEstimatorCaseCount ||
+    new Set(result.items.map((item) => item.workIdentity)).size !== result.items.length ||
+    result.items.some((item) =>
+      item.attemptCount !== item.estimationAttempts.length ||
+      item.estimatorJobCount < item.attemptCount
+    )
+  ) {
+    throw new Error("failure budget frontier crossed its authority boundary");
+  }
+  return result;
 }
 
 async function requestAiRuntimeConfigurationUpdate(
@@ -1848,6 +2212,17 @@ async function requestProbabilityNotificationAcknowledgement(
   const result = (await response.json()) as { diagnostic?: string };
   if (!response.ok) {
     throw new Error(result.diagnostic ?? "probability notification acknowledgement failed");
+  }
+}
+
+async function requestProbabilityCaseRetry(caseIdentity: string): Promise<void> {
+  const response = await fetch(
+    `/api/v1/probability-estimation/cases/${caseIdentity}/retries`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+  );
+  const result = (await response.json()) as { diagnostic?: string };
+  if (!response.ok) {
+    throw new Error(result.diagnostic ?? "probability case retry failed");
   }
 }
 
@@ -2643,6 +3018,316 @@ function CapitalSilhouette() {
   );
 }
 
+async function requestAgentExecutionConsole(): Promise<AgentExecutionConsole> {
+  const response = await fetch("/api/v1/agent-execution", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Agent console returned HTTP ${response.status}`);
+  const result = await response.json() as AgentExecutionConsole;
+  if (
+    result.schemaVersion !== "pmh.agent-execution-console.v1" ||
+    result.credentialSecretTextRetained !== false ||
+    result.externalWriteAuthority !== false ||
+    result.valueMovingAuthority !== false
+  ) {
+    throw new Error("Agent console crossed its authority boundary");
+  }
+  return result;
+}
+
+function AgentOperationsView() {
+  const [consoleData, setConsoleData] = useState<AgentExecutionConsole | null>(null);
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [taskId, setTaskId] = useState("");
+  const [profileId, setProfileId] = useState("");
+  const [manualPreview, setManualPreview] = useState<unknown | null>(null);
+
+  async function refresh() {
+    const next = await requestAgentExecutionConsole();
+    setConsoleData(next);
+    setTaskId((current) => current || next.tasks.find((task) =>
+      task.protocol === "RULE_EVIDENCE_TASK_V1"
+    )?.taskId || next.tasks[0]?.taskId || "");
+    setProfileId((current) => {
+      if (current) return current;
+      const route = [...next.workloadRoutes]
+        .filter((item) => item.taskKind === "RULE_EVIDENCE_CLAIM")
+        .sort((left, right) => right.revision - left.revision)[0];
+      return route?.executionProfileId || next.executionProfiles.find((profile) =>
+        profile.toolPolicy.protocol === "RULE_EVIDENCE_TOOLS_V1"
+      )?.executionProfileId || "";
+    });
+    setDiagnostic(null);
+  }
+
+  useEffect(() => {
+    void refresh().catch((error: unknown) => setDiagnostic(
+      error instanceof Error ? error.message : "Agent console is unavailable",
+    ));
+  }, []);
+
+  async function post(path: string, body?: unknown): Promise<unknown> {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body ?? {}),
+    });
+    const result = await response.json() as { ok?: boolean; diagnostic?: string };
+    if (!response.ok || result.ok === false) {
+      throw new Error(result.diagnostic ?? `Agent operation returned HTTP ${response.status}`);
+    }
+    return result;
+  }
+
+  async function perform(key: string, action: () => Promise<unknown>) {
+    setBusy(key);
+    setDiagnostic(null);
+    try {
+      const result = await action();
+      if (key === "manual-preview") setManualPreview(result);
+      else setManualPreview(null);
+      await refresh();
+    } catch (error) {
+      setDiagnostic(error instanceof Error ? error.message : "Agent operation failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (consoleData === null) {
+    return (
+      <section className="page-section agent-console">
+        <div className="section-heading">
+          <div><span className="eyebrow">Execution substrate</span><h1>Agent operations</h1></div>
+        </div>
+        <Card><CardContent className="empty-state"><LoaderCircle className="spin" size={18} />{diagnostic ?? "Loading Agent ledger…"}</CardContent></Card>
+      </section>
+    );
+  }
+
+  const runtimes = new Map(consoleData.runtimeDefinitions.map((item) =>
+    [item.runtimeDefinitionId, item] as const
+  ));
+  const credentials = new Map(consoleData.credentialBindings.map((item) =>
+    [item.credentialBindingId, item] as const
+  ));
+  const models = new Map(consoleData.modelProfiles.map((item) =>
+    [item.modelProfileId, item] as const
+  ));
+  const profiles = consoleData.executionProfiles.filter((item) =>
+    item.toolPolicy.protocol === "RULE_EVIDENCE_TOOLS_V1"
+  );
+  const capabilities = new Map(consoleData.capabilities.map((item) =>
+    [item.executionProfileId, item] as const
+  ));
+  const selectedCapability = capabilities.get(profileId);
+  const invocationsByRun = new Map<string, AgentExecutionConsole["modelInvocations"]>();
+  for (const invocation of consoleData.modelInvocations) {
+    invocationsByRun.set(invocation.runId, [
+      ...(invocationsByRun.get(invocation.runId) ?? []),
+      invocation,
+    ]);
+  }
+
+  return (
+    <section className="page-section agent-console">
+      <div className="section-heading agent-console-heading">
+        <div>
+          <span className="eyebrow">Execution substrate</span>
+          <h1>Agent operations</h1>
+          <p>Runtime, credential, model and effort are composed here. Only a manual run or an active campaign can spend tokens.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void perform("refresh", refresh)} disabled={busy !== null}>
+          <RefreshCw size={13} /> Refresh
+        </Button>
+      </div>
+
+      {diagnostic !== null && <div className="inline-alert"><CircleOff size={14} />{diagnostic}</div>}
+
+      <div className="metric-grid agent-metrics">
+        <Metric label="Runtimes" value={`${consoleData.summary.runtimeDefinitionCount}`} detail="Pi · Codex · in-process" />
+        <Metric label="Execution profiles" value={`${consoleData.summary.executionProfileCount}`} detail="immutable runtime/model compositions" />
+        <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail="task identity is provider-neutral" />
+        <Metric label="Known tokens" value={formatTokenCount((BigInt(consoleData.usage.inputTokens) + BigInt(consoleData.usage.outputTokens)).toString())} detail={`${consoleData.usage.incompleteTokenInvocationCount} invocations incomplete`} />
+      </div>
+
+      <div className="agent-console-grid">
+        <Card>
+          <CardHeader>
+            <div><span className="eyebrow">Capability</span><h2>Execution capability</h2><p>Configuration, runtime presence, service access and dispatch eligibility are separate signals.</p></div>
+          </CardHeader>
+          <CardContent className="agent-runtime-list">
+            {consoleData.runtimeDefinitions.map((runtime) => {
+              const compatibleProfiles = consoleData.executionProfiles.filter((profile) =>
+                profile.runtimeDefinitionId === runtime.runtimeDefinitionId
+              );
+              const readyCount = compatibleProfiles.filter((profile) =>
+                capabilities.get(profile.executionProfileId)?.dispatchEligibility === "ELIGIBLE"
+              ).length;
+              return (
+                <div className="agent-runtime-row" key={runtime.runtimeDefinitionId}>
+                  <div><strong>{runtime.kind.replace("HARNESS_IN_PROCESS", "In-process")}</strong><span>{runtime.version}</span></div>
+                  <Badge variant={readyCount > 0 ? "verified" : "warning"}>{readyCount}/{compatibleProfiles.length} dispatchable</Badge>
+                </div>
+              );
+            })}
+            {consoleData.credentialBindings.map((binding) => (
+              <div className="agent-credential-row" key={binding.credentialBindingId}>
+                <span>{binding.kind}</span>
+                <span>{binding.configuration?.status === "CONFIGURED" ? "Configured" : binding.configuration?.diagnostic ?? "Missing"}</span>
+              </div>
+            ))}
+            {consoleData.executionProfiles.map((profile) => {
+              const runtime = runtimes.get(profile.runtimeDefinitionId);
+              const model = models.get(profile.modelProfileId);
+              const capability = capabilities.get(profile.executionProfileId);
+              return (
+                <div className="agent-runtime-row" key={`capability:${profile.executionProfileId}`}>
+                  <div>
+                    <strong>{runtime?.kind ?? "runtime"} · {model?.model ?? "model"}</strong>
+                    <span>{capability?.serviceCapability ?? "UNVERIFIED"} · {capability?.diagnostic ?? "not checked"}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy !== null}
+                    onClick={() => void perform(
+                      `preflight-${profile.executionProfileId}`,
+                      () => post(`/api/v1/execution-profiles/${profile.executionProfileId}/preflight`),
+                    )}
+                  >
+                    {capability?.observation == null ? "Preflight" : "Recheck"}
+                  </Button>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div><span className="eyebrow">Attribution</span><h2>Token and incident ledger</h2></div>
+          </CardHeader>
+          <CardContent className="agent-usage-ledger">
+            <div><span>Input</span><strong>{formatTokenCount(consoleData.usage.inputTokens)}</strong></div>
+            <div><span>Output</span><strong>{formatTokenCount(consoleData.usage.outputTokens)}</strong></div>
+            <div><span>Reasoning</span><strong>{formatTokenCount(consoleData.usage.reasoningTokens)}</strong></div>
+            <p>{consoleData.usage.currencyCostDiagnostic}</p>
+            <div className="agent-usage-breakdown">
+              {consoleData.usage.byRuntimeModelPurpose.slice(0, 5).map((item) => (
+                <div key={`${item.runtimeKind}:${item.model}:${item.taskKind}`}>
+                  <span>{item.runtimeKind} · {item.model}<small>{item.taskKind} · {item.invocationCount} calls · {item.failedInvocationCount} failed</small></span>
+                  <strong>{formatTokenCount((BigInt(item.inputTokens) + BigInt(item.outputTokens)).toString())}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="incident-chips">
+              {Object.entries(consoleData.incidentCounts).filter(([, count]) => count > 0).map(([category, count]) => (
+                <Badge key={category} variant={category.includes("CODEX") ? "warning" : "muted"}>{category.replaceAll("_", " ").toLowerCase()} · {count}</Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="agent-control-card">
+        <CardHeader>
+          <div><span className="eyebrow">Explicit authority</span><h2>Prepare work</h2><p>Previewing and creating a paused campaign make zero model requests.</p></div>
+        </CardHeader>
+        <CardContent>
+          <div className="agent-control-form">
+            <label><span>Task</span><Select value={taskId} onValueChange={(value) => { setTaskId(value); setManualPreview(null); }}><SelectTrigger><SelectValue placeholder="Select task" /></SelectTrigger><SelectContent>{consoleData.tasks.slice(0, 100).map((task) => <SelectItem key={task.taskId} value={task.taskId}>{task.kind} · {task.taskId.slice(7, 17)}</SelectItem>)}</SelectContent></Select></label>
+            <label><span>Execution profile</span><Select value={profileId} onValueChange={(value) => { setProfileId(value); setManualPreview(null); }}><SelectTrigger><SelectValue placeholder="Select profile" /></SelectTrigger><SelectContent>{profiles.map((profile) => {
+              const runtime = runtimes.get(profile.runtimeDefinitionId);
+              const model = models.get(profile.modelProfileId);
+              return <SelectItem key={profile.executionProfileId} value={profile.executionProfileId}>{runtime?.kind ?? "runtime"} · {model?.model ?? "model"} · r{profile.revision}</SelectItem>;
+            })}</SelectContent></Select></label>
+          </div>
+          <div className="agent-control-actions">
+            <Button variant="outline" disabled={!taskId || !profileId || busy !== null} onClick={() => void perform("manual-preview", () => post(`/api/v1/agent-tasks/${taskId}/runs`, { mode: "PREVIEW", executionProfileId: profileId }))}>Preview manual run</Button>
+            <Button variant="outline" disabled={!taskId || !profileId || busy !== null} onClick={() => void perform("campaign-create", () => post("/api/v1/agent-campaigns", {
+              campaignKey: `studio-rule-evidence-${Date.now()}`,
+              executionProfileId: profileId,
+              taskIds: [taskId],
+              schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+              budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 3, maximumInputTokens: "100000", maximumOutputTokens: "20000", maximumWallClockMs: 300000 },
+            }))}>Create paused campaign</Button>
+            {manualPreview !== null && <Button disabled={busy !== null || selectedCapability?.dispatchEligibility !== "ELIGIBLE"} onClick={() => void perform("manual-execute", () => post(`/api/v1/agent-tasks/${taskId}/runs`, { mode: "EXECUTE", executionProfileId: profileId, authorizationRef: "operator:studio-manual" }))}><Play size={12} /> Run reviewed snapshot</Button>}
+          </div>
+          {selectedCapability?.dispatchEligibility === "BLOCKED" && (
+            <div className="inline-alert"><CircleOff size={14} />Selected profile is blocked: {selectedCapability.diagnostic}</div>
+          )}
+          {manualPreview !== null && <pre className="agent-preview">{JSON.stringify(manualPreview, null, 2)}</pre>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><div><span className="eyebrow">Campaigns</span><h2>Spend authority</h2></div></CardHeader>
+        <CardContent className="agent-campaign-list">
+          {consoleData.campaigns.length === 0 && <div className="empty-state">No campaign exists. Routes and credentials alone cannot dispatch work.</div>}
+          {consoleData.campaigns.slice().reverse().slice(0, 20).map((campaign) => (
+            <div className="agent-campaign-row" key={campaign.campaignId}>
+              <div><strong>{campaign.campaignKey}</strong><span>{campaign.superseded ? "SUPERSEDED" : campaign.status} · {campaign.taskIds.length} task · max {campaign.budget.maximumModelInvocations} invocations</span></div>
+              <div>
+                {!campaign.superseded && campaign.status === "PAUSED" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void perform(`activate-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/activate`, { activationRef: "operator:studio" }))}>Activate only</Button>}
+                {!campaign.superseded && campaign.status === "ACTIVE" && <><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void perform(`pause-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/pause`))}><Pause size={11} /> Pause</Button><Button size="sm" disabled={busy !== null || campaign.preview?.maximumImmediateFanout === 0} onClick={() => void perform(`dispatch-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/dispatch`))}><Play size={11} /> Dispatch {campaign.preview?.maximumImmediateFanout ?? 0}</Button></>}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><div><span className="eyebrow">Recent lineage</span><h2>Runs and model invocations</h2></div></CardHeader>
+        <CardContent className="agent-run-list">
+          {consoleData.runs.slice(0, 40).map((run) => {
+            const profile = consoleData.executionProfiles.find((item) => item.executionProfileId === run.executionProfileId);
+            const model = profile === undefined ? undefined : models.get(profile.modelProfileId);
+            const runtime = profile === undefined ? undefined : runtimes.get(profile.runtimeDefinitionId);
+            const invocations = invocationsByRun.get(run.runId) ?? [];
+            const failedInvocations = invocations.filter((item) =>
+              item.failureCategory !== undefined && item.failureCategory !== null
+            );
+            const runTokens = invocations.reduce((total, item) => total + BigInt(item.inputTokens ?? "0") + BigInt(item.outputTokens ?? "0"), 0n);
+            return (
+              <div className="agent-run-row" key={run.runId}>
+                <Badge variant={run.status === "SUCCEEDED" ? "verified" : run.status === "PREPARED" ? "shadow" : "warning"}>
+                  {run.status}
+                </Badge>
+                <div>
+                  <strong>{runtime?.kind ?? "legacy"} · {model?.model ?? "unresolved model"}</strong>
+                  <span>
+                    {run.authorization.kind} · run {run.runOrdinal} · {invocations.length} calls · {formatTokenCount(runTokens.toString())} tokens
+                  </span>
+                  {run.terminalDiagnostic !== null && <small>{run.terminalDiagnostic}</small>}
+                  {failedInvocations.length > 0 && (
+                    <details className="agent-invocation-diagnostics">
+                      <summary>
+                        {failedInvocations.length} invocation failure{failedInvocations.length === 1 ? "" : "s"}
+                      </summary>
+                      {failedInvocations.map((invocation) => (
+                        <div key={invocation.invocationId}>
+                          <code>{invocation.failureCategory}</code>
+                          <p>
+                            {invocation.diagnostic ??
+                              "No bounded transport diagnostic was retained for this historical invocation."}
+                          </p>
+                        </div>
+                      ))}
+                    </details>
+                  )}
+                </div>
+                <code>{run.runId.slice(7, 19)}</code>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
 function Overview({
   onInspect,
 }: {
@@ -2787,7 +3472,7 @@ function Overview({
         <div className="ai-runtime-panel">
           <div className="ai-runtime-panel-heading">
             <div>
-              <span>Scout provider</span>
+              <span>Legacy discovery route</span>
               <strong>{studioProjection.ai.modelProvider.model}</strong>
             </div>
             <span className={cn(
@@ -2805,8 +3490,8 @@ function Overview({
                       : `Session · revision ${runtimeConfiguration.configuration.revision}`}
             </span>
           </div>
-          <div className="ai-runtime-controls" aria-label="AI runtime configuration">
-            <div className="ai-provider-toggle" role="group" aria-label="Scout provider">
+          <div className="ai-runtime-controls" aria-label="Legacy AI route configuration">
+            <div className="ai-provider-toggle" role="group" aria-label="Legacy model access">
               {runtimeConfiguration.availableProviders.map((provider) => (
                 <Button
                   key={provider}
@@ -2824,7 +3509,7 @@ function Overview({
               ))}
             </div>
             <label>
-              <span>Model</span>
+              <span>Codex model profile</span>
             <Select
               aria-label="Codex model"
               value={runtimeConfiguration.configuration.codexModel}
@@ -2861,7 +3546,7 @@ function Overview({
             </Select>
             </label>
             <label className="ai-automation-toggle">
-              <span>DeepSeek automation</span>
+              <span>Legacy schedulers</span>
               <Button
                 size="sm"
                 variant={runtimeConfiguration.configuration.deepseekAutomationEnabled
@@ -2875,7 +3560,7 @@ function Overview({
               >
                 {runtimeConfiguration.configuration.deepseekAutomationEnabled
                   ? "Enabled"
-                  : "Off · manual only"}
+                  : "Off · contained"}
               </Button>
             </label>
           </div>
@@ -2885,8 +3570,9 @@ function Overview({
             {studioProjection.ai.modelProvider.timeoutMs / 1_000}s timeout ·{" "}
             {studioProjection.ai.modelProvider.transport.replaceAll("_", " ").toLowerCase()}
             {runtimeConfiguration.configuration.deepseekAutomationEnabled
-              ? " · DeepSeek automation enabled"
-              : " · DeepSeek automatic spend blocked"}
+              ? " · legacy DeepSeek schedulers enabled"
+              : " · legacy automatic spend contained"}
+            {" · Agent runtime and campaign authority are configured in Agent operations"}
           </p>
         </div>
 
@@ -3743,6 +4429,10 @@ function MarketArchaeologistView() {
   const [newIssueQuestion, setNewIssueQuestion] = useState("");
   const [newIssueLens, setNewIssueLens] = useState<SearchIssue["lens"]>("EQUIVALENCE");
   const [newIssueCadenceMinutes, setNewIssueCadenceMinutes] = useState(15);
+  const discoveryExecution = useDiscoveryExecutionCapability();
+  const discoveryCapability = discoveryExecution.data?.capability;
+  const discoveryRuntime = discoveryExecution.data?.runtime;
+  const discoveryModel = discoveryExecution.data?.model;
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
@@ -3878,12 +4568,27 @@ function MarketArchaeologistView() {
           </p>
         </div>
         <div className="archaeology-heading-badges">
+          <Badge variant={discoveryCapability?.dispatchEligibility === "ELIGIBLE" ? "verified" : "warning"}>
+            {discoveryRuntime?.kind?.replace("HARNESS_IN_PROCESS", "In-process") ?? "Runtime"}
+            {" · "}{discoveryModel?.model ?? "loading"}
+            {" · "}{discoveryCapability?.serviceCapability ?? "UNVERIFIED"}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={discoveryExecution.data === null || discoveryExecution.preflightBusy}
+            onClick={() => void discoveryExecution.preflight()}
+          >
+            {discoveryExecution.preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
+            {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
+          </Button>
           <Button
             disabled={
               corpus.listingCount === 0 ||
               nextLens === undefined ||
               scheduler.status === "RUNNING" ||
-              leaseStatus === "RUNNING"
+              leaseStatus === "RUNNING" ||
+              discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
             }
             onClick={() => void runLease()}
           >
@@ -3896,6 +4601,13 @@ function MarketArchaeologistView() {
           </Button>
         </div>
       </div>
+
+      {(discoveryExecution.diagnostic !== null || discoveryCapability?.dispatchEligibility === "BLOCKED") && (
+        <div className="inline-alert" role="status">
+          <CircleOff size={14} />
+          {discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
+        </div>
+      )}
 
       <div className="radar-summary-grid archaeology-summary-grid">
         <Metric
@@ -4624,7 +5336,8 @@ function MarketArchaeologistView() {
                 corpus.listingCount === 0 ||
                 nextLens === undefined ||
                 scheduler.status === "RUNNING" ||
-                leaseStatus === "RUNNING"
+                leaseStatus === "RUNNING" ||
+                discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
               }
               onClick={() => void runLease()}
             >
@@ -4992,6 +5705,7 @@ function OpportunityLifecycleView({
     "IDLE" | "RUNNING" | "FAILED"
   >("IDLE");
   const [lifecycleCaseLimit, setLifecycleCaseLimit] = useState(12);
+  const [showGlobalReview, setShowGlobalReview] = useState(false);
   const [focusedProjection, setFocusedProjection] =
     useState<ProposalHandoffProjection | null>(null);
   const [focusedProjectionStatus, setFocusedProjectionStatus] = useState<
@@ -5000,6 +5714,10 @@ function OpportunityLifecycleView({
   const [focusedProjectionDiagnostic, setFocusedProjectionDiagnostic] =
     useState<string | null>(null);
   const focusedProposalKey = focusedProposalIds.join(",");
+
+  useEffect(() => {
+    setShowGlobalReview(false);
+  }, [focusedProposalKey]);
 
   useEffect(() => {
     let active = true;
@@ -5489,6 +6207,14 @@ function OpportunityLifecycleView({
               <Button variant="outline" size="sm" onClick={onClearFocus}>
                 <X size={13} /> Clear focus
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowGlobalReview((current) => !current)}
+              >
+                <LayoutDashboard size={13} />
+                {showGlobalReview ? "Hide global operations" : "Browse all review operations"}
+              </Button>
             </div>
           </div>
           {focusedProjectionDiagnostic !== null && (
@@ -5521,6 +6247,13 @@ function OpportunityLifecycleView({
               const indicativeEconomics = item.economicTriage?.indicativeEconomics;
               const canRunReview = item.lifecycleCase?.nextAction === "INDEPENDENT_SEMANTIC_REVIEW" &&
                 item.reviewJob === undefined && item.attention === undefined;
+              const evidenceGapDetailUnavailable =
+                item.nextGate === "RESOLVE_EVIDENCE_GAPS" && item.attention === undefined;
+              const nextGatePrefix = evidenceGapDetailUnavailable
+                ? "BLOCKED"
+                : ["AWAIT_REVIEW_RECOVERY", "AWAIT_PREMISE_ANALYSIS"].includes(item.nextGate)
+                  ? "WAITING"
+                  : "NEXT";
               const premiseRouteCandidates = premiseEvidenceRouting.jobs
                 .filter((job) => job.proposal.proposalId === item.proposalId &&
                   (item.premiseOutcome.outcome === null ||
@@ -5541,7 +6274,7 @@ function OpportunityLifecycleView({
                 <article key={item.proposalId}>
                   <div className="focused-review-handoff-topline">
                     <Badge variant={item.nextGate === "OPERATOR_DECISION" || item.nextGate === "FEE_DEPTH_QUALIFICATION" ? "verified" : ["RECOVER_REVIEW_DETAIL", "RESOLVE_EVIDENCE_GAPS", "RETRY_PREMISE_ANALYSIS", "BIND_PREMISE_EVIDENCE"].includes(item.nextGate) ? "warning" : "shadow"}>
-                      NEXT · {item.nextGate.replaceAll("_", " ")}
+                      {nextGatePrefix} · {item.nextGate.replaceAll("_", " ")}
                     </Badge>
                     {item.proposal !== undefined && (
                       <Badge variant="muted">{item.proposal.relationKind.replaceAll("_", " ")}</Badge>
@@ -5634,6 +6367,17 @@ function OpportunityLifecycleView({
                       <span>Semantic outcome</span>
                       <strong>No passing outcome capsule yet</strong>
                       <p>{item.reviewOutcome.diagnostic}</p>
+                    </div>
+                  )}
+                  {evidenceGapDetailUnavailable && (
+                    <div className="decision-dossier-warning" role="status">
+                      <CircleOff size={15} />
+                      <div>
+                        <strong>Evidence-gap work is not actionable from this retained dossier</strong>
+                        <span>
+                          This capsule classifies the relation as {reviewOutcome?.semanticConstraint?.classification.toLowerCase().replaceAll("_", " ") ?? "unresolved"} with {reviewOutcome?.semanticConstraint?.exactCompilerAdmission?.toLowerCase().replaceAll("_", " ") ?? "no"} exact admission, so it is not a traded-rule evidence acquisition job. It proves that {reviewOutcome?.missingEvidenceCount ?? 0} gap{reviewOutcome?.missingEvidenceCount === 1 ? " exists" : "s exist"} and {reviewOutcome?.counterexampleCount ?? 0} counterexample{reviewOutcome?.counterexampleCount === 1 ? " was" : "s were"} retained, but it does not retain their text or an external-research route. Starting work from only these counts would fabricate scope. Recover the canonical review detail or keep this candidate as research-only until a proposal-bound requirement exists.
+                        </span>
+                      </div>
                     </div>
                   )}
                   {((reviewOutcome?.semanticConstraint?.classification === "HARD_SETTLEMENT_CONSTRAINT" &&
@@ -5840,6 +6584,8 @@ function OpportunityLifecycleView({
         </section>
       )}
 
+      {(focusedProposalIds.length === 0 || showGlobalReview) && (
+      <div className="global-review-operations">
       <div className="radar-summary-grid lifecycle-summary-grid">
         <Metric label="Tracked cases" value={`${desk.caseCount}`} detail="AI + deterministic leads" />
         <Metric label="Awaiting work" value={`${awaiting}`} detail="explicit next action" />
@@ -5892,6 +6638,7 @@ function OpportunityLifecycleView({
           <div><strong>{probabilityScheduler.passedCount}</strong><span>intervals</span></div>
           <div><strong>{probabilityScheduler.boundReadyCount}</strong><span>bounds ready</span></div>
           <div><strong>{probabilityScheduler.abstainedCount}</strong><span>abstained</span></div>
+          <div><strong>{probabilityScheduler.challengedCount}</strong><span>semantic challenges</span></div>
           <div><strong>{probabilityScheduler.blockedEvidenceCount}</strong><span>evidence blocked</span></div>
         </div>
         <div className="attention-item-list">
@@ -6172,7 +6919,7 @@ function OpportunityLifecycleView({
           {aiUsage.recentEvents.slice(0, 8).map((event) => (
             <article key={event.eventId}>
               <div className="attention-item-topline">
-                <Badge variant={event.outcome === "SUCCEEDED" ? "verified" : event.outcome === "ABSTAINED" ? "muted" : "warning"}>
+                <Badge variant={event.outcome === "SUCCEEDED" ? "verified" : ["ABSTAINED", "CHALLENGED"].includes(event.outcome) ? "muted" : "warning"}>
                   {event.outcome}
                 </Badge>
                 <time>{new Date(event.occurredAt).toLocaleString()}</time>
@@ -6307,6 +7054,7 @@ function OpportunityLifecycleView({
         <div className="attention-queue-stats">
           <div><strong>{ruleEvidenceClaims.dueCount}</strong><span>due</span></div>
           <div><strong>{ruleEvidenceClaims.leasedCount}/{ruleEvidenceClaims.concurrencyLimit}</strong><span>leased</span></div>
+          <div><strong>{ruleEvidenceClaims.interruptedLeaseCount}</strong><span>interrupted</span></div>
           <div><strong>{ruleEvidenceClaims.supportedCount}</strong><span>supports</span></div>
           <div><strong>{ruleEvidenceClaims.contradictedCount}</strong><span>contradicts</span></div>
           <div><strong>{ruleEvidenceClaims.inconclusiveCount}</strong><span>inconclusive</span></div>
@@ -7380,6 +8128,8 @@ function OpportunityLifecycleView({
           gateway exists in this product surface.
         </span>
       </div>
+      </div>
+      )}
     </section>
   );
 }
@@ -7754,6 +8504,10 @@ function ScoutInboxView({
   const [explorationStatus, setExplorationStatus] = useState<
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
+  const discoveryExecution = useDiscoveryExecutionCapability();
+  const discoveryCapability = discoveryExecution.data?.capability;
+  const discoveryRuntime = discoveryExecution.data?.runtime;
+  const discoveryModel = discoveryExecution.data?.model;
   const liveContextEligible =
     catalogMode === "VERIFIED_FIXTURES" ||
     selectedVenueIds.every(
@@ -7854,24 +8608,51 @@ function ScoutInboxView({
             or permission to trade.
           </p>
         </div>
-        <Button
-          disabled={scheduler.status === "RUNNING" || explorationStatus === "RUNNING"}
-          onClick={() => void exploreNext()}
-        >
-          {explorationStatus === "RUNNING" ? (
-            <RefreshCw className="is-spinning" size={13} />
-          ) : (
-            <Sparkles size={13} />
-          )}
-          {explorationStatus === "RUNNING"
-            ? "Exploring…"
-            : explorationStatus === "RESTORED"
-              ? "Latest scan restored"
-              : explorationStatus === "FAILED"
-                ? "Retry exploration"
-                : "Explore next"}
-        </Button>
+        <div className="archaeology-heading-badges">
+          <Badge variant={discoveryCapability?.dispatchEligibility === "ELIGIBLE" ? "verified" : "warning"}>
+            {discoveryRuntime?.kind?.replace("HARNESS_IN_PROCESS", "In-process") ?? "Runtime"}
+            {" · "}{discoveryModel?.model ?? "loading"}
+            {" · "}{discoveryCapability?.serviceCapability ?? "UNVERIFIED"}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={discoveryExecution.data === null || discoveryExecution.preflightBusy}
+            onClick={() => void discoveryExecution.preflight()}
+          >
+            {discoveryExecution.preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
+            {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
+          </Button>
+          <Button
+            disabled={
+              scheduler.status === "RUNNING" ||
+              explorationStatus === "RUNNING" ||
+              discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
+            }
+            onClick={() => void exploreNext()}
+          >
+            {explorationStatus === "RUNNING" ? (
+              <RefreshCw className="is-spinning" size={13} />
+            ) : (
+              <Sparkles size={13} />
+            )}
+            {explorationStatus === "RUNNING"
+              ? "Exploring…"
+              : explorationStatus === "RESTORED"
+                ? "Latest scan restored"
+                : explorationStatus === "FAILED"
+                  ? "Retry exploration"
+                  : "Explore next"}
+          </Button>
+        </div>
       </div>
+
+      {(discoveryExecution.diagnostic !== null || discoveryCapability?.dispatchEligibility === "BLOCKED") && (
+        <div className="inline-alert" role="status">
+          <CircleOff size={14} />
+          {discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
+        </div>
+      )}
 
       <div className="finding-inbox-summary" aria-label="Finding inbox summary">
         <Metric label="Needs attention" value={`${attentionCount}`} detail="retry, review, or inspect" />
@@ -7891,11 +8672,14 @@ function ScoutInboxView({
             </p>
           </div>
           <div>
-            <Badge variant={opportunityFrontier.totalPositiveCount > 0 ? "verified" : "muted"}>
-              {opportunityFrontier.totalPositiveCount} CURRENT HINT{opportunityFrontier.totalPositiveCount === 1 ? "" : "S"}
+            <Badge variant={opportunityFrontier.visibleUniqueCount > 0 ? "verified" : "muted"}>
+              {opportunityFrontier.visibleUniqueCount} UNIQUE SHOWN
             </Badge>
             <span>
-              {opportunityFrontier.visiblePositiveCount}/{opportunityFrontier.totalPositiveCount} visible
+              {opportunityFrontier.rawPositiveCount} raw · {opportunityFrontier.collapsedVisibleCount} collapsed
+              {opportunityFrontier.omittedRawPositiveCount > 0
+                ? ` · ${opportunityFrontier.omittedRawPositiveCount} outside view`
+                : ""}
             </span>
           </div>
         </div>
@@ -7919,6 +8703,11 @@ function ScoutInboxView({
                   <div>
                     <Badge variant="verified">PRICE POSITIVE</Badge>
                     <Badge variant="muted">{item.relationKind.replaceAll("_", " ")}</Badge>
+                    {item.collapsedProposalCount > 0 && (
+                      <Badge variant="muted">
+                        {item.collapsedProposalCount} VARIANT{item.collapsedProposalCount === 1 ? "" : "S"} COLLAPSED
+                      </Badge>
+                    )}
                   </div>
                 </div>
                 <h3 title={item.statement}>{item.statement}</h3>
@@ -7942,7 +8731,7 @@ function ScoutInboxView({
           <div className="opportunity-frontier-window-note" role="status">
             <CircleOff size={14} />
             <span>
-              {opportunityFrontier.omittedPositiveCount} additional positive hint{opportunityFrontier.omittedPositiveCount === 1 ? " is" : "s are"} outside the bounded live view; the total is retained, not reported as zero.
+              {opportunityFrontier.omittedRawPositiveCount} additional raw positive hint{opportunityFrontier.omittedRawPositiveCount === 1 ? " is" : "s are"} outside the bounded live view; uniqueness is not guessed without exact relation and contract identities.
             </span>
           </div>
         )}
@@ -9302,12 +10091,381 @@ function BookDeskView() {
   );
 }
 
-function EvidenceView() {
+function FailureBudgetView({
+  onOpenEvidence,
+}: {
+  onOpenEvidence: (proposalIds: readonly string[]) => void;
+}) {
   const studioProjection = useStudioProjection();
+  const [frontier, setFrontier] = useState<FailureBudgetFrontierProjection | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const [retryingCase, setRetryingCase] = useState<string | null>(null);
+  const deepseekAutomationEnabled =
+    studioProjection.ai.runtimeConfiguration.configuration.deepseekAutomationEnabled;
+  const evidenceDebt =
+    studioProjection.ai.probabilityEvidenceDebt ?? EMPTY_PROBABILITY_EVIDENCE_DEBT;
+  const repairProgress =
+    studioProjection.ai.probabilitySemanticRepairProgress ??
+      EMPTY_PROBABILITY_SEMANTIC_REPAIR_PROGRESS;
+
+  async function load(): Promise<void> {
+    setLoading(true);
+    setDiagnostic(null);
+    try {
+      setFrontier(await requestFailureBudgetFrontier());
+    } catch (error) {
+      setDiagnostic(error instanceof Error ? error.message : "failure budget frontier failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function retryCase(caseIdentity: string): Promise<void> {
+    setRetryingCase(caseIdentity);
+    setDiagnostic(null);
+    try {
+      await requestProbabilityCaseRetry(caseIdentity);
+      await load();
+    } catch (error) {
+      setDiagnostic(error instanceof Error ? error.message : "probability case retry failed");
+    } finally {
+      setRetryingCase(null);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const statusLabel = (status: FailureBudgetFrontierProjection["items"][number]["status"]): string => ({
+    BOUNDED_ARBITRAGE_CANDIDATE: "BOUND HOLDS",
+    RESEARCH_MARGIN: "MARGIN · NEEDS MARKET DATA",
+    BUDGET_EXHAUSTED: "BUDGET EXHAUSTED",
+    AWAITING_ESTIMATES: "AWAITING ESTIMATES",
+    ESTIMATION_ABSTAINED: "ESTIMATORS ABSTAINED",
+    ESTIMATION_EXHAUSTED: "ESTIMATION EXHAUSTED",
+    EVIDENCE_BLOCKED: "EVIDENCE BLOCKED",
+    SEMANTIC_REPAIR_REQUIRED: "SEMANTIC REPAIR REQUIRED",
+    PRICE_UNAVAILABLE: "PRICE UNAVAILABLE",
+  })[status];
+
+  return (
+    <section className="page-section failure-budget-page">
+      <div className="page-heading failure-budget-heading">
+        <div>
+          <span className="eyebrow">Probabilistic semantic arbitrage</span>
+          <h1>Price how wrong the relation may be.</h1>
+          <p>
+            Start with an Agent-discovered semantic dependency, then ask how often it may fail
+            before current prices stop compensating us. The gap is a failure budget—not a claim
+            of guaranteed profit.
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => void load()} disabled={loading}>
+          <RefreshCw className={loading ? "is-spinning" : ""} size={16} />
+          Refresh frontier
+        </Button>
+      </div>
+
+      <div className="failure-budget-method" aria-label="Failure budget method">
+        <div>
+          <span>01</span>
+          <strong>Find a dependency</strong>
+          <p>Heuristic Agents propose unusual relations; no claim vocabulary is required up front.</p>
+        </div>
+        <ChevronRight size={17} />
+        <div>
+          <span>02</span>
+          <strong>Bound the failure state</strong>
+          <p>Independent estimates cap the probability that the attractive semantic relation fails.</p>
+        </div>
+        <ChevronRight size={17} />
+        <div>
+          <span>03</span>
+          <strong>Compare with price</strong>
+          <p>The compiler measures how much error the quoted portfolio can absorb before edge is gone.</p>
+        </div>
+      </div>
+
+      {frontier !== null && (
+        <div className="metric-grid failure-budget-summary">
+          <Metric label="Positive margin" value={`${frontier.positiveMarginCount}`} detail="price budget exceeds adverse bound" />
+          <Metric label="Bound candidates" value={`${frontier.boundedCandidateCount}`} detail="all research gates clear" />
+          <Metric label="Unbounded cases" value={`${frontier.unboundedCaseCount}`} detail={`${frontier.challengedCaseCount} challenged · ${frontier.abstainedCaseCount} abstained · ${frontier.evidenceBlockedCount} evidence-blocked`} />
+          <Metric
+            label="Frontier size"
+            value={`${frontier.itemCount}`}
+            detail={`${frontier.rawEstimatorCaseCount} estimator cases · ${frontier.collapsedEstimatorCaseCount} historical attempts collapsed`}
+          />
+        </div>
+      )}
+
+      {repairProgress.items.length > 0 && (
+        <Card className="probability-evidence-debt-card probability-repair-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Semantic repair lifecycle</span>
+              <h2>Challenge the premise, then estimate again</h2>
+              <p>
+                An estimator found that the retained relation, outcome direction, or adverse-state
+                mapping is internally inconsistent. The source case stays terminal while a new
+                semantic review either repairs, reduces, or rejects the relation.
+              </p>
+            </div>
+            <Badge variant="warning">{repairProgress.sourceChallengeCount} CHALLENGES</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="probability-evidence-debt-list">
+              {repairProgress.items.slice(0, 6).map((item) => (
+                <article key={item.repairId}>
+                  <div>
+                    <Badge variant={
+                      item.status === "REPAIRED" ? "verified" :
+                      item.status === "REVIEW_RUNNING" || item.status === "REVIEW_PENDING" ? "shadow" :
+                      item.status === "OPEN" ? "warning" : "muted"
+                    }>{item.status.replaceAll("_", " ")}</Badge>
+                    <span>generation {item.generation} · {item.roles.map((role) => role.replaceAll("_", " ")).join(" + ")} · {item.stateIds.join("+")}</span>
+                  </div>
+                  <strong>{({
+                    RELATION_DIRECTION: "The retained relation points in the wrong direction",
+                    COUNTEREXAMPLE_STATE_CONFLICT: "The counterexample points to a different joint state",
+                    OUTCOME_MAPPING: "The outcome labels do not support the retained mapping",
+                    ADVERSE_STATE_SELECTION: "The selected failure state does not match the premise",
+                    EVIDENCE_SCOPE: "The estimate relies on evidence outside its retained scope",
+                  } as const)[item.kind]}</strong>
+                  <p>{item.observedConflicts[0]}</p>
+                  <small>
+                    {item.listingRefs.length} contracts · {item.nextAction.replaceAll("_", " ").toLowerCase()}
+                    {item.engine === null ? "" : ` · ${item.engine.provider} ${item.engine.model}${item.engine.reasoningEffort === null ? "" : ` / ${item.engine.reasoningEffort}`}`}
+                    {item.successorReviewId === null ? "" : ` · successor ${item.successorReviewId.slice(0, 18)}…`}
+                  </small>
+                </article>
+              ))}
+            </div>
+            <div className="probability-evidence-debt-summary">
+              <span>{repairProgress.pendingCount + repairProgress.runningCount} active review</span>
+              <span>{repairProgress.repairedCount} repaired · {repairProgress.reducedToResearchCount} reduced</span>
+              <span>{repairProgress.rejectedCount} rejected · {repairProgress.manualAttentionCount} manual</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {evidenceDebt.items.length > 0 && (
+        <Card className="probability-evidence-debt-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Estimator research queue</span>
+              <h2>What the Agents need to learn next</h2>
+              <p>
+                Abstention is retained as typed work. Official-rule gaps can enter acquisition;
+                statistical and causal gaps wait for an approved source family.
+              </p>
+            </div>
+            <Badge variant="warning">{evidenceDebt.blockingItemCount} BLOCKING</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="probability-evidence-debt-list">
+              {evidenceDebt.items.slice(0, 6).map((item) => (
+                <article key={item.debtId}>
+                  <div>
+                    <Badge variant={item.status === "EVIDENCE_CAPTURED" ? "verified" : item.status === "ACQUISITION_IN_PROGRESS" ? "shadow" : "muted"}>
+                      {item.status.replaceAll("_", " ")}
+                    </Badge>
+                    <span>{item.kind.replaceAll("_", " ")} · {item.roles.join(" + ")}{item.questionVariants.length > 1 ? ` · ${item.questionVariants.length} formulations` : ""}</span>
+                  </div>
+                  <strong>{item.question}</strong>
+                  <p>{item.reason}</p>
+                  <small>{item.listingRefs.length} contracts · adverse {item.adverseStateIds.join("+")} · {item.engines.join(" · ")}</small>
+                </article>
+              ))}
+            </div>
+            <div className="probability-evidence-debt-summary">
+              <span>{evidenceDebt.counts.ACQUISITION_IN_PROGRESS + evidenceDebt.counts.ACQUISITION_READY} acquisition-routed</span>
+              <span>{evidenceDebt.counts.ACQUISITION_ROUTE_MISSING} missing official route</span>
+              <span>{evidenceDebt.counts.EXTERNAL_SOURCE_POLICY_REQUIRED} external-policy gated</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {diagnostic !== null && (
+        <div className="failure-budget-notice is-error">
+          <CircleOff size={17} />
+          <div><strong>Frontier unavailable</strong><span>{diagnostic}</span></div>
+        </div>
+      )}
+
+      {loading && frontier === null ? (
+        <div className="failure-budget-empty">
+          <LoaderCircle className="is-spinning" size={20} />
+          <strong>Building the read-only frontier…</strong>
+        </div>
+      ) : frontier !== null && frontier.items.length > 0 ? (
+        <div className="failure-budget-list">
+          {frontier.items.map((item, index) => {
+            const utilization = item.budgetUtilizationBps === null
+              ? 0
+              : Math.min(100, Math.max(0, Number(item.budgetUtilizationBps) / 100));
+            const positive = item.remainingFailureBudgetPpm !== null &&
+              BigInt(item.remainingFailureBudgetPpm) > 0n;
+            return (
+              <Card className="failure-budget-card" key={item.itemId}>
+                <CardHeader>
+                  <div className="failure-budget-rank">{String(index + 1).padStart(2, "0")}</div>
+                  <div className="failure-budget-title">
+                    <div>
+                      <Badge variant={positive ? "verified" : item.status === "AWAITING_ESTIMATES" ? "shadow" : ["ESTIMATION_ABSTAINED", "EVIDENCE_BLOCKED", "SEMANTIC_REPAIR_REQUIRED"].includes(item.status) ? "warning" : "muted"}>
+                        {statusLabel(item.status)}
+                      </Badge>
+                      <span>{item.calibrationStatus.replaceAll("_", " ")}</span>
+                    </div>
+                    <h2>{item.portfolioLabel ?? item.listingRefs.join(" ↔ ")}</h2>
+                  </div>
+                  <div className={cn("failure-budget-margin", positive && "is-positive")}>
+                    <span>Remaining error budget</span>
+                    <strong>{formatPpm(item.remainingFailureBudgetPpm)}</strong>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {item.budgetUtilizationBps !== null && (
+                    <div className="failure-budget-meter">
+                      <div><span>Adverse bound uses {formatFixedBps(item.budgetUtilizationBps)} of the price budget</span><span>{formatPpm(item.adverseProbabilityUpperPpm)} / {formatPpm(item.breakEvenEpsilonPpm)}</span></div>
+                      <div className="failure-budget-meter-track"><span style={{ width: `${utilization}%` }} /></div>
+                    </div>
+                  )}
+                  <dl className="failure-budget-numbers">
+                    <div><dt>Break-even failure rate</dt><dd>{formatPpm(item.breakEvenEpsilonPpm)}</dd></div>
+                    <div><dt>Conservative adverse cap</dt><dd>{formatPpm(item.adverseProbabilityUpperPpm)}</dd></div>
+                    <div><dt>Expected edge floor*</dt><dd>{formatScaledUnits(item.expectedEdgeFloorUnits, item.commonPriceScale)}</dd></div>
+                    <div><dt>Loss in adverse state*</dt><dd>{formatScaledUnits(item.adverseTailLossUnits, item.commonPriceScale)}</dd></div>
+                  </dl>
+                  {item.estimationAttempts.length > 0 && (
+                    <details className="failure-budget-attempts">
+                      <summary>
+                        <span>{item.attemptCount} estimator generation{item.attemptCount === 1 ? "" : "s"}</span>
+                        <small>adverse {item.adverseStateIds.join("+")} · show history</small>
+                        <ChevronRight size={14} />
+                      </summary>
+                      <div>
+                        {item.estimationAttempts.map((attempt, attemptIndex) => (
+                          <article key={attempt.caseIdentity}>
+                            <span>{String(attemptIndex + 1).padStart(2, "0")}</span>
+                            <div>
+                              <strong>{attempt.status.replaceAll("_", " ")}</strong>
+                              <small>
+                                {attempt.provider} · {attempt.model}
+                                {attempt.reasoningEffort === null ? "" : ` · ${attempt.reasoningEffort}`}
+                                {` · ${attempt.inputProtocol.replace("pmh.probability-estimation-input.", "")}`}
+                                {` · ${attempt.jobCount} jobs`}
+                              </small>
+                            </div>
+                            <time>{new Date(attempt.createdAt).toLocaleString()}</time>
+                          </article>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  {item.failureFactors.length > 0 && (
+                    <div className="failure-budget-factors">
+                      <strong>What can break the relation</strong>
+                      <div>{item.failureFactors.map((factor) => (
+                        <span key={factor.factorId}>{factor.label}</span>
+                      ))}</div>
+                    </div>
+                  )}
+                  <div className="failure-budget-footer">
+                    <div>
+                      {item.blockers.map((blocker) => <code key={blocker}>{blocker.replaceAll("_", " ")}</code>)}
+                      {item.blockers.length === 0 && <code>RESEARCH GATES CLEAR</code>}
+                    </div>
+                    <div>
+                      <span>
+                        {item.estimationCase === null ? "" : `${item.estimationCase.provider} · ${item.estimationCase.model}${item.estimationCase.reasoningEffort === null ? "" : ` · ${item.estimationCase.reasoningEffort}`} · `}
+                        {item.attemptCount} attempt{item.attemptCount === 1 ? "" : "s"} · {item.estimatorJobCount} estimator job{item.estimatorJobCount === 1 ? "" : "s"}
+                      </span>
+                      {item.status === "ESTIMATION_EXHAUSTED" && item.estimationCase !== null && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={retryingCase === item.estimationCase.caseIdentity}
+                          onClick={() => void retryCase(item.estimationCase!.caseIdentity)}
+                        >
+                          <RotateCcw size={14} />
+                          {retryingCase === item.estimationCase.caseIdentity ? "Reopening…" : "Retry exhausted roles"}
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onOpenEvidence([item.proposalId])}
+                      >
+                        <FileSearch size={14} />
+                        Continue research
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      ) : frontier !== null ? (
+        <div className="failure-budget-empty">
+          <Gauge size={22} />
+          <strong>No semantic relation has a probability bound yet.</strong>
+          <p>
+            Discovery and review can continue on Terra. A relation enters this frontier only
+            after independent probability estimates exist; this read does not call a provider.
+          </p>
+          <Badge variant={deepseekAutomationEnabled ? "warning" : "muted"}>
+            DeepSeek automation {deepseekAutomationEnabled ? "enabled" : "off"}
+          </Badge>
+        </div>
+      ) : null}
+
+      <Card className="failure-budget-example">
+        <CardHeader>
+          <div>
+            <span className="eyebrow">Illustrative math · not live market data</span>
+            <h2>The object we are trying to maximize</h2>
+          </div>
+          <Badge variant="muted">RESEARCH ONLY</Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="failure-budget-equation">
+            <span>price-implied tolerance</span><strong>20%</strong>
+            <span>conservative failure bound</span><strong>5%</strong>
+            <span>remaining failure budget</span><strong>15%</strong>
+          </div>
+          <p>
+            If a portfolio costs 80¢ and pays at least $1 whenever the proposed relation holds,
+            price can tolerate a 20% adverse-state rate. A defensible 5% upper bound leaves 15%
+            of model error budget. Fees, depth, stale quotes, calibration and tail loss remain
+            separate blockers before this could become actionable.
+          </p>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function EvidenceView({
+  focusedProposalIds,
+  onClearFocus,
+}: {
+  focusedProposalIds: readonly string[];
+  onClearFocus: () => void;
+}) {
+  const studioProjection = useStudioProjection();
+  const officialSourceDiscovery = studioProjection.ai.officialSourceDiscovery;
   const evidenceAcquisition =
     studioProjection.ai.evidenceAcquisition ?? EMPTY_EVIDENCE_ACQUISITION;
   const evidenceDebtFrontier =
     studioProjection.ai.evidenceDebtFrontier ?? EMPTY_EVIDENCE_DEBT_FRONTIER;
+  const probabilityEvidenceDebt =
+    studioProjection.ai.probabilityEvidenceDebt ?? EMPTY_PROBABILITY_EVIDENCE_DEBT;
   const ruleEvidenceClaims =
     studioProjection.ai.ruleEvidenceClaims ?? EMPTY_RULE_EVIDENCE_CLAIMS;
   const semanticReviewScheduler =
@@ -9378,6 +10536,19 @@ function EvidenceView() {
     job.evidenceBundle?.schemaVersion === "pmh.proposal-evidence-bundle.v2" &&
     job.evidenceBundle.captureKind === "EXACT_CURRENT_REBASE"
   );
+  const focusedProposalSet = new Set(focusedProposalIds);
+  const focusedProbabilityDebt = probabilityEvidenceDebt.items.filter((item) =>
+    focusedProposalSet.has(item.proposalId)
+  );
+  const focusedFrontierItems = evidenceDebtFrontier.items.filter((item) =>
+    focusedProposalSet.has(item.proposalId)
+  );
+  const sourceDiscoveryQueuedCount = officialSourceDiscovery.pendingCount +
+    officialSourceDiscovery.retryWaitCount;
+  const sourceDiscoveryRunningCount = officialSourceDiscovery.leasedCount;
+  const sourceDiscoveryTerminalCount = officialSourceDiscovery.admittedCount +
+    officialSourceDiscovery.noSourceCount + officialSourceDiscovery.abstainedCount +
+    officialSourceDiscovery.exhaustedCount;
   const evidencePipeline = [
     {
       step: "01",
@@ -9388,27 +10559,38 @@ function EvidenceView() {
     },
     {
       step: "02",
+      label: "Source discovery",
+      value: sourceDiscoveryQueuedCount + sourceDiscoveryRunningCount,
+      detail: `${sourceDiscoveryQueuedCount} queued · ${sourceDiscoveryRunningCount} running · ${sourceDiscoveryTerminalCount} terminal`,
+      state: sourceDiscoveryRunningCount > 0 ? "RUNNING" :
+        sourceDiscoveryQueuedCount > 0 ? "QUEUED" :
+          sourceDiscoveryTerminalCount > 0 ? "OBSERVED" : "WAITING",
+    },
+    {
+      step: "03",
       label: "Official documents",
       value: evidenceAcquisition.capturedCount,
       detail: `${evidenceAcquisition.pendingCount + evidenceAcquisition.leasedCount} active`,
       state: evidenceAcquisition.capturedCount > 0 ? "CAPTURED" : "WAITING",
     },
     {
-      step: "03",
+      step: "04",
       label: "Verified claims",
       value: ruleEvidenceClaims.passedCount,
-      detail: `${ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount} in Agent loop`,
+      detail: `${ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.activeCount} in Agent loop · ${ruleEvidenceClaims.interruptedLeaseCount} interrupted`,
       state: ruleEvidenceClaims.passedCount > 0 ? "INTERPRETED" : "RUNNING",
     },
     {
-      step: "04",
+      step: "05",
       label: "Evidence-aware review",
       value: semanticReviewScheduler.rebasedJobCount,
       detail: `${rebasedJobs.filter((job) => job.status === "PASS").length} passed in window`,
       state: semanticReviewScheduler.rebasedJobCount > 0 ? "REBOUND" : "WAITING",
     },
   ] as const;
-  const bottleneck = ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.leasedCount > 0
+  const bottleneck = officialSourceDiscovery.activeCount > 0
+    ? "Source-discovery Agents are searching approved official surfaces; candidate URLs remain inert until deterministic admission."
+    : ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.activeCount > 0
     ? "Agents are reading captured rule documents and binding exact passages to proposal-local claims."
     : evidenceAcquisition.pendingCount + evidenceAcquisition.leasedCount > 0
       ? "Anonymous document capture is the active constraint."
@@ -9437,6 +10619,62 @@ function EvidenceView() {
           stronger evidence without rewriting its history.
         </p>
       </div>
+      {focusedProposalIds.length > 0 && (
+        <Card className="focused-evidence-work">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Focused research object</span>
+              <h2>Continue the same work, without losing its identity</h2>
+              <p>
+                This view was handed off from Failure budgets. It reads retained debt only;
+                opening it does not call a model, fetch a source, or change a scheduler.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={onClearFocus}>
+              Browse all evidence
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="focused-evidence-identities">
+              {focusedProposalIds.map((proposalId) => (
+                <code key={proposalId}>{proposalId}</code>
+              ))}
+            </div>
+            {focusedProbabilityDebt.length > 0 ? (
+              <div className="focused-evidence-debt-list">
+                {focusedProbabilityDebt.map((item) => (
+                  <article key={item.debtId}>
+                    <div>
+                      <Badge variant={item.status === "EVIDENCE_CAPTURED" ? "verified" : item.status === "ACQUISITION_IN_PROGRESS" ? "shadow" : "muted"}>
+                        {item.status.replaceAll("_", " ")}
+                      </Badge>
+                      <span>{item.kind.replaceAll("_", " ")} · adverse {item.adverseStateIds.join("+")}</span>
+                    </div>
+                    <strong>{item.question}</strong>
+                    <p>{item.reason}</p>
+                    <small>
+                      {item.roles.join(" + ")} · {item.engines.join(" · ")}
+                      {item.questionVariants.length > 1 ? ` · ${item.questionVariants.length} formulations` : ""}
+                    </small>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="review-operation-empty">
+                <strong>No active probability research debt is retained for this proposal</strong>
+                <span>The identity remains in the URL so a refresh cannot silently replace it with unrelated work.</span>
+              </div>
+            )}
+            <div className="focused-evidence-summary">
+              <span>{focusedProbabilityDebt.length} typed probability questions</span>
+              <span>{focusedFrontierItems.length} active unsupported-source frontier items</span>
+              <a href={serializeWorkspaceRoute("lifecycle", focusedProposalIds)}>
+                Open focused Review <ChevronRight size={15} />
+              </a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <Card className="evidence-pipeline-card">
         <CardHeader>
           <div>
@@ -9910,6 +11148,7 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
         />
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
+          {view === "agents" && <AgentOperationsView />}
           {view === "archaeologist" && <MarketArchaeologistView />}
           {view === "lifecycle" && (
             <OpportunityLifecycleView
@@ -9924,10 +11163,20 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
               onOpenReview={(proposalIds) => navigate("lifecycle", proposalIds)}
             />
           )}
+          {view === "budgets" && (
+            <FailureBudgetView
+              onOpenEvidence={(proposalIds) => navigate("evidence", proposalIds)}
+            />
+          )}
           {view === "cases" && <ResearchCaseDeskView />}
           {view === "venues" && <VenueMatrix />}
           {view === "books" && <BookDeskView />}
-          {view === "evidence" && <EvidenceView />}
+          {view === "evidence" && (
+            <EvidenceView
+              focusedProposalIds={focusedProposalIds}
+              onClearFocus={() => navigate("evidence")}
+            />
+          )}
         </main>
         <footer>
           <span>
@@ -9953,17 +11202,28 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
 export default function App() {
   const { projection, diagnostic, sync } = useControlPlaneProjection();
   if (projection === null) {
+    const readiness = sync.readiness;
+    const phaseCopy = readiness === null
+      ? "Waiting for the backend process to publish its first projection."
+      : {
+          STARTUP_GATE: "Waiting for this backend process to own the local service.",
+          DURABLE_RECOVERY: "Restoring retained books, catalogs, and research state.",
+          AGENT_RECONCILIATION: "Reconciling retained Agent tasks and run lineage.",
+          WAITING_FOR_PROJECTION: "Durable recovery is complete; preparing the Studio view.",
+          MATERIALIZING_PROJECTION: "Building the first bounded Studio projection.",
+          READY: "The research desk is ready.",
+          FAILED: readiness.diagnostic ?? "Control-plane startup failed.",
+        }[readiness.phase];
     return (
       <main className="control-plane-gate">
         <SignalMark />
         <span className="eyebrow">Harmony control plane</span>
-        <h1>{diagnostic === null ? "Connecting to the desk…" : "Desk offline"}</h1>
+        <h1>{diagnostic === null ? "Preparing the research desk…" : "Desk offline"}</h1>
         <p>
-          {diagnostic ??
-            "Waiting for the backend process to publish its first projection."}
+          {diagnostic ?? `${phaseCopy}${readiness === null ? "" : ` · ${(readiness.elapsedMs / 1_000).toFixed(1)}s elapsed`}`}
         </p>
         <Badge variant={diagnostic === null ? "muted" : "warning"}>
-          {diagnostic === null ? "CONNECTING" : "BACKEND REQUIRED"}
+          {diagnostic === null ? readiness?.phase.replaceAll("_", " ") ?? "CONNECTING" : "BACKEND REQUIRED"}
         </Badge>
       </main>
     );

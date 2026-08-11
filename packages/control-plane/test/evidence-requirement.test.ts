@@ -74,6 +74,25 @@ function draft(
 }
 
 describe("structured evidence requirements", () => {
+  it("allows contract rules to prove a declared oracle source without changing locator role", () => {
+    const contract = listings[0]!;
+    const source = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId,
+      proposalListingRefs,
+      listings,
+      drafts: [draft("ORACLE_SOURCE", [contract.listingRef])],
+    })[0]!;
+    expect(source).toMatchObject({
+      kind: "ORACLE_SOURCE",
+      acquisitionRoute: "DOCUMENT_LOCATOR",
+      eligibleLocators: [{
+        listingRefs: [contract.listingRef],
+        locator: { role: "CONTRACT_RULE_DOCUMENT" },
+      }],
+    });
+  });
+
   it("rebinds a retained current requirement only when acquisition scope changes", () => {
     const oldContract = listing("polymarket-us", "CONTRACT_RULE_DOCUMENT", {
       listingRef: "polymarket-us:house-dem",
@@ -239,10 +258,24 @@ describe("structured evidence requirements", () => {
       listings: withoutLocators,
       drafts: [{ ...draft("ORACLE_SOURCE", refs), temporalPosture: "CURRENT" }],
     })[0]!;
-    expect(rebaseEvidenceRequirementToRetainedLocatorCapabilities(
+    const oracleRebased = rebaseEvidenceRequirementToRetainedLocatorCapabilities(
       oracleTarget,
       [donor],
-    )).toBe(oracleTarget);
+    );
+    expect(oracleRebased).toMatchObject({
+      proposalId: oracleTarget.proposalId,
+      kind: "ORACLE_SOURCE",
+      claim: oracleTarget.claim,
+      acquisitionRoute: "DOCUMENT_LOCATOR",
+      eligibleLocators: [
+        { locator: { role: "CONTRACT_RULE_DOCUMENT" } },
+        { locator: { role: "CONTRACT_RULE_DOCUMENT" } },
+      ],
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(oracleRebased.requirementId).not.toBe(oracleTarget.requirementId);
 
     const changedProtocolListings = contractListings.map((item) => {
       const protocolIdentity = "polymarket-us:v2";

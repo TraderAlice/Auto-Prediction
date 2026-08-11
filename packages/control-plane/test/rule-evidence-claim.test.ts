@@ -8,6 +8,7 @@ import {
   buildEvidenceDocumentFetchPolicy,
   buildEvidenceRequirements,
   buildRuleEvidenceClaim,
+  codexCredentialForTest,
   createRuleEvidenceClaimDesk,
   DeepSeekRuleEvidenceClaimModelPort,
   EvidenceDocumentFetcher,
@@ -20,8 +21,13 @@ import {
   type EvidenceRequirement,
   type RuleEvidenceClaimModelPort,
   type RuleEvidenceClaimRecordStore,
+  type AiRuntimeConfiguration,
 } from "../src/index.js";
-import { deepSeekTextResponse, deepSeekToolResponse } from "./model-agent-fixtures.js";
+import {
+  deepSeekTextResponse,
+  deepSeekToolResponse,
+  openAiStreamToolResponse,
+} from "./model-agent-fixtures.js";
 
 const now = () => Date.parse("2026-08-02T08:00:00.000Z");
 const publicResolver = async () => Object.freeze([
@@ -354,6 +360,108 @@ describe("Agent-native rule evidence claims", () => {
     });
   });
 
+  it("follows the SQLite-selected Codex engine and versions effort changes", async () => {
+    const input = requirement();
+    const observed = await capture();
+    const query = "cancelled";
+    const found = observed.extraction.text.toLocaleLowerCase("en-US").indexOf(query);
+    const passageStart = Math.max(0, found - 240);
+    const passageEnd = Math.min(observed.extraction.text.length, found + query.length + 240);
+    const passageId = ruleEvidencePassageIdentity(
+      observed.extraction.record.extractionId,
+      passageStart,
+      passageEnd,
+    );
+    let configuration: AiRuntimeConfiguration = Object.freeze({
+      schemaVersion: "pmh.ai-runtime-configuration.v2",
+      revision: 1,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "high",
+      deepseekAutomationEnabled: false,
+      updatedAt: "2026-08-02T08:00:00.000Z",
+    });
+    const secret = "test-only-rule-evidence-codex-token";
+    const bodies: Record<string, unknown>[] = [];
+    const usageLedger = new AiUsageLedger();
+    const desk = createRuleEvidenceClaimDesk(
+      { PMH_EVIDENCE_CLAIM_TIMEOUT_MS: "3000" },
+      {
+        runtimeConfiguration: () => configuration,
+        usageRecorder: usageLedger,
+        now,
+        codexCredentialProvider: codexCredentialForTest(secret, "rule-evidence-account"),
+        async codexFetcher(request, init) {
+          expect(String(request)).toBe("https://chatgpt.com/backend-api/codex/responses");
+          const headers = new Headers(init?.headers);
+          expect(headers.get("authorization")).toBe(`Bearer ${secret}`);
+          expect(headers.get("chatgpt-account-id")).toBe("rule-evidence-account");
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          bodies.push(body);
+          return bodies.length % 2 === 1
+            ? openAiStreamToolResponse("search_evidence_text", { query }, bodies.length)
+            : openAiStreamToolResponse("submit_rule_evidence_claim", {
+                disposition: "SUPPORTS",
+                rationale: "The retained clause states the cancellation outcome.",
+                citations: [{ passageId }],
+                unresolvedEvidence: [],
+              }, bodies.length);
+        },
+      },
+    );
+
+    const highIdentity = desk.interpreterIdentity;
+    const high = await desk.begin(input, observed).promise;
+    expect(high).toMatchObject({
+      status: "PASS",
+      model: "gpt-5.6-terra",
+      claim: {
+        disposition: "SUPPORTS",
+        interpreter: { provider: "codex", model: "gpt-5.6-terra" },
+      },
+    });
+    expect(desk.projection()).toMatchObject({
+      schemaVersion: "pmh.rule-evidence-claim-desk.v2",
+      configured: true,
+      engine: {
+        provider: "CODEX",
+        model: "gpt-5.6-terra",
+        reasoningEffort: "high",
+        responseStorage: false,
+      },
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies.every((body) =>
+      body.stream === true && body.store === false &&
+      !("max_output_tokens" in body) && !("response_format" in body)
+    )).toBe(true);
+    expect(bodies[0]).toMatchObject({
+      model: "gpt-5.6-terra",
+      reasoning: { effort: "high" },
+      parallel_tool_calls: false,
+      tool_choice: "required",
+    });
+    expect(usageLedger.projection().recentEvents[0]).toMatchObject({
+      purpose: "RULE_EVIDENCE_CLAIM",
+      provider: "CODEX",
+      model: "gpt-5.6-terra",
+      outcome: "SUCCEEDED",
+      providerRequestCount: "2",
+    });
+
+    configuration = Object.freeze({
+      ...configuration,
+      revision: 2,
+      codexReasoningEffort: "max",
+      updatedAt: "2026-08-02T08:01:00.000Z",
+    });
+    expect(desk.interpreterIdentity).not.toBe(highIdentity);
+    const maximum = await desk.begin(input, observed).promise;
+    expect(maximum.interpretationId).not.toBe(high.interpretationId);
+    expect(bodies[2]).toMatchObject({ reasoning: { effort: "max" } });
+    expect(JSON.stringify({ high, maximum, projection: desk.projection() })).not.toContain(secret);
+  });
+
   it("persists only validated terminal claims and replays an identical run", async () => {
     const input = requirement();
     const observed = await capture();
@@ -435,6 +543,7 @@ describe("Agent-native rule evidence claims", () => {
     const { artifactHash: _currentHash, ...currentBody } = currentClaim;
     const legacyBody = Object.freeze({
       ...currentBody,
+      schemaVersion: "pmh.rule-evidence-claim.v1" as const,
       claimId: legacyClaimId,
       interpreter: Object.freeze({ ...currentClaim.interpreter, identity: legacyIdentity }),
     });

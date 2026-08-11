@@ -18,6 +18,10 @@ describe("Gemini catalog fixtures", () => {
     const listings = normalizeGeminiCatalog(fixture);
     expect(listings).toHaveLength(1);
     expect(typeof listings[0]?.outcomes[0]?.indicativePrice).toBe("bigint");
+    expect(listings[0]?.rulesText).toContain("Outcome verified against");
+    expect(listings[0]?.rulesUrl).toBe(
+      "https://assets.gemini.com/predictions/terms_and_conditions/btc_227f8e79-2af6-40f9-9a0c-a8297696e7ab.pdf",
+    );
     expect(geminiManifest.liveExecutionEnabled).toBe(false);
   });
 
@@ -31,6 +35,12 @@ describe("Gemini catalog fixtures", () => {
     expect(listings.map((listing) => listing.title)).toContain(
       "Highest temperature in Boston on July 31, 2026? — 78°F to 79°F",
     );
+    expect(new Set(listings.map((listing) => listing.rulesUrl))).toEqual(new Set([
+      "https://assets.gemini.com/predictions/terms_and_conditions/Weather_Terms_and_Conditions_67323dd4-5775-48d5-bea0-c33d672d1f74.pdf",
+    ]));
+    expect(listings.every((listing) =>
+      listing.rulesText?.includes("Each temperature range listed for this event is mutually exclusive")
+    )).toBe(true);
   });
 
   it("retains an active contract when Gemini omits its indicative prices", async () => {

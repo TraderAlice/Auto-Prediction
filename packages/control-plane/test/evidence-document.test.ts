@@ -11,6 +11,7 @@ import {
   buildDiscoveryEvidenceLocator,
   buildEvidenceDocumentFetchPolicy,
   buildEvidenceRequirements,
+  defaultEvidenceDocumentFetchPolicies,
   EvidenceDocumentFetcher,
   type DiscoveryCatalogListing,
   type EvidenceDocumentFetchLike,
@@ -135,6 +136,17 @@ function clock(): () => number {
 }
 
 describe("policy-constrained evidence document acquisition", () => {
+  it("admits both Gemini-owned and Gemini-published Builder PDF hosts", () => {
+    const policy = defaultEvidenceDocumentFetchPolicies().find((item) =>
+      item.venueId === "gemini-predictions" && item.role === "CONTRACT_RULE_DOCUMENT"
+    );
+    expect(policy?.allowedHostnames).toEqual([
+      "assets.gemini.com",
+      "cdn.builder.io",
+    ]);
+    expect(policy?.allowedContentTypes).toEqual(["application/pdf"]);
+  });
+
   it("captures and extracts an official PDF as content-addressed untrusted evidence", async () => {
     const url = "https://rules.example.com/contracts/terms.pdf";
     const input = scope(url);

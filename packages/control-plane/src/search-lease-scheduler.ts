@@ -704,6 +704,8 @@ type SearchLeaseOptions = Readonly<{
   ) => Promise<SearchQuoteEnrichmentResult>;
   now?: () => number;
   onRecordChange?: (record: SearchLeaseRecord) => void;
+  /** Synchronous, zero-spend guard evaluated immediately before provider work. */
+  assertDispatchEligible?: () => void;
 }>;
 
 export type SearchLeaseIssueInput = Readonly<{
@@ -1645,6 +1647,7 @@ export class SearchLeaseScheduler {
   readonly #deepConcurrencyLimit: number;
   readonly #registeredVenueIds: readonly string[] | undefined;
   readonly #onRecordChange: ((record: SearchLeaseRecord) => void) | undefined;
+  readonly #assertDispatchEligible: () => void;
 
   public readonly intervalMs: number | null;
 
@@ -1683,6 +1686,7 @@ export class SearchLeaseScheduler {
       maxDeepAttempts,
     });
     this.#onRecordChange = options.onRecordChange;
+    this.#assertDispatchEligible = options.assertDispatchEligible ?? (() => undefined);
     if (
       (this.intervalMs !== null &&
         (!Number.isSafeInteger(this.intervalMs) || this.intervalMs < 60_000 || this.intervalMs > 86_400_000)) ||
@@ -1725,6 +1729,17 @@ export class SearchLeaseScheduler {
 
   #deepAvailable(): boolean {
     return this.#runDeep !== undefined && this.#deepEnabled();
+  }
+
+  #requireDispatchEligible(): void {
+    try {
+      this.#assertDispatchEligible();
+    } catch (error) {
+      if (error instanceof SearchLeaseUnavailableError) throw error;
+      throw new SearchLeaseUnavailableError(
+        error instanceof Error ? error.message : "search execution profile is blocked",
+      );
+    }
   }
 
   public shouldSchedule(snapshot: MarketCorpusSnapshot): boolean {
@@ -1878,6 +1893,7 @@ export class SearchLeaseScheduler {
     if (this.#active.size >= this.#concurrencyLimit) {
       throw new SearchLeaseBusyError("search lease concurrency limit is active");
     }
+    this.#requireDispatchEligible();
     const spec = LENS_SPEC[selectedLens];
     let issued = existing;
     if (issued === undefined) {
@@ -2009,6 +2025,7 @@ export class SearchLeaseScheduler {
     if (this.#active.size >= this.#concurrencyLimit) {
       throw new SearchLeaseBusyError("search lease concurrency limit is active");
     }
+    this.#requireDispatchEligible();
     const promise = this.#execute(snapshot, issued).finally(() => {
       this.#active.delete(issued.lease.leaseId);
     });
@@ -2497,6 +2514,11 @@ export class SearchLeaseScheduler {
         "pi deep investigation is not configured",
       ));
     }
+    try {
+      this.#requireDispatchEligible();
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (this.#activeDeep.size >= this.#deepConcurrencyLimit) {
       const waitForSlot = Promise.race([...this.#activeDeep.values()]).then(
         () => undefined,
@@ -2736,6 +2758,7 @@ export class SearchLeaseScheduler {
     if ((record.deepLane.attempts?.length ?? 0) >= maxAttempts) {
       throw new SearchLeaseUnavailableError("search lease deep retry budget is exhausted");
     }
+    this.#requireDispatchEligible();
     const snapshot = this.#corpora.get(record.lease.snapshotIdentity) ??
       this.#store?.loadSearchLeaseCorpus(record.lease.snapshotIdentity) ?? null;
     if (snapshot === null) {

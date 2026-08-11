@@ -8,6 +8,9 @@ import {
   buildDiscoveryEvidenceLocator,
   buildEvidenceDocumentFetchPolicy,
   buildEvidenceRequirements,
+  AgentExecutionRegistry,
+  codexCredentialForTest,
+  createRuleEvidenceClaimDesk,
   EvidenceAcquisitionScheduler,
   EvidenceDocumentFetcher,
   RuleEvidenceClaimDesk,
@@ -17,6 +20,7 @@ import {
   type EvidenceDocumentCapture,
   type EvidenceRequirement,
   type RuleEvidenceClaimModelPort,
+  type AiRuntimeConfiguration,
 } from "../src/index.js";
 
 function clock(start = "2026-08-02T09:00:00.000Z") {
@@ -31,12 +35,12 @@ const publicResolver = async () => Object.freeze([
   Object.freeze({ address: "8.8.8.8", family: 4 as const }),
 ]);
 
-function listing(listingRef: string, locator = false): DiscoveryCatalogListing {
+function listing(listingRef: string, locator: false | string = false): DiscoveryCatalogListing {
   const evidenceLocator = locator ? buildDiscoveryEvidenceLocator({
     venueId: "claim-scheduler-test",
     protocolIdentity: "claim-scheduler-test:v1",
     role: "CONTRACT_RULE_DOCUMENT",
-    url: "https://rules.example.com/shared.txt",
+    url: locator,
   }) : null;
   if (locator && evidenceLocator === null) throw new Error("scheduler locator failed");
   return Object.freeze({
@@ -66,8 +70,11 @@ function listing(listingRef: string, locator = false): DiscoveryCatalogListing {
   });
 }
 
-function requirement(label: string): EvidenceRequirement {
-  const first = listing("shared:first", true);
+function requirement(
+  label: string,
+  url = "https://rules.example.com/shared.txt",
+): EvidenceRequirement {
+  const first = listing(`${label}:first`, url);
   const second = listing("shared:second");
   return buildEvidenceRequirements({
     origin: "SEMANTIC_REVIEW",
@@ -145,6 +152,54 @@ function interpreter(
 }
 
 describe("durable rule evidence claim scheduler", () => {
+  it("keeps the same newest-job retention window in memory and SQLite", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-rule-claim-window-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const time = clock();
+      const requirements = Array.from({ length: 11 }, (_, index) =>
+        requirement(`retention-${index}`)
+      );
+      const capture = await captureFor(requirements[0]!, time.now);
+      const store = new SqliteOperationalStore(path);
+      const desk = new RuleEvidenceClaimDesk(
+        interpreter(capture),
+        "deepseek-v4-flash",
+        20,
+        store,
+        1,
+        time.now,
+      );
+      const scheduler = new RuleEvidenceClaimScheduler({
+        desk,
+        retentionLimit: 10,
+        store,
+        now: time.now,
+      });
+      for (const source of requirements) {
+        scheduler.reconcile([{ requirement: source, capture }]);
+        time.advance(1_000);
+      }
+      const memoryIds = scheduler.projection().jobs.map((job) => job.jobId);
+      const storedIds = store.loadRuleEvidenceClaimJobRecords(10).map((job) => job.jobId);
+      expect(memoryIds).toEqual(storedIds);
+      expect(memoryIds).toHaveLength(10);
+      expect(scheduler.projection().jobs.some((job) =>
+        job.requirementId === requirements[10]!.requirementId
+      )).toBe(true);
+      expect(scheduler.projection().jobs.some((job) =>
+        job.requirementId === requirements[0]!.requirementId
+      )).toBe(false);
+      expect(() => scheduler.reconcile(requirements.map((source) => ({
+        requirement: source,
+        capture,
+      })))).toThrow("active rule evidence claim inputs exceed the durable retention bound");
+      store.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("interprets proposal-local requirements independently over one shared document", async () => {
     const time = clock();
     const first = requirement("first-proposal");
@@ -177,6 +232,89 @@ describe("durable rule evidence claim scheduler", () => {
     expect(new Set(scheduler.projection().jobs.map((job) => job.documentId))).toEqual(
       new Set([capture.document.record.documentId]),
     );
+  });
+
+  it("runs exactly one selected pending claim without enabling the queue", async () => {
+    const time = clock();
+    const first = requirement("manual-first");
+    const second = requirement("manual-second");
+    const capture = await captureFor(first, time.now);
+    const model = interpreter(capture);
+    const interpret = vi.spyOn(model, "interpret");
+    const desk = new RuleEvidenceClaimDesk(model, "gpt-5.6-terra", 20, undefined, 3, time.now);
+    const scheduler = new RuleEvidenceClaimScheduler({ desk, now: time.now });
+    const inputs = [
+      { requirement: first, capture },
+      { requirement: second, capture },
+    ];
+    scheduler.reconcile(inputs);
+    const selected = scheduler.projection().jobs.find((job) =>
+      job.requirementId === second.requirementId
+    )!;
+    await scheduler.runJob(selected.jobId, inputs);
+    expect(interpret).toHaveBeenCalledOnce();
+    expect(scheduler.projection()).toMatchObject({
+      passedCount: 1,
+      pendingCount: 1,
+      budget: { providerAttemptsStarted: 1 },
+    });
+  });
+
+  it("does not clone the business queue when Codex effort changes", async () => {
+    const time = clock();
+    const input = requirement("runtime-generation");
+    const capture = await captureFor(input, time.now);
+    let configuration: AiRuntimeConfiguration = Object.freeze({
+      schemaVersion: "pmh.ai-runtime-configuration.v2",
+      revision: 1,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "high",
+      deepseekAutomationEnabled: false,
+      updatedAt: "2026-08-02T09:00:00.000Z",
+    });
+    const providerFetch = vi.fn(async () => {
+      throw new Error("reconciliation must not call the provider");
+    });
+    const desk = createRuleEvidenceClaimDesk({}, {
+      runtimeConfiguration: () => configuration,
+      codexCredentialProvider: codexCredentialForTest("test-token", "test-account"),
+      codexFetcher: providerFetch,
+      now: time.now,
+    });
+    const scheduler = new RuleEvidenceClaimScheduler({ desk, now: time.now });
+    const agentExecution = new AgentExecutionRegistry();
+    agentExecution.reconcileRuleEvidenceTasks([{ requirement: input, capture }]);
+    scheduler.reconcile([{ requirement: input, capture }]);
+    const highJob = scheduler.projection().jobs[0]!;
+    expect(scheduler.projection()).toMatchObject({ currentJobCount: 1, legacyJobCount: 0 });
+
+    configuration = Object.freeze({
+      ...configuration,
+      revision: 2,
+      codexReasoningEffort: "max",
+      updatedAt: "2026-08-02T09:01:00.000Z",
+    });
+    scheduler.reconcile([{ requirement: input, capture }]);
+    agentExecution.reconcileRuleEvidenceTasks([{ requirement: input, capture }]);
+    const projection = scheduler.projection();
+    expect(projection).toMatchObject({
+      currentJobCount: 0,
+      legacyJobCount: 1,
+      pendingCount: 0,
+      dueCount: 0,
+    });
+    expect(projection.currentInterpreterIdentity).not.toBe(highJob.interpreterIdentity);
+    expect(projection.jobs.some((job) => job.jobId === highJob.jobId)).toBe(true);
+    expect(projection.jobs).toHaveLength(1);
+    expect(providerFetch).not.toHaveBeenCalled();
+    expect(agentExecution.projection()).toMatchObject({
+      taskCount: 1,
+      runCount: 0,
+      modelInvocationCount: 0,
+      activeCampaignCount: 0,
+      automaticDispatchFromConfiguration: false,
+    });
   });
 
   it("bounds provider retries and preserves the terminal diagnostic", async () => {
@@ -269,6 +407,138 @@ describe("durable rule evidence claim scheduler", () => {
       expect(secondScheduler.projection().jobs[0]).toEqual(firstJob);
       expect(secondDesk.projection()).toMatchObject({ passCount: 1, runCount: 1 });
       secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("quarantines an expired lease after restart instead of replaying the model request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-rule-claim-interrupted-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const time = clock();
+      const input = requirement("interrupted");
+      const capture = await captureFor(input, time.now);
+      const firstStore = new SqliteOperationalStore(path);
+      const firstInterpret = vi.fn(() =>
+        new Promise<never>(() => undefined)
+      );
+      const firstDesk = new RuleEvidenceClaimDesk(
+        { interpret: firstInterpret },
+        "deepseek-v4-flash",
+        20,
+        firstStore,
+        1,
+        time.now,
+      );
+      const firstScheduler = new RuleEvidenceClaimScheduler({
+        desk: firstDesk,
+        tickIntervalMs: 1_000,
+        leaseTimeoutMs: 1_000,
+        store: firstStore,
+        now: time.now,
+      });
+      const inFlight = firstScheduler.tick([{ requirement: input, capture }]);
+      expect(inFlight).toHaveLength(1);
+      await Promise.resolve();
+      expect(firstInterpret).toHaveBeenCalledOnce();
+      expect(firstScheduler.projection()).toMatchObject({
+        activeCount: 1,
+        leasedCount: 1,
+        interruptedLeaseCount: 0,
+      });
+      firstStore.close();
+
+      time.advance(1_001);
+      const secondStore = new SqliteOperationalStore(path);
+      const secondPort = interpreter(capture);
+      const secondInterpret = vi.spyOn(secondPort, "interpret");
+      const secondDesk = new RuleEvidenceClaimDesk(
+        secondPort,
+        "deepseek-v4-flash",
+        20,
+        secondStore,
+        1,
+        time.now,
+      );
+      const secondScheduler = new RuleEvidenceClaimScheduler({
+        desk: secondDesk,
+        tickIntervalMs: 1_000,
+        leaseTimeoutMs: 1_000,
+        store: secondStore,
+        now: time.now,
+      });
+      expect(secondScheduler.tick([{ requirement: input, capture }])).toEqual([]);
+      expect(secondInterpret).not.toHaveBeenCalled();
+      expect(secondScheduler.projection()).toMatchObject({
+        activeCount: 0,
+        dueCount: 0,
+        leasedCount: 1,
+        interruptedLeaseCount: 1,
+        retryWaitCount: 0,
+        exhaustedCount: 0,
+        budget: { providerAttemptsStarted: 1 },
+      });
+      expect(secondScheduler.projection().jobs[0]).toMatchObject({
+        status: "LEASED",
+        attemptCount: 1,
+      });
+      secondStore.close();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retains claimed documents when acquisition jobs exceed queue retention", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-claimed-document-retention-"));
+    const path = join(directory, "operations.sqlite");
+    try {
+      const time = clock();
+      const input = requirement("claimed-before-prune");
+      const store = new SqliteOperationalStore(path);
+      const acquisition = new EvidenceAcquisitionScheduler({
+        fetcher: documentFetcher(time.now),
+        tickIntervalMs: 1_000,
+        retentionLimit: 10,
+        store,
+        now: time.now,
+      });
+      await Promise.all(acquisition.tick([input]));
+      const capture = acquisition.captureForJob(acquisition.projection().jobs[0]!.jobId)!;
+      const desk = new RuleEvidenceClaimDesk(
+        interpreter(capture),
+        "deepseek-v4-flash",
+        20,
+        store,
+        1,
+        time.now,
+      );
+      const scheduler = new RuleEvidenceClaimScheduler({
+        desk,
+        tickIntervalMs: 1_000,
+        store,
+        now: time.now,
+      });
+      await Promise.all(scheduler.tick([{ requirement: input, capture }]));
+
+      const later = Array.from({ length: 11 }, (_, index) => requirement(
+        `later-${index}`,
+        `https://rules.example.com/later-${index}.txt`,
+      ));
+      expect(() => acquisition.reconcile(later)).not.toThrow();
+      store.close();
+
+      const reopened = new SqliteOperationalStore(path);
+      const restored = new RuleEvidenceClaimDesk(
+        interpreter(capture),
+        "deepseek-v4-flash",
+        20,
+        reopened,
+        1,
+        time.now,
+      );
+      expect(restored.projection()).toMatchObject({ passCount: 1, runCount: 1 });
+      reopened.close();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

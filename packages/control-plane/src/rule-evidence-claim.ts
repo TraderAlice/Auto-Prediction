@@ -1,5 +1,13 @@
 import { createDeepSeek, type DeepSeekProviderSettings } from "@ai-sdk/deepseek";
-import { generateText, jsonSchema, stepCountIs, tool } from "ai";
+import { createOpenAI, type OpenAIProviderSettings } from "@ai-sdk/openai";
+import {
+  generateText,
+  jsonSchema,
+  stepCountIs,
+  streamText,
+  tool,
+  type LanguageModel,
+} from "ai";
 import { hashBytes, hashCanonical, type Hash } from "@pmh/domain";
 import {
   assertEvidenceDocumentCapture,
@@ -11,6 +19,17 @@ import {
 } from "./evidence-requirement.js";
 import type { OperationalStorageProjection } from "./types.js";
 import type { AiUsageRecorder } from "./ai-usage-ledger.js";
+import {
+  CODEX_REASONING_EFFORTS,
+  CODEX_RUNTIME_MODELS,
+  type AiRuntimeConfiguration,
+  type CodexReasoningEffort,
+  type CodexRuntimeModel,
+} from "./ai-runtime-configuration.js";
+import {
+  CodexAuthCacheCredentialProvider,
+  type CodexOAuthCredentialProvider,
+} from "./codex-oauth.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MODEL_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/u;
@@ -24,15 +43,17 @@ const MAX_CITATION_CHARACTERS = 2_000;
 const MAX_UNRESOLVED_ITEMS = 10;
 const MAX_TOOL_READ_CHARACTERS = 2_000;
 const MAX_SEARCH_MATCHES = 20;
+const CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
 export type RuleEvidenceInterpreterProtocol =
   | "LEGACY_V1"
   | "RANGE_CITATIONS_V2"
   | "CAVEATED_RANGE_CITATIONS_V3"
   | "FORCED_TERMINAL_V4"
-  | "PASSAGE_HANDLES_V5";
+  | "PASSAGE_HANDLES_V5"
+  | "PROVIDER_RUNTIME_V6";
 export const CURRENT_RULE_EVIDENCE_INTERPRETER_PROTOCOL =
-  "PASSAGE_HANDLES_V5" as const satisfies RuleEvidenceInterpreterProtocol;
+  "PROVIDER_RUNTIME_V6" as const satisfies RuleEvidenceInterpreterProtocol;
 
 const CLAIM_KEYS = Object.freeze([
   "acquisitionScopeIdentity", "artifactHash", "authority", "certificateAuthority",
@@ -61,6 +82,14 @@ export type RuleEvidenceClaimDisposition =
   | "CONTRADICTS"
   | "INCONCLUSIVE";
 
+export type RuleEvidenceInterpreterEngine = Readonly<{
+  provider: "DEEPSEEK" | "CODEX";
+  transport: "VERCEL_AI_SDK";
+  model: string;
+  reasoningEffort: CodexReasoningEffort | null;
+  responseStorage: false;
+}>;
+
 export type RuleEvidencePassageCitation = Readonly<{
   start: number;
   end: number;
@@ -69,7 +98,7 @@ export type RuleEvidencePassageCitation = Readonly<{
 }>;
 
 export type RuleEvidenceClaim = Readonly<{
-  schemaVersion: "pmh.rule-evidence-claim.v1";
+  schemaVersion: "pmh.rule-evidence-claim.v1" | "pmh.rule-evidence-claim.v2";
   claimId: Hash;
   requirementId: Hash;
   proposalId: Hash;
@@ -86,7 +115,7 @@ export type RuleEvidenceClaim = Readonly<{
   interpreter: Readonly<{
     identity: Hash;
     transport: "VERCEL_AI_SDK";
-    provider: "deepseek";
+    provider: "deepseek" | "codex";
     model: string;
     role: "RULE_EVIDENCE_INTERPRETER";
   }>;
@@ -165,9 +194,10 @@ export interface RuleEvidenceClaimRecordStore {
 }
 
 export type RuleEvidenceClaimDeskProjection = Readonly<{
-  schemaVersion: "pmh.rule-evidence-claim-desk.v1";
+  schemaVersion: "pmh.rule-evidence-claim-desk.v2";
   configured: boolean;
   model: string;
+  engine: RuleEvidenceInterpreterEngine;
   interpreterIdentity: Hash;
   status: "IDLE" | "RUNNING" | "NEEDS_KEY";
   activeCount: number;
@@ -192,6 +222,24 @@ export type RuleEvidenceClaimDeskProjection = Readonly<{
 export type RuleEvidenceClaimFetchLike = NonNullable<
   DeepSeekProviderSettings["fetch"]
 >;
+export type RuleEvidenceClaimCodexFetchLike = NonNullable<
+  OpenAIProviderSettings["fetch"]
+>;
+
+type RuleEvidenceClaimProviderOptions = NonNullable<
+  Parameters<typeof generateText>[0]["providerOptions"]
+>;
+
+type RuleEvidenceClaimRuntime = Readonly<{
+  engine: RuleEvidenceInterpreterEngine;
+  configured: boolean;
+  interpreter: RuleEvidenceClaimModelPort | null;
+}>;
+
+export interface RuleEvidenceClaimRuntimeResolver {
+  current(): RuleEvidenceClaimRuntime;
+  resolve(engine: RuleEvidenceInterpreterEngine): RuleEvidenceClaimRuntime;
+}
 
 type SearchInput = Readonly<{ query: string }>;
 type ReadInput = Readonly<{ start: number; length: number }>;
@@ -271,6 +319,46 @@ function compactDiagnostic(value: unknown): string {
     .trim().replace(/\s+/gu, " ").slice(0, 500) || "rule evidence interpretation failed";
 }
 
+export function assertRuleEvidenceInterpreterEngine(
+  value: unknown,
+): RuleEvidenceInterpreterEngine {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("rule evidence interpreter engine is malformed");
+  }
+  const engine = value as RuleEvidenceInterpreterEngine;
+  const codex = engine.provider === "CODEX";
+  if (
+    !["DEEPSEEK", "CODEX"].includes(engine.provider) ||
+    engine.transport !== "VERCEL_AI_SDK" ||
+    !MODEL_PATTERN.test(engine.model) ||
+    engine.responseStorage !== false ||
+    (codex && (
+      !CODEX_RUNTIME_MODELS.includes(engine.model as CodexRuntimeModel) ||
+      !CODEX_REASONING_EFFORTS.includes(engine.reasoningEffort as CodexReasoningEffort)
+    )) ||
+    (!codex && engine.reasoningEffort !== null)
+  ) throw new Error("rule evidence interpreter engine violates its provider contract");
+  return Object.freeze(engine);
+}
+
+function sameEngine(
+  left: RuleEvidenceInterpreterEngine,
+  right: RuleEvidenceInterpreterEngine,
+): boolean {
+  return hashCanonical(assertRuleEvidenceInterpreterEngine(left)) ===
+    hashCanonical(assertRuleEvidenceInterpreterEngine(right));
+}
+
+function legacyDeepSeekEngine(model: string): RuleEvidenceInterpreterEngine {
+  return assertRuleEvidenceInterpreterEngine(Object.freeze({
+    provider: "DEEPSEEK" as const,
+    transport: "VERCEL_AI_SDK" as const,
+    model,
+    reasoningEffort: null,
+    responseStorage: false as const,
+  }));
+}
+
 function sortedCitations(
   citations: readonly RuleEvidencePassageCitation[],
 ): readonly RuleEvidencePassageCitation[] {
@@ -316,9 +404,13 @@ function draftFromPassageSubmission(
 }
 
 export function ruleEvidenceInterpreterIdentity(
-  model: string,
+  engineOrModel: RuleEvidenceInterpreterEngine | string,
   protocol: RuleEvidenceInterpreterProtocol = CURRENT_RULE_EVIDENCE_INTERPRETER_PROTOCOL,
 ): Hash {
+  const engine = typeof engineOrModel === "string"
+    ? legacyDeepSeekEngine(engineOrModel)
+    : assertRuleEvidenceInterpreterEngine(engineOrModel);
+  const model = engine.model;
   if (!MODEL_PATTERN.test(model)) {
     throw new Error("rule evidence interpreter model is invalid");
   }
@@ -375,7 +467,7 @@ export function ruleEvidenceInterpreterIdentity(
       maximumSteps: MAX_STEPS,
     });
   }
-  return hashCanonical({
+  if (protocol === "PASSAGE_HANDLES_V5") return hashCanonical({
     schemaVersion: "pmh.rule-evidence-interpreter.v5",
     transport: "VERCEL_AI_SDK",
     provider: "deepseek",
@@ -388,9 +480,61 @@ export function ruleEvidenceInterpreterIdentity(
     terminalRecovery: "FIRST_PARTY_INCONCLUSIVE",
     maximumSteps: MAX_STEPS,
   });
+  return hashCanonical({
+    schemaVersion: "pmh.rule-evidence-interpreter.v6",
+    engine,
+    role: "RULE_EVIDENCE_INTERPRETER",
+    toolProtocol: "BOUNDED_SEARCH_READ_PASSAGE_HANDLES_AND_TERMINAL_ABSTENTION",
+    citationAuthority: "FIRST_PARTY_EXACT_SLICE",
+    claimPosture: "CITATIONS_AND_UNRESOLVED_CAVEATS_MAY_COEXIST",
+    terminalChoice: "FORCED_SUBMIT_THEN_FORCED_ABSTAIN",
+    terminalRecovery: "FIRST_PARTY_INCONCLUSIVE",
+    maximumSteps: MAX_STEPS,
+  });
 }
 
-function isSupportedInterpreterIdentity(model: string, identity: Hash): boolean {
+function possibleCurrentEngines(
+  model: string,
+  provider?: "deepseek" | "codex",
+): readonly RuleEvidenceInterpreterEngine[] {
+  const engines: RuleEvidenceInterpreterEngine[] = [];
+  if (provider === undefined || provider === "deepseek") {
+    engines.push(legacyDeepSeekEngine(model));
+  }
+  if (
+    (provider === undefined || provider === "codex") &&
+    CODEX_RUNTIME_MODELS.includes(model as CodexRuntimeModel)
+  ) {
+    for (const reasoningEffort of CODEX_REASONING_EFFORTS) {
+      engines.push(assertRuleEvidenceInterpreterEngine(Object.freeze({
+        provider: "CODEX" as const,
+        transport: "VERCEL_AI_SDK" as const,
+        model,
+        reasoningEffort,
+        responseStorage: false as const,
+      })));
+    }
+  }
+  return Object.freeze(engines);
+}
+
+function isSupportedInterpreterIdentity(
+  model: string,
+  identity: Hash,
+  provider?: "deepseek" | "codex",
+): boolean {
+  if (possibleCurrentEngines(model, provider).some((engine) =>
+    identity === ruleEvidenceInterpreterIdentity(engine, "PROVIDER_RUNTIME_V6")
+  )) return true;
+  if (provider === "codex") return false;
+  return identity === ruleEvidenceInterpreterIdentity(model, "LEGACY_V1") ||
+    identity === ruleEvidenceInterpreterIdentity(model, "RANGE_CITATIONS_V2") ||
+    identity === ruleEvidenceInterpreterIdentity(model, "CAVEATED_RANGE_CITATIONS_V3") ||
+    identity === ruleEvidenceInterpreterIdentity(model, "FORCED_TERMINAL_V4") ||
+    identity === ruleEvidenceInterpreterIdentity(model, "PASSAGE_HANDLES_V5");
+}
+
+function isHistoricalInterpreterIdentity(model: string, identity: Hash): boolean {
   return identity === ruleEvidenceInterpreterIdentity(model, "LEGACY_V1") ||
     identity === ruleEvidenceInterpreterIdentity(model, "RANGE_CITATIONS_V2") ||
     identity === ruleEvidenceInterpreterIdentity(model, "CAVEATED_RANGE_CITATIONS_V3") ||
@@ -506,6 +650,7 @@ export function buildRuleEvidenceClaim(input: Readonly<{
   requirement: EvidenceRequirement;
   capture: EvidenceDocumentCapture;
   model: string;
+  engine?: RuleEvidenceInterpreterEngine;
   completedAt: string;
   result: RuleEvidenceClaimModelResult;
 }>): RuleEvidenceClaim {
@@ -513,7 +658,13 @@ export function buildRuleEvidenceClaim(input: Readonly<{
   if (!MODEL_PATTERN.test(input.model) || !isIso(input.completedAt)) {
     throw new Error("rule evidence claim interpreter metadata is invalid");
   }
-  const identity = ruleEvidenceInterpreterIdentity(input.model);
+  const engine = assertRuleEvidenceInterpreterEngine(
+    input.engine ?? legacyDeepSeekEngine(input.model),
+  );
+  if (engine.model !== input.model) {
+    throw new Error("rule evidence claim engine model is inconsistent");
+  }
+  const identity = ruleEvidenceInterpreterIdentity(engine);
   const draft = validateRuleEvidenceClaimDraft(
     input.result.draft,
     validated.capture.extraction.text,
@@ -532,7 +683,7 @@ export function buildRuleEvidenceClaim(input: Readonly<{
     interpreterIdentity: identity,
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.rule-evidence-claim.v1" as const,
+    schemaVersion: "pmh.rule-evidence-claim.v2" as const,
     claimId,
     requirementId: validated.requirement.requirementId,
     proposalId: validated.requirement.proposalId,
@@ -549,7 +700,7 @@ export function buildRuleEvidenceClaim(input: Readonly<{
     interpreter: Object.freeze({
       identity,
       transport: "VERCEL_AI_SDK" as const,
-      provider: "deepseek" as const,
+      provider: engine.provider.toLowerCase() as "deepseek" | "codex",
       model: input.model,
       role: "RULE_EVIDENCE_INTERPRETER" as const,
     }),
@@ -583,7 +734,9 @@ export function assertRuleEvidenceClaim(value: unknown): RuleEvidenceClaim {
   const { artifactHash, ...body } = claim;
   if (
     !exactKeys(claim, CLAIM_KEYS) ||
-    claim.schemaVersion !== "pmh.rule-evidence-claim.v1" ||
+    !["pmh.rule-evidence-claim.v1", "pmh.rule-evidence-claim.v2"].includes(
+      claim.schemaVersion,
+    ) ||
     !HASH_PATTERN.test(String(claim.claimId)) ||
     !HASH_PATTERN.test(String(claim.requirementId)) ||
     !HASH_PATTERN.test(String(claim.proposalId)) ||
@@ -612,9 +765,22 @@ export function assertRuleEvidenceClaim(value: unknown): RuleEvidenceClaim {
     (claim.disposition !== "INCONCLUSIVE" && claim.citations.length === 0) ||
     !exactKeys(claim.interpreter, INTERPRETER_KEYS) ||
     !HASH_PATTERN.test(String(claim.interpreter.identity)) ||
-    !isSupportedInterpreterIdentity(claim.interpreter.model, claim.interpreter.identity) ||
+    !isSupportedInterpreterIdentity(
+      claim.interpreter.model,
+      claim.interpreter.identity,
+      claim.interpreter.provider,
+    ) ||
     claim.interpreter.transport !== "VERCEL_AI_SDK" ||
-    claim.interpreter.provider !== "deepseek" ||
+    !["deepseek", "codex"].includes(claim.interpreter.provider) ||
+    (claim.schemaVersion === "pmh.rule-evidence-claim.v1" && (
+      claim.interpreter.provider !== "deepseek" ||
+      !isHistoricalInterpreterIdentity(
+        claim.interpreter.model,
+        claim.interpreter.identity,
+      )
+    )) ||
+    (claim.schemaVersion === "pmh.rule-evidence-claim.v2" &&
+      isHistoricalInterpreterIdentity(claim.interpreter.model, claim.interpreter.identity)) ||
     !MODEL_PATTERN.test(claim.interpreter.model) ||
     claim.interpreter.role !== "RULE_EVIDENCE_INTERPRETER" ||
     claim.claimId !== interpretationId({
@@ -707,22 +873,25 @@ function boundedInteger(
   return parsed;
 }
 
-export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimModelPort {
-  readonly #apiKey: string;
-  readonly #fetcher: RuleEvidenceClaimFetchLike | undefined;
+type RuleEvidenceClaimRequestRuntime = Readonly<{
+  languageModel: LanguageModel;
+  providerOptions: RuleEvidenceClaimProviderOptions;
+  streamResponses: boolean;
+  omitMaxOutputTokens: boolean;
+  requestAttemptCount: () => number;
+}>;
+
+class AiSdkRuleEvidenceClaimModelPort implements RuleEvidenceClaimModelPort {
 
   public constructor(
-    private readonly model: string,
-    apiKey: string,
+    public readonly engine: RuleEvidenceInterpreterEngine,
+    private readonly runtimeFactory: () => Promise<RuleEvidenceClaimRequestRuntime>,
     private readonly maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
     private readonly timeoutMs = DEFAULT_TIMEOUT_MS,
-    fetcher?: RuleEvidenceClaimFetchLike,
     private readonly usageRecorder?: AiUsageRecorder,
   ) {
-    this.#apiKey = apiKey.trim();
-    this.#fetcher = fetcher;
+    this.engine = assertRuleEvidenceInterpreterEngine(engine);
     if (
-      this.#apiKey === "" || !MODEL_PATTERN.test(model) ||
       !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 512 ||
       maxOutputTokens > 4_096 || !Number.isSafeInteger(timeoutMs) ||
       timeoutMs < 1_000 || timeoutMs > 600_000
@@ -745,14 +914,15 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
     let lastRejectedSubmissionDiagnostic: string | null = null;
     const startedAtMs = Date.now();
     let usageRecorded = false;
+    let requestAttemptCount = () => 0;
     try {
-      const provider = createDeepSeek({
-        apiKey: this.#apiKey,
-        ...(this.#fetcher === undefined ? {} : { fetch: this.#fetcher }),
-      });
-      const result = await generateText({
-        model: provider(this.model),
-        maxOutputTokens: this.maxOutputTokens,
+      const runtime = await this.runtimeFactory();
+      requestAttemptCount = runtime.requestAttemptCount;
+      const request: Parameters<typeof generateText>[0] = {
+        model: runtime.languageModel,
+        ...(runtime.omitMaxOutputTokens
+          ? {}
+          : { maxOutputTokens: this.maxOutputTokens }),
         maxRetries: 0,
         abortSignal: controller.signal,
         toolChoice: "required",
@@ -955,12 +1125,7 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
             extractionStatus: validated.capture.extraction.record.status,
           },
         }),
-        providerOptions: {
-          deepseek: {
-            thinking: { type: "disabled" },
-            strictJsonSchema: false,
-          },
-        },
+        providerOptions: runtime.providerOptions,
         prepareStep({ stepNumber }) {
           if (searchEffectCount + readEffectCount === 0) {
             return Object.freeze({
@@ -996,7 +1161,13 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
             toolChoice: "required" as const,
           });
         },
-      });
+      };
+      const result = runtime.streamResponses
+        ? streamText(request)
+        : await generateText(request);
+      await result.steps;
+      const usage = await result.usage;
+      const providerRequestAttemptCount = requestAttemptCount();
       if (
         submitted === null && submittedEffectHash === null &&
         searchEffectCount + readEffectCount > 0
@@ -1026,14 +1197,14 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
           durationMs: Math.max(0, Date.now() - startedAtMs),
           purpose: "RULE_EVIDENCE_CLAIM",
           role: "EVIDENCE_INTERPRETER",
-          provider: "DEEPSEEK",
-          model: this.model,
-          transport: "VERCEL_AI_SDK",
+          provider: this.engine.provider,
+          model: this.engine.model,
+          transport: this.engine.transport,
           operationIdentity: `requirement:${validated.requirement.requirementId}`,
           outcome: "FAILED",
           durableEffect: false,
-          providerRequestCount: result.steps.length,
-          usage: result.usage,
+          providerRequestCount: providerRequestAttemptCount,
+          usage,
         });
         usageRecorded = true;
         throw new Error("rule evidence interpreter completed without its terminal claim effect");
@@ -1042,14 +1213,14 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
         durationMs: Math.max(0, Date.now() - startedAtMs),
         purpose: "RULE_EVIDENCE_CLAIM",
         role: "EVIDENCE_INTERPRETER",
-        provider: "DEEPSEEK",
-        model: this.model,
-        transport: "VERCEL_AI_SDK",
+        provider: this.engine.provider,
+        model: this.engine.model,
+        transport: this.engine.transport,
         operationIdentity: `requirement:${validated.requirement.requirementId}`,
         outcome: "SUCCEEDED",
         durableEffect: true,
-        providerRequestCount: result.steps.length,
-        usage: result.usage,
+        providerRequestCount: providerRequestAttemptCount,
+        usage,
       });
       usageRecorded = true;
       return Object.freeze({
@@ -1061,12 +1232,13 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
         durationMs: Math.max(0, Date.now() - startedAtMs),
         purpose: "RULE_EVIDENCE_CLAIM",
         role: "EVIDENCE_INTERPRETER",
-        provider: "DEEPSEEK",
-        model: this.model,
-        transport: "VERCEL_AI_SDK",
+        provider: this.engine.provider,
+        model: this.engine.model,
+        transport: this.engine.transport,
         operationIdentity: `requirement:${validated.requirement.requirementId}`,
         outcome: controller.signal.aborted ? "TIMED_OUT" : "FAILED",
         durableEffect: false,
+        providerRequestCount: requestAttemptCount(),
       });
       if (controller.signal.aborted) throw new Error("rule evidence interpretation timed out");
       throw new Error(`rule evidence interpretation failed: ${compactDiagnostic(error)}`, {
@@ -1078,39 +1250,188 @@ export class DeepSeekRuleEvidenceClaimModelPort implements RuleEvidenceClaimMode
   }
 }
 
+export class DeepSeekRuleEvidenceClaimModelPort
+  extends AiSdkRuleEvidenceClaimModelPort {
+  public constructor(
+    model: string,
+    apiKeyInput: string,
+    maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    fetcher?: RuleEvidenceClaimFetchLike,
+    usageRecorder?: AiUsageRecorder,
+  ) {
+    const apiKey = apiKeyInput.trim();
+    if (apiKey === "") {
+      throw new Error("rule evidence claim model configuration is invalid");
+    }
+    const engine = legacyDeepSeekEngine(model);
+    super(
+      engine,
+      async () => {
+        let attempts = 0;
+        const provider = createDeepSeek({
+          apiKey,
+          fetch: async (request, init) => {
+            attempts += 1;
+            return (fetcher ?? fetch)(request, init);
+          },
+        });
+        return Object.freeze({
+          languageModel: provider(engine.model),
+          providerOptions: Object.freeze({
+            deepseek: Object.freeze({
+              thinking: Object.freeze({ type: "disabled" as const }),
+              strictJsonSchema: false,
+            }),
+          }),
+          streamResponses: false,
+          omitMaxOutputTokens: false,
+          requestAttemptCount: () => attempts,
+        });
+      },
+      maxOutputTokens,
+      timeoutMs,
+      usageRecorder,
+    );
+  }
+}
+
+export class CodexRuleEvidenceClaimModelPort extends AiSdkRuleEvidenceClaimModelPort {
+  public constructor(
+    engineInput: RuleEvidenceInterpreterEngine,
+    credentialProvider: CodexOAuthCredentialProvider,
+    maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    fetcher: RuleEvidenceClaimCodexFetchLike = fetch,
+    usageRecorder?: AiUsageRecorder,
+  ) {
+    const engine = assertRuleEvidenceInterpreterEngine(engineInput);
+    if (engine.provider !== "CODEX") {
+      throw new Error("Codex rule evidence interpreter requires a CODEX engine");
+    }
+    super(
+      engine,
+      async () => {
+        const credential = await credentialProvider.resolve();
+        let attempts = 0;
+        const provider = createOpenAI({
+          apiKey: credential.accessToken,
+          baseURL: CODEX_BASE_URL,
+          headers: {
+            "chatgpt-account-id": credential.accountId,
+            originator: "prediction-market-harness",
+            "OpenAI-Beta": "responses=experimental",
+          },
+          fetch: async (request, init) => {
+            attempts += 1;
+            return fetcher(request, init);
+          },
+        });
+        return Object.freeze({
+          languageModel: provider.responses(engine.model),
+          providerOptions: Object.freeze({
+            openai: Object.freeze({
+              store: false,
+              reasoningEffort: engine.reasoningEffort,
+              reasoningSummary: null,
+              strictJsonSchema: false,
+              parallelToolCalls: false,
+            }),
+          }),
+          streamResponses: true,
+          omitMaxOutputTokens: true,
+          requestAttemptCount: () => attempts,
+        });
+      },
+      maxOutputTokens,
+      timeoutMs,
+      usageRecorder,
+    );
+  }
+}
+
 export class RuleEvidenceClaimBusyError extends Error {}
 export class RuleEvidenceClaimNotConfiguredError extends Error {}
 
 export class RuleEvidenceClaimDesk {
   readonly #records: RuleEvidenceClaimRecord[];
   readonly #active = new Map<Hash, Promise<RuleEvidenceClaimRecord>>();
-  public readonly interpreterIdentity: Hash;
+  readonly #runtimeResolver: RuleEvidenceClaimRuntimeResolver;
 
   public constructor(
-    private readonly interpreter: RuleEvidenceClaimModelPort | null,
-    public readonly model: string,
+    runtimeResolverOrInterpreter:
+      | RuleEvidenceClaimRuntimeResolver
+      | RuleEvidenceClaimModelPort
+      | null,
+    model: string,
     private readonly retentionLimit = DEFAULT_RETENTION_LIMIT,
     private readonly store?: RuleEvidenceClaimRecordStore,
     public readonly concurrencyLimit = 3,
     private readonly now: () => number = Date.now,
   ) {
+    const maybeResolver = runtimeResolverOrInterpreter as Partial<
+      RuleEvidenceClaimRuntimeResolver
+    > | null;
     if (
-      !MODEL_PATTERN.test(model) || !Number.isSafeInteger(retentionLimit) || retentionLimit < 1 ||
+      maybeResolver !== null && typeof maybeResolver.current === "function" &&
+      typeof maybeResolver.resolve === "function"
+    ) {
+      this.#runtimeResolver = runtimeResolverOrInterpreter as RuleEvidenceClaimRuntimeResolver;
+    } else {
+      const engine = legacyDeepSeekEngine(model);
+      const runtime = Object.freeze({
+        engine,
+        configured: runtimeResolverOrInterpreter !== null,
+        interpreter: runtimeResolverOrInterpreter as RuleEvidenceClaimModelPort | null,
+      });
+      this.#runtimeResolver = Object.freeze({
+        current: () => runtime,
+        resolve: (requested: RuleEvidenceInterpreterEngine) => sameEngine(requested, engine)
+          ? runtime
+          : Object.freeze({ engine: requested, configured: false, interpreter: null }),
+      });
+    }
+    const engine = assertRuleEvidenceInterpreterEngine(
+      this.#runtimeResolver.current().engine,
+    );
+    if (
+      !MODEL_PATTERN.test(engine.model) || !Number.isSafeInteger(retentionLimit) ||
+      retentionLimit < 1 ||
       !Number.isSafeInteger(concurrencyLimit) || concurrencyLimit < 1 || concurrencyLimit > 8
     ) throw new Error("rule evidence claim desk configuration is invalid or unbounded");
-    this.interpreterIdentity = ruleEvidenceInterpreterIdentity(model);
     this.#records = [...(
       store?.loadRuleEvidenceClaimRecords(retentionLimit) ?? []
     )].map(assertRuleEvidenceClaimRecord);
+  }
+
+  public currentEngine(): RuleEvidenceInterpreterEngine {
+    return assertRuleEvidenceInterpreterEngine(this.#runtimeResolver.current().engine);
+  }
+
+  public get interpreterIdentity(): Hash {
+    return ruleEvidenceInterpreterIdentity(this.currentEngine());
+  }
+
+  public get model(): string {
+    return this.currentEngine().model;
+  }
+
+  public get provider(): RuleEvidenceInterpreterEngine["provider"] {
+    return this.currentEngine().provider;
   }
 
   public begin(
     requirementInput: EvidenceRequirement,
     captureInput: EvidenceDocumentCapture,
   ): Readonly<{ promise: Promise<RuleEvidenceClaimRecord>; idempotentReplay: boolean }> {
-    if (this.interpreter === null) {
+    const engine = this.currentEngine();
+    const runtime = this.#runtimeResolver.resolve(engine);
+    if (!sameEngine(runtime.engine, engine)) {
+      throw new Error("rule evidence interpreter runtime changed its engine snapshot");
+    }
+    if (!runtime.configured || runtime.interpreter === null) {
       throw new RuleEvidenceClaimNotConfiguredError(
-        "rule evidence interpretation requires DEEPSEEK_API_KEY",
+        `rule evidence interpretation requires configured ${engine.provider} credentials`,
       );
     }
     const input = validateInput({ requirement: requirementInput, capture: captureInput });
@@ -1118,7 +1439,7 @@ export class RuleEvidenceClaimDesk {
       requirementId: input.requirement.requirementId,
       documentId: input.capture.document.record.documentId,
       extractionId: input.capture.extraction.record.extractionId,
-      interpreterIdentity: this.interpreterIdentity,
+      interpreterIdentity: ruleEvidenceInterpreterIdentity(engine),
     });
     const active = this.#active.get(id);
     if (active !== undefined) return Object.freeze({ promise: active, idempotentReplay: true });
@@ -1136,8 +1457,8 @@ export class RuleEvidenceClaimDesk {
       proposalId: input.requirement.proposalId,
       documentId: input.capture.document.record.documentId,
       extractionId: input.capture.extraction.record.extractionId,
-      interpreterIdentity: this.interpreterIdentity,
-      model: this.model,
+      interpreterIdentity: ruleEvidenceInterpreterIdentity(engine),
+      model: engine.model,
       status: "RUNNING" as const,
       startedAt,
       completedAt: null,
@@ -1145,13 +1466,14 @@ export class RuleEvidenceClaimDesk {
       claim: null,
     }));
     this.#replace(running);
-    const promise = Promise.resolve().then(() => this.interpreter!.interpret(input)).then(
+    const promise = Promise.resolve().then(() => runtime.interpreter!.interpret(input)).then(
       (result): RuleEvidenceClaimRecord => {
         const completedAt = new Date(Math.max(this.now(), Date.parse(startedAt))).toISOString();
         const claim = buildRuleEvidenceClaim({
           requirement: input.requirement,
           capture: input.capture,
-          model: this.model,
+          model: engine.model,
+          engine,
           completedAt,
           result,
         });
@@ -1220,12 +1542,16 @@ export class RuleEvidenceClaimDesk {
 
   public projection(): RuleEvidenceClaimDeskProjection {
     const records = Object.freeze([...this.#records]);
+    const runtime = this.#runtimeResolver.current();
+    const engine = assertRuleEvidenceInterpreterEngine(runtime.engine);
+    const configured = runtime.configured && runtime.interpreter !== null;
     return Object.freeze({
-      schemaVersion: "pmh.rule-evidence-claim-desk.v1",
-      configured: this.interpreter !== null,
-      model: this.model,
-      interpreterIdentity: this.interpreterIdentity,
-      status: this.interpreter === null
+      schemaVersion: "pmh.rule-evidence-claim-desk.v2",
+      configured,
+      model: engine.model,
+      engine,
+      interpreterIdentity: ruleEvidenceInterpreterIdentity(engine),
+      status: !configured
         ? "NEEDS_KEY" as const
         : this.#active.size === 0 ? "IDLE" as const : "RUNNING" as const,
       activeCount: this.#active.size,
@@ -1258,7 +1584,11 @@ export function createRuleEvidenceClaimDesk(
   environment: Readonly<Record<string, string | undefined>> = process.env,
   options: Readonly<{
     fetcher?: RuleEvidenceClaimFetchLike;
+    codexFetcher?: RuleEvidenceClaimCodexFetchLike;
+    codexCredentialProvider?: CodexOAuthCredentialProvider;
     interpreter?: RuleEvidenceClaimModelPort;
+    engine?: RuleEvidenceInterpreterEngine;
+    runtimeConfiguration?: AiRuntimeConfiguration | (() => AiRuntimeConfiguration);
     retentionLimit?: number;
     concurrencyLimit?: number;
     store?: RuleEvidenceClaimRecordStore;
@@ -1266,8 +1596,10 @@ export function createRuleEvidenceClaimDesk(
     usageRecorder?: AiUsageRecorder;
   }> = {},
 ): RuleEvidenceClaimDesk {
-  const model = environment.PMH_EVIDENCE_CLAIM_MODEL?.trim() || DEFAULT_MODEL;
-  if (!MODEL_PATTERN.test(model)) throw new Error("PMH_EVIDENCE_CLAIM_MODEL is invalid");
+  const deepseekModel = environment.PMH_EVIDENCE_CLAIM_MODEL?.trim() || DEFAULT_MODEL;
+  if (!MODEL_PATTERN.test(deepseekModel)) {
+    throw new Error("PMH_EVIDENCE_CLAIM_MODEL is invalid");
+  }
   const maxOutputTokens = boundedInteger(
     environment.PMH_EVIDENCE_CLAIM_MAX_OUTPUT_TOKENS,
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -1290,19 +1622,81 @@ export function createRuleEvidenceClaimDesk(
     "PMH_EVIDENCE_CLAIM_CONCURRENCY",
   );
   const apiKey = environment.DEEPSEEK_API_KEY?.trim() ?? "";
-  const interpreter = options.interpreter ?? (apiKey === ""
-    ? null
-    : new DeepSeekRuleEvidenceClaimModelPort(
-        model,
-        apiKey,
-        maxOutputTokens,
-        timeoutMs,
-        options.fetcher,
-        options.usageRecorder,
-      ));
+  const configurationSource = typeof options.runtimeConfiguration === "function"
+    ? options.runtimeConfiguration
+    : options.runtimeConfiguration === undefined
+      ? null
+      : () => options.runtimeConfiguration as AiRuntimeConfiguration;
+  const deepseekEngine = legacyDeepSeekEngine(deepseekModel);
+  const selectedEngine = (): RuleEvidenceInterpreterEngine => {
+    const configuration = configurationSource?.();
+    return configuration?.provider === "CODEX"
+      ? assertRuleEvidenceInterpreterEngine(Object.freeze({
+          provider: "CODEX" as const,
+          transport: "VERCEL_AI_SDK" as const,
+          model: configuration.codexModel,
+          reasoningEffort: configuration.codexReasoningEffort,
+          responseStorage: false as const,
+        }))
+      : deepseekEngine;
+  };
+  const fixedEngine = assertRuleEvidenceInterpreterEngine(
+    options.engine ?? selectedEngine(),
+  );
+  const codexCredentialProvider = options.codexCredentialProvider ??
+    new CodexAuthCacheCredentialProvider(environment);
+  const cache = new Map<Hash, RuleEvidenceClaimRuntime>();
+  const resolve = (
+    engineInput: RuleEvidenceInterpreterEngine,
+  ): RuleEvidenceClaimRuntime => {
+    const engine = assertRuleEvidenceInterpreterEngine(engineInput);
+    if (options.interpreter !== undefined) {
+      return sameEngine(engine, fixedEngine)
+        ? Object.freeze({ engine, configured: true, interpreter: options.interpreter })
+        : Object.freeze({ engine, configured: false, interpreter: null });
+    }
+    const configured = engine.provider === "CODEX"
+      ? codexCredentialProvider.configured()
+      : apiKey !== "";
+    if (!configured) return Object.freeze({ engine, configured: false, interpreter: null });
+    const identity = hashCanonical(engine);
+    const existing = cache.get(identity);
+    if (existing !== undefined) return existing;
+    const runtime = engine.provider === "CODEX"
+      ? Object.freeze({
+          engine,
+          configured: true,
+          interpreter: new CodexRuleEvidenceClaimModelPort(
+            engine,
+            codexCredentialProvider,
+            maxOutputTokens,
+            timeoutMs,
+            options.codexFetcher,
+            options.usageRecorder,
+          ),
+        })
+      : Object.freeze({
+          engine,
+          configured: true,
+          interpreter: new DeepSeekRuleEvidenceClaimModelPort(
+            engine.model,
+            apiKey,
+            maxOutputTokens,
+            timeoutMs,
+            options.fetcher,
+            options.usageRecorder,
+          ),
+        });
+    cache.set(identity, runtime);
+    return runtime;
+  };
+  const runtimeResolver: RuleEvidenceClaimRuntimeResolver = Object.freeze({
+    current: () => resolve(configurationSource === null ? fixedEngine : selectedEngine()),
+    resolve,
+  });
   return new RuleEvidenceClaimDesk(
-    interpreter,
-    model,
+    runtimeResolver,
+    fixedEngine.model,
     options.retentionLimit ?? DEFAULT_RETENTION_LIMIT,
     options.store,
     concurrencyLimit,

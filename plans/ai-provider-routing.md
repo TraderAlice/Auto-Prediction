@@ -1,6 +1,7 @@
 # AI provider routing
 
-Status: active
+Status: implemented evidence retained; target architecture superseded by
+[`agent-execution-substrate.md`](agent-execution-substrate.md)
 
 Started: 2026-08-09
 
@@ -11,6 +12,21 @@ Responses backend without restarting the control plane. Codex mode uses the
 existing ChatGPT/Codex OAuth supply through the same Vercel AI SDK agent loops,
 with an explicit GPT-5.6 model and reasoning effort. Provider instability must
 not silently change the semantics, authority, or lineage of an in-flight run.
+
+This flat provider-routing model is no longer the target architecture. It
+correctly proved endpoint behavior, credential redaction, SQLite persistence,
+streaming Responses constraints, and comparative Luna/Terra behavior, but it
+incorrectly grouped Codex Agent runtime, Codex OAuth supply, a model-service
+endpoint, and model-specific effort under one provider switch. Future
+construction follows the Agent execution substrate; this file remains the
+historical evidence ledger for the implemented route.
+
+The additive compatibility import now makes that distinction concrete: a
+legacy `CODEX` selection maps to the bounded `HARNESS_IN_PROCESS` runtime, a
+logical `CODEX_OAUTH` credential binding, and the `CODEX_RESPONSES` model
+driver. It does not falsely assert that the prior Vercel AI SDK loop was a
+Codex Agent runtime, and importing or updating it creates no task, run,
+campaign, invocation, or request.
 
 ## Runtime contract
 
@@ -40,8 +56,10 @@ not silently change the semantics, authority, or lineage of an in-flight run.
    account ID without exposing either to callers beyond the transport boundary.
 2. Route the discovery Agent pool through the selected runtime while preserving
    its tools and terminal effects. Semantic review, evidence interpretation,
-   premise analysis, and probability estimation retain their independent model
-   supplies until a later campaign has qualified cross-stage snapshot lineage.
+   and premise analysis retain their independent model supplies. Probability
+   estimation is the first qualified cross-stage extension: each new estimator
+   case binds the current provider/model/effort snapshot, and every run retains
+   that snapshot without rewriting legacy DeepSeek artifacts.
 3. Persist the selected provider, Codex model, and effort in the operational
    store; add a strict read/update API with optimistic revision checks.
 4. Project effective configuration and credential readiness in Studio. Add
@@ -97,6 +115,26 @@ hypotheses must bind at least two inspected listings. A single-listing pricing
 observation belongs to deterministic venue analysis, not the semantic Agent
 proposal lane. Heuristic workers follow the same admission rule, while stored
 historical artifacts retain their existing replay compatibility.
+
+## Cross-stage extension: probability estimation
+
+The failure-budget mutation exposed a provider-topology dead end: SQLite selected
+Terra/high and correctly disabled automatic DeepSeek spend, but the three
+probability-estimation roles still required `DEEPSEEK_API_KEY`. The first live
+failure-budget relation therefore remained permanently `AWAITING_ESTIMATES`.
+
+The selected design is provider-snapshot routing rather than a mutable global
+model handle. A new probability case captures provider, model, reasoning effort,
+transport, and response-storage posture. Manual and scheduled runs consume that
+exact snapshot. A later runtime update creates a new case identity instead of
+silently rewriting queued, running, or retained work. Legacy v1/v2 DeepSeek jobs
+and v1 run artifacts replay with their original identities.
+
+Automatic scheduling follows the selected provider: Codex work is eligible when
+Codex OAuth is configured; DeepSeek work additionally requires the explicit
+automatic-DeepSeek spending gate. This prevents a credential's mere presence
+from authorizing background spend while allowing the selected Terra lane to
+advance continuously.
 
 ## Authority boundary
 

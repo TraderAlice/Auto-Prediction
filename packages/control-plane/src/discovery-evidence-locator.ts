@@ -1,4 +1,4 @@
-import { hashCanonical } from "@pmh/domain";
+import { hashCanonical, type Hash } from "@pmh/domain";
 import type {
   DiscoveryCatalogListing,
   DiscoveryEvidenceLocator,
@@ -19,6 +19,14 @@ const EVIDENCE_LOCATOR_KEYS = Object.freeze([
   "schemaVersion",
   "url",
 ]);
+const DISCOVERED_EVIDENCE_LOCATOR_KEYS = Object.freeze([
+  ...EVIDENCE_LOCATOR_KEYS,
+  "provenance",
+].sort());
+const DISCOVERED_PROVENANCE_KEYS = Object.freeze([
+  "admissionId", "candidateId", "kind", "taskId",
+]);
+const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 function isEvidenceLocatorRole(
   value: unknown,
@@ -106,6 +114,48 @@ export function buildDiscoveryEvidenceLocators(input: Readonly<{
   ));
 }
 
+export function buildAdmittedDiscoveryEvidenceLocator(input: Readonly<{
+  venueId: string;
+  protocolIdentity: string;
+  role: DiscoveryEvidenceLocator["role"];
+  url: string;
+  admissionId: Hash;
+  taskId: Hash;
+  candidateId: Hash;
+}>): DiscoveryEvidenceLocator | null {
+  if (
+    input.venueId.trim() === "" ||
+    input.protocolIdentity.trim() === "" ||
+    !isEvidenceLocatorRole(input.role) ||
+    !HASH_PATTERN.test(input.admissionId) ||
+    !HASH_PATTERN.test(input.taskId) ||
+    !HASH_PATTERN.test(input.candidateId)
+  ) return null;
+  const url = normalizedHttpsLocator(input.url);
+  if (url === null) return null;
+  const body = Object.freeze({
+    schemaVersion: "pmh.discovery-evidence-locator.v3" as const,
+    role: input.role,
+    url,
+    authority: "EVIDENCE_LOCATOR_ONLY" as const,
+    fetchAuthority: false as const,
+    provenance: Object.freeze({
+      kind: "FIRST_PARTY_OFFICIAL_SOURCE_ADMISSION" as const,
+      admissionId: input.admissionId,
+      taskId: input.taskId,
+      candidateId: input.candidateId,
+    }),
+  });
+  return Object.freeze({
+    ...body,
+    locatorIdentity: hashCanonical({
+      ...body,
+      venueId: input.venueId,
+      protocolIdentity: input.protocolIdentity,
+    }),
+  });
+}
+
 export function hasBoundedDiscoveryEvidenceLocators(
   listing: Pick<DiscoveryCatalogListing, "venueId" | "protocolIdentity" | "evidenceLocators">,
 ): boolean {
@@ -127,14 +177,27 @@ export function hasBoundedDiscoveryEvidenceLocators(
     const locator = rawLocator as Record<string, unknown>;
     if (
       Object.keys(locator).sort().join("\n") !==
-        EVIDENCE_LOCATOR_KEYS.join("\n") ||
+        (locator.schemaVersion === "pmh.discovery-evidence-locator.v3"
+          ? DISCOVERED_EVIDENCE_LOCATOR_KEYS
+          : EVIDENCE_LOCATOR_KEYS).join("\n") ||
       (locator.schemaVersion !== "pmh.discovery-evidence-locator.v1" &&
-        locator.schemaVersion !== "pmh.discovery-evidence-locator.v2") ||
+        locator.schemaVersion !== "pmh.discovery-evidence-locator.v2" &&
+        locator.schemaVersion !== "pmh.discovery-evidence-locator.v3") ||
       !isEvidenceLocatorRole(locator.role) ||
       typeof locator.url !== "string" ||
       locator.authority !== "EVIDENCE_LOCATOR_ONLY" ||
       locator.fetchAuthority !== false ||
-      typeof locator.locatorIdentity !== "string"
+      typeof locator.locatorIdentity !== "string" ||
+      (locator.schemaVersion === "pmh.discovery-evidence-locator.v3" && (
+        locator.provenance === null || typeof locator.provenance !== "object" ||
+        Object.keys(locator.provenance as object).sort().join("\n") !==
+          DISCOVERED_PROVENANCE_KEYS.join("\n") ||
+        (locator.provenance as Record<string, unknown>).kind !==
+          "FIRST_PARTY_OFFICIAL_SOURCE_ADMISSION" ||
+        !HASH_PATTERN.test(String((locator.provenance as Record<string, unknown>).admissionId)) ||
+        !HASH_PATTERN.test(String((locator.provenance as Record<string, unknown>).taskId)) ||
+        !HASH_PATTERN.test(String((locator.provenance as Record<string, unknown>).candidateId))
+      ))
     ) return false;
     const url = normalizedHttpsLocator(locator.url);
     const sortKey = `${locator.role}\n${locator.url}`;
@@ -144,14 +207,18 @@ export function hasBoundedDiscoveryEvidenceLocators(
       url: locator.url,
       authority: locator.authority,
       fetchAuthority: locator.fetchAuthority,
+      ...(locator.schemaVersion === "pmh.discovery-evidence-locator.v3"
+        ? { provenance: locator.provenance }
+        : {}),
     };
     if (
       url === null ||
       url !== locator.url ||
       sortKey <= previous ||
       identities.has(locator.locatorIdentity) ||
-      (locator.role === "VENUE_RULE_DOCUMENT") !==
-        (locator.schemaVersion === "pmh.discovery-evidence-locator.v2") ||
+      (locator.schemaVersion !== "pmh.discovery-evidence-locator.v3" &&
+        (locator.role === "VENUE_RULE_DOCUMENT") !==
+          (locator.schemaVersion === "pmh.discovery-evidence-locator.v2")) ||
       locator.locatorIdentity !== hashCanonical({
         ...body,
         venueId: listing.venueId,
