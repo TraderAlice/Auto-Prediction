@@ -26,6 +26,7 @@ export type StandingRouteSeedOutcomeStage =
   | "RUN_IN_FLIGHT"
   | "SPENT_WITHOUT_TERMINAL_EFFECT"
   | "COUNTEREXAMPLE_RETAINED"
+  | "CONFLICTING_TERMINAL_EFFECTS"
   | "ROUTE_RETAINED";
 
 export type StandingRouteSeedRunCost = Readonly<{
@@ -78,6 +79,7 @@ export type StandingRouteSeedOutcomeProjection = Readonly<{
   terminalActionCount: number;
   routeRetainedActionCount: number;
   usefulNegativeMemoryActionCount: number;
+  conflictingTerminalEffectActionCount: number;
   outcomes: readonly StandingRouteSeedActionOutcome[];
   strata: readonly Readonly<{
     targetRouteLayer: RelationDiscoveryRouteLayer;
@@ -86,6 +88,7 @@ export type StandingRouteSeedOutcomeProjection = Readonly<{
     terminalActionCount: number;
     routeRetainedActionCount: number;
     usefulNegativeMemoryActionCount: number;
+    conflictingTerminalEffectActionCount: number;
     knownInputTokens: string;
     knownOutputTokens: string;
     knownReasoningTokens: string;
@@ -225,7 +228,10 @@ export function buildStandingRouteSeedOutcomeProjection(input: Readonly<{
         ? [family.routeFamilyId]
         : [],
     ) ?? []);
-    const stage: StandingRouteSeedOutcomeStage = retainedRouteFamilyIds.length > 0 ||
+    const stage: StandingRouteSeedOutcomeStage = (retainedRouteFamilyIds.length > 0 ||
+        routeFindingIds.length > 0) && counterexampleFindingIds.length > 0
+      ? "CONFLICTING_TERMINAL_EFFECTS"
+      : retainedRouteFamilyIds.length > 0 ||
         routeFindingIds.length > 0
       ? "ROUTE_RETAINED"
       : counterexampleFindingIds.length > 0
@@ -249,6 +255,7 @@ export function buildStandingRouteSeedOutcomeProjection(input: Readonly<{
       stage,
       acted: runs.length > 0,
       terminal: stage === "ROUTE_RETAINED" || stage === "COUNTEREXAMPLE_RETAINED" ||
+        stage === "CONFLICTING_TERMINAL_EFFECTS" ||
         (stage === "SPENT_WITHOUT_TERMINAL_EFFECT" && runs.every((run) =>
           TERMINAL_RUN_STATES.has(run.status)
         )),
@@ -287,6 +294,9 @@ export function buildStandingRouteSeedOutcomeProjection(input: Readonly<{
       usefulNegativeMemoryActionCount: selected.filter((item) =>
         item.usefulNegativeMemory
       ).length,
+      conflictingTerminalEffectActionCount: selected.filter((item) =>
+        item.stage === "CONFLICTING_TERMINAL_EFFECTS"
+      ).length,
       knownInputTokens: sum("knownInputTokens"),
       knownOutputTokens: sum("knownOutputTokens"),
       knownReasoningTokens: sum("knownReasoningTokens"),
@@ -305,6 +315,9 @@ export function buildStandingRouteSeedOutcomeProjection(input: Readonly<{
     routeRetainedActionCount: outcomes.filter((item) => item.stage === "ROUTE_RETAINED").length,
     usefulNegativeMemoryActionCount: outcomes.filter((item) =>
       item.usefulNegativeMemory
+    ).length,
+    conflictingTerminalEffectActionCount: outcomes.filter((item) =>
+      item.stage === "CONFLICTING_TERMINAL_EFFECTS"
     ).length,
     outcomes,
     strata,

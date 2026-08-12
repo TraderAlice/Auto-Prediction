@@ -396,6 +396,14 @@ class CodexAppServerSession implements AgentRuntimeSession {
     }
   }
 
+  public async settleAcceptedResult(
+    toolResults: readonly AgentRuntimeToolResult[],
+  ): Promise<void> {
+    if (this.#closed) throw new Error("Codex app-server session is closed");
+    const connection = await this.#connectionPromise;
+    await this.#respondToTools(connection, toolResults);
+  }
+
   public async prepareCompletionRecovery(input: Readonly<{
     resultToolNames: readonly string[];
   }>): Promise<void> {

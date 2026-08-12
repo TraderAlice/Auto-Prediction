@@ -9134,11 +9134,14 @@ function StandingRouteMemory({ revision }: { revision: string }) {
                     <div className={candidate === undefined ? "is-empty" : ""} key={layer}>
                       <span>{layer.replaceAll("_", " ").toLowerCase()}</span>
                       <strong>{candidate === undefined ? "Capacity unused" : "Seed selected"}</strong>
-                      <small>{candidate === undefined
-                        ? outcome === undefined
-                          ? "No honest uncovered candidate"
-                          : `${outcome.terminalActionCount}/3 terminal attempts retained`
-                        : `${candidate.seedListingEvidenceCount} seed evidence · priority ${candidate.sourcePriority}`}</small>
+                      <small>{outcome !== undefined &&
+                          outcome.conflictingTerminalEffectActionCount > 0
+                        ? `${outcome.conflictingTerminalEffectActionCount} conflicting terminal · excluded from clean yield`
+                        : candidate === undefined
+                          ? outcome === undefined
+                            ? "No honest uncovered candidate"
+                            : `${outcome.terminalActionCount}/3 terminal attempts retained`
+                          : `${candidate.seedListingEvidenceCount} seed evidence · priority ${candidate.sourcePriority}`}</small>
                     </div>
                   );
                 })}

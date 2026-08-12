@@ -231,9 +231,9 @@ describe("Codex app-server Agent runtime", () => {
     });
 
     expect(result.run.status).toBe("SUCCEEDED");
-    expect(result.modelInvocations).toHaveLength(2);
+    expect(result.modelInvocations).toHaveLength(1);
     expect(result.modelInvocations.map((item) => [item.inputTokens, item.outputTokens]))
-      .toEqual([["120", "30"], ["80", "20"]]);
+      .toEqual([["120", "30"]]);
     expect(result.toolEffects).toHaveLength(1);
     expect(result.toolEffects[0]).toMatchObject({
       toolName: "record_counterexample",
@@ -377,7 +377,7 @@ describe("Codex app-server Agent runtime", () => {
     });
 
     expect(result.run.status).toBe("SUCCEEDED");
-    expect(result.modelInvocations).toHaveLength(3);
+    expect(result.modelInvocations).toHaveLength(2);
     expect(result.toolEffects).toEqual([expect.objectContaining({
       toolName: "record_counterexample",
       status: "ACCEPTED",

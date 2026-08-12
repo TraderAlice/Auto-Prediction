@@ -375,7 +375,7 @@ describe("market ontology Agent tools", () => {
     });
 
     expect(result.run.status).toBe("SUCCEEDED");
-    expect(result.modelInvocations).toHaveLength(2);
+    expect(result.modelInvocations).toHaveLength(1);
     expect(result.toolEffects).toHaveLength(1);
     expect(result.toolEffects[0]).toMatchObject({
       toolProtocol: MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,

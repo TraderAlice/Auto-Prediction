@@ -606,6 +606,7 @@ describe("ontology proposal relation work", () => {
       terminalActionCount: 0,
       routeRetainedActionCount: 0,
       usefulNegativeMemoryActionCount: 0,
+      conflictingTerminalEffectActionCount: 0,
       outcomes: [{
         targetRouteLayer: "EVENT_REFERENCE",
         stage: "RUN_IN_FLIGHT",
@@ -633,6 +634,56 @@ describe("ontology proposal relation work", () => {
       runsCreatedByRead: 0,
       writesStartedByRead: 0,
       automaticDispatch: false,
+    });
+
+    await host.execute(context("record_ontology_route", {
+      routeLayer: "EVENT_REFERENCE",
+      searchSignals: ["Mark Kelly"],
+      listingRefs: refs,
+      statement: "The inspected listings share the named event subject.",
+      rationale: "The literal signal occurs in both retained titles.",
+      falsifiers: ["A title no longer contains the signal."],
+    }));
+    await host.execute(context("record_relation_counterexample", {
+      rejectedRelationKind: null,
+      listingRefs: refs,
+      statement: "The same run also claimed the route should not be retained.",
+      rationale: "This fixture preserves a historical conflicting terminal effect.",
+      falsifiers: ["Only one terminal effect exists."],
+    }));
+    const conflicting = buildStandingRouteSeedOutcomeProjection({
+      execution: Object.freeze({
+        ...execution,
+        tasks: Object.freeze([...execution.tasks, ...preview.taskRevisions.map((item) =>
+          item.task
+        )]),
+        campaigns: Object.freeze([paused, active]),
+        runs: Object.freeze([...execution.runs, run]),
+        runAnnotations: Object.freeze([...execution.runAnnotations, annotation]),
+      }),
+      taskRevisions: [...revisions, ...preview.taskRevisions],
+      findings: host.findings(),
+      standingRoutes: null,
+      observedAt: NOW,
+    });
+    expect(conflicting).toMatchObject({
+      terminalActionCount: 1,
+      routeRetainedActionCount: 0,
+      usefulNegativeMemoryActionCount: 0,
+      conflictingTerminalEffectActionCount: 1,
+      outcomes: [{
+        stage: "CONFLICTING_TERMINAL_EFFECTS",
+        terminal: true,
+        usefulNegativeMemory: false,
+        routeFindingIds: [expect.stringMatching(/^sha256:/u)],
+        counterexampleFindingIds: [expect.stringMatching(/^sha256:/u)],
+      }],
+      strata: [{
+        terminalActionCount: 1,
+        routeRetainedActionCount: 0,
+        usefulNegativeMemoryActionCount: 0,
+        conflictingTerminalEffectActionCount: 1,
+      }],
     });
 
     const attemptedSelection = buildStandingRouteSeedSelection({

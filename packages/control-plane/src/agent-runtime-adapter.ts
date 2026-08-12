@@ -519,6 +519,7 @@ export type AgentRuntimeToolDefinition = Readonly<{
 
 export interface AgentRuntimeSession {
   advance(toolResults: readonly AgentRuntimeToolResult[]): Promise<AgentRuntimeTurn>;
+  settleAcceptedResult?(toolResults: readonly AgentRuntimeToolResult[]): Promise<void>;
   prepareCompletionRecovery?(input: Readonly<{
     resultToolNames: readonly string[];
   }>): Promise<void>;
@@ -692,6 +693,7 @@ export async function executePreparedAgentRun(
         ),
         inputSchema: definition.inputSchema,
       })));
+    const explicitResultToolPolicy = input.toolHost.resultToolNames !== undefined;
     const resultToolNames = Object.freeze((input.toolHost.resultToolNames?.(
       valid.profile.toolPolicy.protocol,
     ) ?? toolManifest.map((tool) => tool.name))
@@ -930,6 +932,24 @@ export async function executePreparedAgentRun(
         await input.onProgress?.(Object.freeze({
           toolEffects: Object.freeze([effect]),
         }));
+        if (explicitResultToolPolicy && effect.status === "ACCEPTED" &&
+            resultToolNames.includes(effect.toolName)) {
+          await session.settleAcceptedResult?.(Object.freeze([Object.freeze({
+            callId,
+            status: result.status,
+            output: result.output,
+          })]));
+          artifacts.push(buildAgentRunArtifact({
+            run: valid.run,
+            ordinal: artifacts.length + 1,
+            kind: "RESULT_TOOL_FINAL",
+            contentHash: effect.canonicalOutputHash,
+            sourceArtifactRef: `agent-tool-effect:${effect.effectId}`,
+            createdAt: effect.occurredAt,
+          }));
+          await session.cancel?.();
+          return finish("SUCCEEDED", null, effect.canonicalOutputHash);
+        }
         nextResults.push(Object.freeze({
           callId,
           status: result.status,

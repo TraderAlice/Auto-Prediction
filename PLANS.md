@@ -421,6 +421,15 @@ campaign `taskRunPolicy`, assigns route seeding
 pause/activate revisions. Legacy v1/v2 campaigns retain their historical
 repeatable semantics.
 
+The resumed event seed then exposed the next loop-level boundary: after an
+accepted event route, the Codex app-server performed another inference turn and
+also retained a counterexample. The event run used ten turns and 288,862 input
+tokens. Historical route-plus-counterexample actions are now projected as
+`CONFLICTING_TERMINAL_EFFECTS` and excluded from clean route yield. New Agent
+runs stop at the first accepted explicit result tool; the validated canonical
+tool output becomes the terminal artifact, while an app-server-specific settle
+step answers the pending dynamic-tool RPC without another model request.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

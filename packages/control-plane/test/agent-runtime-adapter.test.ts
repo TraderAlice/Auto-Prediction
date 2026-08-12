@@ -467,6 +467,63 @@ describe("Agent runtime adapters", () => {
     });
   });
 
+  it("terminates on the first accepted explicit result tool", async () => {
+    const cancel = vi.fn(async () => undefined);
+    let executed = 0;
+    const adapter = new CodexAgentRuntimeAdapter(async () => ({
+      cancel,
+      advance: async () => ({
+        invocation: {
+          status: "SUCCEEDED" as const,
+          startedAt: NOW,
+          completedAt: NEXT,
+          inputTokens: "10",
+          outputTokens: "2",
+          reasoningTokens: "1",
+          failureCategory: null,
+        },
+        toolCalls: [{
+          callId: "call:result:first",
+          toolName: "submit_rule_evidence_claim",
+          input: { result: "first" },
+        }, {
+          callId: "call:result:conflicting",
+          toolName: "submit_rule_evidence_claim",
+          input: { result: "conflicting" },
+        }],
+        completed: false,
+        finalArtifact: null,
+      }),
+    }));
+    const input = execution({
+      kind: "CODEX",
+      credential: codexCredential(),
+      model: codexModel(),
+      adapter,
+    });
+    const result = await executePreparedAgentRun({
+      ...input,
+      toolHost: {
+        manifest,
+        resultToolNames: () => ["submit_rule_evidence_claim"],
+        execute: async (context) => {
+          executed += 1;
+          return { status: "ACCEPTED", output: context.input };
+        },
+      },
+      now: () => Date.parse(NEXT),
+    });
+    expect(executed).toBe(1);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      run: { status: "SUCCEEDED", terminalDiagnostic: null },
+      modelInvocations: [{ ordinal: 1 }],
+      toolEffects: [{ ordinal: 1, toolName: "submit_rule_evidence_claim", status: "ACCEPTED" }],
+      runArtifacts: [{ kind: "RESULT_TOOL_FINAL" }],
+    });
+    expect(result.finalArtifactHash).toBe(hashCanonical({ result: "first" }));
+  });
+
   it("does not stage or start completion recovery past the invocation budget", async () => {
     const cancel = vi.fn(async () => undefined);
     const prepareCompletionRecovery = vi.fn(async () => undefined);

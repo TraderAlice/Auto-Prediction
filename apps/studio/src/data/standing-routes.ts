@@ -162,6 +162,7 @@ export type StandingRouteSeedOutcomes = Readonly<{
   terminalActionCount: number;
   routeRetainedActionCount: number;
   usefulNegativeMemoryActionCount: number;
+  conflictingTerminalEffectActionCount: number;
   strata: ReadonlyArray<Readonly<{
     targetRouteLayer: "SUBJECT_REFERENCE" | "EVENT_REFERENCE" | "SETTLEMENT_REFERENCE";
     selectedActionCount: number;
@@ -169,6 +170,7 @@ export type StandingRouteSeedOutcomes = Readonly<{
     terminalActionCount: number;
     routeRetainedActionCount: number;
     usefulNegativeMemoryActionCount: number;
+    conflictingTerminalEffectActionCount: number;
     knownInputTokens: string;
     knownOutputTokens: string;
     knownReasoningTokens: string;
@@ -198,6 +200,7 @@ function parseStandingRouteSeedOutcomes(value: unknown): StandingRouteSeedOutcom
   if (outcomes.schemaVersion !== "pmh.standing-route-seed-outcome-projection.v1" ||
       !Array.isArray(outcomes.strata) ||
       !Number.isSafeInteger(outcomes.selectedActionCount) ||
+      !Number.isSafeInteger(outcomes.conflictingTerminalEffectActionCount) ||
       outcomes.recurrenceQualification?.minimumTerminalActionsPerLayer !== 3 ||
       outcomes.recurrenceQualification.operatorActivationStillRequired !== true ||
       outcomes.providerRequestsStartedByRead !== 0 ||

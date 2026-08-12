@@ -2641,6 +2641,7 @@ describe("control-plane HTTP surface", () => {
       terminalActionCount: 0,
       routeRetainedActionCount: 0,
       usefulNegativeMemoryActionCount: 0,
+      conflictingTerminalEffectActionCount: 0,
       outcomes: [],
       strata: [],
       recurrenceQualification: {

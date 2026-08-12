@@ -150,6 +150,16 @@ compile them. A counterexample or abstention is a valid terminal outcome.
   retained as operational evidence. The dispatcher now treats manual-only task
   membership as an exactly-once attempt ledger while preserving recurring
   `INTERVAL` campaign semantics.
+- After the lineage fix, the untouched event seed ran under the remaining
+  aggregate budget. It retained one event route after three first-party
+  grounding rejections, using ten turns, 288,862 input tokens, 3,468 output
+  tokens, and 228,367 ms. The app-server loop then accepted a counterexample
+  after the accepted route because result tools previously required one more
+  model turn to complete. The ledger now classifies this historical anomaly as
+  `CONFLICTING_TERMINAL_EFFECTS`, not clean route yield. New runs terminate on
+  the first accepted explicit result tool, bind the first-party canonical tool
+  output as `RESULT_TOOL_FINAL`, and use an app-server settle hook to answer the
+  pending dynamic-tool RPC without starting another inference turn.
 
 ## Next evidence target
 
