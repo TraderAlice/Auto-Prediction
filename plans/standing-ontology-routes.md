@@ -1,12 +1,12 @@
 # Standing ontology routes
 
-Status: active mainline construction — phases 1–5 lifecycle memory qualified; operator surface next
+Status: active mainline construction — phases 1–5 and operator lifecycle surface qualified
 
 Issue: [#125](https://github.com/luokerenx4/my-little-pony/issues/125)
 
 Lifecycle continuation: [#127](https://github.com/luokerenx4/my-little-pony/issues/127)
 
-Branch: `codex/standing-route-observation-episodes`
+Branch: `codex/standing-route-inbox`
 
 ## North-star role
 
@@ -119,7 +119,7 @@ spend on payoff search when it supplies no new live member or changed contract.
   artifacts without making a causal value claim.
 - [x] Persist family observation episodes so historical quiet intervals and
   multiple past wakes survive beyond the current corpus projection.
-- [ ] Expose standing routes and wakes in the Finding Inbox without presenting
+- [x] Expose standing routes and wakes in the Finding Inbox without presenting
   them as opportunities.
 - [ ] Add notifications only through the existing future destination decision;
   in-app visibility is sufficient for qualification.
@@ -135,6 +135,8 @@ spend on payoff search when it supplies no new live member or changed contract.
   cannot create another route.
 - [x] Workspace checks, all suites, build, and retained-live-state reads pass for
   the completed phases.
+- [x] Desktop and 390 px Finding Inbox qualification shows the lifecycle without
+  horizontal page or timeline overflow.
 
 ## Implementation checkpoint — 2026-08-12
 
@@ -210,6 +212,31 @@ reported zero provider requests, model invocations, campaigns, and runs. The
 next active slice is an operator-facing route-family timeline and wake-yield
 surface in the Finding Inbox; it must expose memory and spend without calling a
 route an opportunity.
+
+That operator slice is now complete. Finding Inbox reads the dedicated bounded
+route projection through an authority-validating hook and shows family state,
+immutable transition history, current quiet time, historical wakes, authoring
+and follow-up usage, retained downstream yield, and expandable exact lineage.
+The surface says explicitly that a wake is research supply rather than an
+opportunity and has no automatic dispatch or trading authority. It neither
+embeds the route desk in the already-large Studio projection nor starts a model
+request on read.
+
+The retained live family supplied a more useful temporal specimen than the
+original root-only qualification: three durable observations now read
+`QUIESCENT → CONTRACTED → QUIESCENT`, with zero wakes and zero follow-up spend.
+The UI reports 181,755 known lifecycle tokens (179,293 input + 1,722 output +
+740 reasoning) across eight authoring invocations and “None yet” for retained
+yield. Desktop and 390 px views have no horizontal page overflow; the mobile
+lifecycle changes from a scrollable horizontal strip to a readable vertical
+timeline. The bounded endpoint again reports zero provider requests, model
+invocations, campaigns, and runs caused by read.
+
+The next selection question is no longer how to display memory. It is whether
+a deliberately diversified portfolio of Agent-authored subject, event, and
+settlement routes produces enough novel, reviewable payoff work to justify its
+authoring and wake cost. Construct that as a bounded route-seeding/selection
+campaign rather than automatically multiplying every available issue family.
 
 The retained live Lula finding compiled to standing route
 `sha256:e68e800fd20be6566c112eae7972c9a94c637d9b9cc5df959d31da3e74c8d250`

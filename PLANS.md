@@ -373,6 +373,20 @@ two startups with zero provider/model/campaign/run side effects. The active
 continuation is the Finding Inbox route-family timeline and wake-yield surface,
 not automatic dispatch.
 
+That surface is now implemented as a dedicated bounded read in Finding Inbox.
+It shows current family state, immutable transition history, quiet time,
+historical wakes, authoring/follow-up usage, retained yield, and expandable
+exact lineage while explicitly describing wakes as research supply rather than
+opportunities. The live family now has a genuine
+`QUIESCENT → CONTRACTED → QUIESCENT` history, zero wakes, zero follow-up spend,
+and 181,755 known lifecycle tokens across eight authoring invocations. Desktop
+and 390 px qualification have no horizontal page overflow; mobile uses a
+vertical lifecycle rather than a clipped native scrollbar. Reads started zero
+provider requests, model invocations, campaigns, or runs. The next measured
+question is route-portfolio yield: seed a small differentiated set of subject,
+event, and settlement routes, then select them by novel reviewable payoff work
+per authoring/wake cost instead of multiplying routes by default.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,
