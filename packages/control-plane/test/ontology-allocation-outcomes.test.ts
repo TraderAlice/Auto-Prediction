@@ -4,6 +4,7 @@ import {
   activateAgentCampaign,
   assertMarketOntologyAgentProposal,
   buildAgentRun,
+  buildAgentInputRevisionRunAnnotation,
   buildDefaultAgentRuntimePortfolio,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
@@ -263,11 +264,32 @@ describe("ontology allocation realized outcomes", () => {
       outputTokens: "80",
       reasoningTokens: "20",
     });
+    const annotation = buildAgentInputRevisionRunAnnotation({
+      task: revision.task,
+      run,
+      revisionKind: "ONTOLOGY_SEARCH_ISSUE",
+      revisionId: revision.revisionId,
+      exactInput: revision.taskPayload,
+    });
     const positive = proposal(revision, run.runId, "WORLD_PROPOSITION");
+    const unmatched = projection({
+      execution: Object.freeze({
+        ...work.execution,
+        campaigns: Object.freeze([work.paused, work.active]),
+        runs: Object.freeze([run]),
+        modelInvocations: Object.freeze([invocation]),
+      }),
+      revisions: work.revisions,
+      proposals: [positive],
+    });
+    expect(unmatched.campaigns[0]!.actionOutcomes.find((item) =>
+      item.selectionActionRef === binding.selectionActionRef
+    )).toMatchObject({ stage: "UNACTED", acted: false, directRunIds: [] });
     const execution = Object.freeze({
       ...work.execution,
       campaigns: Object.freeze([work.paused, work.active]),
       runs: Object.freeze([run]),
+      runAnnotations: Object.freeze([annotation]),
       modelInvocations: Object.freeze([invocation]),
     });
     const result = projection({ execution, revisions: work.revisions, proposals: [positive] });
@@ -309,10 +331,18 @@ describe("ontology allocation realized outcomes", () => {
       createdAt: LATER,
     }), "SUCCEEDED", "2026-08-12T09:02:00.000Z", null);
     const negative = proposal(revision, run.runId, "COUNTEREXAMPLE");
+    const annotation = buildAgentInputRevisionRunAnnotation({
+      task: revision.task,
+      run,
+      revisionKind: "ONTOLOGY_SEARCH_ISSUE",
+      revisionId: revision.revisionId,
+      exactInput: revision.taskPayload,
+    });
     const execution = Object.freeze({
       ...work.execution,
       campaigns: Object.freeze([work.paused, work.active]),
       runs: Object.freeze([run]),
+      runAnnotations: Object.freeze([annotation]),
     });
     const result = projection({ execution, revisions: work.revisions, proposals: [negative] });
     const outcome = result.campaigns[0]!.actionOutcomes.find((item) =>

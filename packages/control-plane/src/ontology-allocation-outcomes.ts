@@ -5,6 +5,7 @@ import type {
   AgentExecutionSnapshot,
   AgentRun,
 } from "./agent-execution-substrate.js";
+import { agentInputRevisionAnnotationMatches } from "./agent-input-revision-binding.js";
 import type { MarketOntologyAgentProposal } from "./market-ontology-agent-tools.js";
 import type { OntologyRelationWorkProjection } from "./ontology-relation-work.js";
 import type { RelationDiscoveryFinding } from "./relation-discovery-agent-tools.js";
@@ -311,7 +312,16 @@ function actionOutcome(input: Readonly<{
 }>): OntologyAllocationActionOutcome {
   const directRuns = input.execution.runs.filter((run) =>
     run.taskId === input.binding.taskId && run.authorization.campaignId !== null &&
-    input.campaignIds.has(run.authorization.campaignId)
+    input.campaignIds.has(run.authorization.campaignId) &&
+    input.execution.runAnnotations.some((annotation) =>
+      annotation.runId === run.runId && agentInputRevisionAnnotationMatches({
+        annotation,
+        taskId: input.binding.taskId,
+        revisionKind: "ONTOLOGY_SEARCH_ISSUE",
+        revisionId: input.binding.inputRevisionId,
+        exactInputHash: input.binding.exactInputHash,
+      })
+    )
   );
   const directRunIds = new Set(directRuns.map((run) => run.runId));
   const ontologyProposals = input.ontologyProposals.filter((proposal) =>
@@ -322,10 +332,22 @@ function actionOutcome(input: Readonly<{
     item.sourceProposalIds.some((proposalId) => ontologyProposalIds.has(proposalId))
   );
   const relationWorkIds = new Set(relationItems.map((item) => item.workItemId));
-  const relationTaskIds = new Set(input.relationTaskRevisions
-    .filter((revision) => relationWorkIds.has(revision.workItemId))
-    .map((revision) => revision.task.taskId));
-  const relationRuns = input.execution.runs.filter((run) => relationTaskIds.has(run.taskId));
+  const relationRevisions = input.relationTaskRevisions.filter((revision) =>
+    relationWorkIds.has(revision.workItemId)
+  );
+  const relationRuns = input.execution.runs.filter((run) =>
+    relationRevisions.some((revision) => run.taskId === revision.task.taskId &&
+      input.execution.runAnnotations.some((annotation) =>
+        annotation.runId === run.runId && agentInputRevisionAnnotationMatches({
+          annotation,
+          taskId: revision.task.taskId,
+          revisionKind: "RELATION_DISCOVERY",
+          revisionId: revision.revisionId,
+          exactInputHash: hashCanonical(revision.taskPayload),
+        })
+      )
+    )
+  );
   const relationRunIds = new Set(relationRuns.map((run) => run.runId));
   const relationFindings = input.relationFindings.filter((finding) =>
     relationWorkIds.has(finding.workItemId) && relationRunIds.has(finding.sourceAgentRunId)
