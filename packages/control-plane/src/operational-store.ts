@@ -249,8 +249,13 @@ import {
   type StandingOntologyRouteObservationEpisode,
   type StandingOntologyRouteObservationEpisodeStore,
 } from "./standing-ontology-routes.js";
+import {
+  assertStudioProjectionSnapshot,
+  type StudioProjectionSnapshot,
+  type StudioProjectionSnapshotStore,
+} from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 43;
+const SCHEMA_VERSION = 44;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1896,7 +1901,8 @@ export class SqliteOperationalStore
     RelationDiscoveryTaskRevisionStore,
     RelationDiscoveryFindingStore,
     StandingOntologyRouteObservationEpisodeStore,
-    ResearchDecisionEpisodeStore
+    ResearchDecisionEpisodeStore,
+    StudioProjectionSnapshotStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -1967,6 +1973,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"episodeId">;
   public readonly researchDecisionEpisodeStorage:
     OperationalStorageProjection<"episodeId">;
+  public readonly studioProjectionSnapshotStorage:
+    OperationalStorageProjection<"singleton">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -2210,6 +2218,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "episodeId",
+    });
+    this.studioProjectionSnapshotStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "singleton",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2568,6 +2582,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'research_decision_episodes'`,
       )
       .get() !== undefined;
+    const studioProjectionSnapshotTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'studio_projection_snapshot'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -2609,6 +2629,7 @@ export class SqliteOperationalStore
       && relationDiscoveryFindingTableExists
       && standingOntologyRouteObservationEpisodeTableExists
       && researchDecisionEpisodeTableExists
+      && studioProjectionSnapshotTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -4326,6 +4347,22 @@ export class SqliteOperationalStore
             );
         `);
       }
+      if (current < 44 || !studioProjectionSnapshotTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS studio_projection_snapshot (
+            singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+            projection_view_hash TEXT NOT NULL CHECK (
+              length(projection_view_hash) = 71 AND
+              projection_view_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            materialized_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -4336,6 +4373,59 @@ export class SqliteOperationalStore
 
   #assertOpen(): void {
     if (this.#closed) throw new Error("operational database is closed");
+  }
+
+  public loadStudioProjectionSnapshot(): StudioProjectionSnapshot | null {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      `SELECT projection_view_hash, record_json, record_hash
+       FROM studio_projection_snapshot WHERE singleton = 1`,
+    ).get() as Readonly<{
+      projection_view_hash: string;
+      record_json: string;
+      record_hash: string;
+    }> | undefined;
+    if (row === undefined) return null;
+    try {
+      const snapshot = assertStudioProjectionSnapshot(JSON.parse(row.record_json));
+      if (
+        row.projection_view_hash !== snapshot.projectionViewHash ||
+        row.record_hash !== snapshot.snapshotHash
+      ) return null;
+      return snapshot;
+    } catch {
+      // This is a disposable presentation cache. Malformation is a cache miss,
+      // not a durable evidence recovery failure.
+      return null;
+    }
+  }
+
+  public saveStudioProjectionSnapshot(
+    snapshotInput: StudioProjectionSnapshot,
+  ): StudioProjectionSnapshot {
+    this.#assertOpen();
+    const snapshot = assertStudioProjectionSnapshot(snapshotInput);
+    const recordJson = canonicalJson(snapshot);
+    this.#database.prepare(
+      `INSERT INTO studio_projection_snapshot (
+         singleton, projection_view_hash, materialized_at, record_json, record_hash
+       ) VALUES (1, ?, ?, ?, ?)
+       ON CONFLICT(singleton) DO UPDATE SET
+         projection_view_hash = excluded.projection_view_hash,
+         materialized_at = excluded.materialized_at,
+         record_json = excluded.record_json,
+         record_hash = excluded.record_hash`,
+    ).run(
+      snapshot.projectionViewHash,
+      snapshot.materializedAt,
+      recordJson,
+      snapshot.snapshotHash,
+    );
+    const stored = this.loadStudioProjectionSnapshot();
+    if (stored === null || stored.snapshotHash !== snapshot.snapshotHash) {
+      throw new Error("SQLite failed to retain the Studio projection snapshot");
+    }
+    return stored;
   }
 
   public loadResearchDecisionEpisodes(limit: number): readonly ResearchDecisionEpisode[] {

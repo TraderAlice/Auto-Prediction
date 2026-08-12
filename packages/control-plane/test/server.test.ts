@@ -12,6 +12,9 @@ import {
   CandidateWatchDesk,
   candidateWatchSources,
   createControlPlane,
+  buildLiveStudioProjection,
+  buildStudioProjection,
+  buildStudioProjectionSnapshot,
   buildAgentTask,
   CatalogObservationDesk,
   CatalogRefreshScheduler,
@@ -95,6 +98,56 @@ async function closeTracked(
 }
 
 describe("control-plane HTTP surface", () => {
+  it("serves a last-known bounded snapshot as stale while fresh state revalidates", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-stale-projection-"));
+    const path = join(directory, "control-plane.sqlite");
+    const store = new SqliteOperationalStore(path);
+    const retained = buildStudioProjectionSnapshot({
+      projection: buildLiveStudioProjection(
+        buildStudioProjection({ workers: [], activeRuns: 0 }),
+      ),
+      sourceProjectionRevision: 19n,
+      materializedAt: "2026-08-13T00:00:00.000Z",
+    });
+    store.saveStudioProjectionSnapshot(retained);
+    let releaseStartup: (() => void) | undefined;
+    const startupGate = new Promise<void>((resolve) => {
+      releaseStartup = resolve;
+    });
+    const { baseUrl, controlPlane } = await listenControlPlane({
+      discoveryStore: store,
+      investigationStore: store,
+      startupGate,
+      refreshCatalogOnReady: false,
+    });
+    const stale = await fetch(`${baseUrl}/api/v1/projection`);
+    expect(stale.status).toBe(200);
+    expect(stale.headers.get("x-pmh-projection-freshness"))
+      .toBe("STALE_REVALIDATING");
+    expect(stale.headers.get("x-pmh-projection-materialized-at"))
+      .toBe(retained.materializedAt);
+    expect(stale.headers.get("x-pmh-projection-revision")).toBe("19");
+    expect((await stale.json() as StudioProjection).identity.view).toBe("LIVE_BOUNDED");
+
+    releaseStartup?.();
+    await controlPlane.ready;
+    let live: Response | null = null;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/v1/projection`);
+      if (response.headers.get("x-pmh-projection-freshness") === "LIVE") {
+        live = response;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(live?.status).toBe(200);
+    expect(live?.headers.get("x-pmh-projection-freshness")).toBe("LIVE");
+    expect(store.loadStudioProjectionSnapshot()?.materializedAt)
+      .not.toBe(retained.materializedAt);
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+
   it("creates and activates a bounded Agent campaign without dispatching from configuration", async () => {
     const registry = new AgentExecutionRegistry();
     const task = buildAgentTask({
@@ -3204,7 +3257,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 43,
+        schemaVersion: 44,
         },
         records: [{ investigationId: created.investigationId }],
       });

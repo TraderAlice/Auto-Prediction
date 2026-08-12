@@ -3026,8 +3026,20 @@ function Topbar({
   onCommand: () => void;
 }) {
   const currentLabel = navigation.find((item) => item.id === view)?.label ?? "Overview";
+  const staleAge = projectionSync.lastUpdatedAt === null
+    ? null
+    : Math.max(0, Date.now() - Date.parse(projectionSync.lastUpdatedAt));
+  const staleAgeLabel = staleAge === null
+    ? "unknown age"
+    : staleAge < 60_000
+      ? "under 1m old"
+      : staleAge < 3_600_000
+        ? `${Math.floor(staleAge / 60_000)}m old`
+        : `${Math.floor(staleAge / 3_600_000)}h old`;
   const syncLabel = projectionSync.status === "LIVE"
     ? "Live data"
+    : projectionSync.status === "STALE_REVALIDATING"
+      ? `Last known · ${staleAgeLabel} · revalidating`
     : projectionSync.status === "REFRESHING"
       ? "Updating"
       : projectionSync.status === "RECONNECTING"
@@ -3035,6 +3047,8 @@ function Topbar({
         : "Connecting";
   const SyncIcon = projectionSync.status === "REFRESHING"
     ? RefreshCw
+    : projectionSync.status === "STALE_REVALIDATING"
+      ? Clock3
     : projectionSync.status === "RECONNECTING"
       ? Clock3
       : Radio;
@@ -3065,7 +3079,8 @@ function Topbar({
           </kbd>
         </button>
         <Badge
-          variant={projectionSync.status === "RECONNECTING" ? "warning" : "muted"}
+          variant={projectionSync.status === "RECONNECTING" ||
+              projectionSync.status === "STALE_REVALIDATING" ? "warning" : "muted"}
           title={projectionSync.revision === null
             ? syncLabel
             : `${syncLabel} · projection revision ${projectionSync.revision}`}
