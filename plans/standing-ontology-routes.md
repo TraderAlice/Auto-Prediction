@@ -114,6 +114,11 @@ spend on payoff search when it supplies no new live member or changed contract.
   route/finding/run lineage rather than silently discarding duplicate evidence.
 - [ ] Attribute route creation cost, quiet duration, wake count, follow-up cost,
   payoff-review yield, counterexample yield, and opportunity progression.
+- [x] Separate route-authoring usage from upstream ontology lineage and
+  follow-up usage; expose known/unknown token structure and downstream retained
+  artifacts without making a causal value claim.
+- [ ] Persist family observation episodes so historical quiet intervals and
+  multiple past wakes survive beyond the current corpus projection.
 - [ ] Expose standing routes and wakes in the Finding Inbox without presenting
   them as opportunities.
 - [ ] Add notifications only through the existing future destination decision;
@@ -175,6 +180,18 @@ one quiet, uncorroborated family
 with zero wake work. Qualification can disable only campaign polling with
 `PMH_AGENT_CAMPAIGN_TICK_MS=0`; this leaves the control plane readable without
 mutating persisted campaign authority or starting background model calls.
+
+The first value projection now attributes authoring and wake-follow-up usage
+separately and walks retained follow-up work through runs, findings,
+counterexamples, semantic proposals/reviews, probability jobs, and opportunity
+IDs. It is explicitly descriptive and non-causal. Live Lula attribution found
+one authoring run with eight model invocations, 179,293 input tokens, 1,722
+output tokens, and 740 reasoning tokens; the quiet family has no follow-up cost
+or downstream yield yet. An initial overcount of 331,442 input tokens exposed
+that upstream ontology runs were being charged as route creation. Those runs
+remain in provenance, while `creationUsage` now uses only the actual route-
+authoring run. Historical multi-wake counts still require durable observation
+episodes; the current provider-free projection reports only the present wake.
 
 The retained live Lula finding compiled to standing route
 `sha256:e68e800fd20be6566c112eae7972c9a94c637d9b9cc5df959d31da3e74c8d250`

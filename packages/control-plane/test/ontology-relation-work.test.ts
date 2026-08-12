@@ -19,6 +19,7 @@ import {
   buildMarketOntologySnapshot,
   buildOntologyRelationWorkProjection,
   buildStandingOntologyRouteProjection,
+  buildStandingOntologyRouteValueProjection,
   extendOntologyRelationWorkWithStandingRouteFollowups,
   materializeRelationDiscoveryTaskRevisions,
   materializeStandingOntologyRouteFollowups,
@@ -1108,6 +1109,10 @@ describe("ontology proposal relation work", () => {
       sourceCount: 2,
       nativeSourceCount: 2,
       legacySourceCount: 0,
+      authoringRunIds: expect.arrayContaining([
+        run.runId,
+        corroboratingRoute.sourceAgentRunId,
+      ]),
       sourceFindingIds: expect.arrayContaining([
         nativeRoute.findingId,
         corroboratingRoute.findingId,
@@ -1161,6 +1166,57 @@ describe("ontology proposal relation work", () => {
         falsifiers: ["No recursion boundary exists."],
       },
     })).rejects.toThrow("cannot create another autonomous route");
+    const valueProjection = buildStandingOntologyRouteValueProjection({
+      projection: expandedProjection,
+      followups,
+      execution: Object.freeze({
+        ...work.execution,
+        runs: Object.freeze([...work.execution.runs, run, followupRun]),
+      }),
+      taskRevisions: [...revisions, followupRevision],
+      findings: retained,
+      compilations: [],
+      semanticReviews: [],
+      probabilityJobs: [],
+      opportunities: [],
+      observedAt: "2026-08-12T10:00:00.000Z",
+    });
+    expect(valueProjection).toMatchObject({
+      familyCount: 1,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      automaticDispatch: false,
+      authority: "DESCRIPTIVE_ROUTE_VALUE_ATTRIBUTION_ONLY",
+      causalClaim: false,
+      values: [{
+        routeFamilyId: expandedProjection.families[0]!.family.routeFamilyId,
+        observedWakeCount: 1,
+        valueStage: "WAKE_ATTEMPTED",
+        quietDurationMs: null,
+        followupWorkItemIds: [followups[0]!.workItem.workItemId],
+        followupRunIds: [followupRun.runId],
+        creationUsage: { runCount: expect.any(Number) },
+        followupUsage: { runCount: 1, invocationCount: 0 },
+      }],
+    });
+    expect(valueProjection.values[0]!.creationUsage.runCount).toBeGreaterThanOrEqual(1);
+    const quietValue = buildStandingOntologyRouteValueProjection({
+      projection: quietRoutes,
+      followups: [],
+      execution: work.execution,
+      taskRevisions: revisions,
+      findings: retained,
+      compilations: [],
+      semanticReviews: [],
+      probabilityJobs: [],
+      opportunities: [],
+      observedAt: "2026-08-12T10:00:00.000Z",
+    });
+    expect(quietValue.values[0]).toMatchObject({
+      observedWakeCount: 0,
+      valueStage: "QUIET_MEMORY",
+      quietDurationMs: "3600000",
+    });
     expect(materializeStandingOntologyRouteFollowups({
       projection: quietRoutes,
       ontology: buildMarketOntologySnapshot(work.corpus),

@@ -352,6 +352,15 @@ Lula source is one quiet family with no baseline disagreement and no follow-up.
 An operational `PMH_AGENT_CAMPAIGN_TICK_MS=0` override also permits read-only
 qualification without changing stored campaign state or starting background
 Terra calls. Exact lifecycle cost and downstream yield attribution remain next.
+Current-state value attribution is now exact over retained lineage. It keeps
+route-authoring usage separate from upstream ontology discovery and from later
+wake-follow-up research, then traces the latter through findings, independent
+semantic review, probability jobs, and opportunity IDs without claiming
+causality. The live Lula family cost one authoring run: eight model invocations,
+179,293 input tokens, 1,722 output tokens, and 740 reasoning tokens. It remains
+quiet with zero follow-up spend and zero downstream yield. Durable observation
+episodes are still needed before the system can report historical multi-wake
+counts and quiet intervals rather than only current-corpus state.
 
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It

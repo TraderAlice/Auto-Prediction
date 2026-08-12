@@ -127,6 +127,7 @@ import {
   type RelationDiscoveryProposalCompilation,
 } from "./relation-discovery-semantic-bridge.js";
 import {
+  buildStandingOntologyRouteValueProjection,
   buildStandingOntologyRouteProjection,
   extendOntologyRelationWorkWithStandingRouteFollowups,
   materializeStandingOntologyRouteFollowups,
@@ -4068,10 +4069,49 @@ export function createControlPlane(options?: {
         projection,
         ontology: buildMarketOntologySnapshot(catalogObservationDesk.corpus()),
       });
+      const execution = agentExecutionRegistry.snapshot();
+      const findingsForValue = relationDiscoveryStore
+        ?.loadRelationDiscoveryFindings(512) ?? [];
+      const compilations = relationDiscoveryProposalCompilations();
+      const proposalIds = compilations.map((item) => item.proposal.proposalId);
+      const semanticReviews = proposalIds.length === 0
+        ? Object.freeze([])
+        : semanticReviewJobsForProposalIds(proposalIds).map((item) => Object.freeze({
+            jobId: item.jobId,
+            proposalId: item.proposalId,
+            status: item.status,
+          }));
+      const probabilityJobs = proposalIds.length === 0
+        ? Object.freeze([])
+        : probabilityJobsForProposalIds(proposalIds).map((item) => Object.freeze({
+            jobId: item.jobId,
+            proposalId: item.proposalId,
+          }));
+      const proposalOpportunityIds = new Set(proposalIds.map((item) => `ai:${item}`));
+      const opportunities = opportunityLifecycleDesk.projection().cases.filter((item) =>
+        proposalOpportunityIds.has(item.opportunityId)
+      ).map((item) => Object.freeze({ opportunityId: item.opportunityId }));
+      const observedAt = catalogObservationDesk.corpus().listings.map((item) =>
+        item.sourceReceivedAt
+      ).sort().at(-1) ?? "1970-01-01T00:00:00.000Z";
+      const value = buildStandingOntologyRouteValueProjection({
+        projection,
+        followups,
+        execution,
+        taskRevisions: relationDiscoveryStore
+          ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
+        findings: findingsForValue,
+        compilations,
+        semanticReviews,
+        probabilityJobs,
+        opportunities,
+        observedAt,
+      });
       writeJson(response, 200, Object.freeze({
         ...projection,
         followupCount: followups.length,
         followups,
+        value,
       }));
       return;
     }

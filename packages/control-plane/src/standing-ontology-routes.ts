@@ -25,6 +25,9 @@ import {
   type OntologyRelationWorkItem,
   type OntologyRelationWorkProjection,
 } from "./ontology-relation-work.js";
+import type { AgentExecutionSnapshot } from "./agent-execution-substrate.js";
+import type { RelationDiscoveryProposalCompilation } from
+  "./relation-discovery-semantic-bridge.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_ROUTE_MEMBERS = 24;
@@ -109,6 +112,7 @@ export type StandingOntologyRouteFamily = Readonly<{
   sourceRouteIds: readonly Hash[];
   sourceFindingIds: readonly Hash[];
   sourceTaskIds: readonly Hash[];
+  authoringRunIds: readonly Hash[];
   sourceAgentRunIds: readonly Hash[];
   sourceCount: number;
   nativeSourceCount: number;
@@ -221,6 +225,75 @@ export type StandingOntologyRouteFollowup = Readonly<{
   semanticDecisionAuthority: false;
   probabilityAuthority: false;
   certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type StandingOntologyRouteUsage = Readonly<{
+  runCount: number;
+  invocationCount: number;
+  knownInputTokens: string;
+  knownOutputTokens: string;
+  knownReasoningTokens: string;
+  unknownInputInvocationCount: number;
+  unknownOutputInvocationCount: number;
+  unknownReasoningInvocationCount: number;
+}>;
+
+export type StandingOntologyRouteFamilyValue = Readonly<{
+  schemaVersion: "pmh.standing-ontology-route-family-value.v1";
+  valueId: Hash;
+  routeFamilyId: Hash;
+  observedAt: string;
+  currentState: StandingOntologyRouteObservationState;
+  quietDurationMs: string | null;
+  sourceCount: number;
+  observedWakeCount: 0 | 1;
+  creationUsage: StandingOntologyRouteUsage;
+  followupUsage: StandingOntologyRouteUsage;
+  followupWorkItemIds: readonly Hash[];
+  followupRunIds: readonly Hash[];
+  positiveFindingIds: readonly Hash[];
+  counterexampleIds: readonly Hash[];
+  semanticProposalIds: readonly Hash[];
+  semanticReviewJobIds: readonly Hash[];
+  semanticReviewPassCount: number;
+  probabilityJobIds: readonly Hash[];
+  opportunityIds: readonly string[];
+  valueStage:
+    | "QUIET_MEMORY"
+    | "WAKE_UNATTEMPTED"
+    | "WAKE_ATTEMPTED"
+    | "NEGATIVE_EVIDENCE"
+    | "POSITIVE_FINDING"
+    | "SEMANTICALLY_REVIEWED"
+    | "PROBABILITY_RESEARCH"
+    | "OPPORTUNITY_PROGRESS";
+  authority: "DESCRIPTIVE_ROUTE_VALUE_ATTRIBUTION_ONLY";
+  causalClaim: false;
+  automaticDispatch: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type StandingOntologyRouteValueProjection = Readonly<{
+  schemaVersion: "pmh.standing-ontology-route-value-projection.v1";
+  projectionIdentity: Hash;
+  observedAt: string;
+  familyCount: number;
+  totalCreationUsage: StandingOntologyRouteUsage;
+  totalFollowupUsage: StandingOntologyRouteUsage;
+  values: readonly StandingOntologyRouteFamilyValue[];
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  automaticDispatch: false;
+  authority: "DESCRIPTIVE_ROUTE_VALUE_ATTRIBUTION_ONLY";
+  causalClaim: false;
   executionAuthority: false;
   externalWriteAuthority: false;
   valueMovingAuthority: false;
@@ -574,6 +647,7 @@ function buildRouteFamilies(
       sourceRouteIds: uniqueHashes(sorted.map((item) => item.routeId)),
       sourceFindingIds: uniqueHashes(sorted.map((item) => item.sourceFindingId)),
       sourceTaskIds: uniqueHashes(sorted.map((item) => item.sourceTaskId)),
+      authoringRunIds: uniqueHashes(sorted.map((item) => item.sourceAgentRunId)),
       sourceAgentRunIds: uniqueHashes(sorted.flatMap((item) => [
         ...item.sourceAgentRunIds,
         item.sourceAgentRunId,
@@ -951,6 +1025,179 @@ export function extendOntologyRelationWorkWithStandingRouteFollowups(input: Read
       item.disposition === "BLOCKED_MISSING_ISSUE_LINEAGE"
     ).length,
     items,
+  });
+  return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });
+}
+
+function usageForRuns(
+  execution: AgentExecutionSnapshot,
+  runIdsInput: readonly Hash[],
+): StandingOntologyRouteUsage {
+  const runIds = new Set(runIdsInput);
+  const invocations = execution.modelInvocations.filter((item) => runIds.has(item.runId));
+  const sum = (field: "inputTokens" | "outputTokens" | "reasoningTokens") =>
+    invocations.reduce((total, item) => total + BigInt(item[field] ?? "0"), 0n).toString();
+  return Object.freeze({
+    runCount: runIds.size,
+    invocationCount: invocations.length,
+    knownInputTokens: sum("inputTokens"),
+    knownOutputTokens: sum("outputTokens"),
+    knownReasoningTokens: sum("reasoningTokens"),
+    unknownInputInvocationCount: invocations.filter((item) => item.inputTokens === null).length,
+    unknownOutputInvocationCount: invocations.filter((item) => item.outputTokens === null).length,
+    unknownReasoningInvocationCount: invocations.filter((item) =>
+      item.reasoningTokens === null
+    ).length,
+  });
+}
+
+function sumUsage(items: readonly StandingOntologyRouteUsage[]): StandingOntologyRouteUsage {
+  return Object.freeze({
+    runCount: items.reduce((sum, item) => sum + item.runCount, 0),
+    invocationCount: items.reduce((sum, item) => sum + item.invocationCount, 0),
+    knownInputTokens: items.reduce((sum, item) =>
+      sum + BigInt(item.knownInputTokens), 0n).toString(),
+    knownOutputTokens: items.reduce((sum, item) =>
+      sum + BigInt(item.knownOutputTokens), 0n).toString(),
+    knownReasoningTokens: items.reduce((sum, item) =>
+      sum + BigInt(item.knownReasoningTokens), 0n).toString(),
+    unknownInputInvocationCount: items.reduce((sum, item) =>
+      sum + item.unknownInputInvocationCount, 0),
+    unknownOutputInvocationCount: items.reduce((sum, item) =>
+      sum + item.unknownOutputInvocationCount, 0),
+    unknownReasoningInvocationCount: items.reduce((sum, item) =>
+      sum + item.unknownReasoningInvocationCount, 0),
+  });
+}
+
+export function buildStandingOntologyRouteValueProjection(input: Readonly<{
+  projection: StandingOntologyRouteProjection;
+  followups: readonly StandingOntologyRouteFollowup[];
+  execution: AgentExecutionSnapshot;
+  taskRevisions: readonly RelationDiscoveryTaskRevision[];
+  findings: readonly RelationDiscoveryFinding[];
+  compilations: readonly RelationDiscoveryProposalCompilation[];
+  semanticReviews: readonly Readonly<{
+    jobId: Hash;
+    proposalId: Hash;
+    status: string;
+  }>[];
+  probabilityJobs: readonly Readonly<{
+    jobId: Hash;
+    proposalId: Hash;
+  }>[];
+  opportunities: readonly Readonly<{
+    opportunityId: string;
+  }>[];
+  observedAt: string;
+}>): StandingOntologyRouteValueProjection {
+  const observedMs = Date.parse(input.observedAt);
+  if (!Number.isFinite(observedMs) || new Date(observedMs).toISOString() !== input.observedAt) {
+    throw new Error("standing route value observedAt must be canonical ISO time");
+  }
+  const values = Object.freeze(input.projection.families.map(({ family, observation }) => {
+    const followups = input.followups.filter((item) =>
+      item.routeFamilyId === family.routeFamilyId
+    );
+    const followupWorkItemIds = uniqueHashes(followups.map((item) => item.workItem.workItemId));
+    const revisions = input.taskRevisions.filter((item) =>
+      followupWorkItemIds.includes(item.workItemId)
+    );
+    const taskIds = new Set(revisions.map((item) => item.task.taskId));
+    const followupRunIds = uniqueHashes(input.execution.runs.filter((item) =>
+      taskIds.has(item.taskId)
+    ).map((item) => item.runId));
+    const followupRunIdSet = new Set(followupRunIds);
+    const findings = input.findings.filter((item) =>
+      followupWorkItemIds.includes(item.workItemId) && followupRunIdSet.has(item.sourceAgentRunId)
+    );
+    const positiveFindingIds = uniqueHashes(findings.filter((item) =>
+      item.kind === "RELATION_HYPOTHESIS"
+    ).map((item) => item.findingId));
+    const counterexampleIds = uniqueHashes(findings.filter((item) =>
+      item.kind === "COUNTEREXAMPLE"
+    ).map((item) => item.findingId));
+    const semanticProposalIds = uniqueHashes(input.compilations.filter((item) =>
+      followupWorkItemIds.includes(item.origin.workItemId)
+    ).map((item) => item.proposal.proposalId));
+    const semanticReviews = input.semanticReviews.filter((item) =>
+      semanticProposalIds.includes(item.proposalId)
+    );
+    const probabilityJobs = input.probabilityJobs.filter((item) =>
+      semanticProposalIds.includes(item.proposalId)
+    );
+    const opportunityIds = Object.freeze(input.opportunities.map((item) =>
+      item.opportunityId
+    ).filter((opportunityId) => semanticProposalIds.some((proposalId) =>
+      opportunityId === `ai:${proposalId}`
+    )).sort());
+    const creationUsage = usageForRuns(input.execution, family.authoringRunIds);
+    const followupUsage = usageForRuns(input.execution, followupRunIds);
+    const quietDurationMs = observation.state === "QUIESCENT"
+      ? BigInt(Math.max(0, observedMs - Date.parse(family.firstRecordedAt))).toString()
+      : null;
+    const valueStage = opportunityIds.length > 0
+      ? "OPPORTUNITY_PROGRESS" as const
+      : probabilityJobs.length > 0
+        ? "PROBABILITY_RESEARCH" as const
+        : semanticReviews.some((item) => item.status === "PASS")
+          ? "SEMANTICALLY_REVIEWED" as const
+          : positiveFindingIds.length > 0
+            ? "POSITIVE_FINDING" as const
+            : counterexampleIds.length > 0
+              ? "NEGATIVE_EVIDENCE" as const
+              : followupRunIds.length > 0
+                ? "WAKE_ATTEMPTED" as const
+                : followups.length > 0
+                  ? "WAKE_UNATTEMPTED" as const
+                  : "QUIET_MEMORY" as const;
+    const body = Object.freeze({
+      schemaVersion: "pmh.standing-ontology-route-family-value.v1" as const,
+      routeFamilyId: family.routeFamilyId,
+      observedAt: input.observedAt,
+      currentState: observation.state,
+      quietDurationMs,
+      sourceCount: family.sourceCount,
+      observedWakeCount: (followups.length > 0 ? 1 : 0) as 0 | 1,
+      creationUsage,
+      followupUsage,
+      followupWorkItemIds,
+      followupRunIds,
+      positiveFindingIds,
+      counterexampleIds,
+      semanticProposalIds,
+      semanticReviewJobIds: uniqueHashes(semanticReviews.map((item) => item.jobId)),
+      semanticReviewPassCount: semanticReviews.filter((item) => item.status === "PASS").length,
+      probabilityJobIds: uniqueHashes(probabilityJobs.map((item) => item.jobId)),
+      opportunityIds,
+      valueStage,
+      authority: "DESCRIPTIVE_ROUTE_VALUE_ATTRIBUTION_ONLY" as const,
+      causalClaim: false as const,
+      automaticDispatch: false as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    return Object.freeze({ ...body, valueId: hashCanonical(body) });
+  }).sort((left, right) => left.routeFamilyId.localeCompare(right.routeFamilyId)));
+  const body = Object.freeze({
+    schemaVersion: "pmh.standing-ontology-route-value-projection.v1" as const,
+    observedAt: input.observedAt,
+    familyCount: values.length,
+    totalCreationUsage: sumUsage(values.map((item) => item.creationUsage)),
+    totalFollowupUsage: sumUsage(values.map((item) => item.followupUsage)),
+    values,
+    providerRequestsStartedByRead: 0 as const,
+    modelInvocationsStartedByRead: 0 as const,
+    automaticDispatch: false as const,
+    authority: "DESCRIPTIVE_ROUTE_VALUE_ATTRIBUTION_ONLY" as const,
+    causalClaim: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
   });
   return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });
 }
