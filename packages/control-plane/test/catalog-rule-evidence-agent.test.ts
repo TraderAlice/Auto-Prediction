@@ -10,8 +10,10 @@ import {
   buildMarketCorpusSnapshot,
   buildProposalEvidenceBundle,
   buildRuleEvidenceAgentTask,
+  AgentExecutionRegistry,
   CatalogObservationDesk,
   catalogObservationSources,
+  emptyAgentExecutionSnapshot,
   RuleEvidenceAgentToolHost,
   validateRuleEvidenceTextInput,
   type CatalogFetchLike,
@@ -20,6 +22,7 @@ import {
   type EvidenceRequirementDraft,
   type MarketRelationProposal,
   type RuleEvidenceInterpreterEngine,
+  type AgentExecutionStore,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
@@ -96,6 +99,28 @@ describe("catalog contract text as provider-neutral Agent work", () => {
     const input = { requirement, catalogTextEvidence: evidence } as const;
     const validated = validateRuleEvidenceTextInput(input);
     const task = buildRuleEvidenceAgentTask(input);
+    let additiveWrites = 0;
+    const emptySnapshot = emptyAgentExecutionSnapshot();
+    const store: AgentExecutionStore = {
+      agentExecutionStorage: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 46,
+        idempotencyKey: "recordId",
+      },
+      loadAgentExecutionSnapshot: () => emptySnapshot,
+      saveAgentExecutionBatch: () => {
+        throw new Error("incremental reconciliation used the full-ledger write path");
+      },
+      saveAgentTaskAdditions: (tasks) => {
+        additiveWrites += 1;
+        expect(tasks).toEqual([task]);
+      },
+    };
+    const registry = new AgentExecutionRegistry(store);
+    expect(registry.reconcileRuleEvidenceTasks([input])).toEqual([task]);
+    expect(registry.reconcileRuleEvidenceTasks([input])).toEqual([task]);
+    expect(additiveWrites).toBe(1);
 
     expect(task).toMatchObject({
       kind: "RULE_EVIDENCE_CLAIM",
@@ -250,6 +275,9 @@ describe("catalog contract text as provider-neutral Agent work", () => {
       requirement: validated.requirement,
       catalogTextEvidence: evidence,
     });
+    restored.saveAgentTaskAdditions([task]);
+    restored.saveAgentTaskAdditions([task]);
+    expect(restored.loadAgentExecutionSnapshot().tasks).toContainEqual(task);
     const host = new RuleEvidenceAgentToolHost((taskId) =>
       taskId === task.taskId ? validated : null
     );

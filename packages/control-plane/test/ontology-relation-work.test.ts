@@ -973,6 +973,27 @@ describe("ontology proposal relation work", () => {
       ...legacyBody,
       revisionId: hashCanonical(legacyBody),
     }));
+    let legacyCorpusLoads = 0;
+    const prefersSelfDescribingRevision = reconcileRelationDiscoveryTaskRevisions({
+      relationWork: Object.freeze({
+        ...relationWork,
+        items: Object.freeze(relationWork.items.filter((item) =>
+          item.workItemId === first.workItemId || item.disposition !== "RUNNABLE_RESEARCH"
+        )),
+        runnableResearchCount: 1,
+        workItemCount: relationWork.items.filter((item) =>
+          item.workItemId === first.workItemId || item.disposition !== "RUNNABLE_RESEARCH"
+        ).length,
+      }),
+      corpus: observationOnlyRefresh,
+      retainedRevisions: [legacy, first],
+      loadRetainedCorpus: () => {
+        legacyCorpusLoads += 1;
+        return work.corpus;
+      },
+    });
+    expect(prefersSelfDescribingRevision.reusedRevisionIds).toEqual([first.revisionId]);
+    expect(legacyCorpusLoads).toBe(0);
     const legacyReused = reconcileRelationDiscoveryTaskRevisions({
       relationWork: Object.freeze({
         ...relationWork,

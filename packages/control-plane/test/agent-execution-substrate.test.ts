@@ -17,6 +17,7 @@ import {
   type AiRuntimeConfiguration,
   type CodexModelConfiguration,
   type ExecutionProfile,
+  type AgentExecutionStore,
 } from "../src/index.js";
 
 const NOW = "2026-08-10T12:00:00.000Z";
@@ -115,6 +116,100 @@ function task(priority = 10, provenanceRef = "evidence-requirement:test") {
 }
 
 describe("Agent execution substrate", () => {
+  it("does not persist a batch whose durable identities and content are unchanged", () => {
+    const retainedTask = task();
+    const snapshot = {
+      runtimeDefinitions: Object.freeze([]),
+      credentialBindings: Object.freeze([]),
+      modelProfiles: Object.freeze([]),
+      executionProfiles: Object.freeze([]),
+      capabilityObservations: Object.freeze([]),
+      workloadRoutes: Object.freeze([]),
+      tasks: Object.freeze([retainedTask]),
+      runs: Object.freeze([]),
+      modelInvocations: Object.freeze([]),
+      toolEffects: Object.freeze([]),
+      runArtifacts: Object.freeze([]),
+      runAnnotations: Object.freeze([]),
+      campaigns: Object.freeze([]),
+      resultSelections: Object.freeze([]),
+    };
+    let writes = 0;
+    const store: AgentExecutionStore = {
+      agentExecutionStorage: {
+        mode: "MEMORY",
+        durable: false,
+        schemaVersion: 46,
+        idempotencyKey: "recordId",
+      },
+      loadAgentExecutionSnapshot: () => snapshot,
+      saveAgentExecutionBatch: () => { writes += 1; },
+    };
+    const registry = new AgentExecutionRegistry(store);
+    expect(registry.saveBatch({ tasks: [retainedTask] })).toBe(snapshot);
+    expect(writes).toBe(0);
+  });
+
+  it("uses the additive store path for a task-only batch", () => {
+    const snapshot = {
+      runtimeDefinitions: Object.freeze([]), credentialBindings: Object.freeze([]),
+      modelProfiles: Object.freeze([]), executionProfiles: Object.freeze([]),
+      capabilityObservations: Object.freeze([]), workloadRoutes: Object.freeze([]),
+      tasks: Object.freeze([]), runs: Object.freeze([]),
+      modelInvocations: Object.freeze([]), toolEffects: Object.freeze([]),
+      runArtifacts: Object.freeze([]), runAnnotations: Object.freeze([]),
+      campaigns: Object.freeze([]), resultSelections: Object.freeze([]),
+    };
+    const retainedTask = task();
+    let fullWrites = 0;
+    let additiveWrites = 0;
+    const store: AgentExecutionStore = {
+      agentExecutionStorage: {
+        mode: "MEMORY", durable: false, schemaVersion: 46, idempotencyKey: "recordId",
+      },
+      loadAgentExecutionSnapshot: () => snapshot,
+      saveAgentExecutionBatch: () => { fullWrites += 1; },
+      saveAgentTaskAdditions: (tasks) => {
+        additiveWrites += 1;
+        expect(tasks).toEqual([retainedTask]);
+      },
+    };
+    const registry = new AgentExecutionRegistry(store);
+    expect(registry.saveBatch({ tasks: [retainedTask] }).tasks).toEqual([retainedTask]);
+    expect({ fullWrites, additiveWrites }).toEqual({ fullWrites: 0, additiveWrites: 1 });
+  });
+
+  it("keeps the full store path for mutable task metadata", () => {
+    const retainedTask = task();
+    const changedTask = task(11, "evidence-requirement:successor");
+    const snapshot = {
+      runtimeDefinitions: Object.freeze([]), credentialBindings: Object.freeze([]),
+      modelProfiles: Object.freeze([]), executionProfiles: Object.freeze([]),
+      capabilityObservations: Object.freeze([]), workloadRoutes: Object.freeze([]),
+      tasks: Object.freeze([retainedTask]), runs: Object.freeze([]),
+      modelInvocations: Object.freeze([]), toolEffects: Object.freeze([]),
+      runArtifacts: Object.freeze([]), runAnnotations: Object.freeze([]),
+      campaigns: Object.freeze([]), resultSelections: Object.freeze([]),
+    };
+    let fullWrites = 0;
+    let additiveWrites = 0;
+    const updatedSnapshot = { ...snapshot, tasks: Object.freeze([changedTask]) };
+    const store: AgentExecutionStore = {
+      agentExecutionStorage: {
+        mode: "MEMORY", durable: false, schemaVersion: 46, idempotencyKey: "recordId",
+      },
+      loadAgentExecutionSnapshot: () => fullWrites === 0 ? snapshot : updatedSnapshot,
+      saveAgentExecutionBatch: (batch) => {
+        fullWrites += 1;
+        expect(batch.tasks).toEqual([changedTask]);
+      },
+      saveAgentTaskAdditions: () => { additiveWrites += 1; },
+    };
+    const registry = new AgentExecutionRegistry(store);
+    expect(registry.saveBatch({ tasks: [changedTask] }).tasks).toEqual([changedTask]);
+    expect({ fullWrites, additiveWrites }).toEqual({ fullWrites: 1, additiveWrites: 0 });
+  });
+
   it("imports the flat Codex setting as an in-process model route with zero dispatch", () => {
     const configuration: AiRuntimeConfiguration = {
       schemaVersion: "pmh.ai-runtime-configuration.v2",
