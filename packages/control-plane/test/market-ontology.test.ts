@@ -184,4 +184,17 @@ describe("evidence-bound market ontology", () => {
       ontologyIdentity: hashCanonical({ forged: true }),
     })).toThrow(/bounded authority/);
   });
+
+  it("admits the bounded live-source ceiling above five thousand listings", () => {
+    const listings = Array.from({ length: 5_004 }, (_, index) => listing({
+      listingRef: `venue-a:bounded-${index}`,
+      title: `Bounded proposition ${index}`,
+    }));
+    expect(buildMarketOntologySnapshot(corpus(listings))).toMatchObject({
+      listingCount: 5_004,
+      authority: "DERIVED_SEARCH_EVIDENCE_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+    });
+  });
 });

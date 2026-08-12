@@ -353,10 +353,16 @@ export function reconcileRelationDiscoveryTaskRevisions(input: Readonly<{
   const createdRevisionIds: Hash[] = [];
   const reusedRevisionIds: Hash[] = [];
   const currentRevisions = candidates.map((candidate) => {
-    const reusable = retained.find((revision) =>
+    const sameWork = retained.filter((revision) =>
       revision.schemaVersion !== "pmh.relation-discovery-task-revision.v4" &&
       revision.workItemId === candidate.workItemId &&
-      revision.workArtifactHash === candidate.workArtifactHash &&
+      revision.workArtifactHash === candidate.workArtifactHash
+    );
+    const reusable = sameWork.find((revision) =>
+      revision.schemaVersion !== "pmh.relation-discovery-task-revision.v1" &&
+      identityFor(revision) === researchInputIdentity
+    ) ?? sameWork.find((revision) =>
+      revision.schemaVersion === "pmh.relation-discovery-task-revision.v1" &&
       identityFor(revision) === researchInputIdentity
     );
     if (reusable !== undefined) {

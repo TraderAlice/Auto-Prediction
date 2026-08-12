@@ -17,6 +17,7 @@ const MAX_TRAILHEADS_PER_SIGNAL = 8;
 const MAX_TRAILHEADS_PER_RELATION_PATTERN = 3;
 const MAX_SINGLE_SIGNAL_WORLD_TRAILHEADS = 4;
 const MAX_TITLE_EXCERPT_CHARACTERS = 240;
+const MAX_ONTOLOGY_LISTINGS = 10_000;
 
 const STOP_WORDS = new Set([
   "about", "after", "again", "against", "all", "also", "among", "and",
@@ -695,7 +696,7 @@ export function assertMarketOntologySnapshot(value: unknown): MarketOntologySnap
     ontology.trailheadLaneCounts?.settlementDivergence !== ontology.trailheads.filter((item) =>
       item.selectionLane === "SETTLEMENT_DIVERGENCE"
     ).length ||
-    ontology.listingCount > 5_000 || ontology.clusterCount > MAX_CLUSTERS ||
+    ontology.listingCount > MAX_ONTOLOGY_LISTINGS || ontology.clusterCount > MAX_CLUSTERS ||
     ontology.trailheadCount > MAX_TRAILHEADS ||
     new Set(ontology.nodes.map((item) => item.listingRef)).size !== ontology.nodes.length ||
     ontology.nodes.some((item) =>

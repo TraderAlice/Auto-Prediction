@@ -11,7 +11,7 @@ import {
 const MAX_PATTERNS = 12;
 const MAX_PATTERN_LENGTH = 160;
 const MAX_RESULTS = 50;
-const MAX_RETAINED_LISTINGS = 5_000;
+const MAX_RETAINED_LISTINGS = 10_000;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 export type MarketCorpusSnapshot = Readonly<{
@@ -143,6 +143,7 @@ export function buildMarketCorpusSnapshot(input: Readonly<{
     ),
   );
   if (
+    listings.length > MAX_RETAINED_LISTINGS ||
     new Set(listings.map((listing) => listing.listingRef)).size !==
     listings.length
   ) {

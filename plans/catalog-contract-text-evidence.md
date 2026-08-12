@@ -4,7 +4,7 @@ Status: active mainline construction
 
 Created: 2026-08-13
 
-Branch: `codex/catalog-evidence-agent-supply`
+Branch: `codex/incremental-rule-evidence-reconcile`
 
 ## North-star role
 
@@ -87,6 +87,38 @@ v1 field shape and identity; only catalog-backed scopes use the new source-union
 v2. Semantic-review enrichment selects one current claim per requirement across
 alternative document or catalog supplies. The full suite passes 621 tests with
 zero provider requests or model invocations.
+
+## Phase 3 qualification recovery
+
+- [x] Keep startup reconciliation proportional to new Agent tasks instead of
+  rewriting and reloading the complete execution ledger for an unchanged set.
+- [x] Prefer self-describing relation-work revisions before loading a retained
+  legacy corpus, and raise the explicit bounded live-catalog ceiling from 5,000
+  to 10,000 listings after the anonymous catalog crossed the former limit.
+- [x] Preserve mutable task metadata updates on the full store path; use the
+  additive path only for genuinely new task identities.
+- [ ] Materialize catalog evidence for the requirement's semantic source
+  generation rather than assuming the latest price-bearing listing hash must
+  match. This must remain fail-closed when contract text or other contract
+  semantics change.
+
+Live evidence on 2026-08-13 found startup was dominated by repeated full-ledger
+writes and legacy relation-corpus hydration. Incremental task reconciliation,
+revision preference and bounded catalog growth reduced measured internal
+startup reconciliation to about 13 seconds: rule-evidence task reconciliation
+3.495 seconds, legacy migration 0.377 seconds, ontology 1.637 seconds, and
+relation reconciliation 7.820 seconds. The full 90-file control-plane suite
+passes 625 tests; check and build pass on Node 22 with only the repository's
+known Node 24 engine expectation.
+
+The same qualification found 80 exact catalog field artifacts but zero v2 Rule
+Evidence Agent tasks. Requirements retained the listing/source observation that
+created the research question, while the supply path only materialized the most
+recent catalog observation. Quote changes rotated the complete discovery
+listing identity even though `rulesText` was unchanged, so the exact validator
+correctly rejected the mismatched generations. The next phase must separate
+market observation identity from contract-semantic and field-evidence identity;
+it must not weaken source hashes or silently call a changed contract current.
 
 ## Qualification gates
 

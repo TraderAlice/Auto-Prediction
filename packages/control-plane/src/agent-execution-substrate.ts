@@ -418,6 +418,7 @@ export interface AgentExecutionStore {
   readonly agentExecutionStorage: OperationalStorageProjection<"recordId">;
   loadAgentExecutionSnapshot(): AgentExecutionSnapshot;
   saveAgentExecutionBatch(batch: AgentExecutionBatch): void;
+  saveAgentTaskAdditions?(tasks: readonly AgentTask[]): void;
 }
 
 function exactKeys(value: object, keys: readonly string[]): boolean {
@@ -2044,8 +2045,7 @@ export class AgentExecutionRegistry {
       executionProfiles: [imported.executionProfile],
       workloadRoutes: [imported.workloadRoute],
     };
-    this.store?.saveAgentExecutionBatch(batch);
-    this.#snapshot = this.store?.loadAgentExecutionSnapshot() ?? mergeSnapshot(this.#snapshot, batch);
+    this.saveBatch(batch);
     return imported;
   }
 
@@ -2064,10 +2064,7 @@ export class AgentExecutionRegistry {
     const tasks = Object.freeze([...tasksById.values()].sort((left, right) =>
       left.taskId.localeCompare(right.taskId, "en")
     ));
-    const batch: AgentExecutionBatch = { tasks };
-    this.store?.saveAgentExecutionBatch(batch);
-    this.#snapshot = this.store?.loadAgentExecutionSnapshot() ??
-      mergeSnapshot(this.#snapshot, batch);
+    this.saveBatch({ tasks });
     return tasks;
   }
 
@@ -2076,9 +2073,24 @@ export class AgentExecutionRegistry {
   }
 
   public saveBatch(batch: AgentExecutionBatch): AgentExecutionSnapshot {
-    this.store?.saveAgentExecutionBatch(batch);
-    this.#snapshot = this.store?.loadAgentExecutionSnapshot() ??
-      mergeSnapshot(this.#snapshot, batch);
+    const changed = filterUnchangedBatch(this.#snapshot, batch);
+    if (Object.values(changed).every((records) => records?.length === 0)) {
+      return this.#snapshot;
+    }
+    const retainedTaskIds = new Set(this.#snapshot.tasks.map((task) => task.taskId));
+    const taskAdditionsOnly = (changed.tasks?.length ?? 0) > 0 &&
+      changed.tasks!.every((task) => !retainedTaskIds.has(task.taskId)) &&
+      Object.entries(changed).every(([kind, records]) =>
+        kind === "tasks" || records?.length === 0
+      );
+    if (taskAdditionsOnly && this.store?.saveAgentTaskAdditions !== undefined) {
+      this.store.saveAgentTaskAdditions(changed.tasks!);
+      this.#snapshot = mergeSnapshot(this.#snapshot, changed);
+    } else {
+      this.store?.saveAgentExecutionBatch(changed);
+      this.#snapshot = this.store?.loadAgentExecutionSnapshot() ??
+        mergeSnapshot(this.#snapshot, changed);
+    }
     return this.#snapshot;
   }
 
@@ -2161,5 +2173,87 @@ function mergeSnapshot(
     campaigns: mergeById(current.campaigns, batch.campaigns, (record) => record.campaignId),
     resultSelections: mergeById(current.resultSelections, batch.resultSelections,
       (record) => record.selectionId),
+  });
+}
+
+function filterUnchangedBatch(
+  current: AgentExecutionSnapshot,
+  batch: AgentExecutionBatch,
+): AgentExecutionBatch {
+  const changed = <T>(
+    retained: readonly T[],
+    incoming: readonly T[] | undefined,
+    identity: (record: T) => string,
+  ): readonly T[] => {
+    const retainedHashes = new Map(retained.map((record) =>
+      [identity(record), hashCanonical(record)] as const
+    ));
+    return Object.freeze((incoming ?? []).filter((record) =>
+      retainedHashes.get(identity(record)) !== hashCanonical(record)
+    ));
+  };
+  return Object.freeze({
+    runtimeDefinitions: changed(
+      current.runtimeDefinitions,
+      batch.runtimeDefinitions,
+      (record) => record.runtimeDefinitionId,
+    ),
+    credentialBindings: changed(
+      current.credentialBindings,
+      batch.credentialBindings,
+      (record) => record.credentialBindingId,
+    ),
+    modelProfiles: changed(
+      current.modelProfiles,
+      batch.modelProfiles,
+      (record) => record.modelProfileId,
+    ),
+    executionProfiles: changed(
+      current.executionProfiles,
+      batch.executionProfiles,
+      (record) => record.executionProfileId,
+    ),
+    capabilityObservations: changed(
+      current.capabilityObservations,
+      batch.capabilityObservations,
+      (record) => record.observationId,
+    ),
+    workloadRoutes: changed(
+      current.workloadRoutes,
+      batch.workloadRoutes,
+      (record) => record.workloadRouteId,
+    ),
+    tasks: changed(current.tasks, batch.tasks, (record) => record.taskId),
+    runs: changed(current.runs, batch.runs, (record) => record.runId),
+    modelInvocations: changed(
+      current.modelInvocations,
+      batch.modelInvocations,
+      (record) => record.invocationId,
+    ),
+    toolEffects: changed(
+      current.toolEffects,
+      batch.toolEffects,
+      (record) => record.effectId,
+    ),
+    runArtifacts: changed(
+      current.runArtifacts,
+      batch.runArtifacts,
+      (record) => record.artifactId,
+    ),
+    runAnnotations: changed(
+      current.runAnnotations,
+      batch.runAnnotations,
+      (record) => record.annotationId,
+    ),
+    campaigns: changed(
+      current.campaigns,
+      batch.campaigns,
+      (record) => record.campaignId,
+    ),
+    resultSelections: changed(
+      current.resultSelections,
+      batch.resultSelections,
+      (record) => record.selectionId,
+    ),
   });
 }

@@ -7115,6 +7115,43 @@ export class SqliteOperationalStore
     }
   }
 
+  public saveAgentTaskAdditions(tasksInput: readonly AgentTask[]): void {
+    this.#assertOpen();
+    const tasks = tasksInput.map(assertAgentTask);
+    if (new Set(tasks.map((task) => task.taskId)).size !== tasks.length) {
+      throw new Error("Agent task additions repeat an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const task of tasks) {
+        const recordJson = canonicalJson(task);
+        const recordHash = hashCanonical(task);
+        this.#database.prepare(
+          `INSERT INTO agent_tasks (
+             task_id, task_kind, priority, created_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(task_id) DO NOTHING`,
+        ).run(
+          task.taskId,
+          task.kind,
+          task.priority,
+          task.createdAt,
+          recordJson,
+          recordHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT record_hash FROM agent_tasks WHERE task_id = ?`,
+        ).get(task.taskId) as Readonly<{ record_hash?: unknown }> | undefined;
+        if (row?.record_hash !== recordHash) {
+          throw new Error("Agent task identity is already bound to another record");
+        }
+      }
+      this.#database.exec("COMMIT");
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   public loadMarketOntologyAgentProposals(
     limit: number,
   ): readonly MarketOntologyAgentProposal[] {
