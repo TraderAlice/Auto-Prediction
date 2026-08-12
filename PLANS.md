@@ -1600,6 +1600,31 @@ shows intent protocol, membership revision, current member count and lineage
 consumption; immutable retired tasks remain audit history rather than runnable
 authority.
 
+The active continuation is now
+[`plans/persistent-discovery-flywheel.md`](plans/persistent-discovery-flywheel.md).
+Live funnel evidence rejects raw task or invocation count as the discovery
+metric. Six relation-discovery runs produced seven structured outcomes, while
+the ledger holds 64 relation tasks and 3,074 ontology tasks; meanwhile 488 of
+549 model invocations belong to historical Rule Evidence work, including 458
+failures. The immediate bottleneck is therefore control-loop continuity, not
+relation-Agent yield: the research-attention allocator chooses evidence-based
+actions, but the relation campaign still runs an independent priority-only
+selector. The next slice binds allocation actions directly to evolving campaign
+membership and durable outcome attribution before any recurring timer is
+allowed to spend.
+
+That slice is now live-qualified. One paused v4 lineage binds the allocator's
+top exploration action to one exact relation task under a stable research
+policy and `ONCE_PER_TASK_PER_LINEAGE`; membership refresh preserves activation
+and cumulative budget. First membership automatically captured one immutable
+decision episode, repeated creation was rejected, and clean restart/read left
+251 runs and 549 invocations unchanged with zero provider or model work. The
+1.1 GB database also exposed full-ledger hashing and reloads on small Agent
+batches; touched-identity comparison plus validated in-memory snapshot writes
+remove those scans, while startup readiness now names the active reconciliation
+step. The remaining monolithic Studio first-projection stall is retained as the
+next view-local read-model problem rather than hidden in the flywheel result.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

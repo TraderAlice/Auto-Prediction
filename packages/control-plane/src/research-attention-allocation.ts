@@ -191,7 +191,9 @@ function latestRevision(
   workItemId: Hash,
   revisions: readonly RelationDiscoveryTaskRevision[],
 ): RelationDiscoveryTaskRevision | null {
-  return revisions.filter((item) => item.workItemId === workItemId).sort((left, right) =>
+  return revisions.filter((item) => item.workItemId === workItemId &&
+    item.schemaVersion !== "pmh.relation-discovery-task-revision.v4"
+  ).sort((left, right) =>
     right.materializedAt.localeCompare(left.materializedAt) ||
     right.revisionId.localeCompare(left.revisionId)
   )[0] ?? null;
@@ -415,6 +417,7 @@ export function buildResearchAttentionAllocation(input: Readonly<{
   ));
   for (const run of input.execution.runs) {
     const revision = revisionsByTask.get(run.taskId);
+    if (revision?.schemaVersion === "pmh.relation-discovery-task-revision.v4") continue;
     if (revision === undefined || !tasks.has(run.taskId)) continue;
     const retained = runsByWork.get(revision.workItemId) ?? [];
     retained.push(run);
@@ -441,7 +444,10 @@ export function buildResearchAttentionAllocation(input: Readonly<{
     probabilityJobsByProposal.set(job.proposalId, retained);
   }
   const families = Object.freeze(input.relationWork.items.map((workItem) => {
-    const revisions = input.taskRevisions.filter((item) => item.workItemId === workItem.workItemId);
+    const revisions = input.taskRevisions.filter((item) =>
+      item.workItemId === workItem.workItemId &&
+      item.schemaVersion !== "pmh.relation-discovery-task-revision.v4"
+    );
     const currentRevision = latestRevision(workItem.workItemId, revisions);
     const runs = Object.freeze(runsByWork.get(workItem.workItemId) ?? []);
     const runIds = new Set(runs.map((item) => item.runId));

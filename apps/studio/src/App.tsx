@@ -311,6 +311,25 @@ type ResearchAttentionAllocation = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type RelationDiscoveryCampaignPreview = Readonly<{
+  schemaVersion: "pmh.relation-discovery-campaign-preview.v1";
+  campaignKey: string;
+  workItemIds: readonly string[];
+  taskIds: readonly string[];
+  allocationProjectionIdentity: string;
+  allocationPolicyIdentity: string;
+  allocationActionIds: readonly string[];
+  preparedCampaignIds: readonly string[];
+  intentCampaignId: string | null;
+  creationEligible: boolean;
+  dispatchEligible: boolean;
+  diagnostic: string;
+  providerRequestsStarted: 0;
+  modelInvocationsStarted: 0;
+  automaticDispatch: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type ResearchActionTargetProjection = Readonly<{
   schemaVersion: "pmh.research-action-target-projection.v1";
   projectionIdentity: string;
@@ -3329,6 +3348,21 @@ async function requestResearchAttentionAllocation(): Promise<ResearchAttentionAl
   return result;
 }
 
+async function requestRelationDiscoveryCampaignPreview(): Promise<RelationDiscoveryCampaignPreview> {
+  const response = await fetch("/api/v1/relation-discovery/campaign-preview", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Discovery flywheel returned HTTP ${response.status}`);
+  const result = await response.json() as RelationDiscoveryCampaignPreview;
+  if (result.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
+      result.providerRequestsStarted !== 0 || result.modelInvocationsStarted !== 0 ||
+      result.automaticDispatch !== false || result.externalWriteAuthority !== false ||
+      result.valueMovingAuthority !== false) {
+    throw new Error("Discovery flywheel preview crossed its authority boundary");
+  }
+  return result;
+}
+
 async function requestResearchActionTargets(): Promise<ResearchActionTargetProjection> {
   const response = await fetch("/api/v1/research-action-targets", {
     headers: { accept: "application/json" },
@@ -3392,6 +3426,7 @@ async function requestOntologyAllocationOutcomes(): Promise<OntologyAllocationOu
 function AgentOperationsView() {
   const [consoleData, setConsoleData] = useState<AgentExecutionConsole | null>(null);
   const [attentionData, setAttentionData] = useState<ResearchAttentionAllocation | null>(null);
+  const [flywheelData, setFlywheelData] = useState<RelationDiscoveryCampaignPreview | null>(null);
   const [targetData, setTargetData] = useState<ResearchActionTargetProjection | null>(null);
   const [outcomeData, setOutcomeData] = useState<ResearchDecisionOutcomeProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
@@ -3403,9 +3438,10 @@ function AgentOperationsView() {
   const [manualPreview, setManualPreview] = useState<unknown | null>(null);
 
   async function refresh() {
-    const [next, attention, targets, outcomes, ontologyOutcomes] = await Promise.all([
+    const [next, attention, flywheel, targets, outcomes, ontologyOutcomes] = await Promise.all([
       requestAgentExecutionConsole(),
       requestResearchAttentionAllocation(),
+      requestRelationDiscoveryCampaignPreview(),
       requestResearchActionTargets(),
       requestResearchDecisionOutcomes(),
       requestOntologyAllocationOutcomes(),
@@ -3415,6 +3451,7 @@ function AgentOperationsView() {
     }
     setConsoleData(next);
     setAttentionData(attention);
+    setFlywheelData(flywheel);
     setTargetData(targets);
     setOutcomeData(outcomes);
     setOntologyOutcomeData(ontologyOutcomes);
@@ -3716,9 +3753,23 @@ function AgentOperationsView() {
             </div>
             <div className="research-attention-lock">
               <CircleOff size={14} />
-              <span>{attentionData.heldFamilyCount} held · {attentionData.omittedActionableFamilyCount} omitted by lane caps · automatic dispatch off</span>
+              <span>{attentionData.heldFamilyCount} held · {attentionData.omittedActionableFamilyCount} omitted by lane caps · {flywheelData?.intentCampaignId === null ? "flywheel not retained" : "paused flywheel retained"}</span>
               <code>{attentionData.projectionIdentity.slice(7, 19)}</code>
             </div>
+            {flywheelData !== null && (
+              <div className="research-decision-control">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy !== null || !flywheelData.creationEligible}
+                  onClick={() => void perform("create-discovery-flywheel", () =>
+                    post("/api/v1/relation-discovery/campaigns", {}))}
+                >{flywheelData.intentCampaignId === null
+                    ? "Retain paused flywheel"
+                    : "Flywheel retained"}</Button>
+                <span>{flywheelData.taskIds.length} ranked member · {flywheelData.diagnostic} · no Agent runs on creation</span>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

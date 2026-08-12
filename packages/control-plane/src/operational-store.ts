@@ -6828,6 +6828,23 @@ export class SqliteOperationalStore
   }
 
   public saveAgentExecutionBatch(batchInput: AgentExecutionBatch): void {
+    this.#saveAgentExecutionBatch(
+      batchInput,
+      this.loadAgentExecutionSnapshot(),
+    );
+  }
+
+  public saveAgentExecutionBatchAgainstSnapshot(
+    batchInput: AgentExecutionBatch,
+    existing: AgentExecutionSnapshot,
+  ): void {
+    this.#saveAgentExecutionBatch(batchInput, existing);
+  }
+
+  #saveAgentExecutionBatch(
+    batchInput: AgentExecutionBatch,
+    existing: AgentExecutionSnapshot,
+  ): void {
     this.#assertOpen();
     const batch = Object.freeze({
       runtimeDefinitions: Object.freeze(
@@ -6871,7 +6888,6 @@ export class SqliteOperationalStore
         (batchInput.resultSelections ?? []).map(assertResultSelection),
       ),
     });
-    const existing = this.loadAgentExecutionSnapshot();
     const indexed = <T>(
       retained: readonly T[],
       incoming: readonly T[],

@@ -1,16 +1,27 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { ExecutionCapabilityProjection } from "./agent-runtime-adapter.js";
 import type {
+  AgentCampaign,
   AgentCampaignSelectionBinding,
+  AgentSelectionBoundCampaign,
   AgentExecutionSnapshot,
   ExecutionProfile,
   WorkloadRoute,
 } from "./agent-execution-substrate.js";
-import { assertAgentCampaignSelectionBinding } from "./agent-execution-substrate.js";
+import {
+  assertAgentCampaignSelectionBinding,
+  effectiveAgentCampaigns,
+  migrateAgentCampaignToEvolvingMembership,
+  reviseAgentCampaignMembership,
+} from "./agent-execution-substrate.js";
+import type { ResearchAttentionAllocationProjection } from
+  "./research-attention-allocation.js";
 import type { RelationDiscoveryTaskRevision } from "./relation-discovery-work.js";
 
 export const RELATION_DISCOVERY_SELECTION_PROTOCOL =
   "RELATION_DISCOVERY_SELECTION_V1" as const;
+export const RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL =
+  "RESEARCH_ATTENTION_RELATION_SELECTION_V1" as const;
 export const RELATION_DISCOVERY_INPUT_REVISION_KIND =
   "RELATION_DISCOVERY" as const;
 
@@ -25,7 +36,12 @@ export type RelationDiscoveryCampaignPreview = Readonly<{
   capability: ExecutionCapabilityProjection;
   workItemIds: readonly Hash[];
   taskIds: readonly Hash[];
+  allocationProjectionIdentity: Hash;
+  allocationPolicyIdentity: Hash;
+  allocationActionIds: readonly Hash[];
   selectionBinding: AgentCampaignSelectionBinding;
+  preparedCampaignIds: readonly Hash[];
+  intentCampaignId: Hash | null;
   omittedEligibleWorkItemCount: number;
   schedule: Readonly<{ kind: "MANUAL_ONLY"; intervalMs: null }>;
   budget: Readonly<{
@@ -48,6 +64,15 @@ export type RelationDiscoveryCampaignPreview = Readonly<{
   executionAuthority: false;
   externalWriteAuthority: false;
   valueMovingAuthority: false;
+}>;
+
+export type ResearchAttentionRelationSelection = Readonly<{
+  workItemIds: readonly Hash[];
+  taskIds: readonly Hash[];
+  allocationProjectionIdentity: Hash;
+  allocationPolicyIdentity: Hash;
+  allocationActionIds: readonly Hash[];
+  selectionBinding: AgentCampaignSelectionBinding;
 }>;
 
 function latestRoute(snapshot: AgentExecutionSnapshot): WorkloadRoute {
@@ -92,10 +117,98 @@ export function selectRelationDiscoveryCampaignTasks(input: Readonly<{
     .slice(0, 1));
 }
 
+export function reconcileResearchAttentionRelationCampaignMembership(input: Readonly<{
+  execution: AgentExecutionSnapshot;
+  selectionBinding: AgentCampaignSelectionBinding;
+}>): readonly AgentCampaign[] {
+  const current = effectiveAgentCampaigns(input.execution.campaigns).filter(
+    (campaign): campaign is AgentSelectionBoundCampaign =>
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
+    campaign.selectionBinding.selectionProtocol ===
+      RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL &&
+    campaign.selectionBinding.selectionPolicyIdentity ===
+      input.selectionBinding.selectionPolicyIdentity,
+  );
+  if (current.length === 0) return Object.freeze([]);
+  if (current.length > 1) {
+    throw new Error("research-attention relation policy has multiple active lineages");
+  }
+  const evolving = current[0]!.schemaVersion === "pmh.agent-campaign.v4"
+    ? current[0]!
+    : migrateAgentCampaignToEvolvingMembership(current[0]!);
+  if (hashCanonical(evolving.selectionBinding) === hashCanonical(input.selectionBinding)) {
+    return evolving === current[0] ? Object.freeze([]) : Object.freeze([evolving]);
+  }
+  const revised = reviseAgentCampaignMembership(evolving, input.selectionBinding);
+  return Object.freeze(evolving === current[0] ? [revised] : [evolving, revised]);
+}
+
+export function materializeResearchAttentionRelationSelection(input: Readonly<{
+  revisions: readonly RelationDiscoveryTaskRevision[];
+  allocation: ResearchAttentionAllocationProjection;
+}>): ResearchAttentionRelationSelection {
+  const revisionByTask = new Map(input.revisions.filter((item) =>
+    item.schemaVersion !== "pmh.relation-discovery-task-revision.v4"
+  ).map((item) => [item.task.taskId, item] as const));
+  const actions = Object.freeze(input.allocation.portfolio.filter((action) =>
+    action.dispatchableByRelationCampaign && action.taskId !== null
+  ).slice(0, 1));
+  const selected = Object.freeze(actions.map((action) => {
+    const revision = revisionByTask.get(action.taskId!);
+    if (revision === undefined || revision.workItemId !== action.workItemId) {
+      throw new Error("research attention action has no exact relation task revision");
+    }
+    return revision;
+  }));
+  const selectionPolicy = Object.freeze({
+    schemaVersion: "pmh.research-attention-relation-selection-policy.v1" as const,
+    allocationPolicyIdentity: input.allocation.policy.policyIdentity,
+    maximumPortfolioSize: 1 as const,
+    dispatchableActionsOnly: true as const,
+  });
+  const selectionPolicyIdentity = hashCanonical(selectionPolicy);
+  const selectionIdentity = hashCanonical({
+    schemaVersion: "pmh.research-attention-relation-selection.v1",
+    allocationPolicyIdentity: input.allocation.policy.policyIdentity,
+    actionIds: actions.map((item) => item.actionId),
+    taskRevisionIds: selected.map((item) => item.revisionId),
+  });
+  const selectionBinding = assertAgentCampaignSelectionBinding(Object.freeze({
+    schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
+    selectionProtocol: RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL,
+    selectionIdentity,
+    selectionPolicyIdentity,
+    taskBindings: Object.freeze(selected.map((revision, index) => Object.freeze({
+      taskId: revision.task.taskId,
+      workFamilyRef: `relation-work:${revision.workItemId}`,
+      selectionActionRef: actions[index]!.actionId,
+      selectionActionKind: actions[index]!.kind,
+      inputRevisionKind: RELATION_DISCOVERY_INPUT_REVISION_KIND,
+      inputRevisionId: revision.revisionId,
+      exactInputHash: hashCanonical(revision.taskPayload),
+      semanticInputIdentity: revision.schemaVersion ===
+        "pmh.relation-discovery-task-revision.v1"
+        ? revision.sourceCorpusSnapshotIdentity
+        : revision.researchInputIdentity,
+    })).sort((left, right) => left.taskId.localeCompare(right.taskId))),
+  }));
+  return Object.freeze({
+    workItemIds: Object.freeze(selected.map((item) => item.workItemId)),
+    taskIds: Object.freeze(selected.map((item) => item.task.taskId)),
+    allocationProjectionIdentity: input.allocation.projectionIdentity,
+    allocationPolicyIdentity: input.allocation.policy.policyIdentity,
+    allocationActionIds: Object.freeze(actions.map((item) => item.actionId)),
+    selectionBinding,
+  });
+}
+
 export function buildRelationDiscoveryCampaignPreview(input: Readonly<{
   revisions: readonly RelationDiscoveryTaskRevision[];
   execution: AgentExecutionSnapshot;
   capability: ExecutionCapabilityProjection;
+  allocation: ResearchAttentionAllocationProjection;
 }>): RelationDiscoveryCampaignPreview {
   const workloadRoute = latestRoute(input.execution);
   const executionProfile = input.execution.executionProfiles.find((item) =>
@@ -108,57 +221,37 @@ export function buildRelationDiscoveryCampaignPreview(input: Readonly<{
   if (input.capability.executionProfileId !== executionProfile.executionProfileId) {
     throw new Error("relation discovery capability lineage is inconsistent");
   }
-  const selected = selectRelationDiscoveryCampaignTasks(input);
-  const selectionPolicy = Object.freeze({
-    schemaVersion: "pmh.relation-discovery-selection-policy.v1" as const,
-    maximumPortfolioSize: 1 as const,
-    excludeAttemptedWorkFamily: true as const,
-    ordinaryIntentOnly: true as const,
-  });
-  const selectionIdentity = hashCanonical({
-    schemaVersion: "pmh.relation-discovery-selection.v1",
-    taskRevisionIds: selected.map((item) => item.revisionId),
-    policyIdentity: hashCanonical(selectionPolicy),
-  });
-  const selectionBinding = assertAgentCampaignSelectionBinding(Object.freeze({
-    schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
-    selectionProtocol: RELATION_DISCOVERY_SELECTION_PROTOCOL,
-    selectionIdentity,
-    selectionPolicyIdentity: hashCanonical(selectionPolicy),
-    taskBindings: Object.freeze(selected.map((revision) => Object.freeze({
-      taskId: revision.task.taskId,
-      workFamilyRef: `relation-work:${revision.workItemId}`,
-      selectionActionRef: hashCanonical({
-        schemaVersion: "pmh.relation-discovery-selection-action.v1",
-        revisionId: revision.revisionId,
-      }),
-      selectionActionKind: "PAYOFF_RELATION_DISCOVERY",
-      inputRevisionKind: RELATION_DISCOVERY_INPUT_REVISION_KIND,
-      inputRevisionId: revision.revisionId,
-      exactInputHash: hashCanonical(revision.taskPayload),
-      semanticInputIdentity: revision.schemaVersion ===
-        "pmh.relation-discovery-task-revision.v1"
-        ? revision.sourceCorpusSnapshotIdentity
-        : revision.researchInputIdentity,
-    })).sort((left, right) => left.taskId.localeCompare(right.taskId))),
-  }));
-  const attempted = attemptedWorkIds(input.execution);
-  const eligibleCount = new Set(input.revisions.filter((item) =>
-    item.schemaVersion !== "pmh.relation-discovery-task-revision.v4" &&
-    item.campaignEligible && !attempted.has(item.workItemId)
-  ).map((item) => item.workItemId)).size;
+  const materialized = materializeResearchAttentionRelationSelection(input);
+  const selectionBinding = materialized.selectionBinding;
+  const selectionIdentity = selectionBinding.selectionIdentity;
+  const effectiveIntent = effectiveAgentCampaigns(input.execution.campaigns).find((campaign) =>
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
+    campaign.selectionBinding.selectionProtocol ===
+      RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL &&
+    campaign.selectionBinding.selectionPolicyIdentity ===
+      selectionBinding.selectionPolicyIdentity
+  ) ?? null;
+  const preparedCampaignIds = Object.freeze(input.execution.campaigns.filter((campaign) =>
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
+    campaign.selectionBinding.selectionProtocol ===
+      RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL &&
+    campaign.selectionBinding.selectionIdentity === selectionIdentity
+  ).map((item) => item.campaignId).sort());
   const body = Object.freeze({
     schemaVersion: "pmh.relation-discovery-campaign-preview.v1" as const,
-    campaignKey: selected.length === 0
-      ? "relation-discovery-empty"
-      : `relation-discovery-${selected[0]!.workItemId.slice("sha256:".length, 23)}`,
+    campaignKey: effectiveIntent?.campaignKey ??
+      `research-attention-relation-${selectionBinding.selectionPolicyIdentity.slice("sha256:".length, 23)}`,
     workloadRoute,
     executionProfile,
     capability: input.capability,
-    workItemIds: Object.freeze(selected.map((item) => item.workItemId)),
-    taskIds: Object.freeze(selected.map((item) => item.task.taskId)),
-    selectionBinding,
-    omittedEligibleWorkItemCount: Math.max(0, eligibleCount - selected.length),
+    ...materialized,
+    preparedCampaignIds,
+    intentCampaignId: effectiveIntent?.campaignId ?? null,
+    omittedEligibleWorkItemCount: input.allocation.omittedActionableFamilyCount,
     schedule: Object.freeze({ kind: "MANUAL_ONLY" as const, intervalMs: null }),
     budget: Object.freeze({
       maximumConcurrentRuns: 1 as const,
@@ -167,11 +260,14 @@ export function buildRelationDiscoveryCampaignPreview(input: Readonly<{
       maximumOutputTokens: "30000" as const,
       maximumWallClockMs: 600_000 as const,
     }),
-    creationEligible: selected.length > 0,
-    dispatchEligible: selected.length > 0 &&
+    creationEligible: materialized.taskIds.length > 0 && effectiveIntent === null &&
+      preparedCampaignIds.length === 0,
+    dispatchEligible: materialized.taskIds.length > 0 &&
       input.capability.dispatchEligibility === "ELIGIBLE",
-    diagnostic: selected.length === 0
-      ? "No unattempted stable relation work is eligible"
+    diagnostic: materialized.taskIds.length === 0
+      ? "The research-attention portfolio has no dispatchable relation action"
+      : effectiveIntent !== null
+        ? "The current research-attention relation intent already exists"
       : input.capability.dispatchEligibility !== "ELIGIBLE"
         ? input.capability.diagnostic
         : "One unattempted relation-neighborhood task is ready for explicit activation",

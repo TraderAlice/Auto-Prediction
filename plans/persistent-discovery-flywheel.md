@@ -1,0 +1,122 @@
+# Persistent AI-native discovery flywheel
+
+Status: active mainline construction
+
+Created: 2026-08-13
+
+Branch: `codex/persistent-discovery-flywheel`
+
+## North-star role
+
+The product must persistently turn changing prediction-market observations into
+new, evidence-bound arbitrage research. It is not enough to retain thousands of
+tasks or periodically wake a model. Each bounded cycle must choose one useful
+semantic neighborhood, spend from a lineage budget, accept a structured finding
+or honest counterexample, and let that result change the next cycle.
+
+The current live ledger shows the missing link. Only six relation-discovery runs
+produced seven structured findings (two hypotheses, three counterexamples and
+two standing routes), while 64 relation tasks and 3,074 ontology tasks exist.
+Relation research is productive when it runs; the research-attention allocator
+and relation campaign selector simply do not share the same decision.
+
+A live restart against the 1.1 GB operational database also exposed two
+operability ceilings. Startup ontology reconciliation and the first monolithic
+Studio projection can each saturate one Node process long enough to make the
+console appear offline. The first traced cause was full-ledger canonical hashing
+for small incremental Agent batches; this slice narrows comparison to touched
+identities and makes the active startup step observable. The remaining
+projection ceiling requires view-local read models rather than an ever-growing
+global homepage object.
+
+## Ontology decision
+
+A persistent discovery cycle has five non-identical objects:
+
+1. **Observation state** — current anonymous catalog and retained evidence.
+2. **Attention allocation** — the first-party answer to what deserves research
+   next and why it is novel enough to spend on.
+3. **Campaign membership** — exact tasks authorized under a stable allocation
+   policy and lineage-wide budget.
+4. **Agent attempt** — one bounded runtime/model/tool loop.
+5. **Outcome attribution** — what new finding, counterexample, route, review or
+   negative memory exists because of that allocation.
+
+The control loop may advance only from retained objects. A timer is a wake-up
+mechanism, never research authority. Model confidence does not select work,
+free text is not a result, and a catalog snapshot change alone is not novelty.
+
+## Phase 1 — allocation-bound relation campaign
+
+- [x] Replace the independent priority-only relation campaign selector with the
+  dispatchable relation actions in `ResearchAttentionAllocationProjection`.
+- [x] Bind campaign selection actions to allocation action, scorecard, work
+  family, exact task revision, allocation policy and projection identities.
+- [x] Make the relation campaign an evolving v4 lineage whose membership follows
+  the same allocation policy without resetting runtime, activation or budget.
+- [x] Preserve a pure provider-free preview and prove non-dispatchable research
+  debt, falsification proposals and ontology mutations cannot leak into the
+  ordinary relation campaign.
+
+## Phase 2 — durable cycle decision and outcome
+
+- [x] Capture a research-decision episode when an allocation action first enters
+  campaign membership, not only when an operator happens to click a separate
+  endpoint.
+- [x] Reconcile the resulting run, tool effects, findings and downstream state
+  into the existing outcome projection after every Agent completion.
+- [ ] Distinguish `ADVANCED`, useful negative memory, spent without movement,
+  in-flight and stale/retired membership without inventing model reward.
+
+## Phase 3 — bounded recurring wake-up
+
+- [ ] Add a configurable discovery-cycle interval that recomputes observation,
+  allocation and membership but starts no run unless the lineage is explicitly
+  active, current membership is runnable and budget remains.
+- [ ] Keep concurrency at one for the initial flywheel and use
+  `ONCE_PER_TASK_PER_LINEAGE`; a wake-up over unchanged state must be a no-op.
+- [ ] Require a named first-party novelty reason for successor work and retain
+  counterexamples/no-yield attempts as anti-loop memory.
+- [ ] Notify only on new campaign membership, structured outcomes, repeated
+  costly no-movement, or portfolio exhaustion—not every model response.
+
+## Phase 4 — yield dashboard and policy evolution
+
+- [ ] Show the cycle as `observation → allocation → membership → run → outcome`
+  with per-family tokens, wall time, structured result yield and downstream
+  stage movement.
+- [ ] Separate historical Rule Evidence failures from discovery-runtime yield;
+  the live 549-invocation total is dominated by 488 Rule Evidence invocations,
+  including 458 failures, and must not characterize relation discovery.
+- [ ] Compare allocation strata by findings, counterexamples, reviewed relation
+  movement and cost. Change lane budgets only through versioned policy evidence.
+- [ ] Replace the monolithic first-load Studio projection with view-local,
+  independently cached read models so a growing research ledger cannot starve
+  flywheel controls or readiness diagnostics.
+
+## Initial qualification
+
+The first mainline slice implements Phase 1 completely and Phase 2 far enough
+to bind a retained decision episode. It remains manual-only and starts zero
+provider requests. The live proof is that relation campaign preview selects the
+same exploration action as the attention allocator and that repeat reads do not
+create campaigns, runs or invocations.
+
+The live 1.1 GB SQLite qualification retained one paused v4 campaign,
+`research-attention-relation-de96a0bdc9f5fcbb`, with allocator action
+`sha256:537e…f863` bound to exact task `sha256:4fbf…54fe`. Repeated creation was
+rejected, the decision episode was idempotent, and 251 runs / 549 model
+invocations did not move. A clean restart and provider-free preview returned the
+same action, task and intent campaign with zero provider requests or model
+invocations. Startup timing isolated the largest recovery step as ontology
+issue reconciliation; touched-identity batch comparison and snapshot-backed
+store validation remove two whole-ledger scans without weakening durable
+reference checks. The separate monolithic Studio projection ceiling remains a
+named Phase 4 continuation.
+
+## Authority boundary
+
+This plan may create or revise local Agent campaign membership under explicit
+research budgets. It does not itself activate a campaign, call a model during
+read/reconciliation, place an order, sign, approve, move value, retain trading
+credentials or grant external-write authority.

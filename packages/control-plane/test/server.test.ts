@@ -2704,8 +2704,12 @@ describe("control-plane HTTP surface", () => {
     const relationCampaignPreviewResponse = await fetch(
       `${baseUrl}/api/v1/relation-discovery/campaign-preview`,
     );
-    expect(relationCampaignPreviewResponse.status).toBe(200);
-    await expect(relationCampaignPreviewResponse.json()).resolves.toMatchObject({
+    const relationCampaignPreview = await relationCampaignPreviewResponse.json();
+    expect(
+      relationCampaignPreviewResponse.status,
+      JSON.stringify(relationCampaignPreview),
+    ).toBe(200);
+    expect(relationCampaignPreview).toMatchObject({
       schemaVersion: "pmh.relation-discovery-campaign-preview.v1",
       taskIds: [],
       workItemIds: [],

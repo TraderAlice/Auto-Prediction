@@ -131,7 +131,12 @@ import {
   type RelationDiscoveryTaskRevision,
   type RelationDiscoveryTaskRevisionStore,
 } from "./relation-discovery-work.js";
-import { buildRelationDiscoveryCampaignPreview } from "./relation-discovery-campaign.js";
+import {
+  buildRelationDiscoveryCampaignPreview,
+  materializeResearchAttentionRelationSelection,
+  reconcileResearchAttentionRelationCampaignMembership,
+  RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL,
+} from "./relation-discovery-campaign.js";
 import {
   buildStandingRouteSeedCampaignPreview,
   materializeStandingRouteSeedCampaignMembership,
@@ -2921,6 +2926,7 @@ export function createControlPlane(options?: {
     step: string;
     durationMs: number;
   }>> = [];
+  let currentStartupReconciliationStep: string | null = null;
   let startupReadiness = Object.freeze({
     schemaVersion: "pmh.startup-readiness.v1" as const,
     status: "STARTING" as "STARTING" | "READY" | "FAILED",
@@ -2933,6 +2939,7 @@ export function createControlPlane(options?: {
     diagnostic: null as string | null,
     phaseTimings: Object.freeze([...startupPhaseTimings]),
     reconciliationTimings: Object.freeze([...startupReconciliationTimings]),
+    currentReconciliationStep: currentStartupReconciliationStep,
     projectionResource: "/api/v1/projection" as const,
     providerRequestsStarted: 0 as const,
     modelInvocationsStarted: 0 as const,
@@ -2976,15 +2983,25 @@ export function createControlPlane(options?: {
         ? Math.max(0, nowMs - startupPhaseStartedAtMs)
         : startupReadiness.phaseElapsedMs,
       reconciliationTimings: Object.freeze([...startupReconciliationTimings]),
+      currentReconciliationStep: currentStartupReconciliationStep,
     });
   };
-  const runStartupReconciliationStep = (step: string, action: () => void): void => {
+  const runStartupReconciliationStep = async (
+    step: string,
+    action: () => void,
+  ): Promise<void> => {
+    currentStartupReconciliationStep = step;
+    await new Promise<void>((resolveYield) => setImmediate(resolveYield));
     const startedAtMs = Date.now();
-    action();
-    startupReconciliationTimings.push(Object.freeze({
-      step,
-      durationMs: Math.max(0, Date.now() - startedAtMs),
-    }));
+    try {
+      action();
+    } finally {
+      startupReconciliationTimings.push(Object.freeze({
+        step,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      }));
+      currentStartupReconciliationStep = null;
+    }
   };
   const reconcileOntologySearchIssues = (): void => {
     if (ontologySearchIssueRevisionStore === null) return;
@@ -3100,6 +3117,59 @@ export function createControlPlane(options?: {
     }
     if (campaigns.length > 0) agentExecutionRegistry.saveBatch({ campaigns });
   };
+  const captureResearchAttentionCampaignDecisions = (
+    membership: AgentCampaign,
+  ): readonly ResearchDecisionEpisode[] => {
+    if (membership.schemaVersion !== "pmh.agent-campaign.v2" &&
+        membership.schemaVersion !== "pmh.agent-campaign.v3" &&
+        membership.schemaVersion !== "pmh.agent-campaign.v4") return Object.freeze([]);
+    if (membership.selectionBinding.selectionProtocol !==
+        RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL) return Object.freeze([]);
+    const current = currentResearchActionState();
+    const retained = loadResearchDecisionEpisodes();
+    return Object.freeze(membership.selectionBinding.taskBindings.flatMap((binding) => {
+      const target = current.targets.targets.find((item) =>
+        item.allocationActionId === binding.selectionActionRef &&
+        item.sourceTaskId === binding.taskId
+      );
+      if (target === undefined || retained.some((episode) =>
+        episode.allocationActionId === binding.selectionActionRef &&
+        episode.targetId === target.targetId
+      )) return [];
+      return [saveResearchDecisionEpisode(buildResearchDecisionEpisode({
+        allocation: current.allocation,
+        targets: current.targets,
+        allocationActionId: binding.selectionActionRef,
+        targetId: target.targetId,
+        capturedAt: new Date().toISOString(),
+        captureRef: `agent-campaign:${membership.campaignId}`,
+      }))];
+    }));
+  };
+  const reconcileResearchAttentionRelationCampaign = (): void => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const intentExists = effectiveAgentCampaigns(snapshot.campaigns).some((campaign) =>
+      (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+        campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+        campaign.schemaVersion === "pmh.agent-campaign.v4") &&
+      campaign.selectionBinding.selectionProtocol ===
+        RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL
+    );
+    if (!intentExists) return;
+    const allocation = currentResearchActionState().allocation;
+    const materialized = materializeResearchAttentionRelationSelection({
+      revisions: relationDiscoveryTaskRevisions,
+      allocation,
+    });
+    const campaigns = reconcileResearchAttentionRelationCampaignMembership({
+      execution: snapshot,
+      selectionBinding: materialized.selectionBinding,
+    });
+    if (campaigns.length === 0) return;
+    agentExecutionRegistry.saveBatch({ campaigns });
+    const membership = campaigns.at(-1);
+    if (membership !== undefined) captureResearchAttentionCampaignDecisions(membership);
+  };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     transitionStartup("DURABLE_RECOVERY");
     const realCandidateReady = realCandidatePreflightDesk.load();
@@ -3113,19 +3183,35 @@ export function createControlPlane(options?: {
         : []),
     ]);
     transitionStartup("AGENT_RECONCILIATION");
-    runStartupReconciliationStep("SYNCHRONIZE_LIFECYCLE_SOURCES", synchronizeLifecycleSources);
-    runStartupReconciliationStep("RECONCILE_RULE_EVIDENCE_TASKS", reconcileRuleEvidenceAgentTasks);
-    runStartupReconciliationStep("MIGRATE_LEGACY_RULE_EVIDENCE_RUNS", migrateLegacyRuleEvidenceAgentRuns);
-    runStartupReconciliationStep("RECONCILE_ONTOLOGY_SEARCH_ISSUES", reconcileOntologySearchIssues);
-    runStartupReconciliationStep(
+    await runStartupReconciliationStep(
+      "SYNCHRONIZE_LIFECYCLE_SOURCES",
+      synchronizeLifecycleSources,
+    );
+    await runStartupReconciliationStep(
+      "RECONCILE_RULE_EVIDENCE_TASKS",
+      reconcileRuleEvidenceAgentTasks,
+    );
+    await runStartupReconciliationStep(
+      "MIGRATE_LEGACY_RULE_EVIDENCE_RUNS",
+      migrateLegacyRuleEvidenceAgentRuns,
+    );
+    await runStartupReconciliationStep(
+      "RECONCILE_ONTOLOGY_SEARCH_ISSUES",
+      reconcileOntologySearchIssues,
+    );
+    await runStartupReconciliationStep(
       "RECONCILE_RELATION_DISCOVERY_TASKS",
       reconcileRelationDiscoveryTasks,
     );
-    runStartupReconciliationStep(
+    await runStartupReconciliationStep(
       "MIGRATE_STANDING_ROUTE_SEED_CAMPAIGNS",
       migrateStandingRouteSeedCampaigns,
     );
-    runStartupReconciliationStep(
+    await runStartupReconciliationStep(
+      "RECONCILE_RESEARCH_ATTENTION_RELATION_CAMPAIGN",
+      reconcileResearchAttentionRelationCampaign,
+    );
+    await runStartupReconciliationStep(
       "RECOVER_PREPARED_AGENT_RUNS",
       () => { agentCampaignDispatcher.recoverPreparedRuns(); },
     );
@@ -3500,10 +3586,12 @@ export function createControlPlane(options?: {
       throw new Error("Relation discovery credential binding is unavailable");
     }
     const configuration = await agentCredentialBroker.configuration(binding);
+    const allocation = currentResearchActionState().allocation;
     return buildRelationDiscoveryCampaignPreview({
       revisions: relationDiscoveryTaskRevisions,
       execution: snapshot,
       capability: agentExecutionCapabilityService.project(profile, configuration),
+      allocation,
     });
   };
   const standingRouteSeedCampaignPreview = async (input?: Readonly<{
@@ -4397,6 +4485,7 @@ export function createControlPlane(options?: {
       try {
         reconcileRelationDiscoveryTasks();
         migrateStandingRouteSeedCampaigns();
+        reconcileResearchAttentionRelationCampaign();
       } catch {
         // Startup or the next catalog refresh retries durable route reconciliation.
       }
@@ -5615,14 +5704,19 @@ export function createControlPlane(options?: {
           schedule: preview.schedule,
           budget: preview.budget,
           selectionBinding: preview.selectionBinding,
+          taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+          evolvingMembership: true,
           createdAt: new Date().toISOString(),
         });
         agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
+        const decisionEpisodes = captureResearchAttentionCampaignDecisions(campaign);
         await broadcastProjection();
         writeJson(response, 201, {
           ok: true,
           campaign,
           preview,
+          decisionEpisodes,
+          localResearchLedgerWrites: decisionEpisodes.length,
           providerRequestsStarted: 0,
           modelInvocationsStarted: 0,
         });
@@ -6425,6 +6519,7 @@ export function createControlPlane(options?: {
       const result = await pending;
       reconcileRelationDiscoveryTasks();
       migrateStandingRouteSeedCampaigns();
+      reconcileResearchAttentionRelationCampaign();
       reconcileRuleEvidenceAgentTasks();
       await broadcastProjection();
       tickSearchIssues();
@@ -7456,6 +7551,7 @@ export function createControlPlane(options?: {
             try {
               reconcileRelationDiscoveryTasks();
               migrateStandingRouteSeedCampaigns();
+              reconcileResearchAttentionRelationCampaign();
             } catch {
               // Retained tasks and route episodes remain authoritative. A later
               // successful refresh retries reconciliation without terminating

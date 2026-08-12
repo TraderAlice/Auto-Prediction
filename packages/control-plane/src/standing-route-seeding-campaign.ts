@@ -29,6 +29,7 @@ import {
 import {
   RELATION_DISCOVERY_INPUT_REVISION_KIND,
   RELATION_DISCOVERY_SELECTION_PROTOCOL,
+  RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL,
 } from "./relation-discovery-campaign.js";
 
 export function migrateStandingRouteSeedCampaignPolicies(input: Readonly<{
@@ -351,7 +352,9 @@ export function resolveRelationDiscoveryTaskRevision(input: Readonly<{
   const routeSeed = campaign.selectionBinding.selectionProtocol ===
     STANDING_ROUTE_SEED_SELECTION_PROTOCOL;
   const ordinary = campaign.selectionBinding.selectionProtocol ===
-    RELATION_DISCOVERY_SELECTION_PROTOCOL;
+    RELATION_DISCOVERY_SELECTION_PROTOCOL ||
+    campaign.selectionBinding.selectionProtocol ===
+      RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL;
   if (!routeSeed && !ordinary) {
     if (latest === null) throw new Error("retained relation task input is unavailable");
     return latest;

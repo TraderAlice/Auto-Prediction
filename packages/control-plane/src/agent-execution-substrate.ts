@@ -433,6 +433,10 @@ export interface AgentExecutionStore {
   readonly agentExecutionStorage: OperationalStorageProjection<"recordId">;
   loadAgentExecutionSnapshot(): AgentExecutionSnapshot;
   saveAgentExecutionBatch(batch: AgentExecutionBatch): void;
+  saveAgentExecutionBatchAgainstSnapshot?(
+    batch: AgentExecutionBatch,
+    snapshot: AgentExecutionSnapshot,
+  ): void;
   saveAgentTaskAdditions?(tasks: readonly AgentTask[]): void;
 }
 
@@ -2278,9 +2282,12 @@ export class AgentExecutionRegistry {
       this.store.saveAgentTaskAdditions(changed.tasks!);
       this.#snapshot = mergeSnapshot(this.#snapshot, changed);
     } else {
-      this.store?.saveAgentExecutionBatch(changed);
-      this.#snapshot = this.store?.loadAgentExecutionSnapshot() ??
-        mergeSnapshot(this.#snapshot, changed);
+      if (this.store?.saveAgentExecutionBatchAgainstSnapshot !== undefined) {
+        this.store.saveAgentExecutionBatchAgainstSnapshot(changed, this.#snapshot);
+      } else {
+        this.store?.saveAgentExecutionBatch(changed);
+      }
+      this.#snapshot = mergeSnapshot(this.#snapshot, changed);
     }
     return this.#snapshot;
   }
@@ -2332,6 +2339,18 @@ function mergeById<T>(
   ));
 }
 
+function replaceById<T>(
+  current: readonly T[],
+  incoming: readonly T[] | undefined,
+  identity: (record: T) => string,
+): readonly T[] {
+  const records = new Map(current.map((record) => [identity(record), record] as const));
+  for (const record of incoming ?? []) records.set(identity(record), record);
+  return Object.freeze([...records.values()].sort((left, right) =>
+    identity(left).localeCompare(identity(right), "en")
+  ));
+}
+
 function mergeSnapshot(
   current: AgentExecutionSnapshot,
   batch: AgentExecutionBatch,
@@ -2352,8 +2371,11 @@ function mergeSnapshot(
     ),
     workloadRoutes: mergeById(current.workloadRoutes, batch.workloadRoutes,
       (record) => record.workloadRouteId),
-    tasks: mergeById(current.tasks, batch.tasks, (record) => record.taskId),
-    runs: mergeById(current.runs, batch.runs, (record) => record.runId),
+    // Task priority and PREPARED run state are the two deliberately mutable
+    // Agent records. The durable store validates their permitted transitions;
+    // retaining that validated result must not require rereading the full ledger.
+    tasks: replaceById(current.tasks, batch.tasks, (record) => record.taskId),
+    runs: replaceById(current.runs, batch.runs, (record) => record.runId),
     modelInvocations: mergeById(current.modelInvocations, batch.modelInvocations,
       (record) => record.invocationId),
     toolEffects: mergeById(current.toolEffects, batch.toolEffects, (record) => record.effectId),
@@ -2376,12 +2398,15 @@ function filterUnchangedBatch(
     incoming: readonly T[] | undefined,
     identity: (record: T) => string,
   ): readonly T[] => {
-    const retainedHashes = new Map(retained.map((record) =>
-      [identity(record), hashCanonical(record)] as const
-    ));
-    return Object.freeze((incoming ?? []).filter((record) =>
-      retainedHashes.get(identity(record)) !== hashCanonical(record)
-    ));
+    if (incoming === undefined || incoming.length === 0) return Object.freeze([]);
+    const touchedIds = new Set(incoming.map(identity));
+    const retainedById = new Map(retained
+      .filter((record) => touchedIds.has(identity(record)))
+      .map((record) => [identity(record), record] as const));
+    return Object.freeze(incoming.filter((record) => {
+      const prior = retainedById.get(identity(record));
+      return prior === undefined || hashCanonical(prior) !== hashCanonical(record);
+    }));
   };
   return Object.freeze({
     runtimeDefinitions: changed(

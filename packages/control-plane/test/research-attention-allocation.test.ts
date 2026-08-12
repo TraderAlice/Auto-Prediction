@@ -1,9 +1,13 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import { describe, expect, it } from "vitest";
 import {
+  activateAgentCampaign,
   buildAgentTask,
+  buildPausedAgentCampaign,
   buildResearchAttentionAllocation,
+  materializeResearchAttentionRelationSelection,
   emptyAgentExecutionSnapshot,
+  reconcileResearchAttentionRelationCampaignMembership,
   type AgentExecutionSnapshot,
   type AgentRun,
   type MarketRelationKind,
@@ -57,6 +61,8 @@ function revision(
     workArtifactHash: artifactHash,
     materializedAt,
     task,
+    taskPayload: { label, workItemId: item.workItemId, artifactHash },
+    researchInputIdentity: hashCanonical({ researchInput: label }),
   } as unknown as RelationDiscoveryTaskRevision;
 }
 
@@ -236,6 +242,46 @@ describe("persistent research-attention allocation", () => {
       executionAuthority: false,
       valueMovingAuthority: false,
     });
+    const selection = materializeResearchAttentionRelationSelection({
+      revisions: [lafcRevision, newRevision],
+      allocation: result,
+    });
+    expect(selection).toMatchObject({
+      taskIds: [newRevision.task.taskId],
+      allocationActionIds: [result.portfolio[0]!.actionId],
+      allocationProjectionIdentity: result.projectionIdentity,
+      allocationPolicyIdentity: result.policy.policyIdentity,
+      selectionBinding: {
+        selectionProtocol: "RESEARCH_ATTENTION_RELATION_SELECTION_V1",
+        taskBindings: [{
+          taskId: newRevision.task.taskId,
+          workFamilyRef: `relation-work:${newFamily.workItemId}`,
+          selectionActionRef: result.portfolio[0]!.actionId,
+          selectionActionKind: "EXPLORE_NEW_FAMILY",
+          inputRevisionId: newRevision.revisionId,
+        }],
+      },
+    });
+    expect(selection.selectionBinding.taskBindings).toHaveLength(1);
+    expect(selection.selectionBinding.taskBindings.some((binding) =>
+      binding.taskId === lafcRevision.task.taskId
+    )).toBe(false);
+    const laterObservation = buildResearchAttentionAllocation({
+      observedAt: "2026-08-12T13:00:00.000Z",
+      relationWork: projection([lafc, newFamily]),
+      taskRevisions: [lafcRevision, newRevision],
+      findings: [hypothesis, counterexample],
+      proposalCompilations: [candidate],
+      semanticReviewJobs: [semanticPass(candidate, "TEXTUAL_RELATEDNESS")],
+      probabilityJobs: [],
+      execution: execution({ revisions: [lafcRevision, newRevision], runs: [lafcRun],
+        invocations, effects }),
+    });
+    expect(laterObservation.projectionIdentity).not.toBe(result.projectionIdentity);
+    expect(materializeResearchAttentionRelationSelection({
+      revisions: [lafcRevision, newRevision],
+      allocation: laterObservation,
+    }).selectionBinding).toEqual(selection.selectionBinding);
   });
 
   it("gives successful free text zero finding yield and proposes mutation only after exhaustion", () => {
@@ -269,6 +315,93 @@ describe("persistent research-attention allocation", () => {
       targetArtifactRefs: [],
       dispatchableByRelationCampaign: false,
     });
+  });
+
+  it("revises one stable campaign lineage when attention moves to another family", () => {
+    const first = work("first-family", 5);
+    const second = work("second-family", 4);
+    const firstRevision = revision(first, "first-r1", "2026-08-10T09:00:00.000Z");
+    const secondRevision = revision(second, "second-r1", "2026-08-10T09:00:00.000Z");
+    const initialAllocation = buildResearchAttentionAllocation({
+      observedAt: OBSERVED_AT,
+      relationWork: projection([first, second]),
+      taskRevisions: [firstRevision, secondRevision],
+      findings: [],
+      proposalCompilations: [],
+      semanticReviewJobs: [],
+      probabilityJobs: [],
+      execution: execution({ revisions: [firstRevision, secondRevision] }),
+    });
+    const initialSelection = materializeResearchAttentionRelationSelection({
+      revisions: [firstRevision, secondRevision],
+      allocation: initialAllocation,
+    }).selectionBinding;
+    const paused = buildPausedAgentCampaign({
+      campaignKey: "research-attention-relation-test",
+      revision: 1,
+      executionProfileId: hashCanonical({ profile: "attention-test" }),
+      taskIds: initialSelection.taskBindings.map((binding) => binding.taskId),
+      schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+      budget: {
+        maximumConcurrentRuns: 1,
+        maximumModelInvocations: 12,
+        maximumInputTokens: "300000",
+        maximumOutputTokens: "30000",
+        maximumWallClockMs: 600_000,
+      },
+      selectionBinding: initialSelection,
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      evolvingMembership: true,
+      createdAt: "2026-08-12T12:00:00.000Z",
+    });
+    const active = activateAgentCampaign(
+      paused,
+      "operator:attention-test",
+      "2026-08-12T12:01:00.000Z",
+    );
+    const firstRun = run(firstRevision.task.taskId, "first-attempt", "SUCCEEDED");
+    const nextAllocation = buildResearchAttentionAllocation({
+      observedAt: "2026-08-12T13:00:00.000Z",
+      relationWork: projection([first, second]),
+      taskRevisions: [firstRevision, secondRevision],
+      findings: [],
+      proposalCompilations: [],
+      semanticReviewJobs: [],
+      probabilityJobs: [],
+      execution: execution({
+        revisions: [firstRevision, secondRevision],
+        runs: [firstRun],
+      }),
+    });
+    const nextSelection = materializeResearchAttentionRelationSelection({
+      revisions: [firstRevision, secondRevision],
+      allocation: nextAllocation,
+    }).selectionBinding;
+    const revised = reconcileResearchAttentionRelationCampaignMembership({
+      execution: Object.freeze({
+        ...execution({ revisions: [firstRevision, secondRevision], runs: [firstRun] }),
+        campaigns: Object.freeze([paused, active]),
+      }),
+      selectionBinding: nextSelection,
+    });
+
+    expect(revised).toMatchObject([{
+      schemaVersion: "pmh.agent-campaign.v4",
+      campaignKey: active.campaignKey,
+      revision: active.revision + 1,
+      status: "ACTIVE",
+      activationRef: active.activationRef,
+      budget: active.budget,
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      taskIds: [secondRevision.task.taskId],
+    }]);
+    expect(reconcileResearchAttentionRelationCampaignMembership({
+      execution: Object.freeze({
+        ...execution({ revisions: [firstRevision, secondRevision], runs: [firstRun] }),
+        campaigns: Object.freeze([paused, active, ...revised]),
+      }),
+      selectionBinding: nextSelection,
+    })).toEqual([]);
   });
 
   it("uses only the latest semantic-review state for each proposal", () => {
@@ -423,5 +556,32 @@ describe("persistent research-attention allocation", () => {
     expect(first.portfolio[0]!.workItemId).toBe(items[0]!.workItemId);
     expect(replay).toEqual(first);
     expect(replay.projectionIdentity).toBe(first.projectionIdentity);
+  });
+
+  it("does not treat standing-route construction as ordinary payoff discovery", () => {
+    const item = work("route-and-payoff", 5);
+    const ordinary = revision(item, "ordinary", "2026-08-12T09:00:00.000Z");
+    const route = {
+      ...revision(item, "route", "2026-08-12T10:00:00.000Z"),
+      schemaVersion: "pmh.relation-discovery-task-revision.v4",
+    } as unknown as RelationDiscoveryTaskRevision;
+    const result = buildResearchAttentionAllocation({
+      observedAt: OBSERVED_AT,
+      relationWork: projection([item]),
+      taskRevisions: [ordinary, route],
+      findings: [],
+      proposalCompilations: [],
+      semanticReviewJobs: [],
+      probabilityJobs: [],
+      execution: execution({ revisions: [ordinary, route] }),
+    });
+
+    expect(result.families[0]).toMatchObject({
+      currentTaskRevisionId: ordinary.revisionId,
+      currentTaskId: ordinary.task.taskId,
+      retainedTaskRevisionCount: 1,
+      nextActionKind: "EXPLORE_NEW_FAMILY",
+    });
+    expect(result.portfolio[0]!.taskId).toBe(ordinary.task.taskId);
   });
 });
