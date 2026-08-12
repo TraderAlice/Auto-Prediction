@@ -98,6 +98,22 @@ import {
 } from "./ontology-search-ecology.js";
 import { buildOntologyAgentCampaignPreview } from "./ontology-agent-campaign.js";
 import { buildOntologyRelationWorkProjection } from "./ontology-relation-work.js";
+import {
+  RelationDiscoveryAgentToolHost,
+  type RelationDiscoveryFindingStore,
+  type RelationDiscoveryPositiveFinding,
+  type RelationDiscoveryTaskPayload,
+} from "./relation-discovery-agent-tools.js";
+import {
+  materializeRelationDiscoveryTaskRevisions,
+  type RelationDiscoveryTaskRevision,
+  type RelationDiscoveryTaskRevisionStore,
+} from "./relation-discovery-work.js";
+import { buildRelationDiscoveryCampaignPreview } from "./relation-discovery-campaign.js";
+import {
+  compileRelationDiscoveryFindingsForSemanticReview,
+  type RelationDiscoveryProposalCompilation,
+} from "./relation-discovery-semantic-bridge.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -128,7 +144,10 @@ import {
   type ProbabilityEstimationJobRecord,
   type ProbabilityEstimationSchedulerStore,
 } from "./probability-estimation-scheduler.js";
-import { buildProbabilitySearchOrigin } from "./probabilistic-semantic-arbitrage.js";
+import {
+  buildProbabilitySearchOrigin,
+  buildRelationDiscoveryProbabilitySearchOrigin,
+} from "./probabilistic-semantic-arbitrage.js";
 import {
   ProbabilityCalibrationDesk,
   type ProbabilityCalibrationStore,
@@ -188,12 +207,14 @@ import {
 } from "./official-source-discovery-scheduler.js";
 import { EvidenceDocumentFetcher } from "./evidence-document.js";
 import {
+  excludeEvidenceRequirementLocators,
   rebaseEvidenceRequirementToCurrentListings,
   rebaseEvidenceRequirementsToRetainedLocatorCapabilities,
   type EvidenceRequirement,
 } from "./evidence-requirement.js";
 import {
   createRuleEvidenceClaimDesk,
+  type RuleEvidenceInterpreterEngine,
   type RuleEvidenceClaimRecordStore,
 } from "./rule-evidence-claim.js";
 import {
@@ -847,6 +868,24 @@ function supportsOntologySearchIssueRevisions(
     typeof candidate.saveOntologySearchIssueRevisions === "function";
 }
 
+function supportsRelationDiscoveryRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & RelationDiscoveryTaskRevisionStore &
+  RelationDiscoveryFindingStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<RelationDiscoveryTaskRevisionStore &
+    RelationDiscoveryFindingStore>;
+  return candidate.relationDiscoveryTaskRevisionStorage !== undefined &&
+    candidate.relationDiscoveryCorpusStorage !== undefined &&
+    candidate.relationDiscoveryFindingStorage !== undefined &&
+    typeof candidate.loadRelationDiscoveryTaskRevisions === "function" &&
+    typeof candidate.saveRelationDiscoveryTaskRevisions === "function" &&
+    typeof candidate.loadRelationDiscoveryCorpus === "function" &&
+    typeof candidate.saveRelationDiscoveryCorpus === "function" &&
+    typeof candidate.loadRelationDiscoveryFindings === "function" &&
+    typeof candidate.saveRelationDiscoveryFindings === "function";
+}
+
 function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   expectedRevision: number;
   provider: (typeof AI_RUNTIME_PROVIDERS)[number];
@@ -1023,6 +1062,11 @@ export function createControlPlane(options?: {
       : null;
   let ontologySearchIssueRevisions: readonly OntologySearchIssueRevision[] =
     ontologySearchIssueRevisionStore?.loadOntologySearchIssueRevisions(512) ?? [];
+  const relationDiscoveryStore = supportsRelationDiscoveryRecords(options?.discoveryStore)
+    ? options.discoveryStore
+    : null;
+  let relationDiscoveryTaskRevisions: readonly RelationDiscoveryTaskRevision[] =
+    relationDiscoveryStore?.loadRelationDiscoveryTaskRevisions(512) ?? [];
   agentExecutionRegistry.importLegacyConfiguration(
     aiRuntimeConfigurationDesk.current(),
   );
@@ -1531,7 +1575,23 @@ export function createControlPlane(options?: {
   };
   graphContextForLease = (snapshot, lens) =>
     searchSemanticGraphNeighborhood(semanticGraph(snapshot), lens);
+  const relationDiscoveryProposalCompilations = ():
+    readonly RelationDiscoveryProposalCompilation[] => {
+    if (relationDiscoveryStore === null) return Object.freeze([]);
+    const findings = relationDiscoveryStore.loadRelationDiscoveryFindings(512)
+      .filter((item): item is RelationDiscoveryPositiveFinding =>
+        item.kind === "RELATION_HYPOTHESIS"
+      );
+    const revisions = relationDiscoveryStore.loadRelationDiscoveryTaskRevisions(512);
+    return compileRelationDiscoveryFindingsForSemanticReview({
+      findings,
+      taskRevisions: revisions,
+      loadCorpus: (snapshotIdentity) =>
+        relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
+    });
+  };
   const baseSemanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
+    const relationCompilations = relationDiscoveryProposalCompilations();
     const issues = new Map(
       searchIssueScheduler.projection().issues.map((issue) => [issue.issueId, issue] as const),
     );
@@ -1593,6 +1653,17 @@ export function createControlPlane(options?: {
       if (inherited.priority > current.priority) current.priority = inherited.priority;
       lineage.set(inherited.proposalId, current);
     }
+    for (const compilation of relationCompilations) {
+      const current = lineage.get(compilation.proposal.proposalId) ?? {
+        issueIds: new Set<Hash>(),
+        priority: 1 as const,
+      };
+      for (const issueId of compilation.origin.semanticReviewIssueIds) {
+        current.issueIds.add(issueId);
+      }
+      if (compilation.priority > current.priority) current.priority = compilation.priority;
+      lineage.set(compilation.proposal.proposalId, current);
+    }
     const sources = new Map<Hash, {
       proposal: SemanticReviewCandidate["proposal"];
       proposalCorpusSnapshotIdentity: Hash;
@@ -1602,6 +1673,13 @@ export function createControlPlane(options?: {
     const jobsByProposal = new Map(
       semanticReviewScheduler.projection().jobs.map((job) => [job.proposalId, job] as const),
     );
+    for (const compilation of relationCompilations) {
+      sources.set(compilation.proposal.proposalId, {
+        proposal: compilation.proposal,
+        proposalCorpusSnapshotIdentity: compilation.origin.sourceCorpusSnapshotIdentity,
+        evidenceBundle: compilation.evidenceBundle,
+      });
+    }
     for (const record of marketArchaeologistDesk.projection().records) {
       if (record.status !== "PASS" || record.report === null) continue;
       const reportBundles = new Map(
@@ -1666,9 +1744,7 @@ export function createControlPlane(options?: {
   const semanticReviewCandidates = (
     baseCandidates: readonly SemanticReviewCandidate[] = baseSemanticReviewCandidates(),
   ): readonly SemanticReviewCandidate[] => {
-    const recordsById = new Map(ruleEvidenceClaimDesk.projection().records.map((record) =>
-      [record.interpretationId, record] as const
-    ));
+    const records = ruleEvidenceClaimDesk.projection().records;
     const inputs = ruleEvidenceClaimInputs();
     const existingClaims = new Map(semanticReviewScheduler.projection().jobs.map((job) =>
       [job.proposalId, job.evidenceClaims ?? []] as const
@@ -1680,11 +1756,15 @@ export function createControlPlane(options?: {
       const claims = proposalInputs.length === 0
         ? []
         : proposalInputs.flatMap((input) => {
-            const id = ruleEvidenceClaimDesk.interpretationIdFor(
-              input.requirement,
-              input.capture,
-            );
-            const record = recordsById.get(id);
+            const record = records.filter((item) =>
+              item.status === "PASS" && item.claim !== null &&
+              item.requirementId === input.requirement.requirementId &&
+              item.documentId === input.capture.document.record.documentId &&
+              item.extractionId === input.capture.extraction.record.extractionId
+            ).sort((left, right) =>
+              String(right.completedAt).localeCompare(String(left.completedAt)) ||
+              right.interpretationId.localeCompare(left.interpretationId)
+            )[0];
             return record?.status === "PASS" && record.claim !== null ? [record.claim] : [];
           });
       const completeCurrentSet = proposalInputs.length > 0 &&
@@ -1871,6 +1951,12 @@ export function createControlPlane(options?: {
     const issues = new Map(searchIssueScheduler.projection().issues.map((issue) =>
       [issue.issueId, issue] as const
     ));
+    const relationOriginsByProposal = new Map<Hash, RelationDiscoveryProposalCompilation[]>();
+    for (const compilation of relationDiscoveryProposalCompilations()) {
+      const retained = relationOriginsByProposal.get(compilation.proposal.proposalId) ?? [];
+      retained.push(compilation);
+      relationOriginsByProposal.set(compilation.proposal.proposalId, retained);
+    }
     const liveJobKeys = new Set(liveJobs.map((job) =>
       `${job.lastReviewId ?? "none"}\u0000${job.proposalId}`
     ));
@@ -1903,9 +1989,13 @@ export function createControlPlane(options?: {
           const family = issues.get(issueId)?.familyDefinition?.semanticFamily;
           return family === undefined ? [] : [family];
         }))].sort());
-        const searchOrigin = issueIds.length === 0 || semanticFamilies.length === 0
-          ? null
-          : buildProbabilitySearchOrigin({ issueIds, semanticFamilies });
+        const relationOrigins = relationOriginsByProposal.get(constraint.proposalId)
+          ?.map((item) => item.origin) ?? [];
+        const searchOrigin = relationOrigins.length > 0
+          ? buildRelationDiscoveryProbabilitySearchOrigin({ origins: relationOrigins })
+          : issueIds.length === 0 || semanticFamilies.length === 0
+            ? null
+            : buildProbabilitySearchOrigin({ issueIds, semanticFamilies });
         probabilitySearchOriginByReview.set(review.reviewId, searchOrigin);
       }
       if (!probabilityEvidenceContextByReview.has(review.reviewId)) {
@@ -2047,7 +2137,42 @@ export function createControlPlane(options?: {
     });
     const capabilityRebased =
       rebaseEvidenceRequirementsToRetainedLocatorCapabilities(rebased);
-    return Object.freeze([...new Map(capabilityRebased.map((requirement) =>
+    const locatorByObservationId = new Map(evidenceAcquisitionScheduler.projection().jobs
+      .flatMap((job) => job.lastObservationId === null
+        ? []
+        : [[job.lastObservationId, job.locatorIdentity] as const]));
+    const noveltyKey = (requirement: EvidenceRequirement) => hashCanonical({
+      proposalId: requirement.proposalId,
+      kind: requirement.kind,
+      listingRefs: requirement.listingRefs,
+      claim: requirement.claim,
+      reason: requirement.reason,
+      satisfyingObservation: requirement.satisfyingObservation,
+      contradictingObservation: requirement.contradictingObservation,
+    });
+    const excludedLocatorsByRequirement = new Map<Hash, Set<Hash>>();
+    for (const record of semanticReviewDesk.projection().records) {
+      if (record.status !== "PASS" || record.report === null) continue;
+      const alreadyReviewedLocators = new Set((record.report.input.evidenceClaims ?? [])
+        .flatMap((claim) => {
+        const locator = locatorByObservationId.get(claim.observationId);
+        return locator === undefined || locator === null ? [] : [locator];
+      }));
+      if (alreadyReviewedLocators.size === 0) continue;
+      for (const requirement of record.report.result.evidenceRequirements ?? []) {
+        const key = noveltyKey(requirement);
+        const excluded = excludedLocatorsByRequirement.get(key) ?? new Set<Hash>();
+        for (const locator of alreadyReviewedLocators) excluded.add(locator);
+        excludedLocatorsByRequirement.set(key, excluded);
+      }
+    }
+    const noveltyRouted = capabilityRebased.map((requirement) =>
+      excludeEvidenceRequirementLocators(
+        requirement,
+        [...(excludedLocatorsByRequirement.get(noveltyKey(requirement)) ?? [])],
+      )
+    );
+    return Object.freeze([...new Map(noveltyRouted.map((requirement) =>
       [requirement.requirementId, requirement] as const
     )).values()]);
   };
@@ -2081,6 +2206,12 @@ export function createControlPlane(options?: {
       right.materializedAt.localeCompare(left.materializedAt) ||
       right.revisionId.localeCompare(left.revisionId)
     )[0]?.taskPayload ?? null;
+  const relationDiscoveryTaskRevision = (taskId: Hash) => relationDiscoveryTaskRevisions
+    .filter((item) => item.task.taskId === taskId)
+    .sort((left, right) =>
+      right.materializedAt.localeCompare(left.materializedAt) ||
+      right.revisionId.localeCompare(left.revisionId)
+    )[0] ?? null;
   const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
     new AgentCampaignDispatcher({
       registry: agentExecutionRegistry,
@@ -2096,12 +2227,72 @@ export function createControlPlane(options?: {
       ],
       toolHost: (task, taskPayload) => {
         if (task.kind === "RULE_EVIDENCE_CLAIM") {
-          return new RuleEvidenceAgentToolHost(ruleEvidenceAgentInput);
+          return new RuleEvidenceAgentToolHost(ruleEvidenceAgentInput, (
+            context,
+            source,
+            result,
+          ) => {
+            const snapshot = agentExecutionRegistry.snapshot();
+            const profile = snapshot.executionProfiles.find((item) =>
+              item.executionProfileId === context.executionProfile.executionProfileId
+            );
+            const model = profile === undefined ? undefined : snapshot.modelProfiles.find((item) =>
+              item.modelProfileId === profile.modelProfileId
+            );
+            if (model === undefined) {
+              throw new Error("Agent Rule Evidence model profile is unavailable");
+            }
+            const codex = model.accessDriver === "CODEX_RESPONSES";
+            const configuration = model.configuration as Readonly<Record<string, unknown>>;
+            const reasoning = configuration.reasoning as Readonly<Record<string, unknown>> | undefined;
+            const engine: RuleEvidenceInterpreterEngine = Object.freeze({
+              provider: codex ? "CODEX" : "DEEPSEEK",
+              transport: "AGENT_RUNTIME",
+              model: model.model,
+              reasoningEffort: codex
+                ? reasoning?.effort as RuleEvidenceInterpreterEngine["reasoningEffort"]
+                : null,
+              responseStorage: false,
+            });
+            const record = ruleEvidenceClaimDesk.retainAgentResult({
+              requirement: source.requirement,
+              capture: source.capture,
+              engine,
+              startedAt: context.run.createdAt,
+              completedAt: new Date().toISOString(),
+              result,
+            });
+            if (record.claim === null) {
+              throw new Error("Agent Rule Evidence claim was not retained");
+            }
+            ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
+            return Object.freeze({
+              claimId: record.claim.claimId,
+              artifactHash: record.claim.artifactHash,
+            });
+          });
         }
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
           return MarketOntologyAgentToolHost.fromTaskPayload(
             taskPayload as MarketOntologyNormalizationTaskPayload,
             marketOntologyAgentProposalStore ?? undefined,
+          );
+        }
+        if (task.kind === "RELATION_DISCOVERY") {
+          const revision = relationDiscoveryTaskRevision(task.taskId);
+          if (revision === null) {
+            throw new Error("retained relation discovery task input is unavailable");
+          }
+          const corpus = relationDiscoveryStore?.loadRelationDiscoveryCorpus(
+            revision.sourceCorpusSnapshotIdentity,
+          ) ?? null;
+          if (corpus === null) {
+            throw new Error("retained relation discovery corpus is unavailable");
+          }
+          return new RelationDiscoveryAgentToolHost(
+            revision.taskPayload,
+            corpus,
+            relationDiscoveryStore ?? undefined,
           );
         }
         throw new Error("Agent task has no registered first-party tool host");
@@ -2116,6 +2307,13 @@ export function createControlPlane(options?: {
           const payload = ontologyAgentTaskPayload(task.taskId);
           if (payload === null) throw new Error("retained ontology task payload is unavailable");
           return payload;
+        }
+        if (task.kind === "RELATION_DISCOVERY") {
+          const revision = relationDiscoveryTaskRevision(task.taskId);
+          if (revision === null) {
+            throw new Error("retained relation discovery task payload is unavailable");
+          }
+          return revision.taskPayload as RelationDiscoveryTaskPayload;
         }
         throw new Error("retained Agent task payload is unavailable");
       },
@@ -2246,6 +2444,27 @@ export function createControlPlane(options?: {
     ontologySearchIssueRevisionStore.saveOntologySearchIssueRevisions(revisions);
     ontologySearchIssueRevisions = revisions;
   };
+  const reconcileRelationDiscoveryTasks = (): void => {
+    if (relationDiscoveryStore === null) return;
+    const corpus = catalogObservationDesk.corpus();
+    const proposals = marketOntologyAgentProposalStore
+      ?.loadMarketOntologyAgentProposals(200) ?? [];
+    const retainedOntologyRevisions = ontologySearchIssueRevisionStore
+      ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+    const relationWork = buildOntologyRelationWorkProjection({
+      proposals,
+      revisions: retainedOntologyRevisions,
+      execution: agentExecutionRegistry.snapshot(),
+    });
+    const revisions = materializeRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus,
+    });
+    relationDiscoveryStore.saveRelationDiscoveryCorpus(corpus);
+    agentExecutionRegistry.saveBatch({ tasks: revisions.map((item) => item.task) });
+    relationDiscoveryStore.saveRelationDiscoveryTaskRevisions(revisions);
+    relationDiscoveryTaskRevisions = revisions;
+  };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     transitionStartup("DURABLE_RECOVERY");
     const realCandidateReady = realCandidatePreflightDesk.load();
@@ -2263,6 +2482,10 @@ export function createControlPlane(options?: {
     runStartupReconciliationStep("RECONCILE_RULE_EVIDENCE_TASKS", reconcileRuleEvidenceAgentTasks);
     runStartupReconciliationStep("MIGRATE_LEGACY_RULE_EVIDENCE_RUNS", migrateLegacyRuleEvidenceAgentRuns);
     runStartupReconciliationStep("RECONCILE_ONTOLOGY_SEARCH_ISSUES", reconcileOntologySearchIssues);
+    runStartupReconciliationStep(
+      "RECONCILE_RELATION_DISCOVERY_TASKS",
+      reconcileRelationDiscoveryTasks,
+    );
     runStartupReconciliationStep(
       "RECOVER_PREPARED_AGENT_RUNS",
       () => { agentCampaignDispatcher.recoverPreparedRuns(); },
@@ -2475,6 +2698,35 @@ export function createControlPlane(options?: {
     const configuration = await agentCredentialBroker.configuration(binding);
     return buildOntologyAgentCampaignPreview({
       revisions: ontologySearchIssueRevisions,
+      execution: snapshot,
+      capability: agentExecutionCapabilityService.project(profile, configuration),
+    });
+  };
+  const relationDiscoveryCampaignPreview = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "RELATION_DISCOVERY")
+      .sort((left, right) =>
+        right.revision - left.revision || right.updatedAt.localeCompare(left.updatedAt)
+      )[0];
+    if (route === undefined) {
+      throw new Error("Relation discovery workload route is unavailable");
+    }
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) {
+      throw new Error("Relation discovery execution profile is unavailable");
+    }
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (binding === undefined) {
+      throw new Error("Relation discovery credential binding is unavailable");
+    }
+    const configuration = await agentCredentialBroker.configuration(binding);
+    return buildRelationDiscoveryCampaignPreview({
+      revisions: relationDiscoveryTaskRevisions,
       execution: snapshot,
       capability: agentExecutionCapabilityService.project(profile, configuration),
     });
@@ -3381,6 +3633,167 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/relation-discovery"
+    ) {
+      await ready;
+      const proposals = marketOntologyAgentProposalStore
+        ?.loadMarketOntologyAgentProposals(200) ?? [];
+      const ontologyRevisions = ontologySearchIssueRevisionStore
+        ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+      const relationWork = buildOntologyRelationWorkProjection({
+        proposals,
+        revisions: ontologyRevisions,
+        execution: agentExecutionRegistry.snapshot(),
+      });
+      const taskRevisions = relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
+      const findings = relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [];
+      const proposalCompilations = relationDiscoveryProposalCompilations();
+      const semanticReviewJobsByProposal = new Map(
+        semanticReviewScheduler.projection().jobs.map((item) => [item.proposalId, item] as const),
+      );
+      const probabilityJobsByProposal = new Map<Hash, ProbabilityEstimationJobRecord[]>();
+      for (const job of probabilityEstimationScheduler.projection().jobs) {
+        const retained = probabilityJobsByProposal.get(job.proposalId) ?? [];
+        retained.push(job);
+        probabilityJobsByProposal.set(job.proposalId, retained);
+      }
+      const execution = agentExecutionRegistry.snapshot();
+      const latestByWork = new Map<Hash, RelationDiscoveryTaskRevision>();
+      for (const revision of taskRevisions) {
+        const prior = latestByWork.get(revision.workItemId);
+        if (prior === undefined || revision.materializedAt > prior.materializedAt ||
+            (revision.materializedAt === prior.materializedAt &&
+              revision.revisionId > prior.revisionId)) {
+          latestByWork.set(revision.workItemId, revision);
+        }
+      }
+      const taskIds = new Set(taskRevisions.map((item) => item.task.taskId));
+      const runs = execution.runs.filter((item) => taskIds.has(item.taskId));
+      const runIds = new Set(runs.map((item) => item.runId));
+      const invocations = execution.modelInvocations.filter((item) => runIds.has(item.runId));
+      const sumUsage = (field: "inputTokens" | "outputTokens" | "reasoningTokens") =>
+        invocations.reduce((sum, item) => sum + BigInt(item[field] ?? "0"), 0n).toString();
+      const body = Object.freeze({
+        schemaVersion: "pmh.relation-discovery-projection.v1" as const,
+        projectionIdentity: "" as Hash,
+        sourceWorkItemCount: relationWork.workItemCount,
+        currentTaskRevisionCount: latestByWork.size,
+        retainedTaskRevisionCount: taskRevisions.length,
+        runCount: runs.length,
+        modelInvocationCount: invocations.length,
+        findingCount: findings.length,
+        findingBearingRunCount: new Set(findings.map((item) => item.sourceAgentRunId)).size,
+        succeededRunCount: runs.filter((item) => item.status === "SUCCEEDED").length,
+        interruptedRunCount: runs.filter((item) => item.status === "INTERRUPTED").length,
+        failedRunCount: runs.filter((item) => item.status === "FAILED").length,
+        productiveInterruptedRunCount: new Set(findings.filter((finding) =>
+          runs.some((run) => run.runId === finding.sourceAgentRunId &&
+            run.status === "INTERRUPTED")
+        ).map((item) => item.sourceAgentRunId)).size,
+        positiveFindingCount: findings.filter((item) =>
+          item.kind === "RELATION_HYPOTHESIS"
+        ).length,
+        counterexampleCount: findings.filter((item) => item.kind === "COUNTEREXAMPLE").length,
+        semanticReviewCandidateCount: proposalCompilations.length,
+        semanticReviewConnectedCount: proposalCompilations.filter((item) =>
+          semanticReviewJobsByProposal.has(item.proposal.proposalId)
+        ).length,
+        usage: Object.freeze({
+          inputTokens: sumUsage("inputTokens"),
+          outputTokens: sumUsage("outputTokens"),
+          reasoningTokens: sumUsage("reasoningTokens"),
+          unknownInputInvocationCount: invocations.filter((item) => item.inputTokens === null).length,
+          unknownOutputInvocationCount: invocations.filter((item) => item.outputTokens === null).length,
+          unknownReasoningInvocationCount: invocations.filter((item) =>
+            item.reasoningTokens === null
+          ).length,
+        }),
+        items: Object.freeze(relationWork.items.map((workItem) => {
+          const revision = latestByWork.get(workItem.workItemId) ?? null;
+          const workFindings = findings.filter((item) => item.workItemId === workItem.workItemId);
+          const workTaskIds = new Set(taskRevisions.filter((item) =>
+            item.workItemId === workItem.workItemId
+          ).map((item) => item.task.taskId));
+          const workCompilations = proposalCompilations.filter((item) =>
+            item.origin.workItemId === workItem.workItemId
+          );
+          const semanticReviews = Object.freeze(workCompilations.map((item) => {
+            const job = semanticReviewJobsByProposal.get(item.proposal.proposalId) ?? null;
+            return Object.freeze({
+              compilationId: item.compilationId,
+              origin: item.origin,
+              proposal: item.proposal,
+              evidenceBundleId: item.evidenceBundle.bundleId,
+              semanticReviewJobId: job?.jobId ?? null,
+              semanticReviewStatus: job?.status ?? null,
+              semanticReviewRecommendation: job?.recommendation ?? null,
+              semanticConstraintClassification:
+                job?.reviewOutcome?.semanticConstraint?.classification ?? null,
+              semanticConstraintArtifactHash:
+                job?.reviewOutcome?.semanticConstraint?.artifactHash ?? null,
+              probabilityJobIds: Object.freeze(
+                (probabilityJobsByProposal.get(item.proposal.proposalId) ?? [])
+                  .map((probabilityJob) => probabilityJob.jobId).sort(),
+              ),
+            });
+          }));
+          const probabilityAdmittedReviews = semanticReviews.filter((item) =>
+            item.semanticReviewStatus === "PASS" &&
+            item.semanticConstraintClassification === "PROBABILISTIC_DEPENDENCE"
+          );
+          return Object.freeze({
+            workItem,
+            currentTaskRevision: revision,
+            retainedTaskRevisionCount: workTaskIds.size,
+            runCount: runs.filter((item) => workTaskIds.has(item.taskId)).length,
+            findings: Object.freeze(workFindings),
+            positiveFindingCount: workFindings.filter((item) =>
+              item.kind === "RELATION_HYPOTHESIS"
+            ).length,
+            counterexampleCount: workFindings.filter((item) =>
+              item.kind === "COUNTEREXAMPLE"
+            ).length,
+            semanticReviews,
+            downstreamSemanticReviewAttribution: workCompilations.length === 0
+              ? "NO_POSITIVE_FINDING" as const
+              : semanticReviews.some((item) => item.semanticReviewJobId !== null)
+                ? "CONNECTED" as const
+                : "CANDIDATE_READY" as const,
+            downstreamProbabilityAttribution: workCompilations.length === 0
+              ? "NO_POSITIVE_FINDING" as const
+              : semanticReviews.every((item) => item.semanticReviewStatus !== "PASS")
+                ? "AWAITING_SEMANTIC_REVIEW" as const
+                : probabilityAdmittedReviews.length === 0
+                  ? "SEMANTICALLY_NOT_ADMITTED" as const
+                  : probabilityAdmittedReviews.some((item) =>
+                    item.probabilityJobIds.length > 0
+                  )
+                    ? "CONNECTED" as const
+                    : "CANDIDATE_READY" as const,
+            downstreamOpportunityAttribution: "NOT_YET_CONNECTED" as const,
+          });
+        })),
+        automaticDispatch: false as const,
+        providerRequestsStartedByRead: 0 as const,
+        modelInvocationsStartedByRead: 0 as const,
+        authority: "RELATION_FINDING_PROPOSAL_ONLY" as const,
+        semanticDecisionAuthority: false as const,
+        probabilityAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+      });
+      const { projectionIdentity: _placeholder, ...identityBody } = body;
+      writeJson(response, 200, Object.freeze({
+        ...body,
+        projectionIdentity: hashCanonical(identityBody),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/market-ontology/search-ecology"
     ) {
       await ready;
@@ -3440,7 +3853,7 @@ export function createControlPlane(options?: {
           Object.freeze({
             mode: "MEMORY" as const,
             durable: false,
-            schemaVersion: 39,
+            schemaVersion: 40,
             idempotencyKey: "revisionId" as const,
           }),
         automaticDispatch: false,
@@ -3534,6 +3947,38 @@ export function createControlPlane(options?: {
       writeJson(response, 200, evidenceAcquisitionScheduler.projection());
       return;
     }
+    const evidenceAcquisitionRunMatch = url.pathname.match(
+      /^\/api\/v1\/evidence-acquisition\/(sha256:[0-9a-f]{64})\/run$/u,
+    );
+    if (request.method === "POST" && evidenceAcquisitionRunMatch !== null) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 0
+        ) throw new Error("evidence acquisition run accepts only an empty object");
+        const pending = evidenceAcquisitionScheduler.runJob(
+          evidenceAcquisitionRunMatch[1] as Hash,
+          evidenceRequirements(),
+        );
+        await broadcastProjection();
+        const job = await pending;
+        ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
+        reconcileRuleEvidenceAgentTasks();
+        await broadcastProjection();
+        writeJson(response, job.status === "CAPTURED" ? 200 : 422, job);
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "evidence acquisition run could not start",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
     if (
       request.method === "GET" &&
       url.pathname === "/api/v1/evidence-debt-frontier"
@@ -3588,6 +4033,69 @@ export function createControlPlane(options?: {
           ok: false,
           diagnostic: error instanceof Error ? error.message :
             "ontology campaign preview is unavailable",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/relation-discovery/campaign-preview"
+    ) {
+      try {
+        await ready;
+        writeJson(response, 200, await relationDiscoveryCampaignPreview());
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "relation discovery campaign preview is unavailable",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/relation-discovery/campaigns"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 0) {
+          throw new Error("relation discovery campaign creation accepts an empty object only");
+        }
+        const preview = await relationDiscoveryCampaignPreview();
+        if (!preview.creationEligible) throw new Error(preview.diagnostic);
+        const latestRevision = agentExecutionRegistry.snapshot().campaigns
+          .filter((item) => item.campaignKey === preview.campaignKey)
+          .reduce((maximum, item) => Math.max(maximum, item.revision), 0);
+        const campaign = buildPausedAgentCampaign({
+          campaignKey: preview.campaignKey,
+          revision: latestRevision + 1,
+          executionProfileId: preview.executionProfile.executionProfileId,
+          taskIds: preview.taskIds,
+          schedule: preview.schedule,
+          budget: preview.budget,
+          createdAt: new Date().toISOString(),
+        });
+        agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
+        await broadcastProjection();
+        writeJson(response, 201, {
+          ok: true,
+          campaign,
+          preview,
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "relation discovery campaign could not be created",
           providerRequestsStarted: 0,
           modelInvocationsStarted: 0,
         });
@@ -4020,7 +4528,7 @@ export function createControlPlane(options?: {
         storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
           mode: "MEMORY" as const,
           durable: false,
-          schemaVersion: 39,
+          schemaVersion: 40,
           idempotencyKey: "proposalId" as const,
         }),
         authority: "PROPOSE_ONLY",
@@ -4953,7 +5461,10 @@ export function createControlPlane(options?: {
         const opportunityId = (
           body as { opportunityId: string }
         ).opportunityId.trim();
-        const source = marketArchaeologistDesk
+        const scheduledSource = semanticReviewCandidates().find(
+          ({ proposal }) => `ai:${proposal.proposalId}` === opportunityId,
+        );
+        const legacySource = marketArchaeologistDesk
           .projection()
           .records.flatMap((record) =>
             record.status === "PASS" && record.report !== null
@@ -4966,6 +5477,7 @@ export function createControlPlane(options?: {
           .find(
             ({ proposal }) => `ai:${proposal.proposalId}` === opportunityId,
           );
+        const source = scheduledSource ?? legacySource;
         if (source === undefined) {
           throw new Error("semantic review opportunity was not found");
         }
@@ -4973,10 +5485,18 @@ export function createControlPlane(options?: {
           opportunityId,
           source.proposal,
           catalogObservationDesk.corpus(),
-          source.corpusSnapshotIdentity,
+          "proposalCorpusSnapshotIdentity" in source
+            ? source.proposalCorpusSnapshotIdentity
+            : source.corpusSnapshotIdentity,
+          "evidenceBundle" in source ? source.evidenceBundle ?? undefined : undefined,
+          "evidenceClaims" in source ? source.evidenceClaims ?? [] : [],
         );
         await broadcastProjection();
         const record = await invocation.promise;
+        semanticReviewScheduler.reconcile(
+          semanticReviewCandidates(),
+          semanticReviewDesk.projection().records,
+        );
         await broadcastProjection();
         writeJson(response, record.status === "PASS" ? 200 : 422, {
           ...record,

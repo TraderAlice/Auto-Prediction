@@ -30,9 +30,31 @@ validation out of the per-issue loop reduced ontology reconciliation from
 23.904 seconds to 1.214 seconds while retaining per-task evidence validation.
 The two proposals now produce two distinct relation-neighborhood work items
 with 100% proposal coverage, no fabricated pair relation, and no provider call.
-The next phase makes those work items executable and carries their identity
-into findings, probability, and opportunities. Search yield and reviewed
+The active continuation is
+[`plans/relation-discovery-execution.md`](plans/relation-discovery-execution.md):
+make each work item an explicit provider-neutral research task, accept only
+tool-bound findings, and carry the same origin through semantic review,
+probability, economics, and opportunities. Search yield and reviewed
 opportunity value—not graph size—remain the selection signals.
+
+That continuation now has one end-to-end real specimen. A Terra/high relation
+Agent found a conditional LAFC relation and an unconditional-equivalence
+counterexample; immutable origin reaches a completed enriched semantic review.
+The review remains `RELATED / TEXTUAL_RELATEDNESS / ESCALATE`, so probability
+is explicitly not admitted and no opportunity is fabricated. Rule Evidence is
+now a genuine Agent-runtime result path: app-server free text is diagnostic
+only, rejected tools retain bounded diagnostics, oversized read intent is
+first-party truncated, and accepted submit effects materialize durable claims
+that close legacy evidence jobs by business lineage. The first claim quoted the
+right source but overreached semantically; independent review caught it. A new
+evidence-novelty gate prevents the resulting debt from reacquiring the same
+insufficient market JSON and instead routed it to bounded official-source
+discovery. That search retained an abstention after four provider requests and
+three tools, so the missing controlling Polymarket US resolution rule remains
+real negative evidence rather than a token-burning acquisition loop. The
+checkpoint passes workspace type checks, all 567 control-plane tests plus the
+remaining workspace suites, and the production build on the available Node 22
+host; the repository's expected Node 24 engine warning remains.
 
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
@@ -93,10 +115,11 @@ Codex app-server is now the primary OAuth-backed Agent runtime. The completed
 qualification is preserved in PR #99: a zero-inference account preflight,
 Terra/high native dynamic-tool runs, exact response-level usage, fail-closed
 built-in effects, read-only ephemeral threads, and stable issue de-duplication
-all passed. The active downstream slice is
-[`plans/ontology-proposal-relation-work.md`](plans/ontology-proposal-relation-work.md):
-turn durable ontology proposals into non-fabricated relation-bound work and
-carry historical yield across ontology rotation.
+all passed. PR #101 completed the proposal-to-work slice. The active Agent
+continuation is
+[`plans/relation-discovery-execution.md`](plans/relation-discovery-execution.md),
+which adds a tool-first relation-discovery task and immutable downstream
+lineage without granting the Agent semantic or probability authority.
 
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and

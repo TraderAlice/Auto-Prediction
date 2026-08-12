@@ -1388,8 +1388,8 @@ describe("control-plane HTTP surface", () => {
         runtimeDefinitionCount: 3,
         credentialBindingCount: 2,
         modelProfileCount: 6,
-        executionProfileCount: 16,
-        workloadRouteCount: 6,
+        executionProfileCount: 18,
+        workloadRouteCount: 8,
         taskCount: 0,
         runCount: 0,
         modelInvocationCount: 0,
@@ -1413,8 +1413,8 @@ describe("control-plane HTTP surface", () => {
     });
     expect(projection.ai.agentExecution).toMatchObject({
       modelProfileCount: 6,
-      executionProfileCount: 16,
-      workloadRouteCount: 6,
+      executionProfileCount: 18,
+      workloadRouteCount: 8,
       taskCount: 0,
       runCount: 0,
       modelInvocationCount: 0,
@@ -2364,6 +2364,53 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    const relationDiscoveryResponse = await fetch(
+      `${baseUrl}/api/v1/relation-discovery`,
+    );
+    expect(relationDiscoveryResponse.status).toBe(200);
+    await expect(relationDiscoveryResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.relation-discovery-projection.v1",
+      sourceWorkItemCount: 0,
+      currentTaskRevisionCount: 0,
+      retainedTaskRevisionCount: 0,
+      runCount: 0,
+      modelInvocationCount: 0,
+      findingCount: 0,
+      positiveFindingCount: 0,
+      counterexampleCount: 0,
+      items: [],
+      automaticDispatch: false,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      authority: "RELATION_FINDING_PROPOSAL_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    const relationCampaignPreviewResponse = await fetch(
+      `${baseUrl}/api/v1/relation-discovery/campaign-preview`,
+    );
+    expect(relationCampaignPreviewResponse.status).toBe(200);
+    await expect(relationCampaignPreviewResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.relation-discovery-campaign-preview.v1",
+      taskIds: [],
+      workItemIds: [],
+      creationEligible: false,
+      dispatchEligible: false,
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      automaticDispatch: false,
+      authority: "CAMPAIGN_PROPOSAL_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
     const ontologyEcologyResponse = await fetch(
       `${baseUrl}/api/v1/market-ontology/search-ecology`,
     );
@@ -2827,7 +2874,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 39,
+        schemaVersion: 40,
         },
         records: [{ investigationId: created.investigationId }],
       });

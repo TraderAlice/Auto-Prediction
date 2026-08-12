@@ -40,7 +40,7 @@ export type AiUsageEvent = Readonly<{
   role: string | null;
   provider: string;
   model: string;
-  transport: "VERCEL_AI_SDK" | "PI_CLI";
+  transport: "VERCEL_AI_SDK" | "PI_CLI" | "AGENT_RUNTIME";
   operationIdentity: string;
   outcome: AiUsageOutcome;
   durableEffect: boolean;
@@ -58,7 +58,7 @@ export type AiUsageEventDraft = Readonly<{
   role?: string | null;
   provider: string;
   model: string;
-  transport: "VERCEL_AI_SDK" | "PI_CLI";
+  transport: "VERCEL_AI_SDK" | "PI_CLI" | "AGENT_RUNTIME";
   operationIdentity: string;
   outcome: AiUsageOutcome;
   durableEffect: boolean;

@@ -84,7 +84,7 @@ export type RuleEvidenceClaimDisposition =
 
 export type RuleEvidenceInterpreterEngine = Readonly<{
   provider: "DEEPSEEK" | "CODEX";
-  transport: "VERCEL_AI_SDK";
+  transport: "VERCEL_AI_SDK" | "AGENT_RUNTIME";
   model: string;
   reasoningEffort: CodexReasoningEffort | null;
   responseStorage: false;
@@ -114,7 +114,7 @@ export type RuleEvidenceClaim = Readonly<{
   unresolvedEvidence: readonly string[];
   interpreter: Readonly<{
     identity: Hash;
-    transport: "VERCEL_AI_SDK";
+    transport: "VERCEL_AI_SDK" | "AGENT_RUNTIME";
     provider: "deepseek" | "codex";
     model: string;
     role: "RULE_EVIDENCE_INTERPRETER";
@@ -329,7 +329,7 @@ export function assertRuleEvidenceInterpreterEngine(
   const codex = engine.provider === "CODEX";
   if (
     !["DEEPSEEK", "CODEX"].includes(engine.provider) ||
-    engine.transport !== "VERCEL_AI_SDK" ||
+    !["VERCEL_AI_SDK", "AGENT_RUNTIME"].includes(engine.transport) ||
     !MODEL_PATTERN.test(engine.model) ||
     engine.responseStorage !== false ||
     (codex && (
@@ -500,6 +500,13 @@ function possibleCurrentEngines(
   const engines: RuleEvidenceInterpreterEngine[] = [];
   if (provider === undefined || provider === "deepseek") {
     engines.push(legacyDeepSeekEngine(model));
+    engines.push(assertRuleEvidenceInterpreterEngine(Object.freeze({
+      provider: "DEEPSEEK" as const,
+      transport: "AGENT_RUNTIME" as const,
+      model,
+      reasoningEffort: null,
+      responseStorage: false as const,
+    })));
   }
   if (
     (provider === undefined || provider === "codex") &&
@@ -509,6 +516,13 @@ function possibleCurrentEngines(
       engines.push(assertRuleEvidenceInterpreterEngine(Object.freeze({
         provider: "CODEX" as const,
         transport: "VERCEL_AI_SDK" as const,
+        model,
+        reasoningEffort,
+        responseStorage: false as const,
+      })));
+      engines.push(assertRuleEvidenceInterpreterEngine(Object.freeze({
+        provider: "CODEX" as const,
+        transport: "AGENT_RUNTIME" as const,
         model,
         reasoningEffort,
         responseStorage: false as const,
@@ -699,7 +713,7 @@ export function buildRuleEvidenceClaim(input: Readonly<{
     unresolvedEvidence: draft.unresolvedEvidence,
     interpreter: Object.freeze({
       identity,
-      transport: "VERCEL_AI_SDK" as const,
+      transport: engine.transport,
       provider: engine.provider.toLowerCase() as "deepseek" | "codex",
       model: input.model,
       role: "RULE_EVIDENCE_INTERPRETER" as const,
@@ -770,7 +784,7 @@ export function assertRuleEvidenceClaim(value: unknown): RuleEvidenceClaim {
       claim.interpreter.identity,
       claim.interpreter.provider,
     ) ||
-    claim.interpreter.transport !== "VERCEL_AI_SDK" ||
+    !["VERCEL_AI_SDK", "AGENT_RUNTIME"].includes(claim.interpreter.transport) ||
     !["deepseek", "codex"].includes(claim.interpreter.provider) ||
     (claim.schemaVersion === "pmh.rule-evidence-claim.v1" && (
       claim.interpreter.provider !== "deepseek" ||
@@ -1527,6 +1541,61 @@ export class RuleEvidenceClaimDesk {
       extractionId: input.capture.extraction.record.extractionId,
       interpreterIdentity: this.interpreterIdentity,
     });
+  }
+
+  public retainAgentResult(input: Readonly<{
+    requirement: EvidenceRequirement;
+    capture: EvidenceDocumentCapture;
+    engine: RuleEvidenceInterpreterEngine;
+    startedAt: string;
+    completedAt: string;
+    result: RuleEvidenceClaimModelResult;
+  }>): RuleEvidenceClaimRecord {
+    const engine = assertRuleEvidenceInterpreterEngine(input.engine);
+    if (engine.transport !== "AGENT_RUNTIME") {
+      throw new Error("externally retained rule evidence requires an Agent runtime engine");
+    }
+    const validated = validateInput({
+      requirement: input.requirement,
+      capture: input.capture,
+    });
+    if (!isIso(input.startedAt) || !isIso(input.completedAt) ||
+        Date.parse(input.completedAt) < Date.parse(input.startedAt)) {
+      throw new Error("Agent rule evidence chronology is invalid");
+    }
+    const claim = buildRuleEvidenceClaim({
+      requirement: validated.requirement,
+      capture: validated.capture,
+      model: engine.model,
+      engine,
+      completedAt: input.completedAt,
+      result: input.result,
+    });
+    const record = assertRuleEvidenceClaimRecord(Object.freeze({
+      interpretationId: claim.claimId,
+      requirementId: claim.requirementId,
+      proposalId: claim.proposalId,
+      documentId: claim.documentId,
+      extractionId: claim.extractionId,
+      interpreterIdentity: claim.interpreter.identity,
+      model: claim.interpreter.model,
+      status: "PASS" as const,
+      startedAt: input.startedAt,
+      completedAt: input.completedAt,
+      diagnostic: null,
+      claim,
+    }));
+    const existing = this.#records.find((item) =>
+      item.interpretationId === record.interpretationId
+    );
+    if (existing !== undefined) {
+      if (hashCanonical(existing) !== hashCanonical(record)) {
+        throw new Error("Agent rule evidence result identity is already bound");
+      }
+      return existing;
+    }
+    const retained = this.store?.saveRuleEvidenceClaimRecord(record, this.retentionLimit) ?? record;
+    return this.#replace(retained);
   }
 
   #replace(recordInput: RuleEvidenceClaimRecord): RuleEvidenceClaimRecord {

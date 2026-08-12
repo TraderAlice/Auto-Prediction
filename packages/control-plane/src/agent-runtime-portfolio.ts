@@ -8,6 +8,9 @@ import {
 } from "./agent-execution-substrate.js";
 import type { AiRuntimeConfiguration } from "./ai-runtime-configuration.js";
 
+const RELATION_DISCOVERY_EXECUTION_PROTOCOL_REVISION = 2;
+const RULE_EVIDENCE_APP_SERVER_RESULT_PROTOCOL_REVISION = 6;
+
 export function buildDefaultAgentRuntimePortfolio(
   configuration: AiRuntimeConfiguration,
 ): AgentExecutionBatch {
@@ -85,6 +88,11 @@ export function buildDefaultAgentRuntimePortfolio(
   });
   const codexAgent = buildExecutionProfile({
     ...common,
+    // The app-server final message is diagnostic-only. A durable rule-evidence
+    // result must come from an accepted first-party submit tool, so preserve
+    // earlier profiles and runs under a successor execution revision.
+    revision: configuration.revision * 1_000 +
+      RULE_EVIDENCE_APP_SERVER_RESULT_PROTOCOL_REVISION,
     profileKey: "rule-evidence-codex-app-server",
     runtimeDefinition: codex,
     credentialBinding: codexCredential,
@@ -106,8 +114,9 @@ export function buildDefaultAgentRuntimePortfolio(
   });
   const selected = configuration.provider === "CODEX" ? codexAgent : piDeepSeek;
   const route = buildWorkloadRoute({
-    routeKey: "rule-evidence-default-app-server-v2",
-    revision: configuration.revision,
+    routeKey: "rule-evidence-default-app-server-v6",
+    revision: configuration.revision * 1_000 +
+      RULE_EVIDENCE_APP_SERVER_RESULT_PROTOCOL_REVISION,
     taskKind: "RULE_EVIDENCE_CLAIM",
     executionProfileId: selected.executionProfileId,
     updatedAt: createdAt,
@@ -145,6 +154,34 @@ export function buildDefaultAgentRuntimePortfolio(
     executionProfileId: ontologyCodexAppServer.executionProfileId,
     updatedAt: createdAt,
   });
+  const relationDiscoveryCodexAppServer = buildExecutionProfile({
+    // Relation-discovery policy evolves independently from the operator's
+    // provider setting. Preserve the old immutable profile whenever its
+    // budget or tool contract changes.
+    revision: configuration.revision * 1_000 +
+      RELATION_DISCOVERY_EXECUTION_PROTOCOL_REVISION,
+    profileKey: "relation-discovery-codex-app-server",
+    runtimeDefinition: codex,
+    credentialBinding: codexCredential,
+    modelProfile: codexModel,
+    toolProtocol: "RELATION_DISCOVERY_AGENT_TOOLS_V1",
+    runBudget: {
+      maximumModelInvocations: 12,
+      maximumToolCalls: 32,
+      maximumWallClockMs: 300_000,
+      maximumInputTokens: "300000",
+      maximumOutputTokens: "30000",
+    },
+    createdAt,
+  });
+  const relationDiscoveryRoute = buildWorkloadRoute({
+    routeKey: "relation-discovery-default",
+    revision: configuration.revision * 1_000 +
+      RELATION_DISCOVERY_EXECUTION_PROTOCOL_REVISION,
+    taskKind: "RELATION_DISCOVERY",
+    executionProfileId: relationDiscoveryCodexAppServer.executionProfileId,
+    updatedAt: createdAt,
+  });
   return Object.freeze({
     runtimeDefinitions: Object.freeze([pi, codex, inProcess]),
     credentialBindings: Object.freeze([codexCredential, deepSeekCredential]),
@@ -157,7 +194,8 @@ export function buildDefaultAgentRuntimePortfolio(
       inProcessDeepSeek,
       ontologyCodexAppServer,
       ontologyPiCodex,
+      relationDiscoveryCodexAppServer,
     ]),
-    workloadRoutes: Object.freeze([route, ontologyRoute]),
+    workloadRoutes: Object.freeze([route, ontologyRoute, relationDiscoveryRoute]),
   });
 }

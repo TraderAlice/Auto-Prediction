@@ -1163,7 +1163,9 @@ describe("persistent semantic review scheduler", () => {
       });
       scheduler.reconcile(items, []);
 
-      expect(scheduler.projection().jobs).toHaveLength(10);
+      // Retention bounds terminal history, never live work. Otherwise a full
+      // high-priority history window can silently starve lower-priority jobs.
+      expect(scheduler.projection().jobs).toHaveLength(12);
       expect(scheduler.attributionSource(20)).toMatchObject({
         basis: "DURABLE_STORE_RECORDS",
         maximumJobCount: 20,
@@ -1184,9 +1186,9 @@ describe("persistent semantic review scheduler", () => {
       memoryScheduler.reconcile(items, []);
       expect(memoryScheduler.attributionSource(20)).toMatchObject({
         basis: "IN_MEMORY_RETAINED_WINDOW",
-        truncated: true,
+        truncated: false,
       });
-      expect(memoryScheduler.attributionSource(20).jobs).toHaveLength(10);
+      expect(memoryScheduler.attributionSource(20).jobs).toHaveLength(12);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -1232,7 +1234,7 @@ describe("persistent semantic review scheduler", () => {
       expect(firstScheduler.tick([item], snapshot)).toHaveLength(1);
       expect(firstScheduler.projection()).toMatchObject({
         leasedCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 39 } },
+        storage: { jobs: { durable: true, schemaVersion: 40 } },
       });
       firstStore.close();
 
@@ -1284,8 +1286,8 @@ describe("persistent semantic review scheduler", () => {
           },
         }],
         storage: {
-          jobs: { durable: true, schemaVersion: 39 },
-          notifications: { durable: true, schemaVersion: 39 },
+          jobs: { durable: true, schemaVersion: 40 },
+          notifications: { durable: true, schemaVersion: 40 },
         },
       });
       thirdStore.close();
@@ -1404,7 +1406,7 @@ describe("persistent semantic review scheduler", () => {
       expect(first.projection()).toMatchObject({
         researchOnlyCount: 1,
         dueCount: 0,
-        storage: { jobs: { durable: true, schemaVersion: 39 } },
+        storage: { jobs: { durable: true, schemaVersion: 40 } },
       });
       firstStore.close();
 
@@ -1465,7 +1467,7 @@ describe("persistent semantic review scheduler", () => {
         passedCount: 1,
         duplicateScopeCount: 1,
         uniqueReviewScopeCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 39 } },
+        storage: { jobs: { durable: true, schemaVersion: 40 } },
       });
       firstStore.close();
 

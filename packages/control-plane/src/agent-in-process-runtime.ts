@@ -318,6 +318,7 @@ class InProcessAiSdkSession implements AgentRuntimeSession {
       }),
       toolCalls: Object.freeze(domainCalls),
       completed,
+      completionAuthority: "RESULT_TOOL",
       finalArtifact: completed ? completionArtifact(completionCalls[0]!.input) : null,
     });
   }

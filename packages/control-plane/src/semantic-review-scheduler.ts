@@ -59,6 +59,11 @@ const FAILURE_CLASSES = Object.freeze([
   "UNKNOWN",
 ] as const satisfies readonly SemanticReviewFailureClass[]);
 
+function isSemanticReviewTerminalStatus(status: SemanticReviewJobStatus): boolean {
+  return status === "PASS" || status === "EXHAUSTED" ||
+    status === "RESEARCH_ONLY" || status === "DUPLICATE_SCOPE";
+}
+
 export type SemanticReviewJobStatus =
   | "PENDING"
   | "LEASED"
@@ -834,8 +839,11 @@ export class SemanticReviewScheduler {
       throw new Error("semantic review scheduler configuration is invalid or unbounded");
     }
     this.#jobs = [
-      ...(this.#store?.loadSemanticReviewJobRecords(this.#retentionLimit) ?? []),
+      ...(this.#store?.loadSemanticReviewJobRecords(
+        DEFAULT_ATTRIBUTION_JOB_LIMIT + 1,
+      ) ?? []),
     ].map(assertSemanticReviewJobRecord);
+    this.#pruneRetainedJobs();
     this.#notifications = [
       ...(this.#store?.loadSemanticReviewNotificationRecords(this.#retentionLimit) ?? []),
     ].map(assertSemanticReviewNotificationRecord);
@@ -919,10 +927,14 @@ export class SemanticReviewScheduler {
           : item.repairRequest?.requestId === retainedJob.repairRequest.requestId) &&
         (enriched
           ? item.corpusSnapshotIdentity === scopeIdentity &&
-            item.report?.schemaVersion === "pmh.semantic-review-report.v4"
+            (item.report?.schemaVersion === "pmh.semantic-review-report.v4" ||
+              (item.report?.schemaVersion === "pmh.semantic-review-report.v5" &&
+                item.report.input.evidenceClaims !== undefined))
           : (bundledCorpusSnapshotIdentity === null ||
               item.corpusSnapshotIdentity === bundledCorpusSnapshotIdentity) &&
-            item.report?.schemaVersion !== "pmh.semantic-review-report.v4")
+            item.report?.schemaVersion !== "pmh.semantic-review-report.v4" &&
+            !(item.report?.schemaVersion === "pmh.semantic-review-report.v5" &&
+              item.report.input.evidenceClaims !== undefined))
       );
       return review === undefined
         ? []
@@ -1751,16 +1763,26 @@ export class SemanticReviewScheduler {
     const index = this.#jobs.findIndex((item) => item.jobId === stored.jobId);
     if (index >= 0) this.#jobs.splice(index, 1);
     this.#jobs.push(stored);
+    this.#pruneRetainedJobs();
+    this.#attributionCache.clear();
+    return stored;
+  }
+
+  #pruneRetainedJobs(): void {
     this.#jobs.sort((left, right) =>
+      Number(isSemanticReviewTerminalStatus(left.status)) -
+        Number(isSemanticReviewTerminalStatus(right.status)) ||
       right.priority - left.priority || left.createdAt.localeCompare(right.createdAt) ||
       left.jobId.localeCompare(right.jobId)
     );
-    if (this.#jobs.length > this.#retentionLimit) {
-      this.#jobs.length = this.#retentionLimit;
+    const activeCount = this.#jobs.filter((item) =>
+      !isSemanticReviewTerminalStatus(item.status)
+    ).length;
+    const retainedLength = Math.max(this.#retentionLimit, activeCount);
+    if (this.#jobs.length > retainedLength) {
+      this.#jobs.length = retainedLength;
       if (this.#store === undefined) this.#inMemoryHistoryTruncated = true;
     }
-    this.#attributionCache.clear();
-    return stored;
   }
 
   #saveNotification(

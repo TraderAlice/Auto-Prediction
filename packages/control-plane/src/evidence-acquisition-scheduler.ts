@@ -625,6 +625,21 @@ export class EvidenceAcquisitionScheduler {
     return Object.freeze(due.map((job) => this.#dispatch(job)));
   }
 
+  public runJob(
+    jobId: Hash,
+    requirements: readonly EvidenceRequirement[],
+  ): Promise<EvidenceAcquisitionJobRecord> {
+    this.reconcile(requirements);
+    const job = this.#jobs.find((item) => item.jobId === jobId);
+    if (job === undefined) throw new Error("evidence acquisition job was not found");
+    const active = this.#active.get(job.jobId);
+    if (active !== undefined) return active;
+    if (!["PENDING", "RETRY_WAIT", "STALE"].includes(job.status)) {
+      throw new Error(`evidence acquisition job is not runnable from ${job.status}`);
+    }
+    return this.#dispatch(job);
+  }
+
   #dispatch(job: EvidenceAcquisitionJobRecord): Promise<EvidenceAcquisitionJobRecord> {
     if (job.locatorIdentity === null || job.policyIdentity === null) {
       throw new Error("evidence acquisition job has no admitted locator");

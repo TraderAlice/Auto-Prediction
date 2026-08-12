@@ -82,6 +82,29 @@ describe("Rule Evidence first-party Agent tool host", () => {
       input: { start: 0, length: text.length },
     });
     expect(read.status).toBe("ACCEPTED");
+    const oversizedRead = await host.execute({
+      ...base,
+      callId: "oversized-read-call",
+      toolName: "read_evidence_text",
+      input: { start: 0, length: 12_000 },
+    });
+    expect(oversizedRead).toMatchObject({
+      status: "ACCEPTED",
+      output: {
+        start: 0,
+        end: text.length,
+        requestedLength: 12_000,
+        truncated: true,
+        text,
+      },
+    });
+    const invalidRead = await host.execute({
+      ...base,
+      callId: "invalid-read-call",
+      toolName: "read_evidence_text",
+      input: { start: 0, length: 1_000_001 },
+    });
+    expect(invalidRead).toMatchObject({ status: "REJECTED" });
     const passageId = (read.output as { passageId: string }).passageId;
     const submitted = await host.execute({
       ...base,

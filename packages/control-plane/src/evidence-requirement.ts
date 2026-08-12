@@ -738,6 +738,60 @@ export function rebaseEvidenceRequirementsToRetainedLocatorCapabilities(
   }));
 }
 
+export function excludeEvidenceRequirementLocators(
+  requirementInput: EvidenceRequirement,
+  excludedLocatorIdentities: readonly Hash[],
+): EvidenceRequirement {
+  const requirement = assertEvidenceRequirement(requirementInput);
+  if (requirement.acquisitionRoute !== "DOCUMENT_LOCATOR" ||
+      excludedLocatorIdentities.length === 0) return requirement;
+  const excluded = new Set(excludedLocatorIdentities.map((identity) => {
+    if (!HASH_PATTERN.test(identity)) throw new Error("excluded evidence locator identity is invalid");
+    return identity;
+  }));
+  const eligibleLocators = Object.freeze(requirement.eligibleLocators.filter((binding) =>
+    !excluded.has(binding.locator.locatorIdentity)
+  ));
+  if (eligibleLocators.length === requirement.eligibleLocators.length) return requirement;
+  const route = acquisitionRoute(requirement.kind, eligibleLocators.length);
+  const scoped = Object.freeze({
+    kind: requirement.kind,
+    listingRefs: requirement.listingRefs,
+    temporalPosture: requirement.temporalPosture,
+    eligibleLocators,
+    acquisitionRoute: route,
+  });
+  const body = Object.freeze({
+    schemaVersion: "pmh.evidence-requirement.v2" as const,
+    acquisitionScopeIdentity: scopeIdentity(scoped),
+    origin: requirement.origin,
+    proposalId: requirement.proposalId,
+    proposalListingRefs: requirement.schemaVersion === "pmh.evidence-requirement.v2"
+      ? requirement.proposalListingRefs
+      : requirement.listingRefs,
+    kind: requirement.kind,
+    listingRefs: requirement.listingRefs,
+    claim: requirement.claim,
+    reason: requirement.reason,
+    satisfyingObservation: requirement.satisfyingObservation,
+    contradictingObservation: requirement.contradictingObservation,
+    temporalPosture: requirement.temporalPosture,
+    sourceObservations: requirement.sourceObservations,
+    eligibleLocators,
+    acquisitionRoute: route,
+    authority: "EVIDENCE_ACQUISITION_REQUEST_ONLY" as const,
+    fetchAuthority: false as const,
+    providerRequestAuthority: false as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return assertEvidenceRequirement(Object.freeze({
+    ...body,
+    requirementId: hashCanonical(body),
+  }));
+}
+
 export function rebaseEvidenceRequirementToAdmittedLocator(input: Readonly<{
   requirement: EvidenceRequirement;
   venueId: string;

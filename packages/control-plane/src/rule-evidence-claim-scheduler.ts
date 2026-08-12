@@ -45,7 +45,7 @@ export type RuleEvidenceClaimInput = Readonly<{
 }>;
 
 export type RuleEvidenceClaimJobRecord = Readonly<{
-  schemaVersion: "pmh.rule-evidence-claim-job.v1";
+  schemaVersion: "pmh.rule-evidence-claim-job.v1" | "pmh.rule-evidence-claim-job.v2";
   jobId: Hash;
   requirementId: Hash;
   proposalId: Hash;
@@ -227,7 +227,8 @@ export function assertRuleEvidenceClaimJobRecord(
   const { artifactHash, ...body } = record;
   if (
     !exactKeys(record, JOB_KEYS) ||
-    record.schemaVersion !== "pmh.rule-evidence-claim-job.v1" ||
+    !["pmh.rule-evidence-claim-job.v1", "pmh.rule-evidence-claim-job.v2"]
+      .includes(record.schemaVersion) ||
     !HASH_PATTERN.test(String(record.jobId)) ||
     record.jobId !== hashCanonical({
       schemaVersion: "pmh.rule-evidence-interpretation-run.v1",
@@ -258,7 +259,9 @@ export function assertRuleEvidenceClaimJobRecord(
     (record.completedAt !== null && !isIso(record.completedAt)) ||
     (record.status === "PASS" !== (record.lastClaimId !== null)) ||
     (record.lastClaimId !== null && (
-      !HASH_PATTERN.test(String(record.lastClaimId)) || record.lastClaimId !== record.jobId
+      !HASH_PATTERN.test(String(record.lastClaimId)) ||
+      (record.schemaVersion === "pmh.rule-evidence-claim-job.v1" &&
+        record.lastClaimId !== record.jobId)
     )) ||
     (record.status === "PASS" && record.diagnostic !== null) ||
     (record.diagnostic !== null && !boundedText(record.diagnostic, 500)) ||
@@ -350,19 +353,38 @@ export class RuleEvidenceClaimScheduler {
     if (validated.length > this.#retentionLimit) {
       throw new Error("active rule evidence claim inputs exceed the durable retention bound");
     }
-    const completedById = new Map(
-      this.#desk.projection().records
-        .filter((record) => record.status === "PASS")
-        .map((record) => [record.interpretationId, record] as const),
-    );
+    const completedByBusinessLineage = new Map<Hash, RuleEvidenceClaimRecord>();
+    for (const record of this.#desk.projection().records
+      .filter((item) => item.status === "PASS" && item.claim !== null)
+      .sort((left, right) =>
+        String(right.completedAt).localeCompare(String(left.completedAt)) ||
+        right.interpretationId.localeCompare(left.interpretationId)
+      )) {
+      const claim = record.claim!;
+      const lineage = hashCanonical({
+        schemaVersion: "pmh.rule-evidence-business-lineage.v1",
+        requirementId: claim.requirementId,
+        proposalId: claim.proposalId,
+        observationId: claim.observationId,
+        documentId: claim.documentId,
+        extractionId: claim.extractionId,
+        documentRawHash: claim.documentRawHash,
+        extractionTextHash: claim.extractionTextHash,
+      });
+      if (!completedByBusinessLineage.has(lineage)) {
+        completedByBusinessLineage.set(lineage, record);
+      }
+    }
     const newJobs: RuleEvidenceClaimJobRecord[] = [];
     const timestamp = new Date(this.#now()).toISOString();
     for (const [jobId, input] of validated) {
       const existing = existingById.get(jobId);
-      const completed = completedById.get(jobId);
+      const completed = completedByBusinessLineage.get(ruleEvidenceBusinessLineage(input));
       if (existing === undefined) {
         newJobs.push(withHash({
-          schemaVersion: "pmh.rule-evidence-claim-job.v1",
+          schemaVersion: completed === undefined || completed.interpretationId === jobId
+            ? "pmh.rule-evidence-claim-job.v1"
+            : "pmh.rule-evidence-claim-job.v2",
           jobId,
           requirementId: input.requirement.requirementId,
           proposalId: input.requirement.proposalId,
@@ -531,12 +553,15 @@ export class RuleEvidenceClaimScheduler {
     const record = assertRuleEvidenceClaimRecord(recordInput);
     if (
       record.status !== "PASS" || record.claim === null ||
-      record.interpretationId !== job.jobId || record.requirementId !== job.requirementId ||
+      record.requirementId !== job.requirementId ||
       record.documentId !== job.documentId || record.extractionId !== job.extractionId ||
-      record.interpreterIdentity !== job.interpreterIdentity || record.completedAt === null
+      record.completedAt === null
     ) throw new Error("rule evidence claim completion lineage is inconsistent");
     return this.#saveJob(withHash({
       ...withoutHash(job),
+      schemaVersion: record.interpretationId === job.jobId
+        ? job.schemaVersion
+        : "pmh.rule-evidence-claim-job.v2",
       status: "PASS",
       leasedAt: null,
       leaseExpiresAt: null,
@@ -577,7 +602,7 @@ export class RuleEvidenceClaimScheduler {
       job.interpreterIdentity === deskProjection.interpreterIdentity
     );
     const dispositions = currentJobs.flatMap((job) => {
-      const claim = records.get(job.jobId)?.claim;
+      const claim = job.lastClaimId === null ? null : records.get(job.lastClaimId)?.claim;
       return claim === null || claim === undefined ? [] : [claim.disposition];
     });
     const configured = deskProjection.configured;

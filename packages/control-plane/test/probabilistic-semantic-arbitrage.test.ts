@@ -8,6 +8,7 @@ import {
   buildProbabilityCalibrationArtifact,
   buildProbabilityCalibrationObservation,
   buildProbabilitySearchOrigin,
+  buildRelationDiscoveryProbabilitySearchOrigin,
   buildProbabilisticSemanticBound,
   buildSemanticConstraintArtifact,
   compileProbabilisticSemanticArbitrage,
@@ -422,5 +423,65 @@ describe("resolved-outcome probability calibration", () => {
         malformedOriginBody,
       )),
     })).toThrow(/search origin/u);
+  });
+
+  it("carries relation-discovery origin without inventing a legacy semantic family", () => {
+    const issueId = hashCanonical({ issue: "ontology relation neighborhood" });
+    const originBody = Object.freeze({
+      schemaVersion: "pmh.relation-discovery-origin.v1" as const,
+      workItemId: hashCanonical({ work: "trump semantics" }),
+      workArtifactHash: hashCanonical({ artifact: "trump semantics" }),
+      sourceOntologyProposalIds: Object.freeze([hashCanonical({ ontology: "trump" })]),
+      sourceOntologyIssueIds: Object.freeze([issueId]),
+      semanticReviewIssueIds: Object.freeze([issueId]),
+      semanticReviewIssueIdsTruncated: false as const,
+      relationDiscoveryTaskRevisionId: hashCanonical({ revision: "trump" }),
+      relationDiscoveryTaskId: hashCanonical({ task: "trump" }),
+      relationDiscoveryRunId: hashCanonical({ run: "trump" }),
+      relationDiscoveryFindingId: hashCanonical({ finding: "trump" }),
+      sourceCorpusSnapshotIdentity: corpus,
+      sourceSetIdentity: hashCanonical({ sources: "trump" }),
+      recordedAt: "2026-08-02T00:00:00.000Z",
+      authority: "LINEAGE_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    });
+    const relationOrigin = Object.freeze({
+      ...originBody,
+      originId: hashCanonical(originBody),
+    });
+    const probabilityOrigin = buildRelationDiscoveryProbabilitySearchOrigin({
+      origins: [relationOrigin],
+    });
+    const bound = calibrationBound("relation-origin", probabilityOrigin);
+    expect(bound.searchOrigin).toMatchObject({
+      schemaVersion: "pmh.probability-search-origin.v2",
+      issueIds: [issueId],
+      semanticFamilies: [],
+      relationDiscoveryOrigins: [{
+        originId: relationOrigin.originId,
+        relationDiscoveryFindingId: relationOrigin.relationDiscoveryFindingId,
+      }],
+      attributionBasis: "RELATION_DISCOVERY_SEMANTIC_REVIEW",
+    });
+    const resolved = buildProbabilityCalibrationObservation({
+      bound,
+      resolutionEvidence: listingRefs.map((listingRef) => ({
+        listingRef,
+        truthValue: false,
+        resolvedAt: "2026-08-02T08:00:00.000Z",
+        sourceRawHash: hashCanonical({ relationOrigin: listingRef }),
+        protocolIdentity: `resolution:${listingRef}`,
+      })),
+    });
+    const calibration = buildProbabilityCalibrationArtifact({
+      observations: [resolved],
+      createdAt: "2026-08-03T00:00:00.000Z",
+      minimumSampleSize: 2,
+    });
+    expect(calibration.groups).not.toHaveLength(0);
+    expect(calibration.groups.every((group) => group.semanticFamily === null)).toBe(true);
   });
 });

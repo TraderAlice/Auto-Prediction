@@ -1,10 +1,11 @@
 # Ontology proposal to relation-bound work
 
-Status: active mainline construction
+Status: implemented and qualified in PR #101; downstream execution continues
+under [`relation-discovery-execution.md`](relation-discovery-execution.md)
 
 Issue: [#100](https://github.com/luokerenx4/my-little-pony/issues/100)
 
-Branch: `codex/ontology-relation-work`
+Branch: `codex/ontology-relation-work` (merged)
 
 ## Product proposition
 

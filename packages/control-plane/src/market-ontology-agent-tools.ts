@@ -433,6 +433,17 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
 ]);
 
 export class MarketOntologyAgentToolHost implements AgentToolHost {
+  public resultToolNames(toolProtocol: string): readonly string[] {
+    if (toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL) {
+      throw new Error("market ontology tool protocol is unsupported");
+    }
+    return Object.freeze([
+      "propose_entity_alias",
+      "propose_world_proposition",
+      "record_ontology_counterexample",
+    ]);
+  }
+
   readonly #assignedTrailheads: readonly MarketOntologyTrailhead[];
   readonly #nodesByRef: ReadonlyMap<string, MarketOntologyListingNode>;
   readonly #listingsByRef: ReadonlyMap<

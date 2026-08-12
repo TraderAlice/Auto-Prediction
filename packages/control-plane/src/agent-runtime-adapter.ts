@@ -96,6 +96,16 @@ function redactedDiagnostic(value: unknown, fallback: string): string {
   return category === "" || category === "Error" ? fallback : `${fallback}:${category}`;
 }
 
+function boundedToolDiagnostic(value: unknown): string {
+  if (!(value instanceof Error)) return "tool rejected";
+  const message = value.message.trim()
+    .replace(/https?:\/\/\S+/giu, "[url]")
+    .replace(/[A-Za-z0-9_+/=-]{48,}/gu, "[opaque]")
+    .replace(/\s+/gu, " ")
+    .slice(0, 900);
+  return message === "" ? redactedDiagnostic(value, "tool rejected") : message;
+}
+
 export type ResolvedAgentCredential = Readonly<
   | {
       kind: "CODEX_OAUTH";
@@ -486,6 +496,7 @@ export type AgentRuntimeTurn = Readonly<{
   }>;
   toolCalls: readonly AgentRuntimeToolCall[];
   completed: boolean;
+  completionAuthority?: "RESULT_TOOL" | "DIAGNOSTIC_ONLY";
   finalArtifact: unknown | null;
 }>;
 
@@ -553,6 +564,7 @@ export type AgentToolHostContext = Readonly<{
 
 export interface AgentToolHost {
   manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[];
+  resultToolNames?(toolProtocol: string): readonly string[];
   execute(context: AgentToolHostContext): Promise<Readonly<{
     status: "ACCEPTED" | "REJECTED";
     output: unknown;
@@ -676,9 +688,17 @@ export async function executePreparedAgentRun(
         ),
         inputSchema: definition.inputSchema,
       })));
+    const resultToolNames = Object.freeze((input.toolHost.resultToolNames?.(
+      valid.profile.toolPolicy.protocol,
+    ) ?? toolManifest.map((tool) => tool.name))
+      .map((name) => identifier(name, "Agent result tool name")));
     if (new Set(toolManifest.map((definition) => definition.name)).size !== toolManifest.length) {
       throw new Error("Agent tool manifest repeats a tool name");
     }
+    if (
+      new Set(resultToolNames).size !== resultToolNames.length ||
+      resultToolNames.some((name) => !toolManifest.some((tool) => tool.name === name))
+    ) throw new Error("Agent result tool policy is missing or outside the manifest");
     session = await input.adapter.open(Object.freeze({
       run: valid.run,
       task: valid.task,
@@ -795,6 +815,15 @@ export async function executePreparedAgentRun(
         if (turn.finalArtifact === null) {
           return finish("FAILED", "runtime completed without a final artifact", null);
         }
+        if (
+          !valid.profile.toolPolicy.freeTextResultAuthority &&
+          (turn.completionAuthority ?? "RESULT_TOOL") !== "RESULT_TOOL" &&
+          !effects.some((effect) =>
+            effect.status === "ACCEPTED" && resultToolNames.includes(effect.toolName)
+          )
+        ) {
+          return finish("FAILED", "runtime completed without an accepted result effect", null);
+        }
         const finalArtifactHash = hashCanonical(turn.finalArtifact);
         artifacts.push(buildAgentRunArtifact({
           run: valid.run,
@@ -840,7 +869,7 @@ export async function executePreparedAgentRun(
         } catch (error) {
           result = Object.freeze({
             status: "REJECTED" as const,
-            output: Object.freeze({ diagnostic: redactedDiagnostic(error, "tool rejected") }),
+            output: Object.freeze({ diagnostic: boundedToolDiagnostic(error) }),
           });
         }
         const effect = buildAgentToolEffect({
@@ -851,6 +880,11 @@ export async function executePreparedAgentRun(
           status: result.status,
           canonicalInput: call.input,
           canonicalOutput: result.output,
+          diagnostic: result.status === "REJECTED" && result.output !== null &&
+              typeof result.output === "object" &&
+              typeof (result.output as { diagnostic?: unknown }).diagnostic === "string"
+            ? (result.output as { diagnostic: string }).diagnostic
+            : null,
           occurredAt: turn.invocation.completedAt,
         });
         effects.push(effect);

@@ -1,7 +1,8 @@
-import { type Hash } from "@pmh/domain";
+import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   ruleEvidencePassageIdentity,
   validateRuleEvidenceClaimDraft,
+  type RuleEvidenceClaimModelResult,
   type RuleEvidenceClaimModelInput,
 } from "./rule-evidence-claim.js";
 import type {
@@ -11,6 +12,7 @@ import type {
 } from "./agent-runtime-adapter.js";
 
 const MAX_READ_CHARACTERS = 4_000;
+const MAX_REQUESTED_READ_CHARACTERS = 1_000_000;
 const MAX_MATCHES = 5;
 
 const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
@@ -33,7 +35,7 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
       required: ["start", "length"],
       properties: {
         start: { type: "integer", minimum: 0 },
-        length: { type: "integer", minimum: 1, maximum: MAX_READ_CHARACTERS },
+        length: { type: "integer", minimum: 1, maximum: MAX_REQUESTED_READ_CHARACTERS },
       },
     }),
   }),
@@ -70,7 +72,18 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
 type RunState = {
   inspected: Map<Hash, Readonly<{ start: number; end: number }>>;
   inspectionCount: number;
+  searchEffectCount: number;
+  readEffectCount: number;
 };
+
+type RetainRuleEvidenceAgentResult = (
+  context: AgentToolHostContext,
+  source: RuleEvidenceClaimModelInput,
+  result: RuleEvidenceClaimModelResult,
+) => Promise<Readonly<{ claimId: Hash; artifactHash: Hash }>> | Readonly<{
+  claimId: Hash;
+  artifactHash: Hash;
+}>;
 
 function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -79,10 +92,18 @@ function object(value: unknown): Record<string, unknown> | null {
 }
 
 export class RuleEvidenceAgentToolHost implements AgentToolHost {
+  public resultToolNames(toolProtocol: string): readonly string[] {
+    if (toolProtocol !== "RULE_EVIDENCE_TOOLS_V1") {
+      throw new Error("rule evidence tool protocol is unsupported");
+    }
+    return Object.freeze(["submit_rule_evidence_claim"]);
+  }
+
   readonly #runs = new Map<Hash, RunState>();
 
   public constructor(
     private readonly resolveInput: (taskId: Hash) => RuleEvidenceClaimModelInput | null,
+    private readonly retainResult?: RetainRuleEvidenceAgentResult,
   ) {}
 
   public manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[] {
@@ -107,6 +128,8 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
     const state = this.#runs.get(context.run.runId) ?? {
       inspected: new Map<Hash, Readonly<{ start: number; end: number }>>(),
       inspectionCount: 0,
+      searchEffectCount: 0,
+      readEffectCount: 0,
     };
     this.#runs.set(context.run.runId, state);
     const text = source.capture.extraction.text;
@@ -134,6 +157,7 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
           cursor = found + Math.max(1, needle.length);
         }
         state.inspectionCount += 1;
+        state.searchEffectCount += 1;
         return Object.freeze({
           status: "ACCEPTED",
           output: Object.freeze({ query, matches: Object.freeze(matches), truncated: matches.length === MAX_MATCHES }),
@@ -145,10 +169,15 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
         const length = input?.length;
         if (!Number.isSafeInteger(start) || !Number.isSafeInteger(length) ||
             (start as number) < 0 || (start as number) >= text.length ||
-            (length as number) < 1 || (length as number) > MAX_READ_CHARACTERS) {
-          throw new Error("read range is invalid");
+            (length as number) < 1 || (length as number) > MAX_REQUESTED_READ_CHARACTERS) {
+          throw new Error(
+            `read range is invalid: received start=${String(start)}, length=${String(length)}; ` +
+            `valid start is 0..${Math.max(0, text.length - 1)} and valid length is ` +
+            `1..${MAX_REQUESTED_READ_CHARACTERS}`,
+          );
         }
-        const end = Math.min(text.length, (start as number) + (length as number));
+        const returnedLength = Math.min(length as number, MAX_READ_CHARACTERS);
+        const end = Math.min(text.length, (start as number) + returnedLength);
         const passageId = ruleEvidencePassageIdentity(
           source.capture.extraction.record.extractionId,
           start as number,
@@ -156,9 +185,17 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
         );
         state.inspected.set(passageId, Object.freeze({ start: start as number, end }));
         state.inspectionCount += 1;
+        state.readEffectCount += 1;
         return Object.freeze({
           status: "ACCEPTED",
-          output: Object.freeze({ passageId, start, end, text: text.slice(start as number, end) }),
+          output: Object.freeze({
+            passageId,
+            start,
+            end,
+            requestedLength: length,
+            truncated: end < (start as number) + (length as number),
+            text: text.slice(start as number, end),
+          }),
         });
       }
       if (context.toolName === "submit_rule_evidence_claim") {
@@ -183,6 +220,20 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
           citations,
           unresolvedEvidence: input.unresolvedEvidence,
         }, text);
+        const submittedEffectHash = hashCanonical({
+          requirementId: source.requirement.requirementId,
+          documentId: source.capture.document.record.documentId,
+          extractionId: source.capture.extraction.record.extractionId,
+          draft,
+        });
+        const retained = await this.retainResult?.(context, source, Object.freeze({
+          draft,
+          trace: Object.freeze({
+            searchEffectCount: state.searchEffectCount,
+            readEffectCount: state.readEffectCount,
+            submittedEffectHash,
+          }),
+        }));
         this.#runs.delete(context.run.runId);
         return Object.freeze({
           status: "ACCEPTED",
@@ -192,6 +243,9 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
             documentId: source.capture.document.record.documentId,
             extractionId: source.capture.extraction.record.extractionId,
             draft,
+            submittedEffectHash,
+            claimId: retained?.claimId ?? null,
+            claimArtifactHash: retained?.artifactHash ?? null,
             advisoryOnly: true,
             semanticDecisionAuthority: false,
             certificateAuthority: false,

@@ -152,6 +152,57 @@ function interpreter(
 }
 
 describe("durable rule evidence claim scheduler", () => {
+  it("closes a provider-shaped evidence job with a durable Agent-runtime claim", async () => {
+    const time = clock();
+    const source = requirement("agent-runtime-completion");
+    const capture = await captureFor(source, time.now);
+    const desk = new RuleEvidenceClaimDesk(
+      interpreter(capture),
+      "deepseek-v4-flash",
+      20,
+      undefined,
+      1,
+      time.now,
+    );
+    const scheduler = new RuleEvidenceClaimScheduler({ desk, now: time.now });
+    scheduler.reconcile([{ requirement: source, capture }]);
+    const pending = scheduler.projection().jobs[0]!;
+    const result = await interpreter(capture).interpret({ requirement: source, capture });
+    time.advance(1_000);
+    const record = desk.retainAgentResult({
+      requirement: source,
+      capture,
+      engine: {
+        provider: "DEEPSEEK",
+        transport: "AGENT_RUNTIME",
+        model: "deepseek-v4-flash",
+        reasoningEffort: null,
+        responseStorage: false,
+      },
+      startedAt: "2026-08-02T09:00:00.000Z",
+      completedAt: "2026-08-02T09:00:01.000Z",
+      result,
+    });
+    scheduler.reconcile([{ requirement: source, capture }]);
+
+    expect(record.claim).toMatchObject({
+      interpreter: { transport: "AGENT_RUNTIME" },
+      disposition: "SUPPORTS",
+    });
+    expect(record.interpretationId).not.toBe(pending.jobId);
+    expect(scheduler.projection()).toMatchObject({
+      pendingCount: 0,
+      passedCount: 1,
+      supportedCount: 1,
+      jobs: [{
+        schemaVersion: "pmh.rule-evidence-claim-job.v2",
+        jobId: pending.jobId,
+        status: "PASS",
+        lastClaimId: record.interpretationId,
+      }],
+    });
+  });
+
   it("keeps the same newest-job retention window in memory and SQLite", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-rule-claim-window-"));
     const path = join(directory, "operations.sqlite");

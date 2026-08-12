@@ -323,6 +323,7 @@ function successfulTurn(
     }),
     toolCalls: action.kind === "tool_call" ? action.calls : Object.freeze([]),
     completed: action.kind === "complete",
+    completionAuthority: "RESULT_TOOL",
     finalArtifact: action.kind === "complete" ? action.artifact : null,
   });
 }

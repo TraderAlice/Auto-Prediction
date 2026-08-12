@@ -1,13 +1,22 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { hashCanonical } from "@pmh/domain";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   assertMarketOntologyAgentProposal,
   assertOntologyRelationWorkItem,
   buildAgentRun,
   buildDefaultAgentRuntimePortfolio,
+  buildExecutionProfile,
+  compileRelationDiscoveryFindingForSemanticReview,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildOntologyRelationWorkProjection,
+  materializeRelationDiscoveryTaskRevisions,
+  RelationDiscoveryAgentToolHost,
+  selectRelationDiscoveryCampaignTasks,
+  SqliteOperationalStore,
   defaultAiRuntimeConfiguration,
   emptyAgentExecutionSnapshot,
   materializeOntologySearchIssueRevisions,
@@ -17,6 +26,13 @@ import {
 } from "../src/index.js";
 
 const NOW = "2026-08-12T09:00:00.000Z";
+const tempDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirectories.splice(0).map((directory) =>
+    rm(directory, { recursive: true, force: true })
+  ));
+});
 
 function listing(listingRef: string, title: string): DiscoveryCatalogListing {
   const venueId = listingRef.split(":")[0]!;
@@ -189,7 +205,7 @@ function fixture() {
     tasks: Object.freeze([revision.task]),
     runs: Object.freeze([run]),
   });
-  return { revisions, proposals, execution };
+  return { corpus, revisions, proposals, execution, portfolio };
 }
 
 describe("ontology proposal relation work", () => {
@@ -327,5 +343,244 @@ describe("ontology proposal relation work", () => {
     expect(negative.items[0]!.searchSignals).toEqual(expect.arrayContaining([
       "LAFC", "Club Brugge", "MLS Cup", "Champions League",
     ]));
+  });
+
+  it("materializes corpus-bound tasks and accepts only inspected policy-bound findings", async () => {
+    const work = fixture();
+    const relationWork = buildOntologyRelationWorkProjection(work);
+    const revisions = materializeRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: work.corpus,
+    });
+    expect(revisions).toHaveLength(2);
+    expect(revisions.every((item) => item.task.kind === "RELATION_DISCOVERY")).toBe(true);
+    expect(revisions.every((item) => item.automaticDispatch === false)).toBe(true);
+
+    const rotatedCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: work.corpus.sourceSetIdentity,
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: [
+        ...work.corpus.listings,
+        listing("venue-c:kelly-crime", "Will Mark Kelly be charged with a federal crime in 2026?"),
+      ],
+    });
+    const rotated = materializeRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: rotatedCorpus,
+    });
+    expect(rotated[0]!.workItemId).toBe(revisions[0]!.workItemId);
+    expect(rotated[0]!.task.taskId).not.toBe(revisions[0]!.task.taskId);
+
+    const revision = revisions[0]!;
+    const ontologyProfile = work.execution.executionProfiles.find((item) =>
+      item.toolPolicy.protocol === "MARKET_ONTOLOGY_AGENT_TOOLS_V1"
+    )!;
+    const runtime = work.portfolio.runtimeDefinitions.find((item) =>
+      item.runtimeDefinitionId === ontologyProfile.runtimeDefinitionId
+    )!;
+    const credential = work.portfolio.credentialBindings.find((item) =>
+      item.credentialBindingId === ontologyProfile.credentialBindingId
+    )!;
+    const model = work.portfolio.modelProfiles.find((item) =>
+      item.modelProfileId === ontologyProfile.modelProfileId
+    )!;
+    const profile = buildExecutionProfile({
+      profileKey: "relation-discovery-test",
+      revision: 1,
+      runtimeDefinition: runtime,
+      credentialBinding: credential,
+      modelProfile: model,
+      toolProtocol: "RELATION_DISCOVERY_AGENT_TOOLS_V1",
+      runBudget: {
+        maximumModelInvocations: 8,
+        maximumToolCalls: 24,
+        maximumWallClockMs: 300_000,
+        maximumInputTokens: "200000",
+        maximumOutputTokens: "20000",
+      },
+      createdAt: NOW,
+    });
+    const run = buildAgentRun({
+      task: revision.task,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:relation-discovery-test",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const beforeAttempt = selectRelationDiscoveryCampaignTasks({
+      revisions: [...revisions, ...rotated],
+      execution: Object.freeze({
+        ...work.execution,
+        tasks: Object.freeze([
+          ...work.execution.tasks,
+          ...revisions.map((item) => item.task),
+          ...rotated.map((item) => item.task),
+        ]),
+      }),
+    });
+    expect(beforeAttempt).toHaveLength(1);
+    expect(beforeAttempt[0]!.workItemId).toBe(revision.workItemId);
+    const afterAttempt = selectRelationDiscoveryCampaignTasks({
+      revisions: [...revisions, ...rotated],
+      execution: Object.freeze({
+        ...work.execution,
+        tasks: Object.freeze([
+          ...work.execution.tasks,
+          ...revisions.map((item) => item.task),
+          ...rotated.map((item) => item.task),
+        ]),
+        runs: Object.freeze([...work.execution.runs, run]),
+      }),
+    });
+    expect(afterAttempt).toHaveLength(1);
+    expect(afterAttempt[0]!.workItemId).not.toBe(revision.workItemId);
+    const directory = await mkdtemp(join(tmpdir(), "pmh-relation-discovery-"));
+    tempDirectories.push(directory);
+    const path = join(directory, "control-plane.sqlite");
+    const store = new SqliteOperationalStore(path);
+    store.saveAgentExecutionBatch({
+      runtimeDefinitions: [runtime],
+      credentialBindings: [credential],
+      modelProfiles: [model],
+      executionProfiles: [profile],
+      tasks: [revision.task],
+      runs: [run],
+    });
+    store.saveRelationDiscoveryCorpus(work.corpus);
+    store.saveRelationDiscoveryTaskRevisions([revision]);
+    const host = new RelationDiscoveryAgentToolHost(
+      revision.taskPayload,
+      work.corpus,
+      store,
+    );
+    const refs = work.corpus.listings.slice(0, 2).map((item) => item.listingRef);
+    const context = (toolName: string, input: unknown) => ({
+      run,
+      task: revision.task,
+      executionProfile: profile,
+      callId: `call-${toolName}`,
+      toolName,
+      input,
+    });
+    const hypothesis = {
+      relationKind: revision.taskPayload.workItem.candidateRelationKinds[0]!,
+      listingRefs: refs,
+      statement: "The inspected listings may encode the same settlement proposition.",
+      rationale: "Titles align, but independent rules review remains necessary.",
+      falsifiers: ["The contracts use different resolution criteria."],
+    };
+    await expect(host.execute(context("record_relation_hypothesis", hypothesis)))
+      .rejects.toThrow("inspected first");
+    await host.execute(context("inspect_market_listings", { listingRefs: refs }));
+    await expect(host.execute(context("record_relation_hypothesis", {
+      ...hypothesis,
+      relationKind: "EXHAUSTIVE",
+    }))).rejects.toThrow("outside the assigned candidate policy");
+    const first = await host.execute(context("record_relation_hypothesis", hypothesis));
+    const replay = await host.execute(context("record_relation_hypothesis", hypothesis));
+    expect(first).toEqual(replay);
+    const counterexample = {
+      rejectedRelationKind: revision.taskPayload.workItem.candidateRelationKinds[0]!,
+      listingRefs: refs,
+      statement: "The apparent relation may fail under the retained settlement wording.",
+      rationale: "The evidence still needs independent rule review.",
+      falsifiers: ["The exact rules prove the relation under every relevant state."],
+    };
+    await host.execute(context("record_relation_counterexample", counterexample));
+    expect(host.findings()).toHaveLength(2);
+    expect(host.findings()[0]).toMatchObject({
+      workItemId: revision.workItemId,
+      sourceTaskId: revision.task.taskId,
+      sourceAgentRunId: run.runId,
+      sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+      reviewStatus: "UNREVIEWED",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(host.findings()[1]).toMatchObject({
+      kind: "COUNTEREXAMPLE",
+      reviewStatus: "UNREVIEWED",
+      semanticDecisionAuthority: false,
+    });
+    const retained = host.findings();
+    const positive = retained.find((item) => item.kind === "RELATION_HYPOTHESIS")!;
+    if (positive.kind !== "RELATION_HYPOTHESIS") {
+      throw new Error("positive relation finding fixture is missing");
+    }
+    const compilation = compileRelationDiscoveryFindingForSemanticReview({
+      finding: positive,
+      taskRevision: revision,
+      corpus: work.corpus,
+    });
+    expect(compilation).toMatchObject({
+      schemaVersion: "pmh.relation-discovery-proposal-compilation.v1",
+      proposal: {
+        relationKind: hypothesis.relationKind,
+        listingRefs: refs,
+        reviewStatus: "UNREVIEWED",
+        authority: "PROPOSE_ONLY",
+      },
+      origin: {
+        workItemId: revision.workItemId,
+        workArtifactHash: revision.workArtifactHash,
+        relationDiscoveryTaskRevisionId: revision.revisionId,
+        relationDiscoveryTaskId: revision.task.taskId,
+        relationDiscoveryRunId: run.runId,
+        relationDiscoveryFindingId: positive.findingId,
+        sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+        sourceOntologyIssueIds: revision.taskPayload.workItem.sourceIssueIds,
+        semanticReviewIssueIds: revision.taskPayload.workItem.sourceIssueIds,
+        authority: "LINEAGE_ONLY",
+        semanticDecisionAuthority: false,
+        probabilityAuthority: false,
+        certificateAuthority: false,
+        executionAuthority: false,
+      },
+      admission: "SEMANTIC_REVIEW_CANDIDATE",
+      semanticDecisionAuthority: false,
+    });
+    expect(compilation.evidenceBundle.listingRefs).toEqual(refs);
+    expect(compileRelationDiscoveryFindingForSemanticReview({
+      finding: positive,
+      taskRevision: revision,
+      corpus: work.corpus,
+    })).toEqual(compilation);
+    const counter = retained.find((item) => item.kind === "COUNTEREXAMPLE")!;
+    expect(() => compileRelationDiscoveryFindingForSemanticReview({
+      // The compiler must reject this at runtime even when an unsafe caller lies.
+      finding: counter as typeof positive,
+      taskRevision: revision,
+      corpus: work.corpus,
+    })).toThrow("counterexamples cannot enter semantic review automatically");
+    const { findingId: _findingId, ...findingBody } = retained[0]!;
+    const tamperedBody = Object.freeze({
+      ...findingBody,
+      listingEvidenceHashes: Object.freeze([
+        hashCanonical({ substituted: true }),
+        ...findingBody.listingEvidenceHashes.slice(1),
+      ]),
+    });
+    expect(() => store.saveRelationDiscoveryFindings([Object.freeze({
+      ...tamperedBody,
+      findingId: hashCanonical(tamperedBody),
+    })])).toThrow("listing evidence hash is inconsistent");
+    store.close();
+    const reopened = new SqliteOperationalStore(path);
+    expect(reopened.loadRelationDiscoveryCorpus(work.corpus.snapshotIdentity)).toEqual(work.corpus);
+    expect(reopened.loadRelationDiscoveryTaskRevisions(10)).toEqual([revision]);
+    expect(reopened.loadRelationDiscoveryFindings(10)).toEqual(
+      expect.arrayContaining(retained),
+    );
+    expect(reopened.loadRelationDiscoveryFindings(10)).toHaveLength(2);
+    reopened.close();
   });
 });

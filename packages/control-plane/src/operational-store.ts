@@ -227,8 +227,19 @@ import {
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
 } from "./ontology-search-ecology.js";
+import {
+  assertRelationDiscoveryFinding,
+  verifyRelationDiscoveryFindingEvidence,
+  type RelationDiscoveryFinding,
+  type RelationDiscoveryFindingStore,
+} from "./relation-discovery-agent-tools.js";
+import {
+  assertRelationDiscoveryTaskRevision,
+  type RelationDiscoveryTaskRevision,
+  type RelationDiscoveryTaskRevisionStore,
+} from "./relation-discovery-work.js";
 
-const SCHEMA_VERSION = 39;
+const SCHEMA_VERSION = 40;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1712,6 +1723,66 @@ function parseOntologySearchIssueRevision(value: unknown): OntologySearchIssueRe
   return revision;
 }
 
+function parseRelationDiscoveryTaskRevision(value: unknown): RelationDiscoveryTaskRevision {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite relation discovery task revision row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.revision_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite relation discovery task revision row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite relation discovery task revision contains invalid JSON");
+  }
+  const revision = assertRelationDiscoveryTaskRevision(decoded);
+  if (revision.revisionId !== row.revision_id || hashCanonical(revision) !== row.record_hash) {
+    throw new Error("SQLite relation discovery task revision identity mismatch");
+  }
+  return revision;
+}
+
+function parseRelationDiscoveryCorpus(value: unknown): MarketCorpusSnapshot {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite relation discovery corpus row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.snapshot_identity !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite relation discovery corpus row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite relation discovery corpus contains invalid JSON");
+  }
+  const corpus = assertMarketCorpusSnapshot(decoded);
+  if (corpus.snapshotIdentity !== row.snapshot_identity || hashCanonical(corpus) !== row.record_hash) {
+    throw new Error("SQLite relation discovery corpus identity mismatch");
+  }
+  return corpus;
+}
+
+function parseRelationDiscoveryFinding(value: unknown): RelationDiscoveryFinding {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite relation discovery finding row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.finding_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite relation discovery finding row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite relation discovery finding contains invalid JSON");
+  }
+  const finding = assertRelationDiscoveryFinding(decoded);
+  if (finding.findingId !== row.finding_id || hashCanonical(finding) !== row.record_hash) {
+    throw new Error("SQLite relation discovery finding identity mismatch");
+  }
+  return finding;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -1768,7 +1839,9 @@ export class SqliteOperationalStore
     ProbabilityCalibrationStore,
     ProbabilityResolutionCaptureStore,
     MarketOntologyAgentProposalStore,
-    OntologySearchIssueRevisionStore
+    OntologySearchIssueRevisionStore,
+    RelationDiscoveryTaskRevisionStore,
+    RelationDiscoveryFindingStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -1829,6 +1902,12 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"proposalId">;
   public readonly ontologySearchIssueRevisionStorage:
     OperationalStorageProjection<"revisionId">;
+  public readonly relationDiscoveryTaskRevisionStorage:
+    OperationalStorageProjection<"revisionId">;
+  public readonly relationDiscoveryCorpusStorage:
+    OperationalStorageProjection<"snapshotIdentity">;
+  public readonly relationDiscoveryFindingStorage:
+    OperationalStorageProjection<"findingId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -2042,6 +2121,24 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "revisionId",
+    });
+    this.relationDiscoveryTaskRevisionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "revisionId",
+    });
+    this.relationDiscoveryCorpusStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "snapshotIdentity",
+    });
+    this.relationDiscoveryFindingStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "findingId",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2370,6 +2467,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'ontology_search_issue_revisions'`,
       )
       .get() !== undefined;
+    const relationDiscoveryTaskRevisionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'relation_discovery_task_revisions'`,
+      )
+      .get() !== undefined;
+    const relationDiscoveryCorpusTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'relation_discovery_corpora'`,
+      )
+      .get() !== undefined;
+    const relationDiscoveryFindingTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'relation_discovery_findings'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -2406,6 +2521,9 @@ export class SqliteOperationalStore
       && executionCapabilityObservationTableExists
       && marketOntologyAgentProposalTableExists
       && ontologySearchIssueRevisionTableExists
+      && relationDiscoveryTaskRevisionTableExists
+      && relationDiscoveryCorpusTableExists
+      && relationDiscoveryFindingTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -3921,6 +4039,90 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS ontology_search_issue_revisions_campaign
             ON ontology_search_issue_revisions (
               campaign_eligible, materialized_at DESC, revision_id DESC
+            );
+        `);
+      }
+      if (current < 40 || !relationDiscoveryCorpusTableExists ||
+          !relationDiscoveryTaskRevisionTableExists ||
+          !relationDiscoveryFindingTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS relation_discovery_corpora (
+            snapshot_identity TEXT PRIMARY KEY NOT NULL CHECK (
+              length(snapshot_identity) = 71 AND snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_set_identity TEXT NOT NULL CHECK (
+              length(source_set_identity) = 71 AND source_set_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_count INTEGER NOT NULL CHECK (listing_count >= 0),
+            retained_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS relation_discovery_corpora_retained
+            ON relation_discovery_corpora (retained_at DESC, snapshot_identity DESC);
+          CREATE TABLE IF NOT EXISTS relation_discovery_task_revisions (
+            revision_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(revision_id) = 71 AND revision_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            work_item_id TEXT NOT NULL CHECK (
+              length(work_item_id) = 71 AND work_item_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            work_artifact_hash TEXT NOT NULL CHECK (
+              length(work_artifact_hash) = 71 AND work_artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_corpus_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_corpus_snapshot_identity) = 71 AND
+              source_corpus_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            task_id TEXT NOT NULL,
+            materialized_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (task_id) REFERENCES agent_tasks(task_id),
+            FOREIGN KEY (source_corpus_snapshot_identity)
+              REFERENCES relation_discovery_corpora(snapshot_identity)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS relation_discovery_task_revisions_work
+            ON relation_discovery_task_revisions (
+              work_item_id, materialized_at DESC, revision_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS relation_discovery_task_revisions_task
+            ON relation_discovery_task_revisions (task_id, revision_id);
+          CREATE TABLE IF NOT EXISTS relation_discovery_findings (
+            finding_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(finding_id) = 71 AND finding_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            work_item_id TEXT NOT NULL CHECK (
+              length(work_item_id) = 71 AND work_item_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_task_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            source_corpus_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_corpus_snapshot_identity) = 71 AND
+              source_corpus_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            finding_kind TEXT NOT NULL CHECK (
+              finding_kind IN ('RELATION_HYPOTHESIS', 'COUNTEREXAMPLE')
+            ),
+            recorded_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (source_task_id) REFERENCES agent_tasks(task_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS relation_discovery_findings_work
+            ON relation_discovery_findings (
+              work_item_id, recorded_at DESC, finding_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS relation_discovery_findings_run
+            ON relation_discovery_findings (
+              source_agent_run_id, recorded_at, finding_id
             );
         `);
       }
@@ -6831,7 +7033,15 @@ export class SqliteOperationalStore
       .prepare(
         `SELECT job_id, record_json, record_hash
          FROM semantic_review_jobs
-         ORDER BY priority DESC, next_attempt_at, job_id
+         ORDER BY
+           CASE status
+             WHEN 'PENDING' THEN 0
+             WHEN 'LEASED' THEN 0
+             WHEN 'RETRY_WAIT' THEN 0
+             WHEN 'BLOCKED_EVIDENCE' THEN 0
+             ELSE 1
+           END,
+           priority DESC, next_attempt_at, job_id
          LIMIT ?`,
       )
       .all(limit);
@@ -7966,6 +8176,206 @@ export class SqliteOperationalStore
       });
       this.#database.exec("COMMIT");
       return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadRelationDiscoveryTaskRevisions(
+    limit: number,
+  ): readonly RelationDiscoveryTaskRevision[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT revision_id, record_json, record_hash
+       FROM relation_discovery_task_revisions
+       ORDER BY materialized_at DESC, revision_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseRelationDiscoveryTaskRevision));
+  }
+
+  public loadRelationDiscoveryCorpus(snapshotIdentity: Hash): MarketCorpusSnapshot | null {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      `SELECT snapshot_identity, record_json, record_hash
+       FROM relation_discovery_corpora WHERE snapshot_identity = ?`,
+    ).get(snapshotIdentity);
+    return row === undefined ? null : parseRelationDiscoveryCorpus(row);
+  }
+
+  public saveRelationDiscoveryCorpus(corpusInput: MarketCorpusSnapshot): MarketCorpusSnapshot {
+    this.#assertOpen();
+    const corpus = assertMarketCorpusSnapshot(corpusInput);
+    const recordJson = canonicalJson(corpus);
+    const recordHash = hashCanonical(corpus);
+    const retainedAt = [...corpus.listings]
+      .map((item) => item.sourceReceivedAt)
+      .sort()
+      .at(-1) ?? "1970-01-01T00:00:00.000Z";
+    this.#database.prepare(
+      `INSERT INTO relation_discovery_corpora (
+         snapshot_identity, source_set_identity, listing_count, retained_at,
+         record_json, record_hash
+       ) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(snapshot_identity) DO NOTHING`,
+    ).run(
+      corpus.snapshotIdentity,
+      corpus.sourceSetIdentity,
+      corpus.listingCount,
+      retainedAt,
+      recordJson,
+      recordHash,
+    );
+    const row = this.#database.prepare(
+      `SELECT snapshot_identity, record_json, record_hash
+       FROM relation_discovery_corpora WHERE snapshot_identity = ?`,
+    ).get(corpus.snapshotIdentity);
+    const stored = parseRelationDiscoveryCorpus(row);
+    if (hashCanonical(stored) !== recordHash) {
+      throw new Error("snapshotIdentity is already bound to another relation discovery corpus");
+    }
+    return stored;
+  }
+
+  public saveRelationDiscoveryTaskRevisions(
+    revisionsInput: readonly RelationDiscoveryTaskRevision[],
+  ): readonly RelationDiscoveryTaskRevision[] {
+    this.#assertOpen();
+    const revisions = Object.freeze(revisionsInput.map(assertRelationDiscoveryTaskRevision));
+    if (new Set(revisions.map((item) => item.revisionId)).size !== revisions.length) {
+      throw new Error("relation discovery task revision batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const revision of revisions) {
+        if (this.#database.prepare(
+          "SELECT task_id FROM agent_tasks WHERE task_id = ?",
+        ).get(revision.task.taskId) === undefined) {
+          throw new Error("relation discovery task revision references an unavailable task");
+        }
+        const recordJson = canonicalJson(revision);
+        const recordHash = hashCanonical(revision);
+        this.#database.prepare(
+          `INSERT INTO relation_discovery_task_revisions (
+             revision_id, work_item_id, work_artifact_hash,
+             source_corpus_snapshot_identity, task_id, materialized_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(revision_id) DO NOTHING`,
+        ).run(
+          revision.revisionId,
+          revision.workItemId,
+          revision.workArtifactHash,
+          revision.sourceCorpusSnapshotIdentity,
+          revision.task.taskId,
+          revision.materializedAt,
+          recordJson,
+          recordHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT revision_id, record_json, record_hash
+           FROM relation_discovery_task_revisions WHERE revision_id = ?`,
+        ).get(revision.revisionId);
+        const stored = parseRelationDiscoveryTaskRevision(row);
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("revisionId is already bound to another relation discovery task");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return revisions;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadRelationDiscoveryFindings(limit: number): readonly RelationDiscoveryFinding[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT finding_id, record_json, record_hash
+       FROM relation_discovery_findings
+       ORDER BY recorded_at DESC, finding_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map((row) => {
+      const finding = parseRelationDiscoveryFinding(row);
+      const corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
+      if (corpus === null) {
+        throw new Error("SQLite relation discovery finding lost its retained corpus");
+      }
+      return verifyRelationDiscoveryFindingEvidence(finding, corpus);
+    }));
+  }
+
+  public saveRelationDiscoveryFindings(
+    findingsInput: readonly RelationDiscoveryFinding[],
+  ): readonly RelationDiscoveryFinding[] {
+    this.#assertOpen();
+    const findings = Object.freeze(findingsInput.map((input) => {
+      const finding = assertRelationDiscoveryFinding(input);
+      const corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
+      if (corpus === null) {
+        throw new Error("relation discovery finding references an unavailable corpus");
+      }
+      return verifyRelationDiscoveryFindingEvidence(finding, corpus);
+    }));
+    if (new Set(findings.map((item) => item.findingId)).size !== findings.length) {
+      throw new Error("relation discovery finding batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const finding of findings) {
+        const lineage = this.#database.prepare(
+          `SELECT revision_id FROM relation_discovery_task_revisions
+           WHERE task_id = ? AND work_item_id = ? AND work_artifact_hash = ?
+             AND source_corpus_snapshot_identity = ?
+           LIMIT 1`,
+        ).get(
+          finding.sourceTaskId,
+          finding.workItemId,
+          finding.workArtifactHash,
+          finding.sourceCorpusSnapshotIdentity,
+        );
+        const run = this.#database.prepare(
+          `SELECT run_id FROM agent_runs WHERE run_id = ? AND task_id = ?`,
+        ).get(finding.sourceAgentRunId, finding.sourceTaskId);
+        if (lineage === undefined || run === undefined) {
+          throw new Error("relation discovery finding references unavailable immutable lineage");
+        }
+        const recordJson = canonicalJson(finding);
+        const recordHash = hashCanonical(finding);
+        this.#database.prepare(
+          `INSERT INTO relation_discovery_findings (
+             finding_id, work_item_id, source_task_id, source_agent_run_id,
+             source_corpus_snapshot_identity, finding_kind, recorded_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(finding_id) DO NOTHING`,
+        ).run(
+          finding.findingId,
+          finding.workItemId,
+          finding.sourceTaskId,
+          finding.sourceAgentRunId,
+          finding.sourceCorpusSnapshotIdentity,
+          finding.kind,
+          finding.recordedAt,
+          recordJson,
+          recordHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT finding_id, record_json, record_hash
+           FROM relation_discovery_findings WHERE finding_id = ?`,
+        ).get(finding.findingId);
+        const stored = parseRelationDiscoveryFinding(row);
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("findingId is already bound to another relation discovery finding");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return findings;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

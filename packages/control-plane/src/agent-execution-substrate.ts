@@ -38,6 +38,7 @@ export const AGENT_TASK_KINDS = Object.freeze([
   "RULE_EVIDENCE_CLAIM",
   "PI_INVESTIGATION",
   "ONTOLOGY_NORMALIZATION",
+  "RELATION_DISCOVERY",
 ] as const);
 
 export type AgentRuntimeKind = (typeof AGENT_RUNTIME_KINDS)[number];
@@ -266,8 +267,7 @@ export type ModelInvocation = Readonly<
     })
 >;
 
-export type AgentToolEffect = Readonly<{
-  schemaVersion: "pmh.agent-tool-effect.v1";
+type AgentToolEffectFields = Readonly<{
   effectId: Hash;
   runId: Hash;
   ordinal: number;
@@ -282,6 +282,16 @@ export type AgentToolEffect = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+
+export type AgentToolEffect = Readonly<
+  | (AgentToolEffectFields & {
+      schemaVersion: "pmh.agent-tool-effect.v1";
+    })
+  | (AgentToolEffectFields & {
+      schemaVersion: "pmh.agent-tool-effect.v2";
+      diagnostic: string | null;
+    })
+>;
 
 export type AgentRunArtifact = Readonly<{
   schemaVersion: "pmh.agent-run-artifact.v1";
@@ -1472,13 +1482,23 @@ export function assertAgentToolEffect(value: unknown): AgentToolEffect {
     throw new Error("Agent tool effect is malformed");
   }
   const record = value as AgentToolEffect;
-  if (
-    !exactKeys(record, [
+  const keys = [
       "schemaVersion", "effectId", "runId", "ordinal", "toolProtocol", "toolName",
       "status", "canonicalInputHash", "canonicalOutputHash", "occurredAt",
       "semanticDecisionAuthority", "certificateAuthority", "externalWriteAuthority",
       "valueMovingAuthority",
-    ]) || record.schemaVersion !== "pmh.agent-tool-effect.v1" ||
+    ];
+  if (
+    !["pmh.agent-tool-effect.v1", "pmh.agent-tool-effect.v2"].includes(record.schemaVersion) ||
+    !exactKeys(record, record.schemaVersion === "pmh.agent-tool-effect.v2"
+      ? [...keys, "diagnostic"]
+      : keys) ||
+    (record.schemaVersion === "pmh.agent-tool-effect.v2" &&
+      (record.diagnostic === undefined || (record.diagnostic !== null &&
+        boundedText(record.diagnostic, "Agent tool effect diagnostic", 1_000) !==
+          record.diagnostic))) ||
+    (record.schemaVersion === "pmh.agent-tool-effect.v2" &&
+      (record.status === "REJECTED") !== (record.diagnostic !== null)) ||
     !["ACCEPTED", "REJECTED"].includes(record.status) ||
     [record.semanticDecisionAuthority, record.certificateAuthority,
       record.externalWriteAuthority, record.valueMovingAuthority].some((item) => item !== false)
@@ -1504,6 +1524,7 @@ export function buildAgentToolEffect(input: Readonly<{
   status: AgentToolEffect["status"];
   canonicalInput: unknown;
   canonicalOutput: unknown;
+  diagnostic?: string | null;
   occurredAt: string;
 }>): AgentToolEffect {
   const run = assertAgentRun(input.run);
@@ -1513,8 +1534,7 @@ export function buildAgentToolEffect(input: Readonly<{
     toolProtocol: identifier(input.toolProtocol, "Agent tool protocol"),
     canonicalInputHash: hashCanonical(input.canonicalInput),
   });
-  return assertAgentToolEffect(Object.freeze({
-    schemaVersion: "pmh.agent-tool-effect.v1" as const,
+  const common = Object.freeze({
     effectId: hashCanonical(identity),
     ...identity,
     toolName: identifier(input.toolName, "Agent tool name"),
@@ -1525,7 +1545,22 @@ export function buildAgentToolEffect(input: Readonly<{
     certificateAuthority: false as const,
     externalWriteAuthority: false as const,
     valueMovingAuthority: false as const,
-  }));
+  });
+  // Legacy migrations intentionally omit the field and must reproduce their
+  // original v1 bytes. New runtimes always pass a diagnostic slot (null for
+  // accepted effects), giving rejected calls durable, operator-readable cause.
+  return input.diagnostic === undefined
+    ? assertAgentToolEffect(Object.freeze({
+        schemaVersion: "pmh.agent-tool-effect.v1" as const,
+        ...common,
+      }))
+    : assertAgentToolEffect(Object.freeze({
+        schemaVersion: "pmh.agent-tool-effect.v2" as const,
+        ...common,
+        diagnostic: input.status === "REJECTED"
+          ? boundedText(input.diagnostic ?? "tool rejected", "Agent tool effect diagnostic", 1_000)
+          : null,
+      }));
 }
 
 export function assertAgentRunArtifact(value: unknown): AgentRunArtifact {

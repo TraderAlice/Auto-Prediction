@@ -343,7 +343,7 @@ describe("ontology search ecology", () => {
     );
     expect(store.ontologySearchIssueRevisionStorage).toMatchObject({
       durable: false,
-      schemaVersion: 39,
+      schemaVersion: 40,
       idempotencyKey: "revisionId",
     });
     store.close();

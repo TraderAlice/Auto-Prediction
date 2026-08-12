@@ -148,6 +148,7 @@ function fixture(events: readonly CodexAppServerInbound[]) {
         properties: { reason: { type: "string" } },
       },
     })]),
+    resultToolNames: () => Object.freeze(["record_counterexample"]),
     execute: async (context) => Object.freeze({
       status: "ACCEPTED" as const,
       output: Object.freeze({ retained: true, reason: context.input }),
@@ -295,5 +296,83 @@ describe("Codex app-server Agent runtime", () => {
     });
     expect(result.toolEffects).toHaveLength(0);
     expect(work.connection.closed).toBe(true);
+  });
+
+  it("does not treat diagnostic final text as success after a rejected result tool", async () => {
+    const work = fixture([
+      {
+        method: "item/tool/call",
+        id: 202,
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:test",
+          callId: "call:counterexample:rejected",
+          tool: "record_counterexample",
+          arguments: { reason: "Insufficient retained evidence." },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:test",
+          tokenUsage: { last: { inputTokens: 40, outputTokens: 10, reasoningOutputTokens: 4 } },
+        },
+      },
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:test",
+            status: "completed",
+            items: [{ type: "agentMessage", text: "I could not retain the result." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:test",
+          tokenUsage: { last: { inputTokens: 20, outputTokens: 5, reasoningOutputTokens: 2 } },
+        },
+      },
+    ]);
+    const rejectedHost: AgentToolHost = {
+      ...work.toolHost,
+      execute: async () => Object.freeze({
+        status: "REJECTED" as const,
+        output: Object.freeze({
+          diagnostic: "reason must quote the retained source text",
+        }),
+      }),
+    };
+
+    const result = await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: work.adapter,
+      credentialBroker: work.broker,
+      toolHost: rejectedHost,
+    });
+
+    expect(result.run).toMatchObject({
+      status: "FAILED",
+      terminalDiagnostic: "runtime completed without an accepted result effect",
+    });
+    expect(result.toolEffects).toEqual([
+      expect.objectContaining({
+        schemaVersion: "pmh.agent-tool-effect.v2",
+        status: "REJECTED",
+        diagnostic: "reason must quote the retained source text",
+      }),
+    ]);
+    expect(result.runArtifacts).toHaveLength(0);
   });
 });

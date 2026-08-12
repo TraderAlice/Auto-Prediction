@@ -4,6 +4,7 @@ import {
   assertEvidenceRequirement,
   buildDiscoveryEvidenceLocator,
   buildEvidenceRequirements,
+  excludeEvidenceRequirementLocators,
   rebaseEvidenceRequirementToCurrentListings,
   rebaseEvidenceRequirementToRetainedLocatorCapabilities,
   type DiscoveryCatalogListing,
@@ -74,6 +75,33 @@ function draft(
 }
 
 describe("structured evidence requirements", () => {
+  it("removes a reviewed non-novel locator and falls back to source discovery", () => {
+    const current = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW",
+      proposalId,
+      proposalListingRefs,
+      listings,
+      drafts: [{
+        ...draft("RESOLUTION_RULE", [proposalListingRefs[0]!]),
+        temporalPosture: "CURRENT",
+      }],
+    })[0]!;
+    const locatorIdentity = current.eligibleLocators[0]!.locator.locatorIdentity;
+    const routed = excludeEvidenceRequirementLocators(current, [locatorIdentity]);
+
+    expect(routed).toMatchObject({
+      schemaVersion: "pmh.evidence-requirement.v2",
+      proposalId: current.proposalId,
+      kind: current.kind,
+      claim: current.claim,
+      acquisitionRoute: "UNSUPPORTED",
+      eligibleLocators: [],
+      sourceObservations: current.sourceObservations,
+    });
+    expect(routed.requirementId).not.toBe(current.requirementId);
+    expect(excludeEvidenceRequirementLocators(routed, [locatorIdentity])).toBe(routed);
+  });
+
   it("allows contract rules to prove a declared oracle source without changing locator role", () => {
     const contract = listings[0]!;
     const source = buildEvidenceRequirements({

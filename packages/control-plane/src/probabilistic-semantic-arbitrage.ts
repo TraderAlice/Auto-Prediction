@@ -7,6 +7,10 @@ import {
   isSearchSemanticFamily,
   type SearchSemanticFamily,
 } from "./search-semantic-family.js";
+import {
+  assertRelationDiscoveryOrigin,
+  type RelationDiscoveryOrigin,
+} from "./relation-discovery-semantic-bridge.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const UNSIGNED_INTEGER = /^(?:0|[1-9]\d*)$/u;
@@ -41,7 +45,7 @@ export type ProbabilityEstimate = ProbabilityEstimateInput & Readonly<{
   estimateIdentity: Hash;
 }>;
 
-export type ProbabilitySearchOrigin = Readonly<{
+export type LegacyProbabilitySearchOrigin = Readonly<{
   schemaVersion: "pmh.probability-search-origin.v1";
   originIdentity: Hash;
   issueIds: readonly Hash[];
@@ -52,6 +56,23 @@ export type ProbabilitySearchOrigin = Readonly<{
   probabilityCertificateAuthority: false;
   executionAuthority: false;
 }>;
+
+export type RelationDiscoveryProbabilitySearchOrigin = Readonly<{
+  schemaVersion: "pmh.probability-search-origin.v2";
+  originIdentity: Hash;
+  issueIds: readonly Hash[];
+  semanticFamilies: readonly [];
+  relationDiscoveryOrigins: readonly RelationDiscoveryOrigin[];
+  attributionBasis: "RELATION_DISCOVERY_SEMANTIC_REVIEW";
+  authority: "ATTRIBUTION_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityCertificateAuthority: false;
+  executionAuthority: false;
+}>;
+
+export type ProbabilitySearchOrigin =
+  | LegacyProbabilitySearchOrigin
+  | RelationDiscoveryProbabilitySearchOrigin;
 
 export type ProbabilisticSemanticBoundArtifact = Readonly<{
   schemaVersion:
@@ -108,29 +129,78 @@ export function buildProbabilitySearchOrigin(input: Readonly<{
   }));
 }
 
+export function buildRelationDiscoveryProbabilitySearchOrigin(input: Readonly<{
+  origins: readonly RelationDiscoveryOrigin[];
+}>): RelationDiscoveryProbabilitySearchOrigin {
+  const origins = Object.freeze([...new Map(input.origins.map((item) => {
+    const origin = assertRelationDiscoveryOrigin(item);
+    return [origin.originId, origin] as const;
+  })).values()].sort((left, right) => left.originId.localeCompare(right.originId)));
+  const issueIds = Object.freeze([...new Set(origins.flatMap((item) =>
+    item.semanticReviewIssueIds
+  ))].sort());
+  const body = Object.freeze({
+    schemaVersion: "pmh.probability-search-origin.v2" as const,
+    issueIds,
+    semanticFamilies: Object.freeze([]) as readonly [],
+    relationDiscoveryOrigins: origins,
+    attributionBasis: "RELATION_DISCOVERY_SEMANTIC_REVIEW" as const,
+    authority: "ATTRIBUTION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityCertificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return assertProbabilitySearchOrigin(Object.freeze({
+    ...body,
+    originIdentity: hashCanonical(body),
+  })) as RelationDiscoveryProbabilitySearchOrigin;
+}
+
 export function assertProbabilitySearchOrigin(value: unknown): ProbabilitySearchOrigin {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("probability search origin is malformed");
   }
   const origin = value as ProbabilitySearchOrigin;
   const { originIdentity, ...body } = origin;
-  if (
-    origin.schemaVersion !== "pmh.probability-search-origin.v1" ||
+  const commonInvalid =
     !HASH_PATTERN.test(String(originIdentity)) || originIdentity !== hashCanonical(body) ||
     !Array.isArray(origin.issueIds) || origin.issueIds.length < 1 ||
-    origin.issueIds.length > 20 ||
     origin.issueIds.some((item) => !HASH_PATTERN.test(String(item))) ||
     new Set(origin.issueIds).size !== origin.issueIds.length ||
     [...origin.issueIds].sort().join("\n") !== origin.issueIds.join("\n") ||
+    origin.authority !== "ATTRIBUTION_ONLY" ||
+    origin.semanticDecisionAuthority !== false ||
+    origin.probabilityCertificateAuthority !== false || origin.executionAuthority !== false;
+  if (origin.schemaVersion === "pmh.probability-search-origin.v2") {
+    const relationOrigins = Array.isArray(origin.relationDiscoveryOrigins)
+      ? origin.relationDiscoveryOrigins.map(assertRelationDiscoveryOrigin)
+      : [];
+    const expectedIssueIds = [...new Set(relationOrigins.flatMap((item) =>
+      item.semanticReviewIssueIds
+    ))].sort();
+    if (
+      commonInvalid || origin.issueIds.length > 100 ||
+      !Array.isArray(origin.semanticFamilies) || origin.semanticFamilies.length !== 0 ||
+      relationOrigins.length < 1 || relationOrigins.length > 20 ||
+      new Set(relationOrigins.map((item) => item.originId)).size !== relationOrigins.length ||
+      [...relationOrigins].sort((left, right) => left.originId.localeCompare(right.originId))
+        .map((item) => item.originId).join("\n") !==
+        relationOrigins.map((item) => item.originId).join("\n") ||
+      expectedIssueIds.join("\n") !== origin.issueIds.join("\n") ||
+      origin.attributionBasis !== "RELATION_DISCOVERY_SEMANTIC_REVIEW"
+    ) throw new Error("probability search origin violates its relation attribution contract");
+    return origin;
+  }
+  if (
+    origin.schemaVersion !== "pmh.probability-search-origin.v1" ||
+    commonInvalid ||
+    origin.issueIds.length > 20 ||
     !Array.isArray(origin.semanticFamilies) || origin.semanticFamilies.length < 1 ||
     origin.semanticFamilies.length > 5 ||
     origin.semanticFamilies.some((item) => !isSearchSemanticFamily(item)) ||
     new Set(origin.semanticFamilies).size !== origin.semanticFamilies.length ||
     [...origin.semanticFamilies].sort().join("\n") !== origin.semanticFamilies.join("\n") ||
-    origin.attributionBasis !== "SEMANTIC_REVIEW_DURABLE_ISSUES" ||
-    origin.authority !== "ATTRIBUTION_ONLY" ||
-    origin.semanticDecisionAuthority !== false ||
-    origin.probabilityCertificateAuthority !== false || origin.executionAuthority !== false
+    origin.attributionBasis !== "SEMANTIC_REVIEW_DURABLE_ISSUES"
   ) throw new Error("probability search origin violates its attribution contract");
   return origin;
 }

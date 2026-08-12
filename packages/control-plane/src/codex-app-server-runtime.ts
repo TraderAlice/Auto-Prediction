@@ -259,6 +259,7 @@ class CodexAppServerSession implements AgentRuntimeSession {
               invocation,
               toolCalls: Object.freeze([]),
               completed: true,
+              completionAuthority: "DIAGNOSTIC_ONLY",
               finalArtifact: completedArtifact,
             });
           }
@@ -345,6 +346,7 @@ class CodexAppServerSession implements AgentRuntimeSession {
               invocation,
               toolCalls: Object.freeze([]),
               completed: true,
+              completionAuthority: "DIAGNOSTIC_ONLY",
               finalArtifact: completedArtifact,
             });
           }

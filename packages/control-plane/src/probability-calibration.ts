@@ -324,9 +324,12 @@ function calibrationBody(input: Readonly<{
     for (const estimate of observation.bound.estimates) {
       const upper = ppm(estimate.upperPpm, "calibration estimate upper bound");
       const bucket = probabilityBucket(upper);
-      const semanticFamilies = schemaVersion === "pmh.probability-calibration.v1"
+      const attributedFamilies = schemaVersion === "pmh.probability-calibration.v1"
         ? [null] as const
         : observation.searchOrigin?.semanticFamilies ?? [null] as const;
+      const semanticFamilies = attributedFamilies.length === 0
+        ? [null] as const
+        : attributedFamilies;
       for (const semanticFamily of semanticFamilies) {
         const key = [
           estimate.estimator,

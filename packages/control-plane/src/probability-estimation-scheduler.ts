@@ -491,9 +491,12 @@ function caseIdentity(input: Readonly<{
   evidenceContextIdentity?: Hash;
   inputProtocol?: ProbabilityEstimationInputProtocol;
   adverseStateInterpretationArtifactHash?: Hash;
+  relationDiscoveryOriginIdentity?: Hash;
 }>): Hash {
   return hashCanonical({
-    schemaVersion: input.inputProtocol === PROBABILITY_ESTIMATION_INPUT_PROTOCOL
+    schemaVersion: input.relationDiscoveryOriginIdentity !== undefined
+      ? "pmh.probability-estimation-case-id.v6"
+      : input.inputProtocol === PROBABILITY_ESTIMATION_INPUT_PROTOCOL
       ? "pmh.probability-estimation-case-id.v5"
       : input.inputProtocol !== undefined
         ? "pmh.probability-estimation-case-id.v4"
@@ -592,6 +595,9 @@ export function assertProbabilityEstimationJobRecord(
     ...(adverseStateInterpretation === undefined
       ? {}
       : { adverseStateInterpretationArtifactHash: adverseStateInterpretation.artifactHash }),
+    ...(searchOrigin?.schemaVersion === "pmh.probability-search-origin.v2"
+      ? { relationDiscoveryOriginIdentity: searchOrigin.originIdentity }
+      : {}),
   });
   const evidenceByRef = new Map(constraint.ruleEvidence.map((evidence) =>
     [evidence.listingRef, evidence] as const
@@ -920,6 +926,9 @@ export class ProbabilityEstimationScheduler {
               adverseStateInterpretationArtifactHash:
                 adverseStateInterpretation.artifactHash,
             }),
+        ...(candidate.searchOrigin?.schemaVersion === "pmh.probability-search-origin.v2"
+          ? { relationDiscoveryOriginIdentity: candidate.searchOrigin.originIdentity }
+          : {}),
       });
       for (const role of PROBABILITY_ESTIMATOR_ROLES) {
         const id = jobId(caseId, role);
@@ -933,6 +942,12 @@ export class ProbabilityEstimationScheduler {
               (evidenceContext?.contextIdentity ?? null) &&
             (item.adverseStateInterpretation?.artifactHash ?? null) ===
               (adverseStateInterpretation?.artifactHash ?? null) &&
+            (item.searchOrigin?.schemaVersion === "pmh.probability-search-origin.v2"
+              ? item.searchOrigin.originIdentity
+              : null) ===
+              (candidate.searchOrigin?.schemaVersion === "pmh.probability-search-origin.v2"
+                ? candidate.searchOrigin.originIdentity
+                : null) &&
             (item.inputProtocol ?? null) === (evidenceContext === undefined
               ? null
               : PROBABILITY_ESTIMATION_INPUT_PROTOCOL)
