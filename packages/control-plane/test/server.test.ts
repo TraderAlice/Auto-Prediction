@@ -235,6 +235,45 @@ describe("control-plane HTTP surface", () => {
     expect(registry.projection().activeCampaignCount).toBe(0);
   });
 
+  it("serves one authority-free Agent workspace read model", async () => {
+    const { baseUrl } = await listenControlPlane();
+    const response = await fetch(`${baseUrl}/api/v1/agent-workspace`);
+    expect(response.status).toBe(200);
+    const workspace = await response.json() as {
+      schemaVersion: string;
+      execution: { schemaVersion: string; providerRequestsStartedByRead: number };
+      attention: { schemaVersion: string; projectionIdentity: string };
+      targets: { schemaVersion: string; allocationProjectionIdentity: string };
+      decisions: { schemaVersion: string };
+      relationCampaign: { schemaVersion: string };
+      ontologyOutcomes: { schemaVersion: string };
+      providerRequestsStartedByRead: number;
+      modelInvocationsStartedByRead: number;
+      writesStartedByRead: number;
+      externalWriteAuthority: boolean;
+      valueMovingAuthority: boolean;
+    };
+    expect(workspace).toMatchObject({
+      schemaVersion: "pmh.agent-workspace.v1",
+      execution: {
+        schemaVersion: "pmh.agent-execution-console.v1",
+        providerRequestsStartedByRead: 0,
+      },
+      attention: { schemaVersion: "pmh.research-attention-allocation.v1" },
+      targets: { schemaVersion: "pmh.research-action-target-projection.v1" },
+      decisions: { schemaVersion: "pmh.research-decision-outcome-projection.v1" },
+      relationCampaign: { schemaVersion: "pmh.relation-discovery-campaign-preview.v1" },
+      ontologyOutcomes: { schemaVersion: "pmh.ontology-allocation-outcome-projection.v1" },
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      writesStartedByRead: 0,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(workspace.targets.allocationProjectionIdentity)
+      .toBe(workspace.attention.projectionIdentity);
+  });
+
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
     const baseUrl = await listen();
 

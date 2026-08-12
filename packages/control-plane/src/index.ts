@@ -109,6 +109,7 @@ export * from "./semantic-constraint-smoke.js";
 export * from "./semantic-review-admission.js";
 export * from "./semantic-review-scope.js";
 export * from "./semantic-review-scheduler.js";
+export * from "./semantic-review-evidence-index.js";
 export * from "./proposal-decision-dossier.js";
 export * from "./semantic-relation-graph.js";
 export * from "./search-lease-scheduler.js";

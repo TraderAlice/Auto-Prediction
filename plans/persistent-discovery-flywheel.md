@@ -94,6 +94,27 @@ free text is not a result, and a catalog snapshot change alone is not novelty.
   independently cached read models so a growing research ledger cannot starve
   flywheel controls or readiness diagnostics.
 
+The first Phase 4 read boundary is now qualified for Agent Operations. That
+route no longer mounts the global Studio projection provider; it polls startup
+readiness and loads one `pmh.agent-workspace.v1` snapshot. The snapshot shares
+one ontology/relation/attention derivation across execution, allocation,
+targets, decisions, relation-campaign preview and allocation outcomes instead
+of racing six handlers that independently rebuild the research graph. Against
+the retained 1.1 GB SQLite ledger, cold startup reaches the local-read boundary
+in about 16 seconds and the 1.66 MB Agent workspace materializes in 12.76
+seconds with zero provider requests, model invocations or writes. The page is
+usable without ever requesting `/api/v1/projection`.
+
+Live diagnosis also found two recurring-read anti-patterns. Semantic-review
+evidence enrichment performed nested proposal/input/history scans; it now uses
+proposal and requirement indexes, with a 2,000-candidate regression fixture
+completing in 12 ms inside the test suite. A disabled legacy DeepSeek premise
+lane rebuilt the full Rule Evidence task index every five seconds even while
+the selected runtime was Codex/terra and DeepSeek automation was off; the
+authority check now precedes that work. Remaining views still use the global
+projection, so the Phase 4 checkbox remains open until each expensive surface
+has its own bounded read model and cache/invalidation policy.
+
 ## Initial qualification
 
 The first mainline slice implements Phase 1 completely and Phase 2 far enough

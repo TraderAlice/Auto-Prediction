@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { parseWorkspaceRoute, serializeWorkspaceRoute } from "./workspace-route.js";
+import {
+  parseWorkspaceRoute,
+  serializeWorkspaceRoute,
+  workspaceReadModel,
+} from "./workspace-route.js";
 
 const hashes = Array.from({ length: 7 }, (_, index) =>
   `sha256:${String(index).repeat(64)}`
 );
 
 describe("Studio workspace routes", () => {
+  it("boots Agent operations without the monolithic Studio projection", () => {
+    expect(workspaceReadModel("agents")).toBe("VIEW_LOCAL");
+    expect(workspaceReadModel("overview")).toBe("GLOBAL_PROJECTION");
+  });
+
   it("maps stable product route names to internal views", () => {
     expect(parseWorkspaceRoute("?view=findings")).toEqual({
       view: "scouts",

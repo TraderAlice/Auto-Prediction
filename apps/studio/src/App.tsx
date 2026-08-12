@@ -57,8 +57,10 @@ import {
   StudioProjectionProvider,
   resolveReviewIntake,
   useControlPlaneProjection,
+  useControlPlaneReadiness,
   useStudioProjection,
   type ProjectionSyncState,
+  type StartupReadiness,
   type StudioProjection,
 } from "@/data/studio-projection";
 import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
@@ -72,6 +74,7 @@ import { cn } from "@/lib/utils";
 import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
+  workspaceReadModel,
   type WorkspaceView,
 } from "@/lib/workspace-route";
 
@@ -492,6 +495,20 @@ type OntologyAllocationOutcomeProjection = Readonly<{
   writesStartedByRead: 0;
   automaticDispatch: false;
   policyMutationAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+type AgentWorkspace = Readonly<{
+  schemaVersion: "pmh.agent-workspace.v1";
+  execution: AgentExecutionConsole;
+  attention: ResearchAttentionAllocation;
+  relationCampaign: RelationDiscoveryCampaignPreview;
+  targets: ResearchActionTargetProjection;
+  decisions: ResearchDecisionOutcomeProjection;
+  ontologyOutcomes: OntologyAllocationOutcomeProjection;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  writesStartedByRead: 0;
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
@@ -2954,16 +2971,45 @@ function SidebarStatus() {
   );
 }
 
+function LocalAgentSidebarStatus({
+  readiness,
+  diagnostic,
+}: {
+  readiness: StartupReadiness | null;
+  diagnostic: string | null;
+}) {
+  const ready = readiness?.phase === "WAITING_FOR_PROJECTION" ||
+    readiness?.status === "READY";
+  return (
+    <div className="sidebar-status">
+      <span className="sidebar-status-dot" />
+      <div>
+        <strong>{diagnostic === null ? ready ? "Agent desk ready" : "Recovering ledger" : "Desk unavailable"}</strong>
+        <span>{ready
+          ? "Local read model ready"
+          : readiness?.currentReconciliationStep?.replaceAll("_", " ") ??
+            readiness?.phase.replaceAll("_", " ") ?? diagnostic ?? "Connecting"}</span>
+      </div>
+    </div>
+  );
+}
+
 function Sidebar({
   view,
   onViewChange,
   mobileOpen,
   onMobileClose,
+  statusMode = "GLOBAL_PROJECTION",
+  localReadiness = null,
+  localDiagnostic = null,
 }: {
   view: View;
   onViewChange: (view: View) => void;
   mobileOpen: boolean;
   onMobileClose: () => void;
+  statusMode?: "VIEW_LOCAL" | "GLOBAL_PROJECTION";
+  localReadiness?: StartupReadiness | null;
+  localDiagnostic?: string | null;
 }) {
   return (
     <>
@@ -3030,7 +3076,12 @@ function Sidebar({
         </nav>
 
         <div className="sidebar-bottom">
-          <SidebarStatus />
+          {statusMode === "VIEW_LOCAL"
+            ? <LocalAgentSidebarStatus
+                readiness={localReadiness}
+                diagnostic={localDiagnostic}
+              />
+            : <SidebarStatus />}
           <div className="authority-note">
             <CircleOff size={15} />
             <div>
@@ -3310,116 +3361,29 @@ function CapitalSilhouette() {
   );
 }
 
-async function requestAgentExecutionConsole(): Promise<AgentExecutionConsole> {
-  const response = await fetch("/api/v1/agent-execution", {
+async function requestAgentWorkspace(): Promise<AgentWorkspace> {
+  const response = await fetch("/api/v1/agent-workspace", {
     headers: { accept: "application/json" },
   });
-  if (!response.ok) throw new Error(`Agent console returned HTTP ${response.status}`);
-  const result = await response.json() as AgentExecutionConsole;
+  if (!response.ok) throw new Error(`Agent workspace returned HTTP ${response.status}`);
+  const result = await response.json() as AgentWorkspace;
   if (
-    result.schemaVersion !== "pmh.agent-execution-console.v1" ||
-    result.credentialSecretTextRetained !== false ||
+    result.schemaVersion !== "pmh.agent-workspace.v1" ||
+    result.execution.schemaVersion !== "pmh.agent-execution-console.v1" ||
+    result.execution.credentialSecretTextRetained !== false ||
+    result.attention.schemaVersion !== "pmh.research-attention-allocation.v1" ||
+    result.targets.schemaVersion !== "pmh.research-action-target-projection.v1" ||
+    result.decisions.schemaVersion !== "pmh.research-decision-outcome-projection.v1" ||
+    result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
+    result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
+    result.providerRequestsStartedByRead !== 0 ||
+    result.modelInvocationsStartedByRead !== 0 ||
+    result.writesStartedByRead !== 0 ||
     result.externalWriteAuthority !== false ||
     result.valueMovingAuthority !== false
   ) {
-    throw new Error("Agent console crossed its authority boundary");
+    throw new Error("Agent workspace crossed its authority boundary");
   }
-  return result;
-}
-
-async function requestResearchAttentionAllocation(): Promise<ResearchAttentionAllocation> {
-  const response = await fetch("/api/v1/research-attention-allocation", {
-    headers: { accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(`Research attention returned HTTP ${response.status}`);
-  const result = await response.json() as ResearchAttentionAllocation;
-  if (
-    result.schemaVersion !== "pmh.research-attention-allocation.v1" ||
-    result.providerRequestsStartedByRead !== 0 ||
-    result.modelInvocationsStartedByRead !== 0 ||
-    result.campaignsCreatedByRead !== 0 ||
-    result.runsCreatedByRead !== 0 ||
-    result.automaticDispatch !== false ||
-    result.externalWriteAuthority !== false ||
-    result.valueMovingAuthority !== false
-  ) {
-    throw new Error("Research attention crossed its authority boundary");
-  }
-  return result;
-}
-
-async function requestRelationDiscoveryCampaignPreview(): Promise<RelationDiscoveryCampaignPreview> {
-  const response = await fetch("/api/v1/relation-discovery/campaign-preview", {
-    headers: { accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(`Discovery flywheel returned HTTP ${response.status}`);
-  const result = await response.json() as RelationDiscoveryCampaignPreview;
-  if (result.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
-      result.providerRequestsStarted !== 0 || result.modelInvocationsStarted !== 0 ||
-      result.automaticDispatch !== false || result.externalWriteAuthority !== false ||
-      result.valueMovingAuthority !== false) {
-    throw new Error("Discovery flywheel preview crossed its authority boundary");
-  }
-  return result;
-}
-
-async function requestResearchActionTargets(): Promise<ResearchActionTargetProjection> {
-  const response = await fetch("/api/v1/research-action-targets", {
-    headers: { accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(`Research targets returned HTTP ${response.status}`);
-  const result = await response.json() as ResearchActionTargetProjection;
-  if (
-    result.schemaVersion !== "pmh.research-action-target-projection.v1" ||
-    result.providerRequestsStartedByRead !== 0 ||
-    result.modelInvocationsStartedByRead !== 0 ||
-    result.fetchesStartedByRead !== 0 ||
-    result.campaignsCreatedByRead !== 0 ||
-    result.runsCreatedByRead !== 0 ||
-    result.schedulerDispatchesStartedByRead !== 0 ||
-    result.automaticDispatch !== false ||
-    result.externalWriteAuthority !== false ||
-    result.valueMovingAuthority !== false
-  ) {
-    throw new Error("Research targets crossed their authority boundary");
-  }
-  return result;
-}
-
-async function requestResearchDecisionOutcomes(): Promise<ResearchDecisionOutcomeProjection> {
-  const response = await fetch("/api/v1/research-decision-outcomes", {
-    headers: { accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(`Research outcomes returned HTTP ${response.status}`);
-  const result = await response.json() as ResearchDecisionOutcomeProjection;
-  if (
-    result.schemaVersion !== "pmh.research-decision-outcome-projection.v1" ||
-    result.providerRequestsStartedByRead !== 0 ||
-    result.modelInvocationsStartedByRead !== 0 ||
-    result.fetchesStartedByRead !== 0 ||
-    result.campaignsCreatedByRead !== 0 || result.runsCreatedByRead !== 0 ||
-    result.schedulerDispatchesStartedByRead !== 0 || result.writesStartedByRead !== 0 ||
-    result.automaticDispatch !== false || result.externalWriteAuthority !== false ||
-    result.valueMovingAuthority !== false
-  ) throw new Error("Research outcome read crossed its authority boundary");
-  return result;
-}
-
-async function requestOntologyAllocationOutcomes(): Promise<OntologyAllocationOutcomeProjection> {
-  const response = await fetch("/api/v1/market-ontology/allocation-outcomes", {
-    headers: { accept: "application/json" },
-  });
-  if (!response.ok) throw new Error(`Ontology outcomes returned HTTP ${response.status}`);
-  const result = await response.json() as OntologyAllocationOutcomeProjection;
-  if (
-    result.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
-    result.providerRequestsStartedByRead !== 0 ||
-    result.modelInvocationsStartedByRead !== 0 ||
-    result.campaignsCreatedByRead !== 0 || result.runsCreatedByRead !== 0 ||
-    result.writesStartedByRead !== 0 || result.automaticDispatch !== false ||
-    result.policyMutationAuthority !== false || result.externalWriteAuthority !== false ||
-    result.valueMovingAuthority !== false
-  ) throw new Error("Ontology outcome read crossed its authority boundary");
   return result;
 }
 
@@ -3438,14 +3402,13 @@ function AgentOperationsView() {
   const [manualPreview, setManualPreview] = useState<unknown | null>(null);
 
   async function refresh() {
-    const [next, attention, flywheel, targets, outcomes, ontologyOutcomes] = await Promise.all([
-      requestAgentExecutionConsole(),
-      requestResearchAttentionAllocation(),
-      requestRelationDiscoveryCampaignPreview(),
-      requestResearchActionTargets(),
-      requestResearchDecisionOutcomes(),
-      requestOntologyAllocationOutcomes(),
-    ]);
+    const workspace = await requestAgentWorkspace();
+    const next = workspace.execution;
+    const attention = workspace.attention;
+    const flywheel = workspace.relationCampaign;
+    const targets = workspace.targets;
+    const outcomes = workspace.decisions;
+    const ontologyOutcomes = workspace.ontologyOutcomes;
     if (targets.allocationProjectionIdentity !== attention.projectionIdentity) {
       throw new Error("Research target lineage does not match the current attention allocation");
     }
@@ -12138,7 +12101,70 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
   );
 }
 
+function AgentWorkspaceShell() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const { readiness, diagnostic } = useControlPlaneReadiness();
+  const sync: ProjectionSyncState = Object.freeze({
+    status: diagnostic === null ? readiness === null ? "CONNECTING" : "LIVE" : "RECONNECTING",
+    revision: null,
+    lastUpdatedAt: readiness?.completedAt ?? readiness?.phaseStartedAt ?? null,
+    readiness,
+  });
+  const navigate = (view: View): void => {
+    window.location.assign(serializeWorkspaceRoute(view));
+  };
+  useEffect(() => {
+    function handleKeyboard(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+      if (event.key === "Escape") setCommandOpen(false);
+    }
+    window.addEventListener("keydown", handleKeyboard);
+    return () => window.removeEventListener("keydown", handleKeyboard);
+  }, []);
+  return (
+    <div className="app-shell" data-read-model="view-local-agents">
+      <Sidebar
+        view="agents"
+        onViewChange={navigate}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+        statusMode="VIEW_LOCAL"
+        localReadiness={readiness}
+        localDiagnostic={diagnostic}
+      />
+      <div className="workspace">
+        <Topbar
+          view="agents"
+          projectionSync={sync}
+          onMenu={() => setMobileOpen(true)}
+          onCommand={() => setCommandOpen(true)}
+        />
+        <main><AgentOperationsView /></main>
+        <footer>
+          <span><Radar size={13} /> View-local Agent read model</span>
+          <span>No global Studio projection required.</span>
+        </footer>
+      </div>
+      <CommandPalette
+        open={commandOpen}
+        onClose={() => setCommandOpen(false)}
+        onNavigate={navigate}
+      />
+    </div>
+  );
+}
+
 export default function App() {
+  const initialView = parseWorkspaceRoute(window.location.search).view;
+  if (workspaceReadModel(initialView) === "VIEW_LOCAL") return <AgentWorkspaceShell />;
+  return <GlobalProjectionApp />;
+}
+
+function GlobalProjectionApp() {
   const { projection, diagnostic, sync } = useControlPlaneProjection();
   if (projection === null) {
     const readiness = sync.readiness;
