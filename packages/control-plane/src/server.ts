@@ -85,6 +85,8 @@ import {
   type MarketArchaeologistRecordStore,
 } from "./market-archaeologist.js";
 import { selectCurrentSemanticEvidenceBundle } from "./semantic-review-scope.js";
+import { enrichSemanticReviewCandidatesWithRuleEvidence } from
+  "./semantic-review-evidence-index.js";
 import {
   buildMarketCorpusSnapshot,
   projectMarketCorpus,
@@ -2123,61 +2125,20 @@ export function createControlPlane(options?: {
     baseCandidates: readonly SemanticReviewCandidate[] = baseSemanticReviewCandidates(),
   ): readonly SemanticReviewCandidate[] => {
     const records = ruleEvidenceClaimDesk.projection().records;
+    const capturedInputs = ruleEvidenceClaimInputs();
+    const catalogInputs = catalogRuleEvidenceInputs(baseCandidates);
     const inputs = [
-      ...ruleEvidenceClaimInputs(),
-      ...catalogRuleEvidenceInputs(),
+      ...capturedInputs,
+      ...catalogInputs,
     ].map(validateRuleEvidenceTextInput);
     const existingClaims = new Map(semanticReviewScheduler.projection().jobs.map((job) =>
       [job.proposalId, job.evidenceClaims ?? []] as const
     ));
-    const candidates = baseCandidates.map((candidate) => {
-      const proposalInputs = inputs.filter((input) =>
-        input.requirement.proposalId === candidate.proposal.proposalId
-      );
-      const requirementIds = [...new Set(proposalInputs.map((input) =>
-        input.requirement.requirementId
-      ))];
-      const claims = requirementIds.flatMap((requirementId) => {
-        const supplies = proposalInputs.filter((input) =>
-          input.requirement.requirementId === requirementId
-        );
-        const record = records.filter((item) => {
-          if (
-            item.status !== "PASS" || item.claim === null ||
-            item.requirementId !== requirementId
-          ) return false;
-          return supplies.some((input) => input.source.kind === "CATALOG_CONTRACT_TEXT"
-            ? "sourceKind" in item && (
-              item.sourceArtifactId === input.source.sourceArtifactId &&
-              item.textArtifactId === input.source.textArtifactId ||
-              item.claim?.schemaVersion === "pmh.rule-evidence-claim.v4" &&
-              input.semanticContinuity !== null &&
-              item.claim.contractSemanticIdentity ===
-                input.semanticContinuity.contractSemanticIdentity &&
-              item.claim.textHash === input.source.textHash
-            )
-            : !("sourceKind" in item) &&
-              item.documentId === input.source.sourceArtifactId &&
-              item.extractionId === input.source.textArtifactId);
-        }).sort((left, right) =>
-          String(right.completedAt).localeCompare(String(left.completedAt)) ||
-          right.interpretationId.localeCompare(left.interpretationId)
-        )[0];
-        return record?.status === "PASS" && record.claim !== null
-          ? [record.claim]
-          : [];
-      });
-      const completeCurrentSet = requirementIds.length > 0 &&
-        claims.length === requirementIds.length;
-      const retainedClaims = completeCurrentSet
-        ? claims
-        : existingClaims.get(candidate.proposal.proposalId) ?? [];
-      return Object.freeze({
-        ...candidate,
-        ...(retainedClaims.length === 0
-          ? {}
-          : { evidenceClaims: Object.freeze(retainedClaims) }),
-      });
+    const candidates = enrichSemanticReviewCandidatesWithRuleEvidence({
+      candidates: baseCandidates,
+      evidenceInputs: inputs,
+      records,
+      existingClaimsByProposal: existingClaims,
     });
     return applyProposalEconomicPriority(
       candidates,
@@ -2610,11 +2571,12 @@ export function createControlPlane(options?: {
       return job.requirements.map((requirement) => Object.freeze({ requirement, capture }));
     }),
   );
-  const catalogRuleEvidenceInputs = (): readonly RuleEvidenceTextInput[] => {
+  const catalogRuleEvidenceInputs = (
+    baseCandidates: readonly SemanticReviewCandidate[] = baseSemanticReviewCandidates(),
+  ): readonly RuleEvidenceTextInput[] => {
     const currentListings = new Map(catalogObservationDesk.corpus().listings.map(
       (listing) => [listing.listingRef, listing] as const,
     ));
-    const baseCandidates = baseSemanticReviewCandidates();
     const semanticListingsByProposal = new Map(baseCandidates
       .flatMap((candidate) => candidate.evidenceBundle === null
         ? []
@@ -2988,13 +2950,13 @@ export function createControlPlane(options?: {
   };
   const runStartupReconciliationStep = async (
     step: string,
-    action: () => void,
+    action: () => void | Promise<void>,
   ): Promise<void> => {
     currentStartupReconciliationStep = step;
     await new Promise<void>((resolveYield) => setImmediate(resolveYield));
     const startedAtMs = Date.now();
     try {
-      action();
+      await action();
     } finally {
       startupReconciliationTimings.push(Object.freeze({
         step,
@@ -3003,14 +2965,18 @@ export function createControlPlane(options?: {
       currentStartupReconciliationStep = null;
     }
   };
-  const reconcileOntologySearchIssues = (): void => {
+  const reconcileOntologySearchIssues = async (): Promise<void> => {
     if (ontologySearchIssueRevisionStore === null) return;
     const corpus = catalogObservationDesk.corpus();
+    currentStartupReconciliationStep = "RECONCILE_ONTOLOGY_SEARCH_ISSUES:BUILD_ONTOLOGY";
+    await new Promise<void>((resolveYield) => setImmediate(resolveYield));
     const ontology = buildMarketOntologySnapshot(corpus);
     const proposals = marketOntologyAgentProposalStore
       ?.loadMarketOntologyAgentProposals(200) ?? [];
     const retainedRevisions = ontologySearchIssueRevisionStore
       .loadOntologySearchIssueRevisions(512);
+    currentStartupReconciliationStep = "RECONCILE_ONTOLOGY_SEARCH_ISSUES:MATERIALIZE";
+    await new Promise<void>((resolveYield) => setImmediate(resolveYield));
     const reconciliation = reconcileOntologySearchIssueRevisions({
       ontology,
       corpus,
@@ -3025,7 +2991,11 @@ export function createControlPlane(options?: {
     const newTasks = [...new Map(created
       .filter((revision) => !knownTaskIds.has(revision.task.taskId))
       .map((revision) => [revision.task.taskId, revision.task] as const)).values()];
+    currentStartupReconciliationStep = "RECONCILE_ONTOLOGY_SEARCH_ISSUES:PERSIST_TASKS";
+    await new Promise<void>((resolveYield) => setImmediate(resolveYield));
     if (newTasks.length > 0) agentExecutionRegistry.saveBatch({ tasks: newTasks });
+    currentStartupReconciliationStep = "RECONCILE_ONTOLOGY_SEARCH_ISSUES:PERSIST_REVISIONS";
+    await new Promise<void>((resolveYield) => setImmediate(resolveYield));
     if (created.length > 0) {
       ontologySearchIssueRevisionStore.saveOntologySearchIssueRevisions(created);
     }
@@ -3563,7 +3533,9 @@ export function createControlPlane(options?: {
       opportunities,
     });
   };
-  const relationDiscoveryCampaignPreview = async () => {
+  const relationDiscoveryCampaignPreview = async (
+    allocation: ResearchAttentionAllocationProjection = currentResearchActionState().allocation,
+  ) => {
     const snapshot = agentExecutionRegistry.snapshot();
     const route = [...snapshot.workloadRoutes]
       .filter((item) => item.taskKind === "RELATION_DISCOVERY")
@@ -3586,7 +3558,6 @@ export function createControlPlane(options?: {
       throw new Error("Relation discovery credential binding is unavailable");
     }
     const configuration = await agentCredentialBroker.configuration(binding);
-    const allocation = currentResearchActionState().allocation;
     return buildRelationDiscoveryCampaignPreview({
       revisions: relationDiscoveryTaskRevisions,
       execution: snapshot,
@@ -4597,6 +4568,38 @@ export function createControlPlane(options?: {
         readiness,
         { "cache-control": "no-store" },
       );
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/agent-workspace") {
+      await ready;
+      // The Agent workspace is a single bounded read transaction. Its panels
+      // share the expensive ontology/relation/allocation derivation instead of
+      // racing several HTTP handlers that each rebuild the same research graph.
+      const research = currentResearchActionState();
+      const [execution, relationCampaign] = await Promise.all([
+        agentExecutionConsole(),
+        relationDiscoveryCampaignPreview(research.allocation),
+      ]);
+      const decisions = buildResearchDecisionOutcomeProjection({
+        observedAt: research.allocation.observedAt,
+        episodes: loadResearchDecisionEpisodes(),
+        allocation: research.allocation,
+        targets: research.targets,
+      });
+      writeJson(response, 200, Object.freeze({
+        schemaVersion: "pmh.agent-workspace.v1" as const,
+        execution,
+        attention: research.allocation,
+        relationCampaign,
+        targets: research.targets,
+        decisions,
+        ontologyOutcomes: ontologyAllocationOutcomes(),
+        providerRequestsStartedByRead: 0 as const,
+        modelInvocationsStartedByRead: 0 as const,
+        writesStartedByRead: 0 as const,
+        externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+      }));
       return;
     }
     if (
@@ -7638,8 +7641,12 @@ export function createControlPlane(options?: {
   if (premiseAnalysisTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
-        reconcileRuleEvidenceAgentTasks();
+        // This compatibility timer belongs to the legacy DeepSeek automation
+        // lane. When that lane is disabled, Agent campaigns remain the sole
+        // task authority and the timer must not rebuild their durable input
+        // index as a side effect of discovering that it has no model authority.
         if (!aiRuntimeConfigurationDesk.current().deepseekAutomationEnabled) return;
+        reconcileRuleEvidenceAgentTasks();
         try {
           const runs = premiseAnalysisScheduler.tick(premiseAnalysisCandidates());
           if (runs.length === 0) return;
@@ -7710,7 +7717,10 @@ export function createControlPlane(options?: {
   if (officialSourceDiscoveryTickMs !== null) {
     void ready.then(() => {
       const tick = () => {
-        void projection().then(() => {
+        try {
+          // Durable admitted jobs are the scheduler's authority. A timer must
+          // not materialize the monolithic Studio projection merely to discover
+          // work; presentation is neither research state nor spend authority.
           const runs = officialSourceDiscoveryScheduler.tick();
           if (runs.length === 0) return;
           void broadcastProjection();
@@ -7720,7 +7730,9 @@ export function createControlPlane(options?: {
               return broadcastProjection();
             }, () => broadcastProjection());
           }
-        }).catch(() => undefined);
+        } catch {
+          // The next bounded tick retries already-admitted durable source work.
+        }
       };
       tick();
       officialSourceDiscoveryTimer = setInterval(tick, officialSourceDiscoveryTickMs);

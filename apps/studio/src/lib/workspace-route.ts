@@ -39,6 +39,12 @@ export type WorkspaceRoute = Readonly<{
   proposalIds: readonly string[];
 }>;
 
+export function workspaceReadModel(
+  view: WorkspaceView,
+): "VIEW_LOCAL" | "GLOBAL_PROJECTION" {
+  return view === "agents" ? "VIEW_LOCAL" : "GLOBAL_PROJECTION";
+}
+
 function validProposalIds(values: readonly string[]): readonly string[] {
   return Object.freeze([...new Set(values.filter((value) => HASH_PATTERN.test(value)))]
     .slice(0, MAX_FOCUSED_PROPOSALS));

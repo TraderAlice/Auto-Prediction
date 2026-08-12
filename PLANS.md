@@ -1627,6 +1627,18 @@ next view-local read-model problem rather than hidden in the flywheel result.
 
 ## Deferred future campaigns
 
+The first view-local continuation is now live-qualified. Agent Operations no
+longer mounts or requests the monolithic Studio projection. A single bounded
+Agent workspace snapshot shares the expensive ontology, relation and research-
+attention derivation across its panels; the retained 1.1 GB SQLite state loads
+the 1.66 MB workspace in 12.76 seconds with no provider request, model
+invocation or write. Semantic-review evidence joins are indexed instead of
+nested over durable history, and a disabled legacy DeepSeek premise timer no
+longer rebuilds Rule Evidence tasks while Codex/terra is selected. The page is
+visually qualified on port 5175. Phase 4 remains active for the other Studio
+surfaces and for replacing periodic full evidence-demand derivation with
+incremental invalidation.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

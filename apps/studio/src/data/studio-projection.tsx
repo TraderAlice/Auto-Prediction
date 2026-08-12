@@ -46,6 +46,11 @@ export type StartupReadiness = Readonly<{
     completedAt: string;
     durationMs: number;
   }>>;
+  reconciliationTimings?: ReadonlyArray<Readonly<{
+    step: string;
+    durationMs: number;
+  }>>;
+  currentReconciliationStep?: string | null;
   projectionResource: "/api/v1/projection";
   providerRequestsStarted: 0;
   modelInvocationsStarted: 0;
@@ -85,6 +90,43 @@ export function parseStartupReadiness(value: unknown): StartupReadiness {
     candidate.valueMovingAuthority !== false
   ) throw new Error("startup readiness violates its authority contract");
   return candidate;
+}
+
+export function useControlPlaneReadiness(): Readonly<{
+  readiness: StartupReadiness | null;
+  diagnostic: string | null;
+}> {
+  const [readiness, setReadiness] = useState<StartupReadiness | null>(null);
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  useEffect(() => {
+    let closed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async (): Promise<void> => {
+      try {
+        const response = await fetch("/api/v1/readiness", {
+          headers: { accept: "application/json" },
+        });
+        const next = parseStartupReadiness(await response.json());
+        if (closed) return;
+        setReadiness(next);
+        setDiagnostic(next.status === "FAILED"
+          ? next.diagnostic ?? "control-plane startup failed"
+          : null);
+      } catch (error) {
+        if (!closed) setDiagnostic(
+          error instanceof Error ? error.message : "control plane unavailable",
+        );
+      } finally {
+        if (!closed) timer = setTimeout(() => void poll(), 1_000);
+      }
+    };
+    void poll();
+    return () => {
+      closed = true;
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, []);
+  return Object.freeze({ readiness, diagnostic });
 }
 
 type ProjectionInvalidation = Readonly<{
