@@ -134,7 +134,9 @@ import {
 import { buildRelationDiscoveryCampaignPreview } from "./relation-discovery-campaign.js";
 import {
   buildStandingRouteSeedCampaignPreview,
+  materializeStandingRouteSeedCampaignMembership,
   migrateStandingRouteSeedCampaignPolicies,
+  reconcileStandingRouteSeedCampaignMembership,
   resolveRelationDiscoveryTaskRevision,
 } from "./standing-route-seeding-campaign.js";
 import { buildStandingRouteSeedOutcomeProjection } from
@@ -3064,10 +3066,38 @@ export function createControlPlane(options?: {
     invalidateAgentTaskReadiness();
   };
   const migrateStandingRouteSeedCampaigns = (): void => {
-    const campaigns = migrateStandingRouteSeedCampaignPolicies({
-      campaigns: agentExecutionRegistry.snapshot().campaigns,
+    const snapshot = agentExecutionRegistry.snapshot();
+    const migrations = migrateStandingRouteSeedCampaignPolicies({
+      campaigns: snapshot.campaigns,
       observedAt: new Date().toISOString(),
     });
+    if (migrations.length > 0) agentExecutionRegistry.saveBatch({ campaigns: migrations });
+    const current = agentExecutionRegistry.snapshot();
+    const corpus = catalogObservationDesk.corpus();
+    if (corpus.listingCount === 0) return;
+    const materialized = materializeStandingRouteSeedCampaignMembership({
+      revisions: relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
+      corpus,
+      standingRoutes: standingRouteProjection(corpus),
+      execution: current,
+    });
+    const campaigns = reconcileStandingRouteSeedCampaignMembership({
+      execution: current,
+      selectionBinding: materialized.selectionBinding,
+    });
+    if (materialized.taskRevisions.length > 0) {
+      agentExecutionRegistry.saveBatch({
+        tasks: materialized.taskRevisions.map((revision) => revision.task),
+      });
+      relationDiscoveryStore?.saveRelationDiscoveryTaskRevisions(materialized.taskRevisions);
+      relationDiscoveryTaskRevisions = relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisions(512) ?? Object.freeze([
+          ...relationDiscoveryTaskRevisions,
+          ...materialized.taskRevisions,
+        ]);
+      invalidateAgentTaskReadiness();
+    }
     if (campaigns.length > 0) agentExecutionRegistry.saveBatch({ campaigns });
   };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
@@ -3334,9 +3364,11 @@ export function createControlPlane(options?: {
     const execution = agentExecutionRegistry.snapshot();
     const selectedCampaigns = execution.campaigns.filter((campaign): campaign is Extract<
       AgentCampaign,
-      { schemaVersion: "pmh.agent-campaign.v2" | "pmh.agent-campaign.v3" }
+      { schemaVersion: "pmh.agent-campaign.v2" | "pmh.agent-campaign.v3" |
+        "pmh.agent-campaign.v4" }
     > => (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
-      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
       campaign.selectionBinding.selectionProtocol === "ONTOLOGY_ATTENTION_ALLOCATION_V1"
     );
     const selectedCampaignIds = new Set(selectedCampaigns.map((item) => item.campaignId));
@@ -4364,6 +4396,7 @@ export function createControlPlane(options?: {
     if (task?.kind === "RELATION_DISCOVERY") {
       try {
         reconcileRelationDiscoveryTasks();
+        migrateStandingRouteSeedCampaigns();
       } catch {
         // Startup or the next catalog refresh retries durable route reconciliation.
       }
@@ -5535,6 +5568,7 @@ export function createControlPlane(options?: {
           budget: preview.budget,
           selectionBinding: preview.selectionBinding,
           taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+          evolvingMembership: true,
           createdAt: new Date().toISOString(),
         });
         agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
@@ -6390,6 +6424,7 @@ export function createControlPlane(options?: {
       await broadcastProjection();
       const result = await pending;
       reconcileRelationDiscoveryTasks();
+      migrateStandingRouteSeedCampaigns();
       reconcileRuleEvidenceAgentTasks();
       await broadcastProjection();
       tickSearchIssues();
@@ -7420,6 +7455,7 @@ export function createControlPlane(options?: {
           () => {
             try {
               reconcileRelationDiscoveryTasks();
+              migrateStandingRouteSeedCampaigns();
             } catch {
               // Retained tasks and route episodes remain authoritative. A later
               // successful refresh retries reconciliation without terminating

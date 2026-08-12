@@ -7,6 +7,7 @@ import {
 import type { RelationDiscoveryRouteLayer } from "./relation-discovery-agent-tools.js";
 import {
   assertRelationDiscoveryTaskRevision,
+  relationDiscoveryResearchInputIdentity,
   relationDiscoveryRevisionWorkItem,
   type RelationDiscoveryTaskRevision,
 } from "./relation-discovery-work.js";
@@ -134,24 +135,14 @@ export function buildStandingRouteSeedSelection(input: Readonly<{
   const corpus = assertMarketCorpusSnapshot(input.corpus);
   const byListingRef = new Map(corpus.listings.map((item) => [item.listingRef, item]));
   const attemptedTaskIds = new Set(input.execution.runs.map((run) => run.taskId));
-  const retainedActionRefs = new Set(input.execution.campaigns.flatMap((campaign) =>
-    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
-      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
-      campaign.selectionBinding.selectionProtocol === STANDING_ROUTE_SEED_SELECTION_PROTOCOL
-      ? campaign.selectionBinding.taskBindings.map((binding) => binding.selectionActionRef)
-      : []
-  ));
-  const attemptedActionRefs = new Set([
-    ...retainedActionRefs,
-    ...input.revisions.flatMap((revisionInput) => {
+  const attemptedActionRefs = new Set(input.revisions.flatMap((revisionInput) => {
     const revision = assertRelationDiscoveryTaskRevision(revisionInput);
     return revision.schemaVersion === "pmh.relation-discovery-task-revision.v4" &&
       revision.taskPayload.schemaVersion === "pmh.relation-discovery-task.v4" &&
       attemptedTaskIds.has(revision.task.taskId)
       ? [revision.taskPayload.researchIntent.selectionActionRef]
       : [];
-    }),
-  ]);
+  }));
   const routes = input.standingRoutes?.routes ?? [];
   const familyByRoute = new Map(input.standingRoutes?.families.flatMap(({ family }) =>
     family.sourceRouteIds.map((routeId) => [routeId, family.routeFamilyId] as const)
@@ -165,7 +156,6 @@ export function buildStandingRouteSeedSelection(input: Readonly<{
     const actionBody = Object.freeze({
       schemaVersion: "pmh.standing-route-seed-selection-action.v1" as const,
       targetRouteLayer: fit.layer,
-      sourceTaskRevisionId: revision.revisionId,
       workItemId: revision.workItemId,
       workArtifactHash: revision.workArtifactHash,
       researchInputIdentity: revision.schemaVersion ===
@@ -268,5 +258,14 @@ export function buildStandingRouteSeedSelection(input: Readonly<{
     externalWriteAuthority: false as const,
     valueMovingAuthority: false as const,
   });
-  return Object.freeze({ ...body, selectionIdentity: hashCanonical(body) });
+  // Selection identity denotes the chosen research portfolio, not the
+  // incidental catalog window in which it was observed. Full candidate and
+  // snapshot evidence remains in the projection for audit.
+  const selectionIdentity = hashCanonical({
+    schemaVersion: "pmh.standing-route-seed-semantic-selection.v1",
+    policyIdentity: body.policyIdentity,
+    selectedActionRefs: body.selected.map((item) => item.selectionActionRef),
+    unusedLayers: body.unusedLayers,
+  });
+  return Object.freeze({ ...body, selectionIdentity });
 }

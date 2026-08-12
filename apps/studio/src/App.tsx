@@ -159,6 +159,8 @@ type AgentExecutionConsole = Readonly<{
     automaticDispatch: false;
   }>>;
   campaigns: ReadonlyArray<Readonly<{
+    schemaVersion: "pmh.agent-campaign.v1" | "pmh.agent-campaign.v2" |
+      "pmh.agent-campaign.v3" | "pmh.agent-campaign.v4";
     campaignId: string;
     campaignKey: string;
     revision: number;
@@ -166,6 +168,11 @@ type AgentExecutionConsole = Readonly<{
     superseded: boolean;
     executionProfileId: string;
     taskIds: readonly string[];
+    membershipPolicyBinding?: Readonly<{
+      membershipPolicyIdentity: string;
+      selectionProtocol: string;
+      selectionPolicyIdentity: string;
+    }>;
     schedule: Readonly<{ kind: "MANUAL_ONLY" | "INTERVAL"; intervalMs: number | null }>;
     budget: Readonly<{
       maximumConcurrentRuns: number;
@@ -3832,7 +3839,15 @@ function AgentOperationsView() {
           {consoleData.campaigns.length === 0 && <div className="empty-state">No campaign exists. Routes and credentials alone cannot dispatch work.</div>}
           {consoleData.campaigns.slice().reverse().slice(0, 20).map((campaign) => (
             <div className="agent-campaign-row" key={campaign.campaignId}>
-              <div><strong>{campaign.campaignKey}</strong><span>{campaign.superseded ? "SUPERSEDED" : campaign.status} · {campaign.taskIds.length} task · max {campaign.budget.maximumModelInvocations} invocations</span></div>
+              <div>
+                <strong>{campaign.campaignKey}</strong>
+                <span>
+                  {campaign.superseded ? "SUPERSEDED" : campaign.status} · membership r{campaign.revision} · {campaign.taskIds.length} current task · {campaign.preview?.consumedModelInvocations ?? 0}/{campaign.budget.maximumModelInvocations} lineage invocations
+                </span>
+                {campaign.membershipPolicyBinding !== undefined && (
+                  <small>intent {campaign.membershipPolicyBinding.membershipPolicyIdentity.slice(7, 19)} · {campaign.membershipPolicyBinding.selectionProtocol}</small>
+                )}
+              </div>
               <div>
                 {!campaign.superseded && campaign.status === "PAUSED" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void perform(`activate-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/activate`, { activationRef: "operator:studio" }))}>Activate only</Button>}
                 {!campaign.superseded && campaign.status === "ACTIVE" && <><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void perform(`pause-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/pause`))}><Pause size={11} /> Pause</Button><Button size="sm" disabled={busy !== null || campaign.preview?.maximumImmediateFanout === 0} onClick={() => void perform(`dispatch-${campaign.campaignId}`, () => post(`/api/v1/agent-campaigns/${campaign.campaignId}/dispatch`))}><Play size={11} /> Dispatch {campaign.preview?.maximumImmediateFanout ?? 0}</Button></>}

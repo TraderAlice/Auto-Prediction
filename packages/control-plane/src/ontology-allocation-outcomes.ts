@@ -472,7 +472,8 @@ export function buildOntologyAllocationOutcomeProjection(input: Readonly<{
   const selectedCampaigns = input.execution.campaigns.filter((campaign): campaign is
     AgentSelectionBoundCampaign =>
     (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
-      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
     campaign.selectionBinding.selectionProtocol === ONTOLOGY_ATTENTION_SELECTION_PROTOCOL);
   const grouped = new Map<Hash, readonly (typeof selectedCampaigns)[number][]>();
   for (const campaign of selectedCampaigns) {
@@ -482,7 +483,8 @@ export function buildOntologyAllocationOutcomeProjection(input: Readonly<{
   const campaigns = Object.freeze([...grouped.entries()].map(([episodeId, revisions]) => {
     const current = latestCampaign(revisions);
     if (current.schemaVersion !== "pmh.agent-campaign.v2" &&
-        current.schemaVersion !== "pmh.agent-campaign.v3") {
+        current.schemaVersion !== "pmh.agent-campaign.v3" &&
+        current.schemaVersion !== "pmh.agent-campaign.v4") {
       throw new Error("ontology allocation campaign episode lost its selection binding");
     }
     const campaignIds = new Set(revisions.map((item) => item.campaignId));

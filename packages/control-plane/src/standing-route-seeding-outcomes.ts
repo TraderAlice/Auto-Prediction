@@ -165,7 +165,8 @@ export function buildStandingRouteSeedOutcomeProjection(input: Readonly<{
   const campaigns = input.execution.campaigns.filter((campaign): campaign is
     AgentSelectionBoundCampaign =>
     (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
-      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
     campaign.selectionBinding.selectionProtocol === STANDING_ROUTE_SEED_SELECTION_PROTOCOL);
   const actions = new Map<Hash, Readonly<{
     campaignIds: readonly Hash[];
