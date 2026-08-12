@@ -410,6 +410,17 @@ invocations. The next north-star evidence is terminal route/counterexample
 yield from explicit operator activation. Recurrence remains gated at three
 terminal attempts per ontology layer and still requires operator activation.
 
+The first explicit activation has now supplied both product evidence and a
+substrate correction. A settlement seed authored one native route after its
+first ungrounded signal was rejected, at 208,229 known input tokens over eight
+Codex/Terra turns. A second dispatch incorrectly repeated that successful task
+instead of selecting the untouched event seed because campaign revisions had
+no explicit task-repetition contract. The active continuation adds a v3
+campaign `taskRunPolicy`, assigns route seeding
+`ONCE_PER_TASK_PER_LINEAGE`, and accounts attempts and budgets across
+pause/activate revisions. Legacy v1/v2 campaigns retain their historical
+repeatable semantics.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

@@ -4,6 +4,7 @@ import type {
   AgentCampaign,
   AgentExecutionSnapshot,
   AgentRun,
+  AgentSelectionBoundCampaign,
 } from "./agent-execution-substrate.js";
 import type {
   RelationDiscoveryFinding,
@@ -158,14 +159,15 @@ export function buildStandingRouteSeedOutcomeProjection(input: Readonly<{
   const revisions = new Map(input.taskRevisions.map((item) =>
     [item.revisionId, item] as const
   ));
-  const campaigns = input.execution.campaigns.filter((campaign): campaign is Extract<
-    AgentCampaign, { schemaVersion: "pmh.agent-campaign.v2" }
-  > => campaign.schemaVersion === "pmh.agent-campaign.v2" &&
+  const campaigns = input.execution.campaigns.filter((campaign): campaign is
+    AgentSelectionBoundCampaign =>
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
     campaign.selectionBinding.selectionProtocol === STANDING_ROUTE_SEED_SELECTION_PROTOCOL);
   const actions = new Map<Hash, Readonly<{
     campaignIds: readonly Hash[];
     selectionIdentity: Hash;
-    binding: Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v2" }>["selectionBinding"]["taskBindings"][number];
+    binding: AgentSelectionBoundCampaign["selectionBinding"]["taskBindings"][number];
   }>>();
   for (const campaign of campaigns) {
     for (const binding of campaign.selectionBinding.taskBindings) {

@@ -29,6 +29,7 @@ import {
   materializeStandingOntologyRouteObservationEpisodes,
   materializeStandingOntologyRouteFollowups,
   materializeStandingRouteSeedTaskRevisions,
+  migrateStandingRouteSeedCampaignPolicies,
   buildPausedAgentCampaign,
   activateAgentCampaign,
   reconcileRelationDiscoveryTaskRevisions,
@@ -479,6 +480,22 @@ describe("ontology proposal relation work", () => {
       "operator:route-seed-contract-test",
       "2026-08-12T09:00:01.000Z",
     );
+    const migrated = migrateStandingRouteSeedCampaignPolicies({
+      campaigns: [paused, active],
+      observedAt: "2026-08-12T09:00:02.000Z",
+    });
+    expect(migrated).toMatchObject([{
+      schemaVersion: "pmh.agent-campaign.v3",
+      campaignKey: paused.campaignKey,
+      revision: 3,
+      status: "PAUSED",
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      selectionBinding: paused.selectionBinding,
+    }]);
+    expect(migrateStandingRouteSeedCampaignPolicies({
+      campaigns: [...migrated, paused, active],
+      observedAt: "2026-08-12T09:00:03.000Z",
+    })).toEqual([]);
     const retainedSelection = buildStandingRouteSeedSelection({
       revisions: [...revisions, ...preview.taskRevisions],
       corpus: work.corpus,

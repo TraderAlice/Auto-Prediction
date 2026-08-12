@@ -4,6 +4,7 @@ import type {
   AgentCampaignSelectionTaskBinding,
   AgentExecutionSnapshot,
   AgentRun,
+  AgentSelectionBoundCampaign,
 } from "./agent-execution-substrate.js";
 import { agentInputRevisionAnnotationMatches } from "./agent-input-revision-binding.js";
 import type { MarketOntologyAgentProposal } from "./market-ontology-agent-tools.js";
@@ -284,9 +285,7 @@ function latestCampaign(campaigns: readonly AgentCampaign[]): AgentCampaign {
   )[0]!;
 }
 
-function episodeIdentity(campaign: Extract<AgentCampaign, {
-  schemaVersion: "pmh.agent-campaign.v2";
-}>): Hash {
+function episodeIdentity(campaign: AgentSelectionBoundCampaign): Hash {
   return hashCanonical({
     schemaVersion: "pmh.ontology-allocation-campaign-episode-identity.v1",
     campaignKey: campaign.campaignKey,
@@ -470,10 +469,10 @@ export function buildOntologyAllocationOutcomeProjection(input: Readonly<{
   probabilityJobs: readonly ProbabilityLineage[];
   opportunities: readonly OpportunityLineage[];
 }>): OntologyAllocationOutcomeProjection {
-  const selectedCampaigns = input.execution.campaigns.filter((campaign): campaign is Extract<
-    AgentCampaign,
-    { schemaVersion: "pmh.agent-campaign.v2" }
-  > => campaign.schemaVersion === "pmh.agent-campaign.v2" &&
+  const selectedCampaigns = input.execution.campaigns.filter((campaign): campaign is
+    AgentSelectionBoundCampaign =>
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
     campaign.selectionBinding.selectionProtocol === ONTOLOGY_ATTENTION_SELECTION_PROTOCOL);
   const grouped = new Map<Hash, readonly (typeof selectedCampaigns)[number][]>();
   for (const campaign of selectedCampaigns) {
@@ -482,7 +481,8 @@ export function buildOntologyAllocationOutcomeProjection(input: Readonly<{
   }
   const campaigns = Object.freeze([...grouped.entries()].map(([episodeId, revisions]) => {
     const current = latestCampaign(revisions);
-    if (current.schemaVersion !== "pmh.agent-campaign.v2") {
+    if (current.schemaVersion !== "pmh.agent-campaign.v2" &&
+        current.schemaVersion !== "pmh.agent-campaign.v3") {
       throw new Error("ontology allocation campaign episode lost its selection binding");
     }
     const campaignIds = new Set(revisions.map((item) => item.campaignId));

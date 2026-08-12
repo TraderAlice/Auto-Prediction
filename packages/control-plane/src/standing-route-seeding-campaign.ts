@@ -1,6 +1,8 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { ExecutionCapabilityProjection } from "./agent-runtime-adapter.js";
 import {
+  buildPausedAgentCampaign,
+  effectiveAgentCampaigns,
   assertAgentCampaignSelectionBinding,
   type AgentCampaign,
   type AgentCampaignSelectionBinding,
@@ -26,6 +28,34 @@ import {
   RELATION_DISCOVERY_INPUT_REVISION_KIND,
   RELATION_DISCOVERY_SELECTION_PROTOCOL,
 } from "./relation-discovery-campaign.js";
+
+export function migrateStandingRouteSeedCampaignPolicies(input: Readonly<{
+  campaigns: readonly AgentCampaign[];
+  observedAt: string;
+}>): readonly AgentCampaign[] {
+  if (new Date(input.observedAt).toISOString() !== input.observedAt) {
+    throw new Error("standing route seed campaign migration time must be canonical ISO");
+  }
+  return Object.freeze(effectiveAgentCampaigns(input.campaigns).flatMap((campaign) => {
+    if ((campaign.schemaVersion !== "pmh.agent-campaign.v2" &&
+        campaign.schemaVersion !== "pmh.agent-campaign.v3") ||
+        campaign.selectionBinding.selectionProtocol !==
+          STANDING_ROUTE_SEED_SELECTION_PROTOCOL ||
+        (campaign.schemaVersion === "pmh.agent-campaign.v3" &&
+          campaign.taskRunPolicy === "ONCE_PER_TASK_PER_LINEAGE")) return [];
+    return [buildPausedAgentCampaign({
+      campaignKey: campaign.campaignKey,
+      revision: campaign.revision + 1,
+      executionProfileId: campaign.executionProfileId,
+      taskIds: campaign.taskIds,
+      schedule: campaign.schedule,
+      budget: campaign.budget,
+      selectionBinding: campaign.selectionBinding,
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      createdAt: input.observedAt,
+    })];
+  }));
+}
 
 export type StandingRouteSeedCampaignPreview = Readonly<{
   schemaVersion: "pmh.standing-route-seed-campaign-preview.v1";
@@ -131,7 +161,8 @@ export function buildStandingRouteSeedCampaignPreview(input: Readonly<{
     }).sort((left, right) => left.taskId.localeCompare(right.taskId))),
   }));
   const preparedCampaignIds = Object.freeze(input.execution.campaigns.filter((campaign) =>
-    campaign.schemaVersion === "pmh.agent-campaign.v2" &&
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
     campaign.selectionBinding.selectionProtocol ===
       STANDING_ROUTE_SEED_SELECTION_PROTOCOL &&
     campaign.selectionBinding.selectionIdentity === selection.selectionIdentity
@@ -202,7 +233,8 @@ export function resolveRelationDiscoveryTaskRevision(input: Readonly<{
     item.campaignId === input.run.authorization.campaignId
   );
   if (campaign === undefined) throw new Error("relation run campaign is unavailable");
-  if (campaign.schemaVersion !== "pmh.agent-campaign.v2") {
+  if (campaign.schemaVersion !== "pmh.agent-campaign.v2" &&
+      campaign.schemaVersion !== "pmh.agent-campaign.v3") {
     if (latest === null) throw new Error("retained relation task input is unavailable");
     return latest;
   }

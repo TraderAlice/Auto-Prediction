@@ -114,7 +114,8 @@ export function resolveOntologyAgentTaskRevision(input: Readonly<{
     item.campaignId === input.run.authorization.campaignId
   );
   if (campaign === undefined) throw new Error("ontology run campaign is unavailable");
-  if (campaign.schemaVersion !== "pmh.agent-campaign.v2" ||
+  if ((campaign.schemaVersion !== "pmh.agent-campaign.v2" &&
+      campaign.schemaVersion !== "pmh.agent-campaign.v3") ||
       campaign.selectionBinding.selectionProtocol !== ONTOLOGY_ATTENTION_SELECTION_PROTOCOL) {
     throw new Error("ontology campaign has no immutable attention allocation binding");
   }

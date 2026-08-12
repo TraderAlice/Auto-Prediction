@@ -135,7 +135,8 @@ export function buildStandingRouteSeedSelection(input: Readonly<{
   const byListingRef = new Map(corpus.listings.map((item) => [item.listingRef, item]));
   const attemptedTaskIds = new Set(input.execution.runs.map((run) => run.taskId));
   const retainedActionRefs = new Set(input.execution.campaigns.flatMap((campaign) =>
-    campaign.schemaVersion === "pmh.agent-campaign.v2" &&
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
       campaign.selectionBinding.selectionProtocol === STANDING_ROUTE_SEED_SELECTION_PROTOCOL
       ? campaign.selectionBinding.taskBindings.map((binding) => binding.selectionActionRef)
       : []

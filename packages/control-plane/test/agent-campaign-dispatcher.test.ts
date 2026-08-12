@@ -66,7 +66,8 @@ function fixture(taskCount: number, budget?: Partial<{
 }>, schedule: { kind: "MANUAL_ONLY"; intervalMs: null } | {
   kind: "INTERVAL";
   intervalMs: number;
-} = { kind: "MANUAL_ONLY", intervalMs: null }) {
+} = { kind: "MANUAL_ONLY", intervalMs: null }, taskRunPolicy?:
+  "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE") {
   const time = clock();
   const store = new SqliteOperationalStore(":memory:");
   const registry = new AgentExecutionRegistry(store);
@@ -86,6 +87,25 @@ function fixture(taskCount: number, budget?: Partial<{
       maximumWallClockMs: 60_000,
       ...budget,
     },
+    ...(taskRunPolicy === undefined ? {} : {
+      selectionBinding: {
+        schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
+        selectionProtocol: "DISPATCHER_QUALIFICATION_V1",
+        selectionIdentity: imported.executionProfile.executionProfileId,
+        selectionPolicyIdentity: imported.modelProfile.modelProfileId,
+        taskBindings: tasks.map((item) => ({
+          taskId: item.task.taskId,
+          workFamilyRef: `dispatcher:${item.task.taskId}`,
+          selectionActionRef: item.task.taskId,
+          selectionActionKind: "DISPATCHER_TASK",
+          inputRevisionKind: "FIXTURE",
+          inputRevisionId: item.task.taskPayloadHash,
+          exactInputHash: item.task.taskPayloadHash,
+          semanticInputIdentity: item.task.taskPayloadHash,
+        })).sort((left, right) => left.taskId.localeCompare(right.taskId)),
+      },
+      taskRunPolicy,
+    }),
     createdAt: START,
   });
   registry.saveBatch({
@@ -171,6 +191,7 @@ describe("Agent campaign dispatcher", () => {
     expect(item.dispatcher.preview(active.campaignId)).toMatchObject({
       consumedModelInvocations: 2,
       remainingModelInvocations: 0,
+      dispatchableTaskCount: 4,
       maximumImmediateFanout: 0,
     });
     expect(item.registry.snapshot()).toMatchObject({
@@ -186,6 +207,53 @@ describe("Agent campaign dispatcher", () => {
       ],
     });
     expect(JSON.stringify(item.registry.snapshot())).not.toContain("test-only-access");
+    item.store.close();
+  });
+
+  it("dispatches each manual-only campaign task at most once", async () => {
+    const item = fixture(2, {
+      maximumConcurrentRuns: 1,
+      maximumModelInvocations: 4,
+    }, { kind: "MANUAL_ONLY", intervalMs: null }, "ONCE_PER_TASK_PER_LINEAGE");
+    item.time.advance(1_000);
+    const active = activateAgentCampaign(item.paused, "operator:manual-once", item.time.iso());
+    item.registry.saveBatch({ campaigns: [active] });
+
+    const first = item.dispatcher.dispatchCampaign(active.campaignId);
+    const firstTaskId = first.preparedRuns[0]!.taskId;
+    expect(item.paused.taskIds).toContain(firstTaskId);
+    await Promise.all(first.completions);
+    expect(item.dispatcher.preview(active.campaignId)).toMatchObject({
+      dispatchableTaskCount: 1,
+      maximumImmediateFanout: 1,
+    });
+
+    const second = item.dispatcher.dispatchCampaign(active.campaignId);
+    expect(second.preparedRuns[0]!.taskId).not.toBe(firstTaskId);
+    expect(item.paused.taskIds).toContain(second.preparedRuns[0]!.taskId);
+    await Promise.all(second.completions);
+    expect(item.dispatcher.preview(active.campaignId)).toMatchObject({
+      dispatchableTaskCount: 0,
+      maximumImmediateFanout: 0,
+    });
+    expect(item.dispatcher.dispatchCampaign(active.campaignId).preparedRuns).toEqual([]);
+    expect(item.registry.snapshot().runs.map((run) => run.runOrdinal)).toEqual([1, 1]);
+
+    const pausedAgain = pauseAgentCampaign(active);
+    item.registry.saveBatch({ campaigns: [pausedAgain] });
+    const reactivated = activateAgentCampaign(
+      pausedAgain,
+      "operator:manual-once-reactivation",
+      item.time.iso(),
+    );
+    item.registry.saveBatch({ campaigns: [reactivated] });
+    expect(item.dispatcher.preview(reactivated.campaignId)).toMatchObject({
+      dispatchableTaskCount: 0,
+      consumedModelInvocations: 2,
+      remainingModelInvocations: 2,
+      maximumImmediateFanout: 0,
+    });
+    expect(item.dispatcher.dispatchCampaign(reactivated.campaignId).preparedRuns).toEqual([]);
     item.store.close();
   });
 

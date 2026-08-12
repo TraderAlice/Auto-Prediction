@@ -122,6 +122,7 @@ import {
 import { buildRelationDiscoveryCampaignPreview } from "./relation-discovery-campaign.js";
 import {
   buildStandingRouteSeedCampaignPreview,
+  migrateStandingRouteSeedCampaignPolicies,
   resolveRelationDiscoveryTaskRevision,
 } from "./standing-route-seeding-campaign.js";
 import { buildStandingRouteSeedOutcomeProjection } from
@@ -2793,6 +2794,13 @@ export function createControlPlane(options?: {
     relationDiscoveryStore.saveRelationDiscoveryTaskRevisions(created);
     relationDiscoveryTaskRevisions = reconciliation.currentRevisions;
   };
+  const migrateStandingRouteSeedCampaigns = (): void => {
+    const campaigns = migrateStandingRouteSeedCampaignPolicies({
+      campaigns: agentExecutionRegistry.snapshot().campaigns,
+      observedAt: new Date().toISOString(),
+    });
+    if (campaigns.length > 0) agentExecutionRegistry.saveBatch({ campaigns });
+  };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     transitionStartup("DURABLE_RECOVERY");
     const realCandidateReady = realCandidatePreflightDesk.load();
@@ -2813,6 +2821,10 @@ export function createControlPlane(options?: {
     runStartupReconciliationStep(
       "RECONCILE_RELATION_DISCOVERY_TASKS",
       reconcileRelationDiscoveryTasks,
+    );
+    runStartupReconciliationStep(
+      "MIGRATE_STANDING_ROUTE_SEED_CAMPAIGNS",
+      migrateStandingRouteSeedCampaigns,
     );
     runStartupReconciliationStep(
       "RECOVER_PREPARED_AGENT_RUNS",
@@ -3046,8 +3058,9 @@ export function createControlPlane(options?: {
     const execution = agentExecutionRegistry.snapshot();
     const selectedCampaigns = execution.campaigns.filter((campaign): campaign is Extract<
       AgentCampaign,
-      { schemaVersion: "pmh.agent-campaign.v2" }
-    > => campaign.schemaVersion === "pmh.agent-campaign.v2" &&
+      { schemaVersion: "pmh.agent-campaign.v2" | "pmh.agent-campaign.v3" }
+    > => (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
       campaign.selectionBinding.selectionProtocol === "ONTOLOGY_ATTENTION_ALLOCATION_V1"
     );
     const selectedCampaignIds = new Set(selectedCampaigns.map((item) => item.campaignId));
@@ -4857,6 +4870,7 @@ export function createControlPlane(options?: {
           schedule: preview.schedule,
           budget: preview.budget,
           selectionBinding: preview.selectionBinding,
+          taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
           createdAt: new Date().toISOString(),
         });
         agentExecutionRegistry.saveBatch({ campaigns: [campaign] });

@@ -244,7 +244,16 @@ export type AgentCampaign =
   | Readonly<AgentCampaignFields & {
       schemaVersion: "pmh.agent-campaign.v2";
       selectionBinding: AgentCampaignSelectionBinding;
+    }>
+  | Readonly<AgentCampaignFields & {
+      schemaVersion: "pmh.agent-campaign.v3";
+      selectionBinding: AgentCampaignSelectionBinding;
+      taskRunPolicy: "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE";
     }>;
+
+export type AgentSelectionBoundCampaign = Extract<AgentCampaign, {
+  schemaVersion: "pmh.agent-campaign.v2" | "pmh.agent-campaign.v3";
+}>;
 
 export type AgentRunAuthorization = Readonly<{
   kind: "MANUAL" | "CAMPAIGN" | "LEGACY_IMPORT";
@@ -1185,9 +1194,16 @@ export function assertAgentCampaign(value: unknown): AgentCampaign {
     throw new Error("Agent campaign is malformed");
   }
   const record = value as AgentCampaign;
-  const v2 = record.schemaVersion === "pmh.agent-campaign.v2";
+  const selectionBound = record.schemaVersion === "pmh.agent-campaign.v2" ||
+    record.schemaVersion === "pmh.agent-campaign.v3";
+  const v3 = record.schemaVersion === "pmh.agent-campaign.v3";
   if (
-    !exactKeys(record, v2 ? [
+    !exactKeys(record, v3 ? [
+      "schemaVersion", "campaignId", "campaignKey", "revision", "status",
+      "executionProfileId", "taskIds", "schedule", "budget", "activatedAt",
+      "activationRef", "createdAt", "externalWriteAuthority", "valueMovingAuthority",
+      "selectionBinding", "taskRunPolicy",
+    ] : selectionBound ? [
       "schemaVersion", "campaignId", "campaignKey", "revision", "status",
       "executionProfileId", "taskIds", "schedule", "budget", "activatedAt",
       "activationRef", "createdAt", "externalWriteAuthority", "valueMovingAuthority",
@@ -1197,7 +1213,8 @@ export function assertAgentCampaign(value: unknown): AgentCampaign {
       "executionProfileId", "taskIds", "schedule", "budget", "activatedAt",
       "activationRef", "createdAt", "externalWriteAuthority", "valueMovingAuthority",
     ]) ||
-    !["pmh.agent-campaign.v1", "pmh.agent-campaign.v2"].includes(record.schemaVersion) ||
+    !["pmh.agent-campaign.v1", "pmh.agent-campaign.v2", "pmh.agent-campaign.v3"]
+      .includes(record.schemaVersion) ||
     !["PAUSED", "ACTIVE"].includes(record.status) ||
     record.externalWriteAuthority !== false || record.valueMovingAuthority !== false ||
     !Array.isArray(record.taskIds) ||
@@ -1219,13 +1236,16 @@ export function assertAgentCampaign(value: unknown): AgentCampaign {
   if (canonicalTaskIds.some((taskId, index) => taskId !== record.taskIds[index])) {
     throw new Error("Agent campaign task membership must be canonical");
   }
-  if (v2) {
+  if (selectionBound) {
     const binding = assertAgentCampaignSelectionBinding(record.selectionBinding);
     const boundTaskIds = binding.taskBindings.map((item) => item.taskId);
     if (boundTaskIds.length !== canonicalTaskIds.length ||
         boundTaskIds.some((taskId, index) => taskId !== canonicalTaskIds[index])) {
       throw new Error("Agent campaign selection must bind every configured task exactly once");
     }
+  }
+  if (v3 && !["REPEATABLE", "ONCE_PER_TASK_PER_LINEAGE"].includes(record.taskRunPolicy)) {
+    throw new Error("Agent campaign task run policy is invalid");
   }
   if (!["MANUAL_ONLY", "INTERVAL"].includes(record.schedule.kind) ||
       (record.schedule.kind === "MANUAL_ONLY" && record.schedule.intervalMs !== null) ||
@@ -1262,14 +1282,17 @@ export function buildPausedAgentCampaign(input: Readonly<{
   budget: AgentCampaign["budget"];
   createdAt: string;
   selectionBinding?: AgentCampaignSelectionBinding;
+  taskRunPolicy?: "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE";
 }>): AgentCampaign {
   const selectionBinding = input.selectionBinding === undefined
     ? undefined
     : assertAgentCampaignSelectionBinding(input.selectionBinding);
   const body = Object.freeze({
-    schemaVersion: selectionBinding === undefined
-      ? "pmh.agent-campaign.v1" as const
-      : "pmh.agent-campaign.v2" as const,
+    schemaVersion: input.taskRunPolicy === undefined
+      ? selectionBinding === undefined
+        ? "pmh.agent-campaign.v1" as const
+        : "pmh.agent-campaign.v2" as const
+      : "pmh.agent-campaign.v3" as const,
     campaignKey: identifier(input.campaignKey, "Campaign key"),
     revision: positiveInteger(input.revision, "Campaign revision", Number.MAX_SAFE_INTEGER),
     status: "PAUSED" as const,
@@ -1283,7 +1306,13 @@ export function buildPausedAgentCampaign(input: Readonly<{
     externalWriteAuthority: false as const,
     valueMovingAuthority: false as const,
     ...(selectionBinding === undefined ? {} : { selectionBinding }),
+    ...(input.taskRunPolicy === undefined ? {} : {
+      taskRunPolicy: input.taskRunPolicy,
+    }),
   });
+  if (input.taskRunPolicy !== undefined && selectionBinding === undefined) {
+    throw new Error("Agent campaign task run policy requires an exact selection binding");
+  }
   return assertAgentCampaign(Object.freeze({ ...body, campaignId: hashCanonical(body) }));
 }
 

@@ -134,6 +134,22 @@ compile them. A counterexample or abstention is a valid terminal outcome.
 - Desktop and 390 px Studio checks show the three ontology layers without page
   overflow or console errors. The prepare action is explicitly labelled paused
   and does not activate an Agent.
+- The retained Codex app-server capability later projected as `STALE/BLOCKED`
+  while reusing its last successful “recognized account” diagnostic. A fresh
+  zero-inference `account/read` preflight restored `USABLE/ELIGIBLE`; the
+  execution path is healthy, but stale capability needs a first-class
+  operator-readable diagnosis or refresh policy instead of an apparently
+  contradictory message.
+- The first explicitly activated settlement seed produced one native route
+  family after the exact host rejected its first ungrounded signal attempt.
+  The corrected terminal used eight Codex/Terra model turns, 208,229 known
+  input tokens, 1,757 output tokens, and 157,626 ms. A second dispatch exposed
+  a substrate bug: `MANUAL_ONLY` campaigns considered a successfully attempted
+  task dispatchable again and started run ordinal two instead of the untouched
+  event task. The campaign was paused immediately; its duplicate cost remains
+  retained as operational evidence. The dispatcher now treats manual-only task
+  membership as an exactly-once attempt ledger while preserving recurring
+  `INTERVAL` campaign semantics.
 
 ## Next evidence target
 

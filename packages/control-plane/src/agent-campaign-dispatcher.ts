@@ -31,8 +31,28 @@ function tokens(value: string | null): bigint {
   return value === null ? 0n : BigInt(value);
 }
 
-function campaignRuns(snapshot: AgentExecutionSnapshot, campaignId: Hash): readonly AgentRun[] {
-  return snapshot.runs.filter((run) => run.authorization.campaignId === campaignId);
+function campaignRuns(
+  snapshot: AgentExecutionSnapshot,
+  campaign: AgentCampaign,
+): readonly AgentRun[] {
+  const lineageIds = new Set(snapshot.campaigns.filter((item) =>
+    item.campaignKey === campaign.campaignKey
+  ).map((item) => item.campaignId));
+  return snapshot.runs.filter((run) => run.authorization.campaignId !== null &&
+    lineageIds.has(run.authorization.campaignId));
+}
+
+function campaignDispatchableTaskIds(
+  campaign: AgentCampaign,
+  snapshot: AgentExecutionSnapshot,
+): readonly Hash[] {
+  const configured = campaign.taskIds.filter((taskId) =>
+    snapshot.tasks.some((task) => task.taskId === taskId)
+  );
+  if (campaign.schemaVersion !== "pmh.agent-campaign.v3" ||
+      campaign.taskRunPolicy === "REPEATABLE") return Object.freeze(configured);
+  const attempted = new Set(campaignRuns(snapshot, campaign).map((run) => run.taskId));
+  return Object.freeze(configured.filter((taskId) => !attempted.has(taskId)));
 }
 
 function totalWallClockMs(runs: readonly AgentRun[], now: number): number {
@@ -240,7 +260,7 @@ export class AgentCampaignDispatcher {
         const run = this.#registry.snapshot().runs.find((item) => item.runId === runId);
         return run === undefined ? [] : [run.taskId];
       }));
-      const tasks = validCampaign.taskIds.flatMap((taskId) => {
+      const tasks = campaignDispatchableTaskIds(validCampaign, initial).flatMap((taskId) => {
         const task = initial.tasks.find((item) => item.taskId === taskId);
         return task === undefined || activeTaskIds.has(taskId) ? [] : [task];
       }).slice(0, preview.maximumImmediateFanout);
@@ -288,7 +308,7 @@ export class AgentCampaignDispatcher {
     return Object.freeze(effectiveAgentCampaigns(this.#registry.snapshot().campaigns)
       .flatMap((campaign) => {
       if (campaign.status !== "ACTIVE" || campaign.schedule.kind !== "INTERVAL") return [];
-      const latest = campaignRuns(this.#registry.snapshot(), campaign.campaignId)
+      const latest = campaignRuns(this.#registry.snapshot(), campaign)
         .map((run) => Date.parse(run.createdAt))
         .sort((left, right) => right - left)[0] ?? Date.parse(campaign.activatedAt!);
       return latest + campaign.schedule.intervalMs! > now
@@ -298,7 +318,7 @@ export class AgentCampaignDispatcher {
   }
 
   #preview(campaign: AgentCampaign, snapshot: AgentExecutionSnapshot): AgentCampaignDispatchPreview {
-    const runs = campaignRuns(snapshot, campaign.campaignId);
+    const runs = campaignRuns(snapshot, campaign);
     const runIds = new Set(runs.map((run) => run.runId));
     const invocations = snapshot.modelInvocations.filter((item) => runIds.has(item.runId));
     const activeRunCount = runs.filter((run) => run.status === "PREPARED").length;
@@ -323,9 +343,7 @@ export class AgentCampaignDispatcher {
       0,
       campaign.budget.maximumConcurrentRuns - activeRunCount,
     );
-    const dispatchableTaskCount = campaign.taskIds.filter((taskId) =>
-      snapshot.tasks.some((task) => task.taskId === taskId)
-    ).length;
+    const dispatchableTaskCount = campaignDispatchableTaskIds(campaign, snapshot).length;
     return Object.freeze({
       campaignId: campaign.campaignId,
       status: campaign.status,
