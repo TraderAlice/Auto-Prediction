@@ -6,6 +6,11 @@ the project no longer needs it; do not record secrets in this file.
 
 ## Open
 
+- [ ] In the long-term ontology, should human attention itself be a first-class
+  object (for example media salience, participant access, and narrative demand),
+  or should it remain an observed property of traded markets until we have a
+  separate data source? Phase 1 can proceed without deciding this.
+
 - [ ] The first live estimator debt is an MLS championship case. Which external
   research adapter should be qualified first: official venue resolution
   history, sports schedule/result history, or a broader event-reference source?

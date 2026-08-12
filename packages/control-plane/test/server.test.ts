@@ -2300,6 +2300,46 @@ describe("control-plane HTTP surface", () => {
         liveExecutionEnabled: false,
       },
     });
+    const ontologyResponse = await fetch(`${baseUrl}/api/v1/market-ontology`);
+    expect(ontologyResponse.status).toBe(200);
+    await expect(ontologyResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.market-ontology.v1",
+      listingCount: 1,
+      worldFacetCount: 1,
+      settlementFacetCount: 1,
+      tradedFacetCount: 1,
+      priceInterpretation:
+        "TRADED_PAYOFF_VALUATION_OBSERVATION_NOT_CERTIFIED_WORLD_PROBABILITY",
+      authority: "DERIVED_SEARCH_EVIDENCE_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      effects: {
+        providerRequests: false,
+        externalWrites: false,
+        valueMovingActions: false,
+        liveExecutionEnabled: false,
+      },
+    });
+    const ontologyProposalResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/agent-proposals`,
+    );
+    expect(ontologyProposalResponse.status).toBe(200);
+    await expect(ontologyProposalResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.market-ontology-agent-proposal-ledger.v1",
+      proposalCount: 0,
+      kindCounts: {
+        entityAlias: 0,
+        worldProposition: 0,
+        counterexample: 0,
+      },
+      authority: "PROPOSE_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
     const searchResponse = await fetch(
       `${baseUrl}/api/v1/market-corpus/search`,
       {
@@ -2740,7 +2780,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 37,
+        schemaVersion: 38,
         },
         records: [{ investigationId: created.investigationId }],
       });

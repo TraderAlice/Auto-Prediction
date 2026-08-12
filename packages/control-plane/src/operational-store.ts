@@ -217,8 +217,13 @@ import {
   assertProbabilisticSemanticBound,
   type ProbabilisticSemanticBoundArtifact,
 } from "./probabilistic-semantic-arbitrage.js";
+import {
+  assertMarketOntologyAgentProposal,
+  type MarketOntologyAgentProposal,
+  type MarketOntologyAgentProposalStore,
+} from "./market-ontology-agent-tools.js";
 
-const SCHEMA_VERSION = 37;
+const SCHEMA_VERSION = 38;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 
 type StoredRunRow = Readonly<{
@@ -1661,6 +1666,26 @@ function parseProbabilityResolutionCapture(value: unknown): ProbabilityResolutio
   return capture;
 }
 
+function parseMarketOntologyAgentProposal(value: unknown): MarketOntologyAgentProposal {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite market ontology Agent proposal row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.proposal_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite market ontology Agent proposal row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite market ontology Agent proposal contains invalid JSON");
+  }
+  const proposal = assertMarketOntologyAgentProposal(decoded);
+  if (proposal.proposalId !== row.proposal_id || hashCanonical(proposal) !== row.record_hash) {
+    throw new Error("SQLite market ontology Agent proposal identity mismatch");
+  }
+  return proposal;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -1715,7 +1740,8 @@ export class SqliteOperationalStore
     OpportunityLifecycleJournalStore,
     AnonymousSimulationMaterializationStore,
     ProbabilityCalibrationStore,
-    ProbabilityResolutionCaptureStore
+    ProbabilityResolutionCaptureStore,
+    MarketOntologyAgentProposalStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -1772,6 +1798,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"singleton">;
   public readonly agentExecutionStorage:
     OperationalStorageProjection<"recordId">;
+  public readonly marketOntologyAgentProposalStorage:
+    OperationalStorageProjection<"proposalId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -1973,6 +2001,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "recordId",
+    });
+    this.marketOntologyAgentProposalStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "proposalId",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2289,6 +2323,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'execution_capability_observations'`,
       )
       .get() !== undefined;
+    const marketOntologyAgentProposalTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'market_ontology_agent_proposals'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -2323,6 +2363,7 @@ export class SqliteOperationalStore
       && agentRunArtifactTableExists
       && agentRunAnnotationTableExists
       && executionCapabilityObservationTableExists
+      && marketOntologyAgentProposalTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -3765,6 +3806,40 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS execution_capability_profile_time
             ON execution_capability_observations (
               execution_profile_id, observed_at DESC, observation_id DESC
+            );
+        `);
+      }
+      if (current < 38 || !marketOntologyAgentProposalTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS market_ontology_agent_proposals (
+            proposal_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(proposal_id) = 71 AND proposal_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            ontology_identity TEXT NOT NULL CHECK (
+              length(ontology_identity) = 71 AND ontology_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_snapshot_identity) = 71 AND
+              source_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_agent_run_id TEXT NOT NULL,
+            proposal_kind TEXT NOT NULL CHECK (
+              proposal_kind IN ('ENTITY_ALIAS', 'WORLD_PROPOSITION', 'COUNTEREXAMPLE')
+            ),
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS market_ontology_agent_proposals_ontology
+            ON market_ontology_agent_proposals (
+              ontology_identity, proposed_at DESC, proposal_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS market_ontology_agent_proposals_run
+            ON market_ontology_agent_proposals (
+              source_agent_run_id, proposed_at, proposal_id
             );
         `);
       }
@@ -6113,6 +6188,74 @@ export class SqliteOperationalStore
         );
       }
       this.#database.exec("COMMIT");
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadMarketOntologyAgentProposals(
+    limit: number,
+  ): readonly MarketOntologyAgentProposal[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT proposal_id, record_json, record_hash
+       FROM market_ontology_agent_proposals
+       ORDER BY proposed_at DESC, proposal_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseMarketOntologyAgentProposal));
+  }
+
+  public saveMarketOntologyAgentProposals(
+    proposalsInput: readonly MarketOntologyAgentProposal[],
+  ): readonly MarketOntologyAgentProposal[] {
+    this.#assertOpen();
+    const proposals = Object.freeze(proposalsInput.map(assertMarketOntologyAgentProposal));
+    if (new Set(proposals.map((item) => item.proposalId)).size !== proposals.length) {
+      throw new Error("market ontology Agent proposal batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const proposal of proposals) {
+        const run = this.#database.prepare(
+          "SELECT run_id FROM agent_runs WHERE run_id = ?",
+        ).get(proposal.sourceAgentRunId);
+        if (run === undefined) {
+          throw new Error("market ontology Agent proposal references an unavailable run");
+        }
+        const recordJson = canonicalJson(proposal);
+        const recordHash = hashCanonical(proposal);
+        this.#database.prepare(
+          `INSERT INTO market_ontology_agent_proposals (
+             proposal_id, ontology_identity, source_snapshot_identity,
+             source_agent_run_id, proposal_kind, proposed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(proposal_id) DO NOTHING`,
+        ).run(
+          proposal.proposalId,
+          proposal.ontologyIdentity,
+          proposal.sourceSnapshotIdentity,
+          proposal.sourceAgentRunId,
+          proposal.kind,
+          proposal.proposedAt,
+          recordJson,
+          recordHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT proposal_id, record_json, record_hash
+           FROM market_ontology_agent_proposals WHERE proposal_id = ?`,
+        ).get(proposal.proposalId);
+        const stored = parseMarketOntologyAgentProposal(row);
+        if (stored.proposalId !== proposal.proposalId ||
+            hashCanonical(stored) !== recordHash) {
+          throw new Error("proposalId is already bound to another ontology proposal");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return proposals;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;
