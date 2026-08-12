@@ -6730,6 +6730,18 @@ export class SqliteOperationalStore
     return Object.freeze(rows.map(parseOntologySearchIssueRevision));
   }
 
+  public loadOntologySearchIssueRevision(
+    revisionId: Hash,
+  ): OntologySearchIssueRevision | null {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      `SELECT revision_id, record_json, record_hash
+       FROM ontology_search_issue_revisions
+       WHERE revision_id = ?`,
+    ).get(revisionId);
+    return row === undefined ? null : parseOntologySearchIssueRevision(row);
+  }
+
   public saveOntologySearchIssueRevisions(
     revisionsInput: readonly OntologySearchIssueRevision[],
   ): readonly OntologySearchIssueRevision[] {

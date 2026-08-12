@@ -137,6 +137,22 @@ describe("SQLite Agent execution substrate", () => {
         maximumOutputTokens: "1000",
         maximumWallClockMs: 300_000,
       },
+      selectionBinding: {
+        schemaVersion: "pmh.agent-campaign-selection-binding.v1",
+        selectionProtocol: "RULE_EVIDENCE_SELECTION_FIXTURE_V1",
+        selectionIdentity: hashCanonical({ selection: "fixture" }),
+        selectionPolicyIdentity: hashCanonical({ policy: "fixture" }),
+        taskBindings: [{
+          taskId: work.taskId,
+          workFamilyRef: "requirement:1",
+          selectionActionRef: hashCanonical({ action: "fixture" }),
+          selectionActionKind: "CAPTURE_RULE_EVIDENCE",
+          inputRevisionKind: "EVIDENCE_REQUIREMENT",
+          inputRevisionId: hashCanonical({ revision: "fixture" }),
+          exactInputHash: hashCanonical({ requirementId: "requirement:1" }),
+          semanticInputIdentity: hashCanonical({ semanticInput: "fixture" }),
+        }],
+      },
       createdAt: NOW,
     });
     const active = activateAgentCampaign(paused, "operator:test", LATER);
@@ -228,8 +244,17 @@ describe("SQLite Agent execution substrate", () => {
       resultSelections: [{ selectionId: selection.selectionId }],
     });
     expect(snapshot.campaigns).toEqual(expect.arrayContaining([
-      expect.objectContaining({ campaignId: paused.campaignId, status: "PAUSED" }),
-      expect.objectContaining({ campaignId: active.campaignId, status: "ACTIVE" }),
+      expect.objectContaining({
+        campaignId: paused.campaignId,
+        schemaVersion: "pmh.agent-campaign.v2",
+        status: "PAUSED",
+      }),
+      expect.objectContaining({
+        campaignId: active.campaignId,
+        schemaVersion: "pmh.agent-campaign.v2",
+        status: "ACTIVE",
+        selectionBinding: paused.selectionBinding,
+      }),
     ]));
     expect(JSON.stringify(snapshot)).not.toContain("test-only-secret-value");
     store.close();

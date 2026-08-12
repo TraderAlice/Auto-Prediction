@@ -89,15 +89,19 @@ provider request, external write, or execution authority.
 
 ## Phase 4 — campaign binding and recurrence
 
-- Replace hash-order campaign selection with the selected dispatchable
+- [x] Replace hash-order campaign selection with the selected dispatchable
   portfolio actions and retain allocation identity in campaign provenance.
-- Capture allocation → campaign → run → proposal/counterexample → relation work
+- [x] Bind each selected action, stable issue/task, exact input revision, full
+  input hash, and purpose-specific semantic input identity inside the immutable
+  campaign before activation. Resolve payload, first-party tool host, and run
+  annotation from that same retained binding after catalog rotation.
+- [ ] Project allocation → campaign → run → proposal/counterexample → relation work
   → review/probability/opportunity outcome as one auditable chain.
-- Add an explicit recurring policy only after live scorecards show enough
+- [ ] Add an explicit recurring policy only after live scorecards show enough
   terminal attempts to estimate yield/cost by stratum.
-- Recurrence must use a configured interval, maximum concurrent runs, token and
+- [ ] Recurrence must use a configured interval, maximum concurrent runs, token and
   wall-clock budgets, per-issue cooldown/recheck caps, and a global pause.
-- New catalog observations alone do not authorize repeat spend.
+- [ ] New catalog observations alone do not authorize repeat spend.
 
 ## Phase 5 — notification and operator surface
 
@@ -128,13 +132,13 @@ provider request, external write, or execution authority.
 - [x] live retained-data qualification explains all selected and held actions;
 - [x] workspace check, all tests, and production build pass.
 
-## Initial implementation boundary
+## Current implementation boundary
 
-Implement Phases 1–3 and use the resulting portfolio in the existing
-manual-only ontology campaign preview. Do not activate recurrence in the same
-slice. The next evidence question is whether retained live state can produce a
-meaningfully better, explainable portfolio before scheduling authority is
-expanded.
+Phases 1–3 and immutable campaign input binding are complete. Keep ontology
+campaigns manual-only while the next slice projects realized allocation outcomes
+and gathers enough exact terminal attempts to estimate yield and cost by
+stratum. Do not infer recurrence merely because the generic dispatcher supports
+an interval schedule.
 
 ## Live checkpoint — 2026-08-12
 
@@ -168,6 +172,28 @@ Workspace checks pass. All control-plane suites pass (85 files / 593 tests),
 Studio passes (four files / 24 tests), and production build passes on the
 available Node 22 host with the expected Node 24 engine warning and existing
 Studio chunk-size warning.
+
+## Campaign-binding checkpoint — 2026-08-12
+
+Agent campaign v2 now retains one generic, content-addressed selection binding.
+For ontology attention it records the allocation and policy identities plus,
+for every selected action, the stable issue/task, action kind, exact retained
+revision, full task-input hash, and purpose-specific semantic input identity.
+Paused → active revisions preserve that body unchanged. Campaign execution
+resolves its payload, tool host, and pre-execution run annotation from the exact
+bound revision; manual runs still resolve the current revision. Historical v1
+campaigns remain replayable, but an old ontology campaign cannot claim a bound
+input and is rejected if someone tries to dispatch it.
+
+The live 64-issue allocation produced a three-task v2 campaign specimen:
+two evidence-rich actions and one ambiguity probe. It remains `PAUSED` and
+`MANUAL_ONLY`. A process restart replayed the complete binding byte-for-byte
+from SQLite. Campaign count moved 20 → 21 while runs stayed 241, invocations
+stayed 498, and known input/output/reasoning tokens stayed
+2,068,225 / 19,328 / 4,904. Campaign creation and replay started zero model or
+provider requests. Workspace checks, all control-plane suites (85 files / 595
+tests), Studio suites (four files / 24 tests), and the production build pass;
+the existing Node 24 engine and Studio chunk-size warnings remain.
 
 ## Non-goals
 

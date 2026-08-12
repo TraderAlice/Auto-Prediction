@@ -97,6 +97,7 @@ export type OntologySearchIssueRevision =
 export interface OntologySearchIssueRevisionStore {
   readonly ontologySearchIssueRevisionStorage:
     OperationalStorageProjection<"revisionId">;
+  loadOntologySearchIssueRevision(revisionId: Hash): OntologySearchIssueRevision | null;
   loadOntologySearchIssueRevisions(limit: number): readonly OntologySearchIssueRevision[];
   saveOntologySearchIssueRevisions(
     revisions: readonly OntologySearchIssueRevision[],

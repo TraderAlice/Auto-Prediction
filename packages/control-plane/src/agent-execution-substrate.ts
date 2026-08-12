@@ -193,8 +193,26 @@ export type WorkloadRoute = Readonly<{
   updatedAt: string;
 }>;
 
-export type AgentCampaign = Readonly<{
-  schemaVersion: "pmh.agent-campaign.v1";
+export type AgentCampaignSelectionTaskBinding = Readonly<{
+  taskId: Hash;
+  workFamilyRef: string;
+  selectionActionRef: Hash;
+  selectionActionKind: string;
+  inputRevisionKind: string;
+  inputRevisionId: Hash;
+  exactInputHash: Hash;
+  semanticInputIdentity: Hash;
+}>;
+
+export type AgentCampaignSelectionBinding = Readonly<{
+  schemaVersion: "pmh.agent-campaign-selection-binding.v1";
+  selectionProtocol: string;
+  selectionIdentity: Hash;
+  selectionPolicyIdentity: Hash;
+  taskBindings: readonly AgentCampaignSelectionTaskBinding[];
+}>;
+
+type AgentCampaignFields = Readonly<{
   campaignId: Hash;
   campaignKey: string;
   revision: number;
@@ -218,6 +236,15 @@ export type AgentCampaign = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+
+export type AgentCampaign =
+  | Readonly<AgentCampaignFields & {
+      schemaVersion: "pmh.agent-campaign.v1";
+    }>
+  | Readonly<AgentCampaignFields & {
+      schemaVersion: "pmh.agent-campaign.v2";
+      selectionBinding: AgentCampaignSelectionBinding;
+    }>;
 
 export type AgentRunAuthorization = Readonly<{
   kind: "MANUAL" | "CAMPAIGN" | "LEGACY_IMPORT";
@@ -1108,18 +1135,69 @@ export function assertWorkloadRoute(value: unknown): WorkloadRoute {
   return record;
 }
 
+export function assertAgentCampaignSelectionBinding(
+  value: unknown,
+): AgentCampaignSelectionBinding {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Agent campaign selection binding is malformed");
+  }
+  const record = value as AgentCampaignSelectionBinding;
+  if (
+    !exactKeys(record, [
+      "schemaVersion", "selectionProtocol", "selectionIdentity",
+      "selectionPolicyIdentity", "taskBindings",
+    ]) || record.schemaVersion !== "pmh.agent-campaign-selection-binding.v1" ||
+    !Array.isArray(record.taskBindings)
+  ) throw new Error("Agent campaign selection binding is invalid");
+  identifier(record.selectionProtocol, "Campaign selection protocol");
+  hash(record.selectionIdentity, "Campaign selection identity");
+  hash(record.selectionPolicyIdentity, "Campaign selection policy identity");
+  const taskIds = new Set<Hash>();
+  let previousTaskId: Hash | null = null;
+  for (const item of record.taskBindings) {
+    if (item === null || typeof item !== "object" || Array.isArray(item) ||
+        !exactKeys(item, [
+          "taskId", "workFamilyRef", "selectionActionRef", "selectionActionKind",
+          "inputRevisionKind", "inputRevisionId", "exactInputHash",
+          "semanticInputIdentity",
+        ])) {
+      throw new Error("Agent campaign task selection binding is invalid");
+    }
+    const taskId = hash(item.taskId, "Campaign selected task ID");
+    if (taskIds.has(taskId) || (previousTaskId !== null && previousTaskId > taskId)) {
+      throw new Error("Agent campaign task selection bindings must be canonical");
+    }
+    taskIds.add(taskId);
+    previousTaskId = taskId;
+    identifier(item.workFamilyRef, "Campaign selection work family ref");
+    hash(item.selectionActionRef, "Campaign selection action ref");
+    identifier(item.selectionActionKind, "Campaign selection action kind");
+    identifier(item.inputRevisionKind, "Campaign input revision kind");
+    hash(item.inputRevisionId, "Campaign input revision ID");
+    hash(item.exactInputHash, "Campaign exact input hash");
+    hash(item.semanticInputIdentity, "Campaign semantic input identity");
+  }
+  return record;
+}
+
 export function assertAgentCampaign(value: unknown): AgentCampaign {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Agent campaign is malformed");
   }
   const record = value as AgentCampaign;
+  const v2 = record.schemaVersion === "pmh.agent-campaign.v2";
   if (
-    !exactKeys(record, [
+    !exactKeys(record, v2 ? [
+      "schemaVersion", "campaignId", "campaignKey", "revision", "status",
+      "executionProfileId", "taskIds", "schedule", "budget", "activatedAt",
+      "activationRef", "createdAt", "externalWriteAuthority", "valueMovingAuthority",
+      "selectionBinding",
+    ] : [
       "schemaVersion", "campaignId", "campaignKey", "revision", "status",
       "executionProfileId", "taskIds", "schedule", "budget", "activatedAt",
       "activationRef", "createdAt", "externalWriteAuthority", "valueMovingAuthority",
     ]) ||
-    record.schemaVersion !== "pmh.agent-campaign.v1" ||
+    !["pmh.agent-campaign.v1", "pmh.agent-campaign.v2"].includes(record.schemaVersion) ||
     !["PAUSED", "ACTIVE"].includes(record.status) ||
     record.externalWriteAuthority !== false || record.valueMovingAuthority !== false ||
     !Array.isArray(record.taskIds) ||
@@ -1140,6 +1218,14 @@ export function assertAgentCampaign(value: unknown): AgentCampaign {
   );
   if (canonicalTaskIds.some((taskId, index) => taskId !== record.taskIds[index])) {
     throw new Error("Agent campaign task membership must be canonical");
+  }
+  if (v2) {
+    const binding = assertAgentCampaignSelectionBinding(record.selectionBinding);
+    const boundTaskIds = binding.taskBindings.map((item) => item.taskId);
+    if (boundTaskIds.length !== canonicalTaskIds.length ||
+        boundTaskIds.some((taskId, index) => taskId !== canonicalTaskIds[index])) {
+      throw new Error("Agent campaign selection must bind every configured task exactly once");
+    }
   }
   if (!["MANUAL_ONLY", "INTERVAL"].includes(record.schedule.kind) ||
       (record.schedule.kind === "MANUAL_ONLY" && record.schedule.intervalMs !== null) ||
@@ -1175,9 +1261,15 @@ export function buildPausedAgentCampaign(input: Readonly<{
   schedule: AgentCampaign["schedule"];
   budget: AgentCampaign["budget"];
   createdAt: string;
+  selectionBinding?: AgentCampaignSelectionBinding;
 }>): AgentCampaign {
+  const selectionBinding = input.selectionBinding === undefined
+    ? undefined
+    : assertAgentCampaignSelectionBinding(input.selectionBinding);
   const body = Object.freeze({
-    schemaVersion: "pmh.agent-campaign.v1" as const,
+    schemaVersion: selectionBinding === undefined
+      ? "pmh.agent-campaign.v1" as const
+      : "pmh.agent-campaign.v2" as const,
     campaignKey: identifier(input.campaignKey, "Campaign key"),
     revision: positiveInteger(input.revision, "Campaign revision", Number.MAX_SAFE_INTEGER),
     status: "PAUSED" as const,
@@ -1190,6 +1282,7 @@ export function buildPausedAgentCampaign(input: Readonly<{
     createdAt: canonicalIso(input.createdAt, "Campaign createdAt"),
     externalWriteAuthority: false as const,
     valueMovingAuthority: false as const,
+    ...(selectionBinding === undefined ? {} : { selectionBinding }),
   });
   return assertAgentCampaign(Object.freeze({ ...body, campaignId: hashCanonical(body) }));
 }

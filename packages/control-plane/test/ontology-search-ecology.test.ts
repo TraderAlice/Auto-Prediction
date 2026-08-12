@@ -489,6 +489,10 @@ describe("ontology search ecology", () => {
         right.revisionId.localeCompare(left.revisionId)
       ),
     );
+    expect(store.loadOntologySearchIssueRevision(revisions[0]!.revisionId))
+      .toEqual(revisions[0]);
+    expect(store.loadOntologySearchIssueRevision(hashCanonical({ missing: true })))
+      .toBeNull();
     expect(store.ontologySearchIssueRevisionStorage).toMatchObject({
       durable: false,
       schemaVersion: 41,

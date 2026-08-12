@@ -201,6 +201,21 @@ no-finding results remain attributable after refresh. Projection and preview
 left 241 runs, 498 invocations, 20 campaigns, and exact token totals unchanged.
 All 593 control-plane tests, Studio tests, checks, and production build pass.
 
+The first Phase 4 prerequisite is now complete. Agent campaign v2 embeds a
+generic immutable selection binding; ontology campaigns bind allocation and
+policy identities to every selected action, stable issue/task, exact retained
+input revision, full input hash, and purpose-specific semantic input identity.
+Payload, first-party tools, and run annotations resolve that same retained
+revision even after catalog rotation. Historical v1 campaigns still replay,
+but cannot masquerade as bound ontology campaigns. A live three-task paused,
+manual-only specimen survived SQLite restart with zero new runs, invocations,
+provider requests, or tokens: the ledger now has 21 campaigns while remaining
+at 241 runs, 498 invocations, and 2,068,225 / 19,328 / 4,904 known
+input/output/reasoning tokens. All 595 control-plane tests, Studio tests,
+checks, and production build pass. The next slice is realized
+allocation-outcome projection; interval recurrence remains unauthorized until
+exact terminal yield/cost evidence exists.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

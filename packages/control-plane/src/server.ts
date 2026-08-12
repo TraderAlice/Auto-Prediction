@@ -96,7 +96,10 @@ import {
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
 } from "./ontology-search-ecology.js";
-import { buildOntologyAgentCampaignPreview } from "./ontology-agent-campaign.js";
+import {
+  buildOntologyAgentCampaignPreview,
+  resolveOntologyAgentTaskRevision,
+} from "./ontology-agent-campaign.js";
 import { buildOntologyAttentionAllocation } from "./ontology-attention-allocation.js";
 import { buildOntologyRelationWorkProjection } from "./ontology-relation-work.js";
 import {
@@ -307,6 +310,7 @@ import {
   effectiveAgentCampaigns,
   pauseAgentCampaign,
   type AgentExecutionStore,
+  type AgentRun,
 } from "./agent-execution-substrate.js";
 import { buildDefaultAgentRuntimePortfolio } from "./agent-runtime-portfolio.js";
 import {
@@ -884,6 +888,7 @@ function supportsOntologySearchIssueRevisions(
   if (store === undefined) return false;
   const candidate = store as Partial<OntologySearchIssueRevisionStore>;
   return candidate.ontologySearchIssueRevisionStorage !== undefined &&
+    typeof candidate.loadOntologySearchIssueRevision === "function" &&
     typeof candidate.loadOntologySearchIssueRevisions === "function" &&
     typeof candidate.saveOntologySearchIssueRevisions === "function";
 }
@@ -2371,12 +2376,17 @@ export function createControlPlane(options?: {
   };
   const ruleEvidenceAgentInput = (taskId: Hash) =>
     ruleEvidenceAgentInputsByTaskId.get(taskId) ?? null;
-  const ontologyAgentTaskRevision = (taskId: Hash) => ontologySearchIssueRevisions
-    .filter((item) => item.task.taskId === taskId)
-    .sort((left, right) =>
-      right.materializedAt.localeCompare(left.materializedAt) ||
-      right.revisionId.localeCompare(left.revisionId)
-    )[0] ?? null;
+  const ontologyAgentTaskRevision = (taskId: Hash, run: AgentRun) =>
+    resolveOntologyAgentTaskRevision({
+      taskId,
+      run,
+      campaigns: agentExecutionRegistry.snapshot().campaigns,
+      currentRevisions: ontologySearchIssueRevisions,
+      ...(ontologySearchIssueRevisionStore === null ? {} : {
+        loadRevision: (revisionId: Hash) =>
+          ontologySearchIssueRevisionStore.loadOntologySearchIssueRevision(revisionId),
+      }),
+    });
   const relationDiscoveryTaskRevision = (taskId: Hash) => relationDiscoveryTaskRevisions
     .filter((item) => item.task.taskId === taskId)
     .sort((left, right) =>
@@ -2396,7 +2406,7 @@ export function createControlPlane(options?: {
         }),
         createInProcessAiSdkAgentRuntimeAdapter({ timeoutMs: 300_000 }),
       ],
-      toolHost: (task, taskPayload) => {
+      toolHost: (task, taskPayload, run) => {
         if (task.kind === "RULE_EVIDENCE_CLAIM") {
           return new RuleEvidenceAgentToolHost(ruleEvidenceAgentInput, (
             context,
@@ -2444,10 +2454,7 @@ export function createControlPlane(options?: {
           });
         }
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
-          const revision = ontologyAgentTaskRevision(task.taskId);
-          if (revision === null) {
-            throw new Error("retained ontology task input is unavailable");
-          }
+          const revision = ontologyAgentTaskRevision(task.taskId, run);
           return revision.schemaVersion === "pmh.ontology-search-issue-revision.v2"
             ? MarketOntologyAgentToolHost.fromIssueRevision(
                 revision.taskContract,
@@ -2479,15 +2486,14 @@ export function createControlPlane(options?: {
         }
         throw new Error("Agent task has no registered first-party tool host");
       },
-      taskPayload: (task) => {
+      taskPayload: (task, run) => {
         if (task.kind === "RULE_EVIDENCE_CLAIM") {
           const input = ruleEvidenceAgentInput(task.taskId);
           if (input === null) throw new Error("retained Agent task input is unavailable");
           return buildRuleEvidenceAgentTaskPayload(input);
         }
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
-          const revision = ontologyAgentTaskRevision(task.taskId);
-          if (revision === null) throw new Error("retained ontology task payload is unavailable");
+          const revision = ontologyAgentTaskRevision(task.taskId, run);
           return revision.schemaVersion === "pmh.ontology-search-issue-revision.v2"
             ? revision.taskContract
             : revision.taskPayload;
@@ -2503,10 +2509,7 @@ export function createControlPlane(options?: {
       },
       runAnnotations: (task, run) => {
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
-          const revision = ontologyAgentTaskRevision(task.taskId);
-          if (revision === null) {
-            throw new Error("retained ontology task input revision is unavailable");
-          }
+          const revision = ontologyAgentTaskRevision(task.taskId, run);
           return Object.freeze([buildAgentInputRevisionRunAnnotation({
             task,
             run,
@@ -4493,6 +4496,7 @@ export function createControlPlane(options?: {
           taskIds: preview.taskIds,
           schedule: preview.schedule,
           budget: preview.budget,
+          selectionBinding: preview.selectionBinding,
           createdAt: new Date().toISOString(),
         });
         agentExecutionRegistry.saveBatch({ campaigns: [campaign] });

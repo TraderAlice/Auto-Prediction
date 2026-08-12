@@ -1,15 +1,18 @@
 import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it } from "vitest";
 import {
+  activateAgentCampaign,
   buildDefaultAgentRuntimePortfolio,
   buildAgentRun,
   buildAgentTask,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildOntologyAgentCampaignPreview,
+  buildPausedAgentCampaign,
   defaultAiRuntimeConfiguration,
   emptyAgentExecutionSnapshot,
   materializeOntologySearchIssueRevisions,
+  resolveOntologyAgentTaskRevision,
   selectOntologyCampaignIssues,
   type DiscoveryCatalogListing,
 } from "../src/index.js";
@@ -121,6 +124,12 @@ describe("ontology Agent campaign selection", () => {
         providerRequestsStartedByRead: 0,
         modelInvocationsStartedByRead: 0,
       },
+      selectionBinding: {
+        schemaVersion: "pmh.agent-campaign-selection-binding.v1",
+        selectionProtocol: "ONTOLOGY_ATTENTION_ALLOCATION_V1",
+        selectionIdentity: preview.allocation.projectionIdentity,
+        selectionPolicyIdentity: preview.allocation.policy.policyIdentity,
+      },
       creationEligible: true,
       dispatchEligible: true,
       schedule: { kind: "MANUAL_ONLY", intervalMs: null },
@@ -137,7 +146,117 @@ describe("ontology Agent campaign selection", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    expect(preview.selectionBinding.taskBindings).toHaveLength(selected.length);
+    expect(preview.selectionBinding.taskBindings).toEqual(
+      [...preview.selectionBinding.taskBindings].sort((left, right) =>
+        left.taskId.localeCompare(right.taskId)
+      ),
+    );
     expect(preview.previewIdentity).toMatch(/^sha256:/u);
+  });
+
+  it("resolves campaign execution from the exact retained allocation revision", () => {
+    const work = fixture();
+    const preview = buildOntologyAgentCampaignPreview({
+      ...work,
+      capability: {
+        executionProfileId: work.profile.executionProfileId,
+        configurationStatus: "CONFIGURED",
+        runtimeStatus: "AVAILABLE",
+        serviceCapability: "USABLE",
+        dispatchEligibility: "ELIGIBLE",
+        diagnostic: "Codex app-server account is usable",
+        observation: null,
+        inferenceRequestsStarted: 0,
+        modelInvocationsStarted: 0,
+        secretMaterialRetained: false,
+      },
+    });
+    const paused = buildPausedAgentCampaign({
+      campaignKey: preview.campaignKey,
+      revision: 1,
+      executionProfileId: preview.executionProfile.executionProfileId,
+      taskIds: preview.taskIds,
+      schedule: preview.schedule,
+      budget: preview.budget,
+      selectionBinding: preview.selectionBinding,
+      createdAt: NOW,
+    });
+    const active = activateAgentCampaign(
+      paused,
+      "operator:ontology-binding-test",
+      "2026-08-12T07:01:00.000Z",
+    );
+    const binding = preview.selectionBinding.taskBindings[0]!;
+    const selected = work.revisions.find((item) =>
+      item.revisionId === binding.inputRevisionId
+    )!;
+    const run = buildAgentRun({
+      task: selected.task,
+      executionProfile: work.profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "CAMPAIGN",
+        campaign: active,
+        authorizedAt: "2026-08-12T07:01:00.000Z",
+      },
+      createdAt: "2026-08-12T07:01:00.000Z",
+    });
+
+    expect(resolveOntologyAgentTaskRevision({
+      taskId: selected.task.taskId,
+      run,
+      campaigns: [active],
+      currentRevisions: [],
+      loadRevision: (revisionId) => revisionId === selected.revisionId ? selected : null,
+    })).toEqual(selected);
+    expect(active).toMatchObject({
+      schemaVersion: "pmh.agent-campaign.v2",
+      selectionBinding: preview.selectionBinding,
+    });
+  });
+
+  it("rejects legacy ontology campaigns that cannot prove their selected input", () => {
+    const work = fixture();
+    const selected = work.revisions[0]!;
+    const paused = buildPausedAgentCampaign({
+      campaignKey: "legacy-ontology-campaign",
+      revision: 1,
+      executionProfileId: work.profile.executionProfileId,
+      taskIds: [selected.task.taskId],
+      schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+      budget: {
+        maximumConcurrentRuns: 1,
+        maximumModelInvocations: 1,
+        maximumInputTokens: "1000",
+        maximumOutputTokens: "1000",
+        maximumWallClockMs: 60_000,
+      },
+      createdAt: NOW,
+    });
+    const active = activateAgentCampaign(
+      paused,
+      "operator:legacy-test",
+      "2026-08-12T07:01:00.000Z",
+    );
+    const run = buildAgentRun({
+      task: selected.task,
+      executionProfile: work.profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "CAMPAIGN",
+        campaign: active,
+        authorizedAt: "2026-08-12T07:01:00.000Z",
+      },
+      createdAt: "2026-08-12T07:01:00.000Z",
+    });
+
+    expect(() => resolveOntologyAgentTaskRevision({
+      taskId: selected.task.taskId,
+      run,
+      campaigns: [active],
+      currentRevisions: work.revisions,
+    })).toThrow(/no immutable attention allocation binding/iu);
   });
 
   it("keeps a campaign proposal non-dispatchable until preflight is usable", () => {

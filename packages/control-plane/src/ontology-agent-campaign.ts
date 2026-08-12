@@ -1,15 +1,20 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type {
+  AgentCampaign,
+  AgentCampaignSelectionBinding,
   AgentExecutionSnapshot,
+  AgentRun,
   ExecutionProfile,
   WorkloadRoute,
 } from "./agent-execution-substrate.js";
+import { assertAgentCampaignSelectionBinding } from "./agent-execution-substrate.js";
 import type { ExecutionCapabilityProjection } from "./agent-runtime-adapter.js";
 import type {
   OntologySearchIssueRevision,
 } from "./ontology-search-ecology.js";
 import {
   buildOntologyAttentionAllocation,
+  ontologyIssueResearchInputIdentity,
   type OntologyAttentionAllocationProjection,
 } from "./ontology-attention-allocation.js";
 import type { MarketOntologyAgentProposal } from "./market-ontology-agent-tools.js";
@@ -22,6 +27,7 @@ export type OntologyAgentCampaignPreview = Readonly<{
   executionProfile: ExecutionProfile;
   capability: ExecutionCapabilityProjection;
   allocation: OntologyAttentionAllocationProjection;
+  selectionBinding: AgentCampaignSelectionBinding;
   taskIds: readonly Hash[];
   issueIds: readonly Hash[];
   selectedLaneCounts: Readonly<{
@@ -50,6 +56,84 @@ export type OntologyAgentCampaignPreview = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+
+const ONTOLOGY_ATTENTION_SELECTION_PROTOCOL =
+  "ONTOLOGY_ATTENTION_ALLOCATION_V1" as const;
+const ONTOLOGY_INPUT_REVISION_KIND = "ONTOLOGY_SEARCH_ISSUE" as const;
+
+export function buildOntologyCampaignSelectionBinding(input: Readonly<{
+  allocation: OntologyAttentionAllocationProjection;
+  revisions: readonly OntologySearchIssueRevision[];
+}>): AgentCampaignSelectionBinding {
+  const byRevision = new Map(input.revisions.map((revision) =>
+    [revision.revisionId, revision] as const
+  ));
+  return assertAgentCampaignSelectionBinding(Object.freeze({
+    schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
+    selectionProtocol: ONTOLOGY_ATTENTION_SELECTION_PROTOCOL,
+    selectionIdentity: input.allocation.projectionIdentity,
+    selectionPolicyIdentity: input.allocation.policy.policyIdentity,
+    taskBindings: Object.freeze(input.allocation.portfolio.map((action) => {
+      const revision = byRevision.get(action.revisionId);
+      if (revision === undefined || revision.issueId !== action.issueId ||
+          revision.task.taskId !== action.taskId) {
+        throw new Error("ontology allocation action has no exact selected revision");
+      }
+      return Object.freeze({
+        taskId: action.taskId,
+        workFamilyRef: `ontology-issue:${action.issueId}`,
+        selectionActionRef: action.actionId,
+        selectionActionKind: action.kind,
+        inputRevisionKind: ONTOLOGY_INPUT_REVISION_KIND,
+        inputRevisionId: action.revisionId,
+        exactInputHash: hashCanonical(revision.taskPayload),
+        semanticInputIdentity: ontologyIssueResearchInputIdentity(revision),
+      });
+    }).sort((left, right) => left.taskId.localeCompare(right.taskId))),
+  }));
+}
+
+export function resolveOntologyAgentTaskRevision(input: Readonly<{
+  taskId: Hash;
+  run: AgentRun;
+  campaigns: readonly AgentCampaign[];
+  currentRevisions: readonly OntologySearchIssueRevision[];
+  loadRevision?: (revisionId: Hash) => OntologySearchIssueRevision | null;
+}>): OntologySearchIssueRevision {
+  const latest = [...input.currentRevisions]
+    .filter((revision) => revision.task.taskId === input.taskId)
+    .sort((left, right) =>
+      right.materializedAt.localeCompare(left.materializedAt) ||
+      right.revisionId.localeCompare(left.revisionId)
+    )[0] ?? null;
+  if (input.run.authorization.kind !== "CAMPAIGN") {
+    if (latest === null) throw new Error("retained ontology task input is unavailable");
+    return latest;
+  }
+  const campaign = input.campaigns.find((item) =>
+    item.campaignId === input.run.authorization.campaignId
+  );
+  if (campaign === undefined) throw new Error("ontology run campaign is unavailable");
+  if (campaign.schemaVersion !== "pmh.agent-campaign.v2" ||
+      campaign.selectionBinding.selectionProtocol !== ONTOLOGY_ATTENTION_SELECTION_PROTOCOL) {
+    throw new Error("ontology campaign has no immutable attention allocation binding");
+  }
+  const binding = campaign.selectionBinding.taskBindings.find((item) =>
+    item.taskId === input.taskId
+  );
+  if (binding === undefined || binding.inputRevisionKind !== ONTOLOGY_INPUT_REVISION_KIND) {
+    throw new Error("ontology campaign has no exact task input binding");
+  }
+  const revision = input.loadRevision?.(binding.inputRevisionId) ??
+    input.currentRevisions.find((item) => item.revisionId === binding.inputRevisionId) ?? null;
+  if (revision === null || revision.task.taskId !== input.taskId ||
+      binding.workFamilyRef !== `ontology-issue:${revision.issueId}` ||
+      binding.exactInputHash !== hashCanonical(revision.taskPayload) ||
+      binding.semanticInputIdentity !== ontologyIssueResearchInputIdentity(revision)) {
+    throw new Error("ontology campaign exact task input binding cannot be resolved");
+  }
+  return revision;
+}
 
 function latestOntologyRoute(snapshot: AgentExecutionSnapshot): WorkloadRoute {
   const route = [...snapshot.workloadRoutes]
@@ -120,6 +204,10 @@ export function buildOntologyAgentCampaignPreview(input: Readonly<{
     ...(input.relationWork === undefined ? {} : { relationWork: input.relationWork }),
   });
   const selected = revisionsForAllocation(input.revisions, allocation);
+  const selectionBinding = buildOntologyCampaignSelectionBinding({
+    allocation,
+    revisions: selected,
+  });
   const eligibleCount = allocation.actionableIssueCount;
   const sourceOntologyIdentity = selected[0]?.ontologyIdentity ??
     input.revisions[0]?.ontologyIdentity ?? null;
@@ -132,6 +220,7 @@ export function buildOntologyAgentCampaignPreview(input: Readonly<{
     executionProfile,
     capability: input.capability,
     allocation,
+    selectionBinding,
     taskIds: Object.freeze(selected.map((item) => item.task.taskId)),
     issueIds: Object.freeze(selected.map((item) => item.issueId)),
     selectedLaneCounts: Object.freeze({

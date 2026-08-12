@@ -83,8 +83,12 @@ export type AgentCampaignDispatcherOptions = Readonly<{
   credentialBroker: AgentCredentialBroker;
   capabilityService?: AgentExecutionCapabilityService;
   adapters: readonly AgentRuntimeAdapter[];
-  toolHost: AgentToolHost | ((task: AgentTask, taskPayload: unknown) => AgentToolHost);
-  taskPayload: (task: AgentTask) => unknown;
+  toolHost: AgentToolHost | ((
+    task: AgentTask,
+    taskPayload: unknown,
+    run: AgentRun,
+  ) => AgentToolHost);
+  taskPayload: (task: AgentTask, run: AgentRun) => unknown;
   runAnnotations?: (
     task: AgentTask,
     run: AgentRun,
@@ -104,8 +108,12 @@ export class AgentCampaignDispatcher {
   readonly #credentialBroker: AgentCredentialBroker;
   readonly #capabilityService: AgentExecutionCapabilityService | undefined;
   readonly #adapters: ReadonlyMap<string, AgentRuntimeAdapter>;
-  readonly #toolHost: (task: AgentTask, taskPayload: unknown) => AgentToolHost;
-  readonly #taskPayload: (task: AgentTask) => unknown;
+  readonly #toolHost: (
+    task: AgentTask,
+    taskPayload: unknown,
+    run: AgentRun,
+  ) => AgentToolHost;
+  readonly #taskPayload: (task: AgentTask, run: AgentRun) => unknown;
   readonly #runAnnotations: (
     task: AgentTask,
     run: AgentRun,
@@ -382,7 +390,7 @@ export class AgentCampaignDispatcher {
     }
     let result: Awaited<ReturnType<typeof executePreparedAgentRun>>;
     try {
-      const taskPayload = this.#taskPayload(task);
+      const taskPayload = this.#taskPayload(task, run);
       result = await executePreparedAgentRun({
         run,
         task,
@@ -393,7 +401,7 @@ export class AgentCampaignDispatcher {
         executionProfile: profile,
         adapter,
         credentialBroker: this.#credentialBroker,
-        toolHost: this.#toolHost(task, taskPayload),
+        toolHost: this.#toolHost(task, taskPayload, run),
         now: this.#now,
         ...(campaign === null ? {} : {
           beforeModelInvocation: () => {
