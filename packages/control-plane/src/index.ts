@@ -2,6 +2,7 @@ export * from "./book-desk.js";
 export * from "./anonymous-simulation-materializer.js";
 export * from "./catalog-discovery.js";
 export * from "./catalog-observation.js";
+export * from "./catalog-contract-text-evidence.js";
 export * from "./catalog-refresh-scheduler.js";
 export * from "./candidate-watch.js";
 export * from "./discovery.js";

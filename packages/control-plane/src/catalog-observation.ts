@@ -40,6 +40,11 @@ import type {
   DiscoveryCatalogContext,
   DiscoveryCatalogListing,
 } from "./types.js";
+import {
+  deriveCatalogContractTextEvidence,
+  type CatalogContractTextEvidence,
+  type CatalogContractTextEvidenceStore,
+} from "./catalog-contract-text-evidence.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 10_000_000;
@@ -614,6 +619,7 @@ export class CatalogObservationDesk {
   readonly #retentionLimit: number;
   readonly #contextMaxAgeMs: number;
   readonly #store: CatalogObservationStore | undefined;
+  readonly #contractTextStore: CatalogContractTextEvidenceStore | undefined;
   readonly #states: Map<string, SourceState>;
   #refreshing: Promise<CatalogObservationProjection> | null = null;
 
@@ -625,6 +631,7 @@ export class CatalogObservationDesk {
     retentionLimit?: number;
     contextMaxAgeMs?: number;
     store?: CatalogObservationStore;
+    contractTextStore?: CatalogContractTextEvidenceStore;
     sources?: readonly CatalogObservationSource[];
   }> = {}) {
     this.#fetcher = options.fetcher ?? fetch;
@@ -647,6 +654,7 @@ export class CatalogObservationDesk {
       "catalog observation context maximum age",
     );
     this.#store = options.store;
+    this.#contractTextStore = options.contractTextStore;
     const sources = options.sources ?? catalogObservationSources;
     if (new Set(sources.map((source) => source.venueId)).size !== sources.length) {
       throw new Error("catalog observation sources must have unique venue IDs");
@@ -1006,6 +1014,30 @@ export class CatalogObservationDesk {
 
   public registeredVenueIds(): readonly string[] {
     return Object.freeze([...this.#states.keys()].sort());
+  }
+
+  public materializeContractTextEvidence(
+    listingRef: string,
+  ): CatalogContractTextEvidence {
+    const matching = [...this.#states.values()].flatMap((state) => {
+      const listing = state.listings.find((item) => item.listingRef === listingRef);
+      return listing === undefined || state.latest === null
+        ? []
+        : [{ state, listing }] as const;
+    });
+    if (matching.length !== 1) {
+      throw new Error("catalog contract-text listing is unavailable or ambiguous");
+    }
+    const item = matching[0]!;
+    if (item.state.latest === null) {
+      throw new Error("catalog contract-text observation is unavailable");
+    }
+    const evidence = deriveCatalogContractTextEvidence({
+      observation: item.state.latest,
+      source: item.state.source,
+      listingRef: item.listing.listingRef,
+    });
+    return this.#contractTextStore?.saveCatalogContractTextEvidence(evidence) ?? evidence;
   }
 
   public radarSearchContext(

@@ -9,6 +9,8 @@ import {
   RadarCandidateUnavailableError,
   type CatalogObservationStore,
 } from "./catalog-observation.js";
+import type { CatalogContractTextEvidenceStore } from
+  "./catalog-contract-text-evidence.js";
 import {
   CatalogRefreshScheduler,
   parseCatalogRefreshInterval,
@@ -636,6 +638,15 @@ function supportsCatalogObservations(
     typeof candidate.loadCatalogObservations === "function" &&
     typeof candidate.saveCatalogObservation === "function"
   );
+}
+
+function supportsCatalogContractTextEvidence(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & CatalogContractTextEvidenceStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<CatalogContractTextEvidenceStore>;
+  return typeof candidate.loadCatalogContractTextEvidence === "function" &&
+    typeof candidate.saveCatalogContractTextEvidence === "function";
 }
 
 function supportsCandidateWatch(
@@ -1282,6 +1293,9 @@ export function createControlPlane(options?: {
     new CatalogObservationDesk({
       ...(supportsCatalogObservations(options?.discoveryStore)
         ? { store: options.discoveryStore }
+        : {}),
+      ...(supportsCatalogContractTextEvidence(options?.discoveryStore)
+        ? { contractTextStore: options.discoveryStore }
         : {}),
     });
   const catalogRefreshScheduler =
@@ -5110,7 +5124,7 @@ export function createControlPlane(options?: {
           Object.freeze({
             mode: "MEMORY" as const,
             durable: false,
-            schemaVersion: 44,
+            schemaVersion: 45,
             idempotencyKey: "revisionId" as const,
           }),
         automaticDispatch: false,
@@ -5861,7 +5875,7 @@ export function createControlPlane(options?: {
         storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
           mode: "MEMORY" as const,
           durable: false,
-          schemaVersion: 44,
+          schemaVersion: 45,
           idempotencyKey: "proposalId" as const,
         }),
         authority: "PROPOSE_ONLY",

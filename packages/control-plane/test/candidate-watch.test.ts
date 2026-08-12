@@ -320,7 +320,7 @@ describe("candidate watch desk", () => {
       refreshStorage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 44,
+        schemaVersion: 45,
       },
       refreshHistory: [
         {

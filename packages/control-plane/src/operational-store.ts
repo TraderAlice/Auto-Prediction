@@ -18,6 +18,11 @@ import {
   type StoredCatalogObservation,
 } from "./catalog-observation.js";
 import {
+  assertCatalogContractTextEvidence,
+  type CatalogContractTextEvidence,
+  type CatalogContractTextEvidenceStore,
+} from "./catalog-contract-text-evidence.js";
+import {
   verifyCandidateWatchRefreshRecord,
   verifyStoredCandidateBookObservation,
   type CandidateBookObservationStore,
@@ -255,7 +260,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 44;
+const SCHEMA_VERSION = 45;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -278,6 +283,13 @@ type StoredCatalogObservationRow = Readonly<{
   record_json: string;
   record_hash: string;
   raw_bytes: Uint8Array;
+}>;
+
+type CatalogContractTextEvidenceRow = Readonly<{
+  artifact_id: string;
+  catalog_observation_id: string;
+  record_json: string;
+  record_hash: string;
 }>;
 
 type StoredAiUsageEventRow = Readonly<{
@@ -644,6 +656,31 @@ function parseStoredCatalogObservation(
     throw new Error("SQLite catalog observation record identity mismatch");
   }
   return verifyStoredCatalogObservation({ record, bytes: row.raw_bytes });
+}
+
+function parseCatalogContractTextEvidence(
+  value: unknown,
+): CatalogContractTextEvidence {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite catalog contract-text evidence row is malformed");
+  }
+  const row = value as Partial<CatalogContractTextEvidenceRow>;
+  if (
+    typeof row.artifact_id !== "string" ||
+    typeof row.catalog_observation_id !== "string" ||
+    typeof row.record_json !== "string" || typeof row.record_hash !== "string"
+  ) throw new Error("SQLite catalog contract-text evidence row has invalid columns");
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite catalog contract-text evidence contains invalid JSON");
+  }
+  const artifact = assertCatalogContractTextEvidence(decoded);
+  if (
+    artifact.artifactId !== row.artifact_id ||
+    artifact.catalogObservationId !== row.catalog_observation_id ||
+    hashCanonical(artifact) !== row.record_hash
+  ) throw new Error("SQLite catalog contract-text evidence identity mismatch");
+  return artifact;
 }
 
 function parseStoredCandidateBookObservation(
@@ -1870,6 +1907,7 @@ export class SqliteOperationalStore
     DiscoveryRunStore,
     InvestigationRecordStore,
     CatalogObservationStore,
+    CatalogContractTextEvidenceStore,
     CandidateBookObservationStore,
     CandidateWatchRefreshStore,
     MarketArchaeologistRecordStore,
@@ -1914,6 +1952,8 @@ export class SqliteOperationalStore
     schemaVersion: number;
     idempotencyKey: "observationId";
   }>;
+  public readonly catalogContractTextEvidenceStorage:
+    OperationalStorageProjection<"artifactId">;
   public readonly candidateBookObservationStorage: Readonly<{
     mode: "MEMORY" | "SQLITE_WAL";
     durable: boolean;
@@ -2044,6 +2084,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "observationId",
+    });
+    this.catalogContractTextEvidenceStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactId",
     });
     this.candidateBookObservationStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2334,6 +2380,12 @@ export class SqliteOperationalStore
       .prepare(
         `SELECT name FROM sqlite_master
          WHERE type = 'table' AND name = 'search_lease_records'`,
+      )
+      .get() !== undefined;
+    const catalogContractTextEvidenceTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'catalog_contract_text_evidence'`,
       )
       .get() !== undefined;
     const searchLeaseCorpusTableExists = this.#database
@@ -4363,6 +4415,34 @@ export class SqliteOperationalStore
           ) STRICT;
         `);
       }
+      if (current < 45 || !catalogContractTextEvidenceTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS catalog_contract_text_evidence (
+            artifact_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_id) = 71 AND artifact_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            catalog_observation_id TEXT NOT NULL CHECK (
+              length(catalog_observation_id) = 84 AND
+              catalog_observation_id GLOB 'catalog-observation:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL,
+            source_raw_hash TEXT NOT NULL CHECK (
+              length(source_raw_hash) = 71 AND source_raw_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            received_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (catalog_observation_id)
+              REFERENCES catalog_observations(observation_id) ON DELETE RESTRICT
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS catalog_contract_text_evidence_listing
+            ON catalog_contract_text_evidence (
+              listing_ref, received_at DESC, artifact_id DESC
+            );
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -4703,6 +4783,11 @@ export class SqliteOperationalStore
              SELECT observation_id
              FROM catalog_observations
              WHERE venue_id = ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM catalog_contract_text_evidence
+                 WHERE catalog_contract_text_evidence.catalog_observation_id =
+                       catalog_observations.observation_id
+               )
              ORDER BY rowid DESC
              LIMIT -1 OFFSET ?
            )`,
@@ -4725,6 +4810,78 @@ export class SqliteOperationalStore
       const stored = parseStoredCatalogObservation(row);
       if (hashCanonical(stored.record) !== recordHash) {
         throw new Error("observationId is already bound to another record");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadCatalogContractTextEvidence(
+    limit: number,
+  ): readonly CatalogContractTextEvidence[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_id, catalog_observation_id, record_json, record_hash
+       FROM catalog_contract_text_evidence
+       ORDER BY received_at DESC, artifact_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseCatalogContractTextEvidence));
+  }
+
+  public saveCatalogContractTextEvidence(
+    evidenceInput: CatalogContractTextEvidence,
+  ): CatalogContractTextEvidence {
+    this.#assertOpen();
+    const evidence = assertCatalogContractTextEvidence(evidenceInput);
+    const recordJson = canonicalJson(evidence);
+    const recordHash = hashCanonical(evidence);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const source = this.#database.prepare(
+        `SELECT observation_id, record_json, record_hash, raw_bytes
+         FROM catalog_observations WHERE observation_id = ?`,
+      ).get(evidence.catalogObservationId);
+      if (source === undefined) {
+        throw new Error("catalog contract-text evidence lost its raw observation");
+      }
+      const observation = parseStoredCatalogObservation(source);
+      if (
+        observation.record.rawHash !== evidence.sourceRawHash ||
+        observation.record.receivedAt !== evidence.receivedAt ||
+        observation.record.venueId !== evidence.venueId ||
+        observation.record.protocolIdentity !== evidence.protocolIdentity ||
+        observation.record.schemaVersion !== "pmh.catalog-observation.v2" ||
+        observation.record.normalizerIdentity !== evidence.normalizerIdentity
+      ) throw new Error("catalog contract-text evidence source lineage is inconsistent");
+      this.#database.prepare(
+        `INSERT INTO catalog_contract_text_evidence (
+           artifact_id, catalog_observation_id, listing_ref, source_raw_hash,
+           received_at, record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(artifact_id) DO NOTHING`,
+      ).run(
+        evidence.artifactId,
+        evidence.catalogObservationId,
+        evidence.listingRef,
+        evidence.sourceRawHash,
+        evidence.receivedAt,
+        recordJson,
+        recordHash,
+      );
+      const row = this.#database.prepare(
+        `SELECT artifact_id, catalog_observation_id, record_json, record_hash
+         FROM catalog_contract_text_evidence WHERE artifact_id = ?`,
+      ).get(evidence.artifactId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain catalog contract-text evidence");
+      }
+      const stored = parseCatalogContractTextEvidence(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("catalog contract-text artifact is already bound elsewhere");
       }
       this.#database.exec("COMMIT");
       return stored;

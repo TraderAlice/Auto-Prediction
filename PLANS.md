@@ -1529,6 +1529,15 @@ selected runtime. The next active work is therefore provider routing for this
 desk plus a source-hashed catalog-rich-text evidence artifact; a second model
 attempt is prohibited until both exist.
 
+The active continuation is now
+[`plans/catalog-contract-text-evidence.md`](plans/catalog-contract-text-evidence.md).
+It treats venue catalog contract text as a first-class evidence object distinct
+from a linked PDF: one retained anonymous observation, normalizer identity,
+exact listing identity, field name and text hash must travel together. The
+first slice is provider-free and additive. Only after durable retention and
+requirement matching qualify may a provider-neutral Rule Evidence AgentTask
+interpret the exact LAFC text through its selected execution profile.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.
