@@ -70,7 +70,7 @@ free text is not a result, and a catalog snapshot change alone is not novelty.
 
 ## Phase 3 — bounded recurring wake-up
 
-- [ ] Add a configurable discovery-cycle interval that recomputes observation,
+- [x] Add a configurable discovery-cycle interval that recomputes observation,
   allocation and membership but starts no run unless the lineage is explicitly
   active, current membership is runnable and budget remains.
 - [ ] Keep concurrency at one for the initial flywheel and use
@@ -125,6 +125,18 @@ within the one-second bound; idle CPU stayed around 0–0.9% with only brief
 single-digit/low-teens scheduler pulses, instead of recurring multi-second
 100% event-loop stalls. This is the intended control-loop ontology: elapsed
 time authorizes a check, while changed evidence authorizes recomputation.
+
+The bounded discovery cycle is now explicit and separately observable. Its
+default 60-second interval may be configured from 1 second to 24 hours or
+disabled. A wake-up only reconciles evolving membership for an already-retained
+research-attention relation intent; it cannot create the intent, activate a
+paused campaign, call a provider/model, or dispatch a run. Agent Operations
+shows wake count and membership-change count alongside the zero-provider,
+zero-model, no-activation contract. The frozen attention allocation and exact
+targets share the same research-state revision, so an unchanged wake-up is an
+O(1) read of the last evidence-bound decision rather than a periodic rebuild of
+the ontology graph. The independent campaign dispatcher remains the only path
+from an explicitly active lineage to a runnable, budgeted Agent attempt.
 
 ## Initial qualification
 
