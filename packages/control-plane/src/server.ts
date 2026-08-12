@@ -114,6 +114,7 @@ import {
   compileRelationDiscoveryFindingsForSemanticReview,
   type RelationDiscoveryProposalCompilation,
 } from "./relation-discovery-semantic-bridge.js";
+import { buildResearchAttentionAllocation } from "./research-attention-allocation.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -163,6 +164,7 @@ import {
   SemanticReviewScheduler,
   type SemanticReviewAttributionSource,
   type SemanticReviewCandidate,
+  type SemanticReviewJobRecord,
   type SemanticReviewSchedulerStore,
 } from "./semantic-review-scheduler.js";
 import {
@@ -1590,6 +1592,22 @@ export function createControlPlane(options?: {
         relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
     });
   };
+  const semanticReviewJobsForProposalIds = (
+    proposalIds: readonly Hash[],
+  ) => supportsSemanticReviewSchedulerRecords(options?.discoveryStore) &&
+      options.discoveryStore.loadSemanticReviewJobRecordsByProposalIds !== undefined
+    ? options.discoveryStore.loadSemanticReviewJobRecordsByProposalIds(proposalIds)
+    : semanticReviewScheduler.projection().jobs.filter((item) =>
+        proposalIds.includes(item.proposalId)
+      );
+  const probabilityJobsForProposalIds = (
+    proposalIds: readonly Hash[],
+  ) => supportsProbabilityEstimationSchedulerRecords(options?.discoveryStore) &&
+      options.discoveryStore.loadProbabilityEstimationJobRecordsByProposalIds !== undefined
+    ? options.discoveryStore.loadProbabilityEstimationJobRecordsByProposalIds(proposalIds)
+    : probabilityEstimationScheduler.projection().jobs.filter((item) =>
+        proposalIds.includes(item.proposalId)
+      );
   const baseSemanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
     const relationCompilations = relationDiscoveryProposalCompilations();
     const issues = new Map(
@@ -3649,11 +3667,19 @@ export function createControlPlane(options?: {
         ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
       const findings = relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [];
       const proposalCompilations = relationDiscoveryProposalCompilations();
-      const semanticReviewJobsByProposal = new Map(
-        semanticReviewScheduler.projection().jobs.map((item) => [item.proposalId, item] as const),
-      );
+      const proposalIds = Object.freeze([...new Set(proposalCompilations.map((item) =>
+        item.proposal.proposalId
+      ))].sort());
+      const semanticReviewJobsByProposal = new Map<Hash, SemanticReviewJobRecord>();
+      for (const job of semanticReviewJobsForProposalIds(proposalIds)) {
+        const prior = semanticReviewJobsByProposal.get(job.proposalId);
+        if (prior === undefined || job.updatedAt > prior.updatedAt ||
+            (job.updatedAt === prior.updatedAt && job.jobId > prior.jobId)) {
+          semanticReviewJobsByProposal.set(job.proposalId, job);
+        }
+      }
       const probabilityJobsByProposal = new Map<Hash, ProbabilityEstimationJobRecord[]>();
-      for (const job of probabilityEstimationScheduler.projection().jobs) {
+      for (const job of probabilityJobsForProposalIds(proposalIds)) {
         const retained = probabilityJobsByProposal.get(job.proposalId) ?? [];
         retained.push(job);
         probabilityJobsByProposal.set(job.proposalId, retained);
@@ -3789,6 +3815,42 @@ export function createControlPlane(options?: {
       writeJson(response, 200, Object.freeze({
         ...body,
         projectionIdentity: hashCanonical(identityBody),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/research-attention-allocation"
+    ) {
+      await ready;
+      const proposals = marketOntologyAgentProposalStore
+        ?.loadMarketOntologyAgentProposals(200) ?? [];
+      const ontologyRevisions = ontologySearchIssueRevisionStore
+        ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+      const relationWork = buildOntologyRelationWorkProjection({
+        proposals,
+        revisions: ontologyRevisions,
+        execution: agentExecutionRegistry.snapshot(),
+      });
+      const taskRevisions = relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
+      const findings = relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [];
+      const proposalCompilations = relationDiscoveryProposalCompilations();
+      const proposalIds = Object.freeze([...new Set(proposalCompilations.map((item) =>
+        item.proposal.proposalId
+      ))].sort());
+      const observedAt = new Date(
+        Math.floor(Date.now() / 3_600_000) * 3_600_000,
+      ).toISOString();
+      writeJson(response, 200, buildResearchAttentionAllocation({
+        observedAt,
+        relationWork,
+        taskRevisions,
+        findings,
+        proposalCompilations,
+        semanticReviewJobs: semanticReviewJobsForProposalIds(proposalIds),
+        probabilityJobs: probabilityJobsForProposalIds(proposalIds),
+        execution: agentExecutionRegistry.snapshot(),
       }));
       return;
     }

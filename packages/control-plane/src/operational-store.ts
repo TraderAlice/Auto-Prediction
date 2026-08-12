@@ -5657,6 +5657,27 @@ export class SqliteOperationalStore
     return Object.freeze(rows.map(parseProbabilityEstimationJobRecord));
   }
 
+  public loadProbabilityEstimationJobRecordsByProposalIds(
+    proposalIds: readonly Hash[],
+  ): readonly ProbabilityEstimationJobRecord[] {
+    this.#assertOpen();
+    if (proposalIds.length === 0) return Object.freeze([]);
+    if (proposalIds.length > 512 || new Set(proposalIds).size !== proposalIds.length ||
+        proposalIds.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(item))) {
+      throw new Error("probability estimation proposal lineage query is invalid or unbounded");
+    }
+    const placeholders = proposalIds.map(() => "?").join(", ");
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM probability_estimation_jobs
+         WHERE json_extract(record_json, '$.proposalId') IN (${placeholders})
+         ORDER BY updated_at DESC, job_id DESC`,
+      )
+      .all(...proposalIds);
+    return Object.freeze(rows.map(parseProbabilityEstimationJobRecord));
+  }
+
   public saveProbabilityEstimationJobRecord(
     record: ProbabilityEstimationJobRecord,
     retentionLimit: number,
@@ -7045,6 +7066,27 @@ export class SqliteOperationalStore
          LIMIT ?`,
       )
       .all(limit);
+    return Object.freeze(rows.map(parseSemanticReviewJobRecord));
+  }
+
+  public loadSemanticReviewJobRecordsByProposalIds(
+    proposalIds: readonly Hash[],
+  ): readonly SemanticReviewJobRecord[] {
+    this.#assertOpen();
+    if (proposalIds.length === 0) return Object.freeze([]);
+    if (proposalIds.length > 512 || new Set(proposalIds).size !== proposalIds.length ||
+        proposalIds.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(item))) {
+      throw new Error("semantic review proposal lineage query is invalid or unbounded");
+    }
+    const placeholders = proposalIds.map(() => "?").join(", ");
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM semantic_review_jobs
+         WHERE json_extract(record_json, '$.proposalId') IN (${placeholders})
+         ORDER BY updated_at DESC, job_id DESC`,
+      )
+      .all(...proposalIds);
     return Object.freeze(rows.map(parseSemanticReviewJobRecord));
   }
 

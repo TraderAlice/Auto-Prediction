@@ -180,6 +180,9 @@ export interface SemanticReviewSchedulerStore {
   readonly semanticReviewJobStorage: OperationalStorageProjection<"jobId">;
   readonly semanticReviewNotificationStorage: OperationalStorageProjection<"notificationId">;
   loadSemanticReviewJobRecords(limit: number): readonly SemanticReviewJobRecord[];
+  loadSemanticReviewJobRecordsByProposalIds?(
+    proposalIds: readonly Hash[],
+  ): readonly SemanticReviewJobRecord[];
   saveSemanticReviewJobRecord(record: SemanticReviewJobRecord): SemanticReviewJobRecord;
   loadSemanticReviewNotificationRecords(
     limit: number,

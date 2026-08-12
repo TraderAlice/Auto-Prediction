@@ -237,6 +237,63 @@ type AgentExecutionConsole = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type ResearchAttentionAllocation = Readonly<{
+  schemaVersion: "pmh.research-attention-allocation.v1";
+  projectionIdentity: string;
+  observedAt: string;
+  familyCount: number;
+  actionableFamilyCount: number;
+  heldFamilyCount: number;
+  omittedActionableFamilyCount: number;
+  laneCounts: Readonly<{
+    exploration: number;
+    falsificationOrDebt: number;
+    changedEvidenceRecheck: number;
+    ontologyMutation: number;
+  }>;
+  recurrenceQualification: Readonly<{
+    terminalRelationRunCount: number;
+    attemptedStableFamilyCount: number;
+    independentlyReviewedPositiveFindingCount: number;
+    usageComplete: boolean;
+    evidenceThresholdSatisfied: boolean;
+    operatorActivationStillRequired: true;
+  }>;
+  families: ReadonlyArray<Readonly<{
+    workItemId: string;
+    workKind: string;
+    runCount: number;
+    positiveFindingCount: number;
+    counterexampleCount: number;
+    semanticReviewPassCount: number;
+    valueStage: string;
+    nextActionKind: string;
+    nextActionEligible: boolean;
+    usage: Readonly<{
+      knownInputTokens: string;
+      knownOutputTokens: string;
+      incompleteUsagePenalized: boolean;
+    }>;
+  }>>;
+  portfolio: ReadonlyArray<Readonly<{
+    actionId: string;
+    lane: string;
+    kind: string;
+    workItemId: string | null;
+    taskId: string | null;
+    targetArtifactRefs: readonly string[];
+    valueStage: string;
+    diagnostic: string;
+    dispatchableByRelationCampaign: boolean;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  campaignsCreatedByRead: 0;
+  runsCreatedByRead: 0;
+  automaticDispatch: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type FailureBudgetFrontierProjection = Readonly<{
   schemaVersion: "pmh.failure-budget-frontier.v4";
   contentHash: string;
@@ -3038,8 +3095,30 @@ async function requestAgentExecutionConsole(): Promise<AgentExecutionConsole> {
   return result;
 }
 
+async function requestResearchAttentionAllocation(): Promise<ResearchAttentionAllocation> {
+  const response = await fetch("/api/v1/research-attention-allocation", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Research attention returned HTTP ${response.status}`);
+  const result = await response.json() as ResearchAttentionAllocation;
+  if (
+    result.schemaVersion !== "pmh.research-attention-allocation.v1" ||
+    result.providerRequestsStartedByRead !== 0 ||
+    result.modelInvocationsStartedByRead !== 0 ||
+    result.campaignsCreatedByRead !== 0 ||
+    result.runsCreatedByRead !== 0 ||
+    result.automaticDispatch !== false ||
+    result.externalWriteAuthority !== false ||
+    result.valueMovingAuthority !== false
+  ) {
+    throw new Error("Research attention crossed its authority boundary");
+  }
+  return result;
+}
+
 function AgentOperationsView() {
   const [consoleData, setConsoleData] = useState<AgentExecutionConsole | null>(null);
+  const [attentionData, setAttentionData] = useState<ResearchAttentionAllocation | null>(null);
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [taskId, setTaskId] = useState("");
@@ -3047,8 +3126,12 @@ function AgentOperationsView() {
   const [manualPreview, setManualPreview] = useState<unknown | null>(null);
 
   async function refresh() {
-    const next = await requestAgentExecutionConsole();
+    const [next, attention] = await Promise.all([
+      requestAgentExecutionConsole(),
+      requestResearchAttentionAllocation(),
+    ]);
     setConsoleData(next);
+    setAttentionData(attention);
     setTaskId((current) => current || next.tasks.find((task) =>
       task.protocol === "RULE_EVIDENCE_TASK_V1"
     )?.taskId || next.tasks[0]?.taskId || "");
@@ -3154,6 +3237,68 @@ function AgentOperationsView() {
         <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail="task identity is provider-neutral" />
         <Metric label="Known tokens" value={formatTokenCount((BigInt(consoleData.usage.inputTokens) + BigInt(consoleData.usage.outputTokens)).toString())} detail={`${consoleData.usage.incompleteTokenInvocationCount} invocations incomplete`} />
       </div>
+
+      {attentionData !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Persistent research portfolio</span>
+              <h2>What deserves the next unit of Agent attention?</h2>
+              <p>Downstream progress, falsification and cost decide the lane. A read never starts work.</p>
+            </div>
+            <Badge variant={attentionData.recurrenceQualification.evidenceThresholdSatisfied ? "warning" : "shadow"}>
+              {attentionData.recurrenceQualification.evidenceThresholdSatisfied
+                ? "OPERATOR DECISION DUE"
+                : "RECURRENCE UNQUALIFIED"}
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-summary">
+              <div><strong>{attentionData.familyCount}</strong><span>stable families</span></div>
+              <div><strong>{attentionData.portfolio.length}</strong><span>selected actions</span></div>
+              <div><strong>{attentionData.recurrenceQualification.terminalRelationRunCount}</strong><span>terminal searches</span></div>
+              <div><strong>{attentionData.recurrenceQualification.independentlyReviewedPositiveFindingCount}</strong><span>reviewed findings</span></div>
+            </div>
+            <div className="research-attention-actions">
+              {attentionData.portfolio.length === 0 ? (
+                <div className="empty-state">No bounded next action is justified by retained evidence.</div>
+              ) : attentionData.portfolio.map((action) => {
+                const family = attentionData.families.find((item) =>
+                  item.workItemId === action.workItemId
+                );
+                const knownTokens = family === undefined ? 0n :
+                  BigInt(family.usage.knownInputTokens) + BigInt(family.usage.knownOutputTokens);
+                return (
+                  <article key={action.actionId}>
+                    <div className="research-attention-action-head">
+                      <div>
+                        <Badge variant={action.lane === "EXPLORATION" ? "shadow" : "warning"}>
+                          {action.lane.replaceAll("_", " ")}
+                        </Badge>
+                        <Badge variant="muted">{action.valueStage.replaceAll("_", " ")}</Badge>
+                      </div>
+                      <code>{action.workItemId?.slice(7, 19) ?? "portfolio"}</code>
+                    </div>
+                    <strong>{action.kind.replaceAll("_", " ")}</strong>
+                    <p>{action.diagnostic}</p>
+                    <div className="research-attention-facts">
+                      <span>{family?.runCount ?? 0} prior run{family?.runCount === 1 ? "" : "s"}</span>
+                      <span>{family?.positiveFindingCount ?? 0} positive · {family?.counterexampleCount ?? 0} counter</span>
+                      <span>{formatTokenCount(knownTokens.toString())} known tokens</span>
+                      <span>{action.dispatchableByRelationCampaign ? "campaign task ready" : `${action.targetArtifactRefs.length} lineage target${action.targetArtifactRefs.length === 1 ? "" : "s"}`}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="research-attention-lock">
+              <CircleOff size={14} />
+              <span>{attentionData.heldFamilyCount} held · {attentionData.omittedActionableFamilyCount} omitted by lane caps · automatic dispatch off</span>
+              <code>{attentionData.projectionIdentity.slice(7, 19)}</code>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="agent-console-grid">
         <Card>

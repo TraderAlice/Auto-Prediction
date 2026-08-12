@@ -56,6 +56,38 @@ checkpoint passes workspace type checks, all 567 control-plane tests plus the
 remaining workspace suites, and the production build on the available Node 22
 host; the repository's expected Node 24 engine warning remains.
 
+The active continuation is now
+[`plans/research-attention-allocation.md`](plans/research-attention-allocation.md).
+It treats attention as a versioned relation between a stable work family, its
+retained evidence state, and one typed next action—not as a model confidence or
+mutable task priority. The first slice is deliberately provider-free: derive
+per-family cost/outcome scorecards and a bounded exploration, falsification,
+recheck, and ontology-mutation portfolio before any recurring scheduler is
+allowed to exist. The live LAFC lineage is the first negative qualification:
+because independent review downgraded the relation and opened a narrower source
+gap, an allocator should hold relation rediscovery and route attention to that
+research debt instead of spending on the same neighborhood again.
+
+The first provider-free allocator now does exactly that. Across two stable
+families it proposes one unattempted exploration task and one non-dispatchable
+LAFC research-debt action; it does not treat a changed corpus hash as sufficient
+recheck novelty. The LAFC scorecard preserves its productive interrupted run,
+exact 198,939/1,895/971 input/output/reasoning usage, counterexample, and
+independent textual-relatedness downgrade. Live read qualification left 241
+Agent runs, 498 model invocations, and 20 historical campaigns unchanged.
+Building the scorecard exposed that durable semantic PASS history could rotate
+out of the scheduler's 250-job UI window. Exact proposal-lineage lookup now
+recovers the retained review for both attention allocation and relation
+projection, preventing window size from silently changing research policy.
+Multiple retained review jobs for one proposal are also reduced to the newest
+state, so storage order cannot resurrect an obsolete classification. Agent
+Operations now presents the provider-free portfolio and exact cost/evidence
+lineage without exposing a dispatch button for research debt. Desktop and 390
+px mobile visual qualification pass without application console errors or
+horizontal overflow. Workspace check, all suites (82 control-plane files / 572
+tests and four Studio files / 24 tests), and production build pass; the known
+Node 24 engine expectation and existing Studio chunk-size warning remain.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

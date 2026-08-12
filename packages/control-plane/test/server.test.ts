@@ -2390,6 +2390,34 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    const researchAttentionResponse = await fetch(
+      `${baseUrl}/api/v1/research-attention-allocation`,
+    );
+    expect(researchAttentionResponse.status).toBe(200);
+    await expect(researchAttentionResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.research-attention-allocation.v1",
+      familyCount: 0,
+      actionableFamilyCount: 0,
+      heldFamilyCount: 0,
+      families: [],
+      portfolio: [],
+      recurrenceQualification: {
+        evidenceThresholdSatisfied: false,
+        operatorActivationStillRequired: true,
+      },
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+      automaticDispatch: false,
+      authority: "ATTENTION_PROPOSAL_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
     const relationCampaignPreviewResponse = await fetch(
       `${baseUrl}/api/v1/relation-discovery/campaign-preview`,
     );

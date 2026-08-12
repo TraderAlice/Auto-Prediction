@@ -167,6 +167,9 @@ export interface ProbabilityEstimationSchedulerStore {
   readonly probabilityEstimationNotificationStorage:
     OperationalStorageProjection<"notificationId">;
   loadProbabilityEstimationJobRecords(limit: number): readonly ProbabilityEstimationJobRecord[];
+  loadProbabilityEstimationJobRecordsByProposalIds?(
+    proposalIds: readonly Hash[],
+  ): readonly ProbabilityEstimationJobRecord[];
   saveProbabilityEstimationJobRecord(
     record: ProbabilityEstimationJobRecord,
     retentionLimit: number,

@@ -563,6 +563,16 @@ describe("persistent semantic review scheduler", () => {
       const firstStore = new SqliteOperationalStore(path);
       firstStore.saveSemanticReviewJobRecord(legacy);
       firstStore.saveSemanticReviewJobRecord(duplicateJob);
+      expect(firstStore.loadSemanticReviewJobRecordsByProposalIds([
+        firstProposal.proposalId,
+      ])).toEqual([legacy]);
+      expect(firstStore.loadSemanticReviewJobRecordsByProposalIds([
+        hashCanonical({ proposal: "absent" }),
+      ])).toEqual([]);
+      expect(() => firstStore.loadSemanticReviewJobRecordsByProposalIds([
+        firstProposal.proposalId,
+        firstProposal.proposalId,
+      ])).toThrow(/invalid or unbounded/u);
       const queuedScheduler = new SemanticReviewScheduler({
         reviewDesk: createSemanticReviewDesk({}, { store: firstStore }),
         tickIntervalMs: 1_000,

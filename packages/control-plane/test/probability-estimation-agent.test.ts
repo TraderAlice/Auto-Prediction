@@ -1912,6 +1912,12 @@ describe("durable probability estimation scheduling", () => {
         job.schemaVersion === "pmh.probability-estimation-job.v7" &&
         job.evidenceContext?.contextIdentity === evidenceContext.contextIdentity
       )).toBe(true);
+      expect(firstStore.loadProbabilityEstimationJobRecordsByProposalIds([
+        proposal.proposalId,
+      ])).toHaveLength(3);
+      expect(firstStore.loadProbabilityEstimationJobRecordsByProposalIds([
+        hashCanonical({ proposal: "absent" }),
+      ])).toEqual([]);
       firstStore.close();
 
       const secondStore = new SqliteOperationalStore(path);
