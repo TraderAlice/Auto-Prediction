@@ -244,7 +244,7 @@ function actionStage(input: Readonly<{
   directRuns: readonly AgentRun[];
   ontologyPositiveCount: number;
   ontologyCounterexampleCount: number;
-  relationWorkCount: number;
+  relationRunnableWorkCount: number;
   relationNegativeWorkCount: number;
   relationRuns: readonly AgentRun[];
   relationPositiveCount: number;
@@ -262,14 +262,13 @@ function actionStage(input: Readonly<{
     return "SEMANTICALLY_REVIEWED";
   }
   if (input.relationPositiveCount > 0) return "RELATION_HYPOTHESIS_RETAINED";
-  if (input.relationCounterexampleCount > 0 || input.relationNegativeWorkCount > 0) {
-    return "RELATION_NEGATIVE_MEMORY";
-  }
+  if (input.relationCounterexampleCount > 0) return "RELATION_NEGATIVE_MEMORY";
   if (input.relationRuns.some((run) => run.status === "PREPARED")) {
     return "RELATION_RESEARCH_IN_FLIGHT";
   }
   if (input.relationRuns.length > 0) return "RELATION_RESEARCH_ATTEMPTED";
-  if (input.relationWorkCount > 0) return "RELATION_WORK_READY";
+  if (input.relationRunnableWorkCount > 0) return "RELATION_WORK_READY";
+  if (input.relationNegativeWorkCount > 0) return "RELATION_NEGATIVE_MEMORY";
   if (input.ontologyPositiveCount > 0) return "ONTOLOGY_PROPOSAL_RETAINED";
   if (input.ontologyCounterexampleCount > 0) return "ONTOLOGY_NEGATIVE_MEMORY";
   if (input.directRuns.some((run) => run.status === "PREPARED")) {
@@ -383,7 +382,9 @@ function actionOutcome(input: Readonly<{
     directRuns,
     ontologyPositiveCount: ontologyPositive.length,
     ontologyCounterexampleCount: ontologyCounterexamples.length,
-    relationWorkCount: relationItems.length,
+    relationRunnableWorkCount: relationItems.filter((item) =>
+      item.disposition === "RUNNABLE_RESEARCH"
+    ).length,
     relationNegativeWorkCount: relationItems.filter((item) =>
       item.disposition === "NEGATIVE_EVIDENCE_ONLY"
     ).length,
