@@ -121,6 +121,12 @@ import {
 } from "./relation-discovery-work.js";
 import { buildRelationDiscoveryCampaignPreview } from "./relation-discovery-campaign.js";
 import {
+  buildStandingRouteSeedCampaignPreview,
+  resolveRelationDiscoveryTaskRevision,
+} from "./standing-route-seeding-campaign.js";
+import { buildStandingRouteSeedOutcomeProjection } from
+  "./standing-route-seeding-outcomes.js";
+import {
   compileRelationDiscoveryFindingsForSemanticReview,
   relationDiscoveryReviewLane,
   selectRelationDiscoverySemanticReviewCompilations,
@@ -2461,12 +2467,19 @@ export function createControlPlane(options?: {
           ontologySearchIssueRevisionStore.loadOntologySearchIssueRevision(revisionId),
       }),
     });
-  const relationDiscoveryTaskRevision = (taskId: Hash) => relationDiscoveryTaskRevisions
-    .filter((item) => item.task.taskId === taskId)
-    .sort((left, right) =>
-      right.materializedAt.localeCompare(left.materializedAt) ||
-      right.revisionId.localeCompare(left.revisionId)
-    )[0] ?? null;
+  const relationDiscoveryTaskRevision = (taskId: Hash, run: AgentRun) =>
+    resolveRelationDiscoveryTaskRevision({
+      taskId,
+      run,
+      campaigns: agentExecutionRegistry.snapshot().campaigns,
+      currentRevisions: relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisionsForTaskIds([taskId]) ??
+        relationDiscoveryTaskRevisions,
+      ...(relationDiscoveryStore === null ? {} : {
+        loadRevision: (revisionId: Hash) => relationDiscoveryStore
+          .loadRelationDiscoveryTaskRevision(revisionId),
+      }),
+    });
   const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
     new AgentCampaignDispatcher({
       registry: agentExecutionRegistry,
@@ -2541,10 +2554,7 @@ export function createControlPlane(options?: {
               );
         }
         if (task.kind === "RELATION_DISCOVERY") {
-          const revision = relationDiscoveryTaskRevision(task.taskId);
-          if (revision === null) {
-            throw new Error("retained relation discovery task input is unavailable");
-          }
+          const revision = relationDiscoveryTaskRevision(task.taskId, run);
           const corpus = relationDiscoveryStore?.loadRelationDiscoveryCorpus(
             revision.sourceCorpusSnapshotIdentity,
           ) ?? null;
@@ -2573,10 +2583,7 @@ export function createControlPlane(options?: {
             : revision.taskPayload;
         }
         if (task.kind === "RELATION_DISCOVERY") {
-          const revision = relationDiscoveryTaskRevision(task.taskId);
-          if (revision === null) {
-            throw new Error("retained relation discovery task payload is unavailable");
-          }
+          const revision = relationDiscoveryTaskRevision(task.taskId, run);
           return revision.taskPayload as RelationDiscoveryTaskPayload;
         }
         throw new Error("retained Agent task payload is unavailable");
@@ -2593,10 +2600,7 @@ export function createControlPlane(options?: {
           })]);
         }
         if (task.kind === "RELATION_DISCOVERY") {
-          const revision = relationDiscoveryTaskRevision(task.taskId);
-          if (revision === null) {
-            throw new Error("retained relation task input revision is unavailable");
-          }
+          const revision = relationDiscoveryTaskRevision(task.taskId, run);
           return Object.freeze([buildAgentInputRevisionRunAnnotation({
             task,
             run,
@@ -3177,6 +3181,39 @@ export function createControlPlane(options?: {
     const configuration = await agentCredentialBroker.configuration(binding);
     return buildRelationDiscoveryCampaignPreview({
       revisions: relationDiscoveryTaskRevisions,
+      execution: snapshot,
+      capability: agentExecutionCapabilityService.project(profile, configuration),
+    });
+  };
+  const standingRouteSeedCampaignPreview = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "RELATION_DISCOVERY")
+      .sort((left, right) =>
+        right.revision - left.revision || right.updatedAt.localeCompare(left.updatedAt)
+      )[0];
+    if (route === undefined) {
+      throw new Error("Standing route seed workload route is unavailable");
+    }
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) {
+      throw new Error("Standing route seed execution profile is unavailable");
+    }
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (binding === undefined) {
+      throw new Error("Standing route seed credential binding is unavailable");
+    }
+    const configuration = await agentCredentialBroker.configuration(binding);
+    const corpus = catalogObservationDesk.corpus();
+    return buildStandingRouteSeedCampaignPreview({
+      revisions: relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
+      corpus,
+      standingRoutes: standingRouteProjection(corpus),
       execution: snapshot,
       capability: agentExecutionCapabilityService.project(profile, configuration),
     });
@@ -4170,6 +4207,22 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/standing-routes/seed-outcomes"
+    ) {
+      await ready;
+      const corpus = catalogObservationDesk.corpus();
+      writeJson(response, 200, buildStandingRouteSeedOutcomeProjection({
+        execution: agentExecutionRegistry.snapshot(),
+        taskRevisions: relationDiscoveryStore
+          ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
+        findings: relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [],
+        standingRoutes: standingRouteProjection(corpus),
+        observedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/relation-discovery"
     ) {
       await ready;
@@ -4759,6 +4812,74 @@ export function createControlPlane(options?: {
       return;
     }
     if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/standing-routes/seed-campaign-preview"
+    ) {
+      try {
+        await ready;
+        writeJson(response, 200, await standingRouteSeedCampaignPreview());
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "standing route seed campaign preview is unavailable",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/market-ontology/standing-routes/seed-campaigns"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 0) {
+          throw new Error("standing route seed campaign creation accepts an empty object only");
+        }
+        const preview = await standingRouteSeedCampaignPreview();
+        if (!preview.creationEligible) throw new Error(preview.diagnostic);
+        agentExecutionRegistry.saveBatch({
+          tasks: preview.taskRevisions.map((revision) => revision.task),
+        });
+        relationDiscoveryStore?.saveRelationDiscoveryTaskRevisions(preview.taskRevisions);
+        const latestRevision = agentExecutionRegistry.snapshot().campaigns
+          .filter((item) => item.campaignKey === preview.campaignKey)
+          .reduce((maximum, item) => Math.max(maximum, item.revision), 0);
+        const campaign = buildPausedAgentCampaign({
+          campaignKey: preview.campaignKey,
+          revision: latestRevision + 1,
+          executionProfileId: preview.executionProfile.executionProfileId,
+          taskIds: preview.taskIds,
+          schedule: preview.schedule,
+          budget: preview.budget,
+          selectionBinding: preview.selectionBinding,
+          createdAt: new Date().toISOString(),
+        });
+        agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
+        await broadcastProjection();
+        writeJson(response, 201, {
+          ok: true,
+          campaign,
+          preview,
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "standing route seed campaign could not be created",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      }
+      return;
+    }
+    if (
       request.method === "POST" &&
       url.pathname === "/api/v1/relation-discovery/campaigns"
     ) {
@@ -4781,6 +4902,7 @@ export function createControlPlane(options?: {
           taskIds: preview.taskIds,
           schedule: preview.schedule,
           budget: preview.budget,
+          selectionBinding: preview.selectionBinding,
           createdAt: new Date().toISOString(),
         });
         agentExecutionRegistry.saveBatch({ campaigns: [campaign] });

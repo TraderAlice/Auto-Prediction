@@ -2,11 +2,13 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import type { AgentTask } from "./agent-execution-substrate.js";
 import {
   buildRelationDiscoveryAgentTask,
+  buildRelationDiscoveryRouteSeedTaskPayload,
   buildRelationDiscoveryTaskPayload,
   buildRelationDiscoveryWorkContract,
   assertRelationDiscoveryTaskPayload,
   relationDiscoverySemanticListing,
   type RelationDiscoveryTaskPayload,
+  type RelationDiscoveryRouteLayer,
 } from "./relation-discovery-agent-tools.js";
 import {
   assertMarketCorpusSnapshot,
@@ -54,10 +56,17 @@ type RelationDiscoveryTaskRevisionV3 = Readonly<
   }
 >;
 
+type RelationDiscoveryTaskRevisionV4 = Readonly<
+  Omit<RelationDiscoveryTaskRevisionV3, "schemaVersion"> & {
+    schemaVersion: "pmh.relation-discovery-task-revision.v4";
+  }
+>;
+
 export type RelationDiscoveryTaskRevision =
   | RelationDiscoveryTaskRevisionV1
   | RelationDiscoveryTaskRevisionV2
-  | RelationDiscoveryTaskRevisionV3;
+  | RelationDiscoveryTaskRevisionV3
+  | RelationDiscoveryTaskRevisionV4;
 
 export type RelationDiscoveryTaskReconciliation = Readonly<{
   schemaVersion: "pmh.relation-discovery-task-reconciliation.v1";
@@ -85,6 +94,9 @@ export interface RelationDiscoveryTaskRevisionStore {
   loadRelationDiscoveryTaskRevisionsForTaskIds(
     taskIds: readonly Hash[],
   ): readonly RelationDiscoveryTaskRevision[];
+  loadRelationDiscoveryTaskRevision(
+    revisionId: Hash,
+  ): RelationDiscoveryTaskRevision | null;
   saveRelationDiscoveryTaskRevisions(
     revisions: readonly RelationDiscoveryTaskRevision[],
   ): readonly RelationDiscoveryTaskRevision[];
@@ -120,6 +132,7 @@ export function assertRelationDiscoveryTaskRevision(
       "pmh.relation-discovery-task-revision.v1",
       "pmh.relation-discovery-task-revision.v2",
       "pmh.relation-discovery-task-revision.v3",
+      "pmh.relation-discovery-task-revision.v4",
     ].includes(revision.schemaVersion) ||
     ![revisionId, revision.workItemId, revision.workArtifactHash,
       revision.sourceCorpusSnapshotIdentity].every((id) => HASH_PATTERN.test(String(id))) ||
@@ -128,17 +141,23 @@ export function assertRelationDiscoveryTaskRevision(
     (revision.schemaVersion === "pmh.relation-discovery-task-revision.v1" &&
       record.researchInputIdentity !== undefined) ||
     (revision.schemaVersion !== "pmh.relation-discovery-task-revision.v3" &&
+      revision.schemaVersion !== "pmh.relation-discovery-task-revision.v4" &&
       record.workItem !== undefined) ||
     revisionId !== hashCanonical(body) || task.taskId !== revision.task.taskId ||
     hashCanonical(task) !== hashCanonical(revision.task) ||
-    (revision.schemaVersion === "pmh.relation-discovery-task-revision.v3"
+    (revision.schemaVersion === "pmh.relation-discovery-task-revision.v3" ||
+      revision.schemaVersion === "pmh.relation-discovery-task-revision.v4"
       ? revision.workItemId !== assertOntologyRelationWorkItem(revision.workItem).workItemId ||
         revision.workArtifactHash !== revision.workItem.artifactHash ||
-        payload.schemaVersion !== "pmh.relation-discovery-task.v3" ||
+        payload.schemaVersion !== (revision.schemaVersion ===
+          "pmh.relation-discovery-task-revision.v3"
+          ? "pmh.relation-discovery-task.v3"
+          : "pmh.relation-discovery-task.v4") ||
         payload.workContract.workItemId !== revision.workItemId ||
         hashCanonical(buildRelationDiscoveryWorkContract(revision.workItem)) !==
           hashCanonical(payload.workContract)
       : payload.schemaVersion === "pmh.relation-discovery-task.v3" ||
+        payload.schemaVersion === "pmh.relation-discovery-task.v4" ||
         revision.workItemId !== payload.workItem.workItemId ||
         revision.workArtifactHash !== payload.workItem.artifactHash) ||
     (revision.schemaVersion === "pmh.relation-discovery-task-revision.v1" &&
@@ -161,11 +180,13 @@ export function relationDiscoveryRevisionWorkItem(
   revisionInput: RelationDiscoveryTaskRevision,
 ): OntologyRelationWorkItem {
   const revision = assertRelationDiscoveryTaskRevision(revisionInput);
-  if (revision.schemaVersion === "pmh.relation-discovery-task-revision.v3") {
+  if (revision.schemaVersion === "pmh.relation-discovery-task-revision.v3" ||
+      revision.schemaVersion === "pmh.relation-discovery-task-revision.v4") {
     return revision.workItem;
   }
   const payload = revision.taskPayload;
-  if (payload.schemaVersion === "pmh.relation-discovery-task.v3") {
+  if (payload.schemaVersion === "pmh.relation-discovery-task.v3" ||
+      payload.schemaVersion === "pmh.relation-discovery-task.v4") {
     throw new Error("legacy relation discovery revision lost its work item");
   }
   return payload.workItem;
@@ -233,6 +254,70 @@ export function materializeRelationDiscoveryTaskRevisions(input: Readonly<{
     .sort((left, right) => left.workItemId.localeCompare(right.workItemId)));
 }
 
+export function materializeStandingRouteSeedTaskRevisions(input: Readonly<{
+  selectionIdentity: Hash;
+  candidates: readonly Readonly<{
+    selectionActionRef: Hash;
+    targetRouteLayer: RelationDiscoveryRouteLayer;
+    sourceTaskRevisionId: Hash;
+  }>[];
+  sourceRevisions: readonly RelationDiscoveryTaskRevision[];
+  corpus: MarketCorpusSnapshot;
+}>): readonly RelationDiscoveryTaskRevision[] {
+  const corpus = assertMarketCorpusSnapshot(input.corpus);
+  const sourceById = new Map(input.sourceRevisions.map((revisionInput) => {
+    const revision = assertRelationDiscoveryTaskRevision(revisionInput);
+    return [revision.revisionId, revision] as const;
+  }));
+  const materializedAt = [...corpus.listings].map((item) => item.sourceReceivedAt)
+    .sort().at(-1);
+  if (materializedAt === undefined) {
+    throw new Error("standing route seed source time is unavailable");
+  }
+  canonicalIso(materializedAt, "standing route seed materializedAt");
+  return Object.freeze(input.candidates.map((candidate) => {
+    const source = sourceById.get(candidate.sourceTaskRevisionId);
+    if (source === undefined || source.schemaVersion ===
+        "pmh.relation-discovery-task-revision.v4") {
+      throw new Error("standing route seed source revision is unavailable or recursive");
+    }
+    const workItem = relationDiscoveryRevisionWorkItem(source);
+    const taskPayload = buildRelationDiscoveryRouteSeedTaskPayload({
+      workItem,
+      selectionIdentity: input.selectionIdentity,
+      selectionActionRef: candidate.selectionActionRef,
+      targetRouteLayer: candidate.targetRouteLayer,
+    });
+    const task = buildRelationDiscoveryAgentTask({
+      payload: taskPayload,
+      createdAt: workItem.lastProposedAt,
+    });
+    const body = Object.freeze({
+      schemaVersion: "pmh.relation-discovery-task-revision.v4" as const,
+      workItemId: workItem.workItemId,
+      workArtifactHash: workItem.artifactHash,
+      sourceCorpusSnapshotIdentity: corpus.snapshotIdentity,
+      researchInputIdentity: relationDiscoveryResearchInputIdentity(corpus),
+      task,
+      taskPayload,
+      workItem,
+      campaignEligible: true as const,
+      materializedAt,
+      automaticDispatch: false as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    return assertRelationDiscoveryTaskRevision(Object.freeze({
+      ...body,
+      revisionId: hashCanonical(body),
+    }));
+  }).sort((left, right) => left.task.taskId.localeCompare(right.task.taskId)));
+}
+
 export function reconcileRelationDiscoveryTaskRevisions(input: Readonly<{
   relationWork: OntologyRelationWorkProjection;
   corpus: MarketCorpusSnapshot;
@@ -269,6 +354,7 @@ export function reconcileRelationDiscoveryTaskRevisions(input: Readonly<{
   const reusedRevisionIds: Hash[] = [];
   const currentRevisions = candidates.map((candidate) => {
     const reusable = retained.find((revision) =>
+      revision.schemaVersion !== "pmh.relation-discovery-task-revision.v4" &&
       revision.workItemId === candidate.workItemId &&
       revision.workArtifactHash === candidate.workArtifactHash &&
       identityFor(revision) === researchInputIdentity

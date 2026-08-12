@@ -10,6 +10,7 @@ import {
   assertMarketOntologyAgentProposal,
   assertOntologyRelationWorkItem,
   buildAgentRun,
+  buildAgentInputRevisionRunAnnotation,
   buildDefaultAgentRuntimePortfolio,
   buildExecutionProfile,
   buildRelationDiscoveryAgentTask,
@@ -19,11 +20,17 @@ import {
   buildMarketOntologySnapshot,
   buildOntologyRelationWorkProjection,
   buildStandingOntologyRouteProjection,
+  buildStandingRouteSeedCampaignPreview,
+  buildStandingRouteSeedOutcomeProjection,
+  buildStandingRouteSeedSelection,
   buildStandingOntologyRouteValueProjection,
   extendOntologyRelationWorkWithStandingRouteFollowups,
   materializeRelationDiscoveryTaskRevisions,
   materializeStandingOntologyRouteObservationEpisodes,
   materializeStandingOntologyRouteFollowups,
+  materializeStandingRouteSeedTaskRevisions,
+  buildPausedAgentCampaign,
+  activateAgentCampaign,
   reconcileRelationDiscoveryTaskRevisions,
   relationDiscoveryListingEvidenceHash,
   relationDiscoveryReviewLane,
@@ -39,6 +46,8 @@ import {
   type DiscoveryCatalogListing,
   type MarketOntologyAgentProposal,
   type MarketOntologyListingBinding,
+  type OntologyRelationWorkItem,
+  type StandingOntologyRouteProjection,
 } from "../src/index.js";
 
 const NOW = "2026-08-12T09:00:00.000Z";
@@ -371,6 +380,289 @@ describe("ontology proposal relation work", () => {
         campaignEligible: false,
         automaticDispatch: false,
       });
+  });
+
+  it("selects one honest route seed per layer and binds a route-only Agent intent", async () => {
+    const work = fixture();
+    const relationWork = buildOntologyRelationWorkProjection(work);
+    const revisions = materializeRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: work.corpus,
+    });
+    const relationRoute = work.execution.workloadRoutes.find((item) =>
+      item.taskKind === "RELATION_DISCOVERY"
+    )!;
+    const relationProfile = work.execution.executionProfiles.find((item) =>
+      item.executionProfileId === relationRoute.executionProfileId
+    )!;
+    const capability = Object.freeze({
+      executionProfileId: relationProfile.executionProfileId,
+      configurationStatus: "CONFIGURED" as const,
+      runtimeStatus: "AVAILABLE" as const,
+      serviceCapability: "USABLE" as const,
+      dispatchEligibility: "ELIGIBLE" as const,
+      diagnostic: "test runtime is usable",
+      observation: null,
+      inferenceRequestsStarted: 0 as const,
+      modelInvocationsStarted: 0 as const,
+      secretMaterialRetained: false as const,
+    });
+    const execution = Object.freeze({
+      ...work.execution,
+      tasks: Object.freeze([...work.execution.tasks, ...revisions.map((item) => item.task)]),
+    });
+    const selection = buildStandingRouteSeedSelection({
+      revisions,
+      corpus: work.corpus,
+      standingRoutes: null,
+      execution,
+    });
+    expect(selection).toMatchObject({
+      consideredCandidateCount: 2,
+      selectedCandidateCount: 1,
+      selected: [{
+        targetRouteLayer: "EVENT_REFERENCE",
+        selectionReason: "WORLD_PROPOSITION_EVENT_FIT",
+        eligibility: "SELECTABLE",
+        expectedSearchFields: ["title"],
+      }],
+      unusedLayers: ["SUBJECT_REFERENCE", "SETTLEMENT_REFERENCE"],
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      campaignsCreated: 0,
+      runsCreated: 0,
+      automaticDispatch: false,
+    });
+    const repeat = buildStandingRouteSeedSelection({
+      revisions,
+      corpus: work.corpus,
+      standingRoutes: null,
+      execution,
+    });
+    expect(repeat).toEqual(selection);
+    const preview = buildStandingRouteSeedCampaignPreview({
+      revisions,
+      corpus: work.corpus,
+      standingRoutes: null,
+      execution,
+      capability,
+    });
+    expect(preview).toMatchObject({
+      creationEligible: true,
+      dispatchEligible: true,
+      taskIds: [expect.stringMatching(/^sha256:/u)],
+      preparedCampaignIds: [],
+      selectionBinding: {
+        selectionProtocol: "STANDING_ROUTE_SEED_SELECTION_V1",
+        taskBindings: [{
+          inputRevisionKind: "RELATION_DISCOVERY_ROUTE_SEED",
+          selectionActionKind: "EVENT_REFERENCE",
+        }],
+      },
+      budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 24 },
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      automaticDispatch: false,
+    });
+    const paused = buildPausedAgentCampaign({
+      campaignKey: preview.campaignKey,
+      revision: 1,
+      executionProfileId: relationProfile.executionProfileId,
+      taskIds: preview.taskIds,
+      schedule: preview.schedule,
+      budget: preview.budget,
+      selectionBinding: preview.selectionBinding,
+      createdAt: NOW,
+    });
+    const active = activateAgentCampaign(
+      paused,
+      "operator:route-seed-contract-test",
+      "2026-08-12T09:00:01.000Z",
+    );
+    const retainedSelection = buildStandingRouteSeedSelection({
+      revisions: [...revisions, ...preview.taskRevisions],
+      corpus: work.corpus,
+      standingRoutes: null,
+      execution: Object.freeze({
+        ...execution,
+        tasks: Object.freeze([...execution.tasks, ...preview.taskRevisions.map((item) =>
+          item.task
+        )]),
+        campaigns: Object.freeze([paused]),
+      }),
+    });
+    expect(retainedSelection.selected).toHaveLength(1);
+    expect(retainedSelection.selected[0]!.selectionActionRef)
+      .not.toBe(selection.selected[0]!.selectionActionRef);
+    expect(retainedSelection.candidates.find((item) =>
+      item.selectionActionRef === selection.selected[0]!.selectionActionRef
+    )).toMatchObject({ attemptedExactIntent: true, eligibility: "HELD_ALREADY_ATTEMPTED" });
+    const seedRevision = preview.taskRevisions[0]!;
+    expect(seedRevision).toMatchObject({
+      schemaVersion: "pmh.relation-discovery-task-revision.v4",
+      taskPayload: {
+        schemaVersion: "pmh.relation-discovery-task.v4",
+        objective: "AUTHOR_AND_FALSIFY_EVIDENCE_BOUND_STANDING_ROUTE",
+        researchIntent: {
+          targetRouteLayer: "EVENT_REFERENCE",
+          acceptedTerminalEffectKinds: ["ONTOLOGY_ROUTE", "COUNTEREXAMPLE"],
+          ordinaryPayoffFindingAllowed: false,
+        },
+      },
+    });
+    expect(selectRelationDiscoveryCampaignTasks({
+      revisions: [...revisions, seedRevision],
+      execution,
+    }).some((item) => item.revisionId === seedRevision.revisionId)).toBe(false);
+
+    const run = buildAgentRun({
+      task: seedRevision.task,
+      executionProfile: relationProfile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "CAMPAIGN",
+        campaign: active,
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const host = new RelationDiscoveryAgentToolHost(
+      seedRevision.taskPayload,
+      work.corpus,
+      undefined,
+      relationDiscoveryRevisionWorkItem(seedRevision),
+    );
+    expect(host.resultToolNames("RELATION_DISCOVERY_AGENT_TOOLS_V1"))
+      .toEqual(["record_ontology_route", "record_relation_counterexample"]);
+    expect(host.manifest("RELATION_DISCOVERY_AGENT_TOOLS_V1").map((item) => item.name))
+      .not.toContain("record_relation_hypothesis");
+    const context = (toolName: string, input: unknown) => ({
+      run,
+      task: seedRevision.task,
+      executionProfile: relationProfile,
+      callId: `call-${toolName}`,
+      toolName,
+      input,
+    });
+    const refs = work.corpus.listings.slice(0, 2).map((item) => item.listingRef);
+    await host.execute(context("inspect_market_listings", { listingRefs: refs }));
+    await expect(host.execute(context("record_relation_hypothesis", {
+      relationKind: "EQUIVALENT",
+      listingRefs: refs,
+      statement: "This payoff result must be rejected.",
+      rationale: "A route seed cannot silently consume payoff-research budget.",
+      falsifiers: ["The contract is route-only."],
+    }))).rejects.toThrow("cannot publish a payoff relation hypothesis");
+    await expect(host.execute(context("record_ontology_route", {
+      routeLayer: "SETTLEMENT_REFERENCE",
+      searchSignals: ["Mark Kelly"],
+      listingRefs: refs,
+      statement: "This is the wrong assigned layer.",
+      rationale: "The immutable intent targets event continuity.",
+      falsifiers: ["The assigned layer differs."],
+    }))).rejects.toThrow("outside the assigned route-seed intent");
+
+    const annotation = buildAgentInputRevisionRunAnnotation({
+      task: seedRevision.task,
+      run,
+      revisionKind: "RELATION_DISCOVERY",
+      revisionId: seedRevision.revisionId,
+      exactInput: seedRevision.taskPayload,
+    });
+    const outcome = buildStandingRouteSeedOutcomeProjection({
+      execution: Object.freeze({
+        ...execution,
+        tasks: Object.freeze([...execution.tasks, ...preview.taskRevisions.map((item) => item.task)]),
+        campaigns: Object.freeze([paused, active]),
+        runs: Object.freeze([...execution.runs, run]),
+        runAnnotations: Object.freeze([...execution.runAnnotations, annotation]),
+      }),
+      taskRevisions: [...revisions, ...preview.taskRevisions],
+      findings: [],
+      standingRoutes: null,
+      observedAt: NOW,
+    });
+    expect(outcome).toMatchObject({
+      campaignCount: 2,
+      selectedActionCount: 1,
+      actedActionCount: 1,
+      terminalActionCount: 0,
+      routeRetainedActionCount: 0,
+      usefulNegativeMemoryActionCount: 0,
+      outcomes: [{
+        targetRouteLayer: "EVENT_REFERENCE",
+        stage: "RUN_IN_FLIGHT",
+        acted: true,
+        terminal: false,
+        directCost: { runCount: 1, terminalRunCount: 0, modelInvocationCount: 0 },
+      }],
+      strata: [{
+        targetRouteLayer: "EVENT_REFERENCE",
+        selectedActionCount: 1,
+        actedActionCount: 1,
+        terminalActionCount: 0,
+        terminalEvidenceMinimum: 3,
+        yieldCostEstimateQualified: false,
+      }],
+      recurrenceQualification: {
+        representedLayerCount: 1,
+        qualifiedLayerCount: 0,
+        yieldCostEvidenceSufficient: false,
+        operatorActivationStillRequired: true,
+      },
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+      writesStartedByRead: 0,
+      automaticDispatch: false,
+    });
+
+    const attemptedSelection = buildStandingRouteSeedSelection({
+      revisions: [...revisions, seedRevision],
+      corpus: work.corpus,
+      standingRoutes: null,
+      execution: Object.freeze({
+        ...execution,
+        tasks: Object.freeze([...execution.tasks, seedRevision.task]),
+        runs: Object.freeze([...execution.runs, run]),
+      }),
+    });
+    expect(attemptedSelection.selected).toHaveLength(1);
+    expect(attemptedSelection.selected[0]!.selectionActionRef)
+      .not.toBe(selection.selected[0]!.selectionActionRef);
+    expect(attemptedSelection.candidates.filter((item) =>
+      item.selectionActionRef === selection.selected[0]!.selectionActionRef
+    )[0]).toMatchObject({
+      attemptedExactIntent: true,
+      eligibility: "HELD_ALREADY_ATTEMPTED",
+    });
+
+    const coveredRoutes = Object.freeze({
+      routes: revisions.map((revision, index) => Object.freeze({
+        route: Object.freeze({
+          routeId: hashCanonical({ route: index }),
+          routeLayer: "EVENT_REFERENCE" as const,
+          sourceWorkItemId: revision.workItemId,
+        }),
+      })),
+      families: revisions.map((revision, index) => Object.freeze({
+        family: Object.freeze({
+          routeFamilyId: hashCanonical({ family: index }),
+          sourceRouteIds: Object.freeze([hashCanonical({ route: index })]),
+        }),
+      })),
+    }) as unknown as StandingOntologyRouteProjection;
+    const coveredSelection = buildStandingRouteSeedSelection({
+      revisions,
+      corpus: work.corpus,
+      standingRoutes: coveredRoutes,
+      execution,
+    });
+    expect(coveredSelection.selected).toEqual([]);
+    expect(coveredSelection.candidates.every((item) =>
+      item.eligibility === "HELD_EXISTING_ROUTE"
+    )).toBe(true);
   });
 
   it("blocks positive work when the immutable run-to-issue lineage is absent", () => {

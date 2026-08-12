@@ -1155,6 +1155,90 @@ main {
   gap: 8px;
 }
 
+.standing-route-seed-portfolio {
+  border-bottom: 1px solid #34313f;
+  padding: 16px 18px;
+  background: #191820;
+}
+
+.standing-route-seed-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.standing-route-seed-heading h3 {
+  margin: 3px 0 4px;
+  color: #eeeef1;
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.standing-route-seed-heading p,
+.standing-route-seed-diagnostic {
+  max-width: 760px;
+  margin: 0;
+  color: #85848d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.standing-route-seed-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.standing-route-seed-grid > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid #393544;
+  border-radius: 9px;
+  padding: 11px 12px;
+  background: #1d1c24;
+}
+
+.standing-route-seed-grid > div.is-empty {
+  border-style: dashed;
+  background: transparent;
+}
+
+.standing-route-seed-grid span,
+.standing-route-seed-grid small {
+  overflow: hidden;
+  color: #7e7d86;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.standing-route-seed-grid strong {
+  color: #dddce2;
+  font-size: 12.5px;
+  font-weight: 590;
+}
+
+.standing-route-seed-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 13px;
+  color: #9997a2;
+  font-size: 12px;
+}
+
+.standing-route-seed-diagnostic {
+  margin-top: 10px;
+}
+
+.standing-route-seed-diagnostic.is-error {
+  color: #d69595;
+}
+
 .standing-route-memory-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2505,6 +2589,7 @@ footer {
   .finding-inbox-item-head,
   .focused-review-handoff-heading,
   .standing-route-memory-heading,
+  .standing-route-seed-heading,
   .opportunity-frontier-heading,
   .opportunity-frontier-card-foot {
     align-items: flex-start;
@@ -2528,6 +2613,14 @@ footer {
 
   .standing-route-memory-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .standing-route-seed-heading > [data-slot="button"] {
+    width: 100%;
+  }
+
+  .standing-route-seed-grid {
+    grid-template-columns: 1fr;
   }
 
   .standing-route-memory-summary > div:nth-child(2) {

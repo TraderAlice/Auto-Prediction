@@ -8628,6 +8628,21 @@ export class SqliteOperationalStore
     ));
   }
 
+  public loadRelationDiscoveryTaskRevision(
+    revisionId: Hash,
+  ): RelationDiscoveryTaskRevision | null {
+    this.#assertOpen();
+    if (!/^sha256:[0-9a-f]{64}$/u.test(String(revisionId))) {
+      throw new Error("relation discovery task revision lookup contains an invalid revision id");
+    }
+    const row = this.#database.prepare(
+      `SELECT revision_id, record_json, record_hash
+       FROM relation_discovery_task_revisions
+       WHERE revision_id = ?`,
+    ).get(revisionId);
+    return row === undefined ? null : parseRelationDiscoveryTaskRevision(row);
+  }
+
   public loadRelationDiscoveryCorpus(snapshotIdentity: Hash): MarketCorpusSnapshot | null {
     this.#assertOpen();
     const row = this.#database.prepare(

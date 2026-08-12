@@ -387,6 +387,29 @@ question is route-portfolio yield: seed a small differentiated set of subject,
 event, and settlement routes, then select them by novel reviewable payoff work
 per authoring/wake cost instead of multiplying routes by default.
 
+The active continuation is now
+[`plans/standing-route-seeding-portfolio.md`](plans/standing-route-seeding-portfolio.md).
+Live measurement shows why this needs its own intent contract: 64 ontology
+issues contain 60 actionable candidates, yet only five runnable relation
+neighborhoods exist and the route portfolio remains one legacy-derived subject
+family with no native/event/settlement route. Route tooling exists, but generic
+relation tasks make durable sensor authoring accidental. The next slice selects
+at most one exact candidate per subject, event, and settlement layer, then binds
+that target into an immutable provider-neutral Agent intent. Ordinary payoff
+research cannot consume this budget, and route-seed work cannot silently fall
+back to a payoff hypothesis. Recurrence remains unavailable until terminal
+layer-specific yield/cost evidence exists.
+
+That slice is now implemented and live-qualified. The current corpus retained
+one paused two-task portfolio: event continuity around Lula leaving office and
+settlement continuity around LAFC/MLS Cup. The existing Lula subject family
+suppressed duplicate subject seeding. Exact V4 task intents, v2 campaign
+selection bindings, a descriptive seed outcome/cost ledger, and Studio controls
+survive SQLite restart; reads and paused-campaign preparation started no model
+invocations. The next north-star evidence is terminal route/counterexample
+yield from explicit operator activation. Recurrence remains gated at three
+terminal attempts per ontology layer and still requires operator activation.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

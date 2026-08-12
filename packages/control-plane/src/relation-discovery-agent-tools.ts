@@ -24,8 +24,10 @@ export const RELATION_DISCOVERY_TASK_PROTOCOL_V1 =
   "RELATION_DISCOVERY_TASK_V1" as const;
 export const RELATION_DISCOVERY_TASK_PROTOCOL_V2 =
   "RELATION_DISCOVERY_TASK_V2" as const;
-export const RELATION_DISCOVERY_TASK_PROTOCOL =
+export const RELATION_DISCOVERY_TASK_PROTOCOL_V3 =
   "RELATION_DISCOVERY_TASK_V3" as const;
+export const RELATION_DISCOVERY_TASK_PROTOCOL =
+  "RELATION_DISCOVERY_TASK_V4" as const;
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_INSPECTED_LISTINGS = 24;
@@ -94,10 +96,39 @@ type RelationDiscoveryTaskPayloadV3 = Readonly<
   }
 >;
 
+export type RelationDiscoveryRouteSeedIntent = Readonly<{
+  schemaVersion: "pmh.relation-discovery-route-seed-intent.v1";
+  intentIdentity: Hash;
+  selectionIdentity: Hash;
+  selectionActionRef: Hash;
+  targetRouteLayer: RelationDiscoveryRouteLayer;
+  objective: "AUTHOR_AND_FALSIFY_EVIDENCE_BOUND_STANDING_ROUTE";
+  acceptedTerminalEffectKinds: readonly ["ONTOLOGY_ROUTE", "COUNTEREXAMPLE"];
+  ordinaryPayoffFindingAllowed: false;
+  automaticDispatch: false;
+  authority: "SEARCH_ROUTING_PROPOSAL_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+type RelationDiscoveryTaskPayloadV4 = Readonly<
+  Omit<RelationDiscoveryTaskPayloadV3, "schemaVersion" | "objective" | "authority"> & {
+    schemaVersion: "pmh.relation-discovery-task.v4";
+    objective: "AUTHOR_AND_FALSIFY_EVIDENCE_BOUND_STANDING_ROUTE";
+    researchIntent: RelationDiscoveryRouteSeedIntent;
+    authority: "SEARCH_ROUTING_PROPOSAL_ONLY";
+  }
+>;
+
 export type RelationDiscoveryTaskPayload =
   | RelationDiscoveryTaskPayloadV1
   | RelationDiscoveryTaskPayloadV2
-  | RelationDiscoveryTaskPayloadV3;
+  | RelationDiscoveryTaskPayloadV3
+  | RelationDiscoveryTaskPayloadV4;
 
 export type RelationDiscoverySemanticListing = Readonly<{
   listingRef: string;
@@ -363,21 +394,81 @@ function assertRelationDiscoveryWorkContract(
   return Object.freeze(contract);
 }
 
+export function buildRelationDiscoveryRouteSeedIntent(input: Readonly<{
+  selectionIdentity: Hash;
+  selectionActionRef: Hash;
+  targetRouteLayer: RelationDiscoveryRouteLayer;
+}>): RelationDiscoveryRouteSeedIntent {
+  const body = Object.freeze({
+    schemaVersion: "pmh.relation-discovery-route-seed-intent.v1" as const,
+    selectionIdentity: input.selectionIdentity,
+    selectionActionRef: input.selectionActionRef,
+    targetRouteLayer: input.targetRouteLayer,
+    objective: "AUTHOR_AND_FALSIFY_EVIDENCE_BOUND_STANDING_ROUTE" as const,
+    acceptedTerminalEffectKinds: Object.freeze([
+      "ONTOLOGY_ROUTE", "COUNTEREXAMPLE",
+    ] as const),
+    ordinaryPayoffFindingAllowed: false as const,
+    automaticDispatch: false as const,
+    authority: "SEARCH_ROUTING_PROPOSAL_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return Object.freeze({ ...body, intentIdentity: hashCanonical(body) });
+}
+
+function assertRelationDiscoveryRouteSeedIntent(
+  value: unknown,
+): RelationDiscoveryRouteSeedIntent {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("relation discovery route seed intent is malformed");
+  }
+  const intent = value as RelationDiscoveryRouteSeedIntent;
+  const { intentIdentity, ...body } = intent;
+  if (intent.schemaVersion !== "pmh.relation-discovery-route-seed-intent.v1" ||
+      ![intentIdentity, intent.selectionIdentity, intent.selectionActionRef]
+        .every((item) => HASH_PATTERN.test(String(item))) ||
+      intentIdentity !== hashCanonical(body) ||
+      !["SUBJECT_REFERENCE", "EVENT_REFERENCE", "SETTLEMENT_REFERENCE"]
+        .includes(intent.targetRouteLayer) ||
+      intent.objective !== "AUTHOR_AND_FALSIFY_EVIDENCE_BOUND_STANDING_ROUTE" ||
+      !Array.isArray(intent.acceptedTerminalEffectKinds) ||
+      hashCanonical(intent.acceptedTerminalEffectKinds) !==
+        hashCanonical(["ONTOLOGY_ROUTE", "COUNTEREXAMPLE"]) ||
+      intent.ordinaryPayoffFindingAllowed !== false || intent.automaticDispatch !== false ||
+      intent.authority !== "SEARCH_ROUTING_PROPOSAL_ONLY" ||
+      intent.semanticDecisionAuthority !== false || intent.probabilityAuthority !== false ||
+      intent.certificateAuthority !== false || intent.executionAuthority !== false ||
+      intent.externalWriteAuthority !== false || intent.valueMovingAuthority !== false) {
+    throw new Error("relation discovery route seed intent violates its bounded contract");
+  }
+  return Object.freeze(intent);
+}
+
 export function assertRelationDiscoveryTaskPayload(value: unknown): RelationDiscoveryTaskPayload {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("relation discovery task payload is malformed");
   }
   const payload = value as RelationDiscoveryTaskPayload;
   const record = value as Readonly<Record<string, unknown>>;
-  const work = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+  const contractBound = payload.schemaVersion === "pmh.relation-discovery-task.v3" ||
+    payload.schemaVersion === "pmh.relation-discovery-task.v4";
+  const work = contractBound
     ? null
     : assertOntologyRelationWorkItem(payload.workItem);
-  const workContract = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+  const workContract = contractBound
     ? assertRelationDiscoveryWorkContract(payload.workContract)
+    : null;
+  const routeSeedIntent = payload.schemaVersion === "pmh.relation-discovery-task.v4"
+    ? assertRelationDiscoveryRouteSeedIntent(payload.researchIntent)
     : null;
   if (
     !["pmh.relation-discovery-task.v1", "pmh.relation-discovery-task.v2",
-      "pmh.relation-discovery-task.v3"]
+      "pmh.relation-discovery-task.v3", "pmh.relation-discovery-task.v4"]
       .includes(payload.schemaVersion) ||
     (payload.schemaVersion === "pmh.relation-discovery-task.v1" && (
       !HASH_PATTERN.test(String(payload.sourceCorpusSnapshotIdentity)) ||
@@ -394,16 +485,47 @@ export function assertRelationDiscoveryTaskPayload(value: unknown): RelationDisc
         record.sourceCorpusListingCount !== undefined)) ||
     (payload.schemaVersion === "pmh.relation-discovery-task.v3" &&
       (payload.inputBinding !== "EXACT_CORPUS_BOUND_BY_TASK_REVISION" ||
-        record.workItem !== undefined || workContract === null)) ||
+        record.workItem !== undefined || record.researchIntent !== undefined ||
+        workContract === null)) ||
+    (payload.schemaVersion === "pmh.relation-discovery-task.v4" &&
+      (payload.inputBinding !== "EXACT_CORPUS_BOUND_BY_TASK_REVISION" ||
+        record.workItem !== undefined || workContract === null || routeSeedIntent === null)) ||
     (work !== null && (work.disposition !== "RUNNABLE_RESEARCH" || !work.campaignEligible)) ||
-    payload.objective !== "FIND_AND_FALSIFY_EVIDENCE_BOUND_MARKET_RELATIONS" ||
+    (payload.schemaVersion === "pmh.relation-discovery-task.v4"
+      ? payload.objective !== "AUTHOR_AND_FALSIFY_EVIDENCE_BOUND_STANDING_ROUTE" ||
+        payload.authority !== "SEARCH_ROUTING_PROPOSAL_ONLY"
+      : payload.objective !== "FIND_AND_FALSIFY_EVIDENCE_BOUND_MARKET_RELATIONS" ||
+        payload.authority !== "RELATION_FINDING_PROPOSAL_ONLY") ||
     payload.contentPolicy !== "UNTRUSTED_VENUE_TEXT_DATA_ONLY" ||
-    payload.authority !== "RELATION_FINDING_PROPOSAL_ONLY" ||
     payload.semanticDecisionAuthority !== false || payload.probabilityAuthority !== false ||
     payload.certificateAuthority !== false || payload.executionAuthority !== false ||
     payload.externalWriteAuthority !== false || payload.valueMovingAuthority !== false
   ) throw new Error("relation discovery task payload violates its bounded contract");
   return Object.freeze(payload);
+}
+
+export function buildRelationDiscoveryRouteSeedTaskPayload(input: Readonly<{
+  workItem: OntologyRelationWorkItem;
+  selectionIdentity: Hash;
+  selectionActionRef: Hash;
+  targetRouteLayer: RelationDiscoveryRouteLayer;
+}>): RelationDiscoveryTaskPayload {
+  const workItem = assertOntologyRelationWorkItem(input.workItem);
+  return assertRelationDiscoveryTaskPayload(Object.freeze({
+    schemaVersion: "pmh.relation-discovery-task.v4" as const,
+    workContract: buildRelationDiscoveryWorkContract(workItem),
+    researchIntent: buildRelationDiscoveryRouteSeedIntent(input),
+    inputBinding: "EXACT_CORPUS_BOUND_BY_TASK_REVISION" as const,
+    objective: "AUTHOR_AND_FALSIFY_EVIDENCE_BOUND_STANDING_ROUTE" as const,
+    contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+    authority: "SEARCH_ROUTING_PROPOSAL_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  }));
 }
 
 export function buildRelationDiscoveryTaskPayload(input: Readonly<{
@@ -608,11 +730,13 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
     if (toolProtocol !== RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL) {
       throw new Error("relation discovery tool protocol is unsupported");
     }
-    return Object.freeze([
-      "record_relation_hypothesis",
-      "record_ontology_route",
-      "record_relation_counterexample",
-    ]);
+    return this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v4"
+      ? Object.freeze(["record_ontology_route", "record_relation_counterexample"])
+      : Object.freeze([
+          "record_relation_hypothesis",
+          "record_ontology_route",
+          "record_relation_counterexample",
+        ]);
   }
 
   readonly #listingByRef: ReadonlyMap<string, DiscoveryCatalogListing>;
@@ -628,10 +752,12 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
     workItemInput?: OntologyRelationWorkItem,
   ) {
     this.taskPayload = assertRelationDiscoveryTaskPayload(payload);
-    this.workItem = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+    this.workItem = payload.schemaVersion === "pmh.relation-discovery-task.v3" ||
+        payload.schemaVersion === "pmh.relation-discovery-task.v4"
       ? assertOntologyRelationWorkItem(workItemInput)
       : assertOntologyRelationWorkItem(payload.workItem);
-    if (payload.schemaVersion === "pmh.relation-discovery-task.v3" &&
+    if ((payload.schemaVersion === "pmh.relation-discovery-task.v3" ||
+        payload.schemaVersion === "pmh.relation-discovery-task.v4") &&
         hashCanonical(buildRelationDiscoveryWorkContract(this.workItem)) !==
           hashCanonical(payload.workContract)) {
       throw new Error("relation discovery work contract and input revision are inconsistent");
@@ -651,7 +777,9 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
     if (toolProtocol !== RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL) {
       throw new Error("relation discovery Agent tool protocol is unsupported");
     }
-    return MANIFEST;
+    return this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v4"
+      ? Object.freeze(MANIFEST.filter((tool) => tool.name !== "record_relation_hypothesis"))
+      : MANIFEST;
   }
 
   public findings(): readonly RelationDiscoveryFinding[] {
@@ -662,6 +790,7 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
     if (context.task.kind !== "RELATION_DISCOVERY" ||
         (context.task.protocol !== RELATION_DISCOVERY_TASK_PROTOCOL_V1 &&
           context.task.protocol !== RELATION_DISCOVERY_TASK_PROTOCOL_V2 &&
+          context.task.protocol !== RELATION_DISCOVERY_TASK_PROTOCOL_V3 &&
           context.task.protocol !== RELATION_DISCOVERY_TASK_PROTOCOL) ||
         context.task.requestedEffectProtocol !== RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL ||
         context.task.taskPayloadHash !== hashCanonical(this.taskPayload) ||
@@ -748,6 +877,10 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
     if (!["SUBJECT_REFERENCE", "EVENT_REFERENCE", "SETTLEMENT_REFERENCE"]
       .includes(routeLayer)) {
       throw new Error("ontology route layer is unsupported");
+    }
+    if (this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v4" &&
+        routeLayer !== this.taskPayload.researchIntent.targetRouteLayer) {
+      throw new Error("ontology route layer is outside the assigned route-seed intent");
     }
     const searchSignals = Object.freeze([...texts(
       input.searchSignals,
@@ -848,7 +981,8 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
       exactKeys(input, []);
       return Object.freeze({
         status: "ACCEPTED" as const,
-        output: this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v3"
+        output: this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v3" ||
+            this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v4"
           ? Object.freeze({ task: this.taskPayload, workItem: this.workItem })
           : this.taskPayload,
       });
@@ -898,6 +1032,9 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
       }) });
     }
     if (context.toolName === "record_relation_hypothesis") {
+      if (this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v4") {
+        throw new Error("route-seed intent cannot publish a payoff relation hypothesis");
+      }
       exactKeys(input, ["relationKind", "listingRefs", "statement", "rationale", "falsifiers"]);
       return Object.freeze({ status: "ACCEPTED" as const, output: this.#record(
         context, input, "RELATION_HYPOTHESIS",
@@ -924,10 +1061,12 @@ export function buildRelationDiscoveryAgentTask(input: Readonly<{
   createdAt: string;
 }>): AgentTask {
   const payload = assertRelationDiscoveryTaskPayload(input.payload);
-  const work = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+  const contractBound = payload.schemaVersion === "pmh.relation-discovery-task.v3" ||
+    payload.schemaVersion === "pmh.relation-discovery-task.v4";
+  const work = contractBound
     ? payload.workContract
     : payload.workItem;
-  const workArtifact = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+  const workArtifact = contractBound
     ? payload.workContract.contractIdentity
     : payload.workItem.artifactHash;
   return buildAgentTask({
@@ -936,10 +1075,12 @@ export function buildRelationDiscoveryAgentTask(input: Readonly<{
       ? RELATION_DISCOVERY_TASK_PROTOCOL_V1
       : payload.schemaVersion === "pmh.relation-discovery-task.v2"
         ? RELATION_DISCOVERY_TASK_PROTOCOL_V2
-        : RELATION_DISCOVERY_TASK_PROTOCOL,
+        : payload.schemaVersion === "pmh.relation-discovery-task.v3"
+          ? RELATION_DISCOVERY_TASK_PROTOCOL_V3
+          : RELATION_DISCOVERY_TASK_PROTOCOL,
     inputArtifacts: Object.freeze([
       Object.freeze({
-        kind: payload.schemaVersion === "pmh.relation-discovery-task.v3"
+        kind: contractBound
           ? "relation-work-contract"
           : "ontology-relation-work",
         artifactId: work.workItemId,
@@ -955,7 +1096,9 @@ export function buildRelationDiscoveryAgentTask(input: Readonly<{
     ]),
     taskPayload: payload,
     requestedEffectProtocol: RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL,
-    provenanceRef: `relation-work:${work.workItemId}`,
+    provenanceRef: payload.schemaVersion === "pmh.relation-discovery-task.v4"
+      ? `standing-route-seed:${payload.researchIntent.selectionActionRef}`
+      : `relation-work:${work.workItemId}`,
     priority: work.priority * 100,
     createdAt: input.createdAt,
   });

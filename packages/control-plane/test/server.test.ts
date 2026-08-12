@@ -2584,6 +2584,80 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    const routeSeedPreviewResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/standing-routes/seed-campaign-preview`,
+    );
+    expect(routeSeedPreviewResponse.status).toBe(200);
+    await expect(routeSeedPreviewResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.standing-route-seed-campaign-preview.v1",
+      taskIds: [],
+      preparedCampaignIds: [],
+      creationEligible: false,
+      dispatchEligible: false,
+      selection: {
+        consideredCandidateCount: 0,
+        selectedCandidateCount: 0,
+        selected: [],
+        unusedLayers: [
+          "SUBJECT_REFERENCE", "EVENT_REFERENCE", "SETTLEMENT_REFERENCE",
+        ],
+        providerRequestsStarted: 0,
+        modelInvocationsStarted: 0,
+        campaignsCreated: 0,
+        runsCreated: 0,
+        automaticDispatch: false,
+      },
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      automaticDispatch: false,
+      authority: "CAMPAIGN_PROPOSAL_ONLY",
+      executionAuthority: false,
+      valueMovingAuthority: false,
+    });
+    const emptyRouteSeedCampaignResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/standing-routes/seed-campaigns`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(emptyRouteSeedCampaignResponse.status).toBe(409);
+    await expect(emptyRouteSeedCampaignResponse.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "No differentiated unattempted standing-route seed is eligible",
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+    });
+    const routeSeedOutcomesResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/standing-routes/seed-outcomes`,
+    );
+    expect(routeSeedOutcomesResponse.status).toBe(200);
+    await expect(routeSeedOutcomesResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.standing-route-seed-outcome-projection.v1",
+      campaignCount: 0,
+      selectedActionCount: 0,
+      actedActionCount: 0,
+      terminalActionCount: 0,
+      routeRetainedActionCount: 0,
+      usefulNegativeMemoryActionCount: 0,
+      outcomes: [],
+      strata: [],
+      recurrenceQualification: {
+        representedLayerCount: 0,
+        qualifiedLayerCount: 0,
+        minimumTerminalActionsPerLayer: 3,
+        yieldCostEvidenceSufficient: false,
+        operatorActivationStillRequired: true,
+      },
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+      writesStartedByRead: 0,
+      automaticDispatch: false,
+      authority: "DESCRIPTIVE_ROUTE_SEED_ATTRIBUTION_ONLY",
+    });
     const ontologyOutcomesResponse = await fetch(
       `${baseUrl}/api/v1/market-ontology/allocation-outcomes`,
     );

@@ -1,11 +1,18 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { ExecutionCapabilityProjection } from "./agent-runtime-adapter.js";
 import type {
+  AgentCampaignSelectionBinding,
   AgentExecutionSnapshot,
   ExecutionProfile,
   WorkloadRoute,
 } from "./agent-execution-substrate.js";
+import { assertAgentCampaignSelectionBinding } from "./agent-execution-substrate.js";
 import type { RelationDiscoveryTaskRevision } from "./relation-discovery-work.js";
+
+export const RELATION_DISCOVERY_SELECTION_PROTOCOL =
+  "RELATION_DISCOVERY_SELECTION_V1" as const;
+export const RELATION_DISCOVERY_INPUT_REVISION_KIND =
+  "RELATION_DISCOVERY" as const;
 
 const WORK_PROVENANCE_PREFIX = "relation-work:";
 
@@ -18,6 +25,7 @@ export type RelationDiscoveryCampaignPreview = Readonly<{
   capability: ExecutionCapabilityProjection;
   workItemIds: readonly Hash[];
   taskIds: readonly Hash[];
+  selectionBinding: AgentCampaignSelectionBinding;
   omittedEligibleWorkItemCount: number;
   schedule: Readonly<{ kind: "MANUAL_ONLY"; intervalMs: null }>;
   budget: Readonly<{
@@ -67,6 +75,7 @@ export function selectRelationDiscoveryCampaignTasks(input: Readonly<{
 }>): readonly RelationDiscoveryTaskRevision[] {
   const latestByWork = new Map<Hash, RelationDiscoveryTaskRevision>();
   for (const revision of input.revisions) {
+    if (revision.schemaVersion === "pmh.relation-discovery-task-revision.v4") continue;
     const prior = latestByWork.get(revision.workItemId);
     if (prior === undefined || revision.materializedAt > prior.materializedAt ||
         (revision.materializedAt === prior.materializedAt &&
@@ -100,8 +109,42 @@ export function buildRelationDiscoveryCampaignPreview(input: Readonly<{
     throw new Error("relation discovery capability lineage is inconsistent");
   }
   const selected = selectRelationDiscoveryCampaignTasks(input);
+  const selectionPolicy = Object.freeze({
+    schemaVersion: "pmh.relation-discovery-selection-policy.v1" as const,
+    maximumPortfolioSize: 1 as const,
+    excludeAttemptedWorkFamily: true as const,
+    ordinaryIntentOnly: true as const,
+  });
+  const selectionIdentity = hashCanonical({
+    schemaVersion: "pmh.relation-discovery-selection.v1",
+    taskRevisionIds: selected.map((item) => item.revisionId),
+    policyIdentity: hashCanonical(selectionPolicy),
+  });
+  const selectionBinding = assertAgentCampaignSelectionBinding(Object.freeze({
+    schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
+    selectionProtocol: RELATION_DISCOVERY_SELECTION_PROTOCOL,
+    selectionIdentity,
+    selectionPolicyIdentity: hashCanonical(selectionPolicy),
+    taskBindings: Object.freeze(selected.map((revision) => Object.freeze({
+      taskId: revision.task.taskId,
+      workFamilyRef: `relation-work:${revision.workItemId}`,
+      selectionActionRef: hashCanonical({
+        schemaVersion: "pmh.relation-discovery-selection-action.v1",
+        revisionId: revision.revisionId,
+      }),
+      selectionActionKind: "PAYOFF_RELATION_DISCOVERY",
+      inputRevisionKind: RELATION_DISCOVERY_INPUT_REVISION_KIND,
+      inputRevisionId: revision.revisionId,
+      exactInputHash: hashCanonical(revision.taskPayload),
+      semanticInputIdentity: revision.schemaVersion ===
+        "pmh.relation-discovery-task-revision.v1"
+        ? revision.sourceCorpusSnapshotIdentity
+        : revision.researchInputIdentity,
+    })).sort((left, right) => left.taskId.localeCompare(right.taskId))),
+  }));
   const attempted = attemptedWorkIds(input.execution);
   const eligibleCount = new Set(input.revisions.filter((item) =>
+    item.schemaVersion !== "pmh.relation-discovery-task-revision.v4" &&
     item.campaignEligible && !attempted.has(item.workItemId)
   ).map((item) => item.workItemId)).size;
   const body = Object.freeze({
@@ -114,6 +157,7 @@ export function buildRelationDiscoveryCampaignPreview(input: Readonly<{
     capability: input.capability,
     workItemIds: Object.freeze(selected.map((item) => item.workItemId)),
     taskIds: Object.freeze(selected.map((item) => item.task.taskId)),
+    selectionBinding,
     omittedEligibleWorkItemCount: Math.max(0, eligibleCount - selected.length),
     schedule: Object.freeze({ kind: "MANUAL_ONLY" as const, intervalMs: null }),
     budget: Object.freeze({

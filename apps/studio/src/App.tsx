@@ -65,6 +65,7 @@ import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
 import { useDiscoveryExecutionCapability } from "@/data/discovery-execution";
 import {
   useStandingRouteDesk,
+  useStandingRouteSeedPortfolio,
   type StandingRouteState,
   type StandingRouteUsage,
 } from "@/data/standing-routes";
@@ -9035,6 +9036,7 @@ function standingRouteUsageTokens(usage: StandingRouteUsage | undefined): string
 
 function StandingRouteMemory({ revision }: { revision: string }) {
   const desk = useStandingRouteDesk(revision);
+  const seedPortfolio = useStandingRouteSeedPortfolio(revision);
   const data = desk.data;
   const families = data === null ? [] : [...data.families].sort((left, right) => {
     const leftValue = data.value.values.find((item) =>
@@ -9087,6 +9089,72 @@ function StandingRouteMemory({ revision }: { revision: string }) {
             Refresh memory
           </Button>
         </div>
+      </div>
+
+      <div className="standing-route-seed-portfolio">
+        <div className="standing-route-seed-heading">
+          <div>
+            <span className="eyebrow">Agent attention · one candidate per ontology layer</span>
+            <h3>Next route seeds</h3>
+            <p>
+              A bounded portfolio of search hypotheses. Each Agent may author only its
+              assigned layer or retain a counterexample; payoff findings are disabled.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={seedPortfolio.loading || seedPortfolio.preparing ||
+              !seedPortfolio.data?.creationEligible}
+            onClick={() => void seedPortfolio.prepare()}
+          >
+            {seedPortfolio.preparing
+              ? <RefreshCw className="is-spinning" size={13} />
+              : <Waypoints size={13} />}
+            Prepare paused campaign
+          </Button>
+        </div>
+        {seedPortfolio.loading && seedPortfolio.data === null ? (
+          <div className="standing-route-seed-state">
+            <LoaderCircle className="is-spinning" size={15} />
+            <span>Selecting without calling a model…</span>
+          </div>
+        ) : seedPortfolio.data !== null ? (
+          <>
+            <div className="standing-route-seed-grid">
+              {(["SUBJECT_REFERENCE", "EVENT_REFERENCE", "SETTLEMENT_REFERENCE"] as const)
+                .map((layer) => {
+                  const candidate = seedPortfolio.data!.selection.selected.find((item) =>
+                    item.targetRouteLayer === layer
+                  );
+                  const outcome = seedPortfolio.outcomes?.strata.find((item) =>
+                    item.targetRouteLayer === layer
+                  );
+                  return (
+                    <div className={candidate === undefined ? "is-empty" : ""} key={layer}>
+                      <span>{layer.replaceAll("_", " ").toLowerCase()}</span>
+                      <strong>{candidate === undefined ? "Capacity unused" : "Seed selected"}</strong>
+                      <small>{candidate === undefined
+                        ? outcome === undefined
+                          ? "No honest uncovered candidate"
+                          : `${outcome.terminalActionCount}/3 terminal attempts retained`
+                        : `${candidate.seedListingEvidenceCount} seed evidence · priority ${candidate.sourcePriority}`}</small>
+                    </div>
+                  );
+                })}
+            </div>
+            <p className="standing-route-seed-diagnostic">
+              {seedPortfolio.diagnostic ?? seedPortfolio.data.diagnostic}
+              {seedPortfolio.outcomes !== null
+                ? ` · recurrence ${seedPortfolio.outcomes.recurrenceQualification.qualifiedLayerCount}/3 layers qualified`
+                : ""}
+            </p>
+          </>
+        ) : (
+          <p className="standing-route-seed-diagnostic is-error">
+            {seedPortfolio.diagnostic ?? "Seed portfolio unavailable"}
+          </p>
+        )}
       </div>
 
       {desk.diagnostic !== null ? (
