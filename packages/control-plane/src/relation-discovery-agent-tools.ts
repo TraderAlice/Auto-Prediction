@@ -624,6 +624,18 @@ export function verifyRelationDiscoveryFindingEvidence(
 ): RelationDiscoveryFinding {
   const finding = assertRelationDiscoveryFinding(findingInput);
   const corpus = assertMarketCorpusSnapshot(corpusInput);
+  return verifyRelationDiscoveryFindingEvidenceAgainstVerifiedCorpus(finding, corpus);
+}
+
+/**
+ * Verify one finding after its immutable retained corpus has already crossed
+ * the full MarketCorpusSnapshot boundary in this read batch.
+ */
+export function verifyRelationDiscoveryFindingEvidenceAgainstVerifiedCorpus(
+  findingInput: RelationDiscoveryFinding,
+  corpus: MarketCorpusSnapshot,
+): RelationDiscoveryFinding {
+  const finding = assertRelationDiscoveryFinding(findingInput);
   if (finding.sourceCorpusSnapshotIdentity !== corpus.snapshotIdentity) {
     throw new Error("relation discovery finding corpus lineage is inconsistent");
   }

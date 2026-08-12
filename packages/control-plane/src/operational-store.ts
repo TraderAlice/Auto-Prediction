@@ -230,6 +230,7 @@ import {
 import {
   assertRelationDiscoveryFinding,
   verifyRelationDiscoveryFindingEvidence,
+  verifyRelationDiscoveryFindingEvidenceAgainstVerifiedCorpus,
   type RelationDiscoveryFinding,
   type RelationDiscoveryFindingStore,
 } from "./relation-discovery-agent-tools.js";
@@ -8747,13 +8748,20 @@ export class SqliteOperationalStore
        ORDER BY recorded_at DESC, finding_id DESC
        LIMIT ?`,
     ).all(limit);
+    const corpusByIdentity = new Map<Hash, MarketCorpusSnapshot>();
     return Object.freeze(rows.map((row) => {
       const finding = parseRelationDiscoveryFinding(row);
-      const corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
+      let corpus = corpusByIdentity.get(finding.sourceCorpusSnapshotIdentity) ?? null;
+      if (corpus === null) {
+        corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
+        if (corpus !== null) {
+          corpusByIdentity.set(finding.sourceCorpusSnapshotIdentity, corpus);
+        }
+      }
       if (corpus === null) {
         throw new Error("SQLite relation discovery finding lost its retained corpus");
       }
-      return verifyRelationDiscoveryFindingEvidence(finding, corpus);
+      return verifyRelationDiscoveryFindingEvidenceAgainstVerifiedCorpus(finding, corpus);
     }));
   }
 
@@ -8767,13 +8775,20 @@ export class SqliteOperationalStore
               json_extract(record_json, '$.relationKind') = 'RELATED')
        ORDER BY recorded_at DESC, finding_id DESC`,
     ).all();
+    const corpusByIdentity = new Map<Hash, MarketCorpusSnapshot>();
     return Object.freeze(rows.map((row) => {
       const finding = parseRelationDiscoveryFinding(row);
-      const corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
+      let corpus = corpusByIdentity.get(finding.sourceCorpusSnapshotIdentity) ?? null;
+      if (corpus === null) {
+        corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
+        if (corpus !== null) {
+          corpusByIdentity.set(finding.sourceCorpusSnapshotIdentity, corpus);
+        }
+      }
       if (corpus === null) {
         throw new Error("SQLite standing ontology route source lost its retained corpus");
       }
-      return verifyRelationDiscoveryFindingEvidence(finding, corpus);
+      return verifyRelationDiscoveryFindingEvidenceAgainstVerifiedCorpus(finding, corpus);
     }));
   }
 

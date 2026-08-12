@@ -8,6 +8,7 @@ import {
 import {
   assertRelationDiscoveryFinding,
   verifyRelationDiscoveryFindingEvidence,
+  verifyRelationDiscoveryFindingEvidenceAgainstVerifiedCorpus,
   type RelationDiscoveryPositiveFinding,
 } from "./relation-discovery-agent-tools.js";
 import {
@@ -174,14 +175,21 @@ export function compileRelationDiscoveryFindingForSemanticReview(input: Readonly
   finding: RelationDiscoveryPositiveFinding;
   taskRevision: RelationDiscoveryTaskRevision;
   corpus: MarketCorpusSnapshot;
+  verifiedInput?: true;
 }>): RelationDiscoveryProposalCompilation {
-  const finding = assertRelationDiscoveryFinding(input.finding);
+  const finding = input.verifiedInput === true
+    ? input.finding
+    : assertRelationDiscoveryFinding(input.finding);
   if (finding.kind !== "RELATION_HYPOTHESIS") {
     throw new Error("counterexamples cannot enter semantic review automatically");
   }
   const revision = assertRelationDiscoveryTaskRevision(input.taskRevision);
-  const corpus = assertMarketCorpusSnapshot(input.corpus);
-  verifyRelationDiscoveryFindingEvidence(finding, corpus);
+  const corpus = input.verifiedInput === true
+    ? input.corpus
+    : assertMarketCorpusSnapshot(input.corpus);
+  if (input.verifiedInput !== true) {
+    verifyRelationDiscoveryFindingEvidenceAgainstVerifiedCorpus(finding, corpus);
+  }
   if (
     finding.sourceTaskId !== revision.task.taskId ||
     finding.workItemId !== revision.workItemId ||
@@ -293,6 +301,7 @@ export function compileRelationDiscoveryFindingsForSemanticReview(input: Readonl
     }
     revisions.set(key, revision);
   }
+  const verifiedCorpusByIdentity = new Map<Hash, MarketCorpusSnapshot>();
   return Object.freeze(input.findings.map((candidate) => {
     const finding = assertRelationDiscoveryFinding(candidate);
     if (finding.kind !== "RELATION_HYPOTHESIS") {
@@ -307,11 +316,24 @@ export function compileRelationDiscoveryFindingsForSemanticReview(input: Readonl
     if (revision === undefined) {
       throw new Error("relation discovery finding exact task revision is unavailable");
     }
-    const corpus = input.loadCorpus(finding.sourceCorpusSnapshotIdentity);
+    let corpus = verifiedCorpusByIdentity.get(finding.sourceCorpusSnapshotIdentity) ?? null;
+    if (corpus === null) {
+      const loaded = input.loadCorpus(finding.sourceCorpusSnapshotIdentity);
+      corpus = loaded === null ? null : assertMarketCorpusSnapshot(loaded);
+      if (corpus !== null) {
+        verifiedCorpusByIdentity.set(finding.sourceCorpusSnapshotIdentity, corpus);
+      }
+    }
     if (corpus === null) {
       throw new Error("relation discovery finding corpus is unavailable");
     }
-    return compileRelationDiscoveryFindingForSemanticReview({ finding, taskRevision: revision, corpus });
+    verifyRelationDiscoveryFindingEvidence(finding, corpus);
+    return compileRelationDiscoveryFindingForSemanticReview({
+      finding,
+      taskRevision: revision,
+      corpus,
+      verifiedInput: true,
+    });
   }).sort((left, right) =>
     left.proposal.proposalId.localeCompare(right.proposal.proposalId)
   ));

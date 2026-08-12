@@ -792,11 +792,21 @@ describe("control-plane HTTP surface", () => {
     const liveEtag = response.headers.get("etag");
     expect(liveEtag).toBe(`"${projection.identity.viewHash}"`);
     expect(response.headers.get("x-pmh-projection-revision")).toBe("0");
+    expect(response.headers.get("server-timing")).toContain(
+      'projection-cache;desc="miss";dur=0.0',
+    );
+    expect(response.headers.get("server-timing")).toMatch(
+      /projection-total;dur=\d+(?:\.\d)?, projection-live-window;dur=\d+(?:\.\d)?, projection-request;dur=\d+(?:\.\d)?, projection-json;dur=\d+(?:\.\d)?$/u,
+    );
+    expect(Number(response.headers.get("x-pmh-response-bytes"))).toBeGreaterThan(0);
     const unchanged = await fetch(`${baseUrl}/api/v1/projection`, {
       headers: { "if-none-match": liveEtag! },
     });
     expect(unchanged.status).toBe(304);
     expect(unchanged.headers.get("etag")).toBe(liveEtag);
+    expect(unchanged.headers.get("server-timing")).toContain(
+      'projection-cache;desc="hit";dur=0.0',
+    );
     expect(await unchanged.text()).toBe("");
     expect(projection.identity.mode).toBe("CONTROL_PLANE");
     expect(projection.identity.view).toBe("LIVE_BOUNDED");
@@ -812,6 +822,10 @@ describe("control-plane HTTP surface", () => {
     );
     const fullResponse = await fetch(`${baseUrl}/api/v1/projection?view=full`);
     expect(fullResponse.status).toBe(200);
+    expect(fullResponse.headers.get("server-timing")).toMatch(
+      /projection-total;dur=\d+(?:\.\d)?, projection-json;dur=\d+(?:\.\d)?$/u,
+    );
+    expect(Number(fullResponse.headers.get("x-pmh-response-bytes"))).toBeGreaterThan(0);
     const fullProjection = await fullResponse.json() as {
       identity: { view: string; stateHash: string };
       projectionWindow: {
@@ -2394,6 +2408,11 @@ describe("control-plane HTTP surface", () => {
       `${baseUrl}/api/v1/market-ontology/standing-routes`,
     );
     expect(standingRoutesResponse.status).toBe(200);
+    expect(standingRoutesResponse.headers.get("server-timing")).toMatch(
+      /^routes-projection;dur=\d+(?:\.\d)?, routes-followups;dur=\d+(?:\.\d)?, routes-inputs;dur=\d+(?:\.\d)?, routes-value;dur=\d+(?:\.\d)?, routes-seed-outcomes;dur=\d+(?:\.\d)?, routes-selection;dur=\d+(?:\.\d)?, routes-json;dur=\d+(?:\.\d)?, routes-total;dur=\d+(?:\.\d)?$/u,
+    );
+    expect(Number(standingRoutesResponse.headers.get("x-pmh-response-bytes")))
+      .toBeGreaterThan(0);
     await expect(standingRoutesResponse.json()).resolves.toMatchObject({
       schemaVersion: "pmh.standing-ontology-route-projection.v1",
       routeCount: 0,

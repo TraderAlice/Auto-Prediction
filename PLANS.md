@@ -457,6 +457,15 @@ the 2.3 MB main projection takes about 13 seconds and the dedicated standing-
 route read about 21 seconds on current SQLite state, so route memory should no
 longer block initial workspace readiness.
 
+The active continuation is now
+[`plans/studio-progressive-readiness.md`](plans/studio-progressive-readiness.md).
+It separates durable SQLite evidence, a derived bounded projection, and browser
+freshness posture. The first step is measured attribution of the current
+13-second/2.3-MB main projection and contended 21-second route read. The intended
+product boundary is an explicitly stale, last-known bounded workspace that is
+usable during revalidation—not a loading skeleton and never stale state labelled
+as live.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,
