@@ -65,7 +65,7 @@ free text is not a result, and a catalog snapshot change alone is not novelty.
   endpoint.
 - [x] Reconcile the resulting run, tool effects, findings and downstream state
   into the existing outcome projection after every Agent completion.
-- [ ] Distinguish `ADVANCED`, useful negative memory, spent without movement,
+- [x] Distinguish `ADVANCED`, useful negative memory, spent without movement,
   in-flight and stale/retired membership without inventing model reward.
 
 ## Phase 3 — bounded recurring wake-up
@@ -73,9 +73,9 @@ free text is not a result, and a catalog snapshot change alone is not novelty.
 - [x] Add a configurable discovery-cycle interval that recomputes observation,
   allocation and membership but starts no run unless the lineage is explicitly
   active, current membership is runnable and budget remains.
-- [ ] Keep concurrency at one for the initial flywheel and use
+- [x] Keep concurrency at one for the initial flywheel and use
   `ONCE_PER_TASK_PER_LINEAGE`; a wake-up over unchanged state must be a no-op.
-- [ ] Require a named first-party novelty reason for successor work and retain
+- [x] Require a named first-party novelty reason for successor work and retain
   counterexamples/no-yield attempts as anti-loop memory.
 - [ ] Notify only on new campaign membership, structured outcomes, repeated
   costly no-movement, or portfolio exhaustion—not every model response.
@@ -137,6 +137,18 @@ targets share the same research-state revision, so an unchanged wake-up is an
 O(1) read of the last evidence-bound decision rather than a periodic rebuild of
 the ontology graph. The independent campaign dispatcher remains the only path
 from an explicitly active lineage to a runnable, budgeted Agent attempt.
+
+Successor work now carries its first-party novelty reason through the allocation
+action, content-addressed action identity and durable v2 research-decision
+episode. The outcome projection keeps v1 episodes readable as
+`LEGACY_UNBOUND`, while new episodes expose the exact reason that justified
+spend plus counterexample, terminal no-yield and successful-free-text deltas as
+anti-loop memory. A counterexample is classified as useful negative memory,
+not falsely promoted as a positive finding merely because it advanced the
+evidence stage. Agent Operations presents both the spend premise and retained
+negative memory. The relation lineage already fixes concurrency at one and
+uses `ONCE_PER_TASK_PER_LINEAGE`; changing an allocation identity therefore
+cannot rerun an unchanged exact task.
 
 ## Initial qualification
 

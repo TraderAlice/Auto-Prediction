@@ -303,6 +303,7 @@ type ResearchAttentionAllocation = Readonly<{
     taskId: string | null;
     targetArtifactRefs: readonly string[];
     valueStage: string;
+    noveltyReason: string;
     diagnostic: string;
     dispatchableByRelationCampaign: boolean;
   }>>;
@@ -397,6 +398,7 @@ type ResearchDecisionOutcomeProjection = Readonly<{
     episodeId: string;
     capturedAt: string;
     allocationActionId: string;
+    noveltyReason: string;
     targetId: string;
     workItemId: string | null;
     state: string;
@@ -406,6 +408,14 @@ type ResearchDecisionOutcomeProjection = Readonly<{
     valueStageDelta: number | null;
     currentTargetState: string | null;
     newArtifactRefs: readonly string[];
+    antiLoopMemory: Readonly<{
+      newCounterexampleCount: number;
+      newNoFindingTerminalRunCount: number;
+      newSuccessfulWithoutAcceptedResultCount: number;
+      retainedCounterexampleCount: number;
+      retainedNoFindingTerminalRunCount: number;
+      exactTaskAlreadyAttempted: boolean;
+    }>;
     costDelta: Readonly<{
       knownInputTokens: string;
       knownOutputTokens: string;
@@ -3688,6 +3698,9 @@ function AgentOperationsView() {
                           {action.lane.replaceAll("_", " ")}
                         </Badge>
                         <Badge variant="muted">{action.valueStage.replaceAll("_", " ")}</Badge>
+                        <Badge variant="muted">
+                          {action.noveltyReason.replaceAll("_", " ")}
+                        </Badge>
                         {primaryTarget !== null && (
                           <Badge variant={primaryTarget.state.startsWith("READY_")
                             ? "verified"
@@ -3716,7 +3729,11 @@ function AgentOperationsView() {
                           </Badge>
                         </div>
                         <strong>{latestOutcome.diagnostic}</strong>
-                        <code>{latestOutcome.newArtifactRefs.length} new artifacts · {formatTokenCount((BigInt(latestOutcome.costDelta.knownInputTokens) + BigInt(latestOutcome.costDelta.knownOutputTokens)).toString())} token delta · {latestOutcome.attributionBasis.replaceAll("_", " ").toLowerCase()}</code>
+                        <code>{latestOutcome.noveltyReason.replaceAll("_", " ").toLowerCase()} · {latestOutcome.newArtifactRefs.length} new artifacts · {formatTokenCount((BigInt(latestOutcome.costDelta.knownInputTokens) + BigInt(latestOutcome.costDelta.knownOutputTokens)).toString())} token delta</code>
+                        {(latestOutcome.antiLoopMemory.retainedCounterexampleCount > 0 ||
+                          latestOutcome.antiLoopMemory.retainedNoFindingTerminalRunCount > 0) && (
+                          <code>{latestOutcome.antiLoopMemory.retainedCounterexampleCount} retained counterexamples · {latestOutcome.antiLoopMemory.retainedNoFindingTerminalRunCount} no-yield terminal attempts</code>
+                        )}
                       </div>
                     )}
                     <div className="research-attention-facts">

@@ -37,7 +37,7 @@ function allocationAction(
   taskId: Hash | null = null,
 ): ResearchAttentionAllocationAction {
   const body = {
-    schemaVersion: "pmh.research-attention-allocation-action.v1" as const,
+    schemaVersion: "pmh.research-attention-allocation-action.v2" as const,
     lane: kind === "EXPLORE_NEW_FAMILY" ? "EXPLORATION" as const :
       "FALSIFICATION_OR_DEBT" as const,
     kind,
@@ -47,6 +47,8 @@ function allocationAction(
     targetArtifactRefs: Object.freeze([REVIEW_NEW]),
     valueStage: kind === "EXPLORE_NEW_FAMILY" ? "UNATTEMPTED" as const :
       "SEMANTICALLY_REVIEWED" as const,
+    noveltyReason: kind === "EXPLORE_NEW_FAMILY"
+      ? "NEW_STABLE_FAMILY" as const : "DOWNSTREAM_RESEARCH_DEBT" as const,
     diagnostic: `attention:${kind}`,
     dispatchableByRelationCampaign: kind === "EXPLORE_NEW_FAMILY",
     authority: "ATTENTION_PROPOSAL_ONLY" as const,

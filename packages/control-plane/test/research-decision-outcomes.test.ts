@@ -17,6 +17,9 @@ const taskId = hashCanonical({ task: "decision-fixture" });
 function family(input?: Readonly<{
   stage?: ResearchAttentionFamilyScorecard["valueStage"];
   runIds?: readonly Hash[];
+  counterexampleIds?: readonly Hash[];
+  noFindingTerminalRunCount?: number;
+  successfulWithoutAcceptedResultCount?: number;
   inputTokens?: string;
   unknown?: number;
 }>): ResearchAttentionFamilyScorecard {
@@ -39,16 +42,17 @@ function family(input?: Readonly<{
     failedRunCount: 0,
     interruptedRunCount: 0,
     productiveInterruptedRunCount: 0,
-    successfulWithoutAcceptedResultCount: 0,
+    successfulWithoutAcceptedResultCount:
+      input?.successfulWithoutAcceptedResultCount ?? 0,
     acceptedToolEffectCount: input?.runIds?.length ?? 0,
     rejectedToolEffectCount: 0,
     acceptedResultToolEffectCount: input?.runIds?.length ?? 0,
     positiveFindingIds: [],
-    counterexampleIds: [],
+    counterexampleIds: input?.counterexampleIds ?? [],
     positiveFindingCount: 0,
     ontologyRouteObservationCount: 0,
-    counterexampleCount: 0,
-    noFindingTerminalRunCount: 0,
+    counterexampleCount: input?.counterexampleIds?.length ?? 0,
+    noFindingTerminalRunCount: input?.noFindingTerminalRunCount ?? 0,
     ontologyRoutingOnlyFindingCount: 0,
     semanticReviewCandidateCount: 0,
     semanticReviewConnectedCount: 0,
@@ -92,7 +96,7 @@ function family(input?: Readonly<{
 
 function allocation(familyValue = family()): ResearchAttentionAllocationProjection {
   const actionBody = {
-    schemaVersion: "pmh.research-attention-allocation-action.v1" as const,
+    schemaVersion: "pmh.research-attention-allocation-action.v2" as const,
     lane: "EXPLORATION" as const,
     kind: "EXPLORE_NEW_FAMILY" as const,
     workItemId,
@@ -100,6 +104,7 @@ function allocation(familyValue = family()): ResearchAttentionAllocationProjecti
     taskId,
     targetArtifactRefs: [workItemId],
     valueStage: familyValue.valueStage,
+    noveltyReason: familyValue.noveltyReason,
     diagnostic: "Explore the exact family",
     dispatchableByRelationCampaign: true,
     authority: "ATTENTION_PROPOSAL_ONLY" as const,
@@ -232,7 +237,8 @@ describe("research decision outcomes", () => {
   it("captures an exact current action and target with zero effects", () => {
     const result = episode();
     expect(result).toMatchObject({
-      schemaVersion: "pmh.research-decision-episode.v1",
+      schemaVersion: "pmh.research-decision-episode.v2",
+      noveltyReason: "NEW_STABLE_FAMILY",
       providerRequestsStartedByCapture: 0,
       modelInvocationsStartedByCapture: 0,
       campaignsCreatedByCapture: 0,
@@ -290,6 +296,40 @@ describe("research decision outcomes", () => {
       state: "USEFUL_NEGATIVE_MEMORY",
       attributionBasis: "NOT_ACTED",
       valueStageDelta: 0,
+    });
+  });
+
+  it("attributes new counterexamples and no-yield attempts as anti-loop memory", () => {
+    const baselineAllocation = allocation();
+    const baselineTargets = targets(baselineAllocation);
+    const captured = episode(baselineAllocation, baselineTargets);
+    const runId = hashCanonical({ run: "negative-memory" });
+    const counterexampleId = hashCanonical({ counterexample: "negative-memory" });
+    const negativeAllocation = allocation(family({
+      stage: "NEGATIVE_EVIDENCE",
+      runIds: [runId],
+      counterexampleIds: [counterexampleId],
+      noFindingTerminalRunCount: 1,
+      inputTokens: "800",
+    }));
+    const result = buildResearchDecisionOutcomeProjection({
+      observedAt,
+      episodes: [captured],
+      allocation: negativeAllocation,
+      targets: targets(negativeAllocation),
+    }).outcomes[0]!;
+
+    expect(result).toMatchObject({
+      noveltyReason: "NEW_STABLE_FAMILY",
+      state: "USEFUL_NEGATIVE_MEMORY",
+      attributionBasis: "TARGET_LINEAGE_OBSERVED",
+      antiLoopMemory: {
+        newCounterexampleCount: 1,
+        newNoFindingTerminalRunCount: 1,
+        retainedCounterexampleCount: 1,
+        retainedNoFindingTerminalRunCount: 1,
+        exactTaskAlreadyAttempted: true,
+      },
     });
   });
 
