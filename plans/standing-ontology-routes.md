@@ -100,6 +100,9 @@ spend on payoff search when it supplies no new live member or changed contract.
 
 ## Phase 5 — value attribution and operator surface
 
+- [ ] Consolidate independently discovered routes by canonical query scope while
+  retaining every source observation, so repeated Agent discovery corroborates
+  one route family instead of multiplying wake spend.
 - [ ] Attribute route creation cost, quiet duration, wake count, follow-up cost,
   payoff-review yield, counterexample yield, and opportunity progression.
 - [ ] Expose standing routes and wakes in the Finding Inbox without presenting
