@@ -1,12 +1,12 @@
 # Standing ontology routes
 
-Status: active mainline construction — phases 1–4 and route-family consolidation qualified; lifecycle attribution next
+Status: active mainline construction — phases 1–5 lifecycle memory qualified; operator surface next
 
 Issue: [#125](https://github.com/luokerenx4/my-little-pony/issues/125)
 
 Lifecycle continuation: [#127](https://github.com/luokerenx4/my-little-pony/issues/127)
 
-Branch: `codex/standing-route-lifecycle`
+Branch: `codex/standing-route-observation-episodes`
 
 ## North-star role
 
@@ -112,12 +112,12 @@ spend on payoff search when it supplies no new live member or changed contract.
   material membership identity.
 - [x] Surface duplicate source count, baseline disagreement, and exact source
   route/finding/run lineage rather than silently discarding duplicate evidence.
-- [ ] Attribute route creation cost, quiet duration, wake count, follow-up cost,
+- [x] Attribute route creation cost, quiet duration, wake count, follow-up cost,
   payoff-review yield, counterexample yield, and opportunity progression.
 - [x] Separate route-authoring usage from upstream ontology lineage and
   follow-up usage; expose known/unknown token structure and downstream retained
   artifacts without making a causal value claim.
-- [ ] Persist family observation episodes so historical quiet intervals and
+- [x] Persist family observation episodes so historical quiet intervals and
   multiple past wakes survive beyond the current corpus projection.
 - [ ] Expose standing routes and wakes in the Finding Inbox without presenting
   them as opportunities.
@@ -190,15 +190,34 @@ output tokens, and 740 reasoning tokens; the quiet family has no follow-up cost
 or downstream yield yet. An initial overcount of 331,442 input tokens exposed
 that upstream ontology runs were being charged as route creation. Those runs
 remain in provenance, while `creationUsage` now uses only the actual route-
-authoring run. Historical multi-wake counts still require durable observation
-episodes; the current provider-free projection reports only the present wake.
+authoring run.
+
+Additive SQLite schema 43 now retains an immutable transition chain per route
+family. Episode identity is `family × current observation × prior episode`:
+consecutive replay of the same state is idempotent, while returning to a
+previously seen membership after an intervening wake is a new lifecycle event.
+First-party persistence rejects missing predecessors, backward time, and forks
+from one predecessor. Reconciliation records episodes at startup, after catalog
+refresh, and after a relation Agent completion without starting additional
+inference. The value projection derives
+historical wake count, current and total quiet duration, episode count, and
+every historical membership-scoped follow-up work identity from this ledger.
+Synthetic replay retained `QUIESCENT → EXPANDED → QUIESCENT` across SQLite
+close/reopen and rejected a competing branch. The live Lula family retained one
+quiet root episode across two process startups, zero wakes, zero follow-up
+spend, and the same exact 179,293 / 1,722 / 740 authoring usage. Both reads
+reported zero provider requests, model invocations, campaigns, and runs. The
+next active slice is an operator-facing route-family timeline and wake-yield
+surface in the Finding Inbox; it must expose memory and spend without calling a
+route an opportunity.
 
 The retained live Lula finding compiled to standing route
 `sha256:e68e800fd20be6566c112eae7972c9a94c637d9b9cc5df959d31da3e74c8d250`
 with the exact signal `Luiz Inácio Lula da Silva` and its two Gemini members.
 The current state is `QUIESCENT`, follow-up count is zero, and the read started
 zero provider requests, model invocations, campaigns, or runs. SQLite migrated
-to schema 42 without losing the legacy finding. Workspace checks, all suites
+to schema 43 without losing the legacy finding or duplicating the quiet root
+episode on restart. Workspace checks, all suites
 (86 control-plane files / 604 tests, four Studio files / 24 tests, and all
 remaining packages), and the production build pass with only the known Node 24
 engine expectation and existing Studio chunk-size warning.

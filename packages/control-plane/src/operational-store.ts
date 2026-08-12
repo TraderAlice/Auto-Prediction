@@ -243,8 +243,13 @@ import {
   type ResearchDecisionEpisode,
   type ResearchDecisionEpisodeStore,
 } from "./research-decision-outcomes.js";
+import {
+  assertStandingOntologyRouteObservationEpisode,
+  type StandingOntologyRouteObservationEpisode,
+  type StandingOntologyRouteObservationEpisodeStore,
+} from "./standing-ontology-routes.js";
 
-const SCHEMA_VERSION = 42;
+const SCHEMA_VERSION = 43;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1788,6 +1793,28 @@ function parseRelationDiscoveryFinding(value: unknown): RelationDiscoveryFinding
   return finding;
 }
 
+function parseStandingOntologyRouteObservationEpisode(
+  value: unknown,
+): StandingOntologyRouteObservationEpisode {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite standing route observation episode row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.episode_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite standing route observation episode row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite standing route observation episode contains invalid JSON");
+  }
+  const episode = assertStandingOntologyRouteObservationEpisode(decoded);
+  if (episode.episodeId !== row.episode_id || hashCanonical(episode) !== row.record_hash) {
+    throw new Error("SQLite standing route observation episode identity mismatch");
+  }
+  return episode;
+}
+
 function parseResearchDecisionEpisode(value: unknown): ResearchDecisionEpisode {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite research decision episode row is malformed");
@@ -1867,6 +1894,7 @@ export class SqliteOperationalStore
     OntologySearchIssueRevisionStore,
     RelationDiscoveryTaskRevisionStore,
     RelationDiscoveryFindingStore,
+    StandingOntologyRouteObservationEpisodeStore,
     ResearchDecisionEpisodeStore
 {
   readonly #database: DatabaseSync;
@@ -1934,6 +1962,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"snapshotIdentity">;
   public readonly relationDiscoveryFindingStorage:
     OperationalStorageProjection<"findingId">;
+  public readonly standingOntologyRouteObservationEpisodeStorage:
+    OperationalStorageProjection<"episodeId">;
   public readonly researchDecisionEpisodeStorage:
     OperationalStorageProjection<"episodeId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
@@ -2167,6 +2197,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "findingId",
+    });
+    this.standingOntologyRouteObservationEpisodeStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "episodeId",
     });
     this.researchDecisionEpisodeStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2519,6 +2555,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'relation_discovery_findings'`,
       )
       .get() !== undefined;
+    const standingOntologyRouteObservationEpisodeTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'standing_ontology_route_observation_episodes'`,
+      )
+      .get() !== undefined;
     const researchDecisionEpisodeTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2564,6 +2606,7 @@ export class SqliteOperationalStore
       && relationDiscoveryTaskRevisionTableExists
       && relationDiscoveryCorpusTableExists
       && relationDiscoveryFindingTableExists
+      && standingOntologyRouteObservationEpisodeTableExists
       && researchDecisionEpisodeTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
@@ -4212,6 +4255,45 @@ export class SqliteOperationalStore
           CREATE INDEX relation_discovery_findings_run
             ON relation_discovery_findings (
               source_agent_run_id, recorded_at, finding_id
+            );
+        `);
+      }
+      if (current < 43 || !standingOntologyRouteObservationEpisodeTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS standing_ontology_route_observation_episodes (
+            episode_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(episode_id) = 71 AND episode_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            route_family_id TEXT NOT NULL CHECK (
+              length(route_family_id) = 71 AND route_family_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            family_observation_id TEXT NOT NULL CHECK (
+              length(family_observation_id) = 71 AND
+              family_observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            previous_episode_id TEXT CHECK (
+              previous_episode_id IS NULL OR (
+                length(previous_episode_id) = 71 AND
+                previous_episode_id GLOB 'sha256:[0-9a-f]*'
+              )
+            ),
+            observed_at TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (
+              state IN ('QUIESCENT', 'EXPANDED', 'CHANGED', 'CONTRACTED',
+                        'BLOCKED_TOO_BROAD')
+            ),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS standing_route_episodes_family_time
+            ON standing_ontology_route_observation_episodes (
+              route_family_id, observed_at DESC, episode_id DESC
+            );
+          CREATE UNIQUE INDEX IF NOT EXISTS standing_route_episodes_transition
+            ON standing_ontology_route_observation_episodes (
+              route_family_id, IFNULL(previous_episode_id, '')
             );
         `);
       }
@@ -8746,6 +8828,103 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return findings;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadStandingOntologyRouteObservationEpisodes(
+    routeFamilyIdsInput?: readonly Hash[],
+  ): readonly StandingOntologyRouteObservationEpisode[] {
+    this.#assertOpen();
+    const routeFamilyIds = routeFamilyIdsInput === undefined
+      ? null
+      : [...new Set(routeFamilyIdsInput)].sort();
+    if (routeFamilyIds?.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(item))) {
+      throw new Error("standing route episode lookup contains an invalid family id");
+    }
+    if (routeFamilyIds?.length === 0) return Object.freeze([]);
+    const rows = routeFamilyIds === null
+      ? this.#database.prepare(
+          `SELECT episode_id, record_json, record_hash
+           FROM standing_ontology_route_observation_episodes
+           ORDER BY observed_at, episode_id`,
+        ).all()
+      : routeFamilyIds.flatMap((routeFamilyId) => this.#database.prepare(
+          `SELECT episode_id, record_json, record_hash
+           FROM standing_ontology_route_observation_episodes
+           WHERE route_family_id = ?
+           ORDER BY observed_at, episode_id`,
+        ).all(routeFamilyId));
+    return Object.freeze(rows.map(parseStandingOntologyRouteObservationEpisode));
+  }
+
+  public saveStandingOntologyRouteObservationEpisodes(
+    episodesInput: readonly StandingOntologyRouteObservationEpisode[],
+  ): readonly StandingOntologyRouteObservationEpisode[] {
+    this.#assertOpen();
+    const episodes = Object.freeze(episodesInput.map(
+      assertStandingOntologyRouteObservationEpisode,
+    ));
+    if (new Set(episodes.map((item) => item.episodeId)).size !== episodes.length) {
+      throw new Error("standing route observation episode batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const episode of episodes) {
+        const previousRow = episode.previousEpisodeId === null
+          ? null
+          : this.#database.prepare(
+              `SELECT episode_id, record_json, record_hash
+               FROM standing_ontology_route_observation_episodes
+               WHERE episode_id = ? AND route_family_id = ?`,
+            ).get(episode.previousEpisodeId, episode.routeFamilyId);
+        if (episode.previousEpisodeId !== null && previousRow === undefined) {
+          throw new Error("standing route observation episode lost its prior transition");
+        }
+        if (previousRow !== null && previousRow !== undefined &&
+            parseStandingOntologyRouteObservationEpisode(previousRow).observedAt >
+              episode.observedAt) {
+          throw new Error("standing route observation episode predates its prior transition");
+        }
+        const existingChild = this.#database.prepare(
+          `SELECT episode_id FROM standing_ontology_route_observation_episodes
+           WHERE route_family_id = ? AND IFNULL(previous_episode_id, '') = IFNULL(?, '')`,
+        ).get(episode.routeFamilyId, episode.previousEpisodeId);
+        if (existingChild !== undefined &&
+            (existingChild as Readonly<{ episode_id: string }>).episode_id !== episode.episodeId) {
+          throw new Error("standing route observation history cannot fork");
+        }
+        const recordJson = canonicalJson(episode);
+        const recordHash = hashCanonical(episode);
+        this.#database.prepare(
+          `INSERT INTO standing_ontology_route_observation_episodes (
+             episode_id, route_family_id, family_observation_id,
+             previous_episode_id, observed_at, state, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(episode_id) DO NOTHING`,
+        ).run(
+          episode.episodeId,
+          episode.routeFamilyId,
+          episode.familyObservationId,
+          episode.previousEpisodeId,
+          episode.observedAt,
+          episode.state,
+          recordJson,
+          recordHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT episode_id, record_json, record_hash
+           FROM standing_ontology_route_observation_episodes WHERE episode_id = ?`,
+        ).get(episode.episodeId);
+        if (row === undefined ||
+            hashCanonical(parseStandingOntologyRouteObservationEpisode(row)) !== recordHash) {
+          throw new Error("episodeId is already bound to another route observation episode");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return episodes;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;
