@@ -5,8 +5,8 @@ import type { DiscoveryCatalogListing } from "./types.js";
 import { hasBoundedDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
 import {
   hasBoundedRulesEvidence,
-  MAX_RETAINED_RULE_CHARACTERS,
 } from "./catalog-discovery.js";
+import { MAX_RETAINED_RULE_CHARACTERS } from "./catalog-limits.js";
 
 const MAX_PATTERNS = 12;
 const MAX_PATTERN_LENGTH = 160;

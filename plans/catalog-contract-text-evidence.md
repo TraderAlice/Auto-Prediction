@@ -4,7 +4,7 @@ Status: active mainline construction
 
 Created: 2026-08-13
 
-Branch: `codex/incremental-rule-evidence-reconcile`
+Branch: `codex/contract-semantic-continuity`
 
 ## North-star role
 
@@ -73,7 +73,7 @@ tasks are reconciled after refresh and during projection without model dispatch.
   all historical document claims byte-for-byte.
 - [x] Make the legacy `/rule-evidence-claims/:job/run` path compatibility-only;
   new catalog-text work executes through manual Agent runs or explicit campaigns.
-- [ ] Qualify the retained LAFC oracle-source task with the selected execution
+- [x] Qualify the retained LAFC oracle-source task with the selected execution
   profile only after preview confirms runtime/model/credential/budget. A second
   interpretation is prohibited until the exact catalog artifact is present.
 
@@ -97,7 +97,7 @@ zero provider requests or model invocations.
   to 10,000 listings after the anonymous catalog crossed the former limit.
 - [x] Preserve mutable task metadata updates on the full store path; use the
   additive path only for genuinely new task identities.
-- [ ] Materialize catalog evidence for the requirement's semantic source
+- [x] Materialize catalog evidence for the requirement's semantic source
   generation rather than assuming the latest price-bearing listing hash must
   match. This must remain fail-closed when contract text or other contract
   semantics change.
@@ -119,6 +119,47 @@ listing identity even though `rulesText` was unchanged, so the exact validator
 correctly rejected the mismatched generations. The next phase must separate
 market observation identity from contract-semantic and field-evidence identity;
 it must not weaken source hashes or silently call a changed contract current.
+
+## Phase 4 — observation/contract continuity
+
+- [x] Separate volatile catalog-observation identity from contract-semantic
+  identity without discarding either one.
+- [x] Persist a self-verifying continuity artifact containing the prior exact
+  listing, current exact field artifact, both raw/time/listing identities, the
+  bounded contract-semantic projection and rules-text hash.
+- [x] Reconcile one stable `RULE_EVIDENCE_TASK_V3` from the requirement,
+  contract semantics and field text; keep current observation lineage in the
+  tool host and final claim rather than rotating the research task.
+- [x] Persist v4 claims with the exact continuity generation they actually read,
+  while allowing unchanged semantics/text to satisfy the current review scope.
+
+Live evidence on 2026-08-13: schema 47 retained eight independently replayable
+continuity artifacts and restored eleven v3 Rule Evidence tasks from the same
+ledger that previously supplied zero. A successor startup retained the current
+task identity for each unchanged requirement/contract/text tuple. Two live
+startup failures also corrected real construction defects before inference:
+catalog limits moved to a leaf module to remove an ESM initialization cycle,
+and V3 now hashes and executes the same stable research payload. Pre-runtime
+failures retain their bounded concrete diagnostic rather than collapsing into a
+generic dispatcher error.
+
+One operator-authorized Codex app-server / `gpt-5.6-terra` high run then
+completed the LAFC ordinary-settlement-source requirement. Eight successful
+model invocations used 151,110 input, 840 output and 315 reasoning tokens; five
+searches, two reads and one terminal submission were accepted by first-party
+tools. The resulting v4 claim is intentionally `INCONCLUSIVE`: the exact
+653-character Polymarket US field proves elimination, cancellation and
+multi-winner treatments, but does not state the sole-winner affirmative mapping,
+controlling result source or finality standard. The claim retains the exact
+current catalog artifact, continuity ID and stable contract-semantic identity.
+This is useful negative evidence, not a failed attempt and not permission to
+infer equivalence.
+
+The same live run exposed a product-level successor question: historical Agent
+tasks remain audit-visible after their stable contract changes, but the console
+does not yet distinguish a current runnable task from a superseded task whose
+input resolver has intentionally moved on. That must become explicit before
+recurring dispatch is widened.
 
 ## Qualification gates
 

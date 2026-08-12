@@ -31,6 +31,12 @@ function tokens(value: string | null): bigint {
   return value === null ? 0n : BigInt(value);
 }
 
+function compactDiagnostic(value: unknown): string {
+  const diagnostic = (value instanceof Error ? value.message : String(value))
+    .trim().replace(/\s+/gu, " ");
+  return (diagnostic === "" ? "unknown pre-runtime failure" : diagnostic).slice(0, 400);
+}
+
 function campaignRuns(
   snapshot: AgentExecutionSnapshot,
   campaign: AgentCampaign,
@@ -446,12 +452,12 @@ export class AgentCampaignDispatcher {
           this.#registry.saveBatch(batch);
         },
       });
-    } catch {
+    } catch (error) {
       const failed = completeAgentRun(
         run,
         "FAILED",
         canonicalIso(this.#now()),
-        "campaign dispatcher failed before runtime completion",
+        `campaign dispatcher failed before runtime completion: ${compactDiagnostic(error)}`,
       );
       this.#registry.saveBatch({ runs: [failed] });
       return failed;

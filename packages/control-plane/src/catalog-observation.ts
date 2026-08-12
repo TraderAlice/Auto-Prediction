@@ -22,11 +22,11 @@ import {
   buildDiscoveryCatalogContext,
   buildExactDiscoveryCatalogContext,
   buildRotatingDiscoveryCatalogContext,
-  MAX_LISTINGS_PER_TASK,
   selectDiscoveryCatalogContextForFeedback,
   toDiscoveryCatalogListing,
   type DiscoveryContextRoutingFeedback,
 } from "./catalog-discovery.js";
+import { MAX_LISTINGS_PER_TASK } from "./catalog-limits.js";
 import {
   buildOpportunityRadar,
   type OpportunityRadarCandidate,

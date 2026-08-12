@@ -9,6 +9,7 @@ import {
 } from "./market-archaeologist.js";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import type { DiscoveryCatalogListing } from "./types.js";
+import { contractSemanticSnapshot } from "./contract-semantics.js";
 import {
   buildEvidenceEnrichedSemanticScope,
 } from "./evidence-enriched-semantic-scope.js";
@@ -44,28 +45,7 @@ export type SemanticReviewScopeRecord = Readonly<{
 }>;
 
 function contractListing(listing: DiscoveryCatalogListing) {
-  return Object.freeze({
-    listingRef: listing.listingRef,
-    venueId: listing.venueId,
-    venueInstrumentId: listing.venueInstrumentId,
-    title: listing.title,
-    description: listing.description,
-    mechanism: listing.mechanism,
-    closesAt: listing.closesAt,
-    rulesText: listing.rulesText,
-    outcomes: Object.freeze([...listing.outcomes]
-      .map((outcome) => Object.freeze({
-        venueOutcomeId: outcome.venueOutcomeId,
-        label: outcome.label,
-      }))
-      .sort((left, right) =>
-        left.venueOutcomeId.localeCompare(right.venueOutcomeId) ||
-        left.label.localeCompare(right.label)
-      )),
-    priceScale: listing.priceScale,
-    quantityScale: listing.quantityScale,
-    protocolIdentity: listing.protocolIdentity,
-  });
+  return contractSemanticSnapshot(listing);
 }
 
 export function buildContractSemanticIdentity(

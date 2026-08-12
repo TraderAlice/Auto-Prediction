@@ -9,6 +9,7 @@ import {
 } from "./evidence-requirement.js";
 import {
   assertRuleEvidenceClaimRecord,
+  isCatalogRuleEvidenceClaim,
   RuleEvidenceClaimBusyError,
   RuleEvidenceClaimDesk,
   RuleEvidenceClaimNotConfiguredError,
@@ -371,7 +372,7 @@ export class RuleEvidenceClaimScheduler {
         right.interpretationId.localeCompare(left.interpretationId)
       )) {
       const claim = record.claim!;
-      if (claim.schemaVersion === "pmh.rule-evidence-claim.v3") continue;
+      if (isCatalogRuleEvidenceClaim(claim)) continue;
       const lineage = hashCanonical({
         schemaVersion: "pmh.rule-evidence-interpretation-supply.v1",
         requirementId: claim.requirementId,

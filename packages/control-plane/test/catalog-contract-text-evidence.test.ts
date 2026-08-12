@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { hashCanonical } from "@pmh/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildContractSemanticContinuity,
   CatalogObservationDesk,
   catalogObservationSources,
   type CatalogFetchLike,
@@ -108,7 +109,7 @@ describe("catalog contract-text evidence", () => {
     expect(restored.catalogContractTextEvidenceStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 46,
+      schemaVersion: 47,
       idempotencyKey: "artifactId",
     });
     expect(restored.loadCatalogContractTextEvidence(10)).toEqual([artifact]);
@@ -190,5 +191,56 @@ describe("catalog contract-text evidence", () => {
     expect(() => truncatedDesk.materializeContractTextEvidence(
       truncatedDesk.corpus().listings[0]!.listingRef,
     )).toThrow(/absent or truncated/);
+  });
+
+  it("persists and verifies contract semantic continuity independently", async () => {
+    const path = await databasePath();
+    const base = geminiSource();
+    let observedAt = Date.parse("2026-08-13T02:20:00.000Z");
+    const source = base;
+    const store = new SqliteOperationalStore(path);
+    const desk = new CatalogObservationDesk({
+      sources: [source],
+      fetcher: geminiFixtureFetcher(source),
+      store,
+      contractTextStore: store,
+      now: () => observedAt,
+    });
+    await desk.refresh();
+    const prior = desk.corpus().listings[0]!;
+    observedAt += 60_000;
+    await desk.refresh();
+    const current = desk.corpus().listings[0]!;
+    const evidence = desk.materializeContractTextEvidence(current.listingRef);
+    const continuity = buildContractSemanticContinuity({
+      priorListing: prior,
+      priorSemanticSourceArtifactId: hashCanonical({ bundle: "semantic-source" }),
+      currentListing: current,
+      currentCatalogTextEvidence: evidence,
+    });
+    expect(store.saveContractSemanticContinuity(continuity)).toEqual(continuity);
+    expect(store.saveContractSemanticContinuity(continuity)).toEqual(continuity);
+    store.close();
+
+    const restored = new SqliteOperationalStore(path);
+    expect(restored.contractSemanticContinuityStorage).toEqual({
+      mode: "SQLITE_WAL",
+      durable: true,
+      schemaVersion: 47,
+      idempotencyKey: "continuityId",
+    });
+    expect(restored.loadContractSemanticContinuities(10)).toEqual([continuity]);
+    restored.close();
+
+    const database = new DatabaseSync(path);
+    database.prepare(
+      "UPDATE contract_semantic_continuities SET record_json = json_set(record_json, '$.rulesTextHash', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')",
+    ).run();
+    database.close();
+    const tampered = new SqliteOperationalStore(path);
+    expect(() => tampered.loadContractSemanticContinuities(10)).toThrow(
+      /continuity|identity mismatch/,
+    );
+    tampered.close();
   });
 });

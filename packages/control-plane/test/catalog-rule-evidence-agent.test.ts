@@ -5,11 +5,13 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildCatalogRuleEvidenceClaim,
+  buildContractSemanticContinuity,
   buildEvidenceEnrichedSemanticScope,
   buildEvidenceRequirements,
   buildMarketCorpusSnapshot,
   buildProposalEvidenceBundle,
   buildRuleEvidenceAgentTask,
+  buildRuleEvidenceAgentTaskPayload,
   AgentExecutionRegistry,
   CatalogObservationDesk,
   catalogObservationSources,
@@ -105,7 +107,7 @@ describe("catalog contract text as provider-neutral Agent work", () => {
       agentExecutionStorage: {
         mode: "MEMORY",
         durable: false,
-        schemaVersion: 46,
+        schemaVersion: 47,
         idempotencyKey: "recordId",
       },
       loadAgentExecutionSnapshot: () => emptySnapshot,
@@ -157,6 +159,83 @@ describe("catalog contract text as provider-neutral Agent work", () => {
     })).toThrow(/exactly satisfy the current requirement/);
   });
 
+  it("keeps one semantic task across quote observations and rejects contract drift", async () => {
+    const source = catalogObservationSources.find(
+      (candidate) => candidate.venueId === "gemini-predictions",
+    );
+    if (source === undefined) throw new Error("missing Gemini source");
+    let receivedAt = Date.parse("2026-08-13T03:20:00.000Z");
+    const desk = new CatalogObservationDesk({
+      sources: [source],
+      fetcher: geminiFetcher(),
+      now: () => receivedAt,
+    });
+    await desk.refresh();
+    const prior = desk.corpus().listings[0]!;
+    const peer = {
+      ...prior,
+      listingRef: `${prior.listingRef}:peer`,
+      venueInstrumentId: `${prior.venueInstrumentId}:peer`,
+    };
+    const requirement = requirementFor(prior, peer);
+    receivedAt += 60_000;
+    await desk.refresh();
+    const current = desk.corpus().listings[0]!;
+    const evidence = desk.materializeContractTextEvidence(current.listingRef);
+    const firstContinuity = buildContractSemanticContinuity({
+      priorListing: prior,
+      priorSemanticSourceArtifactId: hashCanonical({ bundle: "prior" }),
+      currentListing: current,
+      currentCatalogTextEvidence: evidence,
+    });
+    const firstInput = {
+      requirement,
+      catalogTextEvidence: evidence,
+      semanticContinuity: firstContinuity,
+    } as const;
+    const firstTask = buildRuleEvidenceAgentTask(firstInput);
+    expect(buildRuleEvidenceAgentTaskPayload(firstInput)).toMatchObject({
+      claim: requirement.claim,
+      satisfyingObservation: requirement.satisfyingObservation,
+      contradictingObservation: requirement.contradictingObservation,
+      contractSemanticIdentity: firstContinuity.contractSemanticIdentity,
+    });
+    expect(firstTask.taskPayloadHash).toBe(
+      hashCanonical(buildRuleEvidenceAgentTaskPayload(firstInput)),
+    );
+    expect(firstTask).toMatchObject({
+      protocol: "RULE_EVIDENCE_TASK_V3",
+      inputArtifacts: [
+        { kind: "CATALOG_CONTRACT_TEXT_FIELD" },
+        { kind: "CONTRACT_SEMANTICS" },
+        { kind: "EVIDENCE_REQUIREMENT" },
+      ],
+    });
+
+    receivedAt += 60_000;
+    await desk.refresh();
+    const successor = desk.corpus().listings[0]!;
+    const successorEvidence = desk.materializeContractTextEvidence(successor.listingRef);
+    const successorContinuity = buildContractSemanticContinuity({
+      priorListing: prior,
+      priorSemanticSourceArtifactId: hashCanonical({ bundle: "prior" }),
+      currentListing: successor,
+      currentCatalogTextEvidence: successorEvidence,
+    });
+    expect(successorContinuity.continuityId).not.toBe(firstContinuity.continuityId);
+    expect(buildRuleEvidenceAgentTask({
+      requirement,
+      catalogTextEvidence: successorEvidence,
+      semanticContinuity: successorContinuity,
+    }).taskId).toBe(firstTask.taskId);
+    expect(() => buildContractSemanticContinuity({
+      priorListing: prior,
+      priorSemanticSourceArtifactId: hashCanonical({ bundle: "prior" }),
+      currentListing: { ...successor, rulesText: `${successor.rulesText} changed` },
+      currentCatalogTextEvidence: successorEvidence,
+    })).toThrow(/not continuous/);
+  });
+
   it("resolves citations against catalog text and persists a v3 claim separately", async () => {
     const path = await databasePath();
     const store = new SqliteOperationalStore(path);
@@ -164,12 +243,13 @@ describe("catalog contract text as provider-neutral Agent work", () => {
       (candidate) => candidate.venueId === "gemini-predictions",
     );
     if (source === undefined) throw new Error("missing Gemini source");
+    let observedAt = Date.parse("2026-08-13T03:10:00.000Z");
     const desk = new CatalogObservationDesk({
       sources: [source],
       fetcher: geminiFetcher(),
       store,
       contractTextStore: store,
-      now: () => Date.parse("2026-08-13T03:10:00.000Z"),
+      now: () => observedAt,
     });
     await desk.refresh();
     const listing = desk.corpus().listings[0]!;
@@ -267,9 +347,61 @@ describe("catalog contract text as provider-neutral Agent work", () => {
       }],
     });
     expect(store.saveCatalogRuleEvidenceClaimRecord(record, 10)).toEqual(record);
+    observedAt += 60_000;
+    await desk.refresh();
+    const currentListing = desk.corpus().listings.find((item) =>
+      item.listingRef === listing.listingRef
+    )!;
+    const currentEvidence = desk.materializeContractTextEvidence(listing.listingRef);
+    const continuity = store.saveContractSemanticContinuity(
+      buildContractSemanticContinuity({
+        priorListing: listing,
+        priorSemanticSourceArtifactId: bundle.bundleId,
+        currentListing,
+        currentCatalogTextEvidence: currentEvidence,
+      }),
+    );
+    const continuityValidated = validateRuleEvidenceTextInput({
+      requirement: validated.requirement,
+      catalogTextEvidence: currentEvidence,
+      semanticContinuity: continuity,
+    });
+    const continuityClaim = buildCatalogRuleEvidenceClaim({
+      validated: continuityValidated,
+      model: engine.model,
+      engine,
+      completedAt: "2026-08-13T03:12:00.000Z",
+      result,
+    });
+    expect(continuityClaim).toMatchObject({
+      schemaVersion: "pmh.rule-evidence-claim.v4",
+      continuityId: continuity.continuityId,
+      contractSemanticIdentity: continuity.contractSemanticIdentity,
+      sourceArtifactId: currentEvidence.artifactId,
+    });
+    const continuityRecord: CatalogRuleEvidenceClaimRecord = {
+      interpretationId: continuityClaim.claimId,
+      requirementId: continuityClaim.requirementId,
+      proposalId: continuityClaim.proposalId,
+      sourceKind: continuityClaim.sourceKind,
+      sourceArtifactId: continuityClaim.sourceArtifactId,
+      textArtifactId: continuityClaim.textArtifactId,
+      interpreterIdentity: continuityClaim.interpreter.identity,
+      model: continuityClaim.interpreter.model,
+      status: "PASS",
+      startedAt: "2026-08-13T03:11:30.000Z",
+      completedAt: continuityClaim.completedAt,
+      diagnostic: null,
+      claim: continuityClaim,
+    };
+    expect(store.saveCatalogRuleEvidenceClaimRecord(continuityRecord, 10))
+      .toEqual(continuityRecord);
     store.close();
     const restored = new SqliteOperationalStore(path);
-    expect(restored.loadCatalogRuleEvidenceClaimRecords(10)).toEqual([record]);
+    expect(restored.loadCatalogRuleEvidenceClaimRecords(10)).toEqual([
+      continuityRecord,
+      record,
+    ]);
 
     const task = buildRuleEvidenceAgentTask({
       requirement: validated.requirement,

@@ -23,6 +23,11 @@ import {
   type CatalogContractTextEvidenceStore,
 } from "./catalog-contract-text-evidence.js";
 import {
+  assertContractSemanticContinuity,
+  type ContractSemanticContinuity,
+  type ContractSemanticContinuityStore,
+} from "./contract-semantic-continuity.js";
+import {
   verifyCandidateWatchRefreshRecord,
   verifyStoredCandidateBookObservation,
   type CandidateBookObservationStore,
@@ -264,7 +269,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 46;
+const SCHEMA_VERSION = 47;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -292,6 +297,12 @@ type StoredCatalogObservationRow = Readonly<{
 type CatalogContractTextEvidenceRow = Readonly<{
   artifact_id: string;
   catalog_observation_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ContractSemanticContinuityRow = Readonly<{
+  continuity_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -694,6 +705,29 @@ function parseCatalogContractTextEvidence(
     hashCanonical(artifact) !== row.record_hash
   ) throw new Error("SQLite catalog contract-text evidence identity mismatch");
   return artifact;
+}
+
+function parseContractSemanticContinuity(
+  value: unknown,
+): ContractSemanticContinuity {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite contract semantic continuity row is malformed");
+  }
+  const row = value as Partial<ContractSemanticContinuityRow>;
+  if (
+    typeof row.continuity_id !== "string" ||
+    typeof row.record_json !== "string" || typeof row.record_hash !== "string"
+  ) throw new Error("SQLite contract semantic continuity row has invalid columns");
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite contract semantic continuity contains invalid JSON");
+  }
+  const continuity = assertContractSemanticContinuity(decoded);
+  if (
+    continuity.continuityId !== row.continuity_id ||
+    hashCanonical(continuity) !== row.record_hash
+  ) throw new Error("SQLite contract semantic continuity identity mismatch");
+  return continuity;
 }
 
 function parseStoredCandidateBookObservation(
@@ -1954,6 +1988,7 @@ export class SqliteOperationalStore
     InvestigationRecordStore,
     CatalogObservationStore,
     CatalogContractTextEvidenceStore,
+    ContractSemanticContinuityStore,
     CandidateBookObservationStore,
     CandidateWatchRefreshStore,
     MarketArchaeologistRecordStore,
@@ -2001,6 +2036,8 @@ export class SqliteOperationalStore
   }>;
   public readonly catalogContractTextEvidenceStorage:
     OperationalStorageProjection<"artifactId">;
+  public readonly contractSemanticContinuityStorage:
+    OperationalStorageProjection<"continuityId">;
   public readonly candidateBookObservationStorage: Readonly<{
     mode: "MEMORY" | "SQLITE_WAL";
     durable: boolean;
@@ -2137,6 +2174,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "artifactId",
+    });
+    this.contractSemanticContinuityStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "continuityId",
     });
     this.candidateBookObservationStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2621,6 +2664,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'catalog_rule_evidence_claim_records'`,
       )
       .get() !== undefined;
+    const contractSemanticContinuityTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'contract_semantic_continuities'`,
+      )
+      .get() !== undefined;
     const agentRuntimeDefinitionTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2719,6 +2768,7 @@ export class SqliteOperationalStore
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
       ruleEvidenceClaimJobTableExists && ruleEvidenceClaimRecordTableExists
       && catalogRuleEvidenceClaimRecordTableExists
+      && contractSemanticContinuityTableExists
       && premiseAnalysisRecordTableExists
       && premiseAnalysisJobTableExists
       && premiseAnalysisNotificationTableExists
@@ -4532,6 +4582,33 @@ export class SqliteOperationalStore
             );
         `);
       }
+      if (current < 47 || !contractSemanticContinuityTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS contract_semantic_continuities (
+            continuity_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(continuity_id) = 71 AND continuity_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL,
+            prior_semantic_source_artifact_id TEXT NOT NULL CHECK (
+              length(prior_semantic_source_artifact_id) = 71 AND
+              prior_semantic_source_artifact_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            current_catalog_text_artifact_id TEXT NOT NULL CHECK (
+              length(current_catalog_text_artifact_id) = 71 AND
+              current_catalog_text_artifact_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (current_catalog_text_artifact_id)
+              REFERENCES catalog_contract_text_evidence(artifact_id)
+              ON DELETE RESTRICT
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS contract_semantic_continuities_listing
+            ON contract_semantic_continuities (listing_ref, continuity_id DESC);
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -4971,6 +5048,76 @@ export class SqliteOperationalStore
       const stored = parseCatalogContractTextEvidence(row);
       if (hashCanonical(stored) !== recordHash) {
         throw new Error("catalog contract-text artifact is already bound elsewhere");
+      }
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadContractSemanticContinuities(
+    limit: number,
+  ): readonly ContractSemanticContinuity[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT continuity_id, record_json, record_hash
+       FROM contract_semantic_continuities
+       ORDER BY rowid DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseContractSemanticContinuity));
+  }
+
+  public saveContractSemanticContinuity(
+    continuityInput: ContractSemanticContinuity,
+  ): ContractSemanticContinuity {
+    this.#assertOpen();
+    const continuity = assertContractSemanticContinuity(continuityInput);
+    const recordJson = canonicalJson(continuity);
+    const recordHash = hashCanonical(continuity);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const artifact = this.#database.prepare(
+        `SELECT artifact_id, catalog_observation_id, record_json, record_hash
+         FROM catalog_contract_text_evidence WHERE artifact_id = ?`,
+      ).get(continuity.currentCatalogTextArtifactId);
+      if (artifact === undefined) {
+        throw new Error("contract semantic continuity lost its catalog text artifact");
+      }
+      const evidence = parseCatalogContractTextEvidence(artifact);
+      if (
+        evidence.schemaVersion !== "pmh.catalog-contract-text-evidence.v2" ||
+        evidence.listingRef !== continuity.listingRef ||
+        evidence.discoveryListingHash !== continuity.currentListingHash ||
+        evidence.sourceRawHash !== continuity.currentSourceRawHash ||
+        evidence.receivedAt !== continuity.currentSourceReceivedAt ||
+        evidence.textHash !== continuity.rulesTextHash
+      ) throw new Error("contract semantic continuity source lineage is inconsistent");
+      this.#database.prepare(
+        `INSERT INTO contract_semantic_continuities (
+           continuity_id, listing_ref, prior_semantic_source_artifact_id,
+           current_catalog_text_artifact_id, record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(continuity_id) DO NOTHING`,
+      ).run(
+        continuity.continuityId,
+        continuity.listingRef,
+        continuity.priorSemanticSourceArtifactId,
+        continuity.currentCatalogTextArtifactId,
+        recordJson,
+        recordHash,
+      );
+      const row = this.#database.prepare(
+        `SELECT continuity_id, record_json, record_hash
+         FROM contract_semantic_continuities WHERE continuity_id = ?`,
+      ).get(continuity.continuityId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain contract semantic continuity");
+      }
+      const stored = parseContractSemanticContinuity(row);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("contract semantic continuity identity is already bound elsewhere");
       }
       this.#database.exec("COMMIT");
       return stored;
@@ -8654,6 +8801,21 @@ export class SqliteOperationalStore
       throw new Error("SQLite catalog rule evidence claim text identity is inconsistent");
     }
     if (record.claim === null) return;
+    if (record.claim.schemaVersion === "pmh.rule-evidence-claim.v4") {
+      const continuityRow = this.#database.prepare(
+        `SELECT continuity_id, record_json, record_hash
+         FROM contract_semantic_continuities WHERE continuity_id = ?`,
+      ).get(record.claim.continuityId);
+      if (continuityRow === undefined) {
+        throw new Error("SQLite catalog rule evidence claim lost its continuity artifact");
+      }
+      const continuity = parseContractSemanticContinuity(continuityRow);
+      if (
+        continuity.currentCatalogTextArtifactId !== record.sourceArtifactId ||
+        continuity.contractSemanticIdentity !== record.claim.contractSemanticIdentity ||
+        continuity.rulesTextHash !== record.textArtifactId
+      ) throw new Error("SQLite catalog rule evidence continuity lineage mismatch");
+    }
     if (
       record.claim.sourceRawHash !== evidence.sourceRawHash ||
       record.claim.textHash !== evidence.textHash ||

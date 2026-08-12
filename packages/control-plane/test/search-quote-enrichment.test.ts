@@ -143,7 +143,7 @@ describe("selected-pair anonymous quote enrichment", () => {
     const restored = new SearchQuoteEnrichmentDesk({ fetch, store: reopened });
     expect(restored.projection()).toMatchObject({
       retainedObservationCount: 2,
-      storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 46 },
+      storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 47 },
     });
     expect(restored.projection().observations.every((record) =>
       record.acquisition.credentialsUsed === false &&

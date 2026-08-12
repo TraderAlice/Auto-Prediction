@@ -17,12 +17,19 @@ import type {
 } from "./types.js";
 import { buildDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
 import { buildSearchScopeIdentity } from "./search-scope-identity.js";
-
-export const MAX_LISTINGS_PER_TASK = 30;
-export const MAX_CATALOG_CONTEXT_CHARACTERS = 50_000;
+export {
+  MAX_AGENT_RULE_CHARACTERS,
+  MAX_CATALOG_CONTEXT_CHARACTERS,
+  MAX_LISTINGS_PER_TASK,
+  MAX_RETAINED_RULE_CHARACTERS,
+} from "./catalog-limits.js";
+import {
+  MAX_AGENT_RULE_CHARACTERS,
+  MAX_CATALOG_CONTEXT_CHARACTERS,
+  MAX_LISTINGS_PER_TASK,
+  MAX_RETAINED_RULE_CHARACTERS,
+} from "./catalog-limits.js";
 const MAX_DESCRIPTION_CHARACTERS = 800;
-export const MAX_AGENT_RULE_CHARACTERS = 1_200;
-export const MAX_RETAINED_RULE_CHARACTERS = 20_000;
 
 type CatalogSource = Readonly<{
   venueId: string;
