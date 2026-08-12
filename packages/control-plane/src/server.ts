@@ -3301,8 +3301,13 @@ export function createControlPlane(options?: {
       capability: agentExecutionCapabilityService.project(profile, configuration),
     });
   };
-  const standingRouteSeedCampaignPreview = async () => {
-    const snapshot = agentExecutionRegistry.snapshot();
+  const standingRouteSeedCampaignPreview = async (input?: Readonly<{
+    snapshot: AgentExecutionSnapshot;
+    corpus: MarketCorpusSnapshot;
+    standingRoutes: ReturnType<typeof buildStandingOntologyRouteProjection> | null;
+    revisions: readonly RelationDiscoveryTaskRevision[];
+  }>) => {
+    const snapshot = input?.snapshot ?? agentExecutionRegistry.snapshot();
     const route = [...snapshot.workloadRoutes]
       .filter((item) => item.taskKind === "RELATION_DISCOVERY")
       .sort((left, right) =>
@@ -3324,14 +3329,218 @@ export function createControlPlane(options?: {
       throw new Error("Standing route seed credential binding is unavailable");
     }
     const configuration = await agentCredentialBroker.configuration(binding);
-    const corpus = catalogObservationDesk.corpus();
+    const corpus = input?.corpus ?? catalogObservationDesk.corpus();
     return buildStandingRouteSeedCampaignPreview({
-      revisions: relationDiscoveryStore
+      revisions: input?.revisions ?? relationDiscoveryStore
         ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
       corpus,
-      standingRoutes: standingRouteProjection(corpus),
+      standingRoutes: input?.standingRoutes ?? standingRouteProjection(corpus),
       execution: snapshot,
       capability: agentExecutionCapabilityService.project(profile, configuration),
+    });
+  };
+  const standingRouteDeskProjection = () => {
+    const timings: TimingMetric[] = [];
+    const corpus = catalogObservationDesk.corpus();
+    const projectionStartedAt = performance.now();
+    const findings = relationDiscoveryStore
+      ?.loadStandingOntologyRouteSourceFindings() ?? [];
+    const sourceTaskRevisions = relationDiscoveryStore
+      ?.loadRelationDiscoveryTaskRevisionsForTaskIds(
+        findings.map((item) => item.sourceTaskId),
+      ) ?? relationDiscoveryTaskRevisions;
+    const routes = buildStandingOntologyRouteProjection({
+      findings,
+      taskRevisions: sourceTaskRevisions,
+      loadCorpus: (snapshotIdentity) => relationDiscoveryStore
+        ?.loadRelationDiscoveryCorpus(snapshotIdentity) ?? null,
+      currentCorpus: corpus,
+    });
+    timings.push(Object.freeze({
+      name: "routes-projection",
+      durationMs: Math.max(0, performance.now() - projectionStartedAt),
+    }));
+
+    const followupStartedAt = performance.now();
+    const followups = materializeStandingOntologyRouteFollowups({
+      projection: routes,
+      ontology: buildMarketOntologySnapshot(corpus),
+    });
+    timings.push(Object.freeze({
+      name: "routes-followups",
+      durationMs: Math.max(0, performance.now() - followupStartedAt),
+    }));
+
+    const inputStartedAt = performance.now();
+    const episodes = standingRouteEpisodeStore
+      ?.loadStandingOntologyRouteObservationEpisodes(
+        routes.families.map((item) => item.family.routeFamilyId),
+      ) ?? Object.freeze([]);
+    const execution = agentExecutionRegistry.snapshot();
+    const valueFindings = relationDiscoveryStore
+      ?.loadRelationDiscoveryFindings(512) ?? [];
+    const allTaskRevisions = relationDiscoveryStore
+      ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
+    const compilations = relationDiscoveryProposalCompilations({
+      findings: valueFindings,
+      taskRevisions: allTaskRevisions,
+    });
+    const proposalIds = compilations.map((item) => item.proposal.proposalId);
+    const semanticReviews = proposalIds.length === 0
+      ? Object.freeze([])
+      : semanticReviewJobsForProposalIds(proposalIds).map((item) => Object.freeze({
+          jobId: item.jobId,
+          proposalId: item.proposalId,
+          status: item.status,
+        }));
+    const probabilityJobs = proposalIds.length === 0
+      ? Object.freeze([])
+      : probabilityJobsForProposalIds(proposalIds).map((item) => Object.freeze({
+          jobId: item.jobId,
+          proposalId: item.proposalId,
+        }));
+    const proposalOpportunityIds = new Set(proposalIds.map((item) => `ai:${item}`));
+    const opportunities = opportunityLifecycleDesk.projection().cases.filter((item) =>
+      proposalOpportunityIds.has(item.opportunityId)
+    ).map((item) => Object.freeze({ opportunityId: item.opportunityId }));
+    const observedAt = new Date().toISOString();
+    timings.push(Object.freeze({
+      name: "routes-inputs",
+      durationMs: Math.max(0, performance.now() - inputStartedAt),
+    }));
+
+    const valueStartedAt = performance.now();
+    const value = buildStandingOntologyRouteValueProjection({
+      projection: routes,
+      followups,
+      episodes,
+      execution,
+      taskRevisions: allTaskRevisions,
+      findings: valueFindings,
+      compilations,
+      semanticReviews,
+      probabilityJobs,
+      opportunities,
+      observedAt,
+    });
+    timings.push(Object.freeze({
+      name: "routes-value",
+      durationMs: Math.max(0, performance.now() - valueStartedAt),
+    }));
+
+    const seedOutcomeStartedAt = performance.now();
+    const seedOutcomes = buildStandingRouteSeedOutcomeProjection({
+      execution,
+      taskRevisions: allTaskRevisions,
+      findings: valueFindings,
+      standingRoutes: routes,
+      observedAt,
+    });
+    timings.push(Object.freeze({
+      name: "routes-seed-outcomes",
+      durationMs: Math.max(0, performance.now() - seedOutcomeStartedAt),
+    }));
+
+    const selectionStartedAt = performance.now();
+    const selection = buildStandingRouteFamilySelectionProjection({
+      routes,
+      value,
+      seedOutcomes,
+      observedAt,
+    });
+    timings.push(Object.freeze({
+      name: "routes-selection",
+      durationMs: Math.max(0, performance.now() - selectionStartedAt),
+    }));
+    const desk = Object.freeze({
+      ...routes,
+      followupCount: followups.length,
+      followups,
+      observationEpisodeCount: episodes.length,
+      observationEpisodes: episodes,
+      value,
+      selection,
+    });
+    return Object.freeze({
+      desk,
+      timings: Object.freeze(timings),
+      corpus,
+      routes,
+      execution,
+      allTaskRevisions,
+      seedOutcomes,
+      observedAt,
+    });
+  };
+  const standingRouteWorkspaceProjection = async (
+    sourceProjectionRevision: string,
+  ) => {
+    const routeDesk = standingRouteDeskProjection();
+    const {
+      desk,
+      corpus,
+      routes,
+      execution,
+      allTaskRevisions,
+      seedOutcomes,
+      observedAt,
+    } = routeDesk;
+    const timings = [...routeDesk.timings];
+
+    const seedPreviewStartedAt = performance.now();
+    let seedPreview:
+      | Readonly<{ status: "AVAILABLE"; data: Awaited<ReturnType<typeof standingRouteSeedCampaignPreview>> }>
+      | Readonly<{ status: "UNAVAILABLE"; diagnostic: string }>;
+    try {
+      seedPreview = Object.freeze({
+        status: "AVAILABLE" as const,
+        data: await standingRouteSeedCampaignPreview({
+          snapshot: execution,
+          corpus,
+          standingRoutes: routes,
+          revisions: allTaskRevisions,
+        }),
+      });
+    } catch (error) {
+      seedPreview = Object.freeze({
+        status: "UNAVAILABLE" as const,
+        diagnostic: error instanceof Error ? error.message :
+          "standing route seed campaign preview is unavailable",
+      });
+    }
+    timings.push(Object.freeze({
+      name: "routes-seed-preview",
+      durationMs: Math.max(0, performance.now() - seedPreviewStartedAt),
+    }));
+
+    const identityBody = Object.freeze({
+      schemaVersion: "pmh.standing-route-workspace.v1" as const,
+      sourceProjectionRevision,
+      routeProjectionIdentity: routes.projectionIdentity,
+      seedOutcomeProjectionIdentity: seedOutcomes.projectionIdentity,
+      seedPreviewIdentity: seedPreview.status === "AVAILABLE"
+        ? seedPreview.data.previewIdentity
+        : null,
+    });
+    return Object.freeze({
+      workspace: Object.freeze({
+        ...identityBody,
+        workspaceIdentity: hashCanonical(identityBody),
+        materializedAt: observedAt,
+        desk,
+        seedPortfolio: Object.freeze({ preview: seedPreview, outcomes: seedOutcomes }),
+        providerRequestsStartedByRead: 0 as const,
+        modelInvocationsStartedByRead: 0 as const,
+        campaignsCreatedByRead: 0 as const,
+        runsCreatedByRead: 0 as const,
+        writesStartedByRead: 0 as const,
+        automaticDispatch: false as const,
+        authority: "DERIVED_ROUTE_WORKSPACE_ONLY" as const,
+        executionAuthority: false as const,
+        externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+      }),
+      timings: Object.freeze(timings),
     });
   };
   const discoveryExecutionCapability = async () => {
@@ -4449,125 +4658,41 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/standing-routes/workspace"
+    ) {
+      const requestStartedAt = performance.now();
+      await ready;
+      const result = await standingRouteWorkspaceProjection(projectionRevision.toString());
+      const serialized = serializeJson(result.workspace);
+      const timings = [
+        ...result.timings,
+        Object.freeze({
+          name: "routes-json",
+          durationMs: serialized.durationMs,
+        }),
+        Object.freeze({
+          name: "routes-total",
+          durationMs: Math.max(0, performance.now() - requestStartedAt),
+        }),
+      ];
+      writeSerializedJson(response, 200, serialized.body, {
+        "access-control-expose-headers": "server-timing, x-pmh-response-bytes, x-pmh-projection-revision",
+        "cache-control": "no-cache, private",
+        "server-timing": formatServerTiming(timings),
+        "x-pmh-response-bytes": serialized.byteLength.toString(),
+        "x-pmh-projection-revision": result.workspace.sourceProjectionRevision,
+      });
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/market-ontology/standing-routes"
     ) {
       const requestStartedAt = performance.now();
-      const routeTimings: TimingMetric[] = [];
       await ready;
-      const routeProjectionStartedAt = performance.now();
-      const findings = relationDiscoveryStore
-        ?.loadStandingOntologyRouteSourceFindings() ?? [];
-      const taskRevisions = relationDiscoveryStore
-        ?.loadRelationDiscoveryTaskRevisionsForTaskIds(
-          findings.map((item) => item.sourceTaskId),
-        ) ?? relationDiscoveryTaskRevisions;
-      const projection = buildStandingOntologyRouteProjection({
-        findings,
-        taskRevisions,
-        loadCorpus: (snapshotIdentity) => relationDiscoveryStore
-          ?.loadRelationDiscoveryCorpus(snapshotIdentity) ?? null,
-        currentCorpus: catalogObservationDesk.corpus(),
-      });
-      routeTimings.push(Object.freeze({
-        name: "routes-projection",
-        durationMs: Math.max(0, performance.now() - routeProjectionStartedAt),
-      }));
-      const followupStartedAt = performance.now();
-      const followups = materializeStandingOntologyRouteFollowups({
-        projection,
-        ontology: buildMarketOntologySnapshot(catalogObservationDesk.corpus()),
-      });
-      routeTimings.push(Object.freeze({
-        name: "routes-followups",
-        durationMs: Math.max(0, performance.now() - followupStartedAt),
-      }));
-      const inputStartedAt = performance.now();
-      const episodes = standingRouteEpisodeStore
-        ?.loadStandingOntologyRouteObservationEpisodes(
-          projection.families.map((item) => item.family.routeFamilyId),
-        ) ?? Object.freeze([]);
-      const execution = agentExecutionRegistry.snapshot();
-      const findingsForValue = relationDiscoveryStore
-        ?.loadRelationDiscoveryFindings(512) ?? [];
-      const allTaskRevisions = relationDiscoveryStore
-        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
-      const compilations = relationDiscoveryProposalCompilations({
-        findings: findingsForValue,
-        taskRevisions: allTaskRevisions,
-      });
-      const proposalIds = compilations.map((item) => item.proposal.proposalId);
-      const semanticReviews = proposalIds.length === 0
-        ? Object.freeze([])
-        : semanticReviewJobsForProposalIds(proposalIds).map((item) => Object.freeze({
-            jobId: item.jobId,
-            proposalId: item.proposalId,
-            status: item.status,
-          }));
-      const probabilityJobs = proposalIds.length === 0
-        ? Object.freeze([])
-        : probabilityJobsForProposalIds(proposalIds).map((item) => Object.freeze({
-            jobId: item.jobId,
-            proposalId: item.proposalId,
-          }));
-      const proposalOpportunityIds = new Set(proposalIds.map((item) => `ai:${item}`));
-      const opportunities = opportunityLifecycleDesk.projection().cases.filter((item) =>
-        proposalOpportunityIds.has(item.opportunityId)
-      ).map((item) => Object.freeze({ opportunityId: item.opportunityId }));
-      const observedAt = new Date().toISOString();
-      routeTimings.push(Object.freeze({
-        name: "routes-inputs",
-        durationMs: Math.max(0, performance.now() - inputStartedAt),
-      }));
-      const valueStartedAt = performance.now();
-      const value = buildStandingOntologyRouteValueProjection({
-        projection,
-        followups,
-        episodes,
-        execution,
-        taskRevisions: allTaskRevisions,
-        findings: findingsForValue,
-        compilations,
-        semanticReviews,
-        probabilityJobs,
-        opportunities,
-        observedAt,
-      });
-      routeTimings.push(Object.freeze({
-        name: "routes-value",
-        durationMs: Math.max(0, performance.now() - valueStartedAt),
-      }));
-      const seedOutcomeStartedAt = performance.now();
-      const seedOutcomes = buildStandingRouteSeedOutcomeProjection({
-        execution,
-        taskRevisions: allTaskRevisions,
-        findings: findingsForValue,
-        standingRoutes: projection,
-        observedAt,
-      });
-      routeTimings.push(Object.freeze({
-        name: "routes-seed-outcomes",
-        durationMs: Math.max(0, performance.now() - seedOutcomeStartedAt),
-      }));
-      const selectionStartedAt = performance.now();
-      const selection = buildStandingRouteFamilySelectionProjection({
-        routes: projection,
-        value,
-        seedOutcomes,
-        observedAt,
-      });
-      routeTimings.push(Object.freeze({
-        name: "routes-selection",
-        durationMs: Math.max(0, performance.now() - selectionStartedAt),
-      }));
-      const serialized = serializeJson(Object.freeze({
-        ...projection,
-        followupCount: followups.length,
-        followups,
-        observationEpisodeCount: episodes.length,
-        observationEpisodes: episodes,
-        value,
-        selection,
-      }));
+      const result = standingRouteDeskProjection();
+      const routeTimings = [...result.timings];
+      const serialized = serializeJson(result.desk);
       routeTimings.push(Object.freeze({
         name: "routes-json",
         durationMs: serialized.durationMs,

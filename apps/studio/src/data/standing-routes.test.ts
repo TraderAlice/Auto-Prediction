@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseStandingRouteDesk } from "./standing-routes";
+import {
+  parseStandingRouteDesk,
+  parseStandingRouteWorkspace,
+} from "./standing-routes";
 
 const usage = Object.freeze({
   runCount: 1,
@@ -160,6 +163,88 @@ describe("standing route desk contract", () => {
     expect(() => parseStandingRouteDesk({
       ...fixture(),
       modelInvocationsStartedByRead: 1,
+    })).toThrow("bounded read contract");
+  });
+});
+
+function seedOutcomes() {
+  return {
+    schemaVersion: "pmh.standing-route-seed-outcome-projection.v1",
+    projectionIdentity: `sha256:${"7".repeat(64)}`,
+    observedAt: "2026-08-13T10:00:00.000Z",
+    campaignCount: 0,
+    selectedActionCount: 0,
+    actedActionCount: 0,
+    terminalActionCount: 0,
+    routeRetainedActionCount: 0,
+    usefulNegativeMemoryActionCount: 0,
+    conflictingTerminalEffectActionCount: 0,
+    strata: [],
+    recurrenceQualification: {
+      representedLayerCount: 0,
+      qualifiedLayerCount: 0,
+      minimumTerminalActionsPerLayer: 3,
+      yieldCostEvidenceSufficient: false,
+      operatorActivationStillRequired: true,
+    },
+    providerRequestsStartedByRead: 0,
+    modelInvocationsStartedByRead: 0,
+    campaignsCreatedByRead: 0,
+    runsCreatedByRead: 0,
+    writesStartedByRead: 0,
+    automaticDispatch: false,
+    authority: "DESCRIPTIVE_ROUTE_SEED_ATTRIBUTION_ONLY",
+  };
+}
+
+function workspace() {
+  const desk = fixture();
+  const outcomes = seedOutcomes();
+  return {
+    schemaVersion: "pmh.standing-route-workspace.v1",
+    workspaceIdentity: `sha256:${"8".repeat(64)}`,
+    sourceProjectionRevision: "14",
+    routeProjectionIdentity: desk.projectionIdentity,
+    seedOutcomeProjectionIdentity: outcomes.projectionIdentity,
+    seedPreviewIdentity: null,
+    materializedAt: "2026-08-13T10:00:00.000Z",
+    desk,
+    seedPortfolio: {
+      preview: { status: "UNAVAILABLE", diagnostic: "no relation route" },
+      outcomes,
+    },
+    providerRequestsStartedByRead: 0,
+    modelInvocationsStartedByRead: 0,
+    campaignsCreatedByRead: 0,
+    runsCreatedByRead: 0,
+    writesStartedByRead: 0,
+    automaticDispatch: false,
+    authority: "DERIVED_ROUTE_WORKSPACE_ONLY",
+    executionAuthority: false,
+    externalWriteAuthority: false,
+    valueMovingAuthority: false,
+  };
+}
+
+describe("standing route workspace contract", () => {
+  it("keeps an unavailable seed preview local to the seed desk", () => {
+    expect(parseStandingRouteWorkspace(workspace())).toMatchObject({
+      desk: { familyCount: 1 },
+      seedPortfolio: { preview: { status: "UNAVAILABLE" } },
+    });
+  });
+
+  it("rejects mismatched child projection lineage", () => {
+    expect(() => parseStandingRouteWorkspace({
+      ...workspace(),
+      seedOutcomeProjectionIdentity: `sha256:${"9".repeat(64)}`,
+    })).toThrow("projection identity lineage");
+  });
+
+  it("rejects read-side writes", () => {
+    expect(() => parseStandingRouteWorkspace({
+      ...workspace(),
+      writesStartedByRead: 1,
     })).toThrow("bounded read contract");
   });
 });

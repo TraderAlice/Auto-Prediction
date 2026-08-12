@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type StandingRouteState =
   | "QUIESCENT"
@@ -186,6 +186,8 @@ export type StandingRouteSeedPreview = Readonly<{
 
 export type StandingRouteSeedOutcomes = Readonly<{
   schemaVersion: "pmh.standing-route-seed-outcome-projection.v1";
+  projectionIdentity: string;
+  observedAt: string;
   campaignCount: number;
   selectedActionCount: number;
   actedActionCount: number;
@@ -220,15 +222,18 @@ export type StandingRouteSeedOutcomes = Readonly<{
   runsCreatedByRead: 0;
   writesStartedByRead: 0;
   automaticDispatch: false;
+  authority: "DESCRIPTIVE_ROUTE_SEED_ATTRIBUTION_ONLY";
 }>;
 
-function parseStandingRouteSeedOutcomes(value: unknown): StandingRouteSeedOutcomes {
+export function parseStandingRouteSeedOutcomes(value: unknown): StandingRouteSeedOutcomes {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Standing route seed outcomes are malformed");
   }
   const outcomes = value as StandingRouteSeedOutcomes;
   if (outcomes.schemaVersion !== "pmh.standing-route-seed-outcome-projection.v1" ||
       !Array.isArray(outcomes.strata) ||
+      typeof outcomes.projectionIdentity !== "string" ||
+      Number.isNaN(Date.parse(outcomes.observedAt)) ||
       !Number.isSafeInteger(outcomes.selectedActionCount) ||
       !Number.isSafeInteger(outcomes.conflictingTerminalEffectActionCount) ||
       outcomes.recurrenceQualification?.minimumTerminalActionsPerLayer !== 3 ||
@@ -236,13 +241,14 @@ function parseStandingRouteSeedOutcomes(value: unknown): StandingRouteSeedOutcom
       outcomes.providerRequestsStartedByRead !== 0 ||
       outcomes.modelInvocationsStartedByRead !== 0 ||
       outcomes.campaignsCreatedByRead !== 0 || outcomes.runsCreatedByRead !== 0 ||
-      outcomes.writesStartedByRead !== 0 || outcomes.automaticDispatch !== false) {
+      outcomes.writesStartedByRead !== 0 || outcomes.automaticDispatch !== false ||
+      outcomes.authority !== "DESCRIPTIVE_ROUTE_SEED_ATTRIBUTION_ONLY") {
     throw new Error("Standing route seed outcomes crossed their bounded contract");
   }
   return outcomes;
 }
 
-function parseStandingRouteSeedPreview(value: unknown): StandingRouteSeedPreview {
+export function parseStandingRouteSeedPreview(value: unknown): StandingRouteSeedPreview {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Standing route seed preview is malformed");
   }
@@ -347,75 +353,114 @@ export function parseStandingRouteDesk(value: unknown): StandingRouteDesk {
   return candidate;
 }
 
-async function requestStandingRouteDesk(): Promise<StandingRouteDesk> {
-  const response = await fetch("/api/v1/market-ontology/standing-routes", {
+export type StandingRouteWorkspace = Readonly<{
+  schemaVersion: "pmh.standing-route-workspace.v1";
+  workspaceIdentity: string;
+  sourceProjectionRevision: string;
+  routeProjectionIdentity: string;
+  seedOutcomeProjectionIdentity: string;
+  seedPreviewIdentity: string | null;
+  materializedAt: string;
+  desk: StandingRouteDesk;
+  seedPortfolio: Readonly<{
+    preview:
+      | Readonly<{ status: "AVAILABLE"; data: StandingRouteSeedPreview }>
+      | Readonly<{ status: "UNAVAILABLE"; diagnostic: string }>;
+    outcomes: StandingRouteSeedOutcomes;
+  }>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  campaignsCreatedByRead: 0;
+  runsCreatedByRead: 0;
+  writesStartedByRead: 0;
+  automaticDispatch: false;
+  authority: "DERIVED_ROUTE_WORKSPACE_ONLY";
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export function parseStandingRouteWorkspace(value: unknown): StandingRouteWorkspace {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Standing route workspace is malformed");
+  }
+  const workspace = value as StandingRouteWorkspace;
+  const preview = workspace.seedPortfolio?.preview;
+  if (
+    workspace.schemaVersion !== "pmh.standing-route-workspace.v1" ||
+    typeof workspace.workspaceIdentity !== "string" ||
+    !/^(?:0|[1-9]\d*)$/u.test(workspace.sourceProjectionRevision) ||
+    typeof workspace.routeProjectionIdentity !== "string" ||
+    typeof workspace.seedOutcomeProjectionIdentity !== "string" ||
+    Number.isNaN(Date.parse(workspace.materializedAt)) ||
+    (preview?.status !== "AVAILABLE" && preview?.status !== "UNAVAILABLE") ||
+    workspace.providerRequestsStartedByRead !== 0 ||
+    workspace.modelInvocationsStartedByRead !== 0 ||
+    workspace.campaignsCreatedByRead !== 0 || workspace.runsCreatedByRead !== 0 ||
+    workspace.writesStartedByRead !== 0 || workspace.automaticDispatch !== false ||
+    workspace.authority !== "DERIVED_ROUTE_WORKSPACE_ONLY" ||
+    workspace.executionAuthority !== false || workspace.externalWriteAuthority !== false ||
+    workspace.valueMovingAuthority !== false
+  ) throw new Error("Standing route workspace crossed its bounded read contract");
+  parseStandingRouteDesk(workspace.desk);
+  parseStandingRouteSeedOutcomes(workspace.seedPortfolio.outcomes);
+  if (workspace.routeProjectionIdentity !== workspace.desk.projectionIdentity ||
+      workspace.seedOutcomeProjectionIdentity !==
+        workspace.seedPortfolio.outcomes.projectionIdentity) {
+    throw new Error("Standing route workspace lost projection identity lineage");
+  }
+  if (preview.status === "AVAILABLE") {
+    parseStandingRouteSeedPreview(preview.data);
+    if (workspace.seedPreviewIdentity !== preview.data.previewIdentity) {
+      throw new Error("Standing route workspace lost seed preview identity");
+    }
+  } else if (workspace.seedPreviewIdentity !== null ||
+      typeof preview.diagnostic !== "string") {
+    throw new Error("Standing route workspace malformed unavailable seed preview");
+  }
+  return workspace;
+}
+
+async function requestStandingRouteWorkspace(
+  signal: AbortSignal,
+): Promise<StandingRouteWorkspace> {
+  const response = await fetch("/api/v1/market-ontology/standing-routes/workspace", {
+    signal,
     headers: { accept: "application/json" },
   });
   const value = await response.json() as { diagnostic?: string };
   if (!response.ok) {
-    throw new Error(value.diagnostic ?? `Standing routes returned HTTP ${response.status}`);
+    throw new Error(value.diagnostic ?? `Standing route workspace returned HTTP ${response.status}`);
   }
-  return parseStandingRouteDesk(value);
+  return parseStandingRouteWorkspace(value);
 }
 
-export function useStandingRouteDesk(revision: string) {
-  const [data, setData] = useState<StandingRouteDesk | null>(null);
-  const [diagnostic, setDiagnostic] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async (): Promise<void> => {
-    setLoading(true);
-    try {
-      setData(await requestStandingRouteDesk());
-      setDiagnostic(null);
-    } catch (error) {
-      setData(null);
-      setDiagnostic(error instanceof Error ? error.message : "Standing routes are unavailable");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh, revision]);
-
-  return Object.freeze({ data, diagnostic, loading, refresh });
-}
-
-export function useStandingRouteSeedPortfolio(revision: string) {
-  const [data, setData] = useState<StandingRouteSeedPreview | null>(null);
-  const [outcomes, setOutcomes] = useState<StandingRouteSeedOutcomes | null>(null);
+export function useStandingRouteWorkspace(revision: string) {
+  const [data, setData] = useState<StandingRouteWorkspace | null>(null);
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [preparing, setPreparing] = useState(false);
+  const activeRequest = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
+    activeRequest.current?.abort();
+    const abort = new AbortController();
+    activeRequest.current = abort;
     setLoading(true);
     try {
-      const [previewResponse, outcomeResponse] = await Promise.all([
-        fetch("/api/v1/market-ontology/standing-routes/seed-campaign-preview", {
-          headers: { accept: "application/json" },
-        }),
-        fetch("/api/v1/market-ontology/standing-routes/seed-outcomes", {
-          headers: { accept: "application/json" },
-        }),
-      ]);
-      const previewValue = await previewResponse.json() as { diagnostic?: string };
-      const outcomeValue = await outcomeResponse.json() as { diagnostic?: string };
-      if (!previewResponse.ok) throw new Error(previewValue.diagnostic ??
-        `Seed preview returned HTTP ${previewResponse.status}`);
-      if (!outcomeResponse.ok) throw new Error(outcomeValue.diagnostic ??
-        `Seed outcomes returned HTTP ${outcomeResponse.status}`);
-      setData(parseStandingRouteSeedPreview(previewValue));
-      setOutcomes(parseStandingRouteSeedOutcomes(outcomeValue));
+      const workspace = await requestStandingRouteWorkspace(abort.signal);
+      if (abort.signal.aborted) return;
+      setData(workspace);
       setDiagnostic(null);
     } catch (error) {
-      setData(null);
-      setOutcomes(null);
-      setDiagnostic(error instanceof Error ? error.message : "Standing route seed preview is unavailable");
+      if (abort.signal.aborted) return;
+      setDiagnostic(error instanceof Error ? error.message :
+        "Standing route workspace is unavailable");
     } finally {
-      setLoading(false);
+      if (activeRequest.current === abort) {
+        activeRequest.current = null;
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -431,16 +476,22 @@ export function useStandingRouteSeedPortfolio(revision: string) {
         },
       );
       const value = await response.json() as { diagnostic?: string };
-      if (!response.ok) throw new Error(value.diagnostic ?? `Seed campaign returned HTTP ${response.status}`);
+      if (!response.ok) throw new Error(value.diagnostic ??
+        `Seed campaign returned HTTP ${response.status}`);
       setDiagnostic("Paused route-seed campaign prepared. No model call was started.");
       await refresh();
     } catch (error) {
-      setDiagnostic(error instanceof Error ? error.message : "Standing route seed campaign could not be prepared");
+      setDiagnostic(error instanceof Error ? error.message :
+        "Standing route seed campaign could not be prepared");
     } finally {
       setPreparing(false);
     }
   }, [refresh]);
 
-  useEffect(() => { void refresh(); }, [refresh, revision]);
-  return Object.freeze({ data, outcomes, diagnostic, loading, preparing, refresh, prepare });
+  useEffect(() => {
+    void refresh();
+    return () => activeRequest.current?.abort();
+  }, [refresh, revision]);
+
+  return Object.freeze({ data, diagnostic, loading, preparing, refresh, prepare });
 }

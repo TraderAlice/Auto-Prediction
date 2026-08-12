@@ -64,8 +64,7 @@ import {
 import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
 import { useDiscoveryExecutionCapability } from "@/data/discovery-execution";
 import {
-  useStandingRouteDesk,
-  useStandingRouteSeedPortfolio,
+  useStandingRouteWorkspace,
   type StandingRouteState,
   type StandingRouteUsage,
 } from "@/data/standing-routes";
@@ -9050,9 +9049,11 @@ function standingRouteUsageTokens(usage: StandingRouteUsage | undefined): string
 }
 
 function StandingRouteMemory({ revision }: { revision: string }) {
-  const desk = useStandingRouteDesk(revision);
-  const seedPortfolio = useStandingRouteSeedPortfolio(revision);
-  const data = desk.data;
+  const workspace = useStandingRouteWorkspace(revision);
+  const data = workspace.data?.desk ?? null;
+  const seedPreview = workspace.data?.seedPortfolio.preview ?? null;
+  const seedPortfolio = seedPreview?.status === "AVAILABLE" ? seedPreview.data : null;
+  const seedOutcomes = workspace.data?.seedPortfolio.outcomes ?? null;
   const families = data === null ? [] : [...data.families].sort((left, right) => {
     const leftValue = data.value.values.find((item) =>
       item.routeFamilyId === left.family.routeFamilyId
@@ -9097,10 +9098,12 @@ function StandingRouteMemory({ revision }: { revision: string }) {
         </div>
         <div className="standing-route-memory-heading-meta">
           <Badge variant={data !== null && data.followupEligibleFamilyCount > 0 ? "warning" : "muted"}>
-            {desk.loading ? "SYNCING" : `${data?.followupEligibleFamilyCount ?? 0} WAKING NOW`}
+            {workspace.loading
+              ? data === null ? "SYNCING" : "REVALIDATING"
+              : `${data?.followupEligibleFamilyCount ?? 0} WAKING NOW`}
           </Badge>
-          <Button variant="outline" size="sm" disabled={desk.loading} onClick={() => void desk.refresh()}>
-            {desk.loading ? <RefreshCw className="is-spinning" size={13} /> : <RefreshCw size={13} />}
+          <Button variant="outline" size="sm" disabled={workspace.loading} onClick={() => void workspace.refresh()}>
+            {workspace.loading ? <RefreshCw className="is-spinning" size={13} /> : <RefreshCw size={13} />}
             Refresh memory
           </Button>
         </div>
@@ -9119,30 +9122,30 @@ function StandingRouteMemory({ revision }: { revision: string }) {
           <Button
             variant="outline"
             size="sm"
-            disabled={seedPortfolio.loading || seedPortfolio.preparing ||
-              !seedPortfolio.data?.creationEligible}
-            onClick={() => void seedPortfolio.prepare()}
+            disabled={workspace.loading || workspace.preparing ||
+              !seedPortfolio?.creationEligible}
+            onClick={() => void workspace.prepare()}
           >
-            {seedPortfolio.preparing
+            {workspace.preparing
               ? <RefreshCw className="is-spinning" size={13} />
               : <Waypoints size={13} />}
             Prepare paused campaign
           </Button>
         </div>
-        {seedPortfolio.loading && seedPortfolio.data === null ? (
+        {workspace.loading && seedPreview === null ? (
           <div className="standing-route-seed-state">
             <LoaderCircle className="is-spinning" size={15} />
             <span>Selecting without calling a model…</span>
           </div>
-        ) : seedPortfolio.data !== null ? (
+        ) : seedPortfolio !== null ? (
           <>
             <div className="standing-route-seed-grid">
               {(["SUBJECT_REFERENCE", "EVENT_REFERENCE", "SETTLEMENT_REFERENCE"] as const)
                 .map((layer) => {
-                  const candidate = seedPortfolio.data!.selection.selected.find((item) =>
+                  const candidate = seedPortfolio.selection.selected.find((item) =>
                     item.targetRouteLayer === layer
                   );
-                  const outcome = seedPortfolio.outcomes?.strata.find((item) =>
+                  const outcome = seedOutcomes?.strata.find((item) =>
                     item.targetRouteLayer === layer
                   );
                   return (
@@ -9162,25 +9165,27 @@ function StandingRouteMemory({ revision }: { revision: string }) {
                 })}
             </div>
             <p className="standing-route-seed-diagnostic">
-              {seedPortfolio.diagnostic ?? seedPortfolio.data.diagnostic}
-              {seedPortfolio.outcomes !== null
-                ? ` · recurrence ${seedPortfolio.outcomes.recurrenceQualification.qualifiedLayerCount}/3 layers qualified`
+              {workspace.diagnostic ?? seedPortfolio.diagnostic}
+              {seedOutcomes !== null
+                ? ` · recurrence ${seedOutcomes.recurrenceQualification.qualifiedLayerCount}/3 layers qualified`
                 : ""}
             </p>
           </>
         ) : (
           <p className="standing-route-seed-diagnostic is-error">
-            {seedPortfolio.diagnostic ?? "Seed portfolio unavailable"}
+            {workspace.diagnostic ?? (seedPreview?.status === "UNAVAILABLE"
+              ? seedPreview.diagnostic
+              : "Seed portfolio unavailable")}
           </p>
         )}
       </div>
 
-      {desk.diagnostic !== null ? (
+      {workspace.diagnostic !== null && data === null ? (
         <div className="standing-route-memory-state" role="status">
           <CircleOff size={16} />
-          <div><strong>Route memory unavailable</strong><span>{desk.diagnostic}</span></div>
+          <div><strong>Route memory unavailable</strong><span>{workspace.diagnostic}</span></div>
         </div>
-      ) : desk.loading && data === null ? (
+      ) : workspace.loading && data === null ? (
         <div className="standing-route-memory-state">
           <LoaderCircle className="is-spinning" size={16} />
           <div><strong>Reading lifecycle memory</strong><span>No Agent or model call is started by this read.</span></div>

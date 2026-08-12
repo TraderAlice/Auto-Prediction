@@ -2529,6 +2529,50 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    const standingRouteWorkspaceResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/standing-routes/workspace`,
+    );
+    expect(standingRouteWorkspaceResponse.status).toBe(200);
+    expect(standingRouteWorkspaceResponse.headers.get("server-timing")).toMatch(
+      /^routes-projection;dur=\d+(?:\.\d)?, routes-followups;dur=\d+(?:\.\d)?, routes-inputs;dur=\d+(?:\.\d)?, routes-value;dur=\d+(?:\.\d)?, routes-seed-outcomes;dur=\d+(?:\.\d)?, routes-selection;dur=\d+(?:\.\d)?, routes-seed-preview;dur=\d+(?:\.\d)?, routes-json;dur=\d+(?:\.\d)?, routes-total;dur=\d+(?:\.\d)?$/u,
+    );
+    expect(Number(standingRouteWorkspaceResponse.headers.get("x-pmh-response-bytes")))
+      .toBeGreaterThan(0);
+    const standingRouteWorkspace = await standingRouteWorkspaceResponse.json();
+    expect(standingRouteWorkspace).toMatchObject({
+      schemaVersion: "pmh.standing-route-workspace.v1",
+      sourceProjectionRevision:
+        standingRouteWorkspaceResponse.headers.get("x-pmh-projection-revision"),
+      routeProjectionIdentity: standingRouteWorkspace.desk.projectionIdentity,
+      seedOutcomeProjectionIdentity:
+        standingRouteWorkspace.seedPortfolio.outcomes.projectionIdentity,
+      seedPortfolio: {
+        preview: {
+          status: "AVAILABLE",
+          data: {
+            schemaVersion: "pmh.standing-route-seed-campaign-preview.v1",
+            providerRequestsStarted: 0,
+            modelInvocationsStarted: 0,
+          },
+        },
+        outcomes: {
+          schemaVersion: "pmh.standing-route-seed-outcome-projection.v1",
+          providerRequestsStartedByRead: 0,
+          modelInvocationsStartedByRead: 0,
+          writesStartedByRead: 0,
+        },
+      },
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+      writesStartedByRead: 0,
+      automaticDispatch: false,
+      authority: "DERIVED_ROUTE_WORKSPACE_ONLY",
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
     const relationDiscoveryResponse = await fetch(
       `${baseUrl}/api/v1/relation-discovery`,
     );
