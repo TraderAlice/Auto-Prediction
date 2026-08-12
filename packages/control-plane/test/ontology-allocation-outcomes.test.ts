@@ -315,6 +315,21 @@ describe("ontology allocation realized outcomes", () => {
       },
       downstreamAttribution: "EXCLUSIVE_LINEAGE",
     });
+
+    const counterexample = proposal(revision, run.runId, "COUNTEREXAMPLE");
+    const mixed = projection({
+      execution,
+      revisions: work.revisions,
+      proposals: [positive, counterexample],
+    }).campaigns[0]!.actionOutcomes.find((item) =>
+      item.selectionActionRef === binding.selectionActionRef
+    )!;
+    expect(mixed).toMatchObject({
+      stage: "RELATION_WORK_READY",
+      usefulNegativeMemory: true,
+      ontologyProposalIds: [positive.proposalId],
+      ontologyCounterexampleIds: [counterexample.proposalId],
+    });
   });
 
   it("counts ontology counterexamples as useful negative relation memory", () => {

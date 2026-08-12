@@ -223,11 +223,21 @@ proposal or counterexample, relation work and findings, semantic review,
 probability research, and local opportunity lifecycle. Direct campaign spend is
 kept separate from connected downstream cost, and shared downstream lineage is
 explicitly non-causal. Projection identity ignores unrelated Agent activity.
-The retained live specimen has one episode, three selected actions, zero acted
-or terminal actions, and zero direct tokens, leaving both represented strata
-below the three-terminal-action evidence gate. Recurrence is therefore still
-unqualified and operator-gated; no model, provider, campaign, run, or write was
-started. Agent Operations exposes the exact stage/cost lineage and passes
+Its initial retained baseline had one episode, three selected actions, zero
+acted or terminal actions, and zero direct tokens. A subsequent zero-inference
+Codex app-server preflight made the bound Terra/high profile usable; one
+operator-authorized, concurrency-one evidence-rich dispatch then succeeded in
+125.289 seconds after seven invocations and exact 152,149 / 1,777 / 514
+input/output/reasoning tokens. It retained three positive ontology proposals,
+one counterexample, and four relation-work items. The successor campaign was
+paused before a second dispatch. Exact run annotations admitted only the acted
+input and left the other two selected actions unacted. This mixed live result
+also corrected outcome semantics: runnable positive relation work is the main
+stage while useful counterexample memory remains an independent dimension,
+rather than one negative branch hiding simultaneous positive movement. Both
+represented strata remain below the three-terminal-action evidence gate, so
+recurrence is still unqualified and operator-gated. Agent Operations exposes
+the exact stage/cost lineage and passes
 desktop plus 390 px visual checks without application console errors or
 horizontal overflow. Workspace checks, 598 control-plane tests, 24 Studio
 tests, the remaining workspace suites, and the production build pass; the

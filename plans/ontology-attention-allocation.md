@@ -214,18 +214,40 @@ cannot rewrite a historical allocation outcome. The read starts zero providers,
 models, campaigns, runs, or writes, and recurrence remains an operator decision
 even after the evidence threshold is met.
 
-Live retained data currently projects one campaign episode, three selected
-actions, zero acted actions, and zero terminal actions. Both represented strata
-remain below the minimum of three exact terminal actions, so the result is
-honestly `RECURRENCE UNQUALIFIED`; the campaign remains paused and no model or
-provider request was started. Agent Operations shows the three unacted exact
-inputs and zero direct tokens. Desktop and 390 × 844 visual qualification pass
+The initial live retained baseline projected one campaign episode, three
+selected actions, zero acted actions, and zero terminal actions. Both represented
+strata were below the minimum of three exact terminal actions, so the result was
+honestly `RECURRENCE UNQUALIFIED`; reading it started no model/provider request,
+campaign, run, or write. Agent Operations showed the three unacted exact inputs
+and zero direct tokens. Desktop and 390 × 844 visual qualification passed
 without application console errors or horizontal overflow; the mobile check
 also fixed an older unbroken campaign-key overflow in the same view.
 Workspace checks, all control-plane suites (86 files / 598 tests), Studio
 suites (four files / 24 tests), and the production build pass on the available
 Node 22 host. The expected Node 24 engine warning and existing Studio
 chunk-size warning remain.
+
+## First controlled outcome — 2026-08-12
+
+A zero-inference Codex app-server account preflight moved the bound Terra/high
+profile from stale to usable without touching DeepSeek. The operator activated
+the manual-only campaign and dispatched exactly one evidence-rich action under
+its concurrency-one budget, then paused the successor campaign before any
+second dispatch. The exact campaign/input annotation gate admitted only that
+run; the other two selected actions remained unacted.
+
+The run succeeded in 125,289 ms after seven model invocations and exact known
+152,149 / 1,777 / 514 input/output/reasoning tokens. It retained three positive
+ontology proposals, one counterexample, and four relation-work items. This is
+one terminal evidence-rich action and useful negative memory, but neither of
+the two strata reaches the three-terminal-action recurrence threshold.
+
+The mixed result exposed that a single negative-memory branch could hide a
+simultaneous runnable positive branch under the scalar stage label. Outcome
+stage now follows the furthest positive/downstream movement while
+`usefulNegativeMemory` remains an independent dimension: this specimen is
+`RELATION_WORK_READY` plus useful negative memory, not a falsely all-negative
+outcome. No second model run is justified until this accounting fix is merged.
 
 ## Non-goals
 
