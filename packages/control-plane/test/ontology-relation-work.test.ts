@@ -22,6 +22,7 @@ import {
   buildStandingOntologyRouteValueProjection,
   extendOntologyRelationWorkWithStandingRouteFollowups,
   materializeRelationDiscoveryTaskRevisions,
+  materializeStandingOntologyRouteObservationEpisodes,
   materializeStandingOntologyRouteFollowups,
   reconcileRelationDiscoveryTaskRevisions,
   relationDiscoveryListingEvidenceHash,
@@ -940,6 +941,18 @@ describe("ontology proposal relation work", () => {
       campaignsCreatedByRead: 0,
       runsCreatedByRead: 0,
     });
+    const quietEpisodes = materializeStandingOntologyRouteObservationEpisodes({
+      projection: quietRoutes,
+      priorEpisodes: [],
+      observedAt: NOW,
+    });
+    expect(quietEpisodes).toHaveLength(1);
+    expect(quietEpisodes[0]).toMatchObject({
+      previousEpisodeId: null,
+      state: "QUIESCENT",
+      followupEligible: false,
+      authority: "DURABLE_ROUTE_LIFECYCLE_EVIDENCE_ONLY",
+    });
     const receiveTimeOnlyCorpus = buildMarketCorpusSnapshot({
       sourceSetIdentity: work.corpus.sourceSetIdentity,
       eligibleSourceCount: work.corpus.eligibleSourceCount,
@@ -987,6 +1000,22 @@ describe("ontology proposal relation work", () => {
       changedListingRefs: [],
       followupEligible: true,
     });
+    const wakeEpisodes = materializeStandingOntologyRouteObservationEpisodes({
+      projection: expandedProjection,
+      priorEpisodes: quietEpisodes,
+      observedAt: "2026-08-12T09:30:00.000Z",
+    });
+    expect(wakeEpisodes).toHaveLength(1);
+    expect(wakeEpisodes[0]).toMatchObject({
+      previousEpisodeId: quietEpisodes[0]!.episodeId,
+      state: "EXPANDED",
+      followupEligible: true,
+    });
+    expect(materializeStandingOntologyRouteObservationEpisodes({
+      projection: expandedProjection,
+      priorEpisodes: [...quietEpisodes, ...wakeEpisodes],
+      observedAt: "2026-08-12T09:45:00.000Z",
+    })).toEqual([]);
     const followupOntology = buildMarketOntologySnapshot(expandedCorpus);
     const followups = materializeStandingOntologyRouteFollowups({
       projection: expandedProjection,
@@ -1169,6 +1198,7 @@ describe("ontology proposal relation work", () => {
     const valueProjection = buildStandingOntologyRouteValueProjection({
       projection: expandedProjection,
       followups,
+      episodes: [...quietEpisodes, ...wakeEpisodes],
       execution: Object.freeze({
         ...work.execution,
         runs: Object.freeze([...work.execution.runs, run, followupRun]),
@@ -1191,6 +1221,8 @@ describe("ontology proposal relation work", () => {
       values: [{
         routeFamilyId: expandedProjection.families[0]!.family.routeFamilyId,
         observedWakeCount: 1,
+        observationEpisodeCount: 2,
+        totalQuietDurationMs: "1800000",
         valueStage: "WAKE_ATTEMPTED",
         quietDurationMs: null,
         followupWorkItemIds: [followups[0]!.workItem.workItemId],
@@ -1203,6 +1235,7 @@ describe("ontology proposal relation work", () => {
     const quietValue = buildStandingOntologyRouteValueProjection({
       projection: quietRoutes,
       followups: [],
+      episodes: quietEpisodes,
       execution: work.execution,
       taskRevisions: revisions,
       findings: retained,
@@ -1214,8 +1247,10 @@ describe("ontology proposal relation work", () => {
     });
     expect(quietValue.values[0]).toMatchObject({
       observedWakeCount: 0,
+      observationEpisodeCount: 1,
       valueStage: "QUIET_MEMORY",
       quietDurationMs: "3600000",
+      totalQuietDurationMs: "3600000",
     });
     expect(materializeStandingOntologyRouteFollowups({
       projection: quietRoutes,
@@ -1352,6 +1387,30 @@ describe("ontology proposal relation work", () => {
       ...tamperedBody,
       findingId: hashCanonical(tamperedBody),
     })])).toThrow("listing evidence hash is inconsistent");
+    const returnedQuietEpisodes = materializeStandingOntologyRouteObservationEpisodes({
+      projection: quietRoutes,
+      priorEpisodes: [...quietEpisodes, ...wakeEpisodes],
+      observedAt: "2026-08-12T11:00:00.000Z",
+    });
+    expect(returnedQuietEpisodes).toHaveLength(1);
+    expect(returnedQuietEpisodes[0]).toMatchObject({
+      familyObservationId: quietEpisodes[0]!.familyObservationId,
+      previousEpisodeId: wakeEpisodes[0]!.episodeId,
+      state: "QUIESCENT",
+    });
+    expect(returnedQuietEpisodes[0]!.episodeId).not.toBe(quietEpisodes[0]!.episodeId);
+    const lifecycleEpisodes = [...quietEpisodes, ...wakeEpisodes, ...returnedQuietEpisodes];
+    store.saveStandingOntologyRouteObservationEpisodes(lifecycleEpisodes);
+    expect(store.loadStandingOntologyRouteObservationEpisodes([
+      quietRoutes.families[0]!.family.routeFamilyId,
+    ])).toEqual(lifecycleEpisodes);
+    const forkedWake = materializeStandingOntologyRouteObservationEpisodes({
+      projection: secondWakeProjection,
+      priorEpisodes: quietEpisodes,
+      observedAt: "2026-08-12T09:40:00.000Z",
+    });
+    expect(() => store.saveStandingOntologyRouteObservationEpisodes(forkedWake))
+      .toThrow("history cannot fork");
     store.close();
     const reopened = new SqliteOperationalStore(path);
     expect(reopened.loadRelationDiscoveryCorpus(work.corpus.snapshotIdentity)).toEqual(work.corpus);
@@ -1367,6 +1426,9 @@ describe("ontology proposal relation work", () => {
         reviewStatus: "NOT_APPLICABLE_ROUTING_ONLY",
       }),
     ]);
+    expect(reopened.loadStandingOntologyRouteObservationEpisodes()).toEqual(
+      lifecycleEpisodes,
+    );
     expect(reopened.loadRelationDiscoveryTaskRevisionsForTaskIds([
       revision.task.taskId,
       revision.task.taskId,

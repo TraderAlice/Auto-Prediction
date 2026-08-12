@@ -28,6 +28,7 @@ import {
 import type { AgentExecutionSnapshot } from "./agent-execution-substrate.js";
 import type { RelationDiscoveryProposalCompilation } from
   "./relation-discovery-semantic-bridge.js";
+import type { OperationalStorageProjection } from "./types.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_ROUTE_MEMBERS = 24;
@@ -154,6 +155,40 @@ export type StandingOntologyRouteFamilyObservation = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type StandingOntologyRouteObservationEpisode = Readonly<{
+  schemaVersion: "pmh.standing-ontology-route-observation-episode.v1";
+  episodeId: Hash;
+  routeFamilyId: Hash;
+  familyObservationId: Hash;
+  previousEpisodeId: Hash | null;
+  observedAt: string;
+  sourceCorpusSnapshotIdentity: Hash;
+  state: StandingOntologyRouteObservationState;
+  membershipIdentity: Hash | null;
+  currentListingRefs: readonly string[];
+  addedListingRefs: readonly string[];
+  removedListingRefs: readonly string[];
+  changedListingRefs: readonly string[];
+  followupEligible: boolean;
+  authority: "DURABLE_ROUTE_LIFECYCLE_EVIDENCE_ONLY";
+  modelInvocationAuthority: false;
+  campaignAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export interface StandingOntologyRouteObservationEpisodeStore {
+  readonly standingOntologyRouteObservationEpisodeStorage:
+    OperationalStorageProjection<"episodeId">;
+  loadStandingOntologyRouteObservationEpisodes(
+    routeFamilyIds?: readonly Hash[],
+  ): readonly StandingOntologyRouteObservationEpisode[];
+  saveStandingOntologyRouteObservationEpisodes(
+    episodes: readonly StandingOntologyRouteObservationEpisode[],
+  ): readonly StandingOntologyRouteObservationEpisode[];
+}
+
 export type BlockedStandingOntologyRoute = Readonly<{
   schemaVersion: "pmh.blocked-standing-ontology-route.v1";
   blockedRouteId: Hash;
@@ -242,14 +277,18 @@ export type StandingOntologyRouteUsage = Readonly<{
 }>;
 
 export type StandingOntologyRouteFamilyValue = Readonly<{
-  schemaVersion: "pmh.standing-ontology-route-family-value.v1";
+  schemaVersion: "pmh.standing-ontology-route-family-value.v2";
   valueId: Hash;
   routeFamilyId: Hash;
   observedAt: string;
   currentState: StandingOntologyRouteObservationState;
   quietDurationMs: string | null;
+  totalQuietDurationMs: string;
+  firstObservedAt: string | null;
+  lastTransitionAt: string | null;
+  observationEpisodeCount: number;
   sourceCount: number;
-  observedWakeCount: 0 | 1;
+  observedWakeCount: number;
   creationUsage: StandingOntologyRouteUsage;
   followupUsage: StandingOntologyRouteUsage;
   followupWorkItemIds: readonly Hash[];
@@ -282,7 +321,7 @@ export type StandingOntologyRouteFamilyValue = Readonly<{
 }>;
 
 export type StandingOntologyRouteValueProjection = Readonly<{
-  schemaVersion: "pmh.standing-ontology-route-value-projection.v1";
+  schemaVersion: "pmh.standing-ontology-route-value-projection.v2";
   projectionIdentity: Hash;
   observedAt: string;
   familyCount: number;
@@ -315,6 +354,135 @@ function routeFamilyIdentity(route: Pick<StandingOntologyRoute,
     canonicalSearchSignals: [...new Set(route.searchSignals.map(canonicalSignal))].sort(),
     searchFields: [...new Set(route.searchFields)].sort(),
   });
+}
+
+function orderedStandingOntologyRouteObservationHistory(
+  episodesInput: readonly StandingOntologyRouteObservationEpisode[],
+  routeFamilyId: Hash,
+): readonly StandingOntologyRouteObservationEpisode[] {
+  const episodes = episodesInput.map(assertStandingOntologyRouteObservationEpisode)
+    .filter((item) => item.routeFamilyId === routeFamilyId);
+  if (episodes.length === 0) return Object.freeze([]);
+  const byId = new Map(episodes.map((item) => [item.episodeId, item] as const));
+  const roots = episodes.filter((item) => item.previousEpisodeId === null);
+  if (roots.length !== 1) {
+    throw new Error("standing route observation history has no unique root");
+  }
+  const childByParent = new Map<Hash, StandingOntologyRouteObservationEpisode>();
+  for (const item of episodes) {
+    if (item.previousEpisodeId === null) continue;
+    if (!byId.has(item.previousEpisodeId)) {
+      throw new Error("standing route observation history is incomplete");
+    }
+    if (childByParent.has(item.previousEpisodeId)) {
+      throw new Error("standing route observation history cannot fork");
+    }
+    childByParent.set(item.previousEpisodeId, item);
+  }
+  const ordered: StandingOntologyRouteObservationEpisode[] = [];
+  let current: StandingOntologyRouteObservationEpisode | undefined = roots[0];
+  while (current !== undefined) {
+    const previous = ordered.at(-1);
+    if (previous !== undefined && previous.observedAt > current.observedAt) {
+      throw new Error("standing route observation history moves backward in time");
+    }
+    ordered.push(current);
+    current = childByParent.get(current.episodeId);
+  }
+  if (ordered.length !== episodes.length) {
+    throw new Error("standing route observation history has no unique head");
+  }
+  return Object.freeze(ordered);
+}
+
+export function materializeStandingOntologyRouteObservationEpisodes(input: Readonly<{
+  projection: StandingOntologyRouteProjection;
+  priorEpisodes: readonly StandingOntologyRouteObservationEpisode[];
+  observedAt: string;
+}>): readonly StandingOntologyRouteObservationEpisode[] {
+  const observedMs = Date.parse(input.observedAt);
+  if (!Number.isFinite(observedMs) || new Date(observedMs).toISOString() !== input.observedAt) {
+    throw new Error("standing route observation observedAt must be canonical ISO time");
+  }
+  const prior = input.priorEpisodes.map(assertStandingOntologyRouteObservationEpisode);
+  return Object.freeze(input.projection.families.flatMap(({ family, observation }) => {
+    const familyPrior = orderedStandingOntologyRouteObservationHistory(
+      prior,
+      family.routeFamilyId,
+    );
+    const previous = familyPrior.at(-1) ?? null;
+    if (previous?.familyObservationId === observation.observationId) return [];
+    const identity = Object.freeze({
+      schemaVersion: "pmh.standing-ontology-route-observation-episode-identity.v1" as const,
+      routeFamilyId: family.routeFamilyId,
+      familyObservationId: observation.observationId,
+      previousEpisodeId: previous?.episodeId ?? null,
+    });
+    const body = Object.freeze({
+      schemaVersion: "pmh.standing-ontology-route-observation-episode.v1" as const,
+      routeFamilyId: family.routeFamilyId,
+      familyObservationId: observation.observationId,
+      previousEpisodeId: previous?.episodeId ?? null,
+      observedAt: input.observedAt,
+      sourceCorpusSnapshotIdentity: observation.currentCorpusSnapshotIdentity,
+      state: observation.state,
+      membershipIdentity: observation.currentMembershipIdentity,
+      currentListingRefs: observation.currentListingRefs,
+      addedListingRefs: observation.addedListingRefs,
+      removedListingRefs: observation.removedListingRefs,
+      changedListingRefs: observation.changedListingRefs,
+      followupEligible: observation.followupEligible,
+      authority: "DURABLE_ROUTE_LIFECYCLE_EVIDENCE_ONLY" as const,
+      modelInvocationAuthority: false as const,
+      campaignAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    return [assertStandingOntologyRouteObservationEpisode(Object.freeze({
+      ...body,
+      episodeId: hashCanonical(identity),
+    }))];
+  }).sort((left, right) => left.episodeId.localeCompare(right.episodeId)));
+}
+
+export function assertStandingOntologyRouteObservationEpisode(
+  value: unknown,
+): StandingOntologyRouteObservationEpisode {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("standing route observation episode is malformed");
+  }
+  const episode = value as StandingOntologyRouteObservationEpisode;
+  const expectedId = hashCanonical({
+    schemaVersion: "pmh.standing-ontology-route-observation-episode-identity.v1",
+    routeFamilyId: episode.routeFamilyId,
+    familyObservationId: episode.familyObservationId,
+    previousEpisodeId: episode.previousEpisodeId,
+  });
+  const refs = [episode.currentListingRefs, episode.addedListingRefs,
+    episode.removedListingRefs, episode.changedListingRefs];
+  if (
+    episode.schemaVersion !== "pmh.standing-ontology-route-observation-episode.v1" ||
+    episode.episodeId !== expectedId ||
+    ![episode.episodeId, episode.routeFamilyId, episode.familyObservationId,
+      episode.sourceCorpusSnapshotIdentity].every((item) => HASH_PATTERN.test(String(item))) ||
+    (episode.previousEpisodeId !== null &&
+      !HASH_PATTERN.test(String(episode.previousEpisodeId))) ||
+    new Date(episode.observedAt).toISOString() !== episode.observedAt ||
+    !["QUIESCENT", "EXPANDED", "CHANGED", "CONTRACTED", "BLOCKED_TOO_BROAD"]
+      .includes(episode.state) ||
+    (episode.membershipIdentity !== null &&
+      !HASH_PATTERN.test(String(episode.membershipIdentity))) ||
+    refs.some((items) => !Array.isArray(items) || items.some((item) =>
+      typeof item !== "string" || item.trim() === ""
+    ) || new Set(items).size !== items.length) ||
+    episode.followupEligible !== ["EXPANDED", "CHANGED"].includes(episode.state) ||
+    episode.authority !== "DURABLE_ROUTE_LIFECYCLE_EVIDENCE_ONLY" ||
+    episode.modelInvocationAuthority !== false || episode.campaignAuthority !== false ||
+    episode.executionAuthority !== false || episode.externalWriteAuthority !== false ||
+    episode.valueMovingAuthority !== false
+  ) throw new Error("standing route observation episode violates its bounded contract");
+  return Object.freeze(episode);
 }
 
 function uniqueHashes(values: readonly Hash[]): readonly Hash[] {
@@ -892,14 +1060,9 @@ export function materializeStandingOntologyRouteFollowups(input: Readonly<{
       return node === undefined ? [] : [node];
     });
     if (selectedNodes.length < 2) return [];
-    const searchScopeIdentity = hashCanonical({
-      schemaVersion: "pmh.standing-ontology-route-followup-scope.v1",
+    const { searchScopeIdentity, workItemId } = standingOntologyRouteFollowupIdentity({
       routeFamilyId: family.routeFamilyId,
       observationMembershipIdentity: observation.currentMembershipIdentity,
-    });
-    const workItemId = hashCanonical({
-      schemaVersion: "pmh.ontology-relation-work-id.v1",
-      searchScopeIdentity,
     });
     const candidateRelationKinds = Object.freeze([
       "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
@@ -995,6 +1158,28 @@ export function materializeStandingOntologyRouteFollowups(input: Readonly<{
   }).sort((left, right) => left.followupId.localeCompare(right.followupId)));
 }
 
+export function standingOntologyRouteFollowupIdentity(input: Readonly<{
+  routeFamilyId: Hash;
+  observationMembershipIdentity: Hash;
+}>): Readonly<{ searchScopeIdentity: Hash; workItemId: Hash }> {
+  if (!HASH_PATTERN.test(input.routeFamilyId) ||
+      !HASH_PATTERN.test(input.observationMembershipIdentity)) {
+    throw new Error("standing route follow-up identity contains an invalid hash");
+  }
+  const searchScopeIdentity = hashCanonical({
+    schemaVersion: "pmh.standing-ontology-route-followup-scope.v1",
+    routeFamilyId: input.routeFamilyId,
+    observationMembershipIdentity: input.observationMembershipIdentity,
+  });
+  return Object.freeze({
+    searchScopeIdentity,
+    workItemId: hashCanonical({
+      schemaVersion: "pmh.ontology-relation-work-id.v1",
+      searchScopeIdentity,
+    }),
+  });
+}
+
 export function extendOntologyRelationWorkWithStandingRouteFollowups(input: Readonly<{
   base: OntologyRelationWorkProjection;
   followups: readonly StandingOntologyRouteFollowup[];
@@ -1073,6 +1258,7 @@ function sumUsage(items: readonly StandingOntologyRouteUsage[]): StandingOntolog
 export function buildStandingOntologyRouteValueProjection(input: Readonly<{
   projection: StandingOntologyRouteProjection;
   followups: readonly StandingOntologyRouteFollowup[];
+  episodes: readonly StandingOntologyRouteObservationEpisode[];
   execution: AgentExecutionSnapshot;
   taskRevisions: readonly RelationDiscoveryTaskRevision[];
   findings: readonly RelationDiscoveryFinding[];
@@ -1096,10 +1282,25 @@ export function buildStandingOntologyRouteValueProjection(input: Readonly<{
     throw new Error("standing route value observedAt must be canonical ISO time");
   }
   const values = Object.freeze(input.projection.families.map(({ family, observation }) => {
+    const episodes = orderedStandingOntologyRouteObservationHistory(
+      input.episodes,
+      family.routeFamilyId,
+    );
     const followups = input.followups.filter((item) =>
       item.routeFamilyId === family.routeFamilyId
     );
-    const followupWorkItemIds = uniqueHashes(followups.map((item) => item.workItem.workItemId));
+    const historicalFollowupWorkItemIds = episodes.flatMap((episode) =>
+      episode.followupEligible && episode.membershipIdentity !== null
+        ? [standingOntologyRouteFollowupIdentity({
+            routeFamilyId: episode.routeFamilyId,
+            observationMembershipIdentity: episode.membershipIdentity,
+          }).workItemId]
+        : []
+    );
+    const followupWorkItemIds = uniqueHashes([
+      ...followups.map((item) => item.workItem.workItemId),
+      ...historicalFollowupWorkItemIds,
+    ]);
     const revisions = input.taskRevisions.filter((item) =>
       followupWorkItemIds.includes(item.workItemId)
     );
@@ -1133,9 +1334,20 @@ export function buildStandingOntologyRouteValueProjection(input: Readonly<{
     )).sort());
     const creationUsage = usageForRuns(input.execution, family.authoringRunIds);
     const followupUsage = usageForRuns(input.execution, followupRunIds);
+    const latestEpisode = episodes.at(-1) ?? null;
     const quietDurationMs = observation.state === "QUIESCENT"
-      ? BigInt(Math.max(0, observedMs - Date.parse(family.firstRecordedAt))).toString()
+      ? BigInt(Math.max(0, observedMs - Date.parse(
+          latestEpisode?.state === "QUIESCENT"
+            ? latestEpisode.observedAt
+            : family.firstRecordedAt,
+        ))).toString()
       : null;
+    const totalQuietDurationMs = episodes.reduce((total, episode, index) => {
+      if (episode.state !== "QUIESCENT") return total;
+      const next = episodes[index + 1];
+      const endMs = Math.min(observedMs, Date.parse(next?.observedAt ?? input.observedAt));
+      return total + BigInt(Math.max(0, endMs - Date.parse(episode.observedAt)));
+    }, 0n).toString();
     const valueStage = opportunityIds.length > 0
       ? "OPPORTUNITY_PROGRESS" as const
       : probabilityJobs.length > 0
@@ -1148,17 +1360,21 @@ export function buildStandingOntologyRouteValueProjection(input: Readonly<{
               ? "NEGATIVE_EVIDENCE" as const
               : followupRunIds.length > 0
                 ? "WAKE_ATTEMPTED" as const
-                : followups.length > 0
+                  : followupWorkItemIds.length > 0
                   ? "WAKE_UNATTEMPTED" as const
                   : "QUIET_MEMORY" as const;
     const body = Object.freeze({
-      schemaVersion: "pmh.standing-ontology-route-family-value.v1" as const,
+      schemaVersion: "pmh.standing-ontology-route-family-value.v2" as const,
       routeFamilyId: family.routeFamilyId,
       observedAt: input.observedAt,
       currentState: observation.state,
       quietDurationMs,
+      totalQuietDurationMs,
+      firstObservedAt: episodes[0]?.observedAt ?? null,
+      lastTransitionAt: latestEpisode?.observedAt ?? null,
+      observationEpisodeCount: episodes.length,
       sourceCount: family.sourceCount,
-      observedWakeCount: (followups.length > 0 ? 1 : 0) as 0 | 1,
+      observedWakeCount: episodes.filter((item) => item.followupEligible).length,
       creationUsage,
       followupUsage,
       followupWorkItemIds,
@@ -1184,7 +1400,7 @@ export function buildStandingOntologyRouteValueProjection(input: Readonly<{
     return Object.freeze({ ...body, valueId: hashCanonical(body) });
   }).sort((left, right) => left.routeFamilyId.localeCompare(right.routeFamilyId)));
   const body = Object.freeze({
-    schemaVersion: "pmh.standing-ontology-route-value-projection.v1" as const,
+    schemaVersion: "pmh.standing-ontology-route-value-projection.v2" as const,
     observedAt: input.observedAt,
     familyCount: values.length,
     totalCreationUsage: sumUsage(values.map((item) => item.creationUsage)),

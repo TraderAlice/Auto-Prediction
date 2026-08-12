@@ -130,7 +130,9 @@ import {
   buildStandingOntologyRouteValueProjection,
   buildStandingOntologyRouteProjection,
   extendOntologyRelationWorkWithStandingRouteFollowups,
+  materializeStandingOntologyRouteObservationEpisodes,
   materializeStandingOntologyRouteFollowups,
+  type StandingOntologyRouteObservationEpisodeStore,
 } from "./standing-ontology-routes.js";
 import { buildResearchAttentionAllocation } from "./research-attention-allocation.js";
 import {
@@ -931,6 +933,16 @@ function supportsRelationDiscoveryRecords(
     typeof candidate.saveRelationDiscoveryFindings === "function";
 }
 
+function supportsStandingOntologyRouteObservationEpisodes(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & StandingOntologyRouteObservationEpisodeStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<StandingOntologyRouteObservationEpisodeStore>;
+  return candidate.standingOntologyRouteObservationEpisodeStorage !== undefined &&
+    typeof candidate.loadStandingOntologyRouteObservationEpisodes === "function" &&
+    typeof candidate.saveStandingOntologyRouteObservationEpisodes === "function";
+}
+
 function supportsResearchDecisionEpisodes(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & ResearchDecisionEpisodeStore {
@@ -1123,6 +1135,10 @@ export function createControlPlane(options?: {
   const relationDiscoveryStore = supportsRelationDiscoveryRecords(options?.discoveryStore)
     ? options.discoveryStore
     : null;
+  const standingRouteEpisodeStore =
+    supportsStandingOntologyRouteObservationEpisodes(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
   const researchDecisionStore = supportsResearchDecisionEpisodes(options?.discoveryStore)
     ? options.discoveryStore
     : null;
@@ -1699,6 +1715,21 @@ export function createControlPlane(options?: {
       : ruleEvidenceClaimScheduler.projection().jobs.filter((item) =>
           requirementIds.includes(item.requirementId)
         );
+  const standingRouteProjection = (
+    corpus: MarketCorpusSnapshot,
+  ) => {
+    if (relationDiscoveryStore === null) return null;
+    const routeFindings = relationDiscoveryStore.loadStandingOntologyRouteSourceFindings();
+    return buildStandingOntologyRouteProjection({
+      findings: routeFindings,
+      taskRevisions: relationDiscoveryStore.loadRelationDiscoveryTaskRevisionsForTaskIds(
+        routeFindings.map((item) => item.sourceTaskId),
+      ),
+      loadCorpus: (snapshotIdentity) =>
+        relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
+      currentCorpus: corpus,
+    });
+  };
   const relationWorkWithStandingRoutes = (input: Readonly<{
     proposals: readonly MarketOntologyAgentProposal[];
     ontologyRevisions: readonly OntologySearchIssueRevision[];
@@ -1712,16 +1743,8 @@ export function createControlPlane(options?: {
     });
     if (relationDiscoveryStore === null) return base;
     const corpus = input.corpus ?? catalogObservationDesk.corpus();
-    const routeFindings = relationDiscoveryStore.loadStandingOntologyRouteSourceFindings();
-    const routeProjection = buildStandingOntologyRouteProjection({
-      findings: routeFindings,
-      taskRevisions: relationDiscoveryStore.loadRelationDiscoveryTaskRevisionsForTaskIds(
-        routeFindings.map((item) => item.sourceTaskId),
-      ),
-      loadCorpus: (snapshotIdentity) =>
-        relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
-      currentCorpus: corpus,
-    });
+    const routeProjection = standingRouteProjection(corpus);
+    if (routeProjection === null) return base;
     const followups = materializeStandingOntologyRouteFollowups({
       projection: routeProjection,
       ontology: buildMarketOntologySnapshot(corpus),
@@ -2729,6 +2752,21 @@ export function createControlPlane(options?: {
       ?.loadMarketOntologyAgentProposals(200) ?? [];
     const retainedOntologyRevisions = ontologySearchIssueRevisionStore
       ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+    const routes = standingRouteProjection(corpus);
+    relationDiscoveryStore.saveRelationDiscoveryCorpus(corpus);
+    if (routes !== null && standingRouteEpisodeStore !== null) {
+      const familyIds = routes.families.map((item) => item.family.routeFamilyId);
+      const priorEpisodes = standingRouteEpisodeStore
+        .loadStandingOntologyRouteObservationEpisodes(familyIds);
+      const episodes = materializeStandingOntologyRouteObservationEpisodes({
+        projection: routes,
+        priorEpisodes,
+        observedAt: new Date().toISOString(),
+      });
+      if (episodes.length > 0) {
+        standingRouteEpisodeStore.saveStandingOntologyRouteObservationEpisodes(episodes);
+      }
+    }
     const relationWork = relationWorkWithStandingRoutes({
       proposals,
       ontologyRevisions: retainedOntologyRevisions,
@@ -2744,7 +2782,6 @@ export function createControlPlane(options?: {
       loadRetainedCorpus: (snapshotIdentity) =>
         relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
     });
-    relationDiscoveryStore.saveRelationDiscoveryCorpus(corpus);
     const created = reconciliation.currentRevisions.filter((revision) =>
       reconciliation.createdRevisionIds.includes(revision.revisionId)
     );
@@ -3649,6 +3686,17 @@ export function createControlPlane(options?: {
     invalidationFlushTimer = setTimeout(flushProjectionInvalidation, 25);
     invalidationFlushTimer.unref();
   };
+  const reconcileAfterAgentTaskCompletion = async (taskId: Hash): Promise<void> => {
+    const task = agentExecutionRegistry.snapshot().tasks.find((item) => item.taskId === taskId);
+    if (task?.kind === "RELATION_DISCOVERY") {
+      try {
+        reconcileRelationDiscoveryTasks();
+      } catch {
+        // Startup or the next catalog refresh retries durable route reconciliation.
+      }
+    }
+    await broadcastProjection();
+  };
   publishSearchLeaseChange = () => {
     void broadcastProjection();
   };
@@ -4069,6 +4117,10 @@ export function createControlPlane(options?: {
         projection,
         ontology: buildMarketOntologySnapshot(catalogObservationDesk.corpus()),
       });
+      const episodes = standingRouteEpisodeStore
+        ?.loadStandingOntologyRouteObservationEpisodes(
+          projection.families.map((item) => item.family.routeFamilyId),
+        ) ?? Object.freeze([]);
       const execution = agentExecutionRegistry.snapshot();
       const findingsForValue = relationDiscoveryStore
         ?.loadRelationDiscoveryFindings(512) ?? [];
@@ -4091,12 +4143,11 @@ export function createControlPlane(options?: {
       const opportunities = opportunityLifecycleDesk.projection().cases.filter((item) =>
         proposalOpportunityIds.has(item.opportunityId)
       ).map((item) => Object.freeze({ opportunityId: item.opportunityId }));
-      const observedAt = catalogObservationDesk.corpus().listings.map((item) =>
-        item.sourceReceivedAt
-      ).sort().at(-1) ?? "1970-01-01T00:00:00.000Z";
+      const observedAt = new Date().toISOString();
       const value = buildStandingOntologyRouteValueProjection({
         projection,
         followups,
+        episodes,
         execution,
         taskRevisions: relationDiscoveryStore
           ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
@@ -4111,6 +4162,8 @@ export function createControlPlane(options?: {
         ...projection,
         followupCount: followups.length,
         followups,
+        observationEpisodeCount: episodes.length,
+        observationEpisodes: episodes,
         value,
       }));
       return;
@@ -4501,7 +4554,7 @@ export function createControlPlane(options?: {
           Object.freeze({
             mode: "MEMORY" as const,
             durable: false,
-            schemaVersion: 42,
+            schemaVersion: 43,
             idempotencyKey: "revisionId" as const,
           }),
         automaticDispatch: false,
@@ -4898,8 +4951,13 @@ export function createControlPlane(options?: {
           campaignDispatchMatch[1] as Hash,
         );
         void broadcastProjection();
-        for (const completion of dispatched.completions) {
-          void completion.then(() => broadcastProjection(), () => broadcastProjection());
+        for (const [index, completion] of dispatched.completions.entries()) {
+          const taskId = dispatched.preparedRuns[index]?.taskId;
+          if (taskId === undefined) continue;
+          void completion.then(
+            () => reconcileAfterAgentTaskCompletion(taskId),
+            () => reconcileAfterAgentTaskCompletion(taskId),
+          );
         }
         writeJson(response, 202, {
           ok: true,
@@ -4973,8 +5031,8 @@ export function createControlPlane(options?: {
           );
           void broadcastProjection();
           void dispatched.completion.then(
-            () => broadcastProjection(),
-            () => broadcastProjection(),
+            () => reconcileAfterAgentTaskCompletion(dispatched.run.taskId),
+            () => reconcileAfterAgentTaskCompletion(dispatched.run.taskId),
           );
           writeJson(response, 202, {
             ok: true,
@@ -5177,7 +5235,7 @@ export function createControlPlane(options?: {
         storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
           mode: "MEMORY" as const,
           durable: false,
-          schemaVersion: 42,
+          schemaVersion: 43,
           idempotencyKey: "proposalId" as const,
         }),
         authority: "PROPOSE_ONLY",
@@ -5531,6 +5589,7 @@ export function createControlPlane(options?: {
       const pending = catalogRefreshScheduler.runNow("OPERATOR").promise;
       await broadcastProjection();
       const result = await pending;
+      reconcileRelationDiscoveryTasks();
       await broadcastProjection();
       tickSearchIssues();
       writeJson(
@@ -6558,6 +6617,7 @@ export function createControlPlane(options?: {
         void broadcastProjection();
         void invocation.promise.then(
           () => {
+            reconcileRelationDiscoveryTasks();
             void broadcastProjection();
             tickSearchIssues();
           },
@@ -6775,8 +6835,13 @@ export function createControlPlane(options?: {
         if (dispatches.length === 0) return;
         void broadcastProjection();
         for (const dispatch of dispatches) {
-          for (const completion of dispatch.completions) {
-            void completion.then(() => broadcastProjection(), () => broadcastProjection());
+          for (const [index, completion] of dispatch.completions.entries()) {
+            const taskId = dispatch.preparedRuns[index]?.taskId;
+            if (taskId === undefined) continue;
+            void completion.then(
+              () => reconcileAfterAgentTaskCompletion(taskId),
+              () => reconcileAfterAgentTaskCompletion(taskId),
+            );
           }
         }
       } catch {

@@ -2404,11 +2404,13 @@ describe("control-plane HTTP surface", () => {
       blockedRouteCount: 0,
       followupEligibleRouteCount: 0,
       followupCount: 0,
+      observationEpisodeCount: 0,
       routes: [],
       families: [],
       followups: [],
+      observationEpisodes: [],
       value: {
-        schemaVersion: "pmh.standing-ontology-route-value-projection.v1",
+        schemaVersion: "pmh.standing-ontology-route-value-projection.v2",
         familyCount: 0,
         values: [],
         providerRequestsStartedByRead: 0,
@@ -3086,7 +3088,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 42,
+        schemaVersion: 43,
         },
         records: [{ investigationId: created.investigationId }],
       });

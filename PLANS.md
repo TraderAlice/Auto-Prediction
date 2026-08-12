@@ -358,9 +358,20 @@ wake-follow-up research, then traces the latter through findings, independent
 semantic review, probability jobs, and opportunity IDs without claiming
 causality. The live Lula family cost one authoring run: eight model invocations,
 179,293 input tokens, 1,722 output tokens, and 740 reasoning tokens. It remains
-quiet with zero follow-up spend and zero downstream yield. Durable observation
-episodes are still needed before the system can report historical multi-wake
-counts and quiet intervals rather than only current-corpus state.
+quiet with zero follow-up spend and zero downstream yield. Schema 43 now makes
+the route family a temporal memory rather than only a current-corpus
+projection. Startup, catalog-refresh, and relation-Agent completion
+reconciliation append an immutable observation episode only when the family
+state materially changes. The chain
+is idempotent on unchanged replay, rejects forks, and treats a return to an
+older membership after an intervening state as a new episode. Historical wake
+count, current and cumulative quiet time, and every membership-scoped follow-up
+identity now survive process restart. A synthetic
+`QUIESCENT → EXPANDED → QUIESCENT` lifecycle replayed byte-for-byte after SQLite
+reopen, while the live Lula family kept exactly one quiet root episode across
+two startups with zero provider/model/campaign/run side effects. The active
+continuation is the Finding Inbox route-family timeline and wake-yield surface,
+not automatic dispatch.
 
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
