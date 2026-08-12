@@ -469,7 +469,9 @@ export function assertRelationDiscoveryFinding(value: unknown): RelationDiscover
       !Array.isArray(finding.searchSignals) || finding.searchSignals.length < 1 ||
       finding.searchSignals.length > 8 || finding.searchSignals.some((item) =>
         typeof item !== "string" || item.trim() === "" || item.length > 160) ||
-      new Set(finding.searchSignals).size !== finding.searchSignals.length ||
+      new Set(finding.searchSignals.map((item) => item.trim().replace(/\s+/gu, " ")
+        .normalize("NFKC").toLocaleLowerCase("en-US"))).size !==
+        finding.searchSignals.length ||
       !Array.isArray(finding.searchFields) || finding.searchFields.length < 1 ||
       finding.searchFields.some((item) => !["title", "description", "rulesText"].includes(item)) ||
       new Set(finding.searchFields).size !== finding.searchFields.length ||

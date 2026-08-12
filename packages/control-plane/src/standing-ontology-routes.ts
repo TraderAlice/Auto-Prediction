@@ -99,6 +99,57 @@ export type StandingOntologyRouteObservation = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type StandingOntologyRouteFamily = Readonly<{
+  schemaVersion: "pmh.standing-ontology-route-family.v1";
+  routeFamilyId: Hash;
+  routeLayer: RelationDiscoveryRouteLayer;
+  canonicalSearchSignals: readonly string[];
+  searchFields: readonly ("title" | "description" | "rulesText")[];
+  representativeRouteId: Hash;
+  sourceRouteIds: readonly Hash[];
+  sourceFindingIds: readonly Hash[];
+  sourceTaskIds: readonly Hash[];
+  sourceAgentRunIds: readonly Hash[];
+  sourceCount: number;
+  nativeSourceCount: number;
+  legacySourceCount: number;
+  baselineMembershipIdentities: readonly Hash[];
+  baselineDisagreement: boolean;
+  firstRecordedAt: string;
+  lastRecordedAt: string;
+  authority: "SEARCH_ROUTING_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type StandingOntologyRouteFamilyObservation = Readonly<{
+  schemaVersion: "pmh.standing-ontology-route-family-observation.v1";
+  observationId: Hash;
+  routeFamilyId: Hash;
+  baselineRouteId: Hash;
+  currentCorpusSnapshotIdentity: Hash;
+  state: StandingOntologyRouteObservationState;
+  currentListingRefs: readonly string[];
+  currentListingEvidenceHashes: readonly Hash[];
+  currentMembershipIdentity: Hash | null;
+  addedListingRefs: readonly string[];
+  removedListingRefs: readonly string[];
+  changedListingRefs: readonly string[];
+  matchCount: number;
+  truncated: boolean;
+  followupEligible: boolean;
+  authority: "ROUTE_NOVELTY_OBSERVATION_ONLY";
+  modelInvocationAuthority: false;
+  campaignAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type BlockedStandingOntologyRoute = Readonly<{
   schemaVersion: "pmh.blocked-standing-ontology-route.v1";
   blockedRouteId: Hash;
@@ -130,9 +181,17 @@ export type StandingOntologyRouteProjection = Readonly<{
   contractedRouteCount: number;
   broadRouteCount: number;
   followupEligibleRouteCount: number;
+  familyCount: number;
+  corroboratedFamilyCount: number;
+  baselineDisagreementFamilyCount: number;
+  followupEligibleFamilyCount: number;
   routes: readonly Readonly<{
     route: StandingOntologyRoute;
     observation: StandingOntologyRouteObservation;
+  }>[];
+  families: readonly Readonly<{
+    family: StandingOntologyRouteFamily;
+    observation: StandingOntologyRouteFamilyObservation;
   }>[];
   blockedRoutes: readonly BlockedStandingOntologyRoute[];
   providerRequestsStartedByRead: 0;
@@ -150,9 +209,10 @@ export type StandingOntologyRouteProjection = Readonly<{
 }>;
 
 export type StandingOntologyRouteFollowup = Readonly<{
-  schemaVersion: "pmh.standing-ontology-route-followup.v1";
+  schemaVersion: "pmh.standing-ontology-route-followup.v2";
   followupId: Hash;
-  routeId: Hash;
+  routeFamilyId: Hash;
+  sourceRouteIds: readonly Hash[];
   sourceObservationId: Hash;
   observationMembershipIdentity: Hash;
   workItem: OntologyRelationWorkItem;
@@ -168,6 +228,20 @@ export type StandingOntologyRouteFollowup = Readonly<{
 
 function compact(value: string): string {
   return value.trim().replace(/\s+/gu, " ");
+}
+
+function canonicalSignal(value: string): string {
+  return compact(value).normalize("NFKC").toLocaleLowerCase("en-US");
+}
+
+function routeFamilyIdentity(route: Pick<StandingOntologyRoute,
+  "routeLayer" | "searchSignals" | "searchFields">): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.standing-ontology-route-family-identity.v1",
+    routeLayer: route.routeLayer,
+    canonicalSearchSignals: [...new Set(route.searchSignals.map(canonicalSignal))].sort(),
+    searchFields: [...new Set(route.searchFields)].sort(),
+  });
 }
 
 function uniqueHashes(values: readonly Hash[]): readonly Hash[] {
@@ -280,7 +354,7 @@ export function assertStandingOntologyRoute(value: unknown): StandingOntologyRou
     !Array.isArray(route.searchSignals) || route.searchSignals.length < 1 ||
     route.searchSignals.length > 8 || route.searchSignals.some((item) =>
       typeof item !== "string" || item.trim() === "" || item.length > 160) ||
-    new Set(route.searchSignals).size !== route.searchSignals.length ||
+    new Set(route.searchSignals.map(canonicalSignal)).size !== route.searchSignals.length ||
     !Array.isArray(route.searchFields) || route.searchFields.length < 1 ||
     route.searchFields.some((item) =>
       !["title", "description", "rulesText"].includes(item)) ||
@@ -468,6 +542,102 @@ function observe(
   return Object.freeze({ ...body, observationId });
 }
 
+function buildRouteFamilies(
+  routes: readonly StandingOntologyRoute[],
+  currentCorpus: MarketCorpusSnapshot,
+): readonly Readonly<{
+  family: StandingOntologyRouteFamily;
+  observation: StandingOntologyRouteFamilyObservation;
+}>[] {
+  const grouped = new Map<Hash, StandingOntologyRoute[]>();
+  for (const route of routes) {
+    const familyId = routeFamilyIdentity(route);
+    grouped.set(familyId, [...(grouped.get(familyId) ?? []), route]);
+  }
+  return Object.freeze([...grouped.entries()].map(([routeFamilyId, sources]) => {
+    const sorted = [...sources].sort((left, right) =>
+      left.recordedAt.localeCompare(right.recordedAt) || left.routeId.localeCompare(right.routeId)
+    );
+    const representative = sorted[0]!;
+    const baselineMembershipIdentities = uniqueHashes(sorted.map((item) =>
+      item.baselineMembershipIdentity
+    ));
+    const family = Object.freeze({
+      schemaVersion: "pmh.standing-ontology-route-family.v1" as const,
+      routeFamilyId,
+      routeLayer: representative.routeLayer,
+      canonicalSearchSignals: Object.freeze([
+        ...new Set(representative.searchSignals.map(canonicalSignal)),
+      ].sort()),
+      searchFields: Object.freeze([...new Set(representative.searchFields)].sort()),
+      representativeRouteId: representative.routeId,
+      sourceRouteIds: uniqueHashes(sorted.map((item) => item.routeId)),
+      sourceFindingIds: uniqueHashes(sorted.map((item) => item.sourceFindingId)),
+      sourceTaskIds: uniqueHashes(sorted.map((item) => item.sourceTaskId)),
+      sourceAgentRunIds: uniqueHashes(sorted.flatMap((item) => [
+        ...item.sourceAgentRunIds,
+        item.sourceAgentRunId,
+      ])),
+      sourceCount: sorted.length,
+      nativeSourceCount: sorted.filter((item) =>
+        item.sourceDisposition === "NATIVE_ROUTE_EFFECT"
+      ).length,
+      legacySourceCount: sorted.filter((item) =>
+        item.sourceDisposition === "LEGACY_RELATED_FINDING"
+      ).length,
+      baselineMembershipIdentities,
+      baselineDisagreement: baselineMembershipIdentities.length > 1,
+      firstRecordedAt: sorted[0]!.recordedAt,
+      lastRecordedAt: sorted.at(-1)!.recordedAt,
+      authority: "SEARCH_ROUTING_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    const routeObservation = observe(representative, currentCorpus);
+    const observationBody = Object.freeze({
+      schemaVersion: "pmh.standing-ontology-route-family-observation.v1" as const,
+      routeFamilyId,
+      baselineRouteId: representative.routeId,
+      currentCorpusSnapshotIdentity: routeObservation.currentCorpusSnapshotIdentity,
+      state: routeObservation.state,
+      currentListingRefs: routeObservation.currentListingRefs,
+      currentListingEvidenceHashes: routeObservation.currentListingEvidenceHashes,
+      currentMembershipIdentity: routeObservation.currentMembershipIdentity,
+      addedListingRefs: routeObservation.addedListingRefs,
+      removedListingRefs: routeObservation.removedListingRefs,
+      changedListingRefs: routeObservation.changedListingRefs,
+      matchCount: routeObservation.matchCount,
+      truncated: routeObservation.truncated,
+      followupEligible: routeObservation.followupEligible,
+      authority: "ROUTE_NOVELTY_OBSERVATION_ONLY" as const,
+      modelInvocationAuthority: false as const,
+      campaignAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    const observationId = hashCanonical({
+      schemaVersion: "pmh.standing-ontology-route-family-observation-identity.v1",
+      routeFamilyId,
+      state: observationBody.state,
+      currentMembershipIdentity: observationBody.currentMembershipIdentity,
+      addedListingRefs: observationBody.addedListingRefs,
+      removedListingRefs: observationBody.removedListingRefs,
+      changedListingRefs: observationBody.changedListingRefs,
+    });
+    return Object.freeze({
+      family,
+      observation: Object.freeze({ ...observationBody, observationId }),
+    });
+  }).sort((left, right) => left.family.routeFamilyId.localeCompare(
+    right.family.routeFamilyId,
+  )));
+}
+
 export function buildStandingOntologyRouteProjection(input: Readonly<{
   findings: readonly RelationDiscoveryFinding[];
   taskRevisions: readonly RelationDiscoveryTaskRevision[];
@@ -491,6 +661,7 @@ export function buildStandingOntologyRouteProjection(input: Readonly<{
     revisions.set(key, revision);
   }
   const routes: StandingOntologyRoute[] = [];
+  const routeIds = new Set<Hash>();
   const blockedRoutes: BlockedStandingOntologyRoute[] = [];
   const candidates = input.findings.map(assertRelationDiscoveryFinding).filter((finding) =>
     finding.kind === "ONTOLOGY_ROUTE" ||
@@ -546,7 +717,10 @@ export function buildStandingOntologyRouteProjection(input: Readonly<{
       }));
       continue;
     }
-    routes.push(route);
+    if (!routeIds.has(route.routeId)) {
+      routeIds.add(route.routeId);
+      routes.push(route);
+    }
   }
   routes.sort((left, right) => left.routeId.localeCompare(right.routeId));
   blockedRoutes.sort((left, right) => left.blockedRouteId.localeCompare(right.blockedRouteId));
@@ -554,6 +728,7 @@ export function buildStandingOntologyRouteProjection(input: Readonly<{
     route,
     observation: observe(route, currentCorpus),
   })));
+  const families = buildRouteFamilies(routes, currentCorpus);
   const body = Object.freeze({
     schemaVersion: "pmh.standing-ontology-route-projection.v1" as const,
     currentCorpusSnapshotIdentity: currentCorpus.snapshotIdentity,
@@ -575,7 +750,16 @@ export function buildStandingOntologyRouteProjection(input: Readonly<{
     followupEligibleRouteCount: observed.filter((item) =>
       item.observation.followupEligible
     ).length,
+    familyCount: families.length,
+    corroboratedFamilyCount: families.filter((item) => item.family.sourceCount > 1).length,
+    baselineDisagreementFamilyCount: families.filter((item) =>
+      item.family.baselineDisagreement
+    ).length,
+    followupEligibleFamilyCount: families.filter((item) =>
+      item.observation.followupEligible
+    ).length,
     routes: observed,
+    families,
     blockedRoutes: Object.freeze(blockedRoutes),
     providerRequestsStartedByRead: 0 as const,
     modelInvocationsStartedByRead: 0 as const,
@@ -612,8 +796,18 @@ export function materializeStandingOntologyRouteFollowups(input: Readonly<{
     throw new Error("standing ontology route follow-up ontology lineage is inconsistent");
   }
   const nodes = new Map(ontology.nodes.map((item) => [item.listingRef, item] as const));
-  return Object.freeze(input.projection.routes.flatMap(({ route, observation }) => {
+  const routes = new Map(input.projection.routes.map((item) =>
+    [item.route.routeId, item.route] as const
+  ));
+  return Object.freeze(input.projection.families.flatMap(({ family, observation }) => {
     if (!observation.followupEligible || observation.currentMembershipIdentity === null) return [];
+    const sourceRoutes = family.sourceRouteIds.map((routeId) => {
+      const route = routes.get(routeId);
+      if (route === undefined) throw new Error("standing route family lost a source route");
+      return route;
+    });
+    const route = routes.get(family.representativeRouteId);
+    if (route === undefined) throw new Error("standing route family lost its baseline route");
     const selectedRefs = Object.freeze([...new Set([
       ...route.baselineListingRefs,
       ...observation.addedListingRefs,
@@ -626,7 +820,7 @@ export function materializeStandingOntologyRouteFollowups(input: Readonly<{
     if (selectedNodes.length < 2) return [];
     const searchScopeIdentity = hashCanonical({
       schemaVersion: "pmh.standing-ontology-route-followup-scope.v1",
-      routeId: route.routeId,
+      routeFamilyId: family.routeFamilyId,
       observationMembershipIdentity: observation.currentMembershipIdentity,
     });
     const workItemId = hashCanonical({
@@ -645,32 +839,38 @@ export function materializeStandingOntologyRouteFollowups(input: Readonly<{
       `counterexamples. RELATED is already established as routing memory and cannot be ` +
       `submitted by this one-hop follow-up.`
     ).slice(0, 2_000);
+    const sourceSelectionLanes = Object.freeze([...new Set(sourceRoutes.flatMap((item) =>
+      item.sourceSelectionLanes
+    ))].sort());
     const body = Object.freeze({
       schemaVersion: "pmh.ontology-relation-work.v1" as const,
       workItemId,
       searchScopeIdentity,
       kind: "STANDING_ROUTE_FOLLOWUP" as const,
       disposition: "RUNNABLE_RESEARCH" as const,
-      sourceProposalIds: route.sourceProposalIds,
-      sourceAgentRunIds: uniqueHashes([
-        ...route.sourceAgentRunIds,
-        route.sourceAgentRunId,
-      ]),
-      sourceIssueIds: route.sourceIssueIds,
-      sourceIssueRevisionIds: route.sourceIssueRevisionIds,
-      sourceOntologyIdentities: route.sourceOntologyIdentities,
-      sourceSnapshotIdentities: route.sourceSnapshotIdentities,
+      sourceProposalIds: uniqueHashes(sourceRoutes.flatMap((item) => item.sourceProposalIds)),
+      sourceAgentRunIds: family.sourceAgentRunIds,
+      sourceIssueIds: uniqueHashes(sourceRoutes.flatMap((item) => item.sourceIssueIds)),
+      sourceIssueRevisionIds: uniqueHashes(sourceRoutes.flatMap((item) =>
+        item.sourceIssueRevisionIds
+      )),
+      sourceOntologyIdentities: uniqueHashes(sourceRoutes.flatMap((item) =>
+        item.sourceOntologyIdentities
+      )),
+      sourceSnapshotIdentities: uniqueHashes(sourceRoutes.flatMap((item) =>
+        item.sourceSnapshotIdentities
+      )),
       sourceRelationPatternIds: uniqueHashes([
-        ...route.sourceRelationPatternIds,
-        route.routeId,
+        ...sourceRoutes.flatMap((item) => item.sourceRelationPatternIds),
+        family.routeFamilyId,
       ]),
       sourceTrailheadIds: uniqueHashes([
-        ...route.sourceTrailheadIds,
+        ...sourceRoutes.flatMap((item) => item.sourceTrailheadIds),
         observation.currentMembershipIdentity,
       ]),
-      sourceSelectionLanes: route.sourceSelectionLanes.length === 0
+      sourceSelectionLanes: sourceSelectionLanes.length === 0
         ? Object.freeze(["WORLD_DIVERGENCE"] as const)
-        : route.sourceSelectionLanes,
+        : sourceSelectionLanes,
       sourceListingBindingCount: selectedNodes.length,
       seedListingBindings: Object.freeze(selectedNodes.slice(0, 32).map(nodeBinding)),
       seedListingBindingsTruncated: selectedNodes.length > 32,
@@ -678,10 +878,12 @@ export function materializeStandingOntologyRouteFollowups(input: Readonly<{
       question,
       searchSignals: route.searchSignals,
       candidateRelationKinds,
-      falsifiers: route.falsifiers,
-      priority: route.priority,
-      firstProposedAt: route.recordedAt,
-      lastProposedAt: route.recordedAt,
+      falsifiers: Object.freeze([...new Set(sourceRoutes.flatMap((item) =>
+        item.falsifiers
+      ))].sort().slice(0, 12)),
+      priority: Math.max(...sourceRoutes.map((item) => item.priority)) as 1 | 2 | 3 | 4 | 5,
+      firstProposedAt: family.firstRecordedAt,
+      lastProposedAt: family.lastRecordedAt,
       campaignEligible: true as const,
       automaticDispatch: false as const,
       authority: "RELATION_SEARCH_PROPOSAL_ONLY" as const,
@@ -697,8 +899,9 @@ export function materializeStandingOntologyRouteFollowups(input: Readonly<{
       artifactHash: hashCanonical(body),
     }));
     const followupBody = Object.freeze({
-      schemaVersion: "pmh.standing-ontology-route-followup.v1" as const,
-      routeId: route.routeId,
+      schemaVersion: "pmh.standing-ontology-route-followup.v2" as const,
+      routeFamilyId: family.routeFamilyId,
+      sourceRouteIds: family.sourceRouteIds,
       sourceObservationId: observation.observationId,
       observationMembershipIdentity: observation.currentMembershipIdentity,
       workItem,
