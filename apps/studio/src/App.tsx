@@ -391,6 +391,74 @@ type ResearchDecisionOutcomeProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type OntologyAllocationOutcomeProjection = Readonly<{
+  schemaVersion: "pmh.ontology-allocation-outcome-projection.v1";
+  projectionIdentity: string;
+  observedAt: string;
+  campaignEpisodeCount: number;
+  selectedActionCount: number;
+  actedActionCount: number;
+  terminalActionCount: number;
+  stageCounts: Readonly<Record<string, number>>;
+  strata: ReadonlyArray<Readonly<{
+    selectionActionKind: string;
+    selectedActionCount: number;
+    actedActionCount: number;
+    terminalActionCount: number;
+    ontologyOutputActionCount: number;
+    usefulNegativeMemoryActionCount: number;
+    downstreamRelationActionCount: number;
+    semanticallyReviewedActionCount: number;
+    probabilityOrOpportunityActionCount: number;
+    directKnownInputTokens: string;
+    directKnownOutputTokens: string;
+    directKnownReasoningTokens: string;
+    incompleteDirectUsageActionCount: number;
+    yieldCostEstimateQualified: boolean;
+  }>>;
+  recurrenceQualification: Readonly<{
+    representedStratumCount: number;
+    qualifiedStratumCount: number;
+    minimumTerminalActionsPerStratum: 3;
+    yieldCostEvidenceSufficient: boolean;
+    operatorActivationStillRequired: true;
+  }>;
+  campaigns: ReadonlyArray<Readonly<{
+    episodeId: string;
+    campaignKey: string;
+    currentStatus: "PAUSED" | "ACTIVE";
+    actionCount: number;
+    actedActionCount: number;
+    terminalActionCount: number;
+    actionOutcomes: ReadonlyArray<Readonly<{
+      outcomeId: string;
+      selectionActionRef: string;
+      selectionActionKind: string;
+      workFamilyRef: string;
+      stage: string;
+      acted: boolean;
+      terminal: boolean;
+      usefulNegativeMemory: boolean;
+      directCost: Readonly<{
+        knownInputTokens: string;
+        knownOutputTokens: string;
+        knownReasoningTokens: string;
+        usageComplete: boolean;
+      }>;
+      downstreamAttribution: string;
+      diagnostic: string;
+    }>>;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  campaignsCreatedByRead: 0;
+  runsCreatedByRead: 0;
+  writesStartedByRead: 0;
+  automaticDispatch: false;
+  policyMutationAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type FailureBudgetFrontierProjection = Readonly<{
   schemaVersion: "pmh.failure-budget-frontier.v4";
   contentHash: string;
@@ -3255,11 +3323,31 @@ async function requestResearchDecisionOutcomes(): Promise<ResearchDecisionOutcom
   return result;
 }
 
+async function requestOntologyAllocationOutcomes(): Promise<OntologyAllocationOutcomeProjection> {
+  const response = await fetch("/api/v1/market-ontology/allocation-outcomes", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Ontology outcomes returned HTTP ${response.status}`);
+  const result = await response.json() as OntologyAllocationOutcomeProjection;
+  if (
+    result.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
+    result.providerRequestsStartedByRead !== 0 ||
+    result.modelInvocationsStartedByRead !== 0 ||
+    result.campaignsCreatedByRead !== 0 || result.runsCreatedByRead !== 0 ||
+    result.writesStartedByRead !== 0 || result.automaticDispatch !== false ||
+    result.policyMutationAuthority !== false || result.externalWriteAuthority !== false ||
+    result.valueMovingAuthority !== false
+  ) throw new Error("Ontology outcome read crossed its authority boundary");
+  return result;
+}
+
 function AgentOperationsView() {
   const [consoleData, setConsoleData] = useState<AgentExecutionConsole | null>(null);
   const [attentionData, setAttentionData] = useState<ResearchAttentionAllocation | null>(null);
   const [targetData, setTargetData] = useState<ResearchActionTargetProjection | null>(null);
   const [outcomeData, setOutcomeData] = useState<ResearchDecisionOutcomeProjection | null>(null);
+  const [ontologyOutcomeData, setOntologyOutcomeData] =
+    useState<OntologyAllocationOutcomeProjection | null>(null);
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [taskId, setTaskId] = useState("");
@@ -3267,11 +3355,12 @@ function AgentOperationsView() {
   const [manualPreview, setManualPreview] = useState<unknown | null>(null);
 
   async function refresh() {
-    const [next, attention, targets, outcomes] = await Promise.all([
+    const [next, attention, targets, outcomes, ontologyOutcomes] = await Promise.all([
       requestAgentExecutionConsole(),
       requestResearchAttentionAllocation(),
       requestResearchActionTargets(),
       requestResearchDecisionOutcomes(),
+      requestOntologyAllocationOutcomes(),
     ]);
     if (targets.allocationProjectionIdentity !== attention.projectionIdentity) {
       throw new Error("Research target lineage does not match the current attention allocation");
@@ -3280,6 +3369,7 @@ function AgentOperationsView() {
     setAttentionData(attention);
     setTargetData(targets);
     setOutcomeData(outcomes);
+    setOntologyOutcomeData(ontologyOutcomes);
     setTaskId((current) => current || next.tasks.find((task) =>
       task.protocol === "RULE_EVIDENCE_TASK_V1"
     )?.taskId || next.tasks[0]?.taskId || "");
@@ -3385,6 +3475,74 @@ function AgentOperationsView() {
         <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail="task identity is provider-neutral" />
         <Metric label="Known tokens" value={formatTokenCount((BigInt(consoleData.usage.inputTokens) + BigInt(consoleData.usage.outputTokens)).toString())} detail={`${consoleData.usage.incompleteTokenInvocationCount} invocations incomplete`} />
       </div>
+
+      {ontologyOutcomeData !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Ontology allocation outcomes</span>
+              <h2>Did selected Agent attention create research movement?</h2>
+              <p>Exact campaign lineage separates direct spend from shared downstream work. This read cannot change policy or start an Agent.</p>
+            </div>
+            <Badge variant={ontologyOutcomeData.recurrenceQualification.yieldCostEvidenceSufficient
+              ? "warning"
+              : "shadow"}>
+              {ontologyOutcomeData.recurrenceQualification.yieldCostEvidenceSufficient
+                ? "EVIDENCE READY · OPERATOR REQUIRED"
+                : "RECURRENCE UNQUALIFIED"}
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-summary">
+              <div><strong>{ontologyOutcomeData.campaignEpisodeCount}</strong><span>bound campaigns</span></div>
+              <div><strong>{ontologyOutcomeData.selectedActionCount}</strong><span>selected actions</span></div>
+              <div><strong>{ontologyOutcomeData.actedActionCount}</strong><span>acted</span></div>
+              <div><strong>{ontologyOutcomeData.terminalActionCount}</strong><span>terminal</span></div>
+            </div>
+            <div className="research-attention-actions">
+              {ontologyOutcomeData.campaigns.length === 0 ? (
+                <div className="empty-state">No immutable ontology allocation campaign has been recorded yet.</div>
+              ) : ontologyOutcomeData.campaigns.slice(-2).flatMap((campaign) =>
+                campaign.actionOutcomes.map((outcome) => {
+                  const directTokens = BigInt(outcome.directCost.knownInputTokens) +
+                    BigInt(outcome.directCost.knownOutputTokens) +
+                    BigInt(outcome.directCost.knownReasoningTokens);
+                  return (
+                    <article key={outcome.outcomeId}>
+                      <div className="research-attention-action-head">
+                        <div>
+                          <Badge variant={outcome.acted ? "verified" : "muted"}>
+                            {outcome.acted ? "ACTED" : "UNACTED"}
+                          </Badge>
+                          <Badge variant={outcome.usefulNegativeMemory ? "warning" : "shadow"}>
+                            {outcome.stage.replaceAll("_", " ")}
+                          </Badge>
+                        </div>
+                        <code>{outcome.selectionActionRef.slice(7, 19)}</code>
+                      </div>
+                      <strong>{outcome.selectionActionKind.replaceAll("_", " ")}</strong>
+                      <p>{outcome.diagnostic}</p>
+                      <div className="research-action-resolution">
+                        <span>{outcome.downstreamAttribution.replaceAll("_", " ")}</span>
+                        <strong>{formatTokenCount(directTokens.toString())} direct tokens</strong>
+                        <code>{outcome.workFamilyRef.slice(0, 34)}</code>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+            <div className="research-attention-lock">
+              <CircleOff size={14} />
+              <span>
+                {ontologyOutcomeData.recurrenceQualification.qualifiedStratumCount}/
+                {ontologyOutcomeData.recurrenceQualification.representedStratumCount} strata have at least three exact terminal actions · automatic dispatch off
+              </span>
+              <code>{ontologyOutcomeData.projectionIdentity.slice(7, 19)}</code>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {attentionData !== null && (
         <Card className="research-attention-card">
