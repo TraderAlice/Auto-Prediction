@@ -3,7 +3,11 @@ import type { AgentExecutionSnapshot, AgentRun } from "./agent-execution-substra
 import type { RelationDiscoveryFinding } from "./relation-discovery-agent-tools.js";
 import type { OntologyRelationWorkItem, OntologyRelationWorkProjection } from "./ontology-relation-work.js";
 import type { ProbabilityEstimationJobRecord } from "./probability-estimation-scheduler.js";
-import type { RelationDiscoveryProposalCompilation } from "./relation-discovery-semantic-bridge.js";
+import {
+  relationDiscoveryReviewLane,
+  selectRelationDiscoverySemanticReviewCompilations,
+  type RelationDiscoveryProposalCompilation,
+} from "./relation-discovery-semantic-bridge.js";
 import type { RelationDiscoveryTaskRevision } from "./relation-discovery-work.js";
 import type { SemanticReviewJobRecord } from "./semantic-review-scheduler.js";
 
@@ -70,6 +74,7 @@ export type ResearchAttentionFamilyScorecard = Readonly<{
   positiveFindingCount: number;
   counterexampleCount: number;
   noFindingTerminalRunCount: number;
+  ontologyRoutingOnlyFindingCount: number;
   semanticReviewCandidateCount: number;
   semanticReviewConnectedCount: number;
   semanticReviewPassCount: number;
@@ -444,13 +449,25 @@ export function buildResearchAttentionAllocation(input: Readonly<{
     const compilations = input.proposalCompilations.filter((item) =>
       item.origin.workItemId === workItem.workItemId
     );
+    const reviewableCompilations = selectRelationDiscoverySemanticReviewCompilations(
+      compilations,
+    );
+    const ontologyRoutingOnlyFindingCount = compilations.filter((item) =>
+      relationDiscoveryReviewLane(item.proposal.relationKind) === "ONTOLOGY_ROUTING_ONLY"
+    ).length;
     const proposalIds = Object.freeze([...new Set(compilations.map((item) =>
       item.proposal.proposalId
     ))].sort());
+    const reviewableProposalIds = new Set(reviewableCompilations.map((item) =>
+      item.proposal.proposalId
+    ));
     const semanticJobs = Object.freeze(proposalIds.flatMap((proposalId) => {
       const job = semanticJobByProposal.get(proposalId);
       return job === undefined ? [] : [job];
     }));
+    const reviewableSemanticJobs = Object.freeze(semanticJobs.filter((job) =>
+      reviewableProposalIds.has(job.proposalId)
+    ));
     const probabilityJobs = proposalIds.flatMap((proposalId) =>
       probabilityJobsByProposal.get(proposalId) ?? []
     );
@@ -468,7 +485,7 @@ export function buildResearchAttentionAllocation(input: Readonly<{
       runs,
       positiveFindingCount,
       counterexampleCount,
-      semanticJobs,
+      semanticJobs: reviewableSemanticJobs,
       observedAt: input.observedAt,
     });
     const knownWallClock = runs.map(elapsedMs).filter((item): item is bigint => item !== null)
@@ -516,7 +533,8 @@ export function buildResearchAttentionAllocation(input: Readonly<{
       noFindingTerminalRunCount: runs.filter((run) =>
         terminal(run) && (findingsByRun.get(run.runId)?.length ?? 0) === 0
       ).length,
-      semanticReviewCandidateCount: compilations.length,
+      ontologyRoutingOnlyFindingCount,
+      semanticReviewCandidateCount: reviewableCompilations.length,
       semanticReviewConnectedCount: semanticJobs.length,
       semanticReviewPassCount: semanticJobs.filter((item) => item.status === "PASS").length,
       semanticReviewJobIds: Object.freeze(semanticJobs.map((item) => item.jobId).sort()),

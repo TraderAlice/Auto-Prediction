@@ -6,6 +6,7 @@ import {
   emptyAgentExecutionSnapshot,
   type AgentExecutionSnapshot,
   type AgentRun,
+  type MarketRelationKind,
   type OntologyRelationWorkItem,
   type OntologyRelationWorkProjection,
   type RelationDiscoveryFinding,
@@ -104,11 +105,12 @@ function finding(
 function compilation(
   item: OntologyRelationWorkItem,
   label: string,
+  relationKind: MarketRelationKind = "IMPLIES",
 ): RelationDiscoveryProposalCompilation {
   return {
     compilationId: hashCanonical({ compilation: label }),
     origin: { workItemId: item.workItemId },
-    proposal: { proposalId: hashCanonical({ proposal: label }) },
+    proposal: { proposalId: hashCanonical({ proposal: label }), relationKind },
   } as unknown as RelationDiscoveryProposalCompilation;
 }
 
@@ -292,6 +294,7 @@ describe("persistent research-attention allocation", () => {
 
     expect(result.families[0]).toMatchObject({
       semanticReviewCandidateCount: 2,
+      ontologyRoutingOnlyFindingCount: 0,
       semanticReviewConnectedCount: 1,
       semanticReviewPassCount: 1,
       semanticClassificationCounts: {
@@ -303,6 +306,35 @@ describe("persistent research-attention allocation", () => {
       nextActionKind: "HOLD",
     });
     expect(result.recurrenceQualification.independentlyReviewedPositiveFindingCount).toBe(1);
+  });
+
+  it("retains entity routing memory without counting it as semantic payoff review supply", () => {
+    const item = work("routing-only", 4);
+    const current = revision(item, "r1", "2026-08-10T09:00:00.000Z");
+    const completed = run(current.task.taskId, "routing-only", "SUCCEEDED");
+    const hypothesis = finding(item, completed, "routing-positive", "RELATION_HYPOTHESIS");
+    const counterexample = finding(item, completed, "routing-negative", "COUNTEREXAMPLE");
+    const routingMemory = compilation(item, "routing-only", "RELATED");
+    const result = buildResearchAttentionAllocation({
+      observedAt: OBSERVED_AT,
+      relationWork: projection([item]),
+      taskRevisions: [current],
+      findings: [hypothesis, counterexample],
+      proposalCompilations: [routingMemory],
+      semanticReviewJobs: [semanticPass(routingMemory, "TEXTUAL_RELATEDNESS")],
+      probabilityJobs: [],
+      execution: execution({ revisions: [current], runs: [completed] }),
+    });
+
+    expect(result.families[0]).toMatchObject({
+      positiveFindingCount: 1,
+      ontologyRoutingOnlyFindingCount: 1,
+      semanticReviewCandidateCount: 0,
+      semanticReviewConnectedCount: 1,
+      semanticReviewPassCount: 1,
+      valueStage: "SEMANTICALLY_REVIEWED",
+      nextActionKind: "HOLD",
+    });
   });
 
   it("permits one cooled-down work-artifact recheck but rejects corpus-hash churn", () => {

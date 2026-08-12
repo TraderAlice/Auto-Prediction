@@ -279,10 +279,34 @@ granting any authority. The unchanged live database now returns HTTP 200 across
 relation discovery, attention allocation, research decision outcomes, and
 ontology allocation outcomes. The live finding compiles through exact revision
 `sha256:4abcb2d74a16c540aa34efdae817424e40eaf5e3e78440478c8e6bb937d56b46`;
-all projection reads remain zero-inference and zero-write. A newly visible
-classification mismatch remains for the next slice: a merely `LEASED`
-semantic-review job is `AWAITING_SEMANTIC_REVIEW` in the relation projection but
-prematurely appears as `SEMANTICALLY_REVIEWED` in allocation outcomes.
+all projection reads remain zero-inference and zero-write. An apparent
+`LEASED` versus `SEMANTICALLY_REVIEWED` mismatch across two reads was a temporal
+transition: the exact job progressed to `PASS / ESCALATE` between snapshots.
+No stage bug exists there.
+
+The next active continuation is
+[`plans/relation-routing-review-gate.md`](plans/relation-routing-review-gate.md).
+Issue #123 follows the live finding through its actual value disposition. The
+Agent correctly retained an entity-routing-only `RELATED` hypothesis and an
+`IMPLIES` counterexample; independent Terra review correctly classified the
+positive as `TEXTUAL_RELATEDNESS / ESCALATE`, with no probability admission.
+Broad relatedness is useful ontology navigation, but it should not automatically
+consume payoff semantic-review budget. The next slice preserves it as routing
+memory while reserving new semantic-review candidates for relation kinds that
+can constrain payoff or conditional probability.
+
+That value-routing gate is now qualified. A deterministic exhaustive policy
+keeps `RELATED` as durable ontology memory and admits the other seven retained
+relation kinds to independent payoff review. The unchanged live SQLite state
+contains two positive compilations: one reviewable payoff relation and one Lula
+entity-routing edge. The latter now reports zero review candidates while still
+showing its historical `PASS / ESCALATE / TEXTUAL_RELATEDNESS` job and cost.
+Research attention applies the same distinction, so the historical routing
+review remains attributed but emits no `ADVANCE_RESEARCH_DEBT` portfolio action.
+All reads remain provider-free and start no campaign or run. Workspace checks,
+603 control-plane tests, 24 Studio tests, all remaining suites, and the
+production build pass with only the known Node 24 engine expectation and Studio
+chunk warning.
 
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It

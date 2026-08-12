@@ -118,6 +118,8 @@ import {
 import { buildRelationDiscoveryCampaignPreview } from "./relation-discovery-campaign.js";
 import {
   compileRelationDiscoveryFindingsForSemanticReview,
+  relationDiscoveryReviewLane,
+  selectRelationDiscoverySemanticReviewCompilations,
   type RelationDiscoveryProposalCompilation,
 } from "./relation-discovery-semantic-bridge.js";
 import { buildResearchAttentionAllocation } from "./research-attention-allocation.js";
@@ -1773,6 +1775,8 @@ export function createControlPlane(options?: {
   };
   const baseSemanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
     const relationCompilations = relationDiscoveryProposalCompilations();
+    const reviewableRelationCompilations =
+      selectRelationDiscoverySemanticReviewCompilations(relationCompilations);
     const issues = new Map(
       searchIssueScheduler.projection().issues.map((issue) => [issue.issueId, issue] as const),
     );
@@ -1834,7 +1838,7 @@ export function createControlPlane(options?: {
       if (inherited.priority > current.priority) current.priority = inherited.priority;
       lineage.set(inherited.proposalId, current);
     }
-    for (const compilation of relationCompilations) {
+    for (const compilation of reviewableRelationCompilations) {
       const current = lineage.get(compilation.proposal.proposalId) ?? {
         issueIds: new Set<Hash>(),
         priority: 1 as const,
@@ -1854,7 +1858,7 @@ export function createControlPlane(options?: {
     const jobsByProposal = new Map(
       semanticReviewScheduler.projection().jobs.map((job) => [job.proposalId, job] as const),
     );
-    for (const compilation of relationCompilations) {
+    for (const compilation of reviewableRelationCompilations) {
       sources.set(compilation.proposal.proposalId, {
         proposal: compilation.proposal,
         proposalCorpusSnapshotIdentity: compilation.origin.sourceCorpusSnapshotIdentity,
@@ -4018,6 +4022,12 @@ export function createControlPlane(options?: {
         ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
       const findings = relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [];
       const proposalCompilations = relationDiscoveryProposalCompilations();
+      const reviewableCompilations =
+        selectRelationDiscoverySemanticReviewCompilations(proposalCompilations);
+      const routingOnlyCompilations = proposalCompilations.filter((item) =>
+        relationDiscoveryReviewLane(item.proposal.relationKind) ===
+          "ONTOLOGY_ROUTING_ONLY"
+      );
       const proposalIds = Object.freeze([...new Set(proposalCompilations.map((item) =>
         item.proposal.proposalId
       ))].sort());
@@ -4072,8 +4082,12 @@ export function createControlPlane(options?: {
           item.kind === "RELATION_HYPOTHESIS"
         ).length,
         counterexampleCount: findings.filter((item) => item.kind === "COUNTEREXAMPLE").length,
-        semanticReviewCandidateCount: proposalCompilations.length,
-        semanticReviewConnectedCount: proposalCompilations.filter((item) =>
+        semanticReviewCandidateCount: reviewableCompilations.length,
+        semanticReviewConnectedCount: reviewableCompilations.filter((item) =>
+          semanticReviewJobsByProposal.has(item.proposal.proposalId)
+        ).length,
+        ontologyRoutingOnlyFindingCount: routingOnlyCompilations.length,
+        historicalRoutingReviewCount: routingOnlyCompilations.filter((item) =>
           semanticReviewJobsByProposal.has(item.proposal.proposalId)
         ).length,
         usage: Object.freeze({
@@ -4095,10 +4109,13 @@ export function createControlPlane(options?: {
           const workCompilations = proposalCompilations.filter((item) =>
             item.origin.workItemId === workItem.workItemId
           );
+          const reviewableWorkCompilations =
+            selectRelationDiscoverySemanticReviewCompilations(workCompilations);
           const semanticReviews = Object.freeze(workCompilations.map((item) => {
             const job = semanticReviewJobsByProposal.get(item.proposal.proposalId) ?? null;
             return Object.freeze({
               compilationId: item.compilationId,
+              reviewLane: relationDiscoveryReviewLane(item.proposal.relationKind),
               origin: item.origin,
               proposal: item.proposal,
               evidenceBundleId: item.evidenceBundle.bundleId,
@@ -4116,6 +4133,7 @@ export function createControlPlane(options?: {
             });
           }));
           const probabilityAdmittedReviews = semanticReviews.filter((item) =>
+            item.reviewLane === "SEMANTIC_PAYOFF_REVIEW" &&
             item.semanticReviewStatus === "PASS" &&
             item.semanticConstraintClassification === "PROBABILISTIC_DEPENDENCE"
           );
@@ -4131,15 +4149,27 @@ export function createControlPlane(options?: {
             counterexampleCount: workFindings.filter((item) =>
               item.kind === "COUNTEREXAMPLE"
             ).length,
+            ontologyRoutingOnlyFindingCount: workCompilations.length -
+              reviewableWorkCompilations.length,
+            semanticReviewCandidateCount: reviewableWorkCompilations.length,
             semanticReviews,
             downstreamSemanticReviewAttribution: workCompilations.length === 0
               ? "NO_POSITIVE_FINDING" as const
-              : semanticReviews.some((item) => item.semanticReviewJobId !== null)
+              : reviewableWorkCompilations.length === 0
+                ? "ONTOLOGY_ROUTING_ONLY" as const
+                : semanticReviews.some((item) =>
+                    item.reviewLane === "SEMANTIC_PAYOFF_REVIEW" &&
+                    item.semanticReviewJobId !== null
+                  )
                 ? "CONNECTED" as const
                 : "CANDIDATE_READY" as const,
             downstreamProbabilityAttribution: workCompilations.length === 0
               ? "NO_POSITIVE_FINDING" as const
-              : semanticReviews.every((item) => item.semanticReviewStatus !== "PASS")
+              : reviewableWorkCompilations.length === 0
+                ? "NOT_APPLICABLE_ROUTING_ONLY" as const
+                : semanticReviews.filter((item) =>
+                    item.reviewLane === "SEMANTIC_PAYOFF_REVIEW"
+                  ).every((item) => item.semanticReviewStatus !== "PASS")
                 ? "AWAITING_SEMANTIC_REVIEW" as const
                 : probabilityAdmittedReviews.length === 0
                   ? "SEMANTICALLY_NOT_ADMITTED" as const
