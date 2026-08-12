@@ -22,6 +22,7 @@ import {
   type MarketOntologyTrailhead,
 } from "./market-ontology.js";
 import type { OperationalStorageProjection } from "./types.js";
+import type { OntologyRelationWorkProjection } from "./ontology-relation-work.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_MATERIALIZED_ISSUES = 64;
@@ -282,6 +283,14 @@ export type OntologySearchYieldProjection = Readonly<{
     unknownOutputInvocationCount: number;
     unknownReasoningInvocationCount: number;
   }>;
+  downstreamRelationWorkAttribution: Readonly<{
+    status: "CONNECTED" | "NOT_YET_CONNECTED";
+    workItemCount: number;
+    runnableResearchCount: number;
+    negativeMemoryCount: number;
+    blockedMissingLineageCount: number;
+    proposalToWorkCoverageBps: number | null;
+  }>;
   downstreamOpportunityAttribution: "NOT_YET_CONNECTED";
   byIssue: readonly Readonly<{
     issueId: Hash;
@@ -312,6 +321,7 @@ export function buildOntologySearchYieldProjection(input: Readonly<{
   revisions: readonly OntologySearchIssueRevision[];
   proposals: readonly MarketOntologyAgentProposal[];
   execution: AgentExecutionSnapshot;
+  relationWork?: OntologyRelationWorkProjection;
 }>): OntologySearchYieldProjection {
   const latestByIssue = new Map<Hash, OntologySearchIssueRevision>();
   for (const raw of input.revisions) {
@@ -324,18 +334,27 @@ export function buildOntologySearchYieldProjection(input: Readonly<{
   const revisions = Object.freeze([...latestByIssue.values()].sort((left, right) =>
     right.priority - left.priority || left.issueId.localeCompare(right.issueId)
   ));
-  const runIdsByTask = new Map<Hash, Set<Hash>>();
+  const currentIssueIds = new Set(revisions.map((item) => item.issueId));
+  const issueIdByTask = new Map<Hash, Hash>();
+  for (const task of input.execution.tasks) {
+    if (!task.provenanceRef.startsWith("ontology-issue:")) continue;
+    const issueId = task.provenanceRef.slice("ontology-issue:".length) as Hash;
+    if (HASH_PATTERN.test(issueId) && currentIssueIds.has(issueId)) {
+      issueIdByTask.set(task.taskId, issueId);
+    }
+  }
+  const runIdsByIssue = new Map<Hash, Set<Hash>>();
   for (const run of input.execution.runs) {
-    const ids = runIdsByTask.get(run.taskId) ?? new Set<Hash>();
+    const issueId = issueIdByTask.get(run.taskId);
+    if (issueId === undefined) continue;
+    const ids = runIdsByIssue.get(issueId) ?? new Set<Hash>();
     ids.add(run.runId);
-    runIdsByTask.set(run.taskId, ids);
+    runIdsByIssue.set(issueId, ids);
   }
   const byIssue = Object.freeze(revisions.map((revision) => {
-    const runIds = runIdsByTask.get(revision.task.taskId) ?? new Set<Hash>();
+    const runIds = runIdsByIssue.get(revision.issueId) ?? new Set<Hash>();
     const invocations = input.execution.modelInvocations.filter((item) => runIds.has(item.runId));
-    const proposals = input.proposals.filter((item) =>
-      item.sourceRelationPatternIds.includes(revision.relationPatternId)
-    );
+    const proposals = input.proposals.filter((item) => runIds.has(item.sourceAgentRunId));
     return Object.freeze({
       issueId: revision.issueId,
       revisionId: revision.revisionId,
@@ -351,15 +370,12 @@ export function buildOntologySearchYieldProjection(input: Readonly<{
         sum + BigInt(item.outputTokens ?? "0"), 0n).toString(),
     });
   }));
-  const taskIds = new Set(revisions.map((item) => item.task.taskId));
-  const runs = input.execution.runs.filter((item) => taskIds.has(item.taskId));
+  const runs = input.execution.runs.filter((item) => issueIdByTask.has(item.taskId));
   const runIds = new Set(runs.map((item) => item.runId));
   const invocations = input.execution.modelInvocations.filter((item) => runIds.has(item.runId));
   const effects = input.execution.toolEffects.filter((item) => runIds.has(item.runId));
   const patternIds = new Set(revisions.map((item) => item.relationPatternId));
-  const proposals = input.proposals.filter((item) =>
-    item.sourceRelationPatternIds.some((id) => patternIds.has(id))
-  );
+  const proposals = input.proposals.filter((item) => runIds.has(item.sourceAgentRunId));
   const coveredPatterns = new Set(proposals.flatMap((item) => item.sourceRelationPatternIds)
     .filter((id) => patternIds.has(id)));
   const body = Object.freeze({
@@ -396,6 +412,23 @@ export function buildOntologySearchYieldProjection(input: Readonly<{
       unknownOutputInvocationCount: invocations.filter((item) => item.outputTokens === null).length,
       unknownReasoningInvocationCount: invocations.filter((item) => item.reasoningTokens === null).length,
     }),
+    downstreamRelationWorkAttribution: input.relationWork === undefined
+      ? Object.freeze({
+          status: "NOT_YET_CONNECTED" as const,
+          workItemCount: 0,
+          runnableResearchCount: 0,
+          negativeMemoryCount: 0,
+          blockedMissingLineageCount: 0,
+          proposalToWorkCoverageBps: null,
+        })
+      : Object.freeze({
+          status: "CONNECTED" as const,
+          workItemCount: input.relationWork.workItemCount,
+          runnableResearchCount: input.relationWork.runnableResearchCount,
+          negativeMemoryCount: input.relationWork.negativeMemoryCount,
+          blockedMissingLineageCount: input.relationWork.blockedMissingLineageCount,
+          proposalToWorkCoverageBps: input.relationWork.proposalToWorkCoverageBps,
+        }),
     downstreamOpportunityAttribution: "NOT_YET_CONNECTED" as const,
     byIssue,
     authority: "DERIVED_RESEARCH_EVIDENCE_ONLY" as const,

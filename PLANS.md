@@ -20,15 +20,19 @@ evidence. SQLite schema 39 now retains their full unreviewed content and
 run/facet lineage plus 64 current `selection lane × relation pattern` search
 work items. The live portfolio preserves 26 cross-venue, 24 world-divergence,
 and 14 settlement-divergence issue families; each has a complete replayable
-evidence payload and provider-neutral Agent task, but no run, campaign, or
-automatic provider request was created. The zero-cost yield baseline is
-therefore explicit: 64 eligible issues, zero attempts, zero invocations, zero
-proposals, and no downstream opportunity attribution yet. Moving snapshot
+evidence payload and provider-neutral Agent task. The zero-cost baseline was 64
+eligible issues and no attempt. Explicit Terra/high qualification has now
+produced three historical attempts: two successes, one retained protocol
+failure, ten model responses, 203,613 known input tokens, and two world-
+proposition proposals. Stable issue provenance preserves those costs across
+ontology rotation instead of resetting yield to zero. Moving snapshot
 validation out of the per-issue loop reduced ontology reconciliation from
 23.904 seconds to 1.214 seconds while retaining per-task evidence validation.
-The next phase is an explicitly budgeted small campaign plus
-proposal-to-opportunity attribution. Search yield and reviewed opportunity
-value—not graph size—remain the selection signals.
+The two proposals now produce two distinct relation-neighborhood work items
+with 100% proposal coverage, no fabricated pair relation, and no provider call.
+The next phase makes those work items executable and carries their identity
+into findings, probability, and opportunities. Search yield and reviewed
+opportunity value—not graph size—remain the selection signals.
 
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
@@ -85,26 +89,14 @@ waiting for the browser to request its first projection is recorded separately
 and is not misclassified as backend work. This gives later performance work an
 evidence-backed target without delaying the listener or fabricating content.
 
-The next Codex runtime increment is
-[`plans/codex-app-server-runtime.md`](plans/codex-app-server-runtime.md). Local
-Codex 0.147.0 protocol evidence and a zero-inference account probe show that
-the official app-server can use the current ChatGPT login even though direct
-PMH, Pi, and `codex_cli_rs` backend probes were rejected. The integration
-replaces free-text fake tool actions with client-hosted dynamic tools, keeps the
-thread ephemeral and read-only, reject undeclared built-in effects, and retain
-model/effort, token, task, run, and campaign lineage through the provider-neutral
-substrate. It is now the primary path to a Terra-first ontology campaign. A
-live zero-inference preflight retained a usable `CODEX_APP_SERVER_ACCOUNT`
-observation with no secret text or model call. The first bounded Terra/high
-ontology run succeeded in 57 seconds through six native tool effects, including
-two first-party-rejected calls that the Agent repaired, and retained two
-unreviewed world propositions. A token-boundary follow-up succeeded in 29
-seconds with two fully measured model responses and no unknown usage, then
-honestly stopped after evidence inspection without manufacturing a proposal.
-The measured long-loop input cost is real context replay across responses, not
-a cumulative-counter duplication. One deliberately terminated protocol-timing
-run is retained as negative evidence. Campaign selection now de-duplicates on
-stable ontology-issue lineage rather than snapshot-dependent task IDs.
+Codex app-server is now the primary OAuth-backed Agent runtime. The completed
+qualification is preserved in PR #99: a zero-inference account preflight,
+Terra/high native dynamic-tool runs, exact response-level usage, fail-closed
+built-in effects, read-only ephemeral threads, and stable issue de-duplication
+all passed. The active downstream slice is
+[`plans/ontology-proposal-relation-work.md`](plans/ontology-proposal-relation-work.md):
+turn durable ontology proposals into non-fabricated relation-bound work and
+carry historical yield across ontology rotation.
 
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
