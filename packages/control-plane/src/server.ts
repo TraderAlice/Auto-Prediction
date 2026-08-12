@@ -6498,6 +6498,13 @@ export function createControlPlane(options?: {
       () => undefined,
     );
   };
+  const configuredAgentCampaignTickMs = process.env.PMH_AGENT_CAMPAIGN_TICK_MS;
+  const agentCampaignTickMs = configuredAgentCampaignTickMs === undefined
+    ? 1_000
+    : Number(configuredAgentCampaignTickMs);
+  if (!Number.isSafeInteger(agentCampaignTickMs) || agentCampaignTickMs < 0) {
+    throw new Error("PMH_AGENT_CAMPAIGN_TICK_MS must be a non-negative integer");
+  }
   void ready.then(() => {
     tickSearchAttention();
     searchAttentionTimer = setInterval(tickSearchAttention, 60_000);
@@ -6721,7 +6728,7 @@ export function createControlPlane(options?: {
       ruleEvidenceClaimTimer.unref();
     });
   }
-  void ready.then(() => {
+  if (agentCampaignTickMs > 0) void ready.then(() => {
     const tickAgentCampaigns = () => {
       try {
         const dispatches = agentCampaignDispatcher.tick();
@@ -6736,7 +6743,7 @@ export function createControlPlane(options?: {
         // A later bounded tick retries only campaigns that still retain authority.
       }
     };
-    agentCampaignTimer = setInterval(tickAgentCampaigns, 1_000);
+    agentCampaignTimer = setInterval(tickAgentCampaigns, agentCampaignTickMs);
     agentCampaignTimer.unref();
   });
   server.once("close", () => {

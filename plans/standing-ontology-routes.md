@@ -1,10 +1,12 @@
 # Standing ontology routes
 
-Status: active mainline construction — phases 1–4 qualified; phase 5 next
+Status: active mainline construction — phases 1–4 and route-family consolidation qualified; lifecycle attribution next
 
 Issue: [#125](https://github.com/luokerenx4/my-little-pony/issues/125)
 
-Branch: `codex/standing-ontology-routes`
+Lifecycle continuation: [#127](https://github.com/luokerenx4/my-little-pony/issues/127)
+
+Branch: `codex/standing-route-lifecycle`
 
 ## North-star role
 
@@ -100,9 +102,16 @@ spend on payoff search when it supplies no new live member or changed contract.
 
 ## Phase 5 — value attribution and operator surface
 
-- [ ] Consolidate independently discovered routes by canonical query scope while
+- [x] Consolidate independently discovered routes by canonical query scope while
   retaining every source observation, so repeated Agent discovery corroborates
   one route family instead of multiplying wake spend.
+- [x] Bind family identity to normalized layer/query/field semantics, never to
+  a source run, finding, global corpus identity, or model-generated prose.
+- [x] Use the earliest exact baseline for family novelty, retain later baselines
+  as corroborating temporal evidence, and emit one work item per family ×
+  material membership identity.
+- [x] Surface duplicate source count, baseline disagreement, and exact source
+  route/finding/run lineage rather than silently discarding duplicate evidence.
 - [ ] Attribute route creation cost, quiet duration, wake count, follow-up cost,
   payoff-review yield, counterexample yield, and opportunity progression.
 - [ ] Expose standing routes and wakes in the Finding Inbox without presenting
@@ -153,6 +162,19 @@ window, and exact task-ID lookup restores every matching source revision.
 Startup reconciliation now folds only eligible wake work into the ordinary
 relation-discovery revision flow, so it inherits the existing manual campaign,
 usage ledger, counterexample memory, and independent semantic-review gates.
+
+Phase 5 now groups source routes by a provider-free identity over normalized
+route layer, literal signals, and search fields. A synthetic case with two
+independent native findings—whose signal casing differed—retained both source
+routes/findings/runs but produced one corroborated family and one follow-up for
+the current membership. Follow-up identity is now `family × material
+membership`, so the same membership cannot multiply spend while a later real
+membership still receives a distinct work identity. The live Lula source is
+one quiet, uncorroborated family
+`sha256:8a879cb7e3a223d7b32e7c83919f8b5d61adb50ddc72054e0b13aabbcaf83d8d`
+with zero wake work. Qualification can disable only campaign polling with
+`PMH_AGENT_CAMPAIGN_TICK_MS=0`; this leaves the control plane readable without
+mutating persisted campaign authority or starting background model calls.
 
 The retained live Lula finding compiled to standing route
 `sha256:e68e800fd20be6566c112eae7972c9a94c637d9b9cc5df959d31da3e74c8d250`

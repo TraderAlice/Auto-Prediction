@@ -337,6 +337,21 @@ UI windows, and eligible wakes reconcile into ordinary relation task revisions
 and retained attempt memory without automatic dispatch. Phase 5 will measure
 route cost, quiet duration, wake yield, and downstream opportunity progression,
 then expose those lifecycle states in the operator surface.
+Issue #127 is the active Phase 5 continuation. It treats independently authored
+copies of the same normalized route query as corroborating evidence for one
+route family, not as permission to multiply wake spend. Family identity must be
+provider-free and source-independent; every source finding/run remains in the
+lineage, while each distinct material membership may create only one bounded
+follow-up. The same projection will become the attribution spine for route
+creation cost, quiet time, wake work, reviewed payoff yield, probability work,
+and eventual opportunity progression.
+The first #127 slice now groups source routes by normalized layer/literal-query/
+field identity. A case-insensitive duplicate-source specimen retains both exact
+findings and runs but emits one family wake for one membership. The retained
+Lula source is one quiet family with no baseline disagreement and no follow-up.
+An operational `PMH_AGENT_CAMPAIGN_TICK_MS=0` override also permits read-only
+qualification without changing stored campaign state or starting background
+Terra calls. Exact lifecycle cost and downstream yield attribution remain next.
 
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It

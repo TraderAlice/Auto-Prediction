@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertRelationDiscoveryTaskRevision,
   assertRelationDiscoveryTaskPayload,
+  assertRelationDiscoveryFinding,
   assertMarketOntologyAgentProposal,
   assertOntologyRelationWorkItem,
   buildAgentRun,
@@ -925,6 +926,9 @@ describe("ontology proposal relation work", () => {
     });
     expect(quietRoutes).toMatchObject({
       routeCount: 1,
+      familyCount: 1,
+      corroboratedFamilyCount: 0,
+      baselineDisagreementFamilyCount: 0,
       nativeRouteCount: 1,
       legacyRouteCount: 0,
       blockedRouteCount: 0,
@@ -989,8 +993,10 @@ describe("ontology proposal relation work", () => {
     });
     expect(followups).toHaveLength(1);
     expect(followups[0]).toMatchObject({
-      routeId: expandedProjection.routes[0]!.route.routeId,
-      sourceObservationId: expandedProjection.routes[0]!.observation.observationId,
+      schemaVersion: "pmh.standing-ontology-route-followup.v2",
+      routeFamilyId: expandedProjection.families[0]!.family.routeFamilyId,
+      sourceRouteIds: [expandedProjection.routes[0]!.route.routeId],
+      sourceObservationId: expandedProjection.families[0]!.observation.observationId,
       automaticDispatch: false,
       semanticDecisionAuthority: false,
       probabilityAuthority: false,
@@ -1067,6 +1073,52 @@ describe("ontology proposal relation work", () => {
       .not.toBe(followups[0]!.observationMembershipIdentity);
     expect(secondWakeFollowups[0]!.workItem.workItemId)
       .not.toBe(followups[0]!.workItem.workItemId);
+    const nativeRoute = retained.find((item) => item.kind === "ONTOLOGY_ROUTE")!;
+    if (nativeRoute.kind !== "ONTOLOGY_ROUTE") {
+      throw new Error("native route fixture is missing");
+    }
+    const { findingId: _nativeFindingId, ...nativeRouteBody } = nativeRoute;
+    const corroboratingRouteBody = Object.freeze({
+      ...nativeRouteBody,
+      sourceAgentRunId: hashCanonical({ duplicateRouteSource: true }),
+      searchSignals: Object.freeze(["mark kelly"]),
+    });
+    const corroboratingRoute = assertRelationDiscoveryFinding(Object.freeze({
+      ...corroboratingRouteBody,
+      findingId: hashCanonical(corroboratingRouteBody),
+    }));
+    const corroboratedProjection = buildStandingOntologyRouteProjection({
+      findings: [...retained, corroboratingRoute],
+      taskRevisions: [revision],
+      loadCorpus: (identity) => identity === work.corpus.snapshotIdentity
+        ? work.corpus
+        : null,
+      currentCorpus: expandedCorpus,
+    });
+    expect(corroboratedProjection).toMatchObject({
+      routeCount: 2,
+      familyCount: 1,
+      corroboratedFamilyCount: 1,
+      baselineDisagreementFamilyCount: 0,
+      followupEligibleRouteCount: 2,
+      followupEligibleFamilyCount: 1,
+    });
+    expect(corroboratedProjection.families[0]!.family).toMatchObject({
+      canonicalSearchSignals: ["mark kelly"],
+      sourceCount: 2,
+      nativeSourceCount: 2,
+      legacySourceCount: 0,
+      sourceFindingIds: expect.arrayContaining([
+        nativeRoute.findingId,
+        corroboratingRoute.findingId,
+      ]),
+    });
+    const corroboratedFollowups = materializeStandingOntologyRouteFollowups({
+      projection: corroboratedProjection,
+      ontology: followupOntology,
+    });
+    expect(corroboratedFollowups).toHaveLength(1);
+    expect(corroboratedFollowups[0]!.sourceRouteIds).toHaveLength(2);
     const routeExtendedWork = extendOntologyRelationWorkWithStandingRouteFollowups({
       base: relationWork,
       followups,
