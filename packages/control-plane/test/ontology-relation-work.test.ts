@@ -13,6 +13,7 @@ import {
   buildExecutionProfile,
   buildRelationDiscoveryAgentTask,
   compileRelationDiscoveryFindingForSemanticReview,
+  compileRelationDiscoveryFindingsForSemanticReview,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildOntologyRelationWorkProjection,
@@ -813,6 +814,34 @@ describe("ontology proposal relation work", () => {
       taskRevision: revision,
       corpus: work.corpus,
     })).toEqual(compilation);
+    const { findingId: _rotatedFindingId, ...rotatedFindingBase } = positive;
+    const rotatedFindingBody = Object.freeze({
+      ...rotatedFindingBase,
+      sourceCorpusSnapshotIdentity: rotatedCorpus.snapshotIdentity,
+    });
+    const rotatedFinding = Object.freeze({
+      ...rotatedFindingBody,
+      findingId: hashCanonical(rotatedFindingBody),
+    });
+    const rotatedCompilation = compileRelationDiscoveryFindingsForSemanticReview({
+      findings: [rotatedFinding, positive],
+      // Durable reads are newest-first. Both corpus-bound revisions deliberately
+      // share one stable task identity, so taskId alone cannot choose lineage.
+      taskRevisions: [rotated[0]!, revision],
+      loadCorpus: (snapshotIdentity) => snapshotIdentity === rotatedCorpus.snapshotIdentity
+        ? rotatedCorpus
+        : snapshotIdentity === work.corpus.snapshotIdentity
+          ? work.corpus
+          : null,
+    });
+    expect(rotatedCompilation).toHaveLength(2);
+    expect(rotatedCompilation.map((item) => [
+      item.origin.sourceCorpusSnapshotIdentity,
+      item.origin.relationDiscoveryTaskRevisionId,
+    ])).toEqual(expect.arrayContaining([
+      [work.corpus.snapshotIdentity, revision.revisionId],
+      [rotatedCorpus.snapshotIdentity, rotated[0]!.revisionId],
+    ]));
     const counter = retained.find((item) => item.kind === "COUNTEREXAMPLE")!;
     expect(() => compileRelationDiscoveryFindingForSemanticReview({
       // The compiler must reject this at runtime even when an unsafe caller lies.

@@ -3685,7 +3685,10 @@ export function createControlPlane(options?: {
     });
   };
 
-  const server = createServer(async (request, response) => {
+  const handleRequest = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
     const url = new URL(request.url ?? "/", "http://control-plane.local");
     if (request.method === "OPTIONS") {
       response.writeHead(204, {
@@ -6300,6 +6303,21 @@ export function createControlPlane(options?: {
     writeJson(response, 404, {
       ok: false,
       diagnostic: "route not found",
+    });
+  };
+  const server = createServer((request, response) => {
+    void handleRequest(request, response).catch((error) => {
+      if (response.headersSent || response.destroyed) {
+        response.destroy(error instanceof Error ? error : undefined);
+        return;
+      }
+      writeJson(response, 500, {
+        ok: false,
+        diagnostic: error instanceof Error ? error.message : "request projection failed",
+        executionAuthority: false,
+        externalWriteAuthority: false,
+        valueMovingAuthority: false,
+      });
     });
   });
   let searchSchedulerTimer: ReturnType<typeof setInterval> | null = null;
