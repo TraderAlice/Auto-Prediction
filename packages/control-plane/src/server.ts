@@ -105,7 +105,8 @@ import {
   type RelationDiscoveryTaskPayload,
 } from "./relation-discovery-agent-tools.js";
 import {
-  materializeRelationDiscoveryTaskRevisions,
+  reconcileRelationDiscoveryTaskRevisions,
+  relationDiscoveryRevisionWorkItem,
   type RelationDiscoveryTaskRevision,
   type RelationDiscoveryTaskRevisionStore,
 } from "./relation-discovery-work.js";
@@ -2461,6 +2462,7 @@ export function createControlPlane(options?: {
             revision.taskPayload,
             corpus,
             relationDiscoveryStore ?? undefined,
+            relationDiscoveryRevisionWorkItem(revision),
           );
         }
         throw new Error("Agent task has no registered first-party tool host");
@@ -2624,14 +2626,22 @@ export function createControlPlane(options?: {
       revisions: retainedOntologyRevisions,
       execution: agentExecutionRegistry.snapshot(),
     });
-    const revisions = materializeRelationDiscoveryTaskRevisions({
+    const retainedRevisions = relationDiscoveryStore
+      .loadRelationDiscoveryTaskRevisions(512);
+    const reconciliation = reconcileRelationDiscoveryTaskRevisions({
       relationWork,
       corpus,
+      retainedRevisions,
+      loadRetainedCorpus: (snapshotIdentity) =>
+        relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
     });
     relationDiscoveryStore.saveRelationDiscoveryCorpus(corpus);
-    agentExecutionRegistry.saveBatch({ tasks: revisions.map((item) => item.task) });
-    relationDiscoveryStore.saveRelationDiscoveryTaskRevisions(revisions);
-    relationDiscoveryTaskRevisions = revisions;
+    const created = reconciliation.currentRevisions.filter((revision) =>
+      reconciliation.createdRevisionIds.includes(revision.revisionId)
+    );
+    agentExecutionRegistry.saveBatch({ tasks: created.map((item) => item.task) });
+    relationDiscoveryStore.saveRelationDiscoveryTaskRevisions(created);
+    relationDiscoveryTaskRevisions = reconciliation.currentRevisions;
   };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     transitionStartup("DURABLE_RECOVERY");

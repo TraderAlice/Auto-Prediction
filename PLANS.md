@@ -141,6 +141,29 @@ Workspace check, all suites (84 control-plane files / 586 tests and four Studio
 files / 24 tests), and production build pass with only the known Node 24 engine
 expectation and existing Studio chunk-size warning.
 
+The next active continuation is
+[`plans/research-input-novelty.md`](plans/research-input-novelty.md). Issue #110
+separates immutable catalog observation freshness from the normalized content
+that constitutes a new Agent research input. Live evidence found two stable
+relation work families had each accumulated 24 corpus-bound task revisions in
+under three hours while the full Agent task ledger reached 2,839 records.
+Receive time, opaque raw hashes, status, and indicative quotes must remain exact
+evidence/economic state without silently resetting semantic research history.
+A material work, listing, rules, outcome semantics, locator, mechanism, close
+time, or protocol change still creates a successor input revision, while the
+logical Agent task remains stable for the work artifact.
+
+Live qualification forced one deeper correction: the full ontology work
+artifact itself rotates with source issue revision provenance, even when its
+actionable research contract is unchanged. Relation discovery v3 now binds the
+Agent task to a purpose-specific work contract and retains the full work item
+plus exact corpus in input revisions. Across two v3 startups, corpora grew
+27 → 28 and relation input revisions 54 → 56, while relation task count stayed
+54; each live family has two v3 input revisions and one task ID. Runs,
+invocations, campaigns, and 2,068,225 / 19,328 / 4,904 known tokens did not
+move. The same qualification exposed 64 new upstream ontology-normalization
+tasks on restart, so system-wide stable task contracts are the next frontier.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

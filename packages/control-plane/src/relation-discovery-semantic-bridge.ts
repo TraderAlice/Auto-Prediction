@@ -11,6 +11,7 @@ import {
 } from "./relation-discovery-agent-tools.js";
 import {
   assertRelationDiscoveryTaskRevision,
+  relationDiscoveryRevisionWorkItem,
   type RelationDiscoveryTaskRevision,
 } from "./relation-discovery-work.js";
 import {
@@ -153,7 +154,7 @@ export function compileRelationDiscoveryFindingForSemanticReview(input: Readonly
     finding.sourceCorpusSnapshotIdentity !== revision.sourceCorpusSnapshotIdentity
   ) throw new Error("relation discovery finding and task revision lineage are inconsistent");
 
-  const work = revision.taskPayload.workItem;
+  const work = relationDiscoveryRevisionWorkItem(revision);
   const sourceOntologyProposalIds = sortedHashes(work.sourceProposalIds);
   const sourceOntologyIssueIds = sortedHashes(work.sourceIssueIds);
   const semanticReviewIssueIds = Object.freeze(

@@ -20,8 +20,12 @@ import type { DiscoveryCatalogListing, OperationalStorageProjection } from "./ty
 
 export const RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL =
   "RELATION_DISCOVERY_AGENT_TOOLS_V1" as const;
-export const RELATION_DISCOVERY_TASK_PROTOCOL =
+export const RELATION_DISCOVERY_TASK_PROTOCOL_V1 =
   "RELATION_DISCOVERY_TASK_V1" as const;
+export const RELATION_DISCOVERY_TASK_PROTOCOL_V2 =
+  "RELATION_DISCOVERY_TASK_V2" as const;
+export const RELATION_DISCOVERY_TASK_PROTOCOL =
+  "RELATION_DISCOVERY_TASK_V3" as const;
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_INSPECTED_LISTINGS = 24;
@@ -30,7 +34,7 @@ const RELATION_KINDS = Object.freeze([
   "CONDITIONAL", "RELATED", "CONFLICTING",
 ] as const satisfies readonly MarketRelationKind[]);
 
-export type RelationDiscoveryTaskPayload = Readonly<{
+type RelationDiscoveryTaskPayloadV1 = Readonly<{
   schemaVersion: "pmh.relation-discovery-task.v1";
   workItem: OntologyRelationWorkItem;
   sourceCorpusSnapshotIdentity: Hash;
@@ -46,6 +50,95 @@ export type RelationDiscoveryTaskPayload = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+
+type RelationDiscoveryTaskPayloadV2 = Readonly<
+  Omit<
+    RelationDiscoveryTaskPayloadV1,
+    "schemaVersion" | "sourceCorpusSnapshotIdentity" | "sourceSetIdentity" |
+      "sourceCorpusListingCount"
+  > & {
+    schemaVersion: "pmh.relation-discovery-task.v2";
+    inputBinding: "EXACT_CORPUS_BOUND_BY_TASK_REVISION";
+  }
+>;
+
+export type RelationDiscoveryWorkContract = Readonly<{
+  schemaVersion: "pmh.relation-discovery-work-contract.v1";
+  contractIdentity: Hash;
+  workItemId: Hash;
+  searchScopeIdentity: Hash;
+  kind: OntologyRelationWorkItem["kind"];
+  title: string;
+  question: string;
+  searchSignals: readonly string[];
+  candidateRelationKinds: readonly MarketRelationKind[];
+  falsifiers: readonly string[];
+  seedListingRefs: readonly string[];
+  sourceSelectionLanes: OntologyRelationWorkItem["sourceSelectionLanes"];
+  priority: OntologyRelationWorkItem["priority"];
+  authority: "RELATION_SEARCH_PROPOSAL_ONLY";
+  automaticDispatch: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+type RelationDiscoveryTaskPayloadV3 = Readonly<
+  Omit<RelationDiscoveryTaskPayloadV2, "schemaVersion" | "workItem"> & {
+    schemaVersion: "pmh.relation-discovery-task.v3";
+    workContract: RelationDiscoveryWorkContract;
+  }
+>;
+
+export type RelationDiscoveryTaskPayload =
+  | RelationDiscoveryTaskPayloadV1
+  | RelationDiscoveryTaskPayloadV2
+  | RelationDiscoveryTaskPayloadV3;
+
+export type RelationDiscoverySemanticListing = Readonly<{
+  listingRef: string;
+  venueId: string;
+  venueInstrumentId: string;
+  title: string;
+  description: string;
+  mechanism: string;
+  closesAt: string | null;
+  rulesText: string | null;
+  rulesTextPosture: DiscoveryCatalogListing["rulesTextPosture"] | null;
+  rulesTextSourceCharacterCount: number | null;
+  evidenceLocators: DiscoveryCatalogListing["evidenceLocators"] | null;
+  outcomes: readonly Readonly<{
+    venueOutcomeId: string;
+    label: string;
+  }>[];
+  protocolIdentity: string;
+}>;
+
+export function relationDiscoverySemanticListing(
+  listing: DiscoveryCatalogListing,
+): RelationDiscoverySemanticListing {
+  return Object.freeze({
+    listingRef: listing.listingRef,
+    venueId: listing.venueId,
+    venueInstrumentId: listing.venueInstrumentId,
+    title: listing.title,
+    description: listing.description,
+    mechanism: listing.mechanism,
+    closesAt: listing.closesAt,
+    rulesText: listing.rulesText,
+    rulesTextPosture: listing.rulesTextPosture ?? null,
+    rulesTextSourceCharacterCount: listing.rulesTextSourceCharacterCount ?? null,
+    evidenceLocators: listing.evidenceLocators ?? null,
+    outcomes: Object.freeze(listing.outcomes.map((outcome) => Object.freeze({
+      venueOutcomeId: outcome.venueOutcomeId,
+      label: outcome.label,
+    }))),
+    protocolIdentity: listing.protocolIdentity,
+  });
+}
 
 type FindingEnvelope = Readonly<{
   schemaVersion: "pmh.relation-discovery-finding.v1";
@@ -159,19 +252,103 @@ function canonicalIso(value: unknown, name: string): string {
   return value;
 }
 
+export function buildRelationDiscoveryWorkContract(
+  workItemInput: OntologyRelationWorkItem,
+): RelationDiscoveryWorkContract {
+  const workItem = assertOntologyRelationWorkItem(workItemInput);
+  const body = Object.freeze({
+    schemaVersion: "pmh.relation-discovery-work-contract.v1" as const,
+    workItemId: workItem.workItemId,
+    searchScopeIdentity: workItem.searchScopeIdentity,
+    kind: workItem.kind,
+    title: workItem.title,
+    question: workItem.question,
+    searchSignals: workItem.searchSignals,
+    candidateRelationKinds: workItem.candidateRelationKinds,
+    falsifiers: workItem.falsifiers,
+    seedListingRefs: Object.freeze(workItem.seedListingBindings
+      .map((item) => item.listingRef).sort()),
+    sourceSelectionLanes: workItem.sourceSelectionLanes,
+    priority: workItem.priority,
+    authority: "RELATION_SEARCH_PROPOSAL_ONLY" as const,
+    automaticDispatch: false as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return Object.freeze({ ...body, contractIdentity: hashCanonical(body) });
+}
+
+function assertRelationDiscoveryWorkContract(
+  value: unknown,
+): RelationDiscoveryWorkContract {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("relation discovery work contract is malformed");
+  }
+  const contract = value as RelationDiscoveryWorkContract;
+  const { contractIdentity, ...body } = contract;
+  if (!HASH_PATTERN.test(String(contractIdentity)) ||
+      contractIdentity !== hashCanonical(body) ||
+      !HASH_PATTERN.test(String(contract.workItemId)) ||
+      !HASH_PATTERN.test(String(contract.searchScopeIdentity)) ||
+      !["WORLD_PROPOSITION_NEIGHBORHOOD", "ENTITY_ALIAS_NEIGHBORHOOD"]
+        .includes(contract.kind) ||
+      typeof contract.title !== "string" || contract.title.trim() === "" ||
+      typeof contract.question !== "string" || contract.question.trim() === "" ||
+      !Array.isArray(contract.searchSignals) || contract.searchSignals.length === 0 ||
+      !Array.isArray(contract.candidateRelationKinds) ||
+      contract.candidateRelationKinds.length === 0 ||
+      contract.candidateRelationKinds.some((kind) => !RELATION_KINDS.includes(kind)) ||
+      !Array.isArray(contract.falsifiers) || contract.falsifiers.length === 0 ||
+      !Array.isArray(contract.seedListingRefs) || contract.seedListingRefs.length === 0 ||
+      !Array.isArray(contract.sourceSelectionLanes) ||
+      ![1, 2, 3, 4, 5].includes(contract.priority) ||
+      contract.authority !== "RELATION_SEARCH_PROPOSAL_ONLY" ||
+      contract.automaticDispatch !== false || contract.semanticDecisionAuthority !== false ||
+      contract.probabilityAuthority !== false || contract.certificateAuthority !== false ||
+      contract.executionAuthority !== false || contract.externalWriteAuthority !== false ||
+      contract.valueMovingAuthority !== false) {
+    throw new Error("relation discovery work contract violates its bounded contract");
+  }
+  return Object.freeze(contract);
+}
+
 export function assertRelationDiscoveryTaskPayload(value: unknown): RelationDiscoveryTaskPayload {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("relation discovery task payload is malformed");
   }
   const payload = value as RelationDiscoveryTaskPayload;
-  const work = assertOntologyRelationWorkItem(payload.workItem);
+  const record = value as Readonly<Record<string, unknown>>;
+  const work = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+    ? null
+    : assertOntologyRelationWorkItem(payload.workItem);
+  const workContract = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+    ? assertRelationDiscoveryWorkContract(payload.workContract)
+    : null;
   if (
-    payload.schemaVersion !== "pmh.relation-discovery-task.v1" ||
-    !HASH_PATTERN.test(String(payload.sourceCorpusSnapshotIdentity)) ||
-    !HASH_PATTERN.test(String(payload.sourceSetIdentity)) ||
-    !Number.isSafeInteger(payload.sourceCorpusListingCount) ||
-    payload.sourceCorpusListingCount < 0 ||
-    work.disposition !== "RUNNABLE_RESEARCH" || !work.campaignEligible ||
+    !["pmh.relation-discovery-task.v1", "pmh.relation-discovery-task.v2",
+      "pmh.relation-discovery-task.v3"]
+      .includes(payload.schemaVersion) ||
+    (payload.schemaVersion === "pmh.relation-discovery-task.v1" && (
+      !HASH_PATTERN.test(String(payload.sourceCorpusSnapshotIdentity)) ||
+      !HASH_PATTERN.test(String(payload.sourceSetIdentity)) ||
+      !Number.isSafeInteger(payload.sourceCorpusListingCount) ||
+      payload.sourceCorpusListingCount < 0
+    )) ||
+    (payload.schemaVersion === "pmh.relation-discovery-task.v1" &&
+      record.inputBinding !== undefined) ||
+    (payload.schemaVersion === "pmh.relation-discovery-task.v2" &&
+      (payload.inputBinding !== "EXACT_CORPUS_BOUND_BY_TASK_REVISION" ||
+        record.sourceCorpusSnapshotIdentity !== undefined ||
+        record.sourceSetIdentity !== undefined ||
+        record.sourceCorpusListingCount !== undefined)) ||
+    (payload.schemaVersion === "pmh.relation-discovery-task.v3" &&
+      (payload.inputBinding !== "EXACT_CORPUS_BOUND_BY_TASK_REVISION" ||
+        record.workItem !== undefined || workContract === null)) ||
+    (work !== null && (work.disposition !== "RUNNABLE_RESEARCH" || !work.campaignEligible)) ||
     payload.objective !== "FIND_AND_FALSIFY_EVIDENCE_BOUND_MARKET_RELATIONS" ||
     payload.contentPolicy !== "UNTRUSTED_VENUE_TEXT_DATA_ONLY" ||
     payload.authority !== "RELATION_FINDING_PROPOSAL_ONLY" ||
@@ -184,16 +361,12 @@ export function assertRelationDiscoveryTaskPayload(value: unknown): RelationDisc
 
 export function buildRelationDiscoveryTaskPayload(input: Readonly<{
   workItem: OntologyRelationWorkItem;
-  corpus: MarketCorpusSnapshot;
 }>): RelationDiscoveryTaskPayload {
   const workItem = assertOntologyRelationWorkItem(input.workItem);
-  const corpus = assertMarketCorpusSnapshot(input.corpus);
   return assertRelationDiscoveryTaskPayload(Object.freeze({
-    schemaVersion: "pmh.relation-discovery-task.v1" as const,
-    workItem,
-    sourceCorpusSnapshotIdentity: corpus.snapshotIdentity,
-    sourceSetIdentity: corpus.sourceSetIdentity,
-    sourceCorpusListingCount: corpus.listingCount,
+    schemaVersion: "pmh.relation-discovery-task.v3" as const,
+    workContract: buildRelationDiscoveryWorkContract(workItem),
+    inputBinding: "EXACT_CORPUS_BOUND_BY_TASK_REVISION" as const,
     objective: "FIND_AND_FALSIFY_EVIDENCE_BOUND_MARKET_RELATIONS" as const,
     contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
     authority: "RELATION_FINDING_PROPOSAL_ONLY" as const,
@@ -338,17 +511,28 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
   readonly #inspectedRefs = new Set<string>();
   readonly #findings: RelationDiscoveryFinding[] = [];
   public readonly taskPayload: RelationDiscoveryTaskPayload;
+  public readonly workItem: OntologyRelationWorkItem;
 
   public constructor(
     payload: RelationDiscoveryTaskPayload,
     private readonly corpus: MarketCorpusSnapshot,
     private readonly findingStore?: RelationDiscoveryFindingStore,
+    workItemInput?: OntologyRelationWorkItem,
   ) {
     this.taskPayload = assertRelationDiscoveryTaskPayload(payload);
+    this.workItem = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+      ? assertOntologyRelationWorkItem(workItemInput)
+      : assertOntologyRelationWorkItem(payload.workItem);
+    if (payload.schemaVersion === "pmh.relation-discovery-task.v3" &&
+        hashCanonical(buildRelationDiscoveryWorkContract(this.workItem)) !==
+          hashCanonical(payload.workContract)) {
+      throw new Error("relation discovery work contract and input revision are inconsistent");
+    }
     const validatedCorpus = assertMarketCorpusSnapshot(corpus);
-    if (validatedCorpus.snapshotIdentity !== payload.sourceCorpusSnapshotIdentity ||
+    if (payload.schemaVersion === "pmh.relation-discovery-task.v1" &&
+        (validatedCorpus.snapshotIdentity !== payload.sourceCorpusSnapshotIdentity ||
         validatedCorpus.sourceSetIdentity !== payload.sourceSetIdentity ||
-        validatedCorpus.listingCount !== payload.sourceCorpusListingCount) {
+        validatedCorpus.listingCount !== payload.sourceCorpusListingCount)) {
       throw new Error("relation discovery task and corpus lineage are inconsistent");
     }
     this.corpus = validatedCorpus;
@@ -368,7 +552,9 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
 
   #assertContext(context: AgentToolHostContext): void {
     if (context.task.kind !== "RELATION_DISCOVERY" ||
-        context.task.protocol !== RELATION_DISCOVERY_TASK_PROTOCOL ||
+        (context.task.protocol !== RELATION_DISCOVERY_TASK_PROTOCOL_V1 &&
+          context.task.protocol !== RELATION_DISCOVERY_TASK_PROTOCOL_V2 &&
+          context.task.protocol !== RELATION_DISCOVERY_TASK_PROTOCOL) ||
         context.task.requestedEffectProtocol !== RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL ||
         context.task.taskPayloadHash !== hashCanonical(this.taskPayload) ||
         context.executionProfile.toolPolicy.protocol !== RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL ||
@@ -398,13 +584,13 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
         ? null
         : text(input.rejectedRelationKind, "rejectedRelationKind", 80) as MarketRelationKind;
     if (requestedKind !== null &&
-        !this.taskPayload.workItem.candidateRelationKinds.includes(requestedKind)) {
+        !this.workItem.candidateRelationKinds.includes(requestedKind)) {
       throw new Error("relation finding kind is outside the assigned candidate policy");
     }
     const common = Object.freeze({
       schemaVersion: "pmh.relation-discovery-finding.v1" as const,
-      workItemId: this.taskPayload.workItem.workItemId,
-      workArtifactHash: this.taskPayload.workItem.artifactHash,
+      workItemId: this.workItem.workItemId,
+      workArtifactHash: this.workItem.artifactHash,
       sourceTaskId: context.task.taskId,
       sourceAgentRunId: context.run.runId,
       sourceCorpusSnapshotIdentity: this.corpus.snapshotIdentity,
@@ -445,7 +631,12 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
     const input = object(context.input, "relation discovery tool input");
     if (context.toolName === "read_relation_work") {
       exactKeys(input, []);
-      return Object.freeze({ status: "ACCEPTED" as const, output: this.taskPayload });
+      return Object.freeze({
+        status: "ACCEPTED" as const,
+        output: this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v3"
+          ? Object.freeze({ task: this.taskPayload, workItem: this.workItem })
+          : this.taskPayload,
+      });
     }
     if (context.toolName === "search_market_catalog") {
       exactKeys(input, ["patterns", "mode", "fields", "venueIds", "limit"]);
@@ -475,10 +666,17 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
         const listing = this.#listingByRef.get(ref);
         if (listing === undefined) throw new Error("listing is outside the assigned corpus snapshot");
         this.#inspectedRefs.add(ref);
-        return Object.freeze({ ...listing, contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const });
+        return Object.freeze({
+          ...(this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v1"
+            ? listing
+            : relationDiscoverySemanticListing(listing)),
+          contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+        });
       });
       return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
-        schemaVersion: "pmh.relation-discovery-listing-inspection.v1",
+        schemaVersion: this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v1"
+          ? "pmh.relation-discovery-listing-inspection.v1"
+          : "pmh.relation-discovery-listing-inspection.v2",
         sourceCorpusSnapshotIdentity: this.corpus.snapshotIdentity,
         listings: Object.freeze(listings),
         authority: "EVIDENCE_INSPECTION_ONLY",
@@ -505,13 +703,34 @@ export function buildRelationDiscoveryAgentTask(input: Readonly<{
   createdAt: string;
 }>): AgentTask {
   const payload = assertRelationDiscoveryTaskPayload(input.payload);
-  const work = payload.workItem;
+  const work = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+    ? payload.workContract
+    : payload.workItem;
+  const workArtifact = payload.schemaVersion === "pmh.relation-discovery-task.v3"
+    ? payload.workContract.contractIdentity
+    : payload.workItem.artifactHash;
   return buildAgentTask({
     kind: "RELATION_DISCOVERY" as const,
-    protocol: RELATION_DISCOVERY_TASK_PROTOCOL,
+    protocol: payload.schemaVersion === "pmh.relation-discovery-task.v1"
+      ? RELATION_DISCOVERY_TASK_PROTOCOL_V1
+      : payload.schemaVersion === "pmh.relation-discovery-task.v2"
+        ? RELATION_DISCOVERY_TASK_PROTOCOL_V2
+        : RELATION_DISCOVERY_TASK_PROTOCOL,
     inputArtifacts: Object.freeze([
-      Object.freeze({ kind: "ontology-relation-work", artifactId: work.workItemId, artifactHash: work.artifactHash }),
-      Object.freeze({ kind: "market-corpus", artifactId: payload.sourceCorpusSnapshotIdentity, artifactHash: payload.sourceCorpusSnapshotIdentity }),
+      Object.freeze({
+        kind: payload.schemaVersion === "pmh.relation-discovery-task.v3"
+          ? "relation-work-contract"
+          : "ontology-relation-work",
+        artifactId: work.workItemId,
+        artifactHash: workArtifact,
+      }),
+      ...(payload.schemaVersion === "pmh.relation-discovery-task.v1"
+        ? [Object.freeze({
+            kind: "market-corpus",
+            artifactId: payload.sourceCorpusSnapshotIdentity,
+            artifactHash: payload.sourceCorpusSnapshotIdentity,
+          })]
+        : []),
     ]),
     taskPayload: payload,
     requestedEffectProtocol: RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL,

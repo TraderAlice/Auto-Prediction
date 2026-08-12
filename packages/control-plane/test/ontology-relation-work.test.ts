@@ -4,16 +4,22 @@ import { join } from "node:path";
 import { hashCanonical } from "@pmh/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  assertRelationDiscoveryTaskRevision,
+  assertRelationDiscoveryTaskPayload,
   assertMarketOntologyAgentProposal,
   assertOntologyRelationWorkItem,
   buildAgentRun,
   buildDefaultAgentRuntimePortfolio,
   buildExecutionProfile,
+  buildRelationDiscoveryAgentTask,
   compileRelationDiscoveryFindingForSemanticReview,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildOntologyRelationWorkProjection,
   materializeRelationDiscoveryTaskRevisions,
+  reconcileRelationDiscoveryTaskRevisions,
+  relationDiscoveryResearchInputIdentity,
+  relationDiscoveryRevisionWorkItem,
   RelationDiscoveryAgentToolHost,
   selectRelationDiscoveryCampaignTasks,
   SqliteOperationalStore,
@@ -345,7 +351,238 @@ describe("ontology proposal relation work", () => {
     ]));
   });
 
-  it("materializes corpus-bound tasks and accepts only inspected policy-bound findings", async () => {
+  it("separates stable research tasks from exact catalog observations", async () => {
+    const work = fixture();
+    const relationWork = buildOntologyRelationWorkProjection(work);
+    const original = materializeRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: work.corpus,
+    });
+    const provenanceOnlyWork = relationWork.items.find((item) =>
+      item.disposition === "RUNNABLE_RESEARCH"
+    )!;
+    const { artifactHash: _artifactHash, ...provenanceBody } = provenanceOnlyWork;
+    const rotatedProvenanceBody = Object.freeze({
+      ...provenanceBody,
+      sourceIssueRevisionIds: Object.freeze([
+        hashCanonical({ rotated: provenanceOnlyWork.workItemId }),
+      ]),
+    });
+    const rotatedProvenanceWork = assertOntologyRelationWorkItem(Object.freeze({
+      ...rotatedProvenanceBody,
+      artifactHash: hashCanonical(rotatedProvenanceBody),
+    }));
+    const provenanceRotation = materializeRelationDiscoveryTaskRevisions({
+      relationWork: Object.freeze({
+        ...relationWork,
+        items: Object.freeze(relationWork.items.map((item) =>
+          item.workItemId === rotatedProvenanceWork.workItemId
+            ? rotatedProvenanceWork
+            : item
+        )),
+      }),
+      corpus: work.corpus,
+    }).find((item) => item.workItemId === rotatedProvenanceWork.workItemId)!;
+    const originalStableTask = original.find((item) =>
+      item.workItemId === rotatedProvenanceWork.workItemId
+    )!;
+    expect(provenanceRotation.workArtifactHash)
+      .not.toBe(originalStableTask.workArtifactHash);
+    expect(provenanceRotation.revisionId).not.toBe(originalStableTask.revisionId);
+    expect(provenanceRotation.task.taskId).toBe(originalStableTask.task.taskId);
+    const refreshedAt = "2026-08-12T09:10:00.000Z";
+    const observationOnlyRefresh = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "relation-work-refresh" }),
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: work.corpus.listings.map((item) => Object.freeze({
+        ...item,
+        sourceReceivedAt: refreshedAt,
+        sourceRawHash: hashCanonical({ refresh: item.listingRef }),
+        status: item.status === "OPEN" ? "ACTIVE" : item.status,
+        outcomes: Object.freeze(item.outcomes.map((outcome, index) => Object.freeze({
+          ...outcome,
+          indicativePrice: index === 0
+            ? "410000000000000000"
+            : "590000000000000000",
+        }))),
+      })),
+    });
+    expect(observationOnlyRefresh.snapshotIdentity).not.toBe(work.corpus.snapshotIdentity);
+    expect(relationDiscoveryResearchInputIdentity(observationOnlyRefresh)).toBe(
+      relationDiscoveryResearchInputIdentity(work.corpus),
+    );
+    const reused = reconcileRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: observationOnlyRefresh,
+      retainedRevisions: original,
+      loadRetainedCorpus: (identity) =>
+        identity === work.corpus.snapshotIdentity ? work.corpus : null,
+    });
+    expect(reused).toMatchObject({
+      createdRevisionIds: [],
+      reusedRevisionIds: original.map((item) => item.revisionId).sort(),
+      missingRetainedCorpusRevisionIds: [],
+      effects: {
+        providerRequests: 0,
+        modelInvocations: 0,
+        runs: 0,
+        campaigns: 0,
+        dispatches: 0,
+        externalWrites: 0,
+        valueMovingActions: 0,
+      },
+    });
+    expect(reused.currentRevisions).toEqual(original);
+
+    const changedCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: observationOnlyRefresh.sourceSetIdentity,
+      eligibleSourceCount: observationOnlyRefresh.eligibleSourceCount,
+      excludedSourceCount: observationOnlyRefresh.excludedSourceCount,
+      listings: observationOnlyRefresh.listings.map((item, index) => index === 0
+        ? Object.freeze({ ...item, rulesText: `${item.rulesText} Material amendment.` })
+        : item),
+    });
+    const changed = reconcileRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: changedCorpus,
+      retainedRevisions: original,
+      loadRetainedCorpus: (identity) =>
+        identity === work.corpus.snapshotIdentity ? work.corpus : null,
+    });
+    expect(changed.createdRevisionIds).toHaveLength(original.length);
+    expect(changed.reusedRevisionIds).toEqual([]);
+    expect(changed.currentRevisions.map((item) => item.revisionId))
+      .not.toEqual(original.map((item) => item.revisionId));
+    expect(changed.currentRevisions.map((item) => item.task.taskId))
+      .toEqual(original.map((item) => item.task.taskId));
+
+    const first = original[0]!;
+    if (first.taskPayload.schemaVersion !== "pmh.relation-discovery-task.v3") {
+      throw new Error("current relation task fixture is not v3");
+    }
+    const legacyPayload = assertRelationDiscoveryTaskPayload(Object.freeze({
+      schemaVersion: "pmh.relation-discovery-task.v1" as const,
+      workItem: relationDiscoveryRevisionWorkItem(first),
+      sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+      sourceSetIdentity: work.corpus.sourceSetIdentity,
+      sourceCorpusListingCount: work.corpus.listingCount,
+      objective: first.taskPayload.objective,
+      contentPolicy: first.taskPayload.contentPolicy,
+      authority: first.taskPayload.authority,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    }));
+    const legacyTask = buildRelationDiscoveryAgentTask({
+      payload: legacyPayload,
+      createdAt: first.materializedAt,
+    });
+    const legacyBody = Object.freeze({
+      schemaVersion: "pmh.relation-discovery-task-revision.v1" as const,
+      workItemId: first.workItemId,
+      workArtifactHash: first.workArtifactHash,
+      sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+      task: legacyTask,
+      taskPayload: legacyPayload,
+      campaignEligible: true as const,
+      materializedAt: first.materializedAt,
+      automaticDispatch: false as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    const legacy = assertRelationDiscoveryTaskRevision(Object.freeze({
+      ...legacyBody,
+      revisionId: hashCanonical(legacyBody),
+    }));
+    const legacyReused = reconcileRelationDiscoveryTaskRevisions({
+      relationWork: Object.freeze({
+        ...relationWork,
+        items: Object.freeze(relationWork.items.filter((item) =>
+          item.workItemId === legacy.workItemId || item.disposition !== "RUNNABLE_RESEARCH"
+        )),
+        runnableResearchCount: 1,
+        workItemCount: relationWork.items.filter((item) =>
+          item.workItemId === legacy.workItemId || item.disposition !== "RUNNABLE_RESEARCH"
+        ).length,
+      }),
+      corpus: observationOnlyRefresh,
+      retainedRevisions: [legacy],
+      loadRetainedCorpus: (identity) =>
+        identity === work.corpus.snapshotIdentity ? work.corpus : null,
+    });
+    expect(legacyReused.reusedRevisionIds).toEqual([legacy.revisionId]);
+    expect(legacyReused.currentRevisions).toEqual([legacy]);
+    const missingLegacyCorpus = reconcileRelationDiscoveryTaskRevisions({
+      relationWork: Object.freeze({
+        ...relationWork,
+        items: Object.freeze(relationWork.items.filter((item) =>
+          item.workItemId === legacy.workItemId || item.disposition !== "RUNNABLE_RESEARCH"
+        )),
+        runnableResearchCount: 1,
+        workItemCount: relationWork.items.filter((item) =>
+          item.workItemId === legacy.workItemId || item.disposition !== "RUNNABLE_RESEARCH"
+        ).length,
+      }),
+      corpus: observationOnlyRefresh,
+      retainedRevisions: [legacy],
+      loadRetainedCorpus: () => null,
+    });
+    expect(missingLegacyCorpus.createdRevisionIds).toHaveLength(1);
+    expect(missingLegacyCorpus.missingRetainedCorpusRevisionIds)
+      .toEqual([legacy.revisionId]);
+
+    const directory = await mkdtemp(join(tmpdir(), "pmh-research-input-novelty-"));
+    tempDirectories.push(directory);
+    const store = new SqliteOperationalStore(join(directory, "control-plane.sqlite"));
+    store.saveRelationDiscoveryCorpus(work.corpus);
+    store.saveAgentExecutionBatch({ tasks: original.map((item) => item.task) });
+    store.saveRelationDiscoveryTaskRevisions(original);
+    store.saveRelationDiscoveryCorpus(observationOnlyRefresh);
+    const durable = reconcileRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: observationOnlyRefresh,
+      retainedRevisions: store.loadRelationDiscoveryTaskRevisions(512),
+      loadRetainedCorpus: (identity) => store.loadRelationDiscoveryCorpus(identity),
+    });
+    store.saveAgentExecutionBatch({
+      tasks: durable.currentRevisions.filter((item) =>
+        durable.createdRevisionIds.includes(item.revisionId)
+      ).map((item) => item.task),
+    });
+    store.saveRelationDiscoveryTaskRevisions(durable.currentRevisions.filter((item) =>
+      durable.createdRevisionIds.includes(item.revisionId)
+    ));
+    expect(store.loadRelationDiscoveryCorpus(observationOnlyRefresh.snapshotIdentity))
+      .toEqual(observationOnlyRefresh);
+    expect(store.loadRelationDiscoveryTaskRevisions(512)).toHaveLength(original.length);
+    expect(store.loadAgentExecutionSnapshot().tasks).toHaveLength(original.length);
+    store.saveRelationDiscoveryCorpus(changedCorpus);
+    const durableChanged = reconcileRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: changedCorpus,
+      retainedRevisions: store.loadRelationDiscoveryTaskRevisions(512),
+      loadRetainedCorpus: (identity) => store.loadRelationDiscoveryCorpus(identity),
+    });
+    const newlyBound = durableChanged.currentRevisions.filter((item) =>
+      durableChanged.createdRevisionIds.includes(item.revisionId)
+    );
+    store.saveAgentExecutionBatch({ tasks: newlyBound.map((item) => item.task) });
+    store.saveRelationDiscoveryTaskRevisions(newlyBound);
+    expect(store.loadRelationDiscoveryTaskRevisions(512))
+      .toHaveLength(original.length * 2);
+    expect(store.loadAgentExecutionSnapshot().tasks).toHaveLength(original.length);
+    store.close();
+  });
+
+  it("materializes corpus-bound input revisions and accepts inspected policy-bound findings", async () => {
     const work = fixture();
     const relationWork = buildOntologyRelationWorkProjection(work);
     const revisions = materializeRelationDiscoveryTaskRevisions({
@@ -370,7 +607,8 @@ describe("ontology proposal relation work", () => {
       corpus: rotatedCorpus,
     });
     expect(rotated[0]!.workItemId).toBe(revisions[0]!.workItemId);
-    expect(rotated[0]!.task.taskId).not.toBe(revisions[0]!.task.taskId);
+    expect(rotated[0]!.revisionId).not.toBe(revisions[0]!.revisionId);
+    expect(rotated[0]!.task.taskId).toBe(revisions[0]!.task.taskId);
 
     const revision = revisions[0]!;
     const ontologyProfile = work.execution.executionProfiles.find((item) =>
@@ -457,6 +695,7 @@ describe("ontology proposal relation work", () => {
       revision.taskPayload,
       work.corpus,
       store,
+      relationDiscoveryRevisionWorkItem(revision),
     );
     const refs = work.corpus.listings.slice(0, 2).map((item) => item.listingRef);
     const context = (toolName: string, input: unknown) => ({
@@ -468,7 +707,7 @@ describe("ontology proposal relation work", () => {
       input,
     });
     const hypothesis = {
-      relationKind: revision.taskPayload.workItem.candidateRelationKinds[0]!,
+      relationKind: relationDiscoveryRevisionWorkItem(revision).candidateRelationKinds[0]!,
       listingRefs: refs,
       statement: "The inspected listings may encode the same settlement proposition.",
       rationale: "Titles align, but independent rules review remains necessary.",
@@ -476,7 +715,26 @@ describe("ontology proposal relation work", () => {
     };
     await expect(host.execute(context("record_relation_hypothesis", hypothesis)))
       .rejects.toThrow("inspected first");
-    await host.execute(context("inspect_market_listings", { listingRefs: refs }));
+    const inspection = await host.execute(
+      context("inspect_market_listings", { listingRefs: refs }),
+    );
+    expect(inspection.output).toMatchObject({
+      schemaVersion: "pmh.relation-discovery-listing-inspection.v2",
+      sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+    });
+    const inspectedListing = (inspection.output as {
+      listings: readonly Readonly<Record<string, unknown>>[];
+    }).listings[0]!;
+    expect(inspectedListing).toMatchObject({
+      listingRef: refs[0],
+      rulesText: "Resolves from the named official source.",
+    });
+    expect((inspectedListing.outcomes as readonly Readonly<Record<string, unknown>>[])[0])
+      .not.toHaveProperty("indicativePrice");
+    expect(inspectedListing).not.toHaveProperty("sourceReceivedAt");
+    expect(inspectedListing).not.toHaveProperty("sourceRawHash");
+    expect(inspectedListing).not.toHaveProperty("status");
+    expect(inspectedListing).not.toHaveProperty("priceScale");
     await expect(host.execute(context("record_relation_hypothesis", {
       ...hypothesis,
       relationKind: "EXHAUSTIVE",
@@ -485,7 +743,8 @@ describe("ontology proposal relation work", () => {
     const replay = await host.execute(context("record_relation_hypothesis", hypothesis));
     expect(first).toEqual(replay);
     const counterexample = {
-      rejectedRelationKind: revision.taskPayload.workItem.candidateRelationKinds[0]!,
+      rejectedRelationKind: relationDiscoveryRevisionWorkItem(revision)
+        .candidateRelationKinds[0]!,
       listingRefs: refs,
       statement: "The apparent relation may fail under the retained settlement wording.",
       rationale: "The evidence still needs independent rule review.",
@@ -537,8 +796,8 @@ describe("ontology proposal relation work", () => {
         relationDiscoveryRunId: run.runId,
         relationDiscoveryFindingId: positive.findingId,
         sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
-        sourceOntologyIssueIds: revision.taskPayload.workItem.sourceIssueIds,
-        semanticReviewIssueIds: revision.taskPayload.workItem.sourceIssueIds,
+        sourceOntologyIssueIds: relationDiscoveryRevisionWorkItem(revision).sourceIssueIds,
+        semanticReviewIssueIds: relationDiscoveryRevisionWorkItem(revision).sourceIssueIds,
         authority: "LINEAGE_ONLY",
         semanticDecisionAuthority: false,
         probabilityAuthority: false,
