@@ -38,6 +38,15 @@ export type ResearchAttentionActionKind =
   | "PROPOSE_ONTOLOGY_MUTATION"
   | "HOLD";
 
+export type ResearchAttentionNoveltyReason =
+  | "NEW_STABLE_FAMILY"
+  | "WORK_ARTIFACT_CHANGED"
+  | "CORPUS_REVISION_ONLY"
+  | "DOWNSTREAM_RESEARCH_DEBT"
+  | "MISSING_COUNTEREXAMPLE"
+  | "PORTFOLIO_EXHAUSTED"
+  | "NO_BOUNDED_NOVELTY";
+
 export type ResearchAttentionLane =
   | "EXPLORATION"
   | "FALSIFICATION_OR_DEBT"
@@ -104,13 +113,7 @@ export type ResearchAttentionFamilyScorecard = Readonly<{
   nextActionLane: ResearchAttentionLane;
   nextActionEligible: boolean;
   directRelationTaskId: Hash | null;
-  noveltyReason:
-    | "NEW_STABLE_FAMILY"
-    | "WORK_ARTIFACT_CHANGED"
-    | "CORPUS_REVISION_ONLY"
-    | "DOWNSTREAM_RESEARCH_DEBT"
-    | "MISSING_COUNTEREXAMPLE"
-    | "NO_BOUNDED_NOVELTY";
+  noveltyReason: Exclude<ResearchAttentionNoveltyReason, "PORTFOLIO_EXHAUSTED">;
   diagnostic: string;
   downstreamOpportunityAttribution: "NOT_YET_CONNECTED";
   authority: "DERIVED_RESEARCH_EVIDENCE_ONLY";
@@ -121,7 +124,7 @@ export type ResearchAttentionFamilyScorecard = Readonly<{
 }>;
 
 export type ResearchAttentionAllocationAction = Readonly<{
-  schemaVersion: "pmh.research-attention-allocation-action.v1";
+  schemaVersion: "pmh.research-attention-allocation-action.v2";
   actionId: Hash;
   lane: Exclude<ResearchAttentionLane, "HOLD">;
   kind: Exclude<ResearchAttentionActionKind, "HOLD">;
@@ -130,6 +133,7 @@ export type ResearchAttentionAllocationAction = Readonly<{
   taskId: Hash | null;
   targetArtifactRefs: readonly Hash[];
   valueStage: ResearchAttentionValueStage | "PORTFOLIO_EXHAUSTED";
+  noveltyReason: ResearchAttentionNoveltyReason;
   diagnostic: string;
   dispatchableByRelationCampaign: boolean;
   authority: "ATTENTION_PROPOSAL_ONLY";
@@ -350,7 +354,7 @@ function allocationAction(
     throw new Error("held scorecards cannot become allocation actions");
   }
   const body = Object.freeze({
-    schemaVersion: "pmh.research-attention-allocation-action.v1" as const,
+    schemaVersion: "pmh.research-attention-allocation-action.v2" as const,
     lane: scorecard.nextActionLane,
     kind: scorecard.nextActionKind,
     workItemId: scorecard.workItemId,
@@ -362,6 +366,7 @@ function allocationAction(
         ? Object.freeze([...scorecard.positiveFindingIds, ...scorecard.counterexampleIds])
         : Object.freeze([scorecard.directRelationTaskId]),
     valueStage: scorecard.valueStage,
+    noveltyReason: scorecard.noveltyReason,
     diagnostic: scorecard.diagnostic,
     dispatchableByRelationCampaign: scorecard.directRelationTaskId !== null &&
       scorecard.nextActionKind === "EXPLORE_NEW_FAMILY",
@@ -377,7 +382,7 @@ function allocationAction(
 
 function mutationAction(observedAt: string): ResearchAttentionAllocationAction {
   const body = Object.freeze({
-    schemaVersion: "pmh.research-attention-allocation-action.v1" as const,
+    schemaVersion: "pmh.research-attention-allocation-action.v2" as const,
     lane: "ONTOLOGY_MUTATION" as const,
     kind: "PROPOSE_ONTOLOGY_MUTATION" as const,
     workItemId: null,
@@ -385,6 +390,7 @@ function mutationAction(observedAt: string): ResearchAttentionAllocationAction {
     taskId: null,
     targetArtifactRefs: Object.freeze([]),
     valueStage: "PORTFOLIO_EXHAUSTED" as const,
+    noveltyReason: "PORTFOLIO_EXHAUSTED" as const,
     diagnostic: `All retained relation families were exhausted as of ${observedAt}; propose a materially different ontology search thesis`,
     dispatchableByRelationCampaign: false,
     authority: "ATTENTION_PROPOSAL_ONLY" as const,

@@ -1656,6 +1656,16 @@ campaign, a current runnable task and remaining lineage budget. Agent
 Operations exposes wake and membership-change counts so persistence is visible
 without conflating scheduler liveness with useful research yield.
 
+The flywheel decision ledger now retains why a successor action was novel
+enough to spend on. New research-decision episodes bind the named first-party
+reason (`NEW_STABLE_FAMILY`, `WORK_ARTIFACT_CHANGED`, bounded research debt or
+missing counterexample) into their content identity, while legacy episodes
+remain readable as unbound history. Outcomes separately attribute new
+counterexamples and terminal no-yield attempts as anti-loop memory. This makes
+the long-running machine explainable in both directions: it can show why it
+woke a task and why retained negative evidence should stop it from repeating
+the same semantic search.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

@@ -130,6 +130,29 @@ function researchDecisionEpisode(
   };
 }
 
+function noveltyBoundResearchDecisionEpisode(): ResearchDecisionEpisode {
+  const legacy = researchDecisionEpisode();
+  const noveltyReason = "NEW_STABLE_FAMILY" as const;
+  return {
+    ...legacy,
+    schemaVersion: "pmh.research-decision-episode.v2",
+    noveltyReason,
+    baseline: {
+      ...legacy.baseline,
+      counterexampleCount: 0,
+      noFindingTerminalRunCount: 0,
+      successfulWithoutAcceptedResultCount: 0,
+    },
+    episodeId: researchDecisionEpisodeId({
+      allocationProjectionIdentity: legacy.allocationProjectionIdentity,
+      allocationActionId: legacy.allocationActionId,
+      targetId: legacy.targetId,
+      captureRef: legacy.captureRef,
+      noveltyReason,
+    }),
+  };
+}
+
 function investigationTask(
   taskId: string,
   question = "Investigate the fixture",
@@ -769,11 +792,13 @@ describe("SQLite operational store", () => {
 
   it("retains immutable research decision episodes idempotently across restart", async () => {
     const path = await databasePath();
-    const expected = researchDecisionEpisode();
+    const expected = noveltyBoundResearchDecisionEpisode();
+    const legacy = researchDecisionEpisode("2026-08-12T11:00:00.000Z");
     const first = new SqliteOperationalStore(path);
     expect(first.saveResearchDecisionEpisode(expected)).toEqual(expected);
     expect(first.saveResearchDecisionEpisode(expected)).toEqual(expected);
-    expect(first.loadResearchDecisionEpisodes(10)).toEqual([expected]);
+    expect(first.saveResearchDecisionEpisode(legacy)).toEqual(legacy);
+    expect(first.loadResearchDecisionEpisodes(10)).toEqual([expected, legacy]);
     expect(first.researchDecisionEpisodeStorage).toMatchObject({
       durable: true,
       schemaVersion: 47,
@@ -783,7 +808,8 @@ describe("SQLite operational store", () => {
 
     const second = new SqliteOperationalStore(path);
     expect(second.loadResearchDecisionEpisode(expected.episodeId)).toEqual(expected);
-    expect(second.loadResearchDecisionEpisodes(10)).toEqual([expected]);
+    expect(second.loadResearchDecisionEpisode(legacy.episodeId)).toEqual(legacy);
+    expect(second.loadResearchDecisionEpisodes(10)).toEqual([expected, legacy]);
     expect(() => second.saveResearchDecisionEpisode({
       ...expected,
       capturedAt: "2026-08-12T12:01:00.000Z",

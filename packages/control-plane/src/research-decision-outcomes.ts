@@ -7,6 +7,7 @@ import type {
   ResearchAttentionAllocationAction,
   ResearchAttentionAllocationProjection,
   ResearchAttentionFamilyScorecard,
+  ResearchAttentionNoveltyReason,
   ResearchAttentionValueStage,
 } from "./research-attention-allocation.js";
 
@@ -40,6 +41,11 @@ const DOWNSTREAM_SYSTEMS = Object.freeze([
   "EVIDENCE_ACQUISITION", "RULE_EVIDENCE_INTERPRETATION", "SEMANTIC_REVIEW",
   "ONTOLOGY_DESIGN", "UNRESOLVED",
 ] as const);
+const NOVELTY_REASONS = Object.freeze([
+  "NEW_STABLE_FAMILY", "WORK_ARTIFACT_CHANGED", "CORPUS_REVISION_ONLY",
+  "DOWNSTREAM_RESEARCH_DEBT", "MISSING_COUNTEREXAMPLE",
+  "PORTFOLIO_EXHAUSTED", "NO_BOUNDED_NOVELTY",
+] as const);
 
 export type ResearchDecisionCost = Readonly<{
   knownInputTokens: string;
@@ -65,12 +71,14 @@ export type ResearchDecisionEvidenceBaseline = Readonly<{
   semanticReviewJobIds: readonly Hash[];
   probabilityJobIds: readonly Hash[];
   exactTargetArtifactRefs: readonly Hash[];
+  counterexampleCount?: number;
+  noFindingTerminalRunCount?: number;
+  successfulWithoutAcceptedResultCount?: number;
   cost: ResearchDecisionCost;
   usageComplete: boolean;
 }>;
 
-export type ResearchDecisionEpisode = Readonly<{
-  schemaVersion: "pmh.research-decision-episode.v1";
+type ResearchDecisionEpisodeFields = Readonly<{
   episodeId: Hash;
   capturedAt: string;
   captureRef: string;
@@ -102,6 +110,15 @@ export type ResearchDecisionEpisode = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type ResearchDecisionEpisode =
+  | Readonly<ResearchDecisionEpisodeFields & {
+      schemaVersion: "pmh.research-decision-episode.v1";
+    }>
+  | Readonly<ResearchDecisionEpisodeFields & {
+      schemaVersion: "pmh.research-decision-episode.v2";
+      noveltyReason: ResearchAttentionNoveltyReason;
+    }>;
+
 export interface ResearchDecisionEpisodeStore {
   loadResearchDecisionEpisodes(limit: number): readonly ResearchDecisionEpisode[];
   loadResearchDecisionEpisode(episodeId: Hash): ResearchDecisionEpisode | null;
@@ -124,6 +141,7 @@ export type ResearchDecisionOutcome = Readonly<{
   episodeId: Hash;
   capturedAt: string;
   allocationActionId: Hash;
+  noveltyReason: ResearchAttentionNoveltyReason | "LEGACY_UNBOUND";
   targetId: Hash;
   workItemId: Hash | null;
   observedAt: string;
@@ -134,6 +152,14 @@ export type ResearchDecisionOutcome = Readonly<{
   valueStageDelta: number | null;
   currentTargetState: ResearchActionTarget["state"] | null;
   newArtifactRefs: readonly Hash[];
+  antiLoopMemory: Readonly<{
+    newCounterexampleCount: number;
+    newNoFindingTerminalRunCount: number;
+    newSuccessfulWithoutAcceptedResultCount: number;
+    retainedCounterexampleCount: number;
+    retainedNoFindingTerminalRunCount: number;
+    exactTaskAlreadyAttempted: boolean;
+  }>;
   costDelta: ResearchDecisionCost;
   usageComplete: boolean;
   diagnostic: string;
@@ -224,6 +250,7 @@ export function researchDecisionEpisodeId(input: Readonly<{
   allocationActionId: Hash;
   targetId: Hash;
   captureRef: string;
+  noveltyReason?: ResearchAttentionNoveltyReason;
 }>): Hash {
   return hashCanonical({
     schemaVersion: "pmh.research-decision-episode-identity.v1",
@@ -273,6 +300,10 @@ export function buildResearchDecisionEpisode(input: Readonly<{
     semanticReviewJobIds: family?.semanticReviewJobIds ?? Object.freeze([]),
     probabilityJobIds: family?.probabilityJobIds ?? Object.freeze([]),
     exactTargetArtifactRefs: target.exactArtifactRefs,
+    counterexampleCount: family?.counterexampleCount ?? 0,
+    noFindingTerminalRunCount: family?.noFindingTerminalRunCount ?? 0,
+    successfulWithoutAcceptedResultCount:
+      family?.successfulWithoutAcceptedResultCount ?? 0,
     cost: baselineCost,
     usageComplete: baselineCost.unknownInputInvocationCount === 0 &&
       baselineCost.unknownOutputInvocationCount === 0 &&
@@ -284,9 +315,10 @@ export function buildResearchDecisionEpisode(input: Readonly<{
     allocationActionId: action.actionId,
     targetId: target.targetId,
     captureRef,
+    noveltyReason: action.noveltyReason,
   });
   return assertResearchDecisionEpisode(Object.freeze({
-    schemaVersion: "pmh.research-decision-episode.v1" as const,
+    schemaVersion: "pmh.research-decision-episode.v2" as const,
     episodeId,
     capturedAt: input.capturedAt,
     captureRef,
@@ -296,6 +328,7 @@ export function buildResearchDecisionEpisode(input: Readonly<{
     allocationActionId: action.actionId,
     allocationActionKind: action.kind,
     allocationLane: action.lane,
+    noveltyReason: action.noveltyReason,
     actionTargetProjectionIdentity: input.targets.projectionIdentity,
     targetId: target.targetId,
     workItemId: action.workItemId,
@@ -346,7 +379,10 @@ export function assertResearchDecisionEpisode(value: unknown): ResearchDecisionE
   const item = value as ResearchDecisionEpisode;
   const baseline = item.baseline;
   const nullableHashes = [item.workItemId, item.proposalId, item.requirementId, item.sourceTaskId];
-  if (item.schemaVersion !== "pmh.research-decision-episode.v1" ||
+  const noveltyBound = item.schemaVersion === "pmh.research-decision-episode.v2";
+  const legacy = item.schemaVersion === "pmh.research-decision-episode.v1";
+  const noveltyReason = noveltyBound ? item.noveltyReason : undefined;
+  if ((!legacy && !noveltyBound) ||
       !HASH_PATTERN.test(String(item.episodeId)) ||
       !HASH_PATTERN.test(String(item.allocationProjectionIdentity)) ||
       !HASH_PATTERN.test(String(item.allocationPolicyIdentity)) ||
@@ -368,6 +404,14 @@ export function assertResearchDecisionEpisode(value: unknown): ResearchDecisionE
       !validHashes(baseline.semanticReviewJobIds) ||
       !validHashes(baseline.probabilityJobIds) ||
       !validHashes(baseline.exactTargetArtifactRefs) || !validCost(baseline.cost) ||
+      (noveltyBound && !NOVELTY_REASONS.includes(
+        noveltyReason as (typeof NOVELTY_REASONS)[number]
+      )) ||
+      (noveltyBound && [baseline.counterexampleCount,
+        baseline.noFindingTerminalRunCount,
+        baseline.successfulWithoutAcceptedResultCount].some((count) =>
+        !Number.isSafeInteger(count) || Number(count) < 0
+      )) ||
       typeof baseline.usageComplete !== "boolean" ||
       baseline.usageComplete !== (
         baseline.cost.unknownInputInvocationCount === 0 &&
@@ -383,12 +427,20 @@ export function assertResearchDecisionEpisode(value: unknown): ResearchDecisionE
       item.semanticDecisionAuthority !== false || item.certificateAuthority !== false ||
       item.executionAuthority !== false || item.externalWriteAuthority !== false ||
       item.valueMovingAuthority !== false ||
-      item.episodeId !== researchDecisionEpisodeId({
-        allocationProjectionIdentity: item.allocationProjectionIdentity,
-        allocationActionId: item.allocationActionId,
-        targetId: item.targetId,
-        captureRef: item.captureRef,
-      })) {
+      item.episodeId !== (noveltyBound
+        ? researchDecisionEpisodeId({
+            allocationProjectionIdentity: item.allocationProjectionIdentity,
+            allocationActionId: item.allocationActionId,
+            targetId: item.targetId,
+            captureRef: item.captureRef,
+            noveltyReason: noveltyReason!,
+          })
+        : researchDecisionEpisodeId({
+            allocationProjectionIdentity: item.allocationProjectionIdentity,
+            allocationActionId: item.allocationActionId,
+            targetId: item.targetId,
+            captureRef: item.captureRef,
+          }))) {
     throw new Error("research decision episode violates its bounded contract");
   }
   return Object.freeze(item);
@@ -489,6 +541,32 @@ function outcome(input: Readonly<{
   const newProgressArtifactCount = currentProgressArtifacts.filter((item) =>
     !baselineProgressArtifacts.has(item)
   ).length;
+  const retainedCounterexampleCount = family?.counterexampleCount ?? 0;
+  const retainedNoFindingTerminalRunCount = family?.noFindingTerminalRunCount ?? 0;
+  const retainedSuccessfulWithoutAcceptedResultCount =
+    family?.successfulWithoutAcceptedResultCount ?? 0;
+  const antiLoopMemory = Object.freeze({
+    newCounterexampleCount: Math.max(
+      0,
+      retainedCounterexampleCount - (input.episode.baseline.counterexampleCount ??
+        input.episode.baseline.counterexampleIds.length),
+    ),
+    newNoFindingTerminalRunCount: Math.max(
+      0,
+      retainedNoFindingTerminalRunCount -
+        (input.episode.baseline.noFindingTerminalRunCount ?? 0),
+    ),
+    newSuccessfulWithoutAcceptedResultCount: Math.max(
+      0,
+      retainedSuccessfulWithoutAcceptedResultCount -
+        (input.episode.baseline.successfulWithoutAcceptedResultCount ?? 0),
+    ),
+    retainedCounterexampleCount,
+    retainedNoFindingTerminalRunCount,
+    exactTaskAlreadyAttempted: input.episode.sourceTaskId !== null &&
+      family?.currentTaskId === input.episode.sourceTaskId &&
+      family.currentTaskAttempted,
+  });
   const currentCost = target === null ? (family === null ? zeroCost() : cost(family, {
     providerRequestCount: 0,
     toolCallCount: 0,
@@ -506,9 +584,12 @@ function outcome(input: Readonly<{
     currentCost.unknownReasoningInvocationCount === 0 &&
     currentCost.incompleteWallClockRunCount === 0;
   const inFlight = target !== null && target.state.endsWith("_IN_FLIGHT");
-  const usefulNegative = input.episode.baseline.targetState === "BLOCKED_BY_NEGATIVE_SOURCE_SEARCH" &&
-    (target?.state ?? input.episode.baseline.targetState) === "BLOCKED_BY_NEGATIVE_SOURCE_SEARCH" &&
-    !hasCost(costDelta);
+  const usefulNegative = antiLoopMemory.newCounterexampleCount > 0 ||
+    antiLoopMemory.newNoFindingTerminalRunCount > 0 ||
+    (input.episode.baseline.targetState === "BLOCKED_BY_NEGATIVE_SOURCE_SEARCH" &&
+      (target?.state ?? input.episode.baseline.targetState) ===
+        "BLOCKED_BY_NEGATIVE_SOURCE_SEARCH" &&
+      !hasCost(costDelta));
   const advanced = (valueStageDelta ?? 0) > 0 || newProgressArtifactCount > 0;
   let state: ResearchDecisionOutcomeState;
   let diagnostic: string;
@@ -517,7 +598,10 @@ function outcome(input: Readonly<{
     diagnostic = "Usage lineage is incomplete, so efficiency cannot be compared honestly";
   } else if (usefulNegative) {
     state = "USEFUL_NEGATIVE_MEMORY";
-    diagnostic = "Retained terminal negative evidence still prevents duplicate research spend";
+    diagnostic = antiLoopMemory.newCounterexampleCount > 0 ||
+      antiLoopMemory.newNoFindingTerminalRunCount > 0
+      ? "Exact-lineage counterexample or no-yield evidence now prevents duplicate research spend"
+      : "Retained terminal negative evidence still prevents duplicate research spend";
   } else if (inFlight) {
     state = "IN_FLIGHT";
     diagnostic = "The exact downstream target is currently in flight";
@@ -547,6 +631,8 @@ function outcome(input: Readonly<{
     episodeId: input.episode.episodeId,
     capturedAt: input.episode.capturedAt,
     allocationActionId: input.episode.allocationActionId,
+    noveltyReason: input.episode.schemaVersion === "pmh.research-decision-episode.v2"
+      ? input.episode.noveltyReason : "LEGACY_UNBOUND" as const,
     targetId: input.episode.targetId,
     workItemId: input.episode.workItemId,
     observedAt: input.observedAt,
@@ -558,6 +644,7 @@ function outcome(input: Readonly<{
     valueStageDelta,
     currentTargetState: target?.state ?? null,
     newArtifactRefs,
+    antiLoopMemory,
     costDelta,
     usageComplete,
     diagnostic,
