@@ -100,6 +100,7 @@ import {
   buildOntologyAgentCampaignPreview,
   resolveOntologyAgentTaskRevision,
 } from "./ontology-agent-campaign.js";
+import { buildOntologyAllocationOutcomeProjection } from "./ontology-allocation-outcomes.js";
 import { buildOntologyAttentionAllocation } from "./ontology-attention-allocation.js";
 import { buildOntologyRelationWorkProjection } from "./ontology-relation-work.js";
 import {
@@ -309,6 +310,7 @@ import {
   buildRuleEvidenceAgentTaskPayload,
   effectiveAgentCampaigns,
   pauseAgentCampaign,
+  type AgentCampaign,
   type AgentExecutionStore,
   type AgentRun,
 } from "./agent-execution-substrate.js";
@@ -316,7 +318,10 @@ import { buildDefaultAgentRuntimePortfolio } from "./agent-runtime-portfolio.js"
 import {
   AgentCampaignDispatcher,
 } from "./agent-campaign-dispatcher.js";
-import { buildAgentInputRevisionRunAnnotation } from "./agent-input-revision-binding.js";
+import {
+  agentInputRevisionAnnotationMatches,
+  buildAgentInputRevisionRunAnnotation,
+} from "./agent-input-revision-binding.js";
 import {
   AgentCredentialBroker,
   AgentExecutionCapabilityService,
@@ -2949,6 +2954,120 @@ export function createControlPlane(options?: {
       capability: agentExecutionCapabilityService.project(profile, configuration),
     });
   };
+  const ontologyAllocationOutcomes = () => {
+    const execution = agentExecutionRegistry.snapshot();
+    const selectedCampaigns = execution.campaigns.filter((campaign): campaign is Extract<
+      AgentCampaign,
+      { schemaVersion: "pmh.agent-campaign.v2" }
+    > => campaign.schemaVersion === "pmh.agent-campaign.v2" &&
+      campaign.selectionBinding.selectionProtocol === "ONTOLOGY_ATTENTION_ALLOCATION_V1"
+    );
+    const selectedCampaignIds = new Set(selectedCampaigns.map((item) => item.campaignId));
+    const selectedBindings = selectedCampaigns.flatMap((item) =>
+      item.selectionBinding.taskBindings
+    );
+    const directRunIds = new Set(execution.runs.filter((run) =>
+      run.authorization.campaignId !== null &&
+      selectedCampaignIds.has(run.authorization.campaignId) && selectedBindings.some((binding) =>
+        binding.taskId === run.taskId && execution.runAnnotations.some((annotation) =>
+          annotation.runId === run.runId && agentInputRevisionAnnotationMatches({
+            annotation,
+            taskId: binding.taskId,
+            revisionKind: "ONTOLOGY_SEARCH_ISSUE",
+            revisionId: binding.inputRevisionId,
+            exactInputHash: binding.exactInputHash,
+          })
+        )
+      )
+    ).map((run) => run.runId));
+    const ontologyProposals = (marketOntologyAgentProposalStore
+      ?.loadMarketOntologyAgentProposals(512) ?? []).filter((proposal) =>
+        directRunIds.has(proposal.sourceAgentRunId)
+      );
+    const retainedRevisions = ontologySearchIssueRevisionStore
+      ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+    const relationWork = buildOntologyRelationWorkProjection({
+      proposals: ontologyProposals,
+      revisions: retainedRevisions,
+      execution,
+    });
+    const relationWorkItemIds = new Set(relationWork.items.map((item) => item.workItemId));
+    const relationTaskRevisions = (relationDiscoveryStore
+      ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions).filter((item) =>
+        relationWorkItemIds.has(item.workItemId)
+      );
+    const relationRunIds = new Set(execution.runs.filter((run) =>
+      relationTaskRevisions.some((revision) => run.taskId === revision.task.taskId &&
+        execution.runAnnotations.some((annotation) =>
+          annotation.runId === run.runId && agentInputRevisionAnnotationMatches({
+            annotation,
+            taskId: revision.task.taskId,
+            revisionKind: "RELATION_DISCOVERY",
+            revisionId: revision.revisionId,
+            exactInputHash: hashCanonical(revision.taskPayload),
+          })
+        )
+      )
+    ).map((run) => run.runId));
+    const relationFindings = (relationDiscoveryStore
+      ?.loadRelationDiscoveryFindings(512) ?? []).filter((item) =>
+        relationWorkItemIds.has(item.workItemId) && relationRunIds.has(item.sourceAgentRunId)
+      );
+    const relationCompilations = relationDiscoveryStore === null
+      ? Object.freeze([])
+      : compileRelationDiscoveryFindingsForSemanticReview({
+          findings: relationFindings.filter((item): item is RelationDiscoveryPositiveFinding =>
+            item.kind === "RELATION_HYPOTHESIS"
+          ),
+          taskRevisions: relationTaskRevisions,
+          loadCorpus: (snapshotIdentity) =>
+            relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
+        });
+    const semanticProposalIds = Object.freeze(relationCompilations.map((item) =>
+      item.proposal.proposalId
+    ));
+    const semanticOpportunityIds = new Set(semanticProposalIds.map((proposalId) =>
+      `ai:${proposalId}`
+    ));
+    const semanticReviews = semanticProposalIds.length === 0
+      ? Object.freeze([])
+      : semanticReviewJobsForProposalIds(semanticProposalIds).map((item) => Object.freeze({
+          jobId: item.jobId,
+          proposalId: item.proposalId,
+          status: item.status,
+          recommendation: item.recommendation,
+          updatedAt: item.updatedAt,
+        }));
+    const probabilityJobs = semanticProposalIds.length === 0
+      ? Object.freeze([])
+      : probabilityJobsForProposalIds(semanticProposalIds).map((item) => Object.freeze({
+          jobId: item.jobId,
+          proposalId: item.proposalId,
+          status: item.status,
+          updatedAt: item.updatedAt,
+        }));
+    const opportunities = semanticProposalIds.length === 0
+      ? Object.freeze([])
+      : opportunityLifecycleDesk.projection().cases.filter((item) =>
+          semanticOpportunityIds.has(item.opportunityId)
+        ).map((item) => Object.freeze({
+          opportunityId: item.opportunityId,
+          state: item.state,
+          updatedAt: item.events.map((event) => event.occurredAt).sort().at(-1) ??
+            "1970-01-01T00:00:00.000Z",
+        }));
+    return buildOntologyAllocationOutcomeProjection({
+      execution,
+      ontologyProposals,
+      relationWork,
+      relationTaskRevisions,
+      relationFindings,
+      relationCompilations,
+      semanticReviews,
+      probabilityJobs,
+      opportunities,
+    });
+  };
   const relationDiscoveryCampaignPreview = async () => {
     const snapshot = agentExecutionRegistry.snapshot();
     const route = [...snapshot.workloadRoutes]
@@ -4153,6 +4272,14 @@ export function createControlPlane(options?: {
           schedulerDispatchesStarted: 0,
         }));
       }
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/allocation-outcomes"
+    ) {
+      await ready;
+      writeJson(response, 200, ontologyAllocationOutcomes());
       return;
     }
     if (

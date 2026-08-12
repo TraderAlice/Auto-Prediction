@@ -2513,6 +2513,37 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    const ontologyOutcomesResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/allocation-outcomes`,
+    );
+    expect(ontologyOutcomesResponse.status).toBe(200);
+    await expect(ontologyOutcomesResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.ontology-allocation-outcome-projection.v1",
+      campaignEpisodeCount: 0,
+      selectedActionCount: 0,
+      actedActionCount: 0,
+      terminalActionCount: 0,
+      campaigns: [],
+      strata: [],
+      recurrenceQualification: {
+        representedStratumCount: 0,
+        qualifiedStratumCount: 0,
+        yieldCostEvidenceSufficient: false,
+        operatorActivationStillRequired: true,
+      },
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+      writesStartedByRead: 0,
+      automaticDispatch: false,
+      semanticDecisionAuthority: false,
+      policyMutationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
     const ontologyEcologyResponse = await fetch(
       `${baseUrl}/api/v1/market-ontology/search-ecology`,
     );

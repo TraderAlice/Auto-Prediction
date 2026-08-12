@@ -216,6 +216,23 @@ checks, and production build pass. The next slice is realized
 allocation-outcome projection; interval recurrence remains unauthorized until
 exact terminal yield/cost evidence exists.
 
+That realized-outcome projection is now implemented and live-qualified. It
+groups paused/active revisions of the same immutable selection into one episode
+and follows each selected action through campaign-authorized ontology runs,
+proposal or counterexample, relation work and findings, semantic review,
+probability research, and local opportunity lifecycle. Direct campaign spend is
+kept separate from connected downstream cost, and shared downstream lineage is
+explicitly non-causal. Projection identity ignores unrelated Agent activity.
+The retained live specimen has one episode, three selected actions, zero acted
+or terminal actions, and zero direct tokens, leaving both represented strata
+below the three-terminal-action evidence gate. Recurrence is therefore still
+unqualified and operator-gated; no model, provider, campaign, run, or write was
+started. Agent Operations exposes the exact stage/cost lineage and passes
+desktop plus 390 px visual checks without application console errors or
+horizontal overflow. Workspace checks, 598 control-plane tests, 24 Studio
+tests, the remaining workspace suites, and the production build pass; the
+known Node 24 engine expectation and existing Studio chunk-size warning remain.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

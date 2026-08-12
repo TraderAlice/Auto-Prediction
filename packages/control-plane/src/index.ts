@@ -31,6 +31,7 @@ export * from "./market-ontology.js";
 export * from "./market-ontology-agent-tools.js";
 export * from "./ontology-search-ecology.js";
 export * from "./ontology-agent-campaign.js";
+export * from "./ontology-allocation-outcomes.js";
 export * from "./ontology-attention-allocation.js";
 export * from "./ontology-relation-work.js";
 export * from "./relation-discovery-agent-tools.js";

@@ -2529,6 +2529,11 @@ footer {
   line-height: 1.45;
 }
 
+.agent-campaign-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .agent-invocation-diagnostics {
   margin-top: 0.45rem;
   max-width: 72rem;

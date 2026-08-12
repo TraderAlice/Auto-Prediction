@@ -95,7 +95,7 @@ provider request, external write, or execution authority.
   input hash, and purpose-specific semantic input identity inside the immutable
   campaign before activation. Resolve payload, first-party tool host, and run
   annotation from that same retained binding after catalog rotation.
-- [ ] Project allocation → campaign → run → proposal/counterexample → relation work
+- [x] Project allocation → campaign → run → proposal/counterexample → relation work
   → review/probability/opportunity outcome as one auditable chain.
 - [ ] Add an explicit recurring policy only after live scorecards show enough
   terminal attempts to estimate yield/cost by stratum.
@@ -111,7 +111,7 @@ provider request, external write, or execution authority.
 - Notify on new accepted ontology proposals, useful counterexamples, downstream
   reviewed relations, repeated costly no-yield work, and portfolio exhaustion;
   do not notify on every model response.
-- Show spend and stage movement by stable issue and allocation generation.
+- [x] Show spend and stage movement by stable issue and allocation generation.
 
 ## Qualification gates
 
@@ -134,11 +134,12 @@ provider request, external write, or execution authority.
 
 ## Current implementation boundary
 
-Phases 1–3 and immutable campaign input binding are complete. Keep ontology
-campaigns manual-only while the next slice projects realized allocation outcomes
-and gathers enough exact terminal attempts to estimate yield and cost by
-stratum. Do not infer recurrence merely because the generic dispatcher supports
-an interval schedule.
+Phases 1–3, immutable campaign input binding, and provider-free realized-outcome
+projection are complete. Keep ontology campaigns manual-only while exact
+terminal attempts accumulate. The live portfolio has zero acted actions, so no
+yield/cost stratum is qualified and interval recurrence remains deliberately
+unavailable. Do not infer recurrence merely because the generic dispatcher
+supports an interval schedule.
 
 ## Live checkpoint — 2026-08-12
 
@@ -194,6 +195,37 @@ stayed 498, and known input/output/reasoning tokens stayed
 provider requests. Workspace checks, all control-plane suites (85 files / 595
 tests), Studio suites (four files / 24 tests), and the production build pass;
 the existing Node 24 engine and Studio chunk-size warnings remain.
+
+## Realized-outcome checkpoint — 2026-08-12
+
+The first-party projection now joins each immutable allocation action through
+its bound campaign revisions, campaign-authorized ontology runs, retained
+proposal or counterexample, consolidated relation work and runs, findings,
+semantic-review jobs, probability jobs, and local opportunity lifecycle. It
+reports the furthest retained stage, direct campaign cost, connected downstream
+cost, useful negative memory, and whether downstream attribution is exclusive
+or shared/non-causal. It does not manufacture causality from proximity and
+does not let shared work masquerade as direct allocation yield.
+
+Paused and active revisions of the same immutable selection binding form one
+campaign episode. Projection time and identity are derived only from those
+episodes and their connected lineage; unrelated Agent runs or late proposals
+cannot rewrite a historical allocation outcome. The read starts zero providers,
+models, campaigns, runs, or writes, and recurrence remains an operator decision
+even after the evidence threshold is met.
+
+Live retained data currently projects one campaign episode, three selected
+actions, zero acted actions, and zero terminal actions. Both represented strata
+remain below the minimum of three exact terminal actions, so the result is
+honestly `RECURRENCE UNQUALIFIED`; the campaign remains paused and no model or
+provider request was started. Agent Operations shows the three unacted exact
+inputs and zero direct tokens. Desktop and 390 × 844 visual qualification pass
+without application console errors or horizontal overflow; the mobile check
+also fixed an older unbroken campaign-key overflow in the same view.
+Workspace checks, all control-plane suites (86 files / 598 tests), Studio
+suites (four files / 24 tests), and the production build pass on the available
+Node 22 host. The expected Node 24 engine warning and existing Studio
+chunk-size warning remain.
 
 ## Non-goals
 
