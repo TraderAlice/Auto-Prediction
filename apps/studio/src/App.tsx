@@ -347,6 +347,50 @@ type ResearchActionTargetProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type ResearchDecisionOutcomeProjection = Readonly<{
+  schemaVersion: "pmh.research-decision-outcome-projection.v1";
+  projectionIdentity: string;
+  observedAt: string;
+  episodeCount: number;
+  outcomeCounts: Readonly<Record<string, number>>;
+  outcomes: ReadonlyArray<Readonly<{
+    outcomeId: string;
+    episodeId: string;
+    capturedAt: string;
+    allocationActionId: string;
+    targetId: string;
+    workItemId: string | null;
+    state: string;
+    attributionBasis: "NOT_ACTED" | "TARGET_LINEAGE_OBSERVED";
+    baselineValueStage: string;
+    currentValueStage: string | null;
+    valueStageDelta: number | null;
+    currentTargetState: string | null;
+    newArtifactRefs: readonly string[];
+    costDelta: Readonly<{
+      knownInputTokens: string;
+      knownOutputTokens: string;
+      knownReasoningTokens: string;
+      knownWallClockMs: string;
+      providerRequestCount: number;
+      toolCallCount: number;
+      fetchAttemptCount: number;
+      interpretationAttemptCount: number;
+    }>;
+    usageComplete: boolean;
+    diagnostic: string;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  fetchesStartedByRead: 0;
+  campaignsCreatedByRead: 0;
+  runsCreatedByRead: 0;
+  schedulerDispatchesStartedByRead: 0;
+  writesStartedByRead: 0;
+  automaticDispatch: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type FailureBudgetFrontierProjection = Readonly<{
   schemaVersion: "pmh.failure-budget-frontier.v4";
   contentHash: string;
@@ -3192,10 +3236,30 @@ async function requestResearchActionTargets(): Promise<ResearchActionTargetProje
   return result;
 }
 
+async function requestResearchDecisionOutcomes(): Promise<ResearchDecisionOutcomeProjection> {
+  const response = await fetch("/api/v1/research-decision-outcomes", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Research outcomes returned HTTP ${response.status}`);
+  const result = await response.json() as ResearchDecisionOutcomeProjection;
+  if (
+    result.schemaVersion !== "pmh.research-decision-outcome-projection.v1" ||
+    result.providerRequestsStartedByRead !== 0 ||
+    result.modelInvocationsStartedByRead !== 0 ||
+    result.fetchesStartedByRead !== 0 ||
+    result.campaignsCreatedByRead !== 0 || result.runsCreatedByRead !== 0 ||
+    result.schedulerDispatchesStartedByRead !== 0 || result.writesStartedByRead !== 0 ||
+    result.automaticDispatch !== false || result.externalWriteAuthority !== false ||
+    result.valueMovingAuthority !== false
+  ) throw new Error("Research outcome read crossed its authority boundary");
+  return result;
+}
+
 function AgentOperationsView() {
   const [consoleData, setConsoleData] = useState<AgentExecutionConsole | null>(null);
   const [attentionData, setAttentionData] = useState<ResearchAttentionAllocation | null>(null);
   const [targetData, setTargetData] = useState<ResearchActionTargetProjection | null>(null);
+  const [outcomeData, setOutcomeData] = useState<ResearchDecisionOutcomeProjection | null>(null);
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [taskId, setTaskId] = useState("");
@@ -3203,10 +3267,11 @@ function AgentOperationsView() {
   const [manualPreview, setManualPreview] = useState<unknown | null>(null);
 
   async function refresh() {
-    const [next, attention, targets] = await Promise.all([
+    const [next, attention, targets, outcomes] = await Promise.all([
       requestAgentExecutionConsole(),
       requestResearchAttentionAllocation(),
       requestResearchActionTargets(),
+      requestResearchDecisionOutcomes(),
     ]);
     if (targets.allocationProjectionIdentity !== attention.projectionIdentity) {
       throw new Error("Research target lineage does not match the current attention allocation");
@@ -3214,6 +3279,7 @@ function AgentOperationsView() {
     setConsoleData(next);
     setAttentionData(attention);
     setTargetData(targets);
+    setOutcomeData(outcomes);
     setTaskId((current) => current || next.tasks.find((task) =>
       task.protocol === "RULE_EVIDENCE_TASK_V1"
     )?.taskId || next.tasks[0]?.taskId || "");
@@ -3352,6 +3418,13 @@ function AgentOperationsView() {
                   item.allocationActionId === action.actionId
                 ) ?? [];
                 const primaryTarget = targets[0] ?? null;
+                const decisionOutcomes = outcomeData?.outcomes.filter((item) =>
+                  item.workItemId === action.workItemId
+                ).sort((left, right) => right.capturedAt.localeCompare(left.capturedAt)) ?? [];
+                const latestOutcome = decisionOutcomes[0] ?? null;
+                const currentDecisionRecorded = primaryTarget !== null && decisionOutcomes.some((item) =>
+                  item.allocationActionId === action.actionId && item.targetId === primaryTarget.targetId
+                );
                 const knownTokens = family === undefined ? 0n :
                   BigInt(family.usage.knownInputTokens) + BigInt(family.usage.knownOutputTokens);
                 return (
@@ -3381,6 +3454,18 @@ function AgentOperationsView() {
                         <code>{primaryTarget.requirementKind ?? "DIRECT TASK"} · {primaryTarget.requirementId?.slice(7, 19) ?? primaryTarget.sourceTaskId?.slice(7, 19) ?? "unmaterialized"}</code>
                       </div>
                     )}
+                    {latestOutcome !== null && (
+                      <div className="research-decision-outcome">
+                        <div>
+                          <span>Decision memory</span>
+                          <Badge variant={latestOutcome.state === "ADVANCED" || latestOutcome.state === "USEFUL_NEGATIVE_MEMORY" ? "verified" : latestOutcome.state.includes("INCOMPLETE") || latestOutcome.state.includes("SPENT") ? "warning" : "muted"}>
+                            {latestOutcome.state.replaceAll("_", " ")}
+                          </Badge>
+                        </div>
+                        <strong>{latestOutcome.diagnostic}</strong>
+                        <code>{latestOutcome.newArtifactRefs.length} new artifacts · {formatTokenCount((BigInt(latestOutcome.costDelta.knownInputTokens) + BigInt(latestOutcome.costDelta.knownOutputTokens)).toString())} token delta · {latestOutcome.attributionBasis.replaceAll("_", " ").toLowerCase()}</code>
+                      </div>
+                    )}
                     <div className="research-attention-facts">
                       <span>{family?.runCount ?? 0} prior run{family?.runCount === 1 ? "" : "s"}</span>
                       <span>{family?.positiveFindingCount ?? 0} positive · {family?.counterexampleCount ?? 0} counter</span>
@@ -3392,6 +3477,22 @@ function AgentOperationsView() {
                         <span>{primaryTarget.retainedCost.providerRequestCount} provider · {primaryTarget.retainedCost.toolCallCount} tool · {primaryTarget.retainedCost.fetchAttemptCount} fetch</span>
                       )}
                     </div>
+                    {primaryTarget !== null && (
+                      <div className="research-decision-control">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy !== null || currentDecisionRecorded}
+                          onClick={() => void perform(`record-decision-${primaryTarget.targetId}`, () => post("/api/v1/research-decisions", {
+                            allocationProjectionIdentity: attentionData.projectionIdentity,
+                            allocationActionId: action.actionId,
+                            targetId: primaryTarget.targetId,
+                            captureRef: "operator:studio",
+                          }))}
+                        >{currentDecisionRecorded ? "Decision recorded" : "Record decision"}</Button>
+                        <span>Local baseline only · does not run or dispatch an Agent</span>
+                      </div>
+                    )}
                   </article>
                 );
               })}

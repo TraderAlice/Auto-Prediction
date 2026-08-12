@@ -238,8 +238,13 @@ import {
   type RelationDiscoveryTaskRevision,
   type RelationDiscoveryTaskRevisionStore,
 } from "./relation-discovery-work.js";
+import {
+  assertResearchDecisionEpisode,
+  type ResearchDecisionEpisode,
+  type ResearchDecisionEpisodeStore,
+} from "./research-decision-outcomes.js";
 
-const SCHEMA_VERSION = 40;
+const SCHEMA_VERSION = 41;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1783,6 +1788,26 @@ function parseRelationDiscoveryFinding(value: unknown): RelationDiscoveryFinding
   return finding;
 }
 
+function parseResearchDecisionEpisode(value: unknown): ResearchDecisionEpisode {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite research decision episode row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.episode_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite research decision episode row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite research decision episode contains invalid JSON");
+  }
+  const episode = assertResearchDecisionEpisode(decoded);
+  if (episode.episodeId !== row.episode_id || hashCanonical(episode) !== row.record_hash) {
+    throw new Error("SQLite research decision episode identity mismatch");
+  }
+  return episode;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -1841,7 +1866,8 @@ export class SqliteOperationalStore
     MarketOntologyAgentProposalStore,
     OntologySearchIssueRevisionStore,
     RelationDiscoveryTaskRevisionStore,
-    RelationDiscoveryFindingStore
+    RelationDiscoveryFindingStore,
+    ResearchDecisionEpisodeStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -1908,6 +1934,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"snapshotIdentity">;
   public readonly relationDiscoveryFindingStorage:
     OperationalStorageProjection<"findingId">;
+  public readonly researchDecisionEpisodeStorage:
+    OperationalStorageProjection<"episodeId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -2139,6 +2167,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "findingId",
+    });
+    this.researchDecisionEpisodeStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "episodeId",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2485,6 +2519,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'relation_discovery_findings'`,
       )
       .get() !== undefined;
+    const researchDecisionEpisodeTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'research_decision_episodes'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -2524,6 +2564,7 @@ export class SqliteOperationalStore
       && relationDiscoveryTaskRevisionTableExists
       && relationDiscoveryCorpusTableExists
       && relationDiscoveryFindingTableExists
+      && researchDecisionEpisodeTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -4126,6 +4167,34 @@ export class SqliteOperationalStore
             );
         `);
       }
+      if (current < 41 || !researchDecisionEpisodeTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS research_decision_episodes (
+            episode_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(episode_id) = 71 AND episode_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            captured_at TEXT NOT NULL,
+            work_item_id TEXT,
+            allocation_action_id TEXT NOT NULL CHECK (
+              length(allocation_action_id) = 71 AND
+              allocation_action_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            target_id TEXT NOT NULL CHECK (
+              length(target_id) = 71 AND target_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS research_decision_episodes_captured
+            ON research_decision_episodes (captured_at DESC, episode_id DESC);
+          CREATE INDEX IF NOT EXISTS research_decision_episodes_work
+            ON research_decision_episodes (
+              work_item_id, captured_at DESC, episode_id DESC
+            );
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -4136,6 +4205,66 @@ export class SqliteOperationalStore
 
   #assertOpen(): void {
     if (this.#closed) throw new Error("operational database is closed");
+  }
+
+  public loadResearchDecisionEpisodes(limit: number): readonly ResearchDecisionEpisode[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    if (limit > 512) throw new Error("research decision episode limit exceeds 512");
+    const rows = this.#database
+      .prepare(
+        `SELECT episode_id, record_json, record_hash
+         FROM research_decision_episodes
+         ORDER BY captured_at DESC, episode_id DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return Object.freeze(rows.map(parseResearchDecisionEpisode));
+  }
+
+  public loadResearchDecisionEpisode(episodeId: Hash): ResearchDecisionEpisode | null {
+    this.#assertOpen();
+    if (!/^sha256:[0-9a-f]{64}$/u.test(String(episodeId))) {
+      throw new Error("research decision episode identity is invalid");
+    }
+    const row = this.#database
+      .prepare(
+        `SELECT episode_id, record_json, record_hash
+         FROM research_decision_episodes WHERE episode_id = ?`,
+      )
+      .get(episodeId);
+    return row === undefined ? null : parseResearchDecisionEpisode(row);
+  }
+
+  public saveResearchDecisionEpisode(
+    episodeInput: ResearchDecisionEpisode,
+  ): ResearchDecisionEpisode {
+    this.#assertOpen();
+    const episode = assertResearchDecisionEpisode(episodeInput);
+    const recordJson = canonicalJson(episode);
+    const recordHash = hashCanonical(episode);
+    this.#database
+      .prepare(
+        `INSERT INTO research_decision_episodes (
+           episode_id, captured_at, work_item_id, allocation_action_id,
+           target_id, record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(episode_id) DO NOTHING`,
+      )
+      .run(
+        episode.episodeId,
+        episode.capturedAt,
+        episode.workItemId,
+        episode.allocationActionId,
+        episode.targetId,
+        recordJson,
+        recordHash,
+      );
+    const stored = this.loadResearchDecisionEpisode(episode.episodeId);
+    if (stored === null || hashCanonical(stored) !== recordHash) {
+      throw new Error("research decision episode identity is already bound elsewhere");
+    }
+    return stored;
   }
 
   #pruneUnreferencedSearchLeaseCorpora(): void {

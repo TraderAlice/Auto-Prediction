@@ -118,7 +118,16 @@ import { buildResearchAttentionAllocation } from "./research-attention-allocatio
 import {
   buildResearchActionTargetProjection,
   selectCurrentSemanticReviewRequirements,
+  type ResearchActionTargetProjection,
 } from "./research-action-targets.js";
+import {
+  buildResearchDecisionEpisode,
+  buildResearchDecisionOutcomeProjection,
+  researchDecisionEpisodeId,
+  type ResearchDecisionEpisode,
+  type ResearchDecisionEpisodeStore,
+} from "./research-decision-outcomes.js";
+import type { ResearchAttentionAllocationProjection } from "./research-attention-allocation.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -894,6 +903,19 @@ function supportsRelationDiscoveryRecords(
     typeof candidate.saveRelationDiscoveryFindings === "function";
 }
 
+function supportsResearchDecisionEpisodes(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ResearchDecisionEpisodeStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ResearchDecisionEpisodeStore> & Readonly<{
+    researchDecisionEpisodeStorage?: unknown;
+  }>;
+  return candidate.researchDecisionEpisodeStorage !== undefined &&
+    typeof candidate.loadResearchDecisionEpisodes === "function" &&
+    typeof candidate.loadResearchDecisionEpisode === "function" &&
+    typeof candidate.saveResearchDecisionEpisode === "function";
+}
+
 function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   expectedRevision: number;
   provider: (typeof AI_RUNTIME_PROVIDERS)[number];
@@ -1073,6 +1095,10 @@ export function createControlPlane(options?: {
   const relationDiscoveryStore = supportsRelationDiscoveryRecords(options?.discoveryStore)
     ? options.discoveryStore
     : null;
+  const researchDecisionStore = supportsResearchDecisionEpisodes(options?.discoveryStore)
+    ? options.discoveryStore
+    : null;
+  let inMemoryResearchDecisionEpisodes: readonly ResearchDecisionEpisode[] = Object.freeze([]);
   let relationDiscoveryTaskRevisions: readonly RelationDiscoveryTaskRevision[] =
     relationDiscoveryStore?.loadRelationDiscoveryTaskRevisions(512) ?? [];
   agentExecutionRegistry.importLegacyConfiguration(
@@ -1645,6 +1671,93 @@ export function createControlPlane(options?: {
       : ruleEvidenceClaimScheduler.projection().jobs.filter((item) =>
           requirementIds.includes(item.requirementId)
         );
+  const currentResearchActionState = (): Readonly<{
+    allocation: ResearchAttentionAllocationProjection;
+    targets: ResearchActionTargetProjection;
+  }> => {
+    const proposals = marketOntologyAgentProposalStore
+      ?.loadMarketOntologyAgentProposals(200) ?? [];
+    const ontologyRevisions = ontologySearchIssueRevisionStore
+      ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+    const execution = agentExecutionRegistry.snapshot();
+    const relationWork = buildOntologyRelationWorkProjection({
+      proposals,
+      revisions: ontologyRevisions,
+      execution,
+    });
+    const taskRevisions = relationDiscoveryStore
+      ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
+    const findings = relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [];
+    const proposalCompilations = relationDiscoveryProposalCompilations();
+    const proposalIds = Object.freeze([...new Set(proposalCompilations.map((item) =>
+      item.proposal.proposalId
+    ))].sort());
+    const semanticReviewJobs = semanticReviewJobsForProposalIds(proposalIds);
+    const latestSemanticJobByProposal = new Map<Hash, SemanticReviewJobRecord>();
+    for (const job of semanticReviewJobs) {
+      const retained = latestSemanticJobByProposal.get(job.proposalId);
+      if (retained === undefined || job.updatedAt > retained.updatedAt ||
+          (job.updatedAt === retained.updatedAt && job.jobId > retained.jobId)) {
+        latestSemanticJobByProposal.set(job.proposalId, job);
+      }
+    }
+    const latestReviewIds = Object.freeze([...latestSemanticJobByProposal.values()]
+      .flatMap((item) => item.lastReviewId === null ? [] : [item.lastReviewId]).sort());
+    const activeRequirements = selectCurrentSemanticReviewRequirements({
+      semanticReviewJobs,
+      semanticReviewRecords: semanticReviewRecordsForIds(latestReviewIds),
+      currentRequirements: officialSourceDiscoveryScheduler.applyAdmissions(
+        retainedEvidenceRequirements(),
+      ),
+    });
+    const activeRequirementIds = Object.freeze(activeRequirements.map((item) =>
+      item.requirementId
+    ).sort());
+    const observedAt = new Date(
+      Math.floor(Date.now() / 3_600_000) * 3_600_000,
+    ).toISOString();
+    const allocation = buildResearchAttentionAllocation({
+      observedAt,
+      relationWork,
+      taskRevisions,
+      findings,
+      proposalCompilations,
+      semanticReviewJobs,
+      probabilityJobs: probabilityJobsForProposalIds(proposalIds),
+      execution,
+    });
+    const targets = buildResearchActionTargetProjection({
+      allocation,
+      proposalCompilations,
+      semanticReviewJobs,
+      activeRequirements,
+      officialSourceJobs: officialSourceJobsForRequirementIds(activeRequirementIds),
+      acquisitionJobs: acquisitionJobsForRequirementIds(activeRequirementIds),
+      claimJobs: claimJobsForRequirementIds(activeRequirementIds),
+    });
+    return Object.freeze({ allocation, targets });
+  };
+  const loadResearchDecisionEpisodes = () => researchDecisionStore
+    ?.loadResearchDecisionEpisodes(512) ?? inMemoryResearchDecisionEpisodes;
+  const saveResearchDecisionEpisode = (episode: ResearchDecisionEpisode) => {
+    if (researchDecisionStore !== null) {
+      return researchDecisionStore.saveResearchDecisionEpisode(episode);
+    }
+    const retained = inMemoryResearchDecisionEpisodes.find((item) =>
+      item.episodeId === episode.episodeId
+    );
+    if (retained !== undefined) {
+      if (hashCanonical(retained) !== hashCanonical(episode)) {
+        throw new Error("research decision episode identity is already bound elsewhere");
+      }
+      return retained;
+    }
+    inMemoryResearchDecisionEpisodes = Object.freeze([
+      episode,
+      ...inMemoryResearchDecisionEpisodes,
+    ].slice(0, 512));
+    return episode;
+  };
   const baseSemanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
     const relationCompilations = relationDiscoveryProposalCompilations();
     const issues = new Map(
@@ -3860,35 +3973,7 @@ export function createControlPlane(options?: {
       url.pathname === "/api/v1/research-attention-allocation"
     ) {
       await ready;
-      const proposals = marketOntologyAgentProposalStore
-        ?.loadMarketOntologyAgentProposals(200) ?? [];
-      const ontologyRevisions = ontologySearchIssueRevisionStore
-        ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
-      const relationWork = buildOntologyRelationWorkProjection({
-        proposals,
-        revisions: ontologyRevisions,
-        execution: agentExecutionRegistry.snapshot(),
-      });
-      const taskRevisions = relationDiscoveryStore
-        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
-      const findings = relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [];
-      const proposalCompilations = relationDiscoveryProposalCompilations();
-      const proposalIds = Object.freeze([...new Set(proposalCompilations.map((item) =>
-        item.proposal.proposalId
-      ))].sort());
-      const observedAt = new Date(
-        Math.floor(Date.now() / 3_600_000) * 3_600_000,
-      ).toISOString();
-      writeJson(response, 200, buildResearchAttentionAllocation({
-        observedAt,
-        relationWork,
-        taskRevisions,
-        findings,
-        proposalCompilations,
-        semanticReviewJobs: semanticReviewJobsForProposalIds(proposalIds),
-        probabilityJobs: probabilityJobsForProposalIds(proposalIds),
-        execution: agentExecutionRegistry.snapshot(),
-      }));
+      writeJson(response, 200, currentResearchActionState().allocation);
       return;
     }
     if (
@@ -3896,66 +3981,99 @@ export function createControlPlane(options?: {
       url.pathname === "/api/v1/research-action-targets"
     ) {
       await ready;
-      const proposals = marketOntologyAgentProposalStore
-        ?.loadMarketOntologyAgentProposals(200) ?? [];
-      const ontologyRevisions = ontologySearchIssueRevisionStore
-        ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
-      const execution = agentExecutionRegistry.snapshot();
-      const relationWork = buildOntologyRelationWorkProjection({
-        proposals,
-        revisions: ontologyRevisions,
-        execution,
-      });
-      const taskRevisions = relationDiscoveryStore
-        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
-      const findings = relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [];
-      const proposalCompilations = relationDiscoveryProposalCompilations();
-      const proposalIds = Object.freeze([...new Set(proposalCompilations.map((item) =>
-        item.proposal.proposalId
-      ))].sort());
-      const semanticReviewJobs = semanticReviewJobsForProposalIds(proposalIds);
-      const latestSemanticJobByProposal = new Map<Hash, SemanticReviewJobRecord>();
-      for (const job of semanticReviewJobs) {
-        const retained = latestSemanticJobByProposal.get(job.proposalId);
-        if (retained === undefined || job.updatedAt > retained.updatedAt ||
-            (job.updatedAt === retained.updatedAt && job.jobId > retained.jobId)) {
-          latestSemanticJobByProposal.set(job.proposalId, job);
-        }
-      }
-      const latestReviewIds = Object.freeze([...latestSemanticJobByProposal.values()]
-        .flatMap((item) => item.lastReviewId === null ? [] : [item.lastReviewId]).sort());
-      const activeRequirements = selectCurrentSemanticReviewRequirements({
-        semanticReviewJobs,
-        semanticReviewRecords: semanticReviewRecordsForIds(latestReviewIds),
-        currentRequirements: officialSourceDiscoveryScheduler.applyAdmissions(
-          retainedEvidenceRequirements(),
-        ),
-      });
-      const activeRequirementIds = Object.freeze(activeRequirements.map((item) =>
-        item.requirementId
-      ).sort());
-      const observedAt = new Date(
-        Math.floor(Date.now() / 3_600_000) * 3_600_000,
-      ).toISOString();
-      const allocation = buildResearchAttentionAllocation({
-        observedAt,
-        relationWork,
-        taskRevisions,
-        findings,
-        proposalCompilations,
-        semanticReviewJobs,
-        probabilityJobs: probabilityJobsForProposalIds(proposalIds),
-        execution,
-      });
-      writeJson(response, 200, buildResearchActionTargetProjection({
-        allocation,
-        proposalCompilations,
-        semanticReviewJobs,
-        activeRequirements,
-        officialSourceJobs: officialSourceJobsForRequirementIds(activeRequirementIds),
-        acquisitionJobs: acquisitionJobsForRequirementIds(activeRequirementIds),
-        claimJobs: claimJobsForRequirementIds(activeRequirementIds),
+      writeJson(response, 200, currentResearchActionState().targets);
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/research-decision-outcomes"
+    ) {
+      await ready;
+      const current = currentResearchActionState();
+      writeJson(response, 200, buildResearchDecisionOutcomeProjection({
+        observedAt: current.allocation.observedAt,
+        episodes: loadResearchDecisionEpisodes(),
+        allocation: current.allocation,
+        targets: current.targets,
       }));
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/research-decisions"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).sort().join("|") !==
+              "allocationActionId|allocationProjectionIdentity|captureRef|targetId") {
+          throw new Error("research decision capture request is malformed");
+        }
+        const requestBody = body as Record<string, unknown>;
+        const current = currentResearchActionState();
+        if (requestBody.allocationProjectionIdentity !== current.allocation.projectionIdentity ||
+            typeof requestBody.allocationActionId !== "string" ||
+            typeof requestBody.targetId !== "string" ||
+            typeof requestBody.captureRef !== "string") {
+          throw new Error("research decision allocation is stale or malformed");
+        }
+        const episodeId = researchDecisionEpisodeId({
+          allocationProjectionIdentity: current.allocation.projectionIdentity,
+          allocationActionId: requestBody.allocationActionId as Hash,
+          targetId: requestBody.targetId as Hash,
+          captureRef: requestBody.captureRef,
+        });
+        const existing = researchDecisionStore?.loadResearchDecisionEpisode(episodeId) ??
+          inMemoryResearchDecisionEpisodes.find((item) => item.episodeId === episodeId) ?? null;
+        if (existing !== null) {
+          writeJson(response, 200, Object.freeze({
+            ok: true,
+            idempotentReplay: true,
+            episode: existing,
+            localResearchLedgerWrites: 0,
+            providerRequestsStarted: 0,
+            modelInvocationsStarted: 0,
+            fetchesStarted: 0,
+            campaignsCreated: 0,
+            runsCreated: 0,
+            schedulerDispatchesStarted: 0,
+          }));
+          return;
+        }
+        const episode = saveResearchDecisionEpisode(buildResearchDecisionEpisode({
+          allocation: current.allocation,
+          targets: current.targets,
+          allocationActionId: requestBody.allocationActionId as Hash,
+          targetId: requestBody.targetId as Hash,
+          capturedAt: new Date().toISOString(),
+          captureRef: requestBody.captureRef,
+        }));
+        writeJson(response, 201, Object.freeze({
+          ok: true,
+          idempotentReplay: false,
+          episode,
+          localResearchLedgerWrites: 1,
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          fetchesStarted: 0,
+          campaignsCreated: 0,
+          runsCreated: 0,
+          schedulerDispatchesStarted: 0,
+        }));
+      } catch (error) {
+        writeJson(response, 409, Object.freeze({
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "research decision could not be captured",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          fetchesStarted: 0,
+          campaignsCreated: 0,
+          runsCreated: 0,
+          schedulerDispatchesStarted: 0,
+        }));
+      }
       return;
     }
     if (
@@ -4019,7 +4137,7 @@ export function createControlPlane(options?: {
           Object.freeze({
             mode: "MEMORY" as const,
             durable: false,
-            schemaVersion: 40,
+            schemaVersion: 41,
             idempotencyKey: "revisionId" as const,
           }),
         automaticDispatch: false,
@@ -4694,7 +4812,7 @@ export function createControlPlane(options?: {
         storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
           mode: "MEMORY" as const,
           durable: false,
-          schemaVersion: 40,
+          schemaVersion: 41,
           idempotencyKey: "proposalId" as const,
         }),
         authority: "PROPOSE_ONLY",

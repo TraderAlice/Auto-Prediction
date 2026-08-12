@@ -2445,6 +2445,53 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    const decisionOutcomesResponse = await fetch(
+      `${baseUrl}/api/v1/research-decision-outcomes`,
+    );
+    expect(decisionOutcomesResponse.status).toBe(200);
+    await expect(decisionOutcomesResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.research-decision-outcome-projection.v1",
+      episodeCount: 0,
+      outcomes: [],
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      fetchesStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+      schedulerDispatchesStartedByRead: 0,
+      writesStartedByRead: 0,
+      automaticDispatch: false,
+      authority: "DESCRIPTIVE_RESEARCH_ATTRIBUTION_ONLY",
+      semanticDecisionAuthority: false,
+      policyMutationAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    const staleDecisionResponse = await fetch(
+      `${baseUrl}/api/v1/research-decisions`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          allocationProjectionIdentity: hashCanonical({ stale: "allocation" }),
+          allocationActionId: hashCanonical({ stale: "action" }),
+          targetId: hashCanonical({ stale: "target" }),
+          captureRef: "operator:test",
+        }),
+      },
+    );
+    expect(staleDecisionResponse.status).toBe(409);
+    await expect(staleDecisionResponse.json()).resolves.toMatchObject({
+      ok: false,
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      fetchesStarted: 0,
+      campaignsCreated: 0,
+      runsCreated: 0,
+      schedulerDispatchesStarted: 0,
+    });
     const relationCampaignPreviewResponse = await fetch(
       `${baseUrl}/api/v1/relation-discovery/campaign-preview`,
     );
@@ -2929,7 +2976,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 40,
+        schemaVersion: 41,
         },
         records: [{ investigationId: created.investigationId }],
       });

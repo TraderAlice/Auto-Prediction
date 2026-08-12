@@ -114,6 +114,33 @@ Workspace check, all suites (83 control-plane files / 578 tests and four Studio
 files / 24 tests), and production build pass with only the known Node 24 engine
 expectation and existing Studio chunk-size warning.
 
+The next active continuation is
+[`plans/research-decision-outcome-attribution.md`](plans/research-decision-outcome-attribution.md).
+Issue #108 treats one research decision as an immutable relation between the
+attention policy, exact action target, known evidence state, and cumulative
+cost at capture time. Later evidence is an outcome observation, not permission
+to rewrite the decision or infer causality from temporal proximity. The first
+slice will persist explicit provider-free decision episodes, compare them with
+durable exact-lineage evidence, and distinguish unacted work, useful negative
+memory, stage advancement, and spend without movement. It will not learn a
+scalar reward or dispatch an Agent from the two available live specimens.
+
+The first live capture now retains both specimens in additive SQLite v41. The
+exploration episode initially read `UNACTED_READY`; LAFC read
+`USEFUL_NEGATIVE_MEMORY` with zero incremental cost. Capture left 250 tasks,
+241 runs, 498 invocations, 20 campaigns, and exact token totals unchanged.
+Restart replayed both immutable baselines but also exposed a real distinction:
+startup materialized a successor corpus-bound relation task, so the stable
+exploration family survived while the exact selected target became
+`REGRESSED_OR_RESCOPED`. LAFC's proposal, requirement, and official-source task
+lineage remained stable. The product now preserves this difference instead of
+calling every same-family successor the same decision.
+Studio distinguishes the local `Record decision` operation from Agent spend at
+desktop and 390 px without horizontal overflow or application console errors.
+Workspace check, all suites (84 control-plane files / 586 tests and four Studio
+files / 24 tests), and production build pass with only the known Node 24 engine
+expectation and existing Studio chunk-size warning.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

@@ -2407,6 +2407,44 @@ footer {
   overflow-wrap: anywhere;
 }
 
+.research-decision-outcome {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.research-decision-outcome > div,
+.research-decision-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.research-decision-outcome > div {
+  justify-content: space-between;
+}
+
+.research-decision-outcome span,
+.research-decision-outcome code,
+.research-decision-control span {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.research-decision-outcome strong {
+  font-size: 12px;
+  font-weight: 520;
+  line-height: 1.45;
+}
+
+.research-decision-outcome code {
+  overflow-wrap: anywhere;
+}
+
 .research-attention-facts {
   flex-wrap: wrap;
 }
@@ -2415,6 +2453,14 @@ footer {
   border-radius: 999px;
   padding: 3px 7px;
   background: var(--muted);
+}
+
+.research-decision-control {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  border-top: 1px dashed var(--border);
+  padding-top: 9px;
 }
 
 .research-attention-lock {
