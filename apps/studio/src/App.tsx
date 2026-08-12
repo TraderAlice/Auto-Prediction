@@ -9198,6 +9198,9 @@ function StandingRouteMemory({ revision }: { revision: string }) {
                 (value?.opportunityIds.length ?? 0);
               const currentChangeCount = observation.addedListingRefs.length +
                 observation.removedListingRefs.length + observation.changedListingRefs.length;
+              const selection = data.selection.selections.find((item) =>
+                item.routeFamilyId === family.routeFamilyId
+              );
               return (
                 <article className="standing-route-family" key={family.routeFamilyId}>
                   <div className="standing-route-family-main">
@@ -9210,6 +9213,13 @@ function StandingRouteMemory({ revision }: { revision: string }) {
                         {standingRouteStateLabel(observation.state)}
                       </Badge>
                       <span>{family.routeLayer.replaceAll("_", " ").toLowerCase()}</span>
+                      {selection !== undefined ? (
+                        <Badge variant={selection.recommendation === "ADOPT"
+                          ? "verified"
+                          : selection.recommendation === "RETIRE" ? "warning" : "muted"}>
+                          {selection.recommendation}
+                        </Badge>
+                      ) : null}
                     </div>
                     <h3>{family.canonicalSearchSignals.join(" · ")}</h3>
                     <p>
@@ -9228,6 +9238,16 @@ function StandingRouteMemory({ revision }: { revision: string }) {
                         </li>
                       ))}
                     </ol>
+                    {selection !== undefined ? (
+                      <div className="standing-route-selection-note">
+                        <strong>{selection.rationale}</strong>
+                        <span>
+                          {selection.missingObservation === null
+                            ? selection.nextReviewTrigger
+                            : `Missing: ${selection.missingObservation}`}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="standing-route-family-value">
                     <div>

@@ -1349,6 +1349,28 @@ main {
   line-height: 1.5;
 }
 
+.standing-route-selection-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 13px;
+  border-left: 2px solid #4b4858;
+  padding-left: 10px;
+}
+
+.standing-route-selection-note strong {
+  color: #b9b7c0;
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.45;
+}
+
+.standing-route-selection-note span {
+  color: #777680;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
 .standing-route-timeline {
   display: flex;
   overflow-x: auto;

@@ -127,6 +127,8 @@ import {
 } from "./standing-route-seeding-campaign.js";
 import { buildStandingRouteSeedOutcomeProjection } from
   "./standing-route-seeding-outcomes.js";
+import { buildStandingRouteFamilySelectionProjection } from
+  "./standing-route-family-selection.js";
 import {
   compileRelationDiscoveryFindingsForSemanticReview,
   relationDiscoveryReviewLane,
@@ -2753,6 +2755,11 @@ export function createControlPlane(options?: {
   const reconcileRelationDiscoveryTasks = (): void => {
     if (relationDiscoveryStore === null) return;
     const corpus = catalogObservationDesk.corpus();
+    // A refresh may temporarily publish no eligible anonymous listings. That is
+    // transport unavailability, not evidence that every retained route member
+    // disappeared, and it cannot supply the source time required by a new task
+    // revision. Preserve the last durable reconciliation until evidence returns.
+    if (corpus.listingCount === 0) return;
     const proposals = marketOntologyAgentProposalStore
       ?.loadMarketOntologyAgentProposals(200) ?? [];
     const retainedOntologyRevisions = ontologySearchIssueRevisionStore
@@ -4208,6 +4215,20 @@ export function createControlPlane(options?: {
         opportunities,
         observedAt,
       });
+      const seedOutcomes = buildStandingRouteSeedOutcomeProjection({
+        execution,
+        taskRevisions: relationDiscoveryStore
+          ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
+        findings: findingsForValue,
+        standingRoutes: projection,
+        observedAt,
+      });
+      const selection = buildStandingRouteFamilySelectionProjection({
+        routes: projection,
+        value,
+        seedOutcomes,
+        observedAt,
+      });
       writeJson(response, 200, Object.freeze({
         ...projection,
         followupCount: followups.length,
@@ -4215,6 +4236,7 @@ export function createControlPlane(options?: {
         observationEpisodeCount: episodes.length,
         observationEpisodes: episodes,
         value,
+        selection,
       }));
       return;
     }
@@ -6753,7 +6775,13 @@ export function createControlPlane(options?: {
         void broadcastProjection();
         void invocation.promise.then(
           () => {
-            reconcileRelationDiscoveryTasks();
+            try {
+              reconcileRelationDiscoveryTasks();
+            } catch {
+              // Retained tasks and route episodes remain authoritative. A later
+              // successful refresh retries reconciliation without terminating
+              // the long-running control plane.
+            }
             void broadcastProjection();
             tickSearchIssues();
           },

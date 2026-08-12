@@ -42,6 +42,7 @@ export * from "./standing-ontology-routes.js";
 export * from "./standing-route-seeding.js";
 export * from "./standing-route-seeding-campaign.js";
 export * from "./standing-route-seeding-outcomes.js";
+export * from "./standing-route-family-selection.js";
 export * from "./research-attention-allocation.js";
 export * from "./research-action-targets.js";
 export * from "./research-decision-outcomes.js";

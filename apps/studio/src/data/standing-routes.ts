@@ -106,6 +106,36 @@ export type StandingRouteDesk = Readonly<{
     externalWriteAuthority: false;
     valueMovingAuthority: false;
   }>;
+  selection: Readonly<{
+    schemaVersion: "pmh.standing-route-family-selection-projection.v1";
+    familyCount: number;
+    adoptCount: number;
+    holdCount: number;
+    retireCount: number;
+    quietReviewHorizonMs: string;
+    unproductiveWakeMinimum: number;
+    selections: ReadonlyArray<Readonly<{
+      selectionId: string;
+      routeFamilyId: string;
+      recommendation: "ADOPT" | "HOLD" | "RETIRE";
+      reason: string;
+      rationale: string;
+      missingObservation: string | null;
+      nextReviewTrigger: string;
+      seedConflictCount: number;
+      cleanSeedCount: number;
+      observedWakeCount: number;
+      attemptedFollowupRunCount: number;
+    }>>;
+    providerRequestsStartedByRead: 0;
+    modelInvocationsStartedByRead: 0;
+    campaignsCreatedByRead: 0;
+    runsCreatedByRead: 0;
+    writesStartedByRead: 0;
+    automaticMutation: false;
+    automaticDispatch: false;
+    authority: "ROUTE_PORTFOLIO_RECOMMENDATION_ONLY";
+  }>;
   providerRequestsStartedByRead: 0;
   modelInvocationsStartedByRead: 0;
   campaignsCreatedByRead: 0;
@@ -259,11 +289,22 @@ export function parseStandingRouteDesk(value: unknown): StandingRouteDesk {
   if (
     candidate.schemaVersion !== "pmh.standing-ontology-route-projection.v1" ||
     candidate.value?.schemaVersion !== "pmh.standing-ontology-route-value-projection.v2" ||
+    candidate.selection?.schemaVersion !==
+      "pmh.standing-route-family-selection-projection.v1" ||
     !Array.isArray(candidate.families) || !Array.isArray(candidate.observationEpisodes) ||
     !Array.isArray(candidate.value.values) ||
     candidate.familyCount !== candidate.families.length ||
     candidate.observationEpisodeCount !== candidate.observationEpisodes.length ||
     candidate.value.familyCount !== candidate.value.values.length ||
+    candidate.selection.familyCount !== candidate.selection.selections.length ||
+    candidate.selection.familyCount !== candidate.familyCount ||
+    candidate.selection.adoptCount + candidate.selection.holdCount +
+      candidate.selection.retireCount !== candidate.selection.familyCount ||
+    candidate.selection.selections.some((item) =>
+      typeof item.routeFamilyId !== "string" ||
+      !["ADOPT", "HOLD", "RETIRE"].includes(item.recommendation) ||
+      typeof item.rationale !== "string" || typeof item.nextReviewTrigger !== "string"
+    ) ||
     candidate.families.some((item) =>
       typeof item.family?.routeFamilyId !== "string" ||
       !Array.isArray(item.family.canonicalSearchSignals) ||
@@ -294,6 +335,14 @@ export function parseStandingRouteDesk(value: unknown): StandingRouteDesk {
     candidate.value.executionAuthority !== false ||
     candidate.value.externalWriteAuthority !== false ||
     candidate.value.valueMovingAuthority !== false
+    || candidate.selection.providerRequestsStartedByRead !== 0
+    || candidate.selection.modelInvocationsStartedByRead !== 0
+    || candidate.selection.campaignsCreatedByRead !== 0
+    || candidate.selection.runsCreatedByRead !== 0
+    || candidate.selection.writesStartedByRead !== 0
+    || candidate.selection.automaticMutation !== false
+    || candidate.selection.automaticDispatch !== false
+    || candidate.selection.authority !== "ROUTE_PORTFOLIO_RECOMMENDATION_ONLY"
   ) throw new Error("Standing route desk crossed its bounded read contract");
   return candidate;
 }

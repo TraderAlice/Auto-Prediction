@@ -1,6 +1,6 @@
 # Standing route seeding portfolio
 
-Status: active mainline qualification — first paused live portfolio retained
+Status: active mainline qualification — family selection policy in progress
 
 Created: 2026-08-13
 
@@ -94,7 +94,7 @@ compile them. A counterexample or abstention is a valid terminal outcome.
 
 - [x] Show selected/held/omitted route seeds alongside existing route lifecycle
   value: authoring cost, quiet time, wake cost, reviewed yield, and overlap.
-- [ ] Define `ADOPT`, `HOLD`, and `RETIRE` signals per family. A quiet route is
+- [x] Define `ADOPT`, `HOLD`, and `RETIRE` signals per family. A quiet route is
   not automatically bad; retirement requires a named cost/horizon/overlap rule.
 - [x] Recurring route seeding remains unavailable until each layer has at least
   three terminal seed attempts or is explicitly classified as structurally
@@ -161,13 +161,57 @@ compile them. A counterexample or abstention is a valid terminal outcome.
   output as `RESULT_TOOL_FINAL`, and use an app-server settle hook to answer the
   pending dynamic-tool RPC without starting another inference turn.
 
+## Phase 5 — route-family selection policy
+
+The route family is an experimental asset, not an immortal configuration. A
+provider-free selector will compare exact family state, durable lifecycle
+episodes, downstream yield, authoring/follow-up cost, and any route-seed
+conflict. It emits a recommendation only; it does not disable, dispatch, delete,
+or rewrite a family.
+
+- `ADOPT`: the route has produced clean downstream semantic-review,
+  probability, or opportunity progress. A wake alone is not adoption evidence.
+- `HOLD`: evidence is immature, a current wake is awaiting bounded work, or the
+  source Agent retained conflicting terminal effects. Conflict requires a later
+  clean seed for that same family before adoption; source overlap alone cannot
+  wash the provenance clean.
+- `RETIRE`: the literal query is currently too broad, or at least three observed
+  wakes and three attempted follow-ups produced no positive finding. Retirement
+  remains an operator decision; the projection names the failed horizon.
+- Quiet routes receive at least seven days of observation before inertness is a
+  retirement-review signal. Authoring cost is retained but is a sunk cost, not
+  itself a reason to keep or delete a route.
+- Exact family identity already collapses duplicate layer/signal/field routes;
+  `sourceCount` and `baselineDisagreement` expose corroboration versus overlap
+  ambiguity rather than pretending that repeated sources are independent yield.
+- Live qualification also exposed a durability boundary outside the selector:
+  an empty transient catalog refresh reached relation-task materialization,
+  lacked any source receive time, and could terminate the process from an
+  uncontained interval callback. Empty corpus now preserves the last durable
+  route/task reconciliation, and background reconciliation failure is contained
+  for retry after later evidence. Transport absence is not a mass contraction.
+- The pre-fix empty refresh remains visible as `CONTRACTED → QUIESCENT`
+  lifecycle episodes for all three families. Those immutable episodes are kept
+  as negative operational evidence, but `CONTRACTED` is not wake-eligible and
+  contributes no downstream-yield credit.
+- The real selection projection reports `0 ADOPT / 3 HOLD / 0 RETIRE`:
+  settlement and legacy subject memory await a first wake, while the event
+  family is held specifically for one later conflict-free seed. Cold browser
+  qualification shows these reasons without horizontal overflow or new
+  application errors. The 2.3 MB main projection takes roughly 13 seconds and
+  the route endpoint roughly 21 seconds on the live SQLite state; separating
+  route memory from main-workspace readiness is now explicit UI performance
+  debt rather than a hidden correctness failure.
+
 ## Next evidence target
 
-The portfolio mechanics are qualified, but no seed Agent has yet produced a
-terminal native route or counterexample. The next bounded evidence question is
-whether event and settlement route authoring produces reusable literal sensors
-at acceptable cost. Recurrence stays blocked; operator activation of the
-retained paused campaign is the next spend-bearing decision.
+Two native seed families now exist, but none of the three retained families has
+observed a novelty wake. The next bounded question is whether the first wake
+produces a clean reviewable relation at lower marginal cost than authoring.
+Until then the families should remain `HOLD`; the event family also carries its
+historical conflicting-result provenance. Route seeding recurrence stays
+blocked because every layer remains below the three-terminal-attempt evidence
+gate. No further model spend is justified merely to populate the portfolio.
 
 ## Authority boundary
 

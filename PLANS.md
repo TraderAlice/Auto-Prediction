@@ -430,6 +430,33 @@ runs stop at the first accepted explicit result tool; the validated canonical
 tool output becomes the terminal artifact, while an app-server-specific settle
 step answers the pending dynamic-tool RPC without another model request.
 
+The next mainline slice treats each standing route family as an experimental
+asset under selection. A zero-inference projection will recommend `ADOPT`,
+`HOLD`, or `RETIRE` from durable wake history, downstream yield, exact cost,
+query breadth, corroboration, and retained seed conflicts. It cannot mutate or
+dispatch a family. Current evidence implies `HOLD`: the three families have not
+yet woken, and the event family needs clean corroboration after its historical
+route-plus-counterexample result. A quiet family gets a seven-day observation
+horizon; retirement for low yield requires at least three wakes and three
+attempted follow-ups with no positive finding.
+
+During live qualification, a transient empty catalog refresh also exposed an
+uncontained background exception in relation-task reconciliation. Empty source
+state has no receive time and must not be interpreted as every route member
+disappearing. The control plane now preserves the last durable reconciliation
+through empty refreshes and contains interval reconciliation failures for later
+retry instead of terminating the persistent research process.
+
+The live family selector currently reports `0 ADOPT / 3 HOLD / 0 RETIRE`.
+Settlement and legacy subject memory await a first wake; the event route is
+held for a later conflict-free seed. The erroneous pre-fix empty refresh remains
+in immutable lifecycle history as contraction evidence but receives no wake or
+yield credit. Cold Studio qualification passes with no new application errors
+or horizontal overflow. It also measures the next product-performance debt:
+the 2.3 MB main projection takes about 13 seconds and the dedicated standing-
+route read about 21 seconds on current SQLite state, so route memory should no
+longer block initial workspace readiness.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,
