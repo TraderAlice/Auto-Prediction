@@ -115,6 +115,17 @@ authority check now precedes that work. Remaining views still use the global
 projection, so the Phase 4 checkbox remains open until each expensive surface
 has its own bounded read model and cache/invalidation policy.
 
+The same research-state revision now governs recurring semantic-review and
+evidence-demand derivations. Timers still wake their schedulers at the
+configured cadence, but unchanged retained state reuses the exact frozen base
+candidate, evidence-enrichment, economic-priority and admitted-demand objects.
+Only a durable research-state broadcast invalidates those caches. On the live
+ledger, a 30-second readiness sample after startup answered 30/30 requests
+within the one-second bound; idle CPU stayed around 0–0.9% with only brief
+single-digit/low-teens scheduler pulses, instead of recurring multi-second
+100% event-loop stalls. This is the intended control-loop ontology: elapsed
+time authorizes a check, while changed evidence authorizes recomputation.
+
 ## Initial qualification
 
 The first mainline slice implements Phase 1 completely and Phase 2 far enough

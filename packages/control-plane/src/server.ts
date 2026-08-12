@@ -1966,10 +1966,24 @@ export function createControlPlane(options?: {
     ].slice(0, 512));
     return episode;
   };
+  let researchDerivationRevision = 0n;
+  let baseSemanticReviewCandidateCache: Readonly<{
+    revision: bigint;
+    candidates: readonly SemanticReviewCandidate[];
+  }> | null = null;
+  let semanticReviewCandidateCache: Readonly<{
+    revision: bigint;
+    candidates: readonly SemanticReviewCandidate[];
+  }> | null = null;
   const baseSemanticReviewCandidates = (
-    relationCompilations: readonly RelationDiscoveryProposalCompilation[] =
-      relationDiscoveryProposalCompilations(),
+    suppliedRelationCompilations?: readonly RelationDiscoveryProposalCompilation[],
   ): readonly SemanticReviewCandidate[] => {
+    if (
+      suppliedRelationCompilations === undefined &&
+      baseSemanticReviewCandidateCache?.revision === researchDerivationRevision
+    ) return baseSemanticReviewCandidateCache.candidates;
+    const relationCompilations = suppliedRelationCompilations ??
+      relationDiscoveryProposalCompilations();
     const reviewableRelationCompilations =
       selectRelationDiscoverySemanticReviewCompilations(relationCompilations);
     const issues = new Map(
@@ -2109,7 +2123,7 @@ export function createControlPlane(options?: {
         });
       }
     }
-    return Object.freeze([...lineage.entries()].flatMap(([proposalId, item]) => {
+    const candidates = Object.freeze([...lineage.entries()].flatMap(([proposalId, item]) => {
       const source = sources.get(proposalId);
       return source === undefined ? [] : [Object.freeze({
         ...source,
@@ -2120,10 +2134,22 @@ export function createControlPlane(options?: {
       right.priority - left.priority ||
       left.proposal.proposalId.localeCompare(right.proposal.proposalId)
     ));
+    if (suppliedRelationCompilations === undefined) {
+      baseSemanticReviewCandidateCache = Object.freeze({
+        revision: researchDerivationRevision,
+        candidates,
+      });
+    }
+    return candidates;
   };
   const semanticReviewCandidates = (
-    baseCandidates: readonly SemanticReviewCandidate[] = baseSemanticReviewCandidates(),
+    suppliedBaseCandidates?: readonly SemanticReviewCandidate[],
   ): readonly SemanticReviewCandidate[] => {
+    if (
+      suppliedBaseCandidates === undefined &&
+      semanticReviewCandidateCache?.revision === researchDerivationRevision
+    ) return semanticReviewCandidateCache.candidates;
+    const baseCandidates = suppliedBaseCandidates ?? baseSemanticReviewCandidates();
     const records = ruleEvidenceClaimDesk.projection().records;
     const capturedInputs = ruleEvidenceClaimInputs();
     const catalogInputs = catalogRuleEvidenceInputs(baseCandidates);
@@ -2140,13 +2166,20 @@ export function createControlPlane(options?: {
       records,
       existingClaimsByProposal: existingClaims,
     });
-    return applyProposalEconomicPriority(
+    const prioritized = applyProposalEconomicPriority(
       candidates,
       buildProposalEconomicTriage({
         candidates,
         corpus: catalogObservationDesk.corpus(),
       }),
     );
+    if (suppliedBaseCandidates === undefined) {
+      semanticReviewCandidateCache = Object.freeze({
+        revision: researchDerivationRevision,
+        candidates: prioritized,
+      });
+    }
+    return prioritized;
   };
   const premiseAnalysisCandidates = (
     semanticCandidates: readonly SemanticReviewCandidate[] = semanticReviewCandidates(),
@@ -2561,8 +2594,23 @@ export function createControlPlane(options?: {
       [requirement.requirementId, requirement] as const
     )).values()]);
   };
-  const evidenceRequirements = (): readonly EvidenceRequirement[] =>
-    officialSourceDiscoveryScheduler.applyAdmissions(retainedEvidenceRequirements());
+  let evidenceDemandCache: Readonly<{
+    revision: bigint;
+    requirements: readonly EvidenceRequirement[];
+  }> | null = null;
+  const evidenceRequirements = (): readonly EvidenceRequirement[] => {
+    if (evidenceDemandCache?.revision === researchDerivationRevision) {
+      return evidenceDemandCache.requirements;
+    }
+    const requirements = officialSourceDiscoveryScheduler.applyAdmissions(
+      retainedEvidenceRequirements(),
+    );
+    evidenceDemandCache = Object.freeze({
+      revision: researchDerivationRevision,
+      requirements,
+    });
+    return requirements;
+  };
   const ruleEvidenceClaimInputs = (): readonly RuleEvidenceClaimInput[] => Object.freeze(
     evidenceAcquisitionScheduler.projection().jobs.flatMap((job) => {
       if (job.status !== "CAPTURED") return [];
@@ -4445,6 +4493,10 @@ export function createControlPlane(options?: {
   const broadcastProjection = async (): Promise<void> => {
     await ready;
     synchronizeLifecycleSources();
+    // Any durable research-state transition may change evidence demand. The
+    // recurring acquisition timer can reuse its last derivation until such a
+    // transition occurs; elapsed wall time alone is not evidence novelty.
+    researchDerivationRevision += 1n;
     projectionRevision += 1n;
     if (subscribers.size === 0 || invalidationFlushTimer !== null) return;
     invalidationFlushTimer = setTimeout(flushProjectionInvalidation, 25);
