@@ -5,6 +5,7 @@ import {
 } from "./market-archaeologist.js";
 import {
   assertRuleEvidenceClaim,
+  isCatalogRuleEvidenceClaim,
   type DocumentRuleEvidenceClaim,
   type RuleEvidenceClaim,
 } from "./rule-evidence-claim.js";
@@ -114,13 +115,13 @@ function sourceClaimBindings(
     requirementId: claim.requirementId,
     claimId: claim.claimId,
     claimArtifactHash: claim.artifactHash,
-    sourceKind: claim.schemaVersion === "pmh.rule-evidence-claim.v3"
+    sourceKind: isCatalogRuleEvidenceClaim(claim)
       ? claim.sourceKind
       : "DOCUMENT_EXTRACTION" as const,
-    sourceArtifactId: claim.schemaVersion === "pmh.rule-evidence-claim.v3"
+    sourceArtifactId: isCatalogRuleEvidenceClaim(claim)
       ? claim.sourceArtifactId
       : claim.documentId,
-    textArtifactId: claim.schemaVersion === "pmh.rule-evidence-claim.v3"
+    textArtifactId: isCatalogRuleEvidenceClaim(claim)
       ? claim.textArtifactId
       : claim.extractionId,
     disposition: claim.disposition,
@@ -140,7 +141,7 @@ export function buildEvidenceEnrichedSemanticScope(input: Readonly<{
     throw new Error("evidence-enriched semantic scope claim belongs to another proposal");
   }
   const hasCatalogClaim = claims.some(
-    (claim) => claim.schemaVersion === "pmh.rule-evidence-claim.v3",
+    isCatalogRuleEvidenceClaim,
   );
   const bindings = hasCatalogClaim
     ? sourceClaimBindings(claims)

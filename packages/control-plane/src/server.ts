@@ -12,6 +12,10 @@ import {
 import type { CatalogContractTextEvidenceStore } from
   "./catalog-contract-text-evidence.js";
 import {
+  buildContractSemanticContinuity,
+  type ContractSemanticContinuityStore,
+} from "./contract-semantic-continuity.js";
+import {
   CatalogRefreshScheduler,
   parseCatalogRefreshInterval,
 } from "./catalog-refresh-scheduler.js";
@@ -654,6 +658,15 @@ function supportsCatalogContractTextEvidence(
   const candidate = store as Partial<CatalogContractTextEvidenceStore>;
   return typeof candidate.loadCatalogContractTextEvidence === "function" &&
     typeof candidate.saveCatalogContractTextEvidence === "function";
+}
+
+function supportsContractSemanticContinuities(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ContractSemanticContinuityStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ContractSemanticContinuityStore>;
+  return typeof candidate.loadContractSemanticContinuities === "function" &&
+    typeof candidate.saveContractSemanticContinuity === "function";
 }
 
 function supportsCandidateWatch(
@@ -2121,9 +2134,15 @@ export function createControlPlane(options?: {
             item.requirementId !== requirementId
           ) return false;
           return supplies.some((input) => input.source.kind === "CATALOG_CONTRACT_TEXT"
-            ? "sourceKind" in item &&
+            ? "sourceKind" in item && (
               item.sourceArtifactId === input.source.sourceArtifactId &&
-              item.textArtifactId === input.source.textArtifactId
+              item.textArtifactId === input.source.textArtifactId ||
+              item.claim?.schemaVersion === "pmh.rule-evidence-claim.v4" &&
+              input.semanticContinuity !== null &&
+              item.claim.contractSemanticIdentity ===
+                input.semanticContinuity.contractSemanticIdentity &&
+              item.claim.textHash === input.source.textHash
+            )
             : !("sourceKind" in item) &&
               item.documentId === input.source.sourceArtifactId &&
               item.extractionId === input.source.textArtifactId);
@@ -2582,7 +2601,21 @@ export function createControlPlane(options?: {
     const currentListings = new Map(catalogObservationDesk.corpus().listings.map(
       (listing) => [listing.listingRef, listing] as const,
     ));
-    return Object.freeze(evidenceRequirements().flatMap((requirement) => {
+    const baseCandidates = baseSemanticReviewCandidates();
+    const semanticListingsByProposal = new Map(baseCandidates
+      .flatMap((candidate) => candidate.evidenceBundle === null
+        ? []
+        : candidate.evidenceBundle.listings.map((listing) => [
+            `${candidate.proposal.proposalId}\u0000${listing.listingRef}`,
+            Object.freeze({
+              listing,
+              sourceArtifactId: candidate.evidenceBundle!.bundleId,
+            }),
+          ] as const)));
+    const requirements = officialSourceDiscoveryScheduler.applyAdmissions(
+      retainedEvidenceRequirements(baseCandidates),
+    );
+    return Object.freeze(requirements.flatMap((requirement) => {
       if (
         !supportsCatalogRuleEvidenceRequirementKind(requirement.kind) ||
         requirement.temporalPosture !== "CURRENT" ||
@@ -2594,12 +2627,39 @@ export function createControlPlane(options?: {
         listing.rulesTextPosture !== "COMPLETE"
       ) return [];
       try {
+        const catalogTextEvidence =
+          catalogObservationDesk.materializeContractTextEvidence(listing.listingRef);
+        if (catalogTextEvidence.schemaVersion !==
+            "pmh.catalog-contract-text-evidence.v2") return [];
+        const observation = requirement.sourceObservations[0]!;
+        const exactCurrent = observation.listingHash ===
+            catalogTextEvidence.discoveryListingHash &&
+          observation.sourceRawHash === catalogTextEvidence.sourceRawHash &&
+          observation.sourceReceivedAt === catalogTextEvidence.receivedAt;
+        const semanticSource = semanticListingsByProposal.get(
+          `${requirement.proposalId}\u0000${listing.listingRef}`,
+        );
+        const semanticContinuity = exactCurrent || semanticSource === undefined ||
+              hashCanonical(semanticSource.listing) !== observation.listingHash
+            ? null
+            : buildContractSemanticContinuity({
+                priorListing: semanticSource.listing,
+                priorSemanticSourceArtifactId: semanticSource.sourceArtifactId,
+                currentListing: listing,
+                currentCatalogTextEvidence: catalogTextEvidence,
+              });
+        if (!exactCurrent && semanticContinuity === null) return [];
+        const retainedContinuity = semanticContinuity === null
+          ? null
+          : supportsContractSemanticContinuities(options?.discoveryStore)
+            ? options.discoveryStore.saveContractSemanticContinuity(semanticContinuity)
+            : semanticContinuity;
         const input: RuleEvidenceTextInput = Object.freeze({
           requirement,
-          catalogTextEvidence:
-            catalogObservationDesk.materializeContractTextEvidence(
-              listing.listingRef,
-            ),
+          catalogTextEvidence,
+          ...(retainedContinuity === null
+            ? {}
+            : { semanticContinuity: retainedContinuity }),
         });
         validateRuleEvidenceTextInput(input);
         return [input];

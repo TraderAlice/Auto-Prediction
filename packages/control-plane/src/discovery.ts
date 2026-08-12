@@ -12,9 +12,11 @@ import type {
 } from "./types.js";
 import {
   hasBoundedRulesEvidence,
+} from "./catalog-discovery.js";
+import {
   MAX_AGENT_RULE_CHARACTERS,
   MAX_CATALOG_CONTEXT_CHARACTERS,
-} from "./catalog-discovery.js";
+} from "./catalog-limits.js";
 import { hasBoundedDiscoveryEvidenceLocators } from "./discovery-evidence-locator.js";
 
 const SEARCH_STOPWORDS = new Set([

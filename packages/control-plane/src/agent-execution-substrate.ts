@@ -6,6 +6,7 @@ import {
 } from "./evidence-document.js";
 import {
   type RuleEvidenceTextInput,
+  type ValidatedRuleEvidenceTextInput,
   validateRuleEvidenceTextInput,
 } from "./rule-evidence-text-source.js";
 import {
@@ -1028,6 +1029,36 @@ export function buildRuleEvidenceAgentTask(
       createdAt: capture.observation.receivedAt,
     });
   }
+  if (validated.semanticContinuity !== null) {
+    const continuity = validated.semanticContinuity;
+    const taskPayload = semanticContinuityRuleEvidenceTaskPayload(validated);
+    return buildAgentTask({
+      kind: "RULE_EVIDENCE_CLAIM",
+      protocol: "RULE_EVIDENCE_TASK_V3",
+      inputArtifacts: Object.freeze([
+        Object.freeze({
+          kind: "EVIDENCE_REQUIREMENT",
+          artifactId: requirement.requirementId,
+          artifactHash: hashCanonical(requirement),
+        }),
+        Object.freeze({
+          kind: "CONTRACT_SEMANTICS",
+          artifactId: continuity.contractSemanticIdentity,
+          artifactHash: hashCanonical(continuity.contractSemantics),
+        }),
+        Object.freeze({
+          kind: "CATALOG_CONTRACT_TEXT_FIELD",
+          artifactId: continuity.rulesTextHash,
+          artifactHash: continuity.rulesTextHash,
+        }),
+      ]),
+      taskPayload,
+      requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
+      provenanceRef: `rule-evidence:${requirement.requirementId}`,
+      priority: input.priority ?? 0,
+      createdAt: continuity.priorSourceReceivedAt,
+    });
+  }
   return buildAgentTask({
     kind: "RULE_EVIDENCE_CLAIM",
     protocol: "RULE_EVIDENCE_TASK_V2",
@@ -1056,12 +1087,37 @@ export function buildRuleEvidenceAgentTask(
   });
 }
 
+function semanticContinuityRuleEvidenceTaskPayload(
+  validated: ValidatedRuleEvidenceTextInput,
+): Readonly<Record<string, unknown>> {
+  const requirement = validated.requirement;
+  const continuity = validated.semanticContinuity!;
+  return Object.freeze({
+    schemaVersion: "pmh.rule-evidence-agent-task-payload.v3",
+    requirementId: requirement.requirementId,
+    proposalId: requirement.proposalId,
+    requirementKind: requirement.kind,
+    temporalPosture: requirement.temporalPosture,
+    acquisitionScopeIdentity: requirement.acquisitionScopeIdentity,
+    claim: requirement.claim,
+    satisfyingObservation: requirement.satisfyingObservation,
+    contradictingObservation: requirement.contradictingObservation,
+    sourceKind: validated.source.kind,
+    listingRef: validated.source.listingRef,
+    contractSemanticIdentity: continuity.contractSemanticIdentity,
+    rulesTextHash: continuity.rulesTextHash,
+  });
+}
+
 export function buildRuleEvidenceAgentTaskPayload(
   input: RuleEvidenceTextInput,
 ): Readonly<Record<string, unknown>> {
   const validated = validateRuleEvidenceTextInput(input);
   const requirement = validated.requirement;
   const source = validated.source;
+  if (validated.semanticContinuity !== null) {
+    return semanticContinuityRuleEvidenceTaskPayload(validated);
+  }
   if (source.kind === "DOCUMENT_EXTRACTION") {
     const capture = validated.capture!;
     return Object.freeze({
@@ -1091,6 +1147,7 @@ export function buildRuleEvidenceAgentTaskPayload(
     sourceRawHash: source.sourceRawHash,
     textHash: source.textHash,
     listingRef: source.listingRef,
+    semanticContinuityId: source.semanticContinuityId,
   });
 }
 

@@ -1538,6 +1538,25 @@ first slice is provider-free and additive. Only after durable retention and
 requirement matching qualify may a provider-neutral Rule Evidence AgentTask
 interpret the exact LAFC text through its selected execution profile.
 
+That continuation is now live-qualified. SQLite schema 47 separates an exact
+catalog observation from the contract semantics it carries: each continuity
+artifact retains the prior listing, current catalog-field artifact, both raw
+and temporal lineages, exact semantic projection and text hash. The existing
+ledger retained eight such proofs and recovered eleven Rule Evidence v3 tasks
+where the prior exact-observation path supplied none. Unchanged contract text
+and semantics now preserve the research task while changed semantics fail
+closed; final v4 claims still bind the exact current observation they read.
+
+One manual Codex app-server / `gpt-5.6-terra` high LAFC run used eight model
+invocations, 151,110 input, 840 output and 315 reasoning tokens. All eight tool
+effects were accepted, and the terminal v4 claim correctly remained
+`INCONCLUSIVE`: Polymarket US states elimination, cancellation and multi-winner
+treatment but omits the single-winner affirmative mapping, controlling result
+source and finality standard. This narrows the oracle debt without fabricating
+equivalence. Live replay also made pre-runtime task/input failures concrete and
+showed that the product must distinguish current runnable work from superseded
+audit history before recurrence expands.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

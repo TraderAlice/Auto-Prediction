@@ -1,9 +1,7 @@
 import { hashBytes, hashCanonical, type Hash } from "@pmh/domain";
 import { verifyRawFixture } from "@pmh/evidence";
-import {
-  MAX_RETAINED_RULE_CHARACTERS,
-  toDiscoveryCatalogListing,
-} from "./catalog-discovery.js";
+import { toDiscoveryCatalogListing } from "./catalog-discovery.js";
+import { MAX_RETAINED_RULE_CHARACTERS } from "./catalog-limits.js";
 import {
   verifyStoredCatalogObservation,
   type CatalogObservationSource,

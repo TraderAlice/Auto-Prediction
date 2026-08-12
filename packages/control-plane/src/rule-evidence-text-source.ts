@@ -12,6 +12,10 @@ import {
   type EvidenceRequirement,
   type EvidenceRequirementKind,
 } from "./evidence-requirement.js";
+import {
+  assertContractSemanticContinuity,
+  type ContractSemanticContinuity,
+} from "./contract-semantic-continuity.js";
 
 const CATALOG_TEXT_REQUIREMENT_KINDS = Object.freeze([
   "RESOLUTION_RULE",
@@ -39,6 +43,7 @@ export type RuleEvidenceTextInput =
       requirement: EvidenceRequirement;
       capture?: never;
       catalogTextEvidence: CatalogContractTextEvidence;
+      semanticContinuity?: ContractSemanticContinuity;
     }>;
 
 export type RuleEvidenceTextSource = Readonly<{
@@ -52,6 +57,7 @@ export type RuleEvidenceTextSource = Readonly<{
   characterLength: number;
   receivedAt: string;
   listingRef: string | null;
+  semanticContinuityId: Hash | null;
 }>;
 
 export type ValidatedRuleEvidenceTextInput = Readonly<{
@@ -59,6 +65,7 @@ export type ValidatedRuleEvidenceTextInput = Readonly<{
   source: RuleEvidenceTextSource;
   capture: EvidenceDocumentCapture | null;
   catalogTextEvidence: CatalogContractTextEvidence | null;
+  semanticContinuity: ContractSemanticContinuity | null;
 }>;
 
 export function validateRuleEvidenceTextInput(
@@ -84,6 +91,7 @@ export function validateRuleEvidenceTextInput(
       requirement,
       capture,
       catalogTextEvidence: null,
+      semanticContinuity: null,
       source: Object.freeze({
         kind: "DOCUMENT_EXTRACTION" as const,
         observationId: capture.observation.observationId,
@@ -95,10 +103,14 @@ export function validateRuleEvidenceTextInput(
         characterLength: capture.extraction.record.characterLength,
         receivedAt: capture.observation.receivedAt,
         listingRef: null,
+        semanticContinuityId: null,
       }),
     });
   }
   const evidence = assertCatalogContractTextEvidence(input.catalogTextEvidence);
+  const continuity = input.semanticContinuity === undefined
+    ? null
+    : assertContractSemanticContinuity(input.semanticContinuity);
   const observation = requirement.sourceObservations.find(
     (item) => item.listingRef === evidence.listingRef,
   );
@@ -108,9 +120,18 @@ export function validateRuleEvidenceTextInput(
     requirement.listingRefs.length !== 1 ||
     observation === undefined ||
     evidence.schemaVersion !== "pmh.catalog-contract-text-evidence.v2" ||
-    observation.listingHash !== evidence.discoveryListingHash ||
-    observation.sourceRawHash !== evidence.sourceRawHash ||
-    observation.sourceReceivedAt !== evidence.receivedAt ||
+    (continuity === null
+      ? observation.listingHash !== evidence.discoveryListingHash ||
+        observation.sourceRawHash !== evidence.sourceRawHash ||
+        observation.sourceReceivedAt !== evidence.receivedAt
+      : continuity.priorListingHash !== observation.listingHash ||
+        continuity.priorSourceRawHash !== observation.sourceRawHash ||
+        continuity.priorSourceReceivedAt !== observation.sourceReceivedAt ||
+        continuity.currentListingHash !== evidence.discoveryListingHash ||
+        continuity.currentSourceRawHash !== evidence.sourceRawHash ||
+        continuity.currentSourceReceivedAt !== evidence.receivedAt ||
+        continuity.currentCatalogTextArtifactId !== evidence.artifactId ||
+        continuity.listingRef !== evidence.listingRef) ||
     observation.venueId !== evidence.venueId ||
     observation.protocolIdentity !== evidence.protocolIdentity
   ) {
@@ -122,6 +143,7 @@ export function validateRuleEvidenceTextInput(
     requirement,
     capture: null,
     catalogTextEvidence: evidence,
+    semanticContinuity: continuity,
     source: Object.freeze({
       kind: "CATALOG_CONTRACT_TEXT" as const,
       observationId: evidence.catalogObservationId,
@@ -133,6 +155,7 @@ export function validateRuleEvidenceTextInput(
       characterLength: evidence.characterLength,
       receivedAt: evidence.receivedAt,
       listingRef: evidence.listingRef,
+      semanticContinuityId: continuity?.continuityId ?? null,
     }),
   });
 }
@@ -159,5 +182,8 @@ export function ruleEvidenceTextInputFromValidated(
     : Object.freeze({
         requirement: validated.requirement,
         catalogTextEvidence: validated.catalogTextEvidence!,
+        ...(validated.semanticContinuity === null
+          ? {}
+          : { semanticContinuity: validated.semanticContinuity }),
       });
 }

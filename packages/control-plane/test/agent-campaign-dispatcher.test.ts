@@ -312,6 +312,38 @@ describe("Agent campaign dispatcher", () => {
     item.store.close();
   });
 
+  it("retains the bounded pre-runtime failure instead of hiding it", async () => {
+    const item = fixture(1);
+    const work = item.tasks[0]!.task;
+    const profile = item.registry.snapshot().executionProfiles[0]!;
+    const broken = new AgentCampaignDispatcher({
+      registry: item.registry,
+      credentialBroker: new AgentCredentialBroker([]),
+      adapters: [new InProcessAgentRuntimeAdapter(async () => {
+        throw new Error("fixture adapter must not open");
+      })],
+      toolHost: {
+        manifest: () => Object.freeze([]),
+        execute: async () => Object.freeze({ status: "REJECTED" as const, output: {} }),
+      },
+      taskPayload: () => {
+        throw new Error("exact input revision disappeared");
+      },
+      now: item.time.now,
+    });
+    const dispatched = broken.dispatchManual(
+      work.taskId,
+      profile.executionProfileId,
+      "operator:diagnostic-fixture",
+    );
+    await expect(dispatched.completion).resolves.toMatchObject({
+      status: "FAILED",
+      terminalDiagnostic:
+        "campaign dispatcher failed before runtime completion: exact input revision disappeared",
+    });
+    item.store.close();
+  });
+
   it("dispatches only a due effective interval revision and stops after pause", async () => {
     const item = fixture(4, {
       maximumConcurrentRuns: 3,
