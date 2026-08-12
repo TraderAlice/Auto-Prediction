@@ -4,7 +4,7 @@ Status: active mainline construction
 
 Created: 2026-08-13
 
-Branch: `codex/catalog-rich-rule-evidence`
+Branch: `codex/catalog-evidence-agent-supply`
 
 ## North-star role
 
@@ -39,7 +39,7 @@ No synthetic URL or invented document observation may bridge these sources.
 - [x] Persist the text and metadata additively in SQLite and prove restart,
   tamper rejection, idempotency and retention independence from catalog pruning.
 
-Evidence on 2026-08-13: schema 45 stores one content-addressed field artifact
+Evidence on 2026-08-13: schema 46 stores one content-addressed field artifact
 behind a foreign key to the exact raw catalog observation. The artifact binds
 the source hash, normalizer identity, normalized protocol listing hash, a
 versioned `rulesText` field-derivation identity and the final text hash. Focused
@@ -51,24 +51,42 @@ request or model invocation.
 
 ## Phase 2 — requirement-bound supply
 
-- [ ] Admit catalog text only for rule-semantic requirement kinds and only when
+- [x] Admit catalog text only for rule-semantic requirement kinds and only when
   requirement listing ref, venue, protocol, source raw hash and temporal posture
   match exactly.
-- [ ] Keep linked-document and catalog-text supplies separate; do not merge or
+- [x] Keep linked-document and catalog-text supplies separate; do not merge or
   prefer by hash order. One requirement may expose both as alternative evidence.
-- [ ] Reconcile one stable provider-neutral Rule Evidence AgentTask per exact
+- [x] Reconcile one stable provider-neutral Rule Evidence AgentTask per exact
   requirement/evidence artifact without creating a legacy provider-shaped job.
+
+Evidence on 2026-08-13: catalog supply additionally matches the exact discovery
+listing hash and is limited to one current listing for a rule-semantic
+requirement. Historical, multi-listing, stale-hash and cross-listing inputs fail
+closed. Document and catalog supplies produce independent tasks for one
+requirement; only the document path enters the compatibility scheduler. Catalog
+tasks are reconciled after refresh and during projection without model dispatch.
 
 ## Phase 3 — Agent-native claim and operator proof
 
-- [ ] Generalize the Rule Evidence text tools and claim lineage from
+- [x] Generalize the Rule Evidence text tools and claim lineage from
   document-only capture to an exact text-evidence source union while preserving
   all historical document claims byte-for-byte.
-- [ ] Make the legacy `/rule-evidence-claims/:job/run` path compatibility-only;
+- [x] Make the legacy `/rule-evidence-claims/:job/run` path compatibility-only;
   new catalog-text work executes through manual Agent runs or explicit campaigns.
 - [ ] Qualify the retained LAFC oracle-source task with the selected execution
   profile only after preview confirms runtime/model/credential/budget. A second
   interpretation is prohibited until the exact catalog artifact is present.
+
+Evidence on 2026-08-13: the shared first-party search/read/terminal-effect tools
+now resolve passages over a validated text-source union. Historical v1/v2
+document claims and their Agent task identities are unchanged. Catalog claims
+write v3 source lineage into a dedicated schema-46 table with a foreign key to
+the catalog artifact; citation slices are rechecked against retained field text
+on save and restart. Historical document-only enriched scopes retain their exact
+v1 field shape and identity; only catalog-backed scopes use the new source-union
+v2. Semantic-review enrichment selects one current claim per requirement across
+alternative document or catalog supplies. The full suite passes 621 tests with
+zero provider requests or model invocations.
 
 ## Qualification gates
 

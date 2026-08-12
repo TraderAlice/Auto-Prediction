@@ -108,7 +108,7 @@ describe("catalog contract-text evidence", () => {
     expect(restored.catalogContractTextEvidenceStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 45,
+      schemaVersion: 46,
       idempotencyKey: "artifactId",
     });
     expect(restored.loadCatalogContractTextEvidence(10)).toEqual([artifact]);

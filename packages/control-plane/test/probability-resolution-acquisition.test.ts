@@ -157,7 +157,7 @@ describe("anonymous probability resolution acquisition", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(second.projection()).toMatchObject({
       timeUnavailableListingCount: 2,
-      storage: { captures: { durable: true, schemaVersion: 45 }, sources: { durable: true, schemaVersion: 45 } },
+      storage: { captures: { durable: true, schemaVersion: 46 }, sources: { durable: true, schemaVersion: 46 } },
     });
     expect(second.rawSource(rawHash)).not.toBeNull();
     secondStore.close();

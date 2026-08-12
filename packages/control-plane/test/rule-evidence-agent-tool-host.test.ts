@@ -7,6 +7,7 @@ import {
   RuleEvidenceAgentToolHost,
   type AiRuntimeConfiguration,
   type RuleEvidenceClaimModelInput,
+  type ValidatedRuleEvidenceTextInput,
 } from "../src/index.js";
 
 const NOW = "2026-08-10T15:00:00.000Z";
@@ -55,7 +56,24 @@ describe("Rule Evidence first-party Agent tool host", () => {
       },
     } as unknown as RuleEvidenceClaimModelInput;
     const host = new RuleEvidenceAgentToolHost((taskId) =>
-      taskId === task.taskId ? source : null
+      taskId === task.taskId
+        ? ({
+            ...source,
+            source: {
+              kind: "DOCUMENT_EXTRACTION",
+              observationId: hashCanonical({ observation: 1 }),
+              sourceArtifactId: source.capture.document.record.documentId,
+              textArtifactId: source.capture.extraction.record.extractionId,
+              sourceRawHash: hashCanonical({ raw: 1 }),
+              textHash: hashCanonical({ text }),
+              text,
+              characterLength: text.length,
+              receivedAt: NOW,
+              listingRef: null,
+            },
+            catalogTextEvidence: null,
+          } as ValidatedRuleEvidenceTextInput)
+        : null
     );
     const base = {
       run,

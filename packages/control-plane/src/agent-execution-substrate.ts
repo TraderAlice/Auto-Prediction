@@ -5,6 +5,10 @@ import {
   type EvidenceDocumentCapture,
 } from "./evidence-document.js";
 import {
+  type RuleEvidenceTextInput,
+  validateRuleEvidenceTextInput,
+} from "./rule-evidence-text-source.js";
+import {
   assertEvidenceRequirement,
   type EvidenceRequirement,
 } from "./evidence-requirement.js";
@@ -983,22 +987,49 @@ export function buildAgentTask(input: Readonly<{
   }));
 }
 
-export function buildRuleEvidenceAgentTask(input: Readonly<{
-  requirement: EvidenceRequirement;
-  capture: EvidenceDocumentCapture;
-  priority?: number;
-}>): AgentTask {
-  const requirement = assertEvidenceRequirement(input.requirement);
-  const capture = assertEvidenceDocumentCapture(input.capture);
-  if (
-    capture.observation.acquisitionScopeIdentity !== requirement.acquisitionScopeIdentity ||
-    capture.observation.documentId !== capture.document.record.documentId ||
-    capture.extraction.record.documentId !== capture.document.record.documentId ||
-    capture.extraction.record.rawHash !== capture.document.record.rawHash
-  ) throw new Error("Rule Evidence Agent task input lineage is inconsistent");
+export function buildRuleEvidenceAgentTask(
+  input: RuleEvidenceTextInput & Readonly<{ priority?: number }>,
+): AgentTask {
+  const validated = validateRuleEvidenceTextInput(input);
+  const requirement = validated.requirement;
+  const source = validated.source;
+  if (source.kind === "DOCUMENT_EXTRACTION") {
+    const capture = validated.capture!;
+    return buildAgentTask({
+      kind: "RULE_EVIDENCE_CLAIM",
+      protocol: "RULE_EVIDENCE_TASK_V1",
+      inputArtifacts: Object.freeze([
+        Object.freeze({
+          kind: "EVIDENCE_REQUIREMENT",
+          artifactId: requirement.requirementId,
+          artifactHash: hashCanonical(requirement),
+        }),
+        Object.freeze({
+          kind: "EVIDENCE_OBSERVATION",
+          artifactId: capture.observation.observationId,
+          artifactHash: hashCanonical(capture.observation),
+        }),
+        Object.freeze({
+          kind: "EVIDENCE_DOCUMENT",
+          artifactId: capture.document.record.documentId,
+          artifactHash: capture.document.record.rawHash,
+        }),
+        Object.freeze({
+          kind: "EVIDENCE_EXTRACTION",
+          artifactId: capture.extraction.record.extractionId,
+          artifactHash: capture.extraction.record.textHash,
+        }),
+      ]),
+      taskPayload: buildRuleEvidenceAgentTaskPayload(input),
+      requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
+      provenanceRef: `rule-evidence:${requirement.requirementId}`,
+      priority: input.priority ?? 0,
+      createdAt: capture.observation.receivedAt,
+    });
+  }
   return buildAgentTask({
     kind: "RULE_EVIDENCE_CLAIM",
-    protocol: "RULE_EVIDENCE_TASK_V1",
+    protocol: "RULE_EVIDENCE_TASK_V2",
     inputArtifacts: Object.freeze([
       Object.freeze({
         kind: "EVIDENCE_REQUIREMENT",
@@ -1006,46 +1037,59 @@ export function buildRuleEvidenceAgentTask(input: Readonly<{
         artifactHash: hashCanonical(requirement),
       }),
       Object.freeze({
-        kind: "EVIDENCE_OBSERVATION",
-        artifactId: capture.observation.observationId,
-        artifactHash: hashCanonical(capture.observation),
+        kind: "CATALOG_OBSERVATION",
+        artifactId: source.observationId,
+        artifactHash: source.sourceRawHash,
       }),
       Object.freeze({
-        kind: "EVIDENCE_DOCUMENT",
-        artifactId: capture.document.record.documentId,
-        artifactHash: capture.document.record.rawHash,
-      }),
-      Object.freeze({
-        kind: "EVIDENCE_EXTRACTION",
-        artifactId: capture.extraction.record.extractionId,
-        artifactHash: capture.extraction.record.textHash,
+        kind: "CATALOG_CONTRACT_TEXT",
+        artifactId: source.sourceArtifactId,
+        artifactHash: hashCanonical(validated.catalogTextEvidence),
       }),
     ]),
-    taskPayload: buildRuleEvidenceAgentTaskPayload({ requirement, capture }),
+    taskPayload: buildRuleEvidenceAgentTaskPayload(input),
     requestedEffectProtocol: "RULE_EVIDENCE_TOOLS_V1",
     provenanceRef: `rule-evidence:${requirement.requirementId}`,
     priority: input.priority ?? 0,
-    createdAt: capture.observation.receivedAt,
+    createdAt: source.receivedAt,
   });
 }
 
-export function buildRuleEvidenceAgentTaskPayload(input: Readonly<{
-  requirement: EvidenceRequirement;
-  capture: EvidenceDocumentCapture;
-}>): Readonly<Record<string, unknown>> {
-  const requirement = assertEvidenceRequirement(input.requirement);
-  const capture = assertEvidenceDocumentCapture(input.capture);
+export function buildRuleEvidenceAgentTaskPayload(
+  input: RuleEvidenceTextInput,
+): Readonly<Record<string, unknown>> {
+  const validated = validateRuleEvidenceTextInput(input);
+  const requirement = validated.requirement;
+  const source = validated.source;
+  if (source.kind === "DOCUMENT_EXTRACTION") {
+    const capture = validated.capture!;
+    return Object.freeze({
+      requirementId: requirement.requirementId,
+      proposalId: requirement.proposalId,
+      requirementKind: requirement.kind,
+      temporalPosture: requirement.temporalPosture,
+      acquisitionScopeIdentity: requirement.acquisitionScopeIdentity,
+      observationId: capture.observation.observationId,
+      documentId: capture.document.record.documentId,
+      documentRawHash: capture.document.record.rawHash,
+      extractionId: capture.extraction.record.extractionId,
+      extractionTextHash: capture.extraction.record.textHash,
+    });
+  }
   return Object.freeze({
+    schemaVersion: "pmh.rule-evidence-agent-task-payload.v2",
     requirementId: requirement.requirementId,
     proposalId: requirement.proposalId,
     requirementKind: requirement.kind,
     temporalPosture: requirement.temporalPosture,
     acquisitionScopeIdentity: requirement.acquisitionScopeIdentity,
-    observationId: capture.observation.observationId,
-    documentId: capture.document.record.documentId,
-    documentRawHash: capture.document.record.rawHash,
-    extractionId: capture.extraction.record.extractionId,
-    extractionTextHash: capture.extraction.record.textHash,
+    sourceKind: source.kind,
+    observationId: source.observationId,
+    sourceArtifactId: source.sourceArtifactId,
+    textArtifactId: source.textArtifactId,
+    sourceRawHash: source.sourceRawHash,
+    textHash: source.textHash,
+    listingRef: source.listingRef,
   });
 }
 
@@ -2006,11 +2050,7 @@ export class AgentExecutionRegistry {
   }
 
   public reconcileRuleEvidenceTasks(
-    inputs: readonly Readonly<{
-      requirement: EvidenceRequirement;
-      capture: EvidenceDocumentCapture;
-      priority?: number;
-    }>[],
+    inputs: readonly (RuleEvidenceTextInput & Readonly<{ priority?: number }>)[],
   ): readonly AgentTask[] {
     const tasksById = new Map<Hash, AgentTask>();
     for (const input of inputs) {

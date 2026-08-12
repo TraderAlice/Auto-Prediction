@@ -362,12 +362,16 @@ export class RuleEvidenceClaimScheduler {
     }
     const completedByInterpretationSupply = new Map<Hash, RuleEvidenceClaimRecord>();
     for (const record of this.#desk.projection().records
-      .filter((item) => item.status === "PASS" && item.claim !== null)
+      .filter((item) =>
+        item.status === "PASS" && item.claim !== null &&
+        !("sourceKind" in item)
+      )
       .sort((left, right) =>
         String(right.completedAt).localeCompare(String(left.completedAt)) ||
         right.interpretationId.localeCompare(left.interpretationId)
       )) {
       const claim = record.claim!;
+      if (claim.schemaVersion === "pmh.rule-evidence-claim.v3") continue;
       const lineage = hashCanonical({
         schemaVersion: "pmh.rule-evidence-interpretation-supply.v1",
         requirementId: claim.requirementId,
@@ -562,7 +566,8 @@ export class RuleEvidenceClaimScheduler {
     if (
       record.status !== "PASS" || record.claim === null ||
       record.requirementId !== job.requirementId ||
-      record.documentId !== job.documentId || record.extractionId !== job.extractionId ||
+      "sourceKind" in record || record.documentId !== job.documentId ||
+      record.extractionId !== job.extractionId ||
       record.completedAt === null
     ) throw new Error("rule evidence claim completion lineage is inconsistent");
     return this.#saveJob(withHash({

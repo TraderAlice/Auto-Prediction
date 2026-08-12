@@ -20,6 +20,10 @@ const ARTIFACT_KEYS = Object.freeze([
   "receivedAt", "schemaVersion", "semanticDecisionAuthority", "sourceRawHash",
   "text", "textHash", "valueMovingAuthority", "venueId",
 ]);
+const ARTIFACT_V2_KEYS = Object.freeze([
+  ...ARTIFACT_KEYS,
+  "discoveryListingHash",
+].sort());
 
 export const CATALOG_CONTRACT_TEXT_DERIVATION_IDENTITY = hashCanonical({
   schemaVersion: "pmh.catalog-contract-text-field-derivation.v1",
@@ -28,8 +32,7 @@ export const CATALOG_CONTRACT_TEXT_DERIVATION_IDENTITY = hashCanonical({
   maximumRetainedCharacters: MAX_RETAINED_RULE_CHARACTERS,
 });
 
-export type CatalogContractTextEvidence = Readonly<{
-  schemaVersion: "pmh.catalog-contract-text-evidence.v1";
+type CatalogContractTextEvidenceFields = Readonly<{
   artifactId: Hash;
   catalogObservationId: string;
   sourceRawHash: Hash;
@@ -54,6 +57,15 @@ export type CatalogContractTextEvidence = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type CatalogContractTextEvidence =
+  | Readonly<CatalogContractTextEvidenceFields & {
+      schemaVersion: "pmh.catalog-contract-text-evidence.v1";
+    }>
+  | Readonly<CatalogContractTextEvidenceFields & {
+      schemaVersion: "pmh.catalog-contract-text-evidence.v2";
+      discoveryListingHash: Hash;
+    }>;
+
 export interface CatalogContractTextEvidenceStore {
   loadCatalogContractTextEvidence(limit: number): readonly CatalogContractTextEvidence[];
   saveCatalogContractTextEvidence(
@@ -74,9 +86,15 @@ export function assertCatalogContractTextEvidence(
   }
   const artifact = value as CatalogContractTextEvidence;
   const { artifactId, ...body } = artifact;
+  const expectedKeys = artifact.schemaVersion ===
+      "pmh.catalog-contract-text-evidence.v1"
+    ? ARTIFACT_KEYS
+    : artifact.schemaVersion === "pmh.catalog-contract-text-evidence.v2"
+      ? ARTIFACT_V2_KEYS
+      : null;
   if (
-    Object.keys(artifact).sort().join("\n") !== ARTIFACT_KEYS.join("\n") ||
-    artifact.schemaVersion !== "pmh.catalog-contract-text-evidence.v1" ||
+    expectedKeys === null ||
+    Object.keys(artifact).sort().join("\n") !== expectedKeys.join("\n") ||
     !HASH_PATTERN.test(String(artifactId)) || artifactId !== hashCanonical(body) ||
     !/^catalog-observation:[0-9a-f]{64}$/u.test(artifact.catalogObservationId) ||
     !HASH_PATTERN.test(String(artifact.sourceRawHash)) ||
@@ -100,6 +118,10 @@ export function assertCatalogContractTextEvidence(
     artifact.certificateAuthority !== false || artifact.executionAuthority !== false ||
     artifact.externalWriteAuthority !== false || artifact.valueMovingAuthority !== false
   ) throw new Error("catalog contract-text evidence violates its bounded contract");
+  if (
+    artifact.schemaVersion === "pmh.catalog-contract-text-evidence.v2" &&
+    !HASH_PATTERN.test(String(artifact.discoveryListingHash))
+  ) throw new Error("catalog contract-text discovery listing identity is malformed");
   return Object.freeze(artifact);
 }
 
@@ -153,11 +175,12 @@ export function deriveCatalogContractTextEvidence(input: Readonly<{
     throw new Error("catalog contract text is absent or truncated");
   }
   const body = Object.freeze({
-    schemaVersion: "pmh.catalog-contract-text-evidence.v1" as const,
+    schemaVersion: "pmh.catalog-contract-text-evidence.v2" as const,
     catalogObservationId: observation.record.observationId,
     sourceRawHash: observation.record.rawHash,
     normalizerIdentity,
     normalizedListingHash: hashCanonical(normalizedListing),
+    discoveryListingHash: hashCanonical(listing),
     listingRef: listing.listingRef,
     venueId: listing.venueId,
     protocolIdentity: listing.protocolIdentity,

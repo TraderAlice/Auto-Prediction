@@ -111,8 +111,12 @@ import {
 } from "./evidence-document.js";
 import {
   assertRuleEvidenceClaimRecord,
+  isCatalogRuleEvidenceClaim,
+  isCatalogRuleEvidenceClaimRecord,
   type RuleEvidenceClaimRecord,
   type RuleEvidenceClaimRecordStore,
+  type CatalogRuleEvidenceClaimRecord,
+  type CatalogRuleEvidenceClaimRecordStore,
 } from "./rule-evidence-claim.js";
 import {
   assertRuleEvidenceClaimJobRecord,
@@ -260,7 +264,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 45;
+const SCHEMA_VERSION = 46;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -521,6 +525,15 @@ type RuleEvidenceClaimRecordRow = Readonly<{
   requirement_id: string;
   document_id: string;
   extraction_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type CatalogRuleEvidenceClaimRecordRow = Readonly<{
+  interpretation_id: string;
+  requirement_id: string;
+  source_artifact_id: string;
+  text_artifact_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -1448,11 +1461,44 @@ function parseRuleEvidenceClaimRecord(value: unknown): RuleEvidenceClaimRecord {
     throw new Error("SQLite rule evidence claim record contains invalid JSON");
   }
   const record = assertRuleEvidenceClaimRecord(decoded);
+  if (isCatalogRuleEvidenceClaimRecord(record)) {
+    throw new Error("catalog rule evidence claim is stored in the wrong table");
+  }
   if (
     record.interpretationId !== row.interpretation_id ||
     record.requirementId !== row.requirement_id || record.documentId !== row.document_id ||
     record.extractionId !== row.extraction_id || hashCanonical(record) !== row.record_hash
   ) throw new Error("SQLite rule evidence claim record identity mismatch");
+  return record;
+}
+
+function parseCatalogRuleEvidenceClaimRecord(
+  value: unknown,
+): CatalogRuleEvidenceClaimRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite catalog rule evidence claim row is malformed");
+  }
+  const row = value as Partial<CatalogRuleEvidenceClaimRecordRow>;
+  if (
+    typeof row.interpretation_id !== "string" ||
+    typeof row.requirement_id !== "string" ||
+    typeof row.source_artifact_id !== "string" ||
+    typeof row.text_artifact_id !== "string" ||
+    typeof row.record_json !== "string" || typeof row.record_hash !== "string"
+  ) throw new Error("SQLite catalog rule evidence claim row has invalid columns");
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite catalog rule evidence claim contains invalid JSON");
+  }
+  const record = assertRuleEvidenceClaimRecord(decoded);
+  if (
+    !isCatalogRuleEvidenceClaimRecord(record) ||
+    record.interpretationId !== row.interpretation_id ||
+    record.requirementId !== row.requirement_id ||
+    record.sourceArtifactId !== row.source_artifact_id ||
+    record.textArtifactId !== row.text_artifact_id ||
+    hashCanonical(record) !== row.record_hash
+  ) throw new Error("SQLite catalog rule evidence claim identity mismatch");
   return record;
 }
 
@@ -1929,6 +1975,7 @@ export class SqliteOperationalStore
     OfficialSourceDiscoverySchedulerStore,
     EvidenceAcquisitionSchedulerStore,
     RuleEvidenceClaimRecordStore,
+    CatalogRuleEvidenceClaimRecordStore,
     RuleEvidenceClaimSchedulerStore,
     OpportunityLifecycleJournalStore,
     AnonymousSimulationMaterializationStore,
@@ -2568,6 +2615,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'rule_evidence_claim_records'`,
       )
       .get() !== undefined;
+    const catalogRuleEvidenceClaimRecordTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'catalog_rule_evidence_claim_records'`,
+      )
+      .get() !== undefined;
     const agentRuntimeDefinitionTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2665,6 +2718,7 @@ export class SqliteOperationalStore
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
       ruleEvidenceClaimJobTableExists && ruleEvidenceClaimRecordTableExists
+      && catalogRuleEvidenceClaimRecordTableExists
       && premiseAnalysisRecordTableExists
       && premiseAnalysisJobTableExists
       && premiseAnalysisNotificationTableExists
@@ -4440,6 +4494,41 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS catalog_contract_text_evidence_listing
             ON catalog_contract_text_evidence (
               listing_ref, received_at DESC, artifact_id DESC
+            );
+        `);
+      }
+      if (current < 46 || !catalogRuleEvidenceClaimRecordTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS catalog_rule_evidence_claim_records (
+            interpretation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(interpretation_id) = 71 AND
+              interpretation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            requirement_id TEXT NOT NULL CHECK (
+              length(requirement_id) = 71 AND
+              requirement_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_artifact_id TEXT NOT NULL CHECK (
+              length(source_artifact_id) = 71 AND
+              source_artifact_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            text_artifact_id TEXT NOT NULL CHECK (
+              length(text_artifact_id) = 71 AND
+              text_artifact_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('PASS', 'FAILED')),
+            completed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (source_artifact_id)
+              REFERENCES catalog_contract_text_evidence(artifact_id)
+              ON DELETE RESTRICT
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS catalog_rule_evidence_claim_requirement
+            ON catalog_rule_evidence_claim_records (
+              requirement_id, completed_at DESC, interpretation_id DESC
             );
         `);
       }
@@ -8382,6 +8471,9 @@ export class SqliteOperationalStore
   }
 
   #verifyRuleEvidenceClaimExtraction(record: RuleEvidenceClaimRecord): void {
+    if (isCatalogRuleEvidenceClaimRecord(record)) {
+      throw new Error("catalog rule evidence claim requires catalog verification");
+    }
     const row = this.#database
       .prepare(
         `SELECT extraction_id, document_id, record_json, record_hash, extracted_text
@@ -8396,6 +8488,9 @@ export class SqliteOperationalStore
       throw new Error("SQLite rule evidence claim extraction belongs to another document");
     }
     if (record.claim === null) return;
+    if (isCatalogRuleEvidenceClaim(record.claim)) {
+      throw new Error("catalog rule evidence claim is stored in the wrong table");
+    }
     if (
       record.claim.documentRawHash !== extraction.record.rawHash ||
       record.claim.extractionTextHash !== extraction.record.textHash ||
@@ -8432,6 +8527,9 @@ export class SqliteOperationalStore
     this.#assertOpen();
     assertLimit(retentionLimit);
     const record = assertRuleEvidenceClaimRecord(recordInput);
+    if (isCatalogRuleEvidenceClaimRecord(record)) {
+      throw new Error("catalog rule evidence claim requires its dedicated store");
+    }
     if (record.status === "RUNNING" || record.completedAt === null) {
       throw new Error("SQLite cannot persist an active rule evidence claim");
     }
@@ -8486,10 +8584,122 @@ export class SqliteOperationalStore
       const stored = parseRuleEvidenceClaimRecord(row);
       this.#verifyRuleEvidenceClaimExtraction(stored);
       if (
+        isCatalogRuleEvidenceClaimRecord(stored) ||
+        isCatalogRuleEvidenceClaimRecord(record)
+      ) {
+        throw new Error("catalog rule evidence claim is stored in the wrong table");
+      }
+      if (
         stored.requirementId !== record.requirementId ||
         stored.documentId !== record.documentId || stored.extractionId !== record.extractionId ||
         (stored.status === record.status && hashCanonical(stored) !== recordHash)
       ) throw new Error("SQLite rule evidence claim identity is already bound elsewhere");
+      this.#database.exec("COMMIT");
+      return stored;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  #verifyCatalogRuleEvidenceClaim(
+    record: CatalogRuleEvidenceClaimRecord,
+  ): void {
+    const row = this.#database.prepare(
+      `SELECT artifact_id, catalog_observation_id, record_json, record_hash
+       FROM catalog_contract_text_evidence WHERE artifact_id = ?`,
+    ).get(record.sourceArtifactId);
+    if (row === undefined) {
+      throw new Error("SQLite catalog rule evidence claim lost its text artifact");
+    }
+    const evidence = parseCatalogContractTextEvidence(row);
+    if (record.textArtifactId !== evidence.textHash) {
+      throw new Error("SQLite catalog rule evidence claim text identity is inconsistent");
+    }
+    if (record.claim === null) return;
+    if (
+      record.claim.sourceRawHash !== evidence.sourceRawHash ||
+      record.claim.textHash !== evidence.textHash ||
+      record.claim.listingRef !== evidence.listingRef ||
+      record.claim.observationId !== evidence.catalogObservationId ||
+      record.claim.citations.some((citation) =>
+        evidence.text.slice(citation.start, citation.end) !== citation.quote
+      )
+    ) throw new Error("SQLite catalog rule evidence citation lineage mismatch");
+  }
+
+  public loadCatalogRuleEvidenceClaimRecords(
+    limit: number,
+  ): readonly CatalogRuleEvidenceClaimRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const records = this.#database.prepare(
+      `SELECT interpretation_id, requirement_id, source_artifact_id,
+              text_artifact_id, record_json, record_hash
+       FROM catalog_rule_evidence_claim_records
+       ORDER BY completed_at DESC, interpretation_id DESC LIMIT ?`,
+    ).all(limit).map(parseCatalogRuleEvidenceClaimRecord);
+    for (const record of records) this.#verifyCatalogRuleEvidenceClaim(record);
+    return Object.freeze(records);
+  }
+
+  public saveCatalogRuleEvidenceClaimRecord(
+    recordInput: CatalogRuleEvidenceClaimRecord,
+    retentionLimit: number,
+  ): CatalogRuleEvidenceClaimRecord {
+    this.#assertOpen();
+    assertLimit(retentionLimit);
+    const record = assertRuleEvidenceClaimRecord(recordInput);
+    if (
+      !isCatalogRuleEvidenceClaimRecord(record) ||
+      record.status === "RUNNING" || record.completedAt === null
+    ) throw new Error("SQLite cannot persist this catalog rule evidence claim");
+    this.#verifyCatalogRuleEvidenceClaim(record);
+    const recordJson = canonicalJson(record);
+    const recordHash = hashCanonical(record);
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database.prepare(
+        `INSERT INTO catalog_rule_evidence_claim_records (
+           interpretation_id, requirement_id, source_artifact_id,
+           text_artifact_id, status, completed_at, record_json, record_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(interpretation_id) DO UPDATE SET
+           status = excluded.status,
+           completed_at = excluded.completed_at,
+           record_json = excluded.record_json,
+           record_hash = excluded.record_hash
+         WHERE catalog_rule_evidence_claim_records.status = 'FAILED'`,
+      ).run(
+        record.interpretationId,
+        record.requirementId,
+        record.sourceArtifactId,
+        record.textArtifactId,
+        record.status,
+        record.completedAt,
+        recordJson,
+        recordHash,
+      );
+      this.#database.prepare(
+        `DELETE FROM catalog_rule_evidence_claim_records
+         WHERE interpretation_id IN (
+           SELECT interpretation_id FROM catalog_rule_evidence_claim_records
+           ORDER BY completed_at DESC, interpretation_id DESC LIMIT -1 OFFSET ?
+         )`,
+      ).run(retentionLimit);
+      const row = this.#database.prepare(
+        `SELECT interpretation_id, requirement_id, source_artifact_id,
+                text_artifact_id, record_json, record_hash
+         FROM catalog_rule_evidence_claim_records WHERE interpretation_id = ?`,
+      ).get(record.interpretationId);
+      if (row === undefined) {
+        throw new Error("SQLite failed to retain catalog rule evidence claim");
+      }
+      const stored = parseCatalogRuleEvidenceClaimRecord(row);
+      this.#verifyCatalogRuleEvidenceClaim(stored);
+      if (hashCanonical(stored) !== recordHash) {
+        throw new Error("SQLite catalog rule evidence claim identity is already bound");
+      }
       this.#database.exec("COMMIT");
       return stored;
     } catch (error) {
