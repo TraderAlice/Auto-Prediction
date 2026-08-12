@@ -344,6 +344,38 @@ describe("Agent campaign dispatcher", () => {
     item.store.close();
   });
 
+  it("rejects a historical task before creating a run or opening an adapter", () => {
+    const item = fixture(1);
+    const work = item.tasks[0]!.task;
+    const profile = item.registry.snapshot().executionProfiles[0]!;
+    const dispatcher = new AgentCampaignDispatcher({
+      registry: item.registry,
+      credentialBroker: new AgentCredentialBroker([]),
+      adapters: [],
+      toolHost: {
+        manifest: () => Object.freeze([]),
+        execute: async () => Object.freeze({ status: "REJECTED" as const, output: {} }),
+      },
+      taskPayload: () => ({ unreachable: true }),
+      taskReadiness: () => Object.freeze({
+        status: "SUPERSEDED_INPUT" as const,
+        diagnostic: "a current successor owns this input family",
+        successorTaskId: work.taskId,
+      }),
+      now: item.time.now,
+    });
+    expect(() => dispatcher.previewManual(work.taskId, profile.executionProfileId))
+      .toThrow(/SUPERSEDED_INPUT.*current successor/);
+    expect(() => dispatcher.dispatchManual(
+      work.taskId,
+      profile.executionProfileId,
+      "operator:must-not-run",
+    )).toThrow(/SUPERSEDED_INPUT/);
+    expect(item.registry.snapshot().runs).toHaveLength(0);
+    expect(item.registry.snapshot().modelInvocations).toHaveLength(0);
+    item.store.close();
+  });
+
   it("dispatches only a due effective interval revision and stops after pause", async () => {
     const item = fixture(4, {
       maximumConcurrentRuns: 3,

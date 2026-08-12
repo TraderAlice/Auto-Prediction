@@ -357,7 +357,13 @@ import {
   type AgentExecutionSnapshot,
   type AgentExecutionStore,
   type AgentRun,
+  type AgentTask,
 } from "./agent-execution-substrate.js";
+import {
+  buildAgentTaskReadinessIndex,
+  inspectAgentTaskReadiness,
+  type AgentTaskReadinessIndex,
+} from "./agent-task-readiness.js";
 import { buildDefaultAgentRuntimePortfolio } from "./agent-runtime-portfolio.js";
 import {
   AgentCampaignDispatcher,
@@ -2672,18 +2678,24 @@ export function createControlPlane(options?: {
     Hash,
     ValidatedRuleEvidenceTextInput
   >();
+  const currentRuleEvidenceAgentTasks = new Map<Hash, AgentTask>();
+  let agentTaskReadinessIndex: AgentTaskReadinessIndex | null = null;
+  const invalidateAgentTaskReadiness = (): void => {
+    agentTaskReadinessIndex = null;
+  };
   const refreshRuleEvidenceAgentInputs = (): readonly RuleEvidenceTextInput[] => {
     const inputs: readonly RuleEvidenceTextInput[] = Object.freeze([
       ...ruleEvidenceClaimInputs(),
       ...catalogRuleEvidenceInputs(),
     ]);
     ruleEvidenceAgentInputsByTaskId.clear();
+    currentRuleEvidenceAgentTasks.clear();
     for (const input of inputs) {
-      ruleEvidenceAgentInputsByTaskId.set(
-        buildRuleEvidenceAgentTask(input).taskId,
-        validateRuleEvidenceTextInput(input),
-      );
+      const task = buildRuleEvidenceAgentTask(input);
+      ruleEvidenceAgentInputsByTaskId.set(task.taskId, validateRuleEvidenceTextInput(input));
+      currentRuleEvidenceAgentTasks.set(task.taskId, task);
     }
+    invalidateAgentTaskReadiness();
     return inputs;
   };
   const reconcileRuleEvidenceAgentTasks = (): void => {
@@ -2691,6 +2703,20 @@ export function createControlPlane(options?: {
   };
   const ruleEvidenceAgentInput = (taskId: Hash) =>
     ruleEvidenceAgentInputsByTaskId.get(taskId) ?? null;
+  const currentAgentTaskReadinessIndex = (): AgentTaskReadinessIndex => {
+    if (agentTaskReadinessIndex !== null) return agentTaskReadinessIndex;
+    const currentTasks = [
+      ...currentRuleEvidenceAgentTasks.values(),
+      ...ontologySearchIssueRevisions.map((revision) => revision.task),
+      ...relationDiscoveryTaskRevisions.map((revision) => revision.task),
+    ];
+    agentTaskReadinessIndex = buildAgentTaskReadinessIndex(currentTasks);
+    return agentTaskReadinessIndex;
+  };
+  const agentTaskReadiness = (task: AgentTask) => inspectAgentTaskReadiness(
+    task,
+    currentAgentTaskReadinessIndex(),
+  );
   const ontologyAgentTaskRevision = (taskId: Hash, run: AgentRun) =>
     resolveOntologyAgentTaskRevision({
       taskId,
@@ -2824,6 +2850,7 @@ export function createControlPlane(options?: {
         }
         throw new Error("retained Agent task payload is unavailable");
       },
+      taskReadiness: agentTaskReadiness,
       runAnnotations: (task, run) => {
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
           const revision = ontologyAgentTaskRevision(task.taskId, run);
@@ -2984,6 +3011,7 @@ export function createControlPlane(options?: {
       ontologySearchIssueRevisionStore.saveOntologySearchIssueRevisions(created);
     }
     ontologySearchIssueRevisions = reconciliation.currentRevisions;
+    invalidateAgentTaskReadiness();
   };
   const reconcileRelationDiscoveryTasks = (): void => {
     if (relationDiscoveryStore === null) return;
@@ -3033,6 +3061,7 @@ export function createControlPlane(options?: {
     agentExecutionRegistry.saveBatch({ tasks: created.map((item) => item.task) });
     relationDiscoveryStore.saveRelationDiscoveryTaskRevisions(created);
     relationDiscoveryTaskRevisions = reconciliation.currentRevisions;
+    invalidateAgentTaskReadiness();
   };
   const migrateStandingRouteSeedCampaigns = (): void => {
     const campaigns = migrateStandingRouteSeedCampaignPolicies({
@@ -3098,9 +3127,13 @@ export function createControlPlane(options?: {
       }
       return agentExecutionCapabilityService.project(profile, configuration);
     });
-    const orderedTasks = [...snapshot.tasks].sort((left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || left.taskId.localeCompare(right.taskId)
-    );
+    const orderedTasks = [...snapshot.tasks].sort((left, right) => {
+      const leftRunnable = agentTaskReadiness(left).status === "RUNNABLE" ? 1 : 0;
+      const rightRunnable = agentTaskReadiness(right).status === "RUNNABLE" ? 1 : 0;
+      return rightRunnable - leftRunnable ||
+        right.createdAt.localeCompare(left.createdAt) ||
+        left.taskId.localeCompare(right.taskId);
+    });
     const orderedRuns = [...snapshot.runs].sort((left, right) =>
       right.createdAt.localeCompare(left.createdAt) || left.runId.localeCompare(right.runId)
     );
@@ -3200,7 +3233,10 @@ export function createControlPlane(options?: {
           ? agentCampaignDispatcher.preview(campaign.campaignId)
           : null,
       })),
-      tasks: Object.freeze(orderedTasks.slice(0, 250)),
+      tasks: Object.freeze(orderedTasks.slice(0, 250).map((task) => Object.freeze({
+        ...task,
+        readiness: agentTaskReadiness(task),
+      }))),
       runs: Object.freeze(orderedRuns.slice(0, 250)),
       modelInvocations: Object.freeze(snapshot.modelInvocations.filter((item) =>
         visibleRunIds.has(item.runId)

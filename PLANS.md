@@ -1557,6 +1557,24 @@ equivalence. Live replay also made pre-runtime task/input failures concrete and
 showed that the product must distinguish current runnable work from superseded
 audit history before recurrence expands.
 
+The active continuation is now
+[`plans/agent-task-readiness.md`](plans/agent-task-readiness.md). It treats task
+ledger existence and current dispatch readiness as separate facts. Manual and
+campaign paths must share one first-party readiness decision, preserve
+superseded tasks for audit, and exclude them from runtime fanout without
+recording a model failure. The live LAFC predecessor/successor pair is the
+first qualification specimen.
+
+That continuation is now qualified. Readiness is a provider-neutral scheduling
+fact separate from immutable audit existence. Current exact inputs are indexed
+once; manual and campaign dispatch share the same predicate; non-runnable work
+cannot create a run or reach a model adapter. The live 3,828-task ledger kept
+old LAFC V3 work visible as `SUPERSEDED_INPUT`, linked it structurally to the
+current V3 task, and rejected preview with zero change from 251 runs / 549 model
+invocations. The current V1 document task for the same requirement stayed
+runnable, establishing `kind + protocol + provenance`—not provenance alone—as
+the substitution family.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.
