@@ -222,9 +222,15 @@ import {
   type MarketOntologyAgentProposal,
   type MarketOntologyAgentProposalStore,
 } from "./market-ontology-agent-tools.js";
+import {
+  assertOntologySearchIssueRevision,
+  type OntologySearchIssueRevision,
+  type OntologySearchIssueRevisionStore,
+} from "./ontology-search-ecology.js";
 
-const SCHEMA_VERSION = 38;
+const SCHEMA_VERSION = 39;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
+const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
 type StoredRunRow = Readonly<{
   task_id: string;
@@ -1686,6 +1692,26 @@ function parseMarketOntologyAgentProposal(value: unknown): MarketOntologyAgentPr
   return proposal;
 }
 
+function parseOntologySearchIssueRevision(value: unknown): OntologySearchIssueRevision {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite ontology search issue revision row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.revision_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite ontology search issue revision row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite ontology search issue revision contains invalid JSON");
+  }
+  const revision = assertOntologySearchIssueRevision(decoded);
+  if (revision.revisionId !== row.revision_id || hashCanonical(revision) !== row.record_hash) {
+    throw new Error("SQLite ontology search issue revision identity mismatch");
+  }
+  return revision;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -1741,7 +1767,8 @@ export class SqliteOperationalStore
     AnonymousSimulationMaterializationStore,
     ProbabilityCalibrationStore,
     ProbabilityResolutionCaptureStore,
-    MarketOntologyAgentProposalStore
+    MarketOntologyAgentProposalStore,
+    OntologySearchIssueRevisionStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -1800,6 +1827,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"recordId">;
   public readonly marketOntologyAgentProposalStorage:
     OperationalStorageProjection<"proposalId">;
+  public readonly ontologySearchIssueRevisionStorage:
+    OperationalStorageProjection<"revisionId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -2007,6 +2036,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "proposalId",
+    });
+    this.ontologySearchIssueRevisionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "revisionId",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2329,6 +2364,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'market_ontology_agent_proposals'`,
       )
       .get() !== undefined;
+    const ontologySearchIssueRevisionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'ontology_search_issue_revisions'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -2364,6 +2405,7 @@ export class SqliteOperationalStore
       && agentRunAnnotationTableExists
       && executionCapabilityObservationTableExists
       && marketOntologyAgentProposalTableExists
+      && ontologySearchIssueRevisionTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -3840,6 +3882,45 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS market_ontology_agent_proposals_run
             ON market_ontology_agent_proposals (
               source_agent_run_id, proposed_at, proposal_id
+            );
+        `);
+      }
+      if (current < 39 || !ontologySearchIssueRevisionTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS ontology_search_issue_revisions (
+            revision_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(revision_id) = 71 AND revision_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            issue_id TEXT NOT NULL CHECK (
+              length(issue_id) = 71 AND issue_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            relation_pattern_id TEXT NOT NULL CHECK (
+              length(relation_pattern_id) = 71 AND
+              relation_pattern_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            ontology_identity TEXT NOT NULL CHECK (
+              length(ontology_identity) = 71 AND ontology_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_snapshot_identity) = 71 AND
+              source_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            task_id TEXT NOT NULL,
+            materialized_at TEXT NOT NULL,
+            campaign_eligible INTEGER NOT NULL CHECK (campaign_eligible IN (0, 1)),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (task_id) REFERENCES agent_tasks(task_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS ontology_search_issue_revisions_issue
+            ON ontology_search_issue_revisions (
+              issue_id, materialized_at DESC, revision_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS ontology_search_issue_revisions_campaign
+            ON ontology_search_issue_revisions (
+              campaign_eligible, materialized_at DESC, revision_id DESC
             );
         `);
       }
@@ -6256,6 +6337,82 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return proposals;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadOntologySearchIssueRevisions(
+    limit: number,
+  ): readonly OntologySearchIssueRevision[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT revision_id, record_json, record_hash
+       FROM ontology_search_issue_revisions
+       ORDER BY materialized_at DESC, revision_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseOntologySearchIssueRevision));
+  }
+
+  public saveOntologySearchIssueRevisions(
+    revisionsInput: readonly OntologySearchIssueRevision[],
+  ): readonly OntologySearchIssueRevision[] {
+    this.#assertOpen();
+    const revisions = Object.freeze(revisionsInput.map(assertOntologySearchIssueRevision));
+    if (new Set(revisions.map((item) => item.revisionId)).size !== revisions.length) {
+      throw new Error("ontology search issue revision batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const revision of revisions) {
+        if (this.#database.prepare(
+          "SELECT task_id FROM agent_tasks WHERE task_id = ?",
+        ).get(revision.task.taskId) === undefined) {
+          throw new Error("ontology search issue revision references an unavailable task");
+        }
+        const recordJson = canonicalJson(revision);
+        const recordHash = hashCanonical(revision);
+        this.#database.prepare(
+          `INSERT INTO ontology_search_issue_revisions (
+             revision_id, issue_id, relation_pattern_id, ontology_identity,
+             source_snapshot_identity, task_id, materialized_at,
+             campaign_eligible, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(revision_id) DO NOTHING`,
+        ).run(
+          revision.revisionId,
+          revision.issueId,
+          revision.relationPatternId,
+          revision.ontologyIdentity,
+          revision.sourceSnapshotIdentity,
+          revision.task.taskId,
+          revision.materializedAt,
+          revision.campaignEligible ? 1 : 0,
+          recordJson,
+          recordHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT revision_id, record_json, record_hash
+           FROM ontology_search_issue_revisions WHERE revision_id = ?`,
+        ).get(revision.revisionId);
+        const stored = parseOntologySearchIssueRevision(row);
+        if (stored.revisionId !== revision.revisionId ||
+            hashCanonical(stored) !== recordHash) {
+          throw new Error("revisionId is already bound to another ontology search issue");
+        }
+      }
+      this.#database.prepare(
+        `DELETE FROM ontology_search_issue_revisions
+         WHERE revision_id IN (
+           SELECT revision_id FROM ontology_search_issue_revisions
+           ORDER BY materialized_at DESC, revision_id DESC LIMIT -1 OFFSET ?
+         )`,
+      ).run(MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS);
+      this.#database.exec("COMMIT");
+      return revisions;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

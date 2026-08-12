@@ -29,6 +29,7 @@ export * from "./opportunity-lifecycle-desk.js";
 export * from "./market-corpus.js";
 export * from "./market-ontology.js";
 export * from "./market-ontology-agent-tools.js";
+export * from "./ontology-search-ecology.js";
 export * from "./model-runtime.js";
 export * from "./model-failure.js";
 export * from "./model-scout.js";

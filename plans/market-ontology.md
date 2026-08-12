@@ -2,9 +2,10 @@
 
 Status: active mainline construction
 
-Issue: [#94](https://github.com/luokerenx4/my-little-pony/issues/94)
+Issues: [#94](https://github.com/luokerenx4/my-little-pony/issues/94),
+[#96](https://github.com/luokerenx4/my-little-pony/issues/96)
 
-Branch: `codex/market-ontology`
+Current continuation branch: `codex/ontology-search-ecology`
 
 ## North star
 
@@ -137,10 +138,11 @@ independently retains invocation, tool-effect, token, and run identities. The
 read-only proposal ledger is projected at
 `/api/v1/market-ontology/agent-proposals`.
 
-Automatic dispatch remains deliberately absent. The next increment must build
-provider-free issue materialization and selection/yield attribution first, then
-let an explicitly activated campaign choose runtime, credential, model, and
-model-owned effort through the existing execution substrate.
+Automatic dispatch remains deliberately absent. Provider-free issue
+materialization and the zero-cost yield baseline are now implemented in Phase
+4. The next controlled increment can let an explicitly activated campaign
+choose runtime, credential, model, and model-owned effort through the existing
+execution substrate.
 
 ## Phase 4 — persistent search ecology
 
@@ -149,6 +151,74 @@ settlement divergence, time-boundary ladders, causal incompatibility,
 attention/liquidity anomalies, and falsification revisits. Allocate budgets by
 measured marginal discovery value and retain negative results so the machine
 does not rediscover the same dead neighborhood indefinitely.
+
+### Implemented search-work substrate — 2026-08-12
+
+The first ecology materializes one durable issue per `selection lane × relation
+pattern`, rather than collapsing all instances of a lexical pattern into the
+highest-priority lane. This distinction matters: the same surface relation can
+be interesting because the world predicates differ, because settlement terms
+differ, or because the same proposition appears at multiple venues. Folding
+those together had erased the settlement-divergence lane in the first live
+attempt.
+
+Each issue revision contains:
+
+- a stable issue identity and content-addressed revision;
+- the exact ontology and corpus identities;
+- up to eight assigned trailheads and their exact listing refs;
+- bounded title, description, rule, outcome, close-boundary, protocol, raw-hash,
+  and world/settlement/traded facet evidence;
+- a provider-neutral `ONTOLOGY_NORMALIZATION` task;
+- coverage state derived from attributed proposals or counterexamples;
+- explicit zero semantic, probability, certificate, execution, external-write,
+  and value-moving authority.
+
+The task payload is self-sufficient. A Pi, Codex, or in-process runtime can
+recreate its first-party tool host from the persisted payload after the live
+catalog and ontology have rotated; it does not need to reconstruct a historical
+4,706-listing corpus. Validators recheck every trailhead, node, facet, source
+hash, assignment boundary, and task-payload hash before exposing evidence or
+accepting a proposal.
+
+SQLite schema 39 retains issue revisions separately from generic Agent tasks.
+The control plane currently materializes 64 active issues with lane diversity:
+26 cross-venue, 24 world-divergence, and all 14 available distinct
+settlement-divergence patterns. The two spare settlement slots are filled by
+the next highest-ranked cross-venue work rather than left idle. Startup creates
+64 tasks but zero runs, campaigns, provider requests, model invocations, or
+tokens. `/api/v1/market-ontology/search-ecology` joins revisions, Agent runs,
+tool effects, proposals, counterexamples, and bigint token totals into an
+honest baseline. Downstream opportunity attribution is explicitly
+`NOT_YET_CONNECTED` rather than inferred.
+
+Live profiling exposed and corrected an architectural performance error. The
+first batch implementation revalidated and rehashed the complete corpus once
+per issue, making ontology reconciliation take 23.904 seconds. Snapshot
+validation now occurs once before batch construction, while each smaller task
+evidence package retains its own validator. The same live reconciliation takes
+1.214 seconds; the readiness envelope records individual reconciliation step
+times so this regression cannot hide inside a broad startup phase again.
+
+### Next gates
+
+1. Add an opt-in ontology campaign selector that samples a small differentiated
+   portfolio and resolves the operator's persisted Terra-first route; do not
+   create a run until runtime, credential, model, and capability preflight all
+   pass.
+2. Let accepted ontology proposals and counterexamples create or update
+   relation-bound discovery work without granting the proposing Agent semantic
+   authority.
+3. Carry ontology issue/revision/trailhead lineage into reviewed findings,
+   probability cases, and opportunity structures so yield can be measured as
+   reviewed economic value per token and wall-clock minute.
+4. Feed negative evidence, duplicate scope, review rejection, and successful
+   opportunity delivery back into lane/pattern allocation. Start with bounded
+   deterministic scoring; adopt adaptive allocation only after enough outcomes
+   exist to avoid optimizing noise.
+5. Expand the tool protocol only when the first campaign demonstrates a need:
+   settlement-predicate decomposition, causal or temporal incompatibility, and
+   attention/liquidity observations are candidates, not presumed additions.
 
 ## First qualification
 
