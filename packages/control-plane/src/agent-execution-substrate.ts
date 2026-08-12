@@ -37,6 +37,7 @@ export const AGENT_TASK_KINDS = Object.freeze([
   "OFFICIAL_SOURCE_DISCOVERY",
   "RULE_EVIDENCE_CLAIM",
   "PI_INVESTIGATION",
+  "ONTOLOGY_NORMALIZATION",
 ] as const);
 
 export type AgentRuntimeKind = (typeof AGENT_RUNTIME_KINDS)[number];

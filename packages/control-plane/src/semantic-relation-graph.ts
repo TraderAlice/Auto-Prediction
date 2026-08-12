@@ -1,6 +1,7 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import type { MarketArchaeologistProjection, MarketRelationKind } from "./market-archaeologist.js";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
+import { buildMarketOntologySnapshot } from "./market-ontology.js";
 import type { AnonymousSimulationMaterializerProjection } from "./anonymous-simulation-materializer.js";
 import type { OpportunityLifecycleDeskProjection } from "./opportunity-lifecycle-desk.js";
 import type { RelationPayoffProjection } from "./relation-payoff.js";
@@ -27,6 +28,9 @@ export type SemanticRelationGraphListingNode = Readonly<{
   venueInstrumentId: string;
   title: string;
   claimNodeId: Hash;
+  worldFacetId: Hash;
+  settlementFacetId: Hash;
+  tradedFacetId: Hash;
   timeWindowNodeId: Hash;
   resolutionBindingNodeId: Hash;
   closesAt: string | null;
@@ -101,12 +105,15 @@ export type SemanticGraphSearchContext = Readonly<{
 export type SemanticRelationGraphProjection = Readonly<{
   schemaVersion: "pmh.semantic-relation-graph.v1";
   graphIdentity: Hash;
+  marketOntologyIdentity: Hash;
   sourceSnapshotIdentity: Hash;
   sourceArtifactHashes: readonly Hash[];
   listingCount: number;
   claimNodeCount: number;
   timeWindowNodeCount: number;
   resolutionBindingNodeCount: number;
+  worldReferenceClusterCount: number;
+  ontologyTrailheadCount: number;
   relationCount: number;
   feedbackCount: number;
   listings: readonly SemanticRelationGraphListingNode[];
@@ -190,10 +197,13 @@ function proposalArtifactHash(proposal: Readonly<{
 }
 
 export function buildSemanticRelationGraph(input: GraphInput): SemanticRelationGraphProjection {
+  const ontology = buildMarketOntologySnapshot(input.corpus);
+  const ontologyByListing = new Map(ontology.nodes.map((item) => [item.listingRef, item]));
   const listingRefs = new Set(input.corpus.listings.map((item) => item.listingRef));
   const listings = Object.freeze([...input.corpus.listings]
     .sort((left, right) => left.listingRef.localeCompare(right.listingRef))
     .map((item) => {
+      const ontologyNode = ontologyByListing.get(item.listingRef)!;
       const claimNodeId = hashCanonical({
         schemaVersion: "pmh.claim-evidence-node.v1",
         listingRef: item.listingRef,
@@ -218,6 +228,9 @@ export function buildSemanticRelationGraph(input: GraphInput): SemanticRelationG
         venueInstrumentId: item.venueInstrumentId,
         title: item.title,
         claimNodeId,
+        worldFacetId: ontologyNode.worldFacet.facetId,
+        settlementFacetId: ontologyNode.settlementFacet.facetId,
+        tradedFacetId: ontologyNode.tradedFacet.facetId,
         timeWindowNodeId,
         resolutionBindingNodeId,
         closesAt: item.closesAt,
@@ -398,6 +411,7 @@ export function buildSemanticRelationGraph(input: GraphInput): SemanticRelationG
   ));
   const sourceArtifactHashes = uniqueSorted([
     input.corpus.snapshotIdentity,
+    ontology.ontologyIdentity,
     ...relations.flatMap((item) => [item.proposalArtifactHash, ...(item.reviewArtifactHash === null ? [] : [item.reviewArtifactHash])]),
     ...graphFeedback.map((item) => item.sourceArtifactHash),
     ...input.relationPayoff.qualifications.map((item) => item.artifactHash),
@@ -412,12 +426,15 @@ export function buildSemanticRelationGraph(input: GraphInput): SemanticRelationG
   }));
   const body = Object.freeze({
     schemaVersion: "pmh.semantic-relation-graph.v1" as const,
+    marketOntologyIdentity: ontology.ontologyIdentity,
     sourceSnapshotIdentity: input.corpus.snapshotIdentity,
     sourceArtifactHashes,
     listingCount: listings.length,
     claimNodeCount: new Set(listings.map((item) => item.claimNodeId)).size,
     timeWindowNodeCount: new Set(listings.map((item) => item.timeWindowNodeId)).size,
     resolutionBindingNodeCount: new Set(listings.map((item) => item.resolutionBindingNodeId)).size,
+    worldReferenceClusterCount: ontology.clusterCount,
+    ontologyTrailheadCount: ontology.trailheadCount,
     relationCount: relations.length,
     feedbackCount: graphFeedback.length,
     listings,

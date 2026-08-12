@@ -161,7 +161,7 @@ describe("semantic-family retrieval trailheads", () => {
       "polymarket-us:house-rep",
     ]);
     expect(selected.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v5",
+      algorithmVersion: "pmh.semantic-family-retrieval.v6",
       routingMode: "QUERY_FIRST",
       selectionReason: "QUERY_RELEVANT_FAMILY_NEIGHBORHOOD",
       anchorListingRefs: ["polymarket-us:house-dem", "polymarket-us:house-rep"],
@@ -209,7 +209,7 @@ describe("semantic-family retrieval trailheads", () => {
       routingMode: "HEURISTIC_FIRST",
     });
     expect(heuristic.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v5",
+      algorithmVersion: "pmh.semantic-family-retrieval.v6",
       routingMode: "HEURISTIC_FIRST",
       querySignals: [],
       queryScore: null,
@@ -286,16 +286,16 @@ describe("semantic-family retrieval trailheads", () => {
       routingMode: "HEURISTIC_FIRST",
     });
     expect(selected.retrievalPlan).toMatchObject({
-      algorithmVersion: "pmh.semantic-family-retrieval.v5",
+      algorithmVersion: "pmh.semantic-family-retrieval.v6",
       selectionReason: "NO_FAMILY_NEIGHBORHOOD_HEURISTIC_TRAILHEAD",
       routingMode: "HEURISTIC_FIRST",
       querySignals: [],
       queryScore: null,
       heuristicTrailhead: {
-        kind: "RARE_SEED_NEIGHBORHOOD",
-        seedListingRef: "venue-b:novel",
-        relatedListingRefs: ["venue-c:neighbor"],
-        seedSignals: expect.arrayContaining(["zorblax"]),
+        kind: "ONTOLOGY_DIVERGENCE",
+        anchorListingRefs: ["venue-b:novel", "venue-c:neighbor"],
+        sharedSubjectSignals: expect.arrayContaining(["zorblax"]),
+        changedFacets: expect.arrayContaining(["WORLD_PREDICATE"]),
         authority: "SEARCH_ROUTING_ONLY",
       },
     });
@@ -304,7 +304,7 @@ describe("semantic-family retrieval trailheads", () => {
       "venue-c:neighbor",
     ]);
     expect(semanticFamilyRetrievalBrief(selected.retrievalPlan)).toContain(
-      "Form a claim only after inspecting exact refs",
+      "world proposition, settlement contract, and traded state separately",
     );
     expect(assertSemanticFamilyRetrievalPlan(selected.retrievalPlan)).toBe(
       selected.retrievalPlan,

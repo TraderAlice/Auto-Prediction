@@ -5,6 +5,11 @@ import {
   type DiscoveryContextRoutingFeedback,
 } from "./catalog-discovery.js";
 import { buildSearchScopeIdentity } from "./search-scope-identity.js";
+import { buildMarketCorpusSnapshot } from "./market-corpus.js";
+import {
+  buildMarketOntologySnapshot,
+  type MarketOntologyChangedFacet,
+} from "./market-ontology.js";
 import {
   isSearchSemanticFamily,
   type SearchSemanticFamily,
@@ -58,7 +63,7 @@ export type SemanticFamilyRetrievalSelectionReason =
 
 export type SemanticFamilyRoutingMode = "HEURISTIC_FIRST" | "QUERY_FIRST";
 
-export type HeuristicDiscoveryTrailhead = Readonly<{
+export type RareSeedDiscoveryTrailhead = Readonly<{
   schemaVersion: "pmh.heuristic-discovery-trailhead.v1";
   trailheadIdentity: Hash;
   kind: "RARE_SEED_NEIGHBORHOOD";
@@ -74,6 +79,28 @@ export type HeuristicDiscoveryTrailhead = Readonly<{
   executionAuthority: false;
 }>;
 
+export type OntologyDiscoveryTrailhead = Readonly<{
+  schemaVersion: "pmh.heuristic-discovery-trailhead.v2";
+  trailheadIdentity: Hash;
+  kind: "ONTOLOGY_DIVERGENCE";
+  sourceOntologyIdentity: Hash;
+  ontologyTrailheadId: Hash;
+  anchorListingRefs: readonly [string, string];
+  sharedSubjectSignals: readonly string[];
+  changedFacets: readonly MarketOntologyChangedFacet[];
+  searchQuestion: string;
+  score: number;
+  authority: "SEARCH_ROUTING_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+}>;
+
+export type HeuristicDiscoveryTrailhead =
+  | RareSeedDiscoveryTrailhead
+  | OntologyDiscoveryTrailhead;
+
 export type SemanticFamilyRetrievalPlan = Readonly<{
   schemaVersion: "pmh.semantic-family-retrieval.v1";
   algorithmVersion:
@@ -81,7 +108,8 @@ export type SemanticFamilyRetrievalPlan = Readonly<{
     | "pmh.semantic-family-retrieval.v2"
     | "pmh.semantic-family-retrieval.v3"
     | "pmh.semantic-family-retrieval.v4"
-    | "pmh.semantic-family-retrieval.v5";
+    | "pmh.semantic-family-retrieval.v5"
+    | "pmh.semantic-family-retrieval.v6";
   planIdentity: Hash;
   semanticFamily: SearchSemanticFamily;
   corpusIdentity: Hash;
@@ -328,10 +356,82 @@ function heuristicSeedSignals(
     .slice(0, MAX_SHARED_SIGNALS));
 }
 
+type HeuristicDiscoveryTrailheadBody =
+  | Omit<RareSeedDiscoveryTrailhead, "trailheadIdentity">
+  | Omit<OntologyDiscoveryTrailhead, "trailheadIdentity">;
+
 function withTrailheadIdentity(
-  body: Omit<HeuristicDiscoveryTrailhead, "trailheadIdentity">,
+  body: HeuristicDiscoveryTrailheadBody,
 ): HeuristicDiscoveryTrailhead {
   return Object.freeze({ ...body, trailheadIdentity: hashCanonical(body) });
+}
+
+function buildOntologyTrailhead(
+  source: DiscoveryCatalogContextSource,
+  corpusIdentity: Hash,
+  listings: readonly DiscoveryCatalogListing[],
+  maximum: number,
+  feedback: DiscoveryContextRoutingFeedback,
+): HeuristicTrailheadSelection | null {
+  if (listings.length < 2) return null;
+  const corpus = buildMarketCorpusSnapshot({
+    sourceSetIdentity: corpusIdentity,
+    eligibleSourceCount: new Set(listings.map((item) => item.venueId)).size,
+    excludedSourceCount: 0,
+    listings,
+  });
+  const ontology = buildMarketOntologySnapshot(corpus);
+  const byRef = new Map(listings.map((item) => [item.listingRef, item]));
+  const variants = ontology.trailheads.flatMap((trailhead) => {
+    const anchors = trailhead.listingRefs.map((ref) => byRef.get(ref))
+      .filter((item): item is DiscoveryCatalogListing => item !== undefined);
+    if (anchors.length !== 2) return [];
+    let context = buildExactDiscoveryCatalogContext(source, anchors);
+    const shared = new Set(trailhead.sharedSubjectSignals);
+    const related = ontology.nodes
+      .filter((node) => !trailhead.listingRefs.includes(node.listingRef) &&
+        node.worldFacet.subjectSignals.some((signal) => shared.has(signal)))
+      .sort((left, right) => left.listingRef.localeCompare(right.listingRef));
+    const selected = [...anchors];
+    for (const node of related) {
+      if (selected.length >= maximum) break;
+      const listing = byRef.get(node.listingRef);
+      if (listing === undefined) continue;
+      try {
+        const candidate = buildExactDiscoveryCatalogContext(source, [...selected, listing]);
+        selected.push(listing);
+        context = candidate;
+      } catch {
+        // Skip a verbose listing rather than crossing the immutable context cap.
+      }
+    }
+    const body = Object.freeze({
+      schemaVersion: "pmh.heuristic-discovery-trailhead.v2" as const,
+      kind: "ONTOLOGY_DIVERGENCE" as const,
+      sourceOntologyIdentity: ontology.ontologyIdentity,
+      ontologyTrailheadId: trailhead.trailheadId,
+      anchorListingRefs: trailhead.listingRefs,
+      sharedSubjectSignals: trailhead.sharedSubjectSignals,
+      changedFacets: trailhead.changedFacets,
+      searchQuestion: trailhead.searchQuestion,
+      score: trailhead.score,
+      authority: "SEARCH_ROUTING_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    });
+    return [Object.freeze({
+      context,
+      trailhead: withTrailheadIdentity(body),
+    })];
+  });
+  if (variants.length === 0) return null;
+  return variants.sort((left, right) =>
+    selectionTier(left.context, feedback) - selectionTier(right.context, feedback) ||
+    right.trailhead.score - left.trailhead.score ||
+    left.trailhead.trailheadIdentity.localeCompare(right.trailhead.trailheadIdentity)
+  )[0]!;
 }
 
 function buildHeuristicTrailhead(
@@ -464,34 +564,53 @@ function validHeuristicTrailhead(value: unknown): value is HeuristicDiscoveryTra
   if (value === null || typeof value !== "object") return false;
   const trailhead = value as HeuristicDiscoveryTrailhead;
   const { trailheadIdentity, ...body } = trailhead;
-  return trailhead.schemaVersion === "pmh.heuristic-discovery-trailhead.v1" &&
+  const common =
     HASH_PATTERN.test(String(trailheadIdentity)) &&
     trailheadIdentity === hashCanonical(body) &&
-    trailhead.kind === "RARE_SEED_NEIGHBORHOOD" &&
-    typeof trailhead.seedListingRef === "string" &&
-    trailhead.seedListingRef.trim() !== "" &&
-    (trailhead.seedTitle === undefined || (
-      typeof trailhead.seedTitle === "string" && trailhead.seedTitle.trim() !== "" &&
-      trailhead.seedTitle.length <= 300
-    )) &&
-    Array.isArray(trailhead.relatedListingRefs) &&
-    trailhead.relatedListingRefs.length >= 1 &&
-    trailhead.relatedListingRefs.length <= 29 &&
-    new Set(trailhead.relatedListingRefs).size === trailhead.relatedListingRefs.length &&
-    !trailhead.relatedListingRefs.includes(trailhead.seedListingRef) &&
-    trailhead.relatedListingRefs.every((item) =>
-      typeof item === "string" && item.trim() !== ""
-    ) &&
-    Array.isArray(trailhead.seedSignals) && trailhead.seedSignals.length >= 1 &&
-    trailhead.seedSignals.length <= MAX_SHARED_SIGNALS &&
-    new Set(trailhead.seedSignals).size === trailhead.seedSignals.length &&
-    trailhead.seedSignals.every((item) => typeof item === "string" && item.trim() !== "") &&
     Number.isSafeInteger(trailhead.score) && trailhead.score > 0 &&
     trailhead.authority === "SEARCH_ROUTING_ONLY" &&
     trailhead.semanticDecisionAuthority === false &&
     trailhead.probabilityAuthority === false &&
     trailhead.certificateAuthority === false &&
     trailhead.executionAuthority === false;
+  if (!common) return false;
+  if (trailhead.schemaVersion === "pmh.heuristic-discovery-trailhead.v1" &&
+    trailhead.kind === "RARE_SEED_NEIGHBORHOOD") {
+    return typeof trailhead.seedListingRef === "string" &&
+      trailhead.seedListingRef.trim() !== "" &&
+      (trailhead.seedTitle === undefined || (
+        typeof trailhead.seedTitle === "string" && trailhead.seedTitle.trim() !== "" &&
+        trailhead.seedTitle.length <= 300
+      )) &&
+      Array.isArray(trailhead.relatedListingRefs) &&
+      trailhead.relatedListingRefs.length >= 1 &&
+      trailhead.relatedListingRefs.length <= 29 &&
+      new Set(trailhead.relatedListingRefs).size === trailhead.relatedListingRefs.length &&
+      !trailhead.relatedListingRefs.includes(trailhead.seedListingRef) &&
+      trailhead.relatedListingRefs.every((item) =>
+        typeof item === "string" && item.trim() !== ""
+      ) &&
+      Array.isArray(trailhead.seedSignals) && trailhead.seedSignals.length >= 1 &&
+      trailhead.seedSignals.length <= MAX_SHARED_SIGNALS &&
+      new Set(trailhead.seedSignals).size === trailhead.seedSignals.length &&
+      trailhead.seedSignals.every((item) => typeof item === "string" && item.trim() !== "");
+  }
+  if (trailhead.schemaVersion === "pmh.heuristic-discovery-trailhead.v2" &&
+    trailhead.kind === "ONTOLOGY_DIVERGENCE") {
+    return HASH_PATTERN.test(String(trailhead.sourceOntologyIdentity)) &&
+      HASH_PATTERN.test(String(trailhead.ontologyTrailheadId)) &&
+      Array.isArray(trailhead.anchorListingRefs) && trailhead.anchorListingRefs.length === 2 &&
+      new Set(trailhead.anchorListingRefs).size === 2 &&
+      trailhead.anchorListingRefs.every((item) => typeof item === "string" && item.trim() !== "") &&
+      Array.isArray(trailhead.sharedSubjectSignals) &&
+      trailhead.sharedSubjectSignals.length >= 1 &&
+      trailhead.sharedSubjectSignals.length <= MAX_SHARED_SIGNALS &&
+      Array.isArray(trailhead.changedFacets) && trailhead.changedFacets.length >= 1 &&
+      trailhead.changedFacets.length <= 8 &&
+      typeof trailhead.searchQuestion === "string" &&
+      trailhead.searchQuestion.length >= 1 && trailhead.searchQuestion.length <= 1_000;
+  }
+  return false;
 }
 
 export function assertSemanticFamilyRetrievalPlan(
@@ -507,13 +626,14 @@ export function assertSemanticFamilyRetrievalPlan(
   const isV3 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v3";
   const isV4 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v4";
   const isV5 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v5";
+  const isV6 = plan.algorithmVersion === "pmh.semantic-family-retrieval.v6";
   const querySignals = plan.querySignals ?? [];
   const queryScore = plan.queryScore ?? null;
   const sampleListingRefs = plan.sampleListingRefs ?? [];
   const heuristicTrailhead = plan.heuristicTrailhead ?? null;
   if (
     plan.schemaVersion !== "pmh.semantic-family-retrieval.v1" ||
-    (!isV1 && !isV2 && !isV3 && !isV4 && !isV5) ||
+    (!isV1 && !isV2 && !isV3 && !isV4 && !isV5 && !isV6) ||
     !HASH_PATTERN.test(String(planIdentity)) || planIdentity !== hashCanonical(body) ||
     !isSearchSemanticFamily(plan.semanticFamily) ||
     !HASH_PATTERN.test(String(plan.corpusIdentity)) ||
@@ -578,7 +698,7 @@ export function assertSemanticFamilyRetrievalPlan(
       sampleListingRefs.some((item) => typeof item !== "string" || item.trim() === "")
     )) ||
     (isV3 && plan.heuristicTrailhead !== undefined) ||
-    ((isV4 || isV5) && (
+    ((isV4 || isV5 || isV6) && (
       (plan.routingMode !== "HEURISTIC_FIRST" && plan.routingMode !== "QUERY_FIRST") ||
       !Array.isArray(plan.querySignals) || querySignals.length > MAX_QUERY_SIGNALS ||
       querySignals.some((item) => typeof item !== "string" || item.trim() === "") ||
@@ -611,7 +731,7 @@ export function assertSemanticFamilyRetrievalPlan(
     (plan.neighborhoodCount === 0
       ? plan.selectedNeighborhoodRank !== null || plan.anchorListingRefs.length !== 0 ||
         plan.sharedSignals.length !== 0 || plan.score !== null ||
-        ((isV2 || isV3 || isV4 || isV5) &&
+        ((isV2 || isV3 || isV4 || isV5 || isV6) &&
           (querySignals.length !== 0 || queryScore !== null)) ||
         (isV3 && (
           plan.selectionReason === "NO_FAMILY_NEIGHBORHOOD_CORPUS_SAMPLE"
@@ -773,8 +893,17 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
     }
   }
   if (selectedIndex < 0) {
+    const ontologySelection = routingMode === "HEURISTIC_FIRST"
+      ? buildOntologyTrailhead(
+          input.source,
+          input.corpusIdentity,
+          listings,
+          input.maxContextListings,
+          input.feedback,
+        )
+      : null;
     const heuristicSelection = routingMode === "HEURISTIC_FIRST"
-      ? buildHeuristicTrailhead(
+      ? ontologySelection ?? buildHeuristicTrailhead(
           input.source,
           listings,
           input.maxContextListings,
@@ -800,7 +929,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
       catalogContext: context,
       retrievalPlan: withPlanIdentity({
         schemaVersion: "pmh.semantic-family-retrieval.v1",
-        algorithmVersion: "pmh.semantic-family-retrieval.v5",
+        algorithmVersion: "pmh.semantic-family-retrieval.v6",
         semanticFamily: input.semanticFamily,
         corpusIdentity: input.corpusIdentity,
         eligibleVenueIds: venueIds,
@@ -840,7 +969,7 @@ export function buildSemanticFamilyCatalogSelection(input: Readonly<{
     catalogContext: selected.context,
     retrievalPlan: withPlanIdentity({
       schemaVersion: "pmh.semantic-family-retrieval.v1",
-      algorithmVersion: "pmh.semantic-family-retrieval.v5",
+      algorithmVersion: "pmh.semantic-family-retrieval.v6",
       semanticFamily: input.semanticFamily,
       corpusIdentity: input.corpusIdentity,
       eligibleVenueIds: venueIds,
@@ -872,14 +1001,19 @@ export function semanticFamilyRetrievalBrief(
   if (plan.anchorListingRefs.length === 0) {
     if (
       (plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" ||
-        plan.algorithmVersion === "pmh.semantic-family-retrieval.v5") &&
+        plan.algorithmVersion === "pmh.semantic-family-retrieval.v5" ||
+        plan.algorithmVersion === "pmh.semantic-family-retrieval.v6") &&
       plan.heuristicTrailhead !== null && plan.heuristicTrailhead !== undefined
     ) {
+      if (plan.heuristicTrailhead.kind === "ONTOLOGY_DIVERGENCE") {
+        return `Ontology trailhead only (not a semantic or probability judgment): exact refs ${plan.heuristicTrailhead.anchorListingRefs.join(" + ")} share world-reference signals [${plan.heuristicTrailhead.sharedSubjectSignals.join(", ")}] while facets differ [${plan.heuristicTrailhead.changedFacets.join(", ")}]. Inspect world proposition, settlement contract, and traded state separately; test counterexamples before proposing anything.`;
+      }
       return `Heuristic trailhead only (not a semantic or probability judgment): seed ${plan.heuristicTrailhead.seedListingRef} with ${plan.heuristicTrailhead.relatedListingRefs.length} related refs from rare signals [${plan.heuristicTrailhead.seedSignals.join(", ")}]. Form a claim only after inspecting exact refs; abstain when no relation is grounded.`;
     }
     if (
       (plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" ||
-        plan.algorithmVersion === "pmh.semantic-family-retrieval.v5") &&
+        plan.algorithmVersion === "pmh.semantic-family-retrieval.v5" ||
+        plan.algorithmVersion === "pmh.semantic-family-retrieval.v6") &&
       plan.selectionReason === "NO_COHERENT_HEURISTIC_TRAILHEAD"
     ) {
       return `No coherent ${plan.semanticFamily} heuristic trailhead qualified; inspect the bounded context only for negative evidence and abstain rather than inventing a relation.`;
@@ -892,7 +1026,8 @@ export function semanticFamilyRetrievalBrief(
   const queryTrail = (plan.algorithmVersion === "pmh.semantic-family-retrieval.v2" ||
       plan.algorithmVersion === "pmh.semantic-family-retrieval.v3" ||
       plan.algorithmVersion === "pmh.semantic-family-retrieval.v4" ||
-      plan.algorithmVersion === "pmh.semantic-family-retrieval.v5") &&
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v5" ||
+      plan.algorithmVersion === "pmh.semantic-family-retrieval.v6") &&
       (plan.querySignals?.length ?? 0) > 0
     ? ` and matched issue signals [${plan.querySignals!.join(", ")}]`
     : "";

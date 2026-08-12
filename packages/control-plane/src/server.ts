@@ -81,6 +81,11 @@ import {
   type MarketCorpusSnapshot,
   type MarketCorpusSearchQuery,
 } from "./market-corpus.js";
+import {
+  buildMarketOntologySnapshot,
+  projectMarketOntology,
+} from "./market-ontology.js";
+import type { MarketOntologyAgentProposalStore } from "./market-ontology-agent-tools.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -810,6 +815,16 @@ function supportsAgentExecution(
     typeof candidate.saveAgentExecutionBatch === "function";
 }
 
+function supportsMarketOntologyAgentProposals(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & MarketOntologyAgentProposalStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<MarketOntologyAgentProposalStore>;
+  return candidate.marketOntologyAgentProposalStorage !== undefined &&
+    typeof candidate.loadMarketOntologyAgentProposals === "function" &&
+    typeof candidate.saveMarketOntologyAgentProposals === "function";
+}
+
 function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   expectedRevision: number;
   provider: (typeof AI_RUNTIME_PROVIDERS)[number];
@@ -976,6 +991,10 @@ export function createControlPlane(options?: {
         ? options.discoveryStore
         : undefined,
     );
+  const marketOntologyAgentProposalStore =
+    supportsMarketOntologyAgentProposals(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
   agentExecutionRegistry.importLegacyConfiguration(
     aiRuntimeConfigurationDesk.current(),
   );
@@ -3705,6 +3724,43 @@ export function createControlPlane(options?: {
         200,
         projectMarketCorpus(catalogObservationDesk.corpus()),
       );
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/market-ontology") {
+      await ready;
+      writeJson(
+        response,
+        200,
+        projectMarketOntology(buildMarketOntologySnapshot(catalogObservationDesk.corpus())),
+      );
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/agent-proposals"
+    ) {
+      const proposals = marketOntologyAgentProposalStore?.loadMarketOntologyAgentProposals(200) ?? [];
+      writeJson(response, 200, Object.freeze({
+        schemaVersion: "pmh.market-ontology-agent-proposal-ledger.v1",
+        proposalCount: proposals.length,
+        kindCounts: Object.freeze({
+          entityAlias: proposals.filter((item) => item.kind === "ENTITY_ALIAS").length,
+          worldProposition: proposals.filter((item) => item.kind === "WORLD_PROPOSITION").length,
+          counterexample: proposals.filter((item) => item.kind === "COUNTEREXAMPLE").length,
+        }),
+        proposals,
+        storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
+          mode: "MEMORY" as const,
+          durable: false,
+          schemaVersion: 38,
+          idempotencyKey: "proposalId" as const,
+        }),
+        authority: "PROPOSE_ONLY",
+        semanticDecisionAuthority: false,
+        probabilityAuthority: false,
+        certificateAuthority: false,
+        executionAuthority: false,
+      }));
       return;
     }
     if (

@@ -1,0 +1,337 @@
+import { hashCanonical } from "@pmh/domain";
+import { describe, expect, it } from "vitest";
+import {
+  AgentCredentialBroker,
+  buildAgentRun,
+  buildAgentRuntimeDefinition,
+  buildAgentTask,
+  buildCredentialBinding,
+  buildExecutionProfile,
+  buildMarketCorpusSnapshot,
+  buildMarketOntologyNormalizationTaskPayload,
+  buildMarketOntologySnapshot,
+  buildModelProfile,
+  EnvironmentCredentialResolver,
+  executePreparedAgentRun,
+  InProcessAgentRuntimeAdapter,
+  MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,
+  MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL,
+  MarketOntologyAgentToolHost,
+  SqliteOperationalStore,
+  type AgentRuntimeSession,
+  type DiscoveryCatalogListing,
+} from "../src/index.js";
+
+const NOW = "2026-08-12T08:00:00.000Z";
+const NEXT = "2026-08-12T08:00:01.000Z";
+const LATER = "2026-08-12T08:00:02.000Z";
+
+function listing(listingRef: string, title: string): DiscoveryCatalogListing {
+  const venueId = listingRef.split(":")[0]!;
+  return Object.freeze({
+    listingRef,
+    venueId,
+    venueInstrumentId: listingRef.split(":")[1]!,
+    title,
+    description: `Venue description for ${title}`,
+    status: "OPEN",
+    mechanism: "CENTRALIZED_ORDER_BOOK",
+    closesAt: "2028-12-31T00:00:00.000Z",
+    rulesText: "Resolves from the named official source.",
+    outcomes: Object.freeze([
+      Object.freeze({ venueOutcomeId: "yes", label: "Yes", indicativePrice: "400000000000000000" }),
+      Object.freeze({ venueOutcomeId: "no", label: "No", indicativePrice: "600000000000000000" }),
+    ]),
+    priceScale: "1000000000000000000",
+    quantityScale: "1000000000000000000",
+    minPriceTick: "1",
+    sourceKind: "LIVE_OBSERVATION",
+    sourceReceivedAt: NOW,
+    sourceRawHash: hashCanonical({ listingRef, title }),
+    protocolIdentity: `protocol:${venueId}:v1`,
+  });
+}
+
+function fixture() {
+  const corpus = buildMarketCorpusSnapshot({
+    sourceSetIdentity: hashCanonical({ source: "ontology-agent-test" }),
+    eligibleSourceCount: 2,
+    excludedSourceCount: 0,
+    listings: [
+      listing("venue-a:kelly-crime", "Will Mark Kelly be charged with a federal crime in 2026?"),
+      listing("venue-b:kelly-nominee", "Will Mark Kelly win the 2028 Democratic presidential nomination?"),
+      listing("venue-c:other", "Will Alice win the 2028 election?"),
+    ],
+  });
+  const ontology = buildMarketOntologySnapshot(corpus);
+  const trailhead = ontology.trailheads.find((item) =>
+    item.listingRefs.includes("venue-a:kelly-crime") &&
+    item.listingRefs.includes("venue-b:kelly-nominee")
+  )!;
+  const payload = buildMarketOntologyNormalizationTaskPayload({
+    ontology,
+    trailheadIds: [trailhead.trailheadId],
+  });
+  const task = buildAgentTask({
+    kind: "ONTOLOGY_NORMALIZATION",
+    protocol: MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL,
+    inputArtifacts: [{
+      kind: "MARKET_ONTOLOGY",
+      artifactId: ontology.ontologyIdentity,
+      artifactHash: ontology.ontologyIdentity,
+    }],
+    taskPayload: payload,
+    requestedEffectProtocol: MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,
+    provenanceRef: `ontology:${trailhead.trailheadId}`,
+    priority: 50,
+    createdAt: NOW,
+  });
+  const runtime = buildAgentRuntimeDefinition({ kind: "HARNESS_IN_PROCESS", version: "test-v1" });
+  const credential = buildCredentialBinding({
+    kind: "DEEPSEEK_API_KEY",
+    logicalAccountRef: "deepseek-api-key:test",
+    resolverKind: "ENVIRONMENT",
+    resolverRef: "env:DEEPSEEK_API_KEY",
+  });
+  const model = buildModelProfile({
+    profileKey: "ontology-test-model",
+    revision: 1,
+    accessDriver: "DEEPSEEK_OPENAI_COMPATIBLE",
+    model: "deepseek-v4-flash",
+    configuration: {
+      schemaVersion: "pmh.deepseek-flash-model-configuration.v1",
+      thinking: { mode: "enabled" },
+      responseStorage: false,
+    },
+    createdAt: NOW,
+  });
+  const profile = buildExecutionProfile({
+    profileKey: "ontology-test-execution",
+    revision: 1,
+    runtimeDefinition: runtime,
+    credentialBinding: credential,
+    modelProfile: model,
+    toolProtocol: MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,
+    runBudget: {
+      maximumModelInvocations: 4,
+      maximumToolCalls: 8,
+      maximumWallClockMs: 300_000,
+      maximumInputTokens: "10000",
+      maximumOutputTokens: "2000",
+    },
+    createdAt: NOW,
+  });
+  const run = buildAgentRun({
+    task,
+    executionProfile: profile,
+    runOrdinal: 1,
+    authorization: {
+      kind: "MANUAL",
+      authorizationRef: "operator:test",
+      authorizedAt: NOW,
+    },
+    createdAt: NOW,
+  });
+  const host = new MarketOntologyAgentToolHost(ontology, corpus, payload);
+  return { corpus, ontology, trailhead, payload, task, runtime, credential, model, profile, run, host };
+}
+
+describe("market ontology Agent tools", () => {
+  it("exposes exact assigned evidence and retains proposals as non-authoritative effects", async () => {
+    const work = fixture();
+    const context = {
+      run: work.run,
+      task: work.task,
+      executionProfile: work.profile,
+      callId: "call:proposal:1",
+      toolName: "propose_world_proposition",
+      input: {
+        label: "Mark Kelly wins the 2028 Democratic presidential nomination",
+        subjectLabels: ["Mark Kelly"],
+        predicate: "wins a party presidential nomination",
+        timeScope: "2028 Democratic nomination cycle",
+        parameters: ["Democratic Party", "presidential nominee"],
+        ambiguityNotes: ["The crime market concerns a different event and time window."],
+        falsifiers: ["The listing refers to a different Mark Kelly."],
+        listingRefs: ["venue-b:kelly-nominee"],
+        rationale: "Bind the candidate-specific proposition without equating it to the crime contract.",
+      },
+    } as const;
+    const evidence = await work.host.execute({
+      ...context,
+      callId: "call:read:1",
+      toolName: "read_ontology_trailhead_evidence",
+      input: { trailheadId: work.trailhead.trailheadId },
+    });
+    expect(evidence).toMatchObject({
+      status: "ACCEPTED",
+      output: {
+        contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY",
+        authority: "EVIDENCE_INSPECTION_ONLY",
+      },
+    });
+
+    await expect(work.host.execute(context)).resolves.toMatchObject({
+      status: "ACCEPTED",
+      output: { reviewStatus: "UNREVIEWED" },
+    });
+    expect(work.host.proposals()).toHaveLength(1);
+    expect(work.host.proposals()[0]).toMatchObject({
+      kind: "WORLD_PROPOSITION",
+      ontologyIdentity: work.ontology.ontologyIdentity,
+      sourceSnapshotIdentity: work.corpus.snapshotIdentity,
+      sourceAgentRunId: work.run.runId,
+      authority: "PROPOSE_ONLY",
+      reviewStatus: "UNREVIEWED",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(work.host.proposals()[0]?.listingBindings[0]).toMatchObject({
+      listingRef: "venue-b:kelly-nominee",
+      worldFacetId: expect.stringMatching(/^sha256:/u),
+      settlementFacetId: expect.stringMatching(/^sha256:/u),
+      tradedFacetId: expect.stringMatching(/^sha256:/u),
+    });
+  });
+
+  it("rejects evidence refs outside the assigned trailhead", async () => {
+    const work = fixture();
+    await expect(work.host.execute({
+      run: work.run,
+      task: work.task,
+      executionProfile: work.profile,
+      callId: "call:alias:1",
+      toolName: "propose_entity_alias",
+      input: {
+        canonicalLabel: "Alice",
+        aliases: ["Alice"],
+        ambiguityNotes: [],
+        listingRefs: ["venue-c:other"],
+        rationale: "Out of scope on purpose.",
+      },
+    })).rejects.toThrow(/assigned evidence scope/iu);
+    expect(work.host.proposals()).toHaveLength(0);
+  });
+
+  it("runs through the provider-neutral long-loop adapter as tool effects", async () => {
+    const work = fixture();
+    let turn = 0;
+    const session: AgentRuntimeSession = {
+      advance: async (results) => {
+        turn += 1;
+        if (turn === 1) return {
+          invocation: {
+            status: "SUCCEEDED" as const,
+            startedAt: NOW,
+            completedAt: NEXT,
+            inputTokens: "120",
+            outputTokens: "40",
+            reasoningTokens: "10",
+            failureCategory: null,
+          },
+          toolCalls: [{
+            callId: "call:counterexample:1",
+            toolName: "record_ontology_counterexample",
+            input: {
+              rejectedClaim: "The two Mark Kelly contracts are equivalent.",
+              reason: "They concern distinct predicates and time windows.",
+              searchSignals: ["Mark Kelly", "federal crime", "nomination"],
+              listingRefs: ["venue-a:kelly-crime", "venue-b:kelly-nominee"],
+              rationale: "Retain this as negative evidence while preserving the related-entity trailhead.",
+            },
+          }],
+          completed: false,
+          finalArtifact: null,
+        };
+        expect(results).toHaveLength(1);
+        expect(results[0]?.status).toBe("ACCEPTED");
+        return {
+          invocation: {
+            status: "SUCCEEDED" as const,
+            startedAt: NEXT,
+            completedAt: LATER,
+            inputTokens: "80",
+            outputTokens: "20",
+            reasoningTokens: "5",
+            failureCategory: null,
+          },
+          toolCalls: [],
+          completed: true,
+          finalArtifact: { retainedProposalIds: work.host.proposals().map((item) => item.proposalId) },
+        };
+      },
+    };
+    const result = await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: new InProcessAgentRuntimeAdapter(async () => session),
+      credentialBroker: new AgentCredentialBroker([
+        new EnvironmentCredentialResolver({ DEEPSEEK_API_KEY: "test-secret" }),
+      ]),
+      toolHost: work.host,
+      now: () => Date.parse("2026-08-12T08:00:03.000Z"),
+    });
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.modelInvocations).toHaveLength(2);
+    expect(result.toolEffects).toHaveLength(1);
+    expect(result.toolEffects[0]).toMatchObject({
+      toolProtocol: MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,
+      toolName: "record_ontology_counterexample",
+      status: "ACCEPTED",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(work.host.proposals()[0]).toMatchObject({
+      kind: "COUNTEREXAMPLE",
+      reviewStatus: "UNREVIEWED",
+    });
+  });
+
+  it("persists accepted proposal content with Agent-run and evidence lineage", async () => {
+    const work = fixture();
+    const store = new SqliteOperationalStore(":memory:");
+    store.saveAgentExecutionBatch({
+      runtimeDefinitions: [work.runtime],
+      credentialBindings: [work.credential],
+      modelProfiles: [work.model],
+      executionProfiles: [work.profile],
+      tasks: [work.task],
+      runs: [work.run],
+    });
+    await work.host.execute({
+      run: work.run,
+      task: work.task,
+      executionProfile: work.profile,
+      callId: "call:alias:persist",
+      toolName: "propose_entity_alias",
+      input: {
+        canonicalLabel: "Mark Kelly",
+        aliases: ["Mark Kelly", "Sen. Mark Kelly"],
+        ambiguityNotes: ["Confirm that both contracts reference the Arizona senator."],
+        listingRefs: ["venue-a:kelly-crime", "venue-b:kelly-nominee"],
+        rationale: "The exact titles share the complete person name.",
+      },
+    });
+    const proposal = work.host.proposals()[0]!;
+
+    expect(store.saveMarketOntologyAgentProposals([proposal])).toEqual([proposal]);
+    expect(store.saveMarketOntologyAgentProposals([proposal])).toEqual([proposal]);
+    expect(store.loadMarketOntologyAgentProposals(10)).toEqual([proposal]);
+    expect(store.marketOntologyAgentProposalStorage).toMatchObject({
+      durable: false,
+      schemaVersion: 38,
+      idempotencyKey: "proposalId",
+    });
+    store.close();
+  });
+});
