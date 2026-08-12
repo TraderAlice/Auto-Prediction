@@ -32,6 +32,7 @@ import type {
   CodexOAuthCredential,
   CodexOAuthCredentialProvider,
 } from "./codex-oauth.js";
+import { probeCodexAppServerAccount } from "./codex-app-server-transport.js";
 
 const IDENTIFIER_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,159}$/u;
 const MAX_TOOL_CALLS_PER_TURN = 64;
@@ -355,6 +356,21 @@ export class AgentExecutionCapabilityService {
       outcome = "UNSUPPORTED_PROBE";
       probeKind = "CONFIGURATION_ONLY";
       diagnostic = "credential is configured; no zero-inference service probe is defined";
+    } else if (runtime.kind === "CODEX" &&
+        runtime.version.startsWith("codex-app-server-v2")) {
+      probeKind = "CODEX_APP_SERVER_ACCOUNT";
+      try {
+        const probe = await probeCodexAppServerAccount({
+          cwd: resolve(import.meta.dirname, "../../.."),
+          environment: process.env,
+          timeoutMs: 10_000,
+        });
+        outcome = probe.usable ? "USABLE" : "AUTH_REJECTED";
+        diagnostic = probe.diagnostic;
+      } catch (error) {
+        outcome = "TRANSIENT_FAILURE";
+        diagnostic = redactedDiagnostic(error, "Codex app-server account probe failed");
+      }
     } else {
       probeKind = "CODEX_USAGE";
       const credential = await this.credentialBroker.resolve(binding);

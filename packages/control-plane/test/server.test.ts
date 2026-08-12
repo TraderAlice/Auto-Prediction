@@ -117,7 +117,7 @@ describe("control-plane HTTP surface", () => {
       providerRequestsStartedByRead: number;
     };
     const profile = consoleProjection.executionProfiles.find((item) =>
-      item.profileKey === "rule-evidence-codex-agent"
+      item.profileKey === "rule-evidence-codex-app-server"
     )!;
     expect(consoleProjection).toMatchObject({
       summary: { runCount: 0, modelInvocationCount: 0 },
@@ -1388,8 +1388,8 @@ describe("control-plane HTTP surface", () => {
         runtimeDefinitionCount: 3,
         credentialBindingCount: 2,
         modelProfileCount: 6,
-        executionProfileCount: 12,
-        workloadRouteCount: 4,
+        executionProfileCount: 16,
+        workloadRouteCount: 6,
         taskCount: 0,
         runCount: 0,
         modelInvocationCount: 0,
@@ -1413,8 +1413,8 @@ describe("control-plane HTTP surface", () => {
     });
     expect(projection.ai.agentExecution).toMatchObject({
       modelProfileCount: 6,
-      executionProfileCount: 12,
-      workloadRouteCount: 4,
+      executionProfileCount: 16,
+      workloadRouteCount: 6,
       taskCount: 0,
       runCount: 0,
       modelInvocationCount: 0,
