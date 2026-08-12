@@ -1411,6 +1411,20 @@ source endpoints now settle in 0.37-0.41 seconds rather than the observed
 targeted Terra interpretation citing the exact contract passage; broad
 automatic interpretation remains disabled.
 
+A later live restart exposed the same distinction at the acquisition boundary:
+a conditional `304 Not Modified` created a new time-bound rule-document
+observation over the same immutable document and extraction, while the claim
+scheduler incorrectly demanded that the observation identity also remain
+equal. Rule Evidence interpretation supply is now content-bound rather than
+transport-observation-bound. The new observation remains immutable evidence of
+freshness, but it neither invalidates the retained interpretation nor licenses
+another model request. A focused recapture test preserves the original job and
+provider-attempt count, and the existing live SQLite state now reaches `READY`
+with zero provider requests/model invocations during startup and read. This is
+also an ontology decision for future schedulers: observation time answers
+*when we saw it*; byte/content identity answers *what semantic evidence was
+available*.
+
 The targeted dispatch itself then falsified two assumptions. Although SQLite
 selected `CODEX / terra / high`, the Rule Evidence Interpreter still came from
 its legacy DeepSeek-only factory and spent one DeepSeek attempt. The retained

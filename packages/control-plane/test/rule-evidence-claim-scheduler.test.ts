@@ -469,6 +469,73 @@ describe("durable rule evidence claim scheduler", () => {
     }
   });
 
+  it("reuses exact interpreted bytes across a later not-modified observation", async () => {
+    const time = clock();
+    const input = requirement("not-modified-recapture");
+    let requestCount = 0;
+    const fetcher = new EvidenceDocumentFetcher({
+      policies: [buildEvidenceDocumentFetchPolicy({
+        venueId: "claim-scheduler-test",
+        protocolIdentity: "claim-scheduler-test:v1",
+        role: "CONTRACT_RULE_DOCUMENT",
+        allowedHostnames: ["rules.example.com"],
+        allowedContentTypes: ["text/plain"],
+      })],
+      fetch: async () => {
+        requestCount += 1;
+        return requestCount === 1
+          ? new Response(
+              "Official rule: cancellation makes this contract resolve No.",
+              {
+                status: 200,
+                headers: { "content-type": "text/plain", etag: '"fixture-v1"' },
+              },
+            )
+          : new Response(null, { status: 304, headers: { etag: '"fixture-v1"' } });
+      },
+      resolve: publicResolver,
+      now: time.now,
+    });
+    const first = await fetcher.capture({
+      requirement: input,
+      locatorIdentity: input.eligibleLocators[0]!.locator.locatorIdentity,
+    });
+    const model = interpreter(first);
+    const interpret = vi.spyOn(model, "interpret");
+    const desk = new RuleEvidenceClaimDesk(
+      model,
+      "deepseek-v4-flash",
+      20,
+      undefined,
+      1,
+      time.now,
+    );
+    const scheduler = new RuleEvidenceClaimScheduler({
+      desk,
+      tickIntervalMs: 1_000,
+      now: time.now,
+    });
+    await Promise.all(scheduler.tick([{ requirement: input, capture: first }]));
+    const completed = scheduler.projection().jobs[0]!;
+    expect(interpret).toHaveBeenCalledOnce();
+
+    time.advance(60_000);
+    const later = await fetcher.capture({
+      requirement: input,
+      locatorIdentity: input.eligibleLocators[0]!.locator.locatorIdentity,
+      previous: first,
+    });
+    expect(later).toMatchObject({ status: "NOT_MODIFIED" });
+    expect(later.observation.observationId).not.toBe(first.observation.observationId);
+    expect(later.document.record.documentId).toBe(first.document.record.documentId);
+    expect(later.extraction.record.extractionId).toBe(first.extraction.record.extractionId);
+
+    expect(scheduler.tick([{ requirement: input, capture: later }])).toEqual([]);
+    expect(interpret).toHaveBeenCalledOnce();
+    expect(scheduler.projection().budget.providerAttemptsStarted).toBe(1);
+    expect(scheduler.projection().jobs).toEqual([completed]);
+  });
+
   it("quarantines an expired lease after restart instead of replaying the model request", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pmh-rule-claim-interrupted-"));
     const path = join(directory, "operations.sqlite");

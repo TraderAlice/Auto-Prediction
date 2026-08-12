@@ -133,12 +133,11 @@ export type RuleEvidenceClaimSchedulerProjection = Readonly<{
   }>;
 }>;
 
-function ruleEvidenceBusinessLineage(input: RuleEvidenceClaimInput): Hash {
+function ruleEvidenceInterpretationSupplyLineage(input: RuleEvidenceClaimInput): Hash {
   return hashCanonical({
-    schemaVersion: "pmh.rule-evidence-business-lineage.v1",
+    schemaVersion: "pmh.rule-evidence-interpretation-supply.v1",
     requirementId: input.requirement.requirementId,
     proposalId: input.requirement.proposalId,
-    observationId: input.capture.observation.observationId,
     documentId: input.capture.document.record.documentId,
     extractionId: input.capture.extraction.record.extractionId,
     documentRawHash: input.capture.document.record.rawHash,
@@ -146,12 +145,13 @@ function ruleEvidenceBusinessLineage(input: RuleEvidenceClaimInput): Hash {
   });
 }
 
-function storedRuleEvidenceBusinessLineage(record: RuleEvidenceClaimJobRecord): Hash {
+function storedRuleEvidenceInterpretationSupplyLineage(
+  record: RuleEvidenceClaimJobRecord,
+): Hash {
   return hashCanonical({
-    schemaVersion: "pmh.rule-evidence-business-lineage.v1",
+    schemaVersion: "pmh.rule-evidence-interpretation-supply.v1",
     requirementId: record.requirementId,
     proposalId: record.proposalId,
-    observationId: record.observationId,
     documentId: record.documentId,
     extractionId: record.extractionId,
     documentRawHash: record.documentRawHash,
@@ -327,25 +327,29 @@ export class RuleEvidenceClaimScheduler {
 
   public reconcile(inputs: readonly RuleEvidenceClaimInput[]): void {
     const existingById = new Map(this.#jobs.map((job) => [job.jobId, job] as const));
-    const existingByBusinessLineage = new Map<Hash, RuleEvidenceClaimJobRecord>();
+    const existingByInterpretationSupply = new Map<Hash, RuleEvidenceClaimJobRecord>();
     for (const job of [...this.#jobs].sort((left, right) =>
       right.updatedAt.localeCompare(left.updatedAt) || right.jobId.localeCompare(left.jobId)
     )) {
-      const lineage = storedRuleEvidenceBusinessLineage(job);
-      if (!existingByBusinessLineage.has(lineage)) {
-        existingByBusinessLineage.set(lineage, job);
+      const lineage = storedRuleEvidenceInterpretationSupplyLineage(job);
+      if (!existingByInterpretationSupply.has(lineage)) {
+        existingByInterpretationSupply.set(lineage, job);
       }
     }
     const validated = [...new Map(inputs.map((raw) => {
-      const currentJobId = this.#desk.interpretationIdFor(raw.requirement, raw.capture);
-      const equivalent = existingByBusinessLineage.get(ruleEvidenceBusinessLineage(raw));
+      const input = validateInput(raw);
+      const currentJobId = this.#desk.interpretationIdFor(
+        input.requirement,
+        input.capture,
+      );
+      const equivalent = existingByInterpretationSupply.get(
+        ruleEvidenceInterpretationSupplyLineage(input),
+      );
       const existing = existingById.get(currentJobId) ?? equivalent;
       const jobId = existing?.jobId ?? currentJobId;
-      const input = existing === undefined ? validateInput(raw) : Object.freeze(raw);
       if (existing !== undefined && (
         existing.requirementId !== input.requirement.requirementId ||
         existing.proposalId !== input.requirement.proposalId ||
-        existing.observationId !== input.capture.observation.observationId ||
         existing.documentId !== input.capture.document.record.documentId ||
         existing.extractionId !== input.capture.extraction.record.extractionId ||
         existing.documentRawHash !== input.capture.document.record.rawHash ||
@@ -356,7 +360,7 @@ export class RuleEvidenceClaimScheduler {
     if (validated.length > this.#retentionLimit) {
       throw new Error("active rule evidence claim inputs exceed the durable retention bound");
     }
-    const completedByBusinessLineage = new Map<Hash, RuleEvidenceClaimRecord>();
+    const completedByInterpretationSupply = new Map<Hash, RuleEvidenceClaimRecord>();
     for (const record of this.#desk.projection().records
       .filter((item) => item.status === "PASS" && item.claim !== null)
       .sort((left, right) =>
@@ -365,24 +369,25 @@ export class RuleEvidenceClaimScheduler {
       )) {
       const claim = record.claim!;
       const lineage = hashCanonical({
-        schemaVersion: "pmh.rule-evidence-business-lineage.v1",
+        schemaVersion: "pmh.rule-evidence-interpretation-supply.v1",
         requirementId: claim.requirementId,
         proposalId: claim.proposalId,
-        observationId: claim.observationId,
         documentId: claim.documentId,
         extractionId: claim.extractionId,
         documentRawHash: claim.documentRawHash,
         extractionTextHash: claim.extractionTextHash,
       });
-      if (!completedByBusinessLineage.has(lineage)) {
-        completedByBusinessLineage.set(lineage, record);
+      if (!completedByInterpretationSupply.has(lineage)) {
+        completedByInterpretationSupply.set(lineage, record);
       }
     }
     const newJobs: RuleEvidenceClaimJobRecord[] = [];
     const timestamp = new Date(this.#now()).toISOString();
     for (const [jobId, input] of validated) {
       const existing = existingById.get(jobId);
-      const completed = completedByBusinessLineage.get(ruleEvidenceBusinessLineage(input));
+      const completed = completedByInterpretationSupply.get(
+        ruleEvidenceInterpretationSupplyLineage(input),
+      );
       if (existing === undefined) {
         newJobs.push(withHash({
           schemaVersion: completed === undefined || completed.interpretationId === jobId
