@@ -1639,6 +1639,14 @@ visually qualified on port 5175. Phase 4 remains active for the other Studio
 surfaces and for replacing periodic full evidence-demand derivation with
 incremental invalidation.
 
+Incremental invalidation is now established for the two recurring derivations
+that were starving that read boundary. Semantic-review candidates and admitted
+evidence demand share one research-state revision and reuse frozen derivations
+until a durable state transition broadcasts invalidation. A scheduler's wall-
+clock wake-up is no longer treated as evidence novelty. Live 30-second sampling
+answered every readiness request inside one second while idle CPU remained
+near zero, replacing the prior repeated multi-second 100% stalls.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external
