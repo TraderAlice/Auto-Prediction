@@ -88,6 +88,32 @@ horizontal overflow. Workspace check, all suites (82 control-plane files / 572
 tests and four Studio files / 24 tests), and production build pass; the known
 Node 24 engine expectation and existing Studio chunk-size warning remain.
 
+The next active continuation is
+[`plans/research-action-target-resolution.md`](plans/research-action-target-resolution.md).
+Issue #106 closes the gap between selecting a kind of attention and proving an
+exact useful downstream action. The live LAFC debt already has one structured
+resolution-rule requirement and one terminal official-source abstention that
+cost four provider requests and three tool calls. The target compiler must
+therefore preserve that negative memory and emit a hold plus a named novelty
+gate—not translate `ADVANCE_RESEARCH_DEBT` into another generic Agent run.
+
+That compiler now resolves the live portfolio into two exact targets: one
+provider-neutral relation task ready for manual exploration and one LAFC
+resolution-rule source task blocked by its retained abstention. The blocked
+target preserves the exact proposal, newest review, rebased requirement,
+official-source task/job, four provider requests, and three tool calls; elapsed
+time cannot reopen it. A historical captured `OUTCOME_MAPPING` initially
+reappeared as false-current debt. Exact newest-review lookup plus structured
+requirement-intent matching now excludes it from action supply while retaining
+the old artifact for audit. Semantic review records and downstream jobs are
+read by exact SQLite lineage identity rather than scheduler display windows.
+Repeated live reads left 241 runs, 498 invocations, 20 campaigns, and exact
+token totals unchanged. Agent Operations exposes ready versus blocked targets
+at desktop and 390 px with no overflow or application console errors.
+Workspace check, all suites (83 control-plane files / 578 tests and four Studio
+files / 24 tests), and production build pass with only the known Node 24 engine
+expectation and existing Studio chunk-size warning.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

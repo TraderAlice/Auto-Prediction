@@ -86,6 +86,9 @@ export interface EvidenceAcquisitionSchedulerStore {
   readonly evidenceDocumentTextStorage: OperationalStorageProjection<"extractionId">;
   readonly evidenceDocumentObservationStorage: OperationalStorageProjection<"observationId">;
   loadEvidenceAcquisitionJobRecords(limit: number): readonly EvidenceAcquisitionJobRecord[];
+  loadEvidenceAcquisitionJobRecordsByRequirementIds?(
+    requirementIds: readonly Hash[],
+  ): readonly EvidenceAcquisitionJobRecord[];
   saveEvidenceAcquisitionJobRecord(
     record: EvidenceAcquisitionJobRecord,
     retentionLimit: number,

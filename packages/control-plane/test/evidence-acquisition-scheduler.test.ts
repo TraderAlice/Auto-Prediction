@@ -178,6 +178,12 @@ describe("durable evidence acquisition scheduler", () => {
       expect(scheduler.projection().jobs.some((job) =>
         job.requirementIds.includes(jobs[0]!.requirementId)
       )).toBe(false);
+      expect(store.loadEvidenceAcquisitionJobRecordsByRequirementIds([
+        jobs[10]!.requirementId,
+      ])).toHaveLength(1);
+      expect(store.loadEvidenceAcquisitionJobRecordsByRequirementIds([
+        jobs[0]!.requirementId,
+      ])).toEqual([]);
       store.close();
     } finally {
       await rm(directory, { recursive: true, force: true });

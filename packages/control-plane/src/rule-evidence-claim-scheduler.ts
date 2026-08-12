@@ -79,6 +79,9 @@ export type RuleEvidenceClaimJobRecord = Readonly<{
 export interface RuleEvidenceClaimSchedulerStore {
   readonly ruleEvidenceClaimJobStorage: OperationalStorageProjection<"jobId">;
   loadRuleEvidenceClaimJobRecords(limit: number): readonly RuleEvidenceClaimJobRecord[];
+  loadRuleEvidenceClaimJobRecordsByRequirementIds?(
+    requirementIds: readonly Hash[],
+  ): readonly RuleEvidenceClaimJobRecord[];
   saveRuleEvidenceClaimJobRecord(
     record: RuleEvidenceClaimJobRecord,
     retentionLimit: number,

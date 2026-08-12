@@ -5311,6 +5311,27 @@ export class SqliteOperationalStore
     return Object.freeze(rows.map(parseSemanticReviewRecord));
   }
 
+  public loadSemanticReviewRecordsByIds(
+    reviewIds: readonly Hash[],
+  ): readonly SemanticReviewRecord[] {
+    this.#assertOpen();
+    const ids = Object.freeze([...new Set(reviewIds)].sort());
+    if (ids.length > 512 || ids.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(String(item)))) {
+      throw new Error("semantic review identity lookup is invalid or unbounded");
+    }
+    if (ids.length === 0) return Object.freeze([]);
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.#database
+      .prepare(
+        `SELECT review_id, opportunity_id, record_json, record_hash
+         FROM semantic_review_records
+         WHERE review_id IN (${placeholders})
+         ORDER BY rowid DESC`,
+      )
+      .all(...ids);
+    return Object.freeze(rows.map(parseSemanticReviewRecord));
+  }
+
   public loadProbabilityEstimationRunRecords(
     limit: number,
   ): readonly ProbabilityEstimationRunRecord[] {
@@ -7227,6 +7248,34 @@ export class SqliteOperationalStore
     return Object.freeze(rows.map(parseOfficialSourceDiscoveryJobRecord));
   }
 
+  public loadOfficialSourceDiscoveryJobRecordsByRequirementIds(
+    requirementIds: readonly Hash[],
+  ): readonly OfficialSourceDiscoveryJobRecord[] {
+    this.#assertOpen();
+    const ids = Object.freeze([...new Set(requirementIds)].sort());
+    if (ids.length > 512 || ids.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(String(item)))) {
+      throw new Error("official source requirement lookup is invalid or unbounded");
+    }
+    if (ids.length === 0) return Object.freeze([]);
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM official_source_discovery_jobs
+         WHERE EXISTS (
+           SELECT 1
+           FROM json_each(COALESCE(
+             json_extract(record_json, '$.task.requirementIds'),
+             json_array(json_extract(record_json, '$.requirementId'))
+           )) AS requirement
+           WHERE requirement.value IN (${placeholders})
+         )
+         ORDER BY updated_at DESC, job_id DESC`,
+      )
+      .all(...ids);
+    return Object.freeze(rows.map(parseOfficialSourceDiscoveryJobRecord));
+  }
+
   public saveOfficialSourceDiscoveryJobRecord(
     recordInput: OfficialSourceDiscoveryJobRecord,
     retentionLimit: number,
@@ -7305,6 +7354,30 @@ export class SqliteOperationalStore
          LIMIT ?`,
       )
       .all(limit);
+    return Object.freeze(rows.map(parseEvidenceAcquisitionJobRecord));
+  }
+
+  public loadEvidenceAcquisitionJobRecordsByRequirementIds(
+    requirementIds: readonly Hash[],
+  ): readonly EvidenceAcquisitionJobRecord[] {
+    this.#assertOpen();
+    const ids = Object.freeze([...new Set(requirementIds)].sort());
+    if (ids.length > 512 || ids.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(String(item)))) {
+      throw new Error("evidence acquisition requirement lookup is invalid or unbounded");
+    }
+    if (ids.length === 0) return Object.freeze([]);
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM evidence_acquisition_jobs
+         WHERE EXISTS (
+           SELECT 1 FROM json_each(record_json, '$.requirementIds') AS requirement
+           WHERE requirement.value IN (${placeholders})
+         )
+         ORDER BY updated_at DESC, job_id DESC`,
+      )
+      .all(...ids);
     return Object.freeze(rows.map(parseEvidenceAcquisitionJobRecord));
   }
 
@@ -7633,6 +7706,27 @@ export class SqliteOperationalStore
          ORDER BY updated_at DESC, job_id DESC LIMIT ?`,
       )
       .all(limit);
+    return Object.freeze(rows.map(parseRuleEvidenceClaimJobRecord));
+  }
+
+  public loadRuleEvidenceClaimJobRecordsByRequirementIds(
+    requirementIds: readonly Hash[],
+  ): readonly RuleEvidenceClaimJobRecord[] {
+    this.#assertOpen();
+    const ids = Object.freeze([...new Set(requirementIds)].sort());
+    if (ids.length > 512 || ids.some((item) => !/^sha256:[0-9a-f]{64}$/u.test(String(item)))) {
+      throw new Error("rule evidence requirement lookup is invalid or unbounded");
+    }
+    if (ids.length === 0) return Object.freeze([]);
+    const placeholders = ids.map(() => "?").join(", ");
+    const rows = this.#database
+      .prepare(
+        `SELECT job_id, record_json, record_hash
+         FROM rule_evidence_claim_jobs
+         WHERE json_extract(record_json, '$.requirementId') IN (${placeholders})
+         ORDER BY updated_at DESC, job_id DESC`,
+      )
+      .all(...ids);
     return Object.freeze(rows.map(parseRuleEvidenceClaimJobRecord));
   }
 

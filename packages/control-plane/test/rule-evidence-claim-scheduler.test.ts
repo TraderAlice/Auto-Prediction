@@ -241,6 +241,12 @@ describe("durable rule evidence claim scheduler", () => {
       expect(scheduler.projection().jobs.some((job) =>
         job.requirementId === requirements[0]!.requirementId
       )).toBe(false);
+      expect(store.loadRuleEvidenceClaimJobRecordsByRequirementIds([
+        requirements[10]!.requirementId,
+      ])).toHaveLength(1);
+      expect(store.loadRuleEvidenceClaimJobRecordsByRequirementIds([
+        requirements[0]!.requirementId,
+      ])).toEqual([]);
       expect(() => scheduler.reconcile(requirements.map((source) => ({
         requirement: source,
         capture,

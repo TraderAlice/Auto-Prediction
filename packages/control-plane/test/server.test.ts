@@ -2418,6 +2418,33 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    const researchActionTargetsResponse = await fetch(
+      `${baseUrl}/api/v1/research-action-targets`,
+    );
+    expect(researchActionTargetsResponse.status).toBe(200);
+    await expect(researchActionTargetsResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.research-action-target-projection.v1",
+      selectedActionCount: 0,
+      targetCount: 0,
+      readyCount: 0,
+      inFlightCount: 0,
+      blockedNegativeSearchCount: 0,
+      unresolvedCount: 0,
+      targets: [],
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      fetchesStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+      schedulerDispatchesStartedByRead: 0,
+      automaticDispatch: false,
+      authority: "RESEARCH_ROUTING_PROPOSAL_ONLY",
+      semanticDecisionAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
     const relationCampaignPreviewResponse = await fetch(
       `${baseUrl}/api/v1/relation-discovery/campaign-preview`,
     );

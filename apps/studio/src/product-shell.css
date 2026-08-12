@@ -2377,6 +2377,36 @@ footer {
   line-height: 1.5;
 }
 
+.research-action-resolution {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 10px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  padding-left: 9px;
+}
+
+.research-action-resolution > span,
+.research-action-resolution > code {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.research-action-resolution > span {
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+
+.research-action-resolution > strong {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 520;
+  line-height: 1.45;
+}
+
+.research-action-resolution > code {
+  overflow-wrap: anywhere;
+}
+
 .research-attention-facts {
   flex-wrap: wrap;
 }

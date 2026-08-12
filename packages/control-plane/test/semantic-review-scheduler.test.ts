@@ -560,6 +560,20 @@ describe("persistent semantic review scheduler", () => {
     });
 
     try {
+      const retainedReview = sourceDesk.projection().records.find((record) =>
+        record.reviewId === contemporary.lastReviewId
+      )!;
+      const reviewLookupStore = new SqliteOperationalStore(
+        join(directory, "review-lookup.sqlite"),
+      );
+      reviewLookupStore.saveSemanticReviewRecord(retainedReview, 100);
+      expect(reviewLookupStore.loadSemanticReviewRecordsByIds([
+        retainedReview.reviewId,
+      ])).toEqual([retainedReview]);
+      expect(reviewLookupStore.loadSemanticReviewRecordsByIds([
+        hashCanonical({ review: "absent" }),
+      ])).toEqual([]);
+      reviewLookupStore.close();
       const firstStore = new SqliteOperationalStore(path);
       firstStore.saveSemanticReviewJobRecord(legacy);
       firstStore.saveSemanticReviewJobRecord(duplicateJob);

@@ -269,6 +269,12 @@ describe("official source discovery scheduler", () => {
     });
     first.reconcile([{ requirement: source, priorityTier: "POSITIVE_GROSS_BLOCKER" }]);
     await first.tick()[0];
+    expect(store.loadOfficialSourceDiscoveryJobRecordsByRequirementIds([
+      source.requirementId,
+    ])).toHaveLength(1);
+    expect(store.loadOfficialSourceDiscoveryJobRecordsByRequirementIds([
+      hashCanonical({ requirement: "absent-official-source" }),
+    ])).toEqual([]);
     expect(first.projection().storage).toMatchObject({
       mode: "MEMORY",
       schemaVersion: 40,

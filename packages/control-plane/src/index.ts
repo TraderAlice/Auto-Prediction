@@ -37,6 +37,7 @@ export * from "./relation-discovery-work.js";
 export * from "./relation-discovery-campaign.js";
 export * from "./relation-discovery-semantic-bridge.js";
 export * from "./research-attention-allocation.js";
+export * from "./research-action-targets.js";
 export * from "./model-runtime.js";
 export * from "./model-failure.js";
 export * from "./model-scout.js";

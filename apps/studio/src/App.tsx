@@ -294,6 +294,59 @@ type ResearchAttentionAllocation = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type ResearchActionTargetProjection = Readonly<{
+  schemaVersion: "pmh.research-action-target-projection.v1";
+  projectionIdentity: string;
+  allocationProjectionIdentity: string;
+  selectedActionCount: number;
+  targetCount: number;
+  readyCount: number;
+  inFlightCount: number;
+  blockedNegativeSearchCount: number;
+  unresolvedCount: number;
+  targets: ReadonlyArray<Readonly<{
+    targetId: string;
+    allocationActionId: string;
+    proposalId: string | null;
+    semanticReviewJobId: string | null;
+    requirementId: string | null;
+    requirementKind: string | null;
+    acquisitionRoute: string | null;
+    downstreamSystem: string;
+    state: string;
+    sourceTaskId: string | null;
+    currentJobId: string | null;
+    currentJobStatus: string | null;
+    priorNegativeJobIds: readonly string[];
+    retainedCost: Readonly<{
+      providerRequestCount: number;
+      toolCallCount: number;
+      fetchAttemptCount: number;
+      interpretationAttemptCount: number;
+    }>;
+    manualOperation: Readonly<{
+      available: boolean;
+      kind: string;
+      targetId: string | null;
+    }>;
+    noveltyGate: string;
+    diagnostic: string;
+    automaticDispatch: false;
+    providerRequestAuthority: false;
+    fetchAuthority: false;
+    externalWriteAuthority: false;
+    valueMovingAuthority: false;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  fetchesStartedByRead: 0;
+  campaignsCreatedByRead: 0;
+  runsCreatedByRead: 0;
+  schedulerDispatchesStartedByRead: 0;
+  automaticDispatch: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type FailureBudgetFrontierProjection = Readonly<{
   schemaVersion: "pmh.failure-budget-frontier.v4";
   contentHash: string;
@@ -3116,9 +3169,33 @@ async function requestResearchAttentionAllocation(): Promise<ResearchAttentionAl
   return result;
 }
 
+async function requestResearchActionTargets(): Promise<ResearchActionTargetProjection> {
+  const response = await fetch("/api/v1/research-action-targets", {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`Research targets returned HTTP ${response.status}`);
+  const result = await response.json() as ResearchActionTargetProjection;
+  if (
+    result.schemaVersion !== "pmh.research-action-target-projection.v1" ||
+    result.providerRequestsStartedByRead !== 0 ||
+    result.modelInvocationsStartedByRead !== 0 ||
+    result.fetchesStartedByRead !== 0 ||
+    result.campaignsCreatedByRead !== 0 ||
+    result.runsCreatedByRead !== 0 ||
+    result.schedulerDispatchesStartedByRead !== 0 ||
+    result.automaticDispatch !== false ||
+    result.externalWriteAuthority !== false ||
+    result.valueMovingAuthority !== false
+  ) {
+    throw new Error("Research targets crossed their authority boundary");
+  }
+  return result;
+}
+
 function AgentOperationsView() {
   const [consoleData, setConsoleData] = useState<AgentExecutionConsole | null>(null);
   const [attentionData, setAttentionData] = useState<ResearchAttentionAllocation | null>(null);
+  const [targetData, setTargetData] = useState<ResearchActionTargetProjection | null>(null);
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [taskId, setTaskId] = useState("");
@@ -3126,12 +3203,17 @@ function AgentOperationsView() {
   const [manualPreview, setManualPreview] = useState<unknown | null>(null);
 
   async function refresh() {
-    const [next, attention] = await Promise.all([
+    const [next, attention, targets] = await Promise.all([
       requestAgentExecutionConsole(),
       requestResearchAttentionAllocation(),
+      requestResearchActionTargets(),
     ]);
+    if (targets.allocationProjectionIdentity !== attention.projectionIdentity) {
+      throw new Error("Research target lineage does not match the current attention allocation");
+    }
     setConsoleData(next);
     setAttentionData(attention);
+    setTargetData(targets);
     setTaskId((current) => current || next.tasks.find((task) =>
       task.protocol === "RULE_EVIDENCE_TASK_V1"
     )?.taskId || next.tasks[0]?.taskId || "");
@@ -3266,6 +3348,10 @@ function AgentOperationsView() {
                 const family = attentionData.families.find((item) =>
                   item.workItemId === action.workItemId
                 );
+                const targets = targetData?.targets.filter((item) =>
+                  item.allocationActionId === action.actionId
+                ) ?? [];
+                const primaryTarget = targets[0] ?? null;
                 const knownTokens = family === undefined ? 0n :
                   BigInt(family.usage.knownInputTokens) + BigInt(family.usage.knownOutputTokens);
                 return (
@@ -3276,16 +3362,35 @@ function AgentOperationsView() {
                           {action.lane.replaceAll("_", " ")}
                         </Badge>
                         <Badge variant="muted">{action.valueStage.replaceAll("_", " ")}</Badge>
+                        {primaryTarget !== null && (
+                          <Badge variant={primaryTarget.state.startsWith("READY_")
+                            ? "verified"
+                            : primaryTarget.state.includes("BLOCKED") ? "warning" : "muted"}>
+                            {primaryTarget.state.replaceAll("_", " ")}
+                          </Badge>
+                        )}
                       </div>
                       <code>{action.workItemId?.slice(7, 19) ?? "portfolio"}</code>
                     </div>
                     <strong>{action.kind.replaceAll("_", " ")}</strong>
                     <p>{action.diagnostic}</p>
+                    {primaryTarget !== null && (
+                      <div className="research-action-resolution">
+                        <span>{primaryTarget.downstreamSystem.replaceAll("_", " ")}</span>
+                        <strong>{primaryTarget.diagnostic}</strong>
+                        <code>{primaryTarget.requirementKind ?? "DIRECT TASK"} · {primaryTarget.requirementId?.slice(7, 19) ?? primaryTarget.sourceTaskId?.slice(7, 19) ?? "unmaterialized"}</code>
+                      </div>
+                    )}
                     <div className="research-attention-facts">
                       <span>{family?.runCount ?? 0} prior run{family?.runCount === 1 ? "" : "s"}</span>
                       <span>{family?.positiveFindingCount ?? 0} positive · {family?.counterexampleCount ?? 0} counter</span>
                       <span>{formatTokenCount(knownTokens.toString())} known tokens</span>
-                      <span>{action.dispatchableByRelationCampaign ? "campaign task ready" : `${action.targetArtifactRefs.length} lineage target${action.targetArtifactRefs.length === 1 ? "" : "s"}`}</span>
+                      <span>{primaryTarget?.manualOperation.available
+                        ? `${primaryTarget.manualOperation.kind.replaceAll("_", " ").toLowerCase()} ready`
+                        : action.dispatchableByRelationCampaign ? "campaign task ready" : "manual operation held"}</span>
+                      {primaryTarget !== null && (
+                        <span>{primaryTarget.retainedCost.providerRequestCount} provider · {primaryTarget.retainedCost.toolCallCount} tool · {primaryTarget.retainedCost.fetchAttemptCount} fetch</span>
+                      )}
                     </div>
                   </article>
                 );

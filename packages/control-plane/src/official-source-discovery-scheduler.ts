@@ -100,6 +100,9 @@ export interface OfficialSourceDiscoverySchedulerStore {
   loadOfficialSourceDiscoveryJobRecords(
     limit: number,
   ): readonly OfficialSourceDiscoveryJobRecord[];
+  loadOfficialSourceDiscoveryJobRecordsByRequirementIds?(
+    requirementIds: readonly Hash[],
+  ): readonly OfficialSourceDiscoveryJobRecord[];
   saveOfficialSourceDiscoveryJobRecord(
     record: OfficialSourceDiscoveryJobRecord,
     retentionLimit: number,

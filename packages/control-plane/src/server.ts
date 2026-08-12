@@ -115,6 +115,10 @@ import {
   type RelationDiscoveryProposalCompilation,
 } from "./relation-discovery-semantic-bridge.js";
 import { buildResearchAttentionAllocation } from "./research-attention-allocation.js";
+import {
+  buildResearchActionTargetProjection,
+  selectCurrentSemanticReviewRequirements,
+} from "./research-action-targets.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -126,6 +130,7 @@ import {
   SemanticReviewBusyError,
   SemanticReviewDesk,
   SemanticReviewNotConfiguredError,
+  type SemanticReviewRecord,
   type SemanticReviewRecordStore,
 } from "./semantic-review.js";
 import { CodexAuthCacheCredentialProvider } from "./codex-oauth.js";
@@ -201,6 +206,7 @@ import {
   type EvidenceAcquisitionSchedulerStore,
 } from "./evidence-acquisition-scheduler.js";
 import { AiSdkOfficialSourceDiscoveryAgent } from "./official-source-discovery-agent.js";
+import { officialSourceTaskRequirementIds } from "./official-source-discovery.js";
 import {
   OfficialSourceDiscoveryScheduler,
   parseOfficialSourceDiscoveryTickInterval,
@@ -1600,6 +1606,14 @@ export function createControlPlane(options?: {
     : semanticReviewScheduler.projection().jobs.filter((item) =>
         proposalIds.includes(item.proposalId)
       );
+  const semanticReviewRecordsForIds = (
+    reviewIds: readonly Hash[],
+  ): readonly SemanticReviewRecord[] => supportsSemanticReviewRecords(options?.discoveryStore) &&
+      options.discoveryStore.loadSemanticReviewRecordsByIds !== undefined
+    ? options.discoveryStore.loadSemanticReviewRecordsByIds(reviewIds)
+    : semanticReviewDesk.projection().records.filter((item) =>
+        reviewIds.includes(item.reviewId)
+      );
   const probabilityJobsForProposalIds = (
     proposalIds: readonly Hash[],
   ) => supportsProbabilityEstimationSchedulerRecords(options?.discoveryStore) &&
@@ -1608,6 +1622,29 @@ export function createControlPlane(options?: {
     : probabilityEstimationScheduler.projection().jobs.filter((item) =>
         proposalIds.includes(item.proposalId)
       );
+  const officialSourceJobsForRequirementIds = (requirementIds: readonly Hash[]) =>
+    supportsOfficialSourceDiscoveryRecords(options?.discoveryStore) &&
+      options.discoveryStore.loadOfficialSourceDiscoveryJobRecordsByRequirementIds !== undefined
+      ? options.discoveryStore.loadOfficialSourceDiscoveryJobRecordsByRequirementIds(requirementIds)
+      : officialSourceDiscoveryScheduler.projection().jobs.filter((item) =>
+          officialSourceTaskRequirementIds(item.task).some((requirementId) =>
+            requirementIds.includes(requirementId)
+          )
+        );
+  const acquisitionJobsForRequirementIds = (requirementIds: readonly Hash[]) =>
+    supportsEvidenceAcquisitionRecords(options?.discoveryStore) &&
+      options.discoveryStore.loadEvidenceAcquisitionJobRecordsByRequirementIds !== undefined
+      ? options.discoveryStore.loadEvidenceAcquisitionJobRecordsByRequirementIds(requirementIds)
+      : evidenceAcquisitionScheduler.projection().jobs.filter((item) =>
+          item.requirementIds.some((requirementId) => requirementIds.includes(requirementId))
+        );
+  const claimJobsForRequirementIds = (requirementIds: readonly Hash[]) =>
+    supportsRuleEvidenceClaimSchedulerRecords(options?.discoveryStore) &&
+      options.discoveryStore.loadRuleEvidenceClaimJobRecordsByRequirementIds !== undefined
+      ? options.discoveryStore.loadRuleEvidenceClaimJobRecordsByRequirementIds(requirementIds)
+      : ruleEvidenceClaimScheduler.projection().jobs.filter((item) =>
+          requirementIds.includes(item.requirementId)
+        );
   const baseSemanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
     const relationCompilations = relationDiscoveryProposalCompilations();
     const issues = new Map(
@@ -3851,6 +3888,73 @@ export function createControlPlane(options?: {
         semanticReviewJobs: semanticReviewJobsForProposalIds(proposalIds),
         probabilityJobs: probabilityJobsForProposalIds(proposalIds),
         execution: agentExecutionRegistry.snapshot(),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/research-action-targets"
+    ) {
+      await ready;
+      const proposals = marketOntologyAgentProposalStore
+        ?.loadMarketOntologyAgentProposals(200) ?? [];
+      const ontologyRevisions = ontologySearchIssueRevisionStore
+        ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+      const execution = agentExecutionRegistry.snapshot();
+      const relationWork = buildOntologyRelationWorkProjection({
+        proposals,
+        revisions: ontologyRevisions,
+        execution,
+      });
+      const taskRevisions = relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
+      const findings = relationDiscoveryStore?.loadRelationDiscoveryFindings(512) ?? [];
+      const proposalCompilations = relationDiscoveryProposalCompilations();
+      const proposalIds = Object.freeze([...new Set(proposalCompilations.map((item) =>
+        item.proposal.proposalId
+      ))].sort());
+      const semanticReviewJobs = semanticReviewJobsForProposalIds(proposalIds);
+      const latestSemanticJobByProposal = new Map<Hash, SemanticReviewJobRecord>();
+      for (const job of semanticReviewJobs) {
+        const retained = latestSemanticJobByProposal.get(job.proposalId);
+        if (retained === undefined || job.updatedAt > retained.updatedAt ||
+            (job.updatedAt === retained.updatedAt && job.jobId > retained.jobId)) {
+          latestSemanticJobByProposal.set(job.proposalId, job);
+        }
+      }
+      const latestReviewIds = Object.freeze([...latestSemanticJobByProposal.values()]
+        .flatMap((item) => item.lastReviewId === null ? [] : [item.lastReviewId]).sort());
+      const activeRequirements = selectCurrentSemanticReviewRequirements({
+        semanticReviewJobs,
+        semanticReviewRecords: semanticReviewRecordsForIds(latestReviewIds),
+        currentRequirements: officialSourceDiscoveryScheduler.applyAdmissions(
+          retainedEvidenceRequirements(),
+        ),
+      });
+      const activeRequirementIds = Object.freeze(activeRequirements.map((item) =>
+        item.requirementId
+      ).sort());
+      const observedAt = new Date(
+        Math.floor(Date.now() / 3_600_000) * 3_600_000,
+      ).toISOString();
+      const allocation = buildResearchAttentionAllocation({
+        observedAt,
+        relationWork,
+        taskRevisions,
+        findings,
+        proposalCompilations,
+        semanticReviewJobs,
+        probabilityJobs: probabilityJobsForProposalIds(proposalIds),
+        execution,
+      });
+      writeJson(response, 200, buildResearchActionTargetProjection({
+        allocation,
+        proposalCompilations,
+        semanticReviewJobs,
+        activeRequirements,
+        officialSourceJobs: officialSourceJobsForRequirementIds(activeRequirementIds),
+        acquisitionJobs: acquisitionJobsForRequirementIds(activeRequirementIds),
+        claimJobs: claimJobsForRequirementIds(activeRequirementIds),
       }));
       return;
     }

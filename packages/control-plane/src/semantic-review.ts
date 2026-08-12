@@ -252,6 +252,9 @@ export type SemanticReviewDeskProjection = Readonly<{
 export interface SemanticReviewRecordStore {
   readonly semanticReviewStorage: OperationalStorageProjection<"reviewId">;
   loadSemanticReviewRecords(limit: number): readonly SemanticReviewRecord[];
+  loadSemanticReviewRecordsByIds?(
+    reviewIds: readonly Hash[],
+  ): readonly SemanticReviewRecord[];
   saveSemanticReviewRecord(
     record: SemanticReviewRecord,
     retentionLimit: number,
