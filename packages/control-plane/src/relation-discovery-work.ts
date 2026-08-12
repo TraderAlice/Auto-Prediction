@@ -82,6 +82,9 @@ export interface RelationDiscoveryTaskRevisionStore {
   readonly relationDiscoveryTaskRevisionStorage:
     OperationalStorageProjection<"revisionId">;
   loadRelationDiscoveryTaskRevisions(limit: number): readonly RelationDiscoveryTaskRevision[];
+  loadRelationDiscoveryTaskRevisionsForTaskIds(
+    taskIds: readonly Hash[],
+  ): readonly RelationDiscoveryTaskRevision[];
   saveRelationDiscoveryTaskRevisions(
     revisions: readonly RelationDiscoveryTaskRevision[],
   ): readonly RelationDiscoveryTaskRevision[];

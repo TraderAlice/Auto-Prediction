@@ -2390,6 +2390,31 @@ describe("control-plane HTTP surface", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+    const standingRoutesResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/standing-routes`,
+    );
+    expect(standingRoutesResponse.status).toBe(200);
+    await expect(standingRoutesResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.standing-ontology-route-projection.v1",
+      routeCount: 0,
+      blockedRouteCount: 0,
+      followupEligibleRouteCount: 0,
+      followupCount: 0,
+      routes: [],
+      followups: [],
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+      automaticDispatch: false,
+      authority: "SEARCH_ROUTING_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
     const relationDiscoveryResponse = await fetch(
       `${baseUrl}/api/v1/relation-discovery`,
     );
@@ -3043,7 +3068,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 41,
+        schemaVersion: 42,
         },
         records: [{ investigationId: created.investigationId }],
       });

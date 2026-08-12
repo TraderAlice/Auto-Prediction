@@ -87,6 +87,7 @@ import {
 } from "./market-ontology.js";
 import {
   MarketOntologyAgentToolHost,
+  type MarketOntologyAgentProposal,
   type MarketOntologyAgentProposalStore,
   type MarketOntologyNormalizationTaskPayload,
 } from "./market-ontology-agent-tools.js";
@@ -102,7 +103,10 @@ import {
 } from "./ontology-agent-campaign.js";
 import { buildOntologyAllocationOutcomeProjection } from "./ontology-allocation-outcomes.js";
 import { buildOntologyAttentionAllocation } from "./ontology-attention-allocation.js";
-import { buildOntologyRelationWorkProjection } from "./ontology-relation-work.js";
+import {
+  buildOntologyRelationWorkProjection,
+  type OntologyRelationWorkProjection,
+} from "./ontology-relation-work.js";
 import {
   RelationDiscoveryAgentToolHost,
   type RelationDiscoveryFindingStore,
@@ -122,6 +126,11 @@ import {
   selectRelationDiscoverySemanticReviewCompilations,
   type RelationDiscoveryProposalCompilation,
 } from "./relation-discovery-semantic-bridge.js";
+import {
+  buildStandingOntologyRouteProjection,
+  extendOntologyRelationWorkWithStandingRouteFollowups,
+  materializeStandingOntologyRouteFollowups,
+} from "./standing-ontology-routes.js";
 import { buildResearchAttentionAllocation } from "./research-attention-allocation.js";
 import {
   buildResearchActionTargetProjection,
@@ -313,6 +322,7 @@ import {
   effectiveAgentCampaigns,
   pauseAgentCampaign,
   type AgentCampaign,
+  type AgentExecutionSnapshot,
   type AgentExecutionStore,
   type AgentRun,
 } from "./agent-execution-substrate.js";
@@ -915,6 +925,8 @@ function supportsRelationDiscoveryRecords(
     typeof candidate.loadRelationDiscoveryCorpus === "function" &&
     typeof candidate.saveRelationDiscoveryCorpus === "function" &&
     typeof candidate.loadRelationDiscoveryFindings === "function" &&
+    typeof candidate.loadStandingOntologyRouteSourceFindings === "function" &&
+    typeof candidate.loadRelationDiscoveryTaskRevisionsForTaskIds === "function" &&
     typeof candidate.saveRelationDiscoveryFindings === "function";
 }
 
@@ -1686,6 +1698,35 @@ export function createControlPlane(options?: {
       : ruleEvidenceClaimScheduler.projection().jobs.filter((item) =>
           requirementIds.includes(item.requirementId)
         );
+  const relationWorkWithStandingRoutes = (input: Readonly<{
+    proposals: readonly MarketOntologyAgentProposal[];
+    ontologyRevisions: readonly OntologySearchIssueRevision[];
+    execution: AgentExecutionSnapshot;
+    corpus?: MarketCorpusSnapshot;
+  }>): OntologyRelationWorkProjection => {
+    const base = buildOntologyRelationWorkProjection({
+      proposals: input.proposals,
+      revisions: input.ontologyRevisions,
+      execution: input.execution,
+    });
+    if (relationDiscoveryStore === null) return base;
+    const corpus = input.corpus ?? catalogObservationDesk.corpus();
+    const routeFindings = relationDiscoveryStore.loadStandingOntologyRouteSourceFindings();
+    const routeProjection = buildStandingOntologyRouteProjection({
+      findings: routeFindings,
+      taskRevisions: relationDiscoveryStore.loadRelationDiscoveryTaskRevisionsForTaskIds(
+        routeFindings.map((item) => item.sourceTaskId),
+      ),
+      loadCorpus: (snapshotIdentity) =>
+        relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
+      currentCorpus: corpus,
+    });
+    const followups = materializeStandingOntologyRouteFollowups({
+      projection: routeProjection,
+      ontology: buildMarketOntologySnapshot(corpus),
+    });
+    return extendOntologyRelationWorkWithStandingRouteFollowups({ base, followups });
+  };
   const currentResearchActionState = (): Readonly<{
     allocation: ResearchAttentionAllocationProjection;
     targets: ResearchActionTargetProjection;
@@ -1695,9 +1736,9 @@ export function createControlPlane(options?: {
     const ontologyRevisions = ontologySearchIssueRevisionStore
       ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
     const execution = agentExecutionRegistry.snapshot();
-    const relationWork = buildOntologyRelationWorkProjection({
+    const relationWork = relationWorkWithStandingRoutes({
       proposals,
-      revisions: ontologyRevisions,
+      ontologyRevisions,
       execution,
     });
     const taskRevisions = relationDiscoveryStore
@@ -2687,10 +2728,11 @@ export function createControlPlane(options?: {
       ?.loadMarketOntologyAgentProposals(200) ?? [];
     const retainedOntologyRevisions = ontologySearchIssueRevisionStore
       ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
-    const relationWork = buildOntologyRelationWorkProjection({
+    const relationWork = relationWorkWithStandingRoutes({
       proposals,
-      revisions: retainedOntologyRevisions,
+      ontologyRevisions: retainedOntologyRevisions,
       execution: agentExecutionRegistry.snapshot(),
+      corpus,
     });
     const retainedRevisions = relationDiscoveryStore
       .loadRelationDiscoveryTaskRevisions(512);
@@ -3997,10 +4039,39 @@ export function createControlPlane(options?: {
         ?.loadMarketOntologyAgentProposals(200) ?? [];
       const revisions = ontologySearchIssueRevisionStore
         ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
-      writeJson(response, 200, buildOntologyRelationWorkProjection({
+      writeJson(response, 200, relationWorkWithStandingRoutes({
         proposals,
-        revisions,
+        ontologyRevisions: revisions,
         execution: agentExecutionRegistry.snapshot(),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/standing-routes"
+    ) {
+      await ready;
+      const findings = relationDiscoveryStore
+        ?.loadStandingOntologyRouteSourceFindings() ?? [];
+      const taskRevisions = relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisionsForTaskIds(
+          findings.map((item) => item.sourceTaskId),
+        ) ?? relationDiscoveryTaskRevisions;
+      const projection = buildStandingOntologyRouteProjection({
+        findings,
+        taskRevisions,
+        loadCorpus: (snapshotIdentity) => relationDiscoveryStore
+          ?.loadRelationDiscoveryCorpus(snapshotIdentity) ?? null,
+        currentCorpus: catalogObservationDesk.corpus(),
+      });
+      const followups = materializeStandingOntologyRouteFollowups({
+        projection,
+        ontology: buildMarketOntologySnapshot(catalogObservationDesk.corpus()),
+      });
+      writeJson(response, 200, Object.freeze({
+        ...projection,
+        followupCount: followups.length,
+        followups,
       }));
       return;
     }
@@ -4013,9 +4084,9 @@ export function createControlPlane(options?: {
         ?.loadMarketOntologyAgentProposals(200) ?? [];
       const ontologyRevisions = ontologySearchIssueRevisionStore
         ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
-      const relationWork = buildOntologyRelationWorkProjection({
+      const relationWork = relationWorkWithStandingRoutes({
         proposals,
-        revisions: ontologyRevisions,
+        ontologyRevisions,
         execution: agentExecutionRegistry.snapshot(),
       });
       const taskRevisions = relationDiscoveryStore
@@ -4081,6 +4152,9 @@ export function createControlPlane(options?: {
         positiveFindingCount: findings.filter((item) =>
           item.kind === "RELATION_HYPOTHESIS"
         ).length,
+        ontologyRouteObservationCount: findings.filter((item) =>
+          item.kind === "ONTOLOGY_ROUTE"
+        ).length,
         counterexampleCount: findings.filter((item) => item.kind === "COUNTEREXAMPLE").length,
         semanticReviewCandidateCount: reviewableCompilations.length,
         semanticReviewConnectedCount: reviewableCompilations.filter((item) =>
@@ -4145,6 +4219,9 @@ export function createControlPlane(options?: {
             findings: Object.freeze(workFindings),
             positiveFindingCount: workFindings.filter((item) =>
               item.kind === "RELATION_HYPOTHESIS"
+            ).length,
+            ontologyRouteObservationCount: workFindings.filter((item) =>
+              item.kind === "ONTOLOGY_ROUTE"
             ).length,
             counterexampleCount: workFindings.filter((item) =>
               item.kind === "COUNTEREXAMPLE"
@@ -4384,7 +4461,7 @@ export function createControlPlane(options?: {
           Object.freeze({
             mode: "MEMORY" as const,
             durable: false,
-            schemaVersion: 41,
+            schemaVersion: 42,
             idempotencyKey: "revisionId" as const,
           }),
         automaticDispatch: false,
@@ -5060,7 +5137,7 @@ export function createControlPlane(options?: {
         storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
           mode: "MEMORY" as const,
           durable: false,
-          schemaVersion: 41,
+          schemaVersion: 42,
           idempotencyKey: "proposalId" as const,
         }),
         authority: "PROPOSE_ONLY",
