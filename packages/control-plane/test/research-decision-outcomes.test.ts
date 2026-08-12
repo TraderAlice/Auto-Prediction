@@ -52,6 +52,7 @@ function family(input?: Readonly<{
     semanticReviewCandidateCount: 0,
     semanticReviewConnectedCount: 0,
     semanticReviewPassCount: 0,
+    semanticPayoffReviewPassCount: 0,
     semanticReviewJobIds: [],
     semanticClassificationCounts: {
       hardSettlementConstraint: 0,

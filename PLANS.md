@@ -302,7 +302,8 @@ contains two positive compilations: one reviewable payoff relation and one Lula
 entity-routing edge. The latter now reports zero review candidates while still
 showing its historical `PASS / ESCALATE / TEXTUAL_RELATEDNESS` job and cost.
 Research attention applies the same distinction, so the historical routing
-review remains attributed but emits no `ADVANCE_RESEARCH_DEBT` portfolio action.
+review remains attributed but emits no `ADVANCE_RESEARCH_DEBT` portfolio action
+and does not satisfy the independently reviewed payoff-finding threshold.
 All reads remain provider-free and start no campaign or run. Workspace checks,
 603 control-plane tests, 24 Studio tests, all remaining suites, and the
 production build pass with only the known Node 24 engine expectation and Studio

@@ -78,6 +78,7 @@ export type ResearchAttentionFamilyScorecard = Readonly<{
   semanticReviewCandidateCount: number;
   semanticReviewConnectedCount: number;
   semanticReviewPassCount: number;
+  semanticPayoffReviewPassCount: number;
   semanticReviewJobIds: readonly Hash[];
   semanticClassificationCounts: Readonly<{
     hardSettlementConstraint: number;
@@ -537,6 +538,9 @@ export function buildResearchAttentionAllocation(input: Readonly<{
       semanticReviewCandidateCount: reviewableCompilations.length,
       semanticReviewConnectedCount: semanticJobs.length,
       semanticReviewPassCount: semanticJobs.filter((item) => item.status === "PASS").length,
+      semanticPayoffReviewPassCount: reviewableSemanticJobs.filter((item) =>
+        item.status === "PASS"
+      ).length,
       semanticReviewJobIds: Object.freeze(semanticJobs.map((item) => item.jobId).sort()),
       semanticClassificationCounts: Object.freeze({
         hardSettlementConstraint: classification.filter((item) => item === "HARD_SETTLEMENT_CONSTRAINT").length,
@@ -604,7 +608,7 @@ export function buildResearchAttentionAllocation(input: Readonly<{
   const terminalRelationRunCount = families.reduce((sum, item) => sum + item.terminalRunCount, 0);
   const attemptedStableFamilyCount = families.filter((item) => item.runCount > 0).length;
   const independentlyReviewedPositiveFindingCount = families.reduce((sum, item) =>
-    sum + Math.min(item.positiveFindingCount, item.semanticReviewPassCount), 0
+    sum + Math.min(item.positiveFindingCount, item.semanticPayoffReviewPassCount), 0
   );
   const recurrenceEvidence = terminalRelationRunCount >= 12 && attemptedStableFamilyCount >= 4 &&
     independentlyReviewedPositiveFindingCount >= 2 && allInvocations === 0 &&

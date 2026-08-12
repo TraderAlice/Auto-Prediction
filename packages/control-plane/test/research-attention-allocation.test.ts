@@ -297,6 +297,7 @@ describe("persistent research-attention allocation", () => {
       ontologyRoutingOnlyFindingCount: 0,
       semanticReviewConnectedCount: 1,
       semanticReviewPassCount: 1,
+      semanticPayoffReviewPassCount: 1,
       semanticClassificationCounts: {
         hardSettlementConstraint: 1,
         probabilisticDependence: 0,
@@ -332,9 +333,11 @@ describe("persistent research-attention allocation", () => {
       semanticReviewCandidateCount: 0,
       semanticReviewConnectedCount: 1,
       semanticReviewPassCount: 1,
+      semanticPayoffReviewPassCount: 0,
       valueStage: "SEMANTICALLY_REVIEWED",
       nextActionKind: "HOLD",
     });
+    expect(result.recurrenceQualification.independentlyReviewedPositiveFindingCount).toBe(0);
   });
 
   it("permits one cooled-down work-artifact recheck but rejects corpus-hash churn", () => {

@@ -77,7 +77,8 @@ is filtered. Relation discovery exposes current lane, routing-only count,
 payoff-review candidate count, and historical connected review independently.
 Research attention uses the same policy: a routing-only finding can retain a
 historical semantic review and value-stage attribution, but that job does not
-create an `ADVANCE_RESEARCH_DEBT` action.
+create an `ADVANCE_RESEARCH_DEBT` action or satisfy the independently reviewed
+payoff-finding threshold for recurring research.
 
 Against the retained SQLite state, two positive compilations remain visible.
 One is payoff-review eligible. The Lula entity-neighborhood specimen reports
