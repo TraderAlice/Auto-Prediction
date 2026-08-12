@@ -217,6 +217,13 @@ export type AgentCampaignSelectionBinding = Readonly<{
   taskBindings: readonly AgentCampaignSelectionTaskBinding[];
 }>;
 
+export type AgentCampaignMembershipPolicyBinding = Readonly<{
+  schemaVersion: "pmh.agent-campaign-membership-policy.v1";
+  membershipPolicyIdentity: Hash;
+  selectionProtocol: string;
+  selectionPolicyIdentity: Hash;
+}>;
+
 type AgentCampaignFields = Readonly<{
   campaignId: Hash;
   campaignKey: string;
@@ -254,10 +261,17 @@ export type AgentCampaign =
       schemaVersion: "pmh.agent-campaign.v3";
       selectionBinding: AgentCampaignSelectionBinding;
       taskRunPolicy: "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE";
+    }>
+  | Readonly<AgentCampaignFields & {
+      schemaVersion: "pmh.agent-campaign.v4";
+      selectionBinding: AgentCampaignSelectionBinding;
+      membershipPolicyBinding: AgentCampaignMembershipPolicyBinding;
+      taskRunPolicy: "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE";
     }>;
 
 export type AgentSelectionBoundCampaign = Extract<AgentCampaign, {
-  schemaVersion: "pmh.agent-campaign.v2" | "pmh.agent-campaign.v3";
+  schemaVersion: "pmh.agent-campaign.v2" | "pmh.agent-campaign.v3" |
+    "pmh.agent-campaign.v4";
 }>;
 
 export type AgentRunAuthorization = Readonly<{
@@ -1291,16 +1305,61 @@ export function assertAgentCampaignSelectionBinding(
   return record;
 }
 
+export function buildAgentCampaignMembershipPolicyBinding(
+  selectionInput: AgentCampaignSelectionBinding,
+): AgentCampaignMembershipPolicyBinding {
+  const selection = assertAgentCampaignSelectionBinding(selectionInput);
+  const identity = Object.freeze({
+    selectionProtocol: selection.selectionProtocol,
+    selectionPolicyIdentity: selection.selectionPolicyIdentity,
+  });
+  return Object.freeze({
+    schemaVersion: "pmh.agent-campaign-membership-policy.v1" as const,
+    membershipPolicyIdentity: hashCanonical(identity),
+    ...identity,
+  });
+}
+
+export function assertAgentCampaignMembershipPolicyBinding(
+  value: unknown,
+): AgentCampaignMembershipPolicyBinding {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Agent campaign membership policy binding is malformed");
+  }
+  const record = value as AgentCampaignMembershipPolicyBinding;
+  if (!exactKeys(record, [
+    "schemaVersion", "membershipPolicyIdentity", "selectionProtocol",
+    "selectionPolicyIdentity",
+  ]) || record.schemaVersion !== "pmh.agent-campaign-membership-policy.v1") {
+    throw new Error("Agent campaign membership policy binding is invalid");
+  }
+  identifier(record.selectionProtocol, "Campaign membership selection protocol");
+  hash(record.selectionPolicyIdentity, "Campaign membership selection policy identity");
+  assertHashIdentity(record.membershipPolicyIdentity, {
+    selectionProtocol: record.selectionProtocol,
+    selectionPolicyIdentity: record.selectionPolicyIdentity,
+  }, "Campaign membership policy identity");
+  return record;
+}
+
 export function assertAgentCampaign(value: unknown): AgentCampaign {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Agent campaign is malformed");
   }
   const record = value as AgentCampaign;
   const selectionBound = record.schemaVersion === "pmh.agent-campaign.v2" ||
-    record.schemaVersion === "pmh.agent-campaign.v3";
-  const v3 = record.schemaVersion === "pmh.agent-campaign.v3";
+    record.schemaVersion === "pmh.agent-campaign.v3" ||
+    record.schemaVersion === "pmh.agent-campaign.v4";
+  const runPolicyBound = record.schemaVersion === "pmh.agent-campaign.v3" ||
+    record.schemaVersion === "pmh.agent-campaign.v4";
+  const evolving = record.schemaVersion === "pmh.agent-campaign.v4";
   if (
-    !exactKeys(record, v3 ? [
+    !exactKeys(record, evolving ? [
+      "schemaVersion", "campaignId", "campaignKey", "revision", "status",
+      "executionProfileId", "taskIds", "schedule", "budget", "activatedAt",
+      "activationRef", "createdAt", "externalWriteAuthority", "valueMovingAuthority",
+      "selectionBinding", "membershipPolicyBinding", "taskRunPolicy",
+    ] : runPolicyBound ? [
       "schemaVersion", "campaignId", "campaignKey", "revision", "status",
       "executionProfileId", "taskIds", "schedule", "budget", "activatedAt",
       "activationRef", "createdAt", "externalWriteAuthority", "valueMovingAuthority",
@@ -1315,7 +1374,8 @@ export function assertAgentCampaign(value: unknown): AgentCampaign {
       "executionProfileId", "taskIds", "schedule", "budget", "activatedAt",
       "activationRef", "createdAt", "externalWriteAuthority", "valueMovingAuthority",
     ]) ||
-    !["pmh.agent-campaign.v1", "pmh.agent-campaign.v2", "pmh.agent-campaign.v3"]
+    !["pmh.agent-campaign.v1", "pmh.agent-campaign.v2", "pmh.agent-campaign.v3",
+      "pmh.agent-campaign.v4"]
       .includes(record.schemaVersion) ||
     !["PAUSED", "ACTIVE"].includes(record.status) ||
     record.externalWriteAuthority !== false || record.valueMovingAuthority !== false ||
@@ -1345,8 +1405,18 @@ export function assertAgentCampaign(value: unknown): AgentCampaign {
         boundTaskIds.some((taskId, index) => taskId !== canonicalTaskIds[index])) {
       throw new Error("Agent campaign selection must bind every configured task exactly once");
     }
+    if (evolving) {
+      const membership = assertAgentCampaignMembershipPolicyBinding(
+        record.membershipPolicyBinding,
+      );
+      if (membership.selectionProtocol !== binding.selectionProtocol ||
+          membership.selectionPolicyIdentity !== binding.selectionPolicyIdentity) {
+        throw new Error("Agent campaign membership policy does not match its selection");
+      }
+    }
   }
-  if (v3 && !["REPEATABLE", "ONCE_PER_TASK_PER_LINEAGE"].includes(record.taskRunPolicy)) {
+  if (runPolicyBound &&
+      !["REPEATABLE", "ONCE_PER_TASK_PER_LINEAGE"].includes(record.taskRunPolicy)) {
     throw new Error("Agent campaign task run policy is invalid");
   }
   if (!["MANUAL_ONLY", "INTERVAL"].includes(record.schedule.kind) ||
@@ -1385,12 +1455,15 @@ export function buildPausedAgentCampaign(input: Readonly<{
   createdAt: string;
   selectionBinding?: AgentCampaignSelectionBinding;
   taskRunPolicy?: "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE";
+  evolvingMembership?: boolean;
 }>): AgentCampaign {
   const selectionBinding = input.selectionBinding === undefined
     ? undefined
     : assertAgentCampaignSelectionBinding(input.selectionBinding);
   const body = Object.freeze({
-    schemaVersion: input.taskRunPolicy === undefined
+    schemaVersion: input.evolvingMembership === true
+      ? "pmh.agent-campaign.v4" as const
+      : input.taskRunPolicy === undefined
       ? selectionBinding === undefined
         ? "pmh.agent-campaign.v1" as const
         : "pmh.agent-campaign.v2" as const
@@ -1408,6 +1481,9 @@ export function buildPausedAgentCampaign(input: Readonly<{
     externalWriteAuthority: false as const,
     valueMovingAuthority: false as const,
     ...(selectionBinding === undefined ? {} : { selectionBinding }),
+    ...(input.evolvingMembership === true && selectionBinding !== undefined ? {
+      membershipPolicyBinding: buildAgentCampaignMembershipPolicyBinding(selectionBinding),
+    } : {}),
     ...(input.taskRunPolicy === undefined ? {} : {
       taskRunPolicy: input.taskRunPolicy,
     }),
@@ -1415,7 +1491,65 @@ export function buildPausedAgentCampaign(input: Readonly<{
   if (input.taskRunPolicy !== undefined && selectionBinding === undefined) {
     throw new Error("Agent campaign task run policy requires an exact selection binding");
   }
+  if (input.evolvingMembership === true && input.taskRunPolicy === undefined) {
+    throw new Error("Evolving campaign membership requires an explicit task run policy");
+  }
   return assertAgentCampaign(Object.freeze({ ...body, campaignId: hashCanonical(body) }));
+}
+
+export function migrateAgentCampaignToEvolvingMembership(
+  campaignInput: AgentSelectionBoundCampaign,
+): Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v4" }> {
+  const campaign = assertAgentCampaign(campaignInput) as AgentSelectionBoundCampaign;
+  if (campaign.schemaVersion === "pmh.agent-campaign.v4") return campaign;
+  const body = Object.freeze({
+    ...campaign,
+    campaignId: undefined,
+    schemaVersion: "pmh.agent-campaign.v4" as const,
+    revision: campaign.revision + 1,
+    taskRunPolicy: campaign.schemaVersion === "pmh.agent-campaign.v3"
+      ? campaign.taskRunPolicy
+      : "ONCE_PER_TASK_PER_LINEAGE" as const,
+    membershipPolicyBinding: buildAgentCampaignMembershipPolicyBinding(
+      campaign.selectionBinding,
+    ),
+  });
+  const { campaignId: _ignored, ...withoutUndefined } = body;
+  return assertAgentCampaign(Object.freeze({
+    ...withoutUndefined,
+    campaignId: hashCanonical(withoutUndefined),
+  })) as Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v4" }>;
+}
+
+export function reviseAgentCampaignMembership(
+  campaignInput: Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v4" }>,
+  selectionInput: AgentCampaignSelectionBinding,
+): Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v4" }> {
+  const campaign = assertAgentCampaign(campaignInput) as Extract<
+    AgentCampaign,
+    { schemaVersion: "pmh.agent-campaign.v4" }
+  >;
+  const selection = assertAgentCampaignSelectionBinding(selectionInput);
+  const proposedPolicy = buildAgentCampaignMembershipPolicyBinding(selection);
+  if (proposedPolicy.membershipPolicyIdentity !==
+      campaign.membershipPolicyBinding.membershipPolicyIdentity) {
+    throw new Error("Campaign membership revision cannot change research policy");
+  }
+  if (selection.selectionIdentity === campaign.selectionBinding.selectionIdentity) {
+    throw new Error("Campaign membership revision must change the exact selection");
+  }
+  const body = Object.freeze({
+    ...campaign,
+    campaignId: undefined,
+    revision: campaign.revision + 1,
+    taskIds: selection.taskBindings.map((binding) => binding.taskId),
+    selectionBinding: selection,
+  });
+  const { campaignId: _ignored, ...withoutUndefined } = body;
+  return assertAgentCampaign(Object.freeze({
+    ...withoutUndefined,
+    campaignId: hashCanonical(withoutUndefined),
+  })) as Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v4" }>;
 }
 
 export function activateAgentCampaign(

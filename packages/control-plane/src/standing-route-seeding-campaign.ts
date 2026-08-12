@@ -4,8 +4,11 @@ import {
   buildPausedAgentCampaign,
   effectiveAgentCampaigns,
   assertAgentCampaignSelectionBinding,
+  migrateAgentCampaignToEvolvingMembership,
+  reviseAgentCampaignMembership,
   type AgentCampaign,
   type AgentCampaignSelectionBinding,
+  type AgentSelectionBoundCampaign,
   type AgentExecutionSnapshot,
   type AgentRun,
   type ExecutionProfile,
@@ -14,7 +17,6 @@ import {
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import {
   materializeStandingRouteSeedTaskRevisions,
-  relationDiscoveryResearchInputIdentity,
   type RelationDiscoveryTaskRevision,
 } from "./relation-discovery-work.js";
 import type { StandingOntologyRouteProjection } from "./standing-ontology-routes.js";
@@ -38,23 +40,67 @@ export function migrateStandingRouteSeedCampaignPolicies(input: Readonly<{
   }
   return Object.freeze(effectiveAgentCampaigns(input.campaigns).flatMap((campaign) => {
     if ((campaign.schemaVersion !== "pmh.agent-campaign.v2" &&
-        campaign.schemaVersion !== "pmh.agent-campaign.v3") ||
+        campaign.schemaVersion !== "pmh.agent-campaign.v3" &&
+        campaign.schemaVersion !== "pmh.agent-campaign.v4") ||
         campaign.selectionBinding.selectionProtocol !==
           STANDING_ROUTE_SEED_SELECTION_PROTOCOL ||
-        (campaign.schemaVersion === "pmh.agent-campaign.v3" &&
-          campaign.taskRunPolicy === "ONCE_PER_TASK_PER_LINEAGE")) return [];
-    return [buildPausedAgentCampaign({
-      campaignKey: campaign.campaignKey,
-      revision: campaign.revision + 1,
-      executionProfileId: campaign.executionProfileId,
-      taskIds: campaign.taskIds,
-      schedule: campaign.schedule,
-      budget: campaign.budget,
-      selectionBinding: campaign.selectionBinding,
-      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
-      createdAt: input.observedAt,
-    })];
+        campaign.schemaVersion === "pmh.agent-campaign.v4") return [];
+    return [migrateAgentCampaignToEvolvingMembership(campaign)];
   }));
+}
+
+export function reconcileStandingRouteSeedCampaignMembership(input: Readonly<{
+  execution: AgentExecutionSnapshot;
+  selectionBinding: AgentCampaignSelectionBinding;
+}>): readonly AgentCampaign[] {
+  const matching = effectiveAgentCampaigns(input.execution.campaigns).filter(
+    (campaign): campaign is AgentSelectionBoundCampaign =>
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
+    campaign.selectionBinding.selectionProtocol === STANDING_ROUTE_SEED_SELECTION_PROTOCOL &&
+    campaign.selectionBinding.selectionPolicyIdentity ===
+      input.selectionBinding.selectionPolicyIdentity,
+  );
+  if (matching.length === 0) return Object.freeze([]);
+  if (matching.length > 1) {
+    throw new Error("standing route seed membership policy has multiple active lineages");
+  }
+  const current = matching[0]!;
+  const evolving = current.schemaVersion === "pmh.agent-campaign.v4"
+    ? current
+    : migrateAgentCampaignToEvolvingMembership(current);
+  const lineageCampaignIds = new Set(input.execution.campaigns.filter((campaign) =>
+    campaign.campaignKey === current.campaignKey
+  ).map((campaign) => campaign.campaignId));
+  const attemptedTaskIds = new Set(input.execution.runs.filter((run) =>
+    run.authorization.campaignId !== null &&
+    lineageCampaignIds.has(run.authorization.campaignId)
+  ).map((run) => run.taskId));
+  const nextByWorkFamily = new Map(input.selectionBinding.taskBindings.map((binding) =>
+    [binding.workFamilyRef, binding] as const
+  ));
+  const retained = evolving.selectionBinding.taskBindings.filter((binding) =>
+    !attemptedTaskIds.has(binding.taskId) && !nextByWorkFamily.has(binding.workFamilyRef)
+  );
+  const taskBindings = Object.freeze([...retained, ...nextByWorkFamily.values()]
+    .sort((left, right) => left.taskId.localeCompare(right.taskId)));
+  const selectionIdentity = hashCanonical({
+    schemaVersion: "pmh.agent-campaign-membership-selection.v1",
+    selectionProtocol: input.selectionBinding.selectionProtocol,
+    selectionPolicyIdentity: input.selectionBinding.selectionPolicyIdentity,
+    taskBindings,
+  });
+  const merged = assertAgentCampaignSelectionBinding(Object.freeze({
+    ...input.selectionBinding,
+    selectionIdentity,
+    taskBindings,
+  }));
+  const unchanged = hashCanonical(merged) === hashCanonical(evolving.selectionBinding);
+  if (unchanged) return current === evolving ? Object.freeze([]) : Object.freeze([evolving]);
+  return Object.freeze(current === evolving
+    ? [reviseAgentCampaignMembership(evolving, merged)]
+    : [evolving, reviseAgentCampaignMembership(evolving, merged)]);
 }
 
 export type StandingRouteSeedCampaignPreview = Readonly<{
@@ -69,6 +115,8 @@ export type StandingRouteSeedCampaignPreview = Readonly<{
   taskRevisions: readonly RelationDiscoveryTaskRevision[];
   taskIds: readonly Hash[];
   preparedCampaignIds: readonly Hash[];
+  intentCampaignId: Hash | null;
+  membershipRevisionEligible: boolean;
   schedule: Readonly<{ kind: "MANUAL_ONLY"; intervalMs: null }>;
   budget: Readonly<{
     maximumConcurrentRuns: 1;
@@ -92,6 +140,16 @@ export type StandingRouteSeedCampaignPreview = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type StandingRouteSeedCampaignMaterialization = Readonly<{
+  campaignKey: string;
+  selection: StandingRouteSeedSelectionProjection;
+  selectionBinding: AgentCampaignSelectionBinding;
+  taskRevisions: readonly RelationDiscoveryTaskRevision[];
+  taskIds: readonly Hash[];
+  preparedCampaignIds: readonly Hash[];
+  intentCampaignId: Hash | null;
+}>;
+
 function latestRelationRoute(snapshot: AgentExecutionSnapshot): WorkloadRoute {
   const route = [...snapshot.workloadRoutes]
     .filter((item) => item.taskKind === "RELATION_DISCOVERY")
@@ -102,31 +160,28 @@ function latestRelationRoute(snapshot: AgentExecutionSnapshot): WorkloadRoute {
   return route;
 }
 
-export function buildStandingRouteSeedCampaignPreview(input: Readonly<{
+export function materializeStandingRouteSeedCampaignMembership(input: Readonly<{
   revisions: readonly RelationDiscoveryTaskRevision[];
   corpus: MarketCorpusSnapshot;
   standingRoutes: StandingOntologyRouteProjection | null;
   execution: AgentExecutionSnapshot;
-  capability: ExecutionCapabilityProjection;
-}>): StandingRouteSeedCampaignPreview {
-  const workloadRoute = latestRelationRoute(input.execution);
-  const executionProfile = input.execution.executionProfiles.find((item) =>
-    item.executionProfileId === workloadRoute.executionProfileId
-  );
-  if (executionProfile === undefined ||
-      executionProfile.toolPolicy.protocol !== "RELATION_DISCOVERY_AGENT_TOOLS_V1") {
-    throw new Error("standing route seed execution profile is unavailable or incompatible");
-  }
-  if (input.capability.executionProfileId !== executionProfile.executionProfileId) {
-    throw new Error("standing route seed capability lineage is inconsistent");
-  }
+}>): StandingRouteSeedCampaignMaterialization {
   const selection = buildStandingRouteSeedSelection(input);
-  const taskRevisions = materializeStandingRouteSeedTaskRevisions({
+  const candidates = materializeStandingRouteSeedTaskRevisions({
     selectionIdentity: selection.selectionIdentity,
     candidates: selection.selected,
     sourceRevisions: input.revisions,
     corpus: input.corpus,
   });
+  const retainedByTask = new Map(input.revisions.filter((revision) =>
+    revision.schemaVersion === "pmh.relation-discovery-task-revision.v4"
+  ).sort((left, right) =>
+    left.materializedAt.localeCompare(right.materializedAt) ||
+    left.revisionId.localeCompare(right.revisionId)
+  ).map((revision) => [revision.task.taskId, revision] as const));
+  const taskRevisions = Object.freeze(candidates.map((candidate) =>
+    retainedByTask.get(candidate.task.taskId) ?? candidate
+  ));
   const byAction = new Map(selection.selected.map((candidate) =>
     [candidate.selectionActionRef, candidate] as const
   ));
@@ -156,30 +211,79 @@ export function buildStandingRouteSeedCampaignPreview(input: Readonly<{
         inputRevisionKind: STANDING_ROUTE_SEED_INPUT_REVISION_KIND,
         inputRevisionId: revision.revisionId,
         exactInputHash: hashCanonical(revision.taskPayload),
-        semanticInputIdentity: relationDiscoveryResearchInputIdentity(input.corpus),
+        semanticInputIdentity: revision.researchInputIdentity,
       });
     }).sort((left, right) => left.taskId.localeCompare(right.taskId))),
   }));
   const preparedCampaignIds = Object.freeze(input.execution.campaigns.filter((campaign) =>
     (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
-      campaign.schemaVersion === "pmh.agent-campaign.v3") &&
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
     campaign.selectionBinding.selectionProtocol ===
       STANDING_ROUTE_SEED_SELECTION_PROTOCOL &&
     campaign.selectionBinding.selectionIdentity === selection.selectionIdentity
   ).map((campaign) => campaign.campaignId).sort());
+  const intentCampaign = effectiveAgentCampaigns(input.execution.campaigns).find((campaign) =>
+    (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") &&
+    campaign.selectionBinding.selectionProtocol === STANDING_ROUTE_SEED_SELECTION_PROTOCOL &&
+    campaign.selectionBinding.selectionPolicyIdentity === selection.policyIdentity
+  ) ?? null;
+  return Object.freeze({
+    campaignKey: intentCampaign?.campaignKey ??
+      `standing-route-seed-${selection.policyIdentity.slice("sha256:".length)}`,
+    selection,
+    selectionBinding,
+    taskRevisions,
+    taskIds: Object.freeze(taskRevisions.map((item) => item.task.taskId)),
+    preparedCampaignIds,
+    intentCampaignId: intentCampaign?.campaignId ?? null,
+  });
+}
+
+export function buildStandingRouteSeedCampaignPreview(input: Readonly<{
+  revisions: readonly RelationDiscoveryTaskRevision[];
+  corpus: MarketCorpusSnapshot;
+  standingRoutes: StandingOntologyRouteProjection | null;
+  execution: AgentExecutionSnapshot;
+  capability: ExecutionCapabilityProjection;
+}>): StandingRouteSeedCampaignPreview {
+  const workloadRoute = latestRelationRoute(input.execution);
+  const executionProfile = input.execution.executionProfiles.find((item) =>
+    item.executionProfileId === workloadRoute.executionProfileId
+  );
+  if (executionProfile === undefined ||
+      executionProfile.toolPolicy.protocol !== "RELATION_DISCOVERY_AGENT_TOOLS_V1") {
+    throw new Error("standing route seed execution profile is unavailable or incompatible");
+  }
+  if (input.capability.executionProfileId !== executionProfile.executionProfileId) {
+    throw new Error("standing route seed capability lineage is inconsistent");
+  }
+  const materialized = materializeStandingRouteSeedCampaignMembership(input);
+  const { selection, selectionBinding, taskRevisions, taskIds, preparedCampaignIds } =
+    materialized;
+  const intentCampaignId = materialized.intentCampaignId;
+  const membershipRevisions = intentCampaignId === null
+    ? Object.freeze([])
+    : reconcileStandingRouteSeedCampaignMembership({
+        execution: input.execution,
+        selectionBinding,
+      });
+  const membershipRevisionEligible = membershipRevisions.length > 0;
   const body = Object.freeze({
     schemaVersion: "pmh.standing-route-seed-campaign-preview.v1" as const,
-    campaignKey: selection.selected.length === 0
-      ? "standing-route-seed-empty"
-      : `standing-route-seed-${selection.selectionIdentity.slice("sha256:".length)}`,
+    campaignKey: materialized.campaignKey,
     workloadRoute,
     executionProfile,
     capability: input.capability,
     selection,
     selectionBinding,
     taskRevisions,
-    taskIds: Object.freeze(taskRevisions.map((item) => item.task.taskId)),
+    taskIds,
     preparedCampaignIds,
+    intentCampaignId,
+    membershipRevisionEligible,
     schedule: Object.freeze({ kind: "MANUAL_ONLY" as const, intervalMs: null }),
     budget: Object.freeze({
       maximumConcurrentRuns: 1 as const,
@@ -188,11 +292,16 @@ export function buildStandingRouteSeedCampaignPreview(input: Readonly<{
       maximumOutputTokens: "60000" as const,
       maximumWallClockMs: 900_000 as const,
     }),
-    creationEligible: taskRevisions.length > 0 && preparedCampaignIds.length === 0,
+    creationEligible: taskRevisions.length > 0 && preparedCampaignIds.length === 0 &&
+      intentCampaignId === null,
     dispatchEligible: taskRevisions.length > 0 &&
       input.capability.dispatchEligibility === "ELIGIBLE",
     diagnostic: taskRevisions.length === 0
       ? "No differentiated unattempted standing-route seed is eligible"
+      : membershipRevisionEligible
+        ? "New exact members are available inside the retained standing-route intent"
+      : intentCampaignId !== null
+        ? "The current standing-route intent already retains this exact membership"
       : preparedCampaignIds.length > 0
         ? "The current standing-route seed selection is already retained as a paused campaign"
       : input.capability.dispatchEligibility !== "ELIGIBLE"
@@ -234,7 +343,8 @@ export function resolveRelationDiscoveryTaskRevision(input: Readonly<{
   );
   if (campaign === undefined) throw new Error("relation run campaign is unavailable");
   if (campaign.schemaVersion !== "pmh.agent-campaign.v2" &&
-      campaign.schemaVersion !== "pmh.agent-campaign.v3") {
+      campaign.schemaVersion !== "pmh.agent-campaign.v3" &&
+      campaign.schemaVersion !== "pmh.agent-campaign.v4") {
     if (latest === null) throw new Error("retained relation task input is unavailable");
     return latest;
   }

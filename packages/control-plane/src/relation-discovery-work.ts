@@ -260,6 +260,7 @@ export function materializeStandingRouteSeedTaskRevisions(input: Readonly<{
     selectionActionRef: Hash;
     targetRouteLayer: RelationDiscoveryRouteLayer;
     sourceTaskRevisionId: Hash;
+    researchInputIdentity: Hash;
   }>[];
   sourceRevisions: readonly RelationDiscoveryTaskRevision[];
   corpus: MarketCorpusSnapshot;
@@ -297,7 +298,11 @@ export function materializeStandingRouteSeedTaskRevisions(input: Readonly<{
       workItemId: workItem.workItemId,
       workArtifactHash: workItem.artifactHash,
       sourceCorpusSnapshotIdentity: corpus.snapshotIdentity,
-      researchInputIdentity: relationDiscoveryResearchInputIdentity(corpus),
+      // A route-seed task inherits the semantic research input that justified
+      // its selected work item. The current corpus is still retained above as
+      // exact replay evidence, but a rotating observation window must not
+      // redefine the task's intent.
+      researchInputIdentity: candidate.researchInputIdentity,
       task,
       taskPayload,
       workItem,

@@ -5,6 +5,7 @@ import {
   AgentExecutionRegistry,
   assertExecutionProfileCompatibility,
   buildAgentRun,
+  buildAgentCampaignMembershipPolicyBinding,
   buildAgentRuntimeDefinition,
   buildAgentTask,
   buildAgentToolEffect,
@@ -14,6 +15,8 @@ import {
   buildPausedAgentCampaign,
   buildWorkloadRoute,
   importLegacyAiRuntimeConfiguration,
+  migrateAgentCampaignToEvolvingMembership,
+  reviseAgentCampaignMembership,
   type AiRuntimeConfiguration,
   type CodexModelConfiguration,
   type ExecutionProfile,
@@ -364,6 +367,77 @@ describe("Agent execution substrate", () => {
       externalWriteAuthority: false,
       valueMovingAuthority: false,
     });
+  });
+
+  it("revises exact campaign membership without changing research authority", () => {
+    const first = task(10, "evidence-requirement:one");
+    const successor = buildAgentTask({
+      kind: first.kind,
+      protocol: first.protocol,
+      inputArtifacts: first.inputArtifacts,
+      taskPayload: { requirementId: "requirement:test", documentId: "document:changed" },
+      requestedEffectProtocol: first.requestedEffectProtocol,
+      provenanceRef: first.provenanceRef,
+      priority: first.priority,
+      createdAt: LATER,
+    });
+    const profile = executionProfile();
+    const selection = (selected: typeof first, identity: ReturnType<typeof hashCanonical>) => ({
+      schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
+      selectionProtocol: "RULE_EVIDENCE_SELECTION_V1",
+      selectionIdentity: identity,
+      selectionPolicyIdentity: hashCanonical({ policy: "rule-evidence-v1" }),
+      taskBindings: [{
+        taskId: selected.taskId,
+        workFamilyRef: "evidence-requirement:test",
+        selectionActionRef: hashCanonical({ selected: selected.taskId }),
+        selectionActionKind: "RULE_EVIDENCE",
+        inputRevisionKind: "RULE_DOCUMENT",
+        inputRevisionId: selected.taskPayloadHash,
+        exactInputHash: selected.taskPayloadHash,
+        semanticInputIdentity: selected.taskPayloadHash,
+      }],
+    });
+    const originalSelection = selection(first, hashCanonical({ selection: 1 }));
+    const paused = buildPausedAgentCampaign({
+      campaignKey: "evolving-rule-evidence",
+      revision: 1,
+      executionProfileId: profile.executionProfileId,
+      taskIds: [first.taskId],
+      schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+      budget: {
+        maximumConcurrentRuns: 1,
+        maximumModelInvocations: 8,
+        maximumInputTokens: "100000",
+        maximumOutputTokens: "10000",
+        maximumWallClockMs: 300_000,
+      },
+      selectionBinding: originalSelection,
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      createdAt: NOW,
+    });
+    const active = activateAgentCampaign(paused, "operator:evolving", LATER);
+    const evolving = migrateAgentCampaignToEvolvingMembership(active);
+    const revised = reviseAgentCampaignMembership(
+      evolving,
+      selection(successor, hashCanonical({ selection: 2 })),
+    );
+
+    expect(revised).toMatchObject({
+      schemaVersion: "pmh.agent-campaign.v4",
+      campaignKey: active.campaignKey,
+      revision: evolving.revision + 1,
+      status: "ACTIVE",
+      activationRef: active.activationRef,
+      executionProfileId: active.executionProfileId,
+      budget: active.budget,
+      taskIds: [successor.taskId],
+      membershipPolicyBinding: buildAgentCampaignMembershipPolicyBinding(originalSelection),
+    });
+    expect(() => reviseAgentCampaignMembership(evolving, {
+      ...selection(successor, hashCanonical({ selection: 3 })),
+      selectionPolicyIdentity: hashCanonical({ policy: "expanded" }),
+    })).toThrow(/cannot change research policy/);
   });
 
   it("records only first-party bounded tool effects", () => {

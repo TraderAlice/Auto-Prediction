@@ -58,7 +58,8 @@ function campaignDispatchableTaskIds(
   const configured = campaign.taskIds.filter((taskId) =>
     snapshot.tasks.some((task) => task.taskId === taskId)
   );
-  if (campaign.schemaVersion !== "pmh.agent-campaign.v3" ||
+  if ((campaign.schemaVersion !== "pmh.agent-campaign.v3" &&
+      campaign.schemaVersion !== "pmh.agent-campaign.v4") ||
       campaign.taskRunPolicy === "REPEATABLE") return Object.freeze(configured);
   const attempted = new Set(campaignRuns(snapshot, campaign).map((run) => run.taskId));
   return Object.freeze(configured.filter((taskId) => !attempted.has(taskId)));

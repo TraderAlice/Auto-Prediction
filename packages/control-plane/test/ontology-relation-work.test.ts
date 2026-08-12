@@ -28,8 +28,10 @@ import {
   materializeRelationDiscoveryTaskRevisions,
   materializeStandingOntologyRouteObservationEpisodes,
   materializeStandingOntologyRouteFollowups,
+  materializeStandingRouteSeedCampaignMembership,
   materializeStandingRouteSeedTaskRevisions,
   migrateStandingRouteSeedCampaignPolicies,
+  reconcileStandingRouteSeedCampaignMembership,
   buildPausedAgentCampaign,
   activateAgentCampaign,
   reconcileRelationDiscoveryTaskRevisions,
@@ -485,17 +487,53 @@ describe("ontology proposal relation work", () => {
       observedAt: "2026-08-12T09:00:02.000Z",
     });
     expect(migrated).toMatchObject([{
-      schemaVersion: "pmh.agent-campaign.v3",
+      schemaVersion: "pmh.agent-campaign.v4",
       campaignKey: paused.campaignKey,
       revision: 3,
-      status: "PAUSED",
+      status: "ACTIVE",
+      activationRef: "operator:route-seed-contract-test",
       taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
       selectionBinding: paused.selectionBinding,
+      membershipPolicyBinding: {
+        selectionProtocol: "STANDING_ROUTE_SEED_SELECTION_V1",
+        selectionPolicyIdentity: paused.selectionBinding.selectionPolicyIdentity,
+      },
     }]);
     expect(migrateStandingRouteSeedCampaignPolicies({
       campaigns: [...migrated, paused, active],
       observedAt: "2026-08-12T09:00:03.000Z",
     })).toEqual([]);
+    const effective = migrated[0]!;
+    if (effective.schemaVersion !== "pmh.agent-campaign.v4") {
+      throw new Error("route seed campaign migration did not create evolving membership");
+    }
+    const refreshedBinding = {
+      ...preview.selectionBinding,
+      selectionIdentity: hashCanonical({ selection: "refreshed-route-seed" }),
+      taskBindings: preview.selectionBinding.taskBindings.map((binding) => ({
+        ...binding,
+        selectionActionRef: hashCanonical({ refreshed: binding.selectionActionRef }),
+      })),
+    };
+    const refreshed = reconcileStandingRouteSeedCampaignMembership({
+      execution: Object.freeze({
+        ...execution,
+        campaigns: Object.freeze([paused, active, effective]),
+      }),
+      selectionBinding: refreshedBinding,
+    });
+    expect(refreshed).toMatchObject([{
+      schemaVersion: "pmh.agent-campaign.v4",
+      campaignKey: effective.campaignKey,
+      revision: effective.revision + 1,
+      status: "ACTIVE",
+      activationRef: effective.activationRef,
+      executionProfileId: effective.executionProfileId,
+      budget: effective.budget,
+      selectionBinding: {
+        selectionPolicyIdentity: effective.selectionBinding.selectionPolicyIdentity,
+      },
+    }]);
     const retainedSelection = buildStandingRouteSeedSelection({
       revisions: [...revisions, ...preview.taskRevisions],
       corpus: work.corpus,
@@ -510,10 +548,10 @@ describe("ontology proposal relation work", () => {
     });
     expect(retainedSelection.selected).toHaveLength(1);
     expect(retainedSelection.selected[0]!.selectionActionRef)
-      .not.toBe(selection.selected[0]!.selectionActionRef);
+      .toBe(selection.selected[0]!.selectionActionRef);
     expect(retainedSelection.candidates.find((item) =>
       item.selectionActionRef === selection.selected[0]!.selectionActionRef
-    )).toMatchObject({ attemptedExactIntent: true, eligibility: "HELD_ALREADY_ATTEMPTED" });
+    )).toMatchObject({ attemptedExactIntent: false, eligibility: "SELECTABLE" });
     const seedRevision = preview.taskRevisions[0]!;
     expect(seedRevision).toMatchObject({
       schemaVersion: "pmh.relation-discovery-task-revision.v4",
@@ -543,6 +581,22 @@ describe("ontology proposal relation work", () => {
       },
       createdAt: NOW,
     });
+    const firstAttemptedSelection = buildStandingRouteSeedSelection({
+      revisions: [...revisions, ...preview.taskRevisions],
+      corpus: work.corpus,
+      standingRoutes: null,
+      execution: Object.freeze({
+        ...execution,
+        tasks: Object.freeze([...execution.tasks, ...preview.taskRevisions.map((item) =>
+          item.task
+        )]),
+        campaigns: Object.freeze([paused, active]),
+        runs: Object.freeze([run]),
+      }),
+    });
+    expect(firstAttemptedSelection.candidates.find((item) =>
+      item.selectionActionRef === selection.selected[0]!.selectionActionRef
+    )).toMatchObject({ attemptedExactIntent: true, eligibility: "HELD_ALREADY_ATTEMPTED" });
     const host = new RelationDiscoveryAgentToolHost(
       seedRevision.taskPayload,
       work.corpus,
@@ -883,6 +937,58 @@ describe("ontology proposal relation work", () => {
     expect(relationDiscoveryResearchInputIdentity(observationOnlyRefresh)).toBe(
       relationDiscoveryResearchInputIdentity(work.corpus),
     );
+    const seedBeforeRefresh = buildStandingRouteSeedSelection({
+      revisions: original,
+      corpus: work.corpus,
+      standingRoutes: null,
+      execution: emptyAgentExecutionSnapshot(),
+    });
+    const seedAfterRefresh = buildStandingRouteSeedSelection({
+      revisions: original,
+      corpus: observationOnlyRefresh,
+      standingRoutes: null,
+      execution: emptyAgentExecutionSnapshot(),
+    });
+    expect(seedAfterRefresh.sourceCorpusSnapshotIdentity)
+      .not.toBe(seedBeforeRefresh.sourceCorpusSnapshotIdentity);
+    expect(seedAfterRefresh.selectionIdentity).toBe(seedBeforeRefresh.selectionIdentity);
+    const disjointObservationWindow = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ source: "disjoint-relation-window" }),
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: work.corpus.listings.map((item, index) => Object.freeze({
+        ...item,
+        listingRef: `rotated-window:${index}`,
+        venueInstrumentId: `rotated-instrument-${index}`,
+        title: `Unrelated current market ${index}`,
+        description: "This listing belongs to a different bounded catalog window.",
+        sourceRawHash: hashCanonical({ rotated: index }),
+      })),
+    });
+    expect(relationDiscoveryResearchInputIdentity(disjointObservationWindow)).not.toBe(
+      relationDiscoveryResearchInputIdentity(work.corpus),
+    );
+    const seedInDisjointWindow = buildStandingRouteSeedSelection({
+      revisions: original,
+      corpus: disjointObservationWindow,
+      standingRoutes: null,
+      execution: emptyAgentExecutionSnapshot(),
+    });
+    expect(seedInDisjointWindow.selectionIdentity).toBe(seedBeforeRefresh.selectionIdentity);
+    const originalMembership = materializeStandingRouteSeedCampaignMembership({
+      revisions: original,
+      corpus: work.corpus,
+      standingRoutes: null,
+      execution: work.execution,
+    });
+    const rotatedMembership = materializeStandingRouteSeedCampaignMembership({
+      revisions: [...original, ...originalMembership.taskRevisions],
+      corpus: disjointObservationWindow,
+      standingRoutes: null,
+      execution: work.execution,
+    });
+    expect(rotatedMembership.taskIds).toEqual(originalMembership.taskIds);
+    expect(rotatedMembership.selectionBinding).toEqual(originalMembership.selectionBinding);
     const reused = reconcileRelationDiscoveryTaskRevisions({
       relationWork,
       corpus: observationOnlyRefresh,

@@ -1575,6 +1575,31 @@ invocations. The current V1 document task for the same requirement stayed
 runnable, establishing `kind + protocol + provenance`—not provenance alone—as
 the substitution family.
 
+The active continuation is now
+[`plans/campaign-intent-membership.md`](plans/campaign-intent-membership.md).
+Live qualification showed that task readiness alone is insufficient for
+persistence: a campaign is currently a frozen list of task IDs. The next
+ontology separates a campaign lineage's stable research authority and total
+budget from its evolving, immutable selection snapshots. Exact membership may
+advance only under the same selection protocol and policy identity; budget and
+activation remain lineage-bound, and unchanged tasks remain once-per-lineage.
+
+That continuation is now qualified. Agent Campaign v4 separates the stable
+selection protocol/policy from immutable exact membership revisions. A
+membership refresh cannot change runtime, schedule, activation or total
+budget, and dispatch consumption continues across the full campaign-key
+lineage. The existing active standing-route campaign migrated in place and
+remained exhausted at 24/24 model invocations; live migration and repeated
+restart left the durable ledger at 251 runs / 549 invocations. A rotating
+600-listing catalog window exposed that observation snapshots are not task
+identity: selection intent and semantic research input are now stable while
+the exact source snapshot remains replay evidence. A completely disjoint
+window test preserves the same route task and membership, and the live lineage
+converged at revision 11 with no further membership churn. The Agent console
+shows intent protocol, membership revision, current member count and lineage
+consumption; immutable retired tasks remain audit history rather than runnable
+authority.
+
 ## Deferred future campaigns
 
 - Venue-specific AMM and dynamic-fee calibration.

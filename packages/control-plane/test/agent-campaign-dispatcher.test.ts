@@ -9,6 +9,8 @@ import {
   buildAgentTask,
   buildPausedAgentCampaign,
   pauseAgentCampaign,
+  migrateAgentCampaignToEvolvingMembership,
+  reviseAgentCampaignMembership,
   importLegacyAiRuntimeConfiguration,
   InProcessAgentRuntimeAdapter,
   SqliteOperationalStore,
@@ -167,7 +169,7 @@ function fixture(taskCount: number, budget?: Partial<{
     })]),
     now: time.now,
   });
-  return { time, store, registry, tasks, paused, dispatcher };
+  return { time, store, registry, tasks, payloads, paused, dispatcher };
 }
 
 describe("Agent campaign dispatcher", () => {
@@ -254,6 +256,61 @@ describe("Agent campaign dispatcher", () => {
       maximumImmediateFanout: 0,
     });
     expect(item.dispatcher.dispatchCampaign(reactivated.campaignId).preparedRuns).toEqual([]);
+    item.store.close();
+  });
+
+  it("preserves once-per-lineage attempts and consumed budget across membership revisions", async () => {
+    const item = fixture(2, {
+      maximumConcurrentRuns: 1,
+      maximumModelInvocations: 2,
+    }, { kind: "MANUAL_ONLY", intervalMs: null }, "ONCE_PER_TASK_PER_LINEAGE");
+    item.time.advance(1_000);
+    const active = activateAgentCampaign(item.paused, "operator:evolving", item.time.iso());
+    item.registry.saveBatch({ campaigns: [active] });
+    const first = item.dispatcher.dispatchCampaign(active.campaignId);
+    await Promise.all(first.completions);
+    const attemptedTaskId = first.preparedRuns[0]!.taskId;
+    const newTask = task(3);
+    item.registry.saveBatch({ tasks: [newTask.task] });
+    item.payloads.set(newTask.task.taskId, newTask.payload);
+    const evolving = migrateAgentCampaignToEvolvingMembership(active);
+    const selection = evolving.selectionBinding;
+    const currentUnattempted = item.tasks.find((entry) =>
+      entry.task.taskId !== attemptedTaskId
+    )!.task;
+    const revisedSelection = {
+      ...selection,
+      selectionIdentity: newTask.task.taskId,
+      taskBindings: [currentUnattempted, newTask.task].map((work) => ({
+        taskId: work.taskId,
+        workFamilyRef: `dispatcher:${work.taskId}`,
+        selectionActionRef: work.taskId,
+        selectionActionKind: "DISPATCHER_TASK",
+        inputRevisionKind: "FIXTURE",
+        inputRevisionId: work.taskPayloadHash,
+        exactInputHash: work.taskPayloadHash,
+        semanticInputIdentity: work.taskPayloadHash,
+      })).sort((left, right) => left.taskId.localeCompare(right.taskId)),
+    };
+    const revised = reviseAgentCampaignMembership(evolving, revisedSelection);
+    item.registry.saveBatch({ campaigns: [evolving, revised] });
+
+    expect(item.dispatcher.preview(revised.campaignId)).toMatchObject({
+      configuredTaskCount: 2,
+      dispatchableTaskCount: 2,
+      consumedModelInvocations: 1,
+      remainingModelInvocations: 1,
+      maximumImmediateFanout: 1,
+    });
+    const next = item.dispatcher.dispatchCampaign(revised.campaignId);
+    await Promise.all(next.completions);
+    expect(next.preparedRuns).toHaveLength(1);
+    expect(next.preparedRuns[0]!.taskId).not.toBe(attemptedTaskId);
+    expect(item.dispatcher.preview(revised.campaignId)).toMatchObject({
+      consumedModelInvocations: 2,
+      remainingModelInvocations: 0,
+      maximumImmediateFanout: 0,
+    });
     item.store.close();
   });
 
