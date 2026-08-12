@@ -21,6 +21,9 @@ import {
   type AgentRuntimeAdapter,
   type AgentToolHost,
 } from "./agent-runtime-adapter.js";
+import { type AgentTaskReadiness } from "./agent-task-readiness.js";
+
+export type { AgentTaskReadiness } from "./agent-task-readiness.js";
 
 function canonicalIso(milliseconds: number): string {
   if (!Number.isFinite(milliseconds)) throw new Error("dispatcher clock is invalid");
@@ -73,6 +76,7 @@ export type AgentCampaignDispatchPreview = Readonly<{
   status: AgentCampaign["status"];
   configuredTaskCount: number;
   dispatchableTaskCount: number;
+  blockedTaskCount: number;
   activeRunCount: number;
   maximumImmediateFanout: number;
   consumedModelInvocations: number;
@@ -115,6 +119,7 @@ export type AgentCampaignDispatcherOptions = Readonly<{
     run: AgentRun,
   ) => AgentToolHost);
   taskPayload: (task: AgentTask, run: AgentRun) => unknown;
+  taskReadiness?: (task: AgentTask) => AgentTaskReadiness;
   runAnnotations?: (
     task: AgentTask,
     run: AgentRun,
@@ -140,6 +145,7 @@ export class AgentCampaignDispatcher {
     run: AgentRun,
   ) => AgentToolHost;
   readonly #taskPayload: (task: AgentTask, run: AgentRun) => unknown;
+  readonly #taskReadiness: (task: AgentTask) => AgentTaskReadiness;
   readonly #runAnnotations: (
     task: AgentTask,
     run: AgentRun,
@@ -157,6 +163,11 @@ export class AgentCampaignDispatcher {
       ? options.toolHost
       : () => options.toolHost as AgentToolHost;
     this.#taskPayload = options.taskPayload;
+    this.#taskReadiness = options.taskReadiness ?? (() => Object.freeze({
+      status: "RUNNABLE" as const,
+      diagnostic: "Current exact Agent task input is available.",
+      successorTaskId: null,
+    }));
     this.#runAnnotations = options.runAnnotations ?? (() => Object.freeze([]));
     this.#now = options.now ?? Date.now;
     const adapters = new Map<string, AgentRuntimeAdapter>();
@@ -196,6 +207,10 @@ export class AgentCampaignDispatcher {
     const snapshot = this.#registry.snapshot();
     const task = snapshot.tasks.find((item) => item.taskId === taskId);
     if (task === undefined) throw new Error("Agent task is unavailable");
+    const readiness = this.#taskReadiness(task);
+    if (readiness.status !== "RUNNABLE") {
+      throw new Error(`Agent task is ${readiness.status}: ${readiness.diagnostic}`);
+    }
     const profile = this.#executionProfile(snapshot, executionProfileId);
     return Object.freeze({
       task,
@@ -268,7 +283,10 @@ export class AgentCampaignDispatcher {
       }));
       const tasks = campaignDispatchableTaskIds(validCampaign, initial).flatMap((taskId) => {
         const task = initial.tasks.find((item) => item.taskId === taskId);
-        return task === undefined || activeTaskIds.has(taskId) ? [] : [task];
+        return task === undefined || activeTaskIds.has(taskId) ||
+            this.#taskReadiness(task).status !== "RUNNABLE"
+          ? []
+          : [task];
       }).slice(0, preview.maximumImmediateFanout);
       const preparedRuns: AgentRun[] = [];
       const completions: Promise<AgentRun>[] = [];
@@ -349,12 +367,17 @@ export class AgentCampaignDispatcher {
       0,
       campaign.budget.maximumConcurrentRuns - activeRunCount,
     );
-    const dispatchableTaskCount = campaignDispatchableTaskIds(campaign, snapshot).length;
+    const configuredTaskIds = campaignDispatchableTaskIds(campaign, snapshot);
+    const dispatchableTaskCount = configuredTaskIds.filter((taskId) => {
+      const task = snapshot.tasks.find((item) => item.taskId === taskId);
+      return task !== undefined && this.#taskReadiness(task).status === "RUNNABLE";
+    }).length;
     return Object.freeze({
       campaignId: campaign.campaignId,
       status: campaign.status,
       configuredTaskCount: campaign.taskIds.length,
       dispatchableTaskCount,
+      blockedTaskCount: configuredTaskIds.length - dispatchableTaskCount,
       activeRunCount,
       maximumImmediateFanout: campaign.status === "ACTIVE" && remainingModelInvocations > 0 &&
           tokenOpen && wallClockOpen

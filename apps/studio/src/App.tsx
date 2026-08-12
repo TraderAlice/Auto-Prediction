@@ -188,6 +188,11 @@ type AgentExecutionConsole = Readonly<{
     provenanceRef: string;
     priority: number;
     createdAt: string;
+    readiness: Readonly<{
+      status: "RUNNABLE" | "SUPERSEDED_INPUT" | "HISTORICAL_ONLY";
+      diagnostic: string;
+      successorTaskId: string | null;
+    }>;
   }>>;
   runs: ReadonlyArray<Readonly<{
     runId: string;
@@ -3406,9 +3411,14 @@ function AgentOperationsView() {
     setTargetData(targets);
     setOutcomeData(outcomes);
     setOntologyOutcomeData(ontologyOutcomes);
-    setTaskId((current) => current || next.tasks.find((task) =>
-      task.protocol === "RULE_EVIDENCE_TASK_V1"
-    )?.taskId || next.tasks[0]?.taskId || "");
+    setTaskId((current) => next.tasks.some((task) =>
+      task.taskId === current && task.readiness.status === "RUNNABLE"
+    ) ? current : next.tasks.find((task) =>
+      task.readiness.status === "RUNNABLE" &&
+      task.kind === "RULE_EVIDENCE_CLAIM"
+    )?.taskId || next.tasks.find((task) =>
+      task.readiness.status === "RUNNABLE"
+    )?.taskId || "");
     setProfileId((current) => {
       if (current) return current;
       const route = [...next.workloadRoutes]
@@ -3482,6 +3492,12 @@ function AgentOperationsView() {
     [item.executionProfileId, item] as const
   ));
   const selectedCapability = capabilities.get(profileId);
+  const runnableTaskCount = consoleData.tasks.filter((task) =>
+    task.readiness.status === "RUNNABLE"
+  ).length;
+  const supersededTaskCount = consoleData.tasks.filter((task) =>
+    task.readiness.status === "SUPERSEDED_INPUT"
+  ).length;
   const invocationsByRun = new Map<string, AgentExecutionConsole["modelInvocations"]>();
   for (const invocation of consoleData.modelInvocations) {
     invocationsByRun.set(invocation.runId, [
@@ -3508,7 +3524,7 @@ function AgentOperationsView() {
       <div className="metric-grid agent-metrics">
         <Metric label="Runtimes" value={`${consoleData.summary.runtimeDefinitionCount}`} detail="Pi · Codex · in-process" />
         <Metric label="Execution profiles" value={`${consoleData.summary.executionProfileCount}`} detail="immutable runtime/model compositions" />
-        <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail="task identity is provider-neutral" />
+        <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail={`${runnableTaskCount} current · ${supersededTaskCount} superseded in view`} />
         <Metric label="Known tokens" value={formatTokenCount((BigInt(consoleData.usage.inputTokens) + BigInt(consoleData.usage.outputTokens)).toString())} detail={`${consoleData.usage.incompleteTokenInvocationCount} invocations incomplete`} />
       </div>
 
@@ -3785,7 +3801,7 @@ function AgentOperationsView() {
         </CardHeader>
         <CardContent>
           <div className="agent-control-form">
-            <label><span>Task</span><Select value={taskId} onValueChange={(value) => { setTaskId(value); setManualPreview(null); }}><SelectTrigger><SelectValue placeholder="Select task" /></SelectTrigger><SelectContent>{consoleData.tasks.slice(0, 100).map((task) => <SelectItem key={task.taskId} value={task.taskId}>{task.kind} · {task.taskId.slice(7, 17)}</SelectItem>)}</SelectContent></Select></label>
+            <label><span>Current runnable task</span><Select value={taskId} onValueChange={(value) => { setTaskId(value); setManualPreview(null); }}><SelectTrigger><SelectValue placeholder="Select runnable task" /></SelectTrigger><SelectContent>{consoleData.tasks.filter((task) => task.readiness.status === "RUNNABLE").slice(0, 100).map((task) => <SelectItem key={task.taskId} value={task.taskId}>{task.kind} · {task.taskId.slice(7, 17)}</SelectItem>)}</SelectContent></Select></label>
             <label><span>Execution profile</span><Select value={profileId} onValueChange={(value) => { setProfileId(value); setManualPreview(null); }}><SelectTrigger><SelectValue placeholder="Select profile" /></SelectTrigger><SelectContent>{profiles.map((profile) => {
               const runtime = runtimes.get(profile.runtimeDefinitionId);
               const model = models.get(profile.modelProfileId);

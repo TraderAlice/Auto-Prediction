@@ -219,7 +219,7 @@ describe("control-plane HTTP surface", () => {
     };
     expect(activated).toMatchObject({
       campaign: { status: "ACTIVE" },
-      preview: { maximumImmediateFanout: 1 },
+      preview: { maximumImmediateFanout: 0, blockedTaskCount: 1 },
       providerRequestsStarted: 0,
     });
     const pausedResponse = await fetch(
