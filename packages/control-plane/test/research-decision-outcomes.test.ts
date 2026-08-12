@@ -48,9 +48,11 @@ function family(input?: Readonly<{
     positiveFindingCount: 0,
     counterexampleCount: 0,
     noFindingTerminalRunCount: 0,
+    ontologyRoutingOnlyFindingCount: 0,
     semanticReviewCandidateCount: 0,
     semanticReviewConnectedCount: 0,
     semanticReviewPassCount: 0,
+    semanticPayoffReviewPassCount: 0,
     semanticReviewJobIds: [],
     semanticClassificationCounts: {
       hardSettlementConstraint: 0,

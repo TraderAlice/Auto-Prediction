@@ -2,6 +2,7 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   buildProposalEvidenceBundle,
   type DurableProposalEvidenceBundle,
+  type MarketRelationKind,
   type MarketRelationProposal,
 } from "./market-archaeologist.js";
 import {
@@ -21,6 +22,31 @@ import {
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_SEMANTIC_REVIEW_ISSUES = 20;
+
+export type RelationDiscoveryReviewLane =
+  | "ONTOLOGY_ROUTING_ONLY"
+  | "SEMANTIC_PAYOFF_REVIEW";
+
+export function relationDiscoveryReviewLane(
+  relationKind: MarketRelationKind,
+): RelationDiscoveryReviewLane {
+  switch (relationKind) {
+    case "RELATED":
+      return "ONTOLOGY_ROUTING_ONLY";
+    case "EQUIVALENT":
+    case "IMPLIES":
+    case "SUBSET":
+    case "MUTUALLY_EXCLUSIVE":
+    case "EXHAUSTIVE":
+    case "CONDITIONAL":
+    case "CONFLICTING":
+      return "SEMANTIC_PAYOFF_REVIEW";
+    default: {
+      const unsupported: never = relationKind;
+      throw new Error(`unsupported relation discovery review kind: ${String(unsupported)}`);
+    }
+  }
+}
 
 export type RelationDiscoveryOrigin = Readonly<{
   schemaVersion: "pmh.relation-discovery-origin.v1";
@@ -59,6 +85,15 @@ export type RelationDiscoveryProposalCompilation = Readonly<{
   certificateAuthority: false;
   executionAuthority: false;
 }>;
+
+export function selectRelationDiscoverySemanticReviewCompilations(
+  compilations: readonly RelationDiscoveryProposalCompilation[],
+): readonly RelationDiscoveryProposalCompilation[] {
+  return Object.freeze(compilations.filter((compilation) =>
+    relationDiscoveryReviewLane(compilation.proposal.relationKind) ===
+      "SEMANTIC_PAYOFF_REVIEW"
+  ));
+}
 
 function canonicalIso(value: unknown, name: string): string {
   if (typeof value !== "string" || new Date(value).toISOString() !== value) {

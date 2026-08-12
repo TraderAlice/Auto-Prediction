@@ -92,11 +92,13 @@ invocations, provider requests, campaigns, runs, scheduler dispatches, or
 writes. Runtime configuration remains Codex Terra/high with DeepSeek automation
 disabled.
 
-This verification also exposed a separate stage-classification issue: the
-relation projection correctly reports `AWAITING_SEMANTIC_REVIEW` for a merely
-`LEASED` semantic-review job, while ontology allocation outcomes currently call
-the same lineage `SEMANTICALLY_REVIEWED`. That becomes the next mainline issue;
-it is not folded into exact-lineage selection.
+An initial cross-read appeared to expose a stage-classification mismatch: the
+relation projection showed a `LEASED` semantic-review job while a later
+allocation read showed `SEMANTICALLY_REVIEWED`. Rechecking the exact job proved
+that it progressed to `PASS / ESCALATE` between those reads. The allocation
+stage was correct; this is temporal evidence, not a product defect. The useful
+follow-up is instead to avoid sending future entity-routing-only `RELATED`
+findings into the payoff semantic-review lane.
 
 ## Non-goals
 

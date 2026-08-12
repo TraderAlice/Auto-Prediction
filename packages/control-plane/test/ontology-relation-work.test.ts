@@ -19,9 +19,11 @@ import {
   buildOntologyRelationWorkProjection,
   materializeRelationDiscoveryTaskRevisions,
   reconcileRelationDiscoveryTaskRevisions,
+  relationDiscoveryReviewLane,
   relationDiscoveryResearchInputIdentity,
   relationDiscoveryRevisionWorkItem,
   RelationDiscoveryAgentToolHost,
+  selectRelationDiscoverySemanticReviewCompilations,
   selectRelationDiscoveryCampaignTasks,
   SqliteOperationalStore,
   defaultAiRuntimeConfiguration,
@@ -809,6 +811,48 @@ describe("ontology proposal relation work", () => {
       semanticDecisionAuthority: false,
     });
     expect(compilation.evidenceBundle.listingRefs).toEqual(refs);
+    expect(relationDiscoveryReviewLane("RELATED")).toBe("ONTOLOGY_ROUTING_ONLY");
+    for (const relationKind of [
+      "EQUIVALENT",
+      "IMPLIES",
+      "SUBSET",
+      "MUTUALLY_EXCLUSIVE",
+      "EXHAUSTIVE",
+      "CONDITIONAL",
+      "CONFLICTING",
+    ] as const) {
+      expect(relationDiscoveryReviewLane(relationKind)).toBe("SEMANTIC_PAYOFF_REVIEW");
+    }
+    const { findingId: _relatedFindingId, ...relatedFindingBase } = positive;
+    const relatedFindingBody = Object.freeze({
+      ...relatedFindingBase,
+      relationKind: "RELATED" as const,
+    });
+    const relatedCompilation = compileRelationDiscoveryFindingForSemanticReview({
+      finding: Object.freeze({
+        ...relatedFindingBody,
+        findingId: hashCanonical(relatedFindingBody),
+      }),
+      taskRevision: revision,
+      corpus: work.corpus,
+    });
+    const { findingId: _payoffFindingId, ...payoffFindingBase } = positive;
+    const payoffFindingBody = Object.freeze({
+      ...payoffFindingBase,
+      relationKind: "IMPLIES" as const,
+    });
+    const payoffCompilation = compileRelationDiscoveryFindingForSemanticReview({
+      finding: Object.freeze({
+        ...payoffFindingBody,
+        findingId: hashCanonical(payoffFindingBody),
+      }),
+      taskRevision: revision,
+      corpus: work.corpus,
+    });
+    expect(selectRelationDiscoverySemanticReviewCompilations([
+      relatedCompilation,
+      payoffCompilation,
+    ])).toEqual([payoffCompilation]);
     expect(compileRelationDiscoveryFindingForSemanticReview({
       finding: positive,
       taskRevision: revision,
