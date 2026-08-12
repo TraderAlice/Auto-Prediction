@@ -92,7 +92,7 @@ import {
 } from "./market-ontology-agent-tools.js";
 import {
   buildOntologySearchYieldProjection,
-  materializeOntologySearchIssueRevisions,
+  reconcileOntologySearchIssueRevisions,
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
 } from "./ontology-search-ecology.js";
@@ -2369,12 +2369,12 @@ export function createControlPlane(options?: {
   };
   const ruleEvidenceAgentInput = (taskId: Hash) =>
     ruleEvidenceAgentInputsByTaskId.get(taskId) ?? null;
-  const ontologyAgentTaskPayload = (taskId: Hash) => ontologySearchIssueRevisions
+  const ontologyAgentTaskRevision = (taskId: Hash) => ontologySearchIssueRevisions
     .filter((item) => item.task.taskId === taskId)
     .sort((left, right) =>
       right.materializedAt.localeCompare(left.materializedAt) ||
       right.revisionId.localeCompare(left.revisionId)
-    )[0]?.taskPayload ?? null;
+    )[0] ?? null;
   const relationDiscoveryTaskRevision = (taskId: Hash) => relationDiscoveryTaskRevisions
     .filter((item) => item.task.taskId === taskId)
     .sort((left, right) =>
@@ -2442,10 +2442,20 @@ export function createControlPlane(options?: {
           });
         }
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
-          return MarketOntologyAgentToolHost.fromTaskPayload(
-            taskPayload as MarketOntologyNormalizationTaskPayload,
-            marketOntologyAgentProposalStore ?? undefined,
-          );
+          const revision = ontologyAgentTaskRevision(task.taskId);
+          if (revision === null) {
+            throw new Error("retained ontology task input is unavailable");
+          }
+          return revision.schemaVersion === "pmh.ontology-search-issue-revision.v2"
+            ? MarketOntologyAgentToolHost.fromIssueRevision(
+                revision.taskContract,
+                revision.taskPayload,
+                marketOntologyAgentProposalStore ?? undefined,
+              )
+            : MarketOntologyAgentToolHost.fromTaskPayload(
+                revision.taskPayload,
+                marketOntologyAgentProposalStore ?? undefined,
+              );
         }
         if (task.kind === "RELATION_DISCOVERY") {
           const revision = relationDiscoveryTaskRevision(task.taskId);
@@ -2474,9 +2484,11 @@ export function createControlPlane(options?: {
           return buildRuleEvidenceAgentTaskPayload(input);
         }
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
-          const payload = ontologyAgentTaskPayload(task.taskId);
-          if (payload === null) throw new Error("retained ontology task payload is unavailable");
-          return payload;
+          const revision = ontologyAgentTaskRevision(task.taskId);
+          if (revision === null) throw new Error("retained ontology task payload is unavailable");
+          return revision.schemaVersion === "pmh.ontology-search-issue-revision.v2"
+            ? revision.taskContract
+            : revision.taskPayload;
         }
         if (task.kind === "RELATION_DISCOVERY") {
           const revision = relationDiscoveryTaskRevision(task.taskId);
@@ -2603,16 +2615,27 @@ export function createControlPlane(options?: {
     const ontology = buildMarketOntologySnapshot(corpus);
     const proposals = marketOntologyAgentProposalStore
       ?.loadMarketOntologyAgentProposals(200) ?? [];
-    const revisions = materializeOntologySearchIssueRevisions({
+    const retainedRevisions = ontologySearchIssueRevisionStore
+      .loadOntologySearchIssueRevisions(512);
+    const reconciliation = reconcileOntologySearchIssueRevisions({
       ontology,
       corpus,
       proposals,
+      retainedRevisions,
     });
-    agentExecutionRegistry.saveBatch({
-      tasks: revisions.map((item) => item.task),
-    });
-    ontologySearchIssueRevisionStore.saveOntologySearchIssueRevisions(revisions);
-    ontologySearchIssueRevisions = revisions;
+    const knownTaskIds = new Set(agentExecutionRegistry.snapshot().tasks
+      .map((task) => task.taskId));
+    const created = reconciliation.currentRevisions.filter((revision) =>
+      reconciliation.createdRevisionIds.includes(revision.revisionId)
+    );
+    const newTasks = [...new Map(created
+      .filter((revision) => !knownTaskIds.has(revision.task.taskId))
+      .map((revision) => [revision.task.taskId, revision.task] as const)).values()];
+    if (newTasks.length > 0) agentExecutionRegistry.saveBatch({ tasks: newTasks });
+    if (created.length > 0) {
+      ontologySearchIssueRevisionStore.saveOntologySearchIssueRevisions(created);
+    }
+    ontologySearchIssueRevisions = reconciliation.currentRevisions;
   };
   const reconcileRelationDiscoveryTasks = (): void => {
     if (relationDiscoveryStore === null) return;

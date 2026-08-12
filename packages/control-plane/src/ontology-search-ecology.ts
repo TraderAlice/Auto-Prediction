@@ -12,6 +12,7 @@ import {
   assertMarketOntologyNormalizationTaskPayload,
   createMarketOntologyNormalizationTaskPayloadBuilder,
   MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,
+  MARKET_ONTOLOGY_ISSUE_TASK_PROTOCOL,
   MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL,
   type MarketOntologyAgentProposal,
   type MarketOntologyNormalizationTaskPayload,
@@ -27,6 +28,7 @@ import type { OntologyRelationWorkProjection } from "./ontology-relation-work.js
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_MATERIALIZED_ISSUES = 64;
 const MAX_TRAILHEADS_PER_ISSUE = 8;
+const ONTOLOGY_ISSUE_TASK_PROTOCOL_ESTABLISHED_AT = "2026-08-12T00:00:00.000Z";
 const LANE_TARGETS = Object.freeze({
   CROSS_VENUE: 24,
   WORLD_DIVERGENCE: 24,
@@ -39,7 +41,23 @@ export type OntologySearchCoverageState =
   | "COUNTEREXAMPLE_RECORDED"
   | "MIXED_EVIDENCE";
 
-export type OntologySearchIssueRevision = Readonly<{
+export type OntologySearchIssueTaskContract = Readonly<{
+  schemaVersion: "pmh.ontology-search-issue-task.v2";
+  issueId: Hash;
+  relationPatternId: Hash;
+  selectionLane: MarketOntologyTrailhead["selectionLane"];
+  objective: MarketOntologyNormalizationTaskPayload["objective"];
+  inputBinding: "EXACT_ONTOLOGY_INPUT_BOUND_BY_ISSUE_REVISION";
+  authority: "ONTOLOGY_NORMALIZATION_PROPOSAL_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+type OntologySearchIssueRevisionV1 = Readonly<{
   schemaVersion: "pmh.ontology-search-issue-revision.v1";
   revisionId: Hash;
   issueId: Hash;
@@ -65,6 +83,17 @@ export type OntologySearchIssueRevision = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+type OntologySearchIssueRevisionV2 = Readonly<
+  Omit<OntologySearchIssueRevisionV1, "schemaVersion"> & {
+    schemaVersion: "pmh.ontology-search-issue-revision.v2";
+    taskContract: OntologySearchIssueTaskContract;
+  }
+>;
+
+export type OntologySearchIssueRevision =
+  | OntologySearchIssueRevisionV1
+  | OntologySearchIssueRevisionV2;
+
 export interface OntologySearchIssueRevisionStore {
   readonly ontologySearchIssueRevisionStorage:
     OperationalStorageProjection<"revisionId">;
@@ -73,6 +102,24 @@ export interface OntologySearchIssueRevisionStore {
     revisions: readonly OntologySearchIssueRevision[],
   ): readonly OntologySearchIssueRevision[];
 }
+
+export type OntologySearchIssueReconciliation = Readonly<{
+  schemaVersion: "pmh.ontology-search-issue-reconciliation.v1";
+  currentRevisions: readonly OntologySearchIssueRevision[];
+  createdRevisionIds: readonly Hash[];
+  reusedRevisionIds: readonly Hash[];
+  stableTaskIds: readonly Hash[];
+  reconciliationIdentity: Hash;
+  effects: Readonly<{
+    providerRequests: 0;
+    modelInvocations: 0;
+    runs: 0;
+    campaigns: 0;
+    dispatches: 0;
+    externalWrites: 0;
+    valueMovingActions: 0;
+  }>;
+}>;
 
 function lanePriority(
   lane: MarketOntologyTrailhead["selectionLane"],
@@ -177,22 +224,39 @@ export function materializeOntologySearchIssueRevisions(input: Readonly<{
       selectionLane: group.lane,
       objective: taskPayload.objective,
     }));
+    const taskContract = Object.freeze({
+      schemaVersion: "pmh.ontology-search-issue-task.v2" as const,
+      issueId,
+      relationPatternId: group.patternId,
+      selectionLane: group.lane,
+      objective: taskPayload.objective,
+      inputBinding: "EXACT_ONTOLOGY_INPUT_BOUND_BY_ISSUE_REVISION" as const,
+      authority: "ONTOLOGY_NORMALIZATION_PROPOSAL_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
     const task = buildAgentTask({
       kind: "ONTOLOGY_NORMALIZATION",
-      protocol: MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL,
+      protocol: MARKET_ONTOLOGY_ISSUE_TASK_PROTOCOL,
       inputArtifacts: [{
-        kind: "MARKET_ONTOLOGY",
-        artifactId: ontology.ontologyIdentity,
-        artifactHash: ontology.ontologyIdentity,
+        kind: "ONTOLOGY_ISSUE_CONTRACT",
+        artifactId: issueId,
+        artifactHash: hashCanonical(taskContract),
       }],
-      taskPayload,
+      taskPayload: taskContract,
       requestedEffectProtocol: MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,
       provenanceRef: `ontology-issue:${issueId}`,
       priority: lanePriority(group.lane) * 100,
-      createdAt: sourceTime,
+      // This is the protocol-introduction time of the stable issue contract,
+      // not the observation time of any particular input revision.
+      createdAt: ONTOLOGY_ISSUE_TASK_PROTOCOL_ESTABLISHED_AT,
     });
     const body = Object.freeze({
-      schemaVersion: "pmh.ontology-search-issue-revision.v1" as const,
+      schemaVersion: "pmh.ontology-search-issue-revision.v2" as const,
       issueId,
       relationPatternId: group.patternId,
       selectionLane: group.lane,
@@ -201,6 +265,7 @@ export function materializeOntologySearchIssueRevisions(input: Readonly<{
       trailheadIds: taskPayload.trailheadIds,
       task,
       taskPayload,
+      taskContract,
       coverageState: group.state,
       matchedProposalIds: Object.freeze(group.matched.map((item) => item.proposalId)),
       priority: lanePriority(group.lane),
@@ -219,6 +284,82 @@ export function materializeOntologySearchIssueRevisions(input: Readonly<{
   }));
 }
 
+export function reconcileOntologySearchIssueRevisions(input: Readonly<{
+  ontology: MarketOntologySnapshot;
+  corpus: MarketCorpusSnapshot;
+  proposals: readonly MarketOntologyAgentProposal[];
+  retainedRevisions: readonly OntologySearchIssueRevision[];
+}>): OntologySearchIssueReconciliation {
+  const candidates = materializeOntologySearchIssueRevisions(input);
+  const retainedByRevisionId = new Map(input.retainedRevisions
+    .map(assertOntologySearchIssueRevision)
+    .map((revision) => [revision.revisionId, revision] as const));
+  const createdRevisionIds: Hash[] = [];
+  const reusedRevisionIds: Hash[] = [];
+  const currentRevisions = candidates.map((candidate) => {
+    const retained = retainedByRevisionId.get(candidate.revisionId);
+    if (retained === undefined) {
+      createdRevisionIds.push(candidate.revisionId);
+      return candidate;
+    }
+    reusedRevisionIds.push(retained.revisionId);
+    return retained;
+  });
+  const body = Object.freeze({
+    schemaVersion: "pmh.ontology-search-issue-reconciliation.v1" as const,
+    currentRevisions: Object.freeze(currentRevisions),
+    createdRevisionIds: Object.freeze(createdRevisionIds.sort()),
+    reusedRevisionIds: Object.freeze(reusedRevisionIds.sort()),
+    stableTaskIds: Object.freeze([...new Set(currentRevisions
+      .map((revision) => revision.task.taskId))].sort()),
+    effects: Object.freeze({
+      providerRequests: 0 as const,
+      modelInvocations: 0 as const,
+      runs: 0 as const,
+      campaigns: 0 as const,
+      dispatches: 0 as const,
+      externalWrites: 0 as const,
+      valueMovingActions: 0 as const,
+    }),
+  });
+  return Object.freeze({ ...body, reconciliationIdentity: hashCanonical(body) });
+}
+
+export function assertOntologySearchIssueTaskContract(
+  value: unknown,
+): OntologySearchIssueTaskContract {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("ontology search issue task contract is malformed");
+  }
+  const contract = value as OntologySearchIssueTaskContract;
+  const keys = Object.keys(value).sort();
+  const expected = [
+    "schemaVersion", "issueId", "relationPatternId", "selectionLane", "objective",
+    "inputBinding", "authority", "semanticDecisionAuthority", "probabilityAuthority",
+    "certificateAuthority", "executionAuthority", "externalWriteAuthority",
+    "valueMovingAuthority",
+  ].sort();
+  if (
+    keys.length !== expected.length || keys.some((key, index) => key !== expected[index]) ||
+    contract.schemaVersion !== "pmh.ontology-search-issue-task.v2" ||
+    !HASH_PATTERN.test(String(contract.issueId)) ||
+    !HASH_PATTERN.test(String(contract.relationPatternId)) ||
+    !["CROSS_VENUE", "WORLD_DIVERGENCE", "SETTLEMENT_DIVERGENCE"]
+      .includes(contract.selectionLane) ||
+    contract.objective !==
+      "PROPOSE_EVIDENCE_BOUND_ENTITY_AND_WORLD_PROPOSITION_NORMALIZATION" ||
+    contract.inputBinding !== "EXACT_ONTOLOGY_INPUT_BOUND_BY_ISSUE_REVISION" ||
+    contract.authority !== "ONTOLOGY_NORMALIZATION_PROPOSAL_ONLY" ||
+    contract.semanticDecisionAuthority !== false ||
+    contract.probabilityAuthority !== false ||
+    contract.certificateAuthority !== false ||
+    contract.executionAuthority !== false ||
+    contract.externalWriteAuthority !== false ||
+    contract.valueMovingAuthority !== false
+  ) throw new Error("ontology search issue task contract is invalid");
+  return contract;
+}
+
 export function assertOntologySearchIssueRevision(
   value: unknown,
 ): OntologySearchIssueRevision {
@@ -226,10 +367,15 @@ export function assertOntologySearchIssueRevision(
     throw new Error("ontology search issue revision is malformed");
   }
   const revision = value as OntologySearchIssueRevision;
+  const record = value as Readonly<Record<string, unknown>>;
   assertMarketOntologyNormalizationTaskPayload(revision.taskPayload);
+  const taskContract = revision.schemaVersion === "pmh.ontology-search-issue-revision.v2"
+    ? assertOntologySearchIssueTaskContract(revision.taskContract)
+    : null;
   const { revisionId, ...body } = revision;
   if (
-    revision.schemaVersion !== "pmh.ontology-search-issue-revision.v1" ||
+    !["pmh.ontology-search-issue-revision.v1", "pmh.ontology-search-issue-revision.v2"]
+      .includes(revision.schemaVersion) ||
     !HASH_PATTERN.test(String(revisionId)) || revisionId !== hashCanonical(body) ||
     !HASH_PATTERN.test(String(revision.issueId)) ||
     !HASH_PATTERN.test(String(revision.relationPatternId)) ||
@@ -238,7 +384,25 @@ export function assertOntologySearchIssueRevision(
     !Array.isArray(revision.trailheadIds) || revision.trailheadIds.length === 0 ||
     revision.trailheadIds.length > MAX_TRAILHEADS_PER_ISSUE ||
     revision.task.kind !== "ONTOLOGY_NORMALIZATION" ||
-    revision.task.taskPayloadHash !== hashCanonical(revision.taskPayload) ||
+    revision.task.protocol !== (revision.schemaVersion === "pmh.ontology-search-issue-revision.v2"
+      ? MARKET_ONTOLOGY_ISSUE_TASK_PROTOCOL
+      : MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL) ||
+    revision.task.taskPayloadHash !== hashCanonical(taskContract ?? revision.taskPayload) ||
+    (revision.schemaVersion === "pmh.ontology-search-issue-revision.v1" &&
+      record.taskContract !== undefined) ||
+    (revision.schemaVersion === "pmh.ontology-search-issue-revision.v2" && (
+      taskContract?.issueId !== revision.issueId ||
+      taskContract.relationPatternId !== revision.relationPatternId ||
+      taskContract.selectionLane !== revision.selectionLane ||
+      taskContract.objective !== revision.taskPayload.objective
+    )) ||
+    revision.task.provenanceRef !== `ontology-issue:${revision.issueId}` ||
+    (revision.schemaVersion === "pmh.ontology-search-issue-revision.v2" && (
+      revision.task.inputArtifacts.length !== 1 ||
+      revision.task.inputArtifacts[0]?.kind !== "ONTOLOGY_ISSUE_CONTRACT" ||
+      revision.task.inputArtifacts[0]?.artifactId !== revision.issueId ||
+      revision.task.inputArtifacts[0]?.artifactHash !== hashCanonical(taskContract)
+    )) ||
     revision.taskPayload.ontologyIdentity !== revision.ontologyIdentity ||
     revision.taskPayload.sourceSnapshotIdentity !== revision.sourceSnapshotIdentity ||
     revision.task.requestedEffectProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL ||

@@ -20,6 +20,8 @@ export const MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL =
   "MARKET_ONTOLOGY_AGENT_TOOLS_V1" as const;
 export const MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL =
   "MARKET_ONTOLOGY_NORMALIZATION_TASK_V1" as const;
+export const MARKET_ONTOLOGY_ISSUE_TASK_PROTOCOL =
+  "MARKET_ONTOLOGY_NORMALIZATION_TASK_V2" as const;
 
 const MAX_ASSIGNED_TRAILHEADS = 16;
 const MAX_LISTING_REFS = 16;
@@ -454,6 +456,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
   readonly #proposals: MarketOntologyAgentProposal[] = [];
   readonly #ontologyIdentity: Hash;
   readonly #sourceSnapshotIdentity: Hash;
+  readonly #taskIdentityPayloadHash: Hash;
   public readonly taskPayload: MarketOntologyNormalizationTaskPayload;
 
   public constructor(
@@ -461,6 +464,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     corpus?: MarketCorpusSnapshot,
     taskPayload?: MarketOntologyNormalizationTaskPayload,
     private readonly proposalStore?: MarketOntologyAgentProposalStore,
+    taskIdentityPayload?: unknown,
   ) {
     if (ontologyOrPayload.schemaVersion === "pmh.market-ontology.v1") {
       const ontology = assertMarketOntologySnapshot(ontologyOrPayload);
@@ -481,6 +485,9 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
       this.taskPayload = assertMarketOntologyNormalizationTaskPayload(ontologyOrPayload);
     }
     this.#ontologyIdentity = this.taskPayload.ontologyIdentity;
+    this.#taskIdentityPayloadHash = hashCanonical(
+      taskIdentityPayload ?? this.taskPayload,
+    );
     this.#sourceSnapshotIdentity = this.taskPayload.sourceSnapshotIdentity;
     this.#assignedTrailheads = this.taskPayload.trailheads;
     this.#nodesByRef = new Map(this.taskPayload.listingEvidence
@@ -499,6 +506,20 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
       undefined,
       undefined,
       proposalStore,
+    );
+  }
+
+  public static fromIssueRevision(
+    taskIdentityPayload: unknown,
+    inputPayload: MarketOntologyNormalizationTaskPayload,
+    proposalStore?: MarketOntologyAgentProposalStore,
+  ): MarketOntologyAgentToolHost {
+    return new MarketOntologyAgentToolHost(
+      inputPayload,
+      undefined,
+      undefined,
+      proposalStore,
+      taskIdentityPayload,
     );
   }
 
@@ -542,7 +563,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
   ): MarketOntologyAgentProposal {
     if (context.task.kind !== "ONTOLOGY_NORMALIZATION" ||
         context.task.requestedEffectProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL ||
-        context.task.taskPayloadHash !== hashCanonical(this.taskPayload)) {
+        context.task.taskPayloadHash !== this.#taskIdentityPayloadHash) {
       throw new Error("ontology tool call task lineage is invalid");
     }
     const envelope = Object.freeze({

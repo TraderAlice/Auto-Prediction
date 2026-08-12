@@ -17,6 +17,7 @@ import {
   MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,
   MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL,
   MarketOntologyAgentToolHost,
+  materializeOntologySearchIssueRevisions,
   SqliteOperationalStore,
   type AgentRuntimeSession,
   type DiscoveryCatalogListing,
@@ -236,6 +237,77 @@ describe("market ontology Agent tools", () => {
       toolName: "read_ontology_trailhead_evidence",
       input: { trailheadId: work.trailhead.trailheadId },
     }));
+  });
+
+  it("binds a stable issue task to the selected revision's exact evidence", async () => {
+    const work = fixture();
+    const revision = materializeOntologySearchIssueRevisions({
+      corpus: work.corpus,
+      ontology: work.ontology,
+      proposals: [],
+    }).find((item) => item.trailheadIds.includes(work.trailhead.trailheadId))!;
+    if (revision.schemaVersion !== "pmh.ontology-search-issue-revision.v2") {
+      throw new Error("test requires the successor issue revision");
+    }
+    const run = buildAgentRun({
+      task: revision.task,
+      executionProfile: work.profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:issue-revision-test",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const host = MarketOntologyAgentToolHost.fromIssueRevision(
+      revision.taskContract,
+      revision.taskPayload,
+    );
+
+    await expect(host.execute({
+      run,
+      task: revision.task,
+      executionProfile: work.profile,
+      callId: "call:issue-revision:1",
+      toolName: "propose_world_proposition",
+      input: {
+        label: "Mark Kelly wins the 2028 Democratic presidential nomination",
+        subjectLabels: ["Mark Kelly"],
+        predicate: "wins a party presidential nomination",
+        timeScope: "2028",
+        parameters: ["Democratic Party"],
+        ambiguityNotes: [],
+        falsifiers: ["The listing names another candidate."],
+        listingRefs: ["venue-b:kelly-nominee"],
+        rationale: "The stable task resolves its exact current input through the revision.",
+      },
+    })).resolves.toMatchObject({ status: "ACCEPTED" });
+    expect(host.proposals()[0]).toMatchObject({
+      ontologyIdentity: revision.ontologyIdentity,
+      sourceSnapshotIdentity: revision.sourceSnapshotIdentity,
+      sourceTrailheadIds: expect.arrayContaining([work.trailhead.trailheadId]),
+    });
+
+    const legacyBoundHost = MarketOntologyAgentToolHost.fromTaskPayload(revision.taskPayload);
+    await expect(legacyBoundHost.execute({
+      run,
+      task: revision.task,
+      executionProfile: work.profile,
+      callId: "call:wrong-payload-binding",
+      toolName: "propose_world_proposition",
+      input: {
+        label: "Wrong identity binding",
+        subjectLabels: ["Mark Kelly"],
+        predicate: "invalid binding",
+        timeScope: null,
+        parameters: [],
+        ambiguityNotes: [],
+        falsifiers: ["Task hash differs."],
+        listingRefs: ["venue-b:kelly-nominee"],
+        rationale: "A stable contract task cannot be executed as a legacy payload-bound task.",
+      },
+    })).rejects.toThrow(/task lineage/iu);
   });
 
   it("runs through the provider-neutral long-loop adapter as tool effects", async () => {

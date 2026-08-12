@@ -164,6 +164,20 @@ invocations, campaigns, and 2,068,225 / 19,328 / 4,904 known tokens did not
 move. The same qualification exposed 64 new upstream ontology-normalization
 tasks on restart, so system-wide stable task contracts are the next frontier.
 
+That frontier is now qualified under
+[`plans/ontology-task-continuity.md`](plans/ontology-task-continuity.md).
+Issue #112 treats selection lane + relation pattern + objective as the stable
+ontology research issue contract, while exact ontology/corpus/trailheads and
+proposal coverage become versioned inputs and observations. Two live successor
+startups retained 128 v2 revisions across 77 issues and exactly 77 tasks: 51
+issues have two exact input revisions but only one task, while 13 genuinely new
+relation-pattern contracts from the second catalog refresh correctly created
+new work. Runs, invocations, campaigns, and token totals did not move. Mixed v1
+and v2 SQLite replay, exact revision-bound tool evidence, all 590 control-plane
+tests, Studio tests, and production build pass. The old failure mode would have
+created 128 tasks for those 128 revisions; stable issue identity now preserves
+attempt and cost memory without suppressing genuinely new ontology questions.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,
