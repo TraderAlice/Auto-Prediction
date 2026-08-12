@@ -232,13 +232,45 @@ export function compileRelationDiscoveryFindingsForSemanticReview(input: Readonl
   taskRevisions: readonly RelationDiscoveryTaskRevision[];
   loadCorpus: (snapshotIdentity: Hash) => MarketCorpusSnapshot | null;
 }>): readonly RelationDiscoveryProposalCompilation[] {
-  const revisions = new Map(input.taskRevisions.map((item) =>
-    [item.task.taskId, assertRelationDiscoveryTaskRevision(item)] as const
-  ));
-  return Object.freeze(input.findings.map((finding) => {
-    const revision = revisions.get(finding.sourceTaskId);
+  const revisionLineageKey = (value: Readonly<{
+    taskId: Hash;
+    workItemId: Hash;
+    workArtifactHash: Hash;
+    sourceCorpusSnapshotIdentity: Hash;
+  }>) => [
+    value.taskId,
+    value.workItemId,
+    value.workArtifactHash,
+    value.sourceCorpusSnapshotIdentity,
+  ].join("\n");
+  const revisions = new Map<string, RelationDiscoveryTaskRevision>();
+  for (const item of input.taskRevisions) {
+    const revision = assertRelationDiscoveryTaskRevision(item);
+    const key = revisionLineageKey({
+      taskId: revision.task.taskId,
+      workItemId: revision.workItemId,
+      workArtifactHash: revision.workArtifactHash,
+      sourceCorpusSnapshotIdentity: revision.sourceCorpusSnapshotIdentity,
+    });
+    const prior = revisions.get(key);
+    if (prior !== undefined && prior.revisionId !== revision.revisionId) {
+      throw new Error("relation discovery finding task revision lineage is ambiguous");
+    }
+    revisions.set(key, revision);
+  }
+  return Object.freeze(input.findings.map((candidate) => {
+    const finding = assertRelationDiscoveryFinding(candidate);
+    if (finding.kind !== "RELATION_HYPOTHESIS") {
+      throw new Error("counterexamples cannot enter semantic review automatically");
+    }
+    const revision = revisions.get(revisionLineageKey({
+      taskId: finding.sourceTaskId,
+      workItemId: finding.workItemId,
+      workArtifactHash: finding.workArtifactHash,
+      sourceCorpusSnapshotIdentity: finding.sourceCorpusSnapshotIdentity,
+    }));
     if (revision === undefined) {
-      throw new Error("relation discovery finding task revision is unavailable");
+      throw new Error("relation discovery finding exact task revision is unavailable");
     }
     const corpus = input.loadCorpus(finding.sourceCorpusSnapshotIdentity);
     if (corpus === null) {

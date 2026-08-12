@@ -67,6 +67,8 @@ capability.
   merely because recovery exists.
 - [x] Run checks, full control-plane tests, and production build. Run a bounded live
   retry only after the contract is merged.
+- [x] Retry the retained relation task under a new explicit manual-only campaign
+  revision and inspect exact findings, cost, and downstream projection behavior.
 
 ## Live evidence
 
@@ -76,6 +78,18 @@ is the retained negative specimen: four successful invocations, 74,669 / 997 /
 effects, 113,684 ms, and terminal failure
 `runtime completed without an accepted result effect`. Its campaign is paused;
 the implementation must not silently retry it.
+
+The explicit post-merge retry is run
+`sha256:f59503c187007eefe89969d69876d541ffe94a503e682bfbb0758c4bc7370ea5`.
+It succeeded in 127,143 ms with eight successful invocation boundaries,
+179,293 / 1,722 / 740 input/output/reasoning tokens, seven accepted tool
+effects, one retained relation hypothesis, and one retained counterexample.
+The model called the result tools in its ordinary long loop, so this specimen
+did not need the recovery turn. Reading the downstream relation projection then
+exposed issue #121: a valid refreshed-corpus finding was paired with an older
+input revision because both revisions deliberately share a stable task ID.
+That follow-up is exact-lineage compilation work, not evidence against the
+completion-recovery contract.
 
 ## Implementation checkpoint — 2026-08-12
 

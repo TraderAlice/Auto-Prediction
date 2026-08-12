@@ -262,6 +262,28 @@ blocking. All 601 control-plane tests, Studio and remaining workspace suites,
 checks, and production build pass. A bounded live retry remains deliberately
 after merge rather than hidden inside qualification.
 
+The bounded retry succeeded as run
+`sha256:f59503c187007eefe89969d69876d541ffe94a503e682bfbb0758c4bc7370ea5`:
+eight successful invocation boundaries, 179,293 / 1,722 / 740
+input/output/reasoning tokens, seven accepted effects, one relation hypothesis,
+one counterexample, and no completion recovery required. The subsequent
+read exposed the next active continuation,
+[`plans/exact-relation-finding-lineage.md`](plans/exact-relation-finding-lineage.md).
+Issue #121 records that stable relation task identities can have several exact
+corpus-bound input revisions. The semantic compiler incorrectly reduced them
+to `Map<taskId, revision>`, paired the valid live finding with an older corpus,
+and allowed the rejected projection promise to terminate the process. The fix
+selects the exact task/work/artifact/corpus tuple, rejects missing or ambiguous
+lineage, and contains asynchronous route failures at the HTTP boundary without
+granting any authority. The unchanged live database now returns HTTP 200 across
+relation discovery, attention allocation, research decision outcomes, and
+ontology allocation outcomes. The live finding compiles through exact revision
+`sha256:4abcb2d74a16c540aa34efdae817424e40eaf5e3e78440478c8e6bb937d56b46`;
+all projection reads remain zero-inference and zero-write. A newly visible
+classification mismatch remains for the next slice: a merely `LEASED`
+semantic-review job is `AWAITING_SEMANTIC_REVIEW` in the relation projection but
+prematurely appears as `SEMANTICALLY_REVIEWED` in allocation outcomes.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

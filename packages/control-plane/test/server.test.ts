@@ -353,6 +353,32 @@ describe("control-plane HTTP surface", () => {
     });
   });
 
+  it("contains an unhandled asynchronous route failure without terminating the server", async () => {
+    const { baseUrl, controlPlane } = await listenControlPlane();
+    await controlPlane.ready;
+    vi.spyOn(controlPlane.catalogObservationDesk, "corpus")
+      .mockImplementationOnce(() => {
+        throw new Error("fixture projection failed");
+      });
+
+    const failedRoute = await fetch(`${baseUrl}/health`);
+    expect(failedRoute.status).toBe(500);
+    await expect(failedRoute.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "fixture projection failed",
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+
+    const nextRequest = await fetch(`${baseUrl}/api/v1/not-a-route`);
+    expect(nextRequest.status).toBe(404);
+    await expect(nextRequest.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "route not found",
+    });
+  });
+
   it("holds due issues during refresh and dispatches them on the new corpus", async () => {
     const source = catalogObservationSources.find(
       (candidate) => candidate.venueId === "polymarket-global",
