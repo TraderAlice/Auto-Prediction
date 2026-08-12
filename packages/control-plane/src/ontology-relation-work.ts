@@ -42,7 +42,9 @@ export type OntologyRelationWorkItem = Readonly<{
   sourceRelationPatternIds: readonly Hash[];
   sourceTrailheadIds: readonly Hash[];
   sourceSelectionLanes: readonly MarketOntologyTrailhead["selectionLane"][];
+  sourceListingBindingCount: number;
   seedListingBindings: readonly MarketOntologyListingBinding[];
+  seedListingBindingsTruncated: boolean;
   title: string;
   question: string;
   searchSignals: readonly string[];
@@ -158,7 +160,6 @@ function scopeFor(proposal: MarketOntologyAgentProposal): Readonly<{
       : {
           kind: "COUNTEREXAMPLE_MEMORY" as const,
           rejectedClaim: canonicalText(proposal.rejectedClaim),
-          searchSignals: [...proposal.searchSignals].map(canonicalText).sort(),
         };
   return Object.freeze({ kind: scope.kind, identity: hashCanonical(scope) });
 }
@@ -312,6 +313,10 @@ export function assertOntologyRelationWorkItem(value: unknown): OntologyRelation
     new Set(item.sourceSelectionLanes).size !== item.sourceSelectionLanes.length ||
     !Array.isArray(item.seedListingBindings) || item.seedListingBindings.length === 0 ||
     item.seedListingBindings.length > 32 ||
+    !Number.isInteger(item.sourceListingBindingCount) ||
+    item.sourceListingBindingCount < item.seedListingBindings.length ||
+    item.seedListingBindingsTruncated !==
+      (item.sourceListingBindingCount > item.seedListingBindings.length) ||
     item.seedListingBindings.some((binding) => typeof binding.listingRef !== "string" ||
       ![binding.nodeId, binding.worldFacetId, binding.settlementFacetId, binding.tradedFacetId]
         .every((id) => HASH_PATTERN.test(String(id)))) ||
@@ -386,12 +391,13 @@ export function buildOntologyRelationWorkProjection(input: Readonly<{
         : issueIds.length === 0 || lanes.length === 0
           ? "BLOCKED_MISSING_ISSUE_LINEAGE"
           : "RUNNABLE_RESEARCH";
-      const bindings = Object.freeze([...new Map(sorted.flatMap((proposal) =>
+      const allBindings = Object.freeze([...new Map(sorted.flatMap((proposal) =>
         proposal.listingBindings.map((binding) => [
           `${binding.listingRef}:${binding.nodeId}:${binding.settlementFacetId}`,
           binding,
         ] as const)
       )).values()].sort((left, right) => left.listingRef.localeCompare(right.listingRef)));
+      const bindings = Object.freeze(allBindings.slice(0, 32));
       const relationWorkId = hashCanonical({
         schemaVersion: "pmh.ontology-relation-work-id.v1",
         searchScopeIdentity,
@@ -416,7 +422,9 @@ export function buildOntologyRelationWorkProjection(input: Readonly<{
         )),
         sourceTrailheadIds: uniqueHashes(sorted.flatMap((item) => item.sourceTrailheadIds)),
         sourceSelectionLanes: lanes,
+        sourceListingBindingCount: allBindings.length,
         seedListingBindings: bindings,
+        seedListingBindingsTruncated: allBindings.length > bindings.length,
         title: titleFor(representative).slice(0, 240),
         question: questionFor(
           representative,

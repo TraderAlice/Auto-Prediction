@@ -257,4 +257,75 @@ describe("ontology proposal relation work", () => {
         }),
       ]));
   });
+
+  it("keeps repeated counterexample identity stable and bounds accumulated seed bindings", () => {
+    const work = fixture();
+    const base = work.proposals[0]!;
+    if (base.kind !== "WORLD_PROPOSITION") throw new Error("world proposal fixture is missing");
+    const revision = work.revisions[0]!;
+    const runId = work.execution.runs[0]!.runId;
+    const many = Array.from({ length: 33 }, (_, index) => proposal({
+      runId,
+      ontologyIdentity: revision.ontologyIdentity,
+      sourceSnapshotIdentity: revision.sourceSnapshotIdentity,
+      trailheadId: revision.trailheadIds[0]!,
+      relationPatternId: revision.relationPatternId,
+      listingBinding: Object.freeze({
+        listingRef: `venue-a:semantic-seed-${index.toString().padStart(2, "0")}`,
+        nodeId: hashCanonical({ kind: "node", index }),
+        worldFacetId: hashCanonical({ kind: "world", index }),
+        settlementFacetId: hashCanonical({ kind: "settlement", index }),
+        tradedFacetId: hashCanonical({ kind: "traded", index }),
+      }),
+      proposedAt: new Date(Date.parse(NOW) + index * 1_000).toISOString(),
+      rationale: `Independent observation ${index}.`,
+    }, {
+      kind: "WORLD_PROPOSITION",
+      label: base.label,
+      subjectLabels: base.subjectLabels,
+      predicate: base.predicate,
+      timeScope: base.timeScope,
+      parameters: base.parameters,
+      ambiguityNotes: base.ambiguityNotes,
+      falsifiers: base.falsifiers,
+    }));
+    const bounded = buildOntologyRelationWorkProjection({
+      ...work,
+      proposals: many,
+    }).items[0]!;
+    expect(bounded).toMatchObject({
+      sourceListingBindingCount: 33,
+      seedListingBindingsTruncated: true,
+    });
+    expect(bounded.seedListingBindings).toHaveLength(32);
+    expect(bounded.sourceProposalIds).toHaveLength(33);
+    expect(assertOntologyRelationWorkItem(bounded)).toBe(bounded);
+
+    const counter = work.proposals.find((item) => item.kind === "COUNTEREXAMPLE")!;
+    if (counter.kind !== "COUNTEREXAMPLE") throw new Error("counterexample fixture is missing");
+    const alternate = proposal({
+      runId,
+      ontologyIdentity: counter.ontologyIdentity,
+      sourceSnapshotIdentity: counter.sourceSnapshotIdentity,
+      trailheadId: counter.sourceTrailheadIds[0]!,
+      relationPatternId: counter.sourceRelationPatternIds[0]!,
+      listingBinding: counter.listingBindings[0]!,
+      proposedAt: "2026-08-12T09:04:00.000Z",
+      rationale: "The same rejected claim was rediscovered through another phrase.",
+    }, {
+      kind: "COUNTEREXAMPLE",
+      rejectedClaim: counter.rejectedClaim,
+      reason: counter.reason,
+      searchSignals: ["MLS Cup", "Champions League"],
+    });
+    const negative = buildOntologyRelationWorkProjection({
+      ...work,
+      proposals: [counter, alternate],
+    });
+    expect(negative.workItemCount).toBe(1);
+    expect(negative.consolidatedSourceProposalCount).toBe(1);
+    expect(negative.items[0]!.searchSignals).toEqual(expect.arrayContaining([
+      "LAFC", "Club Brugge", "MLS Cup", "Champions League",
+    ]));
+  });
 });

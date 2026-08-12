@@ -49,7 +49,10 @@ Each derived relation-work object retains:
 
 Repeated proposals with the same canonical semantic scope consolidate into one
 work item. Source lineage is additive evidence; it is not part of the stable
-work identity.
+work identity. Listing bindings are accumulated deterministically; the compact
+projection retains the first 32 plus the complete source count and an explicit
+truncation bit instead of failing when a long-lived scope crosses the bound.
+Counterexample search signals are accumulated evidence rather than identity.
 
 ## Construction phases
 
