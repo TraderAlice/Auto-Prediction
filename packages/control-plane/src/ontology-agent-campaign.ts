@@ -8,17 +8,20 @@ import type { ExecutionCapabilityProjection } from "./agent-runtime-adapter.js";
 import type {
   OntologySearchIssueRevision,
 } from "./ontology-search-ecology.js";
-
-const MAX_CAMPAIGN_TASKS = 3;
-const ONTOLOGY_ISSUE_PROVENANCE_PREFIX = "ontology-issue:";
-
+import {
+  buildOntologyAttentionAllocation,
+  type OntologyAttentionAllocationProjection,
+} from "./ontology-attention-allocation.js";
+import type { MarketOntologyAgentProposal } from "./market-ontology-agent-tools.js";
+import type { OntologyRelationWorkProjection } from "./ontology-relation-work.js";
 export type OntologyAgentCampaignPreview = Readonly<{
-  schemaVersion: "pmh.ontology-agent-campaign-preview.v1";
+  schemaVersion: "pmh.ontology-agent-campaign-preview.v2";
   previewIdentity: Hash;
   campaignKey: string;
   workloadRoute: WorkloadRoute;
   executionProfile: ExecutionProfile;
   capability: ExecutionCapabilityProjection;
+  allocation: OntologyAttentionAllocationProjection;
   taskIds: readonly Hash[];
   issueIds: readonly Hash[];
   selectedLaneCounts: Readonly<{
@@ -58,46 +61,41 @@ function latestOntologyRoute(snapshot: AgentExecutionSnapshot): WorkloadRoute {
   return route;
 }
 
-function attemptedOntologyIssueIds(execution: AgentExecutionSnapshot): ReadonlySet<string> {
-  const attemptedTaskIds = new Set(execution.runs.map((item) => item.taskId));
-  return new Set(execution.tasks.flatMap((task) =>
-    attemptedTaskIds.has(task.taskId) &&
-      task.provenanceRef.startsWith(ONTOLOGY_ISSUE_PROVENANCE_PREFIX)
-      ? [task.provenanceRef.slice(ONTOLOGY_ISSUE_PROVENANCE_PREFIX.length)]
-      : []
-  ));
-}
-
 export function selectOntologyCampaignIssues(input: Readonly<{
   revisions: readonly OntologySearchIssueRevision[];
+  retainedRevisions?: readonly OntologySearchIssueRevision[];
+  proposals?: readonly MarketOntologyAgentProposal[];
+  relationWork?: OntologyRelationWorkProjection;
   execution: AgentExecutionSnapshot;
 }>): readonly OntologySearchIssueRevision[] {
-  const attemptedIssueIds = attemptedOntologyIssueIds(input.execution);
-  const eligible = [...input.revisions]
-    .filter((item) => item.campaignEligible && !attemptedIssueIds.has(item.issueId))
-    .sort((left, right) =>
-      right.priority - left.priority ||
-      left.relationPatternId.localeCompare(right.relationPatternId) ||
-      left.issueId.localeCompare(right.issueId)
-    );
-  const selected: OntologySearchIssueRevision[] = [];
-  for (const lane of [
-    "WORLD_DIVERGENCE",
-    "SETTLEMENT_DIVERGENCE",
-    "CROSS_VENUE",
-  ] as const) {
-    const issue = eligible.find((item) => item.selectionLane === lane);
-    if (issue !== undefined) selected.push(issue);
-  }
-  for (const issue of eligible) {
-    if (selected.length >= MAX_CAMPAIGN_TASKS) break;
-    if (!selected.some((item) => item.issueId === issue.issueId)) selected.push(issue);
-  }
-  return Object.freeze(selected.slice(0, MAX_CAMPAIGN_TASKS));
+  const allocation = buildOntologyAttentionAllocation({
+    currentRevisions: input.revisions,
+    retainedRevisions: input.retainedRevisions ?? input.revisions,
+    proposals: input.proposals ?? [],
+    execution: input.execution,
+    ...(input.relationWork === undefined ? {} : { relationWork: input.relationWork }),
+  });
+  return revisionsForAllocation(input.revisions, allocation);
+}
+
+function revisionsForAllocation(
+  revisions: readonly OntologySearchIssueRevision[],
+  allocation: OntologyAttentionAllocationProjection,
+): readonly OntologySearchIssueRevision[] {
+  const byIssue = new Map(revisions.map((revision) =>
+    [revision.issueId, revision] as const
+  ));
+  return Object.freeze(allocation.portfolio.flatMap((action) => {
+    const revision = byIssue.get(action.issueId);
+    return revision === undefined ? [] : [revision];
+  }));
 }
 
 export function buildOntologyAgentCampaignPreview(input: Readonly<{
   revisions: readonly OntologySearchIssueRevision[];
+  retainedRevisions?: readonly OntologySearchIssueRevision[];
+  proposals?: readonly MarketOntologyAgentProposal[];
+  relationWork?: OntologyRelationWorkProjection;
   execution: AgentExecutionSnapshot;
   capability: ExecutionCapabilityProjection;
 }>): OntologyAgentCampaignPreview {
@@ -114,21 +112,26 @@ export function buildOntologyAgentCampaignPreview(input: Readonly<{
   if (input.capability.executionProfileId !== executionProfile.executionProfileId) {
     throw new Error("ontology campaign capability lineage is inconsistent");
   }
-  const selected = selectOntologyCampaignIssues(input);
-  const attemptedIssueIds = attemptedOntologyIssueIds(input.execution);
-  const eligibleCount = input.revisions.filter((item) =>
-    item.campaignEligible && !attemptedIssueIds.has(item.issueId)
-  ).length;
+  const allocation = buildOntologyAttentionAllocation({
+    currentRevisions: input.revisions,
+    retainedRevisions: input.retainedRevisions ?? input.revisions,
+    proposals: input.proposals ?? [],
+    execution: input.execution,
+    ...(input.relationWork === undefined ? {} : { relationWork: input.relationWork }),
+  });
+  const selected = revisionsForAllocation(input.revisions, allocation);
+  const eligibleCount = allocation.actionableIssueCount;
   const sourceOntologyIdentity = selected[0]?.ontologyIdentity ??
     input.revisions[0]?.ontologyIdentity ?? null;
   const body = Object.freeze({
-    schemaVersion: "pmh.ontology-agent-campaign-preview.v1" as const,
+    schemaVersion: "pmh.ontology-agent-campaign-preview.v2" as const,
     campaignKey: sourceOntologyIdentity === null
       ? "ontology-search-empty"
-      : `ontology-search-${sourceOntologyIdentity.slice("sha256:".length, 23)}`,
+      : `ontology-search-${allocation.projectionIdentity.slice("sha256:".length)}`,
     workloadRoute,
     executionProfile,
     capability: input.capability,
+    allocation,
     taskIds: Object.freeze(selected.map((item) => item.task.taskId)),
     issueIds: Object.freeze(selected.map((item) => item.issueId)),
     selectedLaneCounts: Object.freeze({
@@ -156,7 +159,7 @@ export function buildOntologyAgentCampaignPreview(input: Readonly<{
       ? "No unattempted ontology search issue is eligible"
       : input.capability.dispatchEligibility !== "ELIGIBLE"
         ? input.capability.diagnostic
-        : "Three lane-diverse ontology tasks are ready for explicit campaign activation",
+        : `${selected.length} attention-allocated ontology tasks are ready for explicit campaign activation`,
     providerRequestsStarted: 0 as const,
     modelInvocationsStarted: 0 as const,
     authority: "CAMPAIGN_PROPOSAL_ONLY" as const,

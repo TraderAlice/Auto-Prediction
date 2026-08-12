@@ -107,11 +107,20 @@ describe("ontology Agent campaign selection", () => {
     });
 
     expect(selected.length).toBeGreaterThan(0);
-    expect(selected.length).toBeLessThanOrEqual(3);
+    expect(selected.length).toBeLessThanOrEqual(4);
     expect(new Set(selected.map((item) => item.selectionLane)).size)
       .toBe(Math.min(3, new Set(work.revisions.map((item) => item.selectionLane)).size));
     expect(preview).toMatchObject({
       taskIds: selected.map((item) => item.task.taskId),
+      allocation: {
+        schemaVersion: "pmh.ontology-attention-allocation.v1",
+        portfolio: selected.map((item) => ({
+          issueId: item.issueId,
+          taskId: item.task.taskId,
+        })),
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+      },
       creationEligible: true,
       dispatchEligible: true,
       schedule: { kind: "MANUAL_ONLY", intervalMs: null },

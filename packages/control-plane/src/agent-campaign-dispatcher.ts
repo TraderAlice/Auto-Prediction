@@ -8,6 +8,7 @@ import {
   type AgentCampaign,
   type AgentExecutionSnapshot,
   type AgentRun,
+  type AgentRunAnnotation,
   type AgentTask,
   type CredentialBinding,
   type ExecutionProfile,
@@ -84,6 +85,10 @@ export type AgentCampaignDispatcherOptions = Readonly<{
   adapters: readonly AgentRuntimeAdapter[];
   toolHost: AgentToolHost | ((task: AgentTask, taskPayload: unknown) => AgentToolHost);
   taskPayload: (task: AgentTask) => unknown;
+  runAnnotations?: (
+    task: AgentTask,
+    run: AgentRun,
+  ) => readonly AgentRunAnnotation[];
   now?: () => number;
 }>;
 
@@ -101,6 +106,10 @@ export class AgentCampaignDispatcher {
   readonly #adapters: ReadonlyMap<string, AgentRuntimeAdapter>;
   readonly #toolHost: (task: AgentTask, taskPayload: unknown) => AgentToolHost;
   readonly #taskPayload: (task: AgentTask) => unknown;
+  readonly #runAnnotations: (
+    task: AgentTask,
+    run: AgentRun,
+  ) => readonly AgentRunAnnotation[];
   readonly #now: () => number;
   readonly #active = new Map<Hash, Promise<AgentRun>>();
   readonly #reservedInvocations = new Map<Hash, number>();
@@ -114,6 +123,7 @@ export class AgentCampaignDispatcher {
       ? options.toolHost
       : () => options.toolHost as AgentToolHost;
     this.#taskPayload = options.taskPayload;
+    this.#runAnnotations = options.runAnnotations ?? (() => Object.freeze([]));
     this.#now = options.now ?? Date.now;
     const adapters = new Map<string, AgentRuntimeAdapter>();
     for (const adapter of options.adapters) {
@@ -180,7 +190,10 @@ export class AgentCampaignDispatcher {
       authorization: { kind: "MANUAL", authorizationRef, authorizedAt: now },
       createdAt: now,
     });
-    this.#registry.saveBatch({ runs: [run] });
+    this.#registry.saveBatch({
+      runs: [run],
+      runAnnotations: this.#runAnnotations(preview.task, run),
+    });
     const completion = this.#execute(null, run, preview.task, preview.executionProfile);
     this.#active.set(run.runId, completion);
     void completion.then(
@@ -238,7 +251,10 @@ export class AgentCampaignDispatcher {
           authorization: { kind: "CAMPAIGN", campaign: validCampaign, authorizedAt: now },
           createdAt: now,
         });
-        this.#registry.saveBatch({ runs: [run] });
+        this.#registry.saveBatch({
+          runs: [run],
+          runAnnotations: this.#runAnnotations(task, run),
+        });
         preparedRuns.push(run);
         const completion = this.#execute(validCampaign, run, task, profile);
         this.#active.set(run.runId, completion);

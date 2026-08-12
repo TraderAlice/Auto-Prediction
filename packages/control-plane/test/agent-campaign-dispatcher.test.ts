@@ -5,6 +5,7 @@ import {
   AgentCredentialBroker,
   AgentExecutionRegistry,
   buildAgentRun,
+  buildAgentRunAnnotation,
   buildAgentTask,
   buildPausedAgentCampaign,
   pauseAgentCampaign,
@@ -136,6 +137,14 @@ function fixture(taskCount: number, budget?: Partial<{
       execute: async () => Object.freeze({ status: "REJECTED" as const, output: {} }),
     },
     taskPayload: (work) => payloads.get(work.taskId),
+    runAnnotations: (work, run) => Object.freeze([buildAgentRunAnnotation({
+      run,
+      category: "INPUT_REVISION_BINDING",
+      sourceRecordRef: `fixture-revision:${work.taskId}`,
+      observedFacts: payloads.get(work.taskId),
+      note: "Fixture run is bound before runtime execution.",
+      createdAt: run.createdAt,
+    })]),
     now: time.now,
   });
   return { time, store, registry, tasks, paused, dispatcher };
@@ -171,6 +180,10 @@ describe("Agent campaign dispatcher", () => {
       ],
       modelInvocations: [{ inputTokens: "10" }, { inputTokens: "10" }],
       runArtifacts: [{ kind: "RUNTIME_FINAL" }, { kind: "RUNTIME_FINAL" }],
+      runAnnotations: [
+        { category: "INPUT_REVISION_BINDING" },
+        { category: "INPUT_REVISION_BINDING" },
+      ],
     });
     expect(JSON.stringify(item.registry.snapshot())).not.toContain("test-only-access");
     item.store.close();
@@ -222,6 +235,12 @@ describe("Agent campaign dispatcher", () => {
     });
     await expect(dispatched.completion).resolves.toMatchObject({ status: "SUCCEEDED" });
     expect(item.registry.snapshot().modelInvocations).toHaveLength(1);
+    expect(item.registry.snapshot().runAnnotations).toMatchObject([{
+      runId: dispatched.run.runId,
+      category: "INPUT_REVISION_BINDING",
+      sourceRecordRef: `fixture-revision:${work.taskId}`,
+      createdAt: dispatched.run.createdAt,
+    }]);
     item.store.close();
   });
 

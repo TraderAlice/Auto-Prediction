@@ -2518,13 +2518,23 @@ describe("control-plane HTTP surface", () => {
     );
     expect(ontologyEcologyResponse.status).toBe(200);
     await expect(ontologyEcologyResponse.json()).resolves.toMatchObject({
-      schemaVersion: "pmh.ontology-search-ecology.v1",
+      schemaVersion: "pmh.ontology-search-ecology.v2",
       yield: {
         schemaVersion: "pmh.ontology-search-yield.v1",
         issueCount: 0,
         runCount: 0,
         modelInvocationCount: 0,
         downstreamOpportunityAttribution: "NOT_YET_CONNECTED",
+      },
+      attention: {
+        schemaVersion: "pmh.ontology-attention-allocation.v1",
+        issueCount: 0,
+        portfolio: [],
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        campaignsCreatedByRead: 0,
+        runsCreatedByRead: 0,
+        automaticDispatch: false,
       },
       issues: [],
       automaticDispatch: false,

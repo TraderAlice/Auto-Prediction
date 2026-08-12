@@ -178,6 +178,29 @@ tests, Studio tests, and production build pass. The old failure mode would have
 created 128 tasks for those 128 revisions; stable issue identity now preserves
 attempt and cost memory without suppressing genuinely new ontology questions.
 
+The next active continuation is
+[`plans/ontology-attention-allocation.md`](plans/ontology-attention-allocation.md).
+Issue #114 addresses the next live bottleneck: ontology campaign selection is
+lane-diverse but hash-order arbitrary. Across 77 successor issues, 24 of 109
+trailheads use only one shared lexical signal and twelve contain aggregate
+outcome-list titles. Those are neither automatic garbage nor equally valuable
+research. The next slice will derive provider-free issue scorecards from
+structural ambiguity, retained AI outcomes/cost, and downstream yield, then
+allocate a bounded evidence-rich, ambiguity-probe, and changed-input portfolio
+before any recurring authority is considered.
+
+That initial provider-free allocator is now live-qualified. It selected two
+evidence-rich issues (cross-venue NASCAR champion contracts and Lula election
+versus 2026 departure), one bounded Ferrari polysemy probe, and no unsupported
+recheck. Forty-four other evidence-rich and seventeen ambiguity issues remain
+explicitly omitted rather than hidden; one prior positive issue routes
+downstream and two pre-binding attempts are held because exact input novelty
+cannot be proven. Stable ontology and relation runs now write a first-party
+input-revision annotation before model execution, so future failures and
+no-finding results remain attributable after refresh. Projection and preview
+left 241 runs, 498 invocations, 20 campaigns, and exact token totals unchanged.
+All 593 control-plane tests, Studio tests, checks, and production build pass.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

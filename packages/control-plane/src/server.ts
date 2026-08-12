@@ -97,6 +97,7 @@ import {
   type OntologySearchIssueRevisionStore,
 } from "./ontology-search-ecology.js";
 import { buildOntologyAgentCampaignPreview } from "./ontology-agent-campaign.js";
+import { buildOntologyAttentionAllocation } from "./ontology-attention-allocation.js";
 import { buildOntologyRelationWorkProjection } from "./ontology-relation-work.js";
 import {
   RelationDiscoveryAgentToolHost,
@@ -311,6 +312,7 @@ import { buildDefaultAgentRuntimePortfolio } from "./agent-runtime-portfolio.js"
 import {
   AgentCampaignDispatcher,
 } from "./agent-campaign-dispatcher.js";
+import { buildAgentInputRevisionRunAnnotation } from "./agent-input-revision-binding.js";
 import {
   AgentCredentialBroker,
   AgentExecutionCapabilityService,
@@ -2499,6 +2501,35 @@ export function createControlPlane(options?: {
         }
         throw new Error("retained Agent task payload is unavailable");
       },
+      runAnnotations: (task, run) => {
+        if (task.kind === "ONTOLOGY_NORMALIZATION") {
+          const revision = ontologyAgentTaskRevision(task.taskId);
+          if (revision === null) {
+            throw new Error("retained ontology task input revision is unavailable");
+          }
+          return Object.freeze([buildAgentInputRevisionRunAnnotation({
+            task,
+            run,
+            revisionKind: "ONTOLOGY_SEARCH_ISSUE",
+            revisionId: revision.revisionId,
+            exactInput: revision.taskPayload,
+          })]);
+        }
+        if (task.kind === "RELATION_DISCOVERY") {
+          const revision = relationDiscoveryTaskRevision(task.taskId);
+          if (revision === null) {
+            throw new Error("retained relation task input revision is unavailable");
+          }
+          return Object.freeze([buildAgentInputRevisionRunAnnotation({
+            task,
+            run,
+            revisionKind: "RELATION_DISCOVERY",
+            revisionId: revision.revisionId,
+            exactInput: revision.taskPayload,
+          })]);
+        }
+        return Object.freeze([]);
+      },
     });
   const migrateLegacyRuleEvidenceAgentRuns = (): void => {
     const captureSource = options?.discoveryStore as Partial<{
@@ -2897,8 +2928,20 @@ export function createControlPlane(options?: {
     );
     if (binding === undefined) throw new Error("Ontology credential binding is unavailable");
     const configuration = await agentCredentialBroker.configuration(binding);
+    const proposals = marketOntologyAgentProposalStore
+      ?.loadMarketOntologyAgentProposals(200) ?? [];
+    const retainedRevisions = ontologySearchIssueRevisionStore
+      ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+    const relationWork = buildOntologyRelationWorkProjection({
+      proposals,
+      revisions: retainedRevisions,
+      execution: snapshot,
+    });
     return buildOntologyAgentCampaignPreview({
       revisions: ontologySearchIssueRevisions,
+      retainedRevisions,
+      proposals,
+      relationWork,
       execution: snapshot,
       capability: agentExecutionCapabilityService.project(profile, configuration),
     });
@@ -4129,6 +4172,13 @@ export function createControlPlane(options?: {
         execution: agentExecutionRegistry.snapshot(),
         relationWork,
       });
+      const attention = buildOntologyAttentionAllocation({
+        currentRevisions: ontologySearchIssueRevisions,
+        retainedRevisions,
+        proposals,
+        execution: agentExecutionRegistry.snapshot(),
+        relationWork,
+      });
       const latestByIssue = new Map<Hash, OntologySearchIssueRevision>();
       for (const revision of ontologySearchIssueRevisions) {
         const current = latestByIssue.get(revision.issueId);
@@ -4163,8 +4213,9 @@ export function createControlPlane(options?: {
           ),
         })));
       writeJson(response, 200, Object.freeze({
-        schemaVersion: "pmh.ontology-search-ecology.v1",
+        schemaVersion: "pmh.ontology-search-ecology.v2",
         yield: yieldProjection,
+        attention,
         issues,
         storage: ontologySearchIssueRevisionStore?.ontologySearchIssueRevisionStorage ??
           Object.freeze({
