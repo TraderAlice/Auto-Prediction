@@ -72,6 +72,17 @@ function initialPrompt(context: AgentRuntimeOpenContext): string {
   ].join("\n");
 }
 
+function completionRecoveryPrompt(resultToolNames: readonly string[]): string {
+  return [
+    "Your prior turn completed without publishing an accepted first-party result effect.",
+    "Use the evidence already inspected in this same thread.",
+    `Call exactly one declared result tool: ${resultToolNames.join(", ")}.`,
+    "Choose the most conservative applicable result tool; use a counterexample or abstention tool only when one is listed.",
+    "Do not finish with diagnostic text before the result tool is accepted.",
+    "No new shell, filesystem, MCP, web, image, subagent, sleep, or built-in tool is authorized.",
+  ].join("\n");
+}
+
 function usageFromBreakdown(value: unknown): TokenUsage | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -117,6 +128,7 @@ class CodexAppServerSession implements AgentRuntimeSession {
   });
   #responseUsageObserved = false;
   #boundaryStartedAtMs = Date.now();
+  #pendingRecoveryPrompt: string | null = null;
   #closed = false;
 
   public constructor(
@@ -127,7 +139,7 @@ class CodexAppServerSession implements AgentRuntimeSession {
     this.#connectionPromise = connectionFactory();
   }
 
-  async #startTurn(connection: CodexAppServerConnection): Promise<void> {
+  async #startInitialTurn(connection: CodexAppServerConnection): Promise<void> {
     if (this.context.credential.kind !== "CODEX_OAUTH") {
       throw new Error("Codex app-server requires a Codex OAuth credential capability");
     }
@@ -155,10 +167,15 @@ class CodexAppServerSession implements AgentRuntimeSession {
     }, this.turnTimeoutMs), "Codex app-server thread response");
     const thread = object(response.thread, "Codex app-server thread");
     this.#threadId = text(thread.id, "Codex app-server thread ID");
+    await this.#startTurn(connection, initialPrompt(this.context));
+  }
+
+  async #startTurn(connection: CodexAppServerConnection, prompt: string): Promise<void> {
+    if (this.#threadId === null) throw new Error("Codex app-server thread is unavailable");
     const configuration = this.context.modelProfile.configuration as CodexModelConfiguration;
     const turn = object(await connection.request("turn/start", {
       threadId: this.#threadId,
-      input: [{ type: "text", text: initialPrompt(this.context), text_elements: [] }],
+      input: [{ type: "text", text: prompt, text_elements: [] }],
       model: this.context.modelProfile.model,
       effort: configuration.reasoning.effort,
       approvalPolicy: "never",
@@ -225,7 +242,12 @@ class CodexAppServerSession implements AgentRuntimeSession {
     if (this.#closed) throw new Error("Codex app-server session is closed");
     const connection = await this.#connectionPromise;
     try {
-      if (this.#threadId === null) await this.#startTurn(connection);
+      if (this.#threadId === null) await this.#startInitialTurn(connection);
+      if (this.#pendingRecoveryPrompt !== null) {
+        const prompt = this.#pendingRecoveryPrompt;
+        this.#pendingRecoveryPrompt = null;
+        await this.#startTurn(connection, prompt);
+      }
       await this.#respondToTools(connection, toolResults);
       let completedArtifact: Readonly<Record<string, unknown>> | null = null;
       while (true) {
@@ -254,7 +276,6 @@ class CodexAppServerSession implements AgentRuntimeSession {
           }
           if (completedArtifact !== null) {
             const invocation = this.#invocation("SUCCEEDED", null);
-            await this.cancel();
             return Object.freeze({
               invocation,
               toolCalls: Object.freeze([]),
@@ -341,7 +362,6 @@ class CodexAppServerSession implements AgentRuntimeSession {
           });
           if (this.#responseUsageObserved) {
             const invocation = this.#invocation("SUCCEEDED", null);
-            await this.cancel();
             return Object.freeze({
               invocation,
               toolCalls: Object.freeze([]),
@@ -374,6 +394,21 @@ class CodexAppServerSession implements AgentRuntimeSession {
         finalArtifact: null,
       });
     }
+  }
+
+  public async prepareCompletionRecovery(input: Readonly<{
+    resultToolNames: readonly string[];
+  }>): Promise<void> {
+    if (this.#closed || this.#threadId === null || this.#turnId === null) {
+      throw new Error("Codex app-server completion recovery is unavailable");
+    }
+    if (input.resultToolNames.length === 0) {
+      throw new Error("Codex app-server completion recovery has no result tool");
+    }
+    if (this.#pendingRecoveryPrompt !== null) {
+      throw new Error("Codex app-server completion recovery is already pending");
+    }
+    this.#pendingRecoveryPrompt = completionRecoveryPrompt(input.resultToolNames);
   }
 
   public async cancel(): Promise<void> {

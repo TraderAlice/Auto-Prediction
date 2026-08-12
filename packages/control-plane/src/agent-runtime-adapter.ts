@@ -519,6 +519,9 @@ export type AgentRuntimeToolDefinition = Readonly<{
 
 export interface AgentRuntimeSession {
   advance(toolResults: readonly AgentRuntimeToolResult[]): Promise<AgentRuntimeTurn>;
+  prepareCompletionRecovery?(input: Readonly<{
+    resultToolNames: readonly string[];
+  }>): Promise<void>;
   cancel?(): Promise<void>;
 }
 
@@ -655,6 +658,7 @@ export async function executePreparedAgentRun(
   let session: AgentRuntimeSession | undefined;
   let toolResults: readonly AgentRuntimeToolResult[] = Object.freeze([]);
   const seenToolCallIds = new Set<string>();
+  let completionRecoveryUsed = false;
 
   const finish = (
     status: Exclude<AgentRun["status"], "PREPARED">,
@@ -813,15 +817,49 @@ export async function executePreparedAgentRun(
       }
       if (turn.completed) {
         if (turn.finalArtifact === null) {
+          await session.cancel?.();
           return finish("FAILED", "runtime completed without a final artifact", null);
         }
+        const acceptedResultEffect = effects.some((effect) =>
+          effect.status === "ACCEPTED" && resultToolNames.includes(effect.toolName)
+        );
         if (
           !valid.profile.toolPolicy.freeTextResultAuthority &&
           (turn.completionAuthority ?? "RESULT_TOOL") !== "RESULT_TOOL" &&
-          !effects.some((effect) =>
-            effect.status === "ACCEPTED" && resultToolNames.includes(effect.toolName)
-          )
+          !acceptedResultEffect
         ) {
+          if (!completionRecoveryUsed && session.prepareCompletionRecovery !== undefined) {
+            const maximumInputForRecovery = tokenCount(
+              valid.profile.runBudget.maximumInputTokens,
+              "Maximum input tokens",
+            );
+            const maximumOutputForRecovery = tokenCount(
+              valid.profile.runBudget.maximumOutputTokens,
+              "Maximum output tokens",
+            );
+            const recoveryBudgetDiagnostic = now() - startedAt >=
+                valid.profile.runBudget.maximumWallClockMs
+              ? "run wall-clock budget exhausted"
+              : invocations.length >= valid.profile.runBudget.maximumModelInvocations
+                ? "model invocation budget exhausted"
+                : (maximumInputForRecovery !== null &&
+                    totalInputTokens >= maximumInputForRecovery) ||
+                    (maximumOutputForRecovery !== null &&
+                      totalOutputTokens >= maximumOutputForRecovery)
+                  ? "token budget exhausted"
+                  : effects.length >= valid.profile.runBudget.maximumToolCalls
+                    ? "tool-call budget exhausted"
+                    : null;
+            if (recoveryBudgetDiagnostic !== null) {
+              await session.cancel?.();
+              return finish("INTERRUPTED", recoveryBudgetDiagnostic, null);
+            }
+            completionRecoveryUsed = true;
+            await session.prepareCompletionRecovery(Object.freeze({ resultToolNames }));
+            toolResults = Object.freeze([]);
+            continue;
+          }
+          await session.cancel?.();
           return finish("FAILED", "runtime completed without an accepted result effect", null);
         }
         const finalArtifactHash = hashCanonical(turn.finalArtifact);
@@ -833,6 +871,7 @@ export async function executePreparedAgentRun(
           sourceArtifactRef: null,
           createdAt: turn.invocation.completedAt,
         }));
+        await session.cancel?.();
         return finish("SUCCEEDED", null, finalArtifactHash);
       }
       if (turn.finalArtifact !== null || turn.toolCalls.length === 0) {
