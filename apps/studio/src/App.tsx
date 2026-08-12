@@ -63,6 +63,11 @@ import {
 } from "@/data/studio-projection";
 import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
 import { useDiscoveryExecutionCapability } from "@/data/discovery-execution";
+import {
+  useStandingRouteDesk,
+  type StandingRouteState,
+  type StandingRouteUsage,
+} from "@/data/standing-routes";
 import { cn } from "@/lib/utils";
 import {
   parseWorkspaceRoute,
@@ -752,6 +757,22 @@ function formatTokenCount(value: string | null): string {
     return BigInt(value).toLocaleString("en-US");
   } catch {
     return value;
+  }
+}
+
+function formatDurationMs(value: string | null): string {
+  if (value === null) return "—";
+  try {
+    const milliseconds = BigInt(value);
+    const minutes = milliseconds / 60_000n;
+    if (minutes < 1n) return "<1 min";
+    const hours = minutes / 60n;
+    if (hours < 1n) return `${minutes} min`;
+    const days = hours / 24n;
+    if (days < 1n) return `${hours} hr ${minutes % 60n} min`;
+    return `${days} d ${hours % 24n} hr`;
+  } catch {
+    return "—";
   }
 }
 
@@ -8990,6 +9011,203 @@ function OpportunityRadarView() {
   );
 }
 
+function standingRouteStateLabel(state: StandingRouteState): string {
+  switch (state) {
+    case "QUIESCENT": return "Watching quietly";
+    case "EXPANDED": return "New member found";
+    case "CHANGED": return "Contract changed";
+    case "CONTRACTED": return "Member disappeared";
+    case "BLOCKED_TOO_BROAD": return "Scope too broad";
+  }
+}
+
+function standingRouteUsageTokens(usage: StandingRouteUsage | undefined): string {
+  if (usage === undefined) return "0";
+  try {
+    return (
+      BigInt(usage.knownInputTokens) + BigInt(usage.knownOutputTokens) +
+      BigInt(usage.knownReasoningTokens)
+    ).toString();
+  } catch {
+    return "0";
+  }
+}
+
+function StandingRouteMemory({ revision }: { revision: string }) {
+  const desk = useStandingRouteDesk(revision);
+  const data = desk.data;
+  const families = data === null ? [] : [...data.families].sort((left, right) => {
+    const leftValue = data.value.values.find((item) =>
+      item.routeFamilyId === left.family.routeFamilyId
+    );
+    const rightValue = data.value.values.find((item) =>
+      item.routeFamilyId === right.family.routeFamilyId
+    );
+    return Number(right.observation.followupEligible) - Number(left.observation.followupEligible) ||
+      (rightValue?.observedWakeCount ?? 0) - (leftValue?.observedWakeCount ?? 0) ||
+      left.family.routeFamilyId.localeCompare(right.family.routeFamilyId);
+  });
+  const historicalWakes = data?.value.values.reduce((sum, item) =>
+    sum + item.observedWakeCount, 0) ?? 0;
+  const totalKnownTokens = data === null
+    ? "0"
+    : standingRouteUsageTokens({
+        ...data.value.totalCreationUsage,
+        knownInputTokens: (
+          BigInt(data.value.totalCreationUsage.knownInputTokens) +
+          BigInt(data.value.totalFollowupUsage.knownInputTokens)
+        ).toString(),
+        knownOutputTokens: (
+          BigInt(data.value.totalCreationUsage.knownOutputTokens) +
+          BigInt(data.value.totalFollowupUsage.knownOutputTokens)
+        ).toString(),
+        knownReasoningTokens: (
+          BigInt(data.value.totalCreationUsage.knownReasoningTokens) +
+          BigInt(data.value.totalFollowupUsage.knownReasoningTokens)
+        ).toString(),
+      });
+
+  return (
+    <section className="standing-route-memory" aria-label="Standing semantic route memory">
+      <div className="standing-route-memory-heading">
+        <div>
+          <span className="eyebrow">Ontology memory · wakes on market novelty</span>
+          <h2>Standing search routes</h2>
+          <p>
+            Agent-authored search neighborhoods that wait for matching contracts to
+            appear or materially change. A wake is research supply—not an opportunity.
+          </p>
+        </div>
+        <div className="standing-route-memory-heading-meta">
+          <Badge variant={data !== null && data.followupEligibleFamilyCount > 0 ? "warning" : "muted"}>
+            {desk.loading ? "SYNCING" : `${data?.followupEligibleFamilyCount ?? 0} WAKING NOW`}
+          </Badge>
+          <Button variant="outline" size="sm" disabled={desk.loading} onClick={() => void desk.refresh()}>
+            {desk.loading ? <RefreshCw className="is-spinning" size={13} /> : <RefreshCw size={13} />}
+            Refresh memory
+          </Button>
+        </div>
+      </div>
+
+      {desk.diagnostic !== null ? (
+        <div className="standing-route-memory-state" role="status">
+          <CircleOff size={16} />
+          <div><strong>Route memory unavailable</strong><span>{desk.diagnostic}</span></div>
+        </div>
+      ) : desk.loading && data === null ? (
+        <div className="standing-route-memory-state">
+          <LoaderCircle className="is-spinning" size={16} />
+          <div><strong>Reading lifecycle memory</strong><span>No Agent or model call is started by this read.</span></div>
+        </div>
+      ) : data !== null && families.length === 0 ? (
+        <div className="standing-route-memory-state">
+          <Waypoints size={17} />
+          <div><strong>No standing routes yet</strong><span>A relation Agent can retain one through the route tool when a reusable search neighborhood appears.</span></div>
+        </div>
+      ) : data !== null ? (
+        <>
+          <div className="standing-route-memory-summary">
+            <div><strong>{data.familyCount}</strong><span>route families</span></div>
+            <div><strong>{data.observationEpisodeCount}</strong><span>durable transitions</span></div>
+            <div><strong>{historicalWakes}</strong><span>historical wakes</span></div>
+            <div><strong>{formatTokenCount(totalKnownTokens)}</strong><span>known lifecycle tokens</span></div>
+          </div>
+          <div className="standing-route-family-list">
+            {families.map(({ family, observation }) => {
+              const value = data.value.values.find((item) =>
+                item.routeFamilyId === family.routeFamilyId
+              );
+              const episodes = data.observationEpisodes.filter((item) =>
+                item.routeFamilyId === family.routeFamilyId
+              );
+              const downstreamCount = (value?.positiveFindingIds.length ?? 0) +
+                (value?.counterexampleIds.length ?? 0) +
+                (value?.semanticReviewJobIds.length ?? 0) +
+                (value?.probabilityJobIds.length ?? 0) +
+                (value?.opportunityIds.length ?? 0);
+              const currentChangeCount = observation.addedListingRefs.length +
+                observation.removedListingRefs.length + observation.changedListingRefs.length;
+              return (
+                <article className="standing-route-family" key={family.routeFamilyId}>
+                  <div className="standing-route-family-main">
+                    <div className="standing-route-family-state">
+                      <Badge variant={
+                        observation.state === "EXPANDED" || observation.state === "CHANGED"
+                          ? "warning"
+                          : observation.state === "QUIESCENT" ? "verified" : "muted"
+                      }>
+                        {standingRouteStateLabel(observation.state)}
+                      </Badge>
+                      <span>{family.routeLayer.replaceAll("_", " ").toLowerCase()}</span>
+                    </div>
+                    <h3>{family.canonicalSearchSignals.join(" · ")}</h3>
+                    <p>
+                      {observation.currentListingRefs.length} matching contract{observation.currentListingRefs.length === 1 ? "" : "s"}
+                      {currentChangeCount > 0 ? ` · ${currentChangeCount} current change${currentChangeCount === 1 ? "" : "s"}` : " · no material change"}
+                      {family.sourceCount > 1 ? ` · ${family.sourceCount} independent sources` : " · one retained source"}
+                    </p>
+                    <ol className="standing-route-timeline" aria-label={`${family.canonicalSearchSignals.join(" ")} lifecycle`}>
+                      {episodes.slice(-6).map((episode) => (
+                        <li className={`state-${episode.state.toLowerCase().replaceAll("_", "-")}`} key={episode.episodeId}>
+                          <i />
+                          <div>
+                            <strong>{standingRouteStateLabel(episode.state)}</strong>
+                            <time>{new Date(episode.observedAt).toLocaleString()}</time>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                  <div className="standing-route-family-value">
+                    <div>
+                      <span>Current quiet</span>
+                      <strong>{formatDurationMs(value?.quietDurationMs ?? null)}</strong>
+                    </div>
+                    <div>
+                      <span>Wake history</span>
+                      <strong>{value?.observedWakeCount ?? 0}</strong>
+                    </div>
+                    <div>
+                      <span>Authoring cost</span>
+                      <strong>{formatTokenCount(standingRouteUsageTokens(value?.creationUsage))}</strong>
+                      <small>{value?.creationUsage.invocationCount ?? 0} model calls</small>
+                    </div>
+                    <div>
+                      <span>Wake cost</span>
+                      <strong>{formatTokenCount(standingRouteUsageTokens(value?.followupUsage))}</strong>
+                      <small>{value?.followupRunIds.length ?? 0} runs</small>
+                    </div>
+                    <div className="standing-route-yield">
+                      <span>Retained yield</span>
+                      <strong>{downstreamCount === 0 ? "None yet" : `${downstreamCount} artifacts`}</strong>
+                      <small>{value?.valueStage.replaceAll("_", " ").toLowerCase() ?? "memory only"}</small>
+                    </div>
+                  </div>
+                  <details className="standing-route-family-evidence">
+                    <summary>Exact route evidence</summary>
+                    <div>
+                      <span>Current members</span>
+                      <code>{observation.currentListingRefs.join(" · ") || "none"}</code>
+                    </div>
+                    <div>
+                      <span>Family identity</span>
+                      <code>{family.routeFamilyId}</code>
+                    </div>
+                  </details>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+      <div className="standing-route-memory-boundary">
+        <ShieldCheck size={14} />
+        <span>Search routing only · descriptive attribution · no automatic dispatch · no trading authority</span>
+      </div>
+    </section>
+  );
+}
+
 function ScoutInboxView({
   onOpenReview,
 }: {
@@ -9186,6 +9404,8 @@ function ScoutInboxView({
         <Metric label="Deep retries" value={`${retryCount}`} detail="fast result preserved" />
         <Metric label="Negative evidence" value={`${negativeCount}`} detail="reusable falsifications" />
       </div>
+
+      <StandingRouteMemory revision={studioProjection.identity.viewHash} />
 
       <section className="opportunity-frontier" aria-label="Current opportunity frontier">
         <div className="opportunity-frontier-heading">
