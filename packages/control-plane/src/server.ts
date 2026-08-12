@@ -46,6 +46,11 @@ import { buildStudioProjection } from "./projection.js";
 import { buildLiveStudioProjection } from "./studio-projection-window.js";
 import { buildStudioProjectionInvalidation } from "./studio-projection-stream.js";
 import {
+  buildStudioProjectionSnapshot,
+  supportsStudioProjectionSnapshots,
+  type StudioProjectionSnapshot,
+} from "./studio-projection-snapshot.js";
+import {
   AiUsageLedger,
   type AiUsageEventStore,
 } from "./ai-usage-ledger.js";
@@ -1184,6 +1189,19 @@ export function createControlPlane(options?: {
   const relationDiscoveryStore = supportsRelationDiscoveryRecords(options?.discoveryStore)
     ? options.discoveryStore
     : null;
+  const studioProjectionSnapshotStore = supportsStudioProjectionSnapshots(
+      options?.discoveryStore,
+    )
+    ? options.discoveryStore
+    : null;
+  let recoveredStudioProjectionSnapshot: StudioProjectionSnapshot | null = null;
+  try {
+    recoveredStudioProjectionSnapshot = studioProjectionSnapshotStore
+      ?.loadStudioProjectionSnapshot() ?? null;
+  } catch {
+    // A derived presentation cache cannot fail durable evidence startup.
+    recoveredStudioProjectionSnapshot = null;
+  }
   const standingRouteEpisodeStore =
     supportsStandingOntologyRouteObservationEpisodes(options?.discoveryStore)
       ? options.discoveryStore
@@ -3643,6 +3661,7 @@ export function createControlPlane(options?: {
     projection: LiveProjection;
     etag: string;
     buildTiming: readonly TimingMetric[];
+    materializedAt: string;
   }>;
   let projectionRevision = 0n;
   let liveProjectionCache: LiveProjectionSnapshot | null = null;
@@ -3650,6 +3669,8 @@ export function createControlPlane(options?: {
     revision: bigint;
     promise: Promise<LiveProjectionSnapshot>;
   }> | null = null;
+  let freshProjectionReady = false;
+  const recoveredLiveProjection = recoveredStudioProjectionSnapshot?.projection ?? null;
   const liveProjectionSnapshot = (): Promise<LiveProjectionSnapshot> => {
     const revision = projectionRevision;
     if (
@@ -3675,13 +3696,32 @@ export function createControlPlane(options?: {
       }));
       return current;
     }).then((current) => {
+      const materializedAt = new Date().toISOString();
       const snapshot = Object.freeze({
         revision,
         projection: current,
         etag: `"${current.identity.viewHash}"`,
         buildTiming: Object.freeze([...buildTiming]),
+        materializedAt,
       });
-      if (projectionRevision === revision) liveProjectionCache = snapshot;
+      if (projectionRevision === revision) {
+        liveProjectionCache = snapshot;
+        freshProjectionReady = true;
+        if (studioProjectionSnapshotStore !== null) {
+          try {
+            studioProjectionSnapshotStore.saveStudioProjectionSnapshot(
+              buildStudioProjectionSnapshot({
+                projection: current,
+                sourceProjectionRevision: revision,
+                materializedAt,
+              }),
+            );
+          } catch {
+            // Fresh projection availability does not depend on its disposable
+            // last-known cache. A later successful materialization may replace it.
+          }
+        }
+      }
       if (startupReadiness.status === "STARTING") {
         transitionStartup("READY", "READY");
       }
@@ -3700,6 +3740,17 @@ export function createControlPlane(options?: {
     });
     liveProjectionBuild = Object.freeze({ revision, promise: pending });
     return pending;
+  };
+  const startLiveProjectionRevalidation = (): void => {
+    if (liveProjectionBuild !== null || freshProjectionReady) return;
+    void liveProjectionSnapshot().then(() => {
+      if (recoveredLiveProjection !== null) {
+        flushProjectionInvalidation();
+      }
+    }, () => {
+      // Readiness exposes the materialization failure. The last-known cache, if
+      // present, remains presentation-only and explicitly stale.
+    });
   };
   const proposalHandoff = async (proposalIds: readonly Hash[]) => {
     await ready;
@@ -4121,6 +4172,30 @@ export function createControlPlane(options?: {
     if (request.method === "GET" && url.pathname === "/api/v1/projection") {
       const view = url.searchParams.get("view") ?? "live";
       if (view === "live") {
+        if (!freshProjectionReady && recoveredStudioProjectionSnapshot !== null) {
+          startLiveProjectionRevalidation();
+          const recovered = recoveredStudioProjectionSnapshot;
+          const body = serializeJson(recovered.projection);
+          const headers = Object.freeze({
+            "access-control-expose-headers": "etag, x-pmh-projection-freshness, x-pmh-projection-materialized-at, x-pmh-projection-revision, x-pmh-response-bytes",
+            "cache-control": "no-cache, private",
+            etag: `"${recovered.projectionViewHash}"`,
+            "x-pmh-projection-freshness": "STALE_REVALIDATING",
+            "x-pmh-projection-materialized-at": recovered.materializedAt,
+            "x-pmh-projection-revision": recovered.sourceProjectionRevision,
+            "x-pmh-response-bytes": body.byteLength.toString(),
+          });
+          if (requestAcceptsEtag(request, headers.etag)) {
+            response.writeHead(304, {
+              ...localStudioCorsHeaders(request),
+              ...headers,
+            });
+            response.end();
+          } else {
+            writeSerializedJson(response, 200, body.body, headers);
+          }
+          return;
+        }
         const requestStartedAt = performance.now();
         const cachePosture = liveProjectionCache?.revision === projectionRevision
           ? "hit"
@@ -4138,9 +4213,11 @@ export function createControlPlane(options?: {
           durationMs: requestDurationMs,
         }));
         const baseHeaders = Object.freeze({
-          "access-control-expose-headers": "etag, server-timing, x-pmh-projection-revision, x-pmh-response-bytes",
+          "access-control-expose-headers": "etag, server-timing, x-pmh-projection-freshness, x-pmh-projection-materialized-at, x-pmh-projection-revision, x-pmh-response-bytes",
           "cache-control": "no-cache, private",
           etag: snapshot.etag,
+          "x-pmh-projection-freshness": "LIVE",
+          "x-pmh-projection-materialized-at": snapshot.materializedAt,
           "x-pmh-projection-revision": snapshot.revision.toString(),
         });
         if (requestAcceptsEtag(request, snapshot.etag)) {
@@ -4908,7 +4985,7 @@ export function createControlPlane(options?: {
           Object.freeze({
             mode: "MEMORY" as const,
             durable: false,
-            schemaVersion: 43,
+            schemaVersion: 44,
             idempotencyKey: "revisionId" as const,
           }),
         automaticDispatch: false,
@@ -5659,7 +5736,7 @@ export function createControlPlane(options?: {
         storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
           mode: "MEMORY" as const,
           durable: false,
-          schemaVersion: 43,
+          schemaVersion: 44,
           idempotencyKey: "proposalId" as const,
         }),
         authority: "PROPOSE_ONLY",

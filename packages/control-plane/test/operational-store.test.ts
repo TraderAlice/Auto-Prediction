@@ -8,6 +8,9 @@ import {
   AgenticModelDiscoveryWorker,
   candidateWatchSources,
   AnonymousSimulationMaterializerDesk,
+  buildLiveStudioProjection,
+  buildStudioProjection,
+  buildStudioProjectionSnapshot,
   createPiInvestigatorRuntime,
   DiscoveryLedger,
   DiscoveryAgentSession,
@@ -403,6 +406,33 @@ async function recordTask(
 }
 
 describe("SQLite operational store", () => {
+  it("restores one disposable bounded Studio snapshot and ignores tampering", async () => {
+    const path = await databasePath();
+    const first = new SqliteOperationalStore(path);
+    const snapshot = buildStudioProjectionSnapshot({
+      projection: buildLiveStudioProjection(
+        buildStudioProjection({ workers: [], activeRuns: 0 }),
+      ),
+      sourceProjectionRevision: 9n,
+      materializedAt: "2026-08-13T00:00:00.000Z",
+    });
+    expect(first.saveStudioProjectionSnapshot(snapshot)).toEqual(snapshot);
+    first.close();
+
+    const second = new SqliteOperationalStore(path);
+    expect(second.loadStudioProjectionSnapshot()).toEqual(snapshot);
+    second.close();
+
+    const database = new DatabaseSync(path);
+    database.prepare(
+      `UPDATE studio_projection_snapshot SET record_hash = ? WHERE singleton = 1`,
+    ).run(hashCanonical({ tampered: true }));
+    database.close();
+    const third = new SqliteOperationalStore(path);
+    expect(third.loadStudioProjectionSnapshot()).toBeNull();
+    third.close();
+  });
+
   it("restores bounded discovery state in WAL mode across process lifetimes", async () => {
     const path = await databasePath();
     const firstStore = new SqliteOperationalStore(path);
@@ -413,7 +443,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 43,
+        schemaVersion: 44,
         idempotencyKey: "taskId",
       },
     });
@@ -602,11 +632,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(43);
+    expect(migrated.storage.schemaVersion).toBe(44);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 43,
+      schemaVersion: 44,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -684,16 +714,17 @@ describe("SQLite operational store", () => {
       "semantic_review_notifications",
       "semantic_review_records",
       "standing_ontology_route_observation_episodes",
+      "studio_projection_snapshot",
       "workload_routes",
     ]);
-    expect(version.user_version).toBe(43);
+    expect(version.user_version).toBe(44);
     inspected.close();
 
     const partial = new DatabaseSync(path);
     partial.exec("DROP TABLE search_lease_corpora");
     partial.exec("DROP TABLE search_lease_records");
     partial.exec("DROP TABLE search_notification_records");
-    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(43);
+    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(44);
     partial.close();
     const repaired = new SqliteOperationalStore(path);
     repaired.close();
@@ -720,7 +751,7 @@ describe("SQLite operational store", () => {
     partialExecutionSchema.exec("DROP TABLE agent_runtime_definitions");
     expect((partialExecutionSchema.prepare("PRAGMA user_version").get() as {
       user_version: number;
-    }).user_version).toBe(43);
+    }).user_version).toBe(44);
     partialExecutionSchema.close();
     const repairedExecutionSchema = new SqliteOperationalStore(path);
     repairedExecutionSchema.close();
@@ -742,7 +773,7 @@ describe("SQLite operational store", () => {
     expect(first.loadResearchDecisionEpisodes(10)).toEqual([expected]);
     expect(first.researchDecisionEpisodeStorage).toMatchObject({
       durable: true,
-      schemaVersion: 43,
+      schemaVersion: 44,
       idempotencyKey: "episodeId",
     });
     first.close();
@@ -768,7 +799,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 43,
+      schemaVersion: 44,
     });
     firstStore.close();
 
@@ -878,7 +909,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 43,
+      schemaVersion: 44,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -933,7 +964,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 43,
+      schemaVersion: 44,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -980,7 +1011,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateWatchRefreshStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 43,
+      schemaVersion: 44,
       idempotencyKey: "refreshId",
     });
     first.close();
@@ -1022,7 +1053,7 @@ describe("SQLite operational store", () => {
     expect(first.anonymousSimulationMaterializationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 43,
+      schemaVersion: 44,
       idempotencyKey: "materializationId",
     });
     first.close();
@@ -1041,7 +1072,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 43,
+        schemaVersion: 44,
       },
     });
     expect(

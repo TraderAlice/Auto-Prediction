@@ -12,7 +12,12 @@ const ProjectionContext = createContext<StudioProjection | null>(null);
 type ResearchCase = StudioProjection["ai"]["researchDesk"]["cases"][number];
 
 export type ProjectionSyncState = Readonly<{
-  status: "CONNECTING" | "LIVE" | "REFRESHING" | "RECONNECTING";
+  status:
+    | "CONNECTING"
+    | "STALE_REVALIDATING"
+    | "LIVE"
+    | "REFRESHING"
+    | "RECONNECTING";
   revision: string | null;
   lastUpdatedAt: string | null;
   readiness: StartupReadiness | null;
@@ -204,7 +209,12 @@ export function useControlPlaneProjection(): Readonly<{
       refreshInFlight = (async () => {
         while (refreshQueued && !closed) {
           refreshQueued = false;
-          setSync((current) => ({ ...current, status: "REFRESHING" }));
+          setSync((current) => ({
+            ...current,
+            status: current.status === "STALE_REVALIDATING"
+              ? "STALE_REVALIDATING"
+              : "REFRESHING",
+          }));
           const abort = new AbortController();
           activeRequests.add(abort);
           try {
@@ -227,13 +237,19 @@ export function useControlPlaneProjection(): Readonly<{
               setProjection(nextProjection);
             }
             const revision = response.headers.get("x-pmh-projection-revision");
+            const freshness = response.headers.get("x-pmh-projection-freshness");
+            if (freshness !== "LIVE" && freshness !== "STALE_REVALIDATING") {
+              throw new Error("control plane omitted projection freshness");
+            }
             setSync((current) => ({
               ...current,
-              status: "LIVE",
+              status: freshness,
               revision,
-              lastUpdatedAt: new Date().toISOString(),
+              lastUpdatedAt:
+                response.headers.get("x-pmh-projection-materialized-at") ??
+                new Date().toISOString(),
             }));
-            stopReadinessPolling();
+            if (freshness === "LIVE") stopReadinessPolling();
             setDiagnostic(null);
           } catch (error: unknown) {
             if (!closed && !abort.signal.aborted) {

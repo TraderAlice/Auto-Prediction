@@ -46,18 +46,18 @@ replaces it.
 
 ## Phase 2 — last-known bounded snapshot
 
-- [ ] Persist only the bounded live projection plus its content hash, source
+- [x] Persist only the bounded live projection plus its content hash, source
   projection revision, materialized time, and schema/version identity.
-- [ ] On restart, serve that snapshot as `STALE_REVALIDATING` while one fresh
+- [x] On restart, serve that snapshot as `STALE_REVALIDATING` while one fresh
   materialization runs. Never label it `LIVE`.
-- [ ] Replace it atomically after successful current materialization; retain the
+- [x] Replace it atomically after successful current materialization; retain the
   last-known snapshot if refresh fails and expose the failure separately.
-- [ ] Schema mismatch or malformed cache fails closed to the existing startup
+- [x] Schema mismatch or malformed cache fails closed to the existing startup
   gate; the cache never becomes a compatibility shim.
 
 ## Phase 3 — progressive Studio shell
 
-- [ ] Render the normal navigation shell from last-known bounded state while
+- [x] Render the normal navigation shell from last-known bounded state while
   displaying revalidation posture and age.
 - [ ] Keep independently loaded route memory, seed portfolio, and later desks
   in local loading/error states rather than blocking the whole shell.
@@ -112,6 +112,29 @@ state derivation, not response size or bounded-window construction. A durable
 last-known bounded snapshot should improve operator availability while current
 revalidation continues; further derivation work remains observable through
 the retained `Server-Timing` segments.
+
+## 2026-08-13 progressive-readiness qualification
+
+The schema-44 presentation cache is a single replaceable row, separate from
+evidence tables. Its envelope binds the bounded projection view hash, source
+revision, materialization time, cache authority, and zero provider/model
+effects. Load revalidates both envelope and projection content identities;
+malformation becomes a cache miss without rewriting or deleting evidence.
+
+On the current durable database:
+
+- first materialization remained a normal `LIVE` response and populated the
+  cache;
+- a subsequent cold process restart returned the 2.34 MB last-known workspace
+  with 14.8 ms TTFB and 17 ms total response time;
+- that response was explicitly `STALE_REVALIDATING` and retained its original
+  materialization timestamp;
+- background derivation then changed the endpoint to `LIVE` and startup
+  readiness to `READY` with zero provider requests and zero model invocations.
+
+Control-plane qualification now covers 88 files and 617 tests; Studio covers
+26 tests. Phase 3 continues with independently ready route/seed desks so their
+multi-second derived reads cannot block or ambiguously degrade the main shell.
 
 ## Authority boundary
 

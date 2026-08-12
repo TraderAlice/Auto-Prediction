@@ -311,7 +311,7 @@ describe("traded-state premise route expansion", () => {
         proposalYieldJobCount: 0,
         generatedProposalCount: 0,
         budget: { providerAttemptsStarted: 1 },
-        storage: { durable: true, schemaVersion: 43 },
+        storage: { durable: true, schemaVersion: 44 },
         semanticDecisionAuthority: false,
         certificateAuthority: false,
         executionAuthority: false,
