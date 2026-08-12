@@ -106,8 +106,8 @@ export async function runRuleEvidenceClaimSmoke(
     model: record.model,
     interpretationId: record.interpretationId,
     requirementId: record.requirementId,
-    documentId: record.documentId,
-    extractionId: record.extractionId,
+    documentId: "sourceKind" in record ? null : record.documentId,
+    extractionId: "sourceKind" in record ? null : record.extractionId,
     disposition: record.claim.disposition,
     citationCount: record.claim.citations.length,
     citedCharacterCount: record.claim.citations.reduce(

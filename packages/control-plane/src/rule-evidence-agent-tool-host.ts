@@ -3,8 +3,12 @@ import {
   ruleEvidencePassageIdentity,
   validateRuleEvidenceClaimDraft,
   type RuleEvidenceClaimModelResult,
-  type RuleEvidenceClaimModelInput,
 } from "./rule-evidence-claim.js";
+import {
+  validateRuleEvidenceTextInput,
+  type RuleEvidenceTextInput,
+  type ValidatedRuleEvidenceTextInput,
+} from "./rule-evidence-text-source.js";
 import type {
   AgentRuntimeToolDefinition,
   AgentToolHost,
@@ -78,7 +82,7 @@ type RunState = {
 
 type RetainRuleEvidenceAgentResult = (
   context: AgentToolHostContext,
-  source: RuleEvidenceClaimModelInput,
+  source: ValidatedRuleEvidenceTextInput,
   result: RuleEvidenceClaimModelResult,
 ) => Promise<Readonly<{ claimId: Hash; artifactHash: Hash }>> | Readonly<{
   claimId: Hash;
@@ -102,7 +106,9 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
   readonly #runs = new Map<Hash, RunState>();
 
   public constructor(
-    private readonly resolveInput: (taskId: Hash) => RuleEvidenceClaimModelInput | null,
+    private readonly resolveInput: (
+      taskId: Hash,
+    ) => ValidatedRuleEvidenceTextInput | RuleEvidenceTextInput | null,
     private readonly retainResult?: RetainRuleEvidenceAgentResult,
   ) {}
 
@@ -118,13 +124,16 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
     if (context.executionProfile.toolPolicy.protocol !== "RULE_EVIDENCE_TOOLS_V1") {
       return Object.freeze({ status: "REJECTED", output: { diagnostic: "tool protocol unavailable" } });
     }
-    const source = this.resolveInput(context.task.taskId);
-    if (source === null) {
+    const rawSource = this.resolveInput(context.task.taskId);
+    if (rawSource === null) {
       return Object.freeze({
         status: "REJECTED",
         output: { diagnostic: "retained Rule Evidence input is unavailable" },
       });
     }
+    const source = "source" in rawSource
+      ? rawSource
+      : validateRuleEvidenceTextInput(rawSource);
     const state = this.#runs.get(context.run.runId) ?? {
       inspected: new Map<Hash, Readonly<{ start: number; end: number }>>(),
       inspectionCount: 0,
@@ -132,7 +141,7 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
       readEffectCount: 0,
     };
     this.#runs.set(context.run.runId, state);
-    const text = source.capture.extraction.text;
+    const text = source.source.text;
     try {
       if (context.toolName === "search_evidence_text") {
         const input = object(context.input);
@@ -148,7 +157,7 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
           const start = Math.max(0, found - 240);
           const end = Math.min(text.length, found + query.length + 240);
           const passageId = ruleEvidencePassageIdentity(
-            source.capture.extraction.record.extractionId,
+            source.source.textArtifactId,
             start,
             end,
           );
@@ -179,7 +188,7 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
         const returnedLength = Math.min(length as number, MAX_READ_CHARACTERS);
         const end = Math.min(text.length, (start as number) + returnedLength);
         const passageId = ruleEvidencePassageIdentity(
-          source.capture.extraction.record.extractionId,
+          source.source.textArtifactId,
           start as number,
           end,
         );
@@ -222,8 +231,9 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
         }, text);
         const submittedEffectHash = hashCanonical({
           requirementId: source.requirement.requirementId,
-          documentId: source.capture.document.record.documentId,
-          extractionId: source.capture.extraction.record.extractionId,
+          sourceKind: source.source.kind,
+          sourceArtifactId: source.source.sourceArtifactId,
+          textArtifactId: source.source.textArtifactId,
           draft,
         });
         const retained = await this.retainResult?.(context, source, Object.freeze({
@@ -240,8 +250,9 @@ export class RuleEvidenceAgentToolHost implements AgentToolHost {
           output: Object.freeze({
             accepted: true,
             requirementId: source.requirement.requirementId,
-            documentId: source.capture.document.record.documentId,
-            extractionId: source.capture.extraction.record.extractionId,
+            sourceKind: source.source.kind,
+            sourceArtifactId: source.source.sourceArtifactId,
+            textArtifactId: source.source.textArtifactId,
             draft,
             submittedEffectHash,
             claimId: retained?.claimId ?? null,

@@ -279,6 +279,13 @@ import {
   type RuleEvidenceClaimSchedulerStore,
 } from "./rule-evidence-claim-scheduler.js";
 import {
+  type RuleEvidenceTextInput,
+  type ValidatedRuleEvidenceTextInput,
+  ruleEvidenceTextInputFromValidated,
+  supportsCatalogRuleEvidenceRequirementKind,
+  validateRuleEvidenceTextInput,
+} from "./rule-evidence-text-source.js";
+import {
   buildSemanticReviewAdmissionProjection,
   classifySemanticReviewAdmission,
 } from "./semantic-review-admission.js";
@@ -2090,7 +2097,10 @@ export function createControlPlane(options?: {
     baseCandidates: readonly SemanticReviewCandidate[] = baseSemanticReviewCandidates(),
   ): readonly SemanticReviewCandidate[] => {
     const records = ruleEvidenceClaimDesk.projection().records;
-    const inputs = ruleEvidenceClaimInputs();
+    const inputs = [
+      ...ruleEvidenceClaimInputs(),
+      ...catalogRuleEvidenceInputs(),
+    ].map(validateRuleEvidenceTextInput);
     const existingClaims = new Map(semanticReviewScheduler.projection().jobs.map((job) =>
       [job.proposalId, job.evidenceClaims ?? []] as const
     ));
@@ -2098,22 +2108,35 @@ export function createControlPlane(options?: {
       const proposalInputs = inputs.filter((input) =>
         input.requirement.proposalId === candidate.proposal.proposalId
       );
-      const claims = proposalInputs.length === 0
-        ? []
-        : proposalInputs.flatMap((input) => {
-            const record = records.filter((item) =>
-              item.status === "PASS" && item.claim !== null &&
-              item.requirementId === input.requirement.requirementId &&
-              item.documentId === input.capture.document.record.documentId &&
-              item.extractionId === input.capture.extraction.record.extractionId
-            ).sort((left, right) =>
-              String(right.completedAt).localeCompare(String(left.completedAt)) ||
-              right.interpretationId.localeCompare(left.interpretationId)
-            )[0];
-            return record?.status === "PASS" && record.claim !== null ? [record.claim] : [];
-          });
-      const completeCurrentSet = proposalInputs.length > 0 &&
-        claims.length === proposalInputs.length;
+      const requirementIds = [...new Set(proposalInputs.map((input) =>
+        input.requirement.requirementId
+      ))];
+      const claims = requirementIds.flatMap((requirementId) => {
+        const supplies = proposalInputs.filter((input) =>
+          input.requirement.requirementId === requirementId
+        );
+        const record = records.filter((item) => {
+          if (
+            item.status !== "PASS" || item.claim === null ||
+            item.requirementId !== requirementId
+          ) return false;
+          return supplies.some((input) => input.source.kind === "CATALOG_CONTRACT_TEXT"
+            ? "sourceKind" in item &&
+              item.sourceArtifactId === input.source.sourceArtifactId &&
+              item.textArtifactId === input.source.textArtifactId
+            : !("sourceKind" in item) &&
+              item.documentId === input.source.sourceArtifactId &&
+              item.extractionId === input.source.textArtifactId);
+        }).sort((left, right) =>
+          String(right.completedAt).localeCompare(String(left.completedAt)) ||
+          right.interpretationId.localeCompare(left.interpretationId)
+        )[0];
+        return record?.status === "PASS" && record.claim !== null
+          ? [record.claim]
+          : [];
+      });
+      const completeCurrentSet = requirementIds.length > 0 &&
+        claims.length === requirementIds.length;
       const retainedClaims = completeCurrentSet
         ? claims
         : existingClaims.get(candidate.proposal.proposalId) ?? [];
@@ -2524,7 +2547,7 @@ export function createControlPlane(options?: {
       if (record.status !== "PASS" || record.report === null) continue;
       const alreadyReviewedLocators = new Set((record.report.input.evidenceClaims ?? [])
         .flatMap((claim) => {
-        const locator = locatorByObservationId.get(claim.observationId);
+        const locator = locatorByObservationId.get(claim.observationId as Hash);
         return locator === undefined || locator === null ? [] : [locator];
       }));
       if (alreadyReviewedLocators.size === 0) continue;
@@ -2555,12 +2578,51 @@ export function createControlPlane(options?: {
       return job.requirements.map((requirement) => Object.freeze({ requirement, capture }));
     }),
   );
-  const ruleEvidenceAgentInputsByTaskId = new Map<Hash, RuleEvidenceClaimInput>();
-  const refreshRuleEvidenceAgentInputs = (): readonly RuleEvidenceClaimInput[] => {
-    const inputs = ruleEvidenceClaimInputs();
+  const catalogRuleEvidenceInputs = (): readonly RuleEvidenceTextInput[] => {
+    const currentListings = new Map(catalogObservationDesk.corpus().listings.map(
+      (listing) => [listing.listingRef, listing] as const,
+    ));
+    return Object.freeze(evidenceRequirements().flatMap((requirement) => {
+      if (
+        !supportsCatalogRuleEvidenceRequirementKind(requirement.kind) ||
+        requirement.temporalPosture !== "CURRENT" ||
+        requirement.listingRefs.length !== 1
+      ) return [];
+      const listing = currentListings.get(requirement.listingRefs[0]!);
+      if (
+        listing === undefined || listing.rulesText === null ||
+        listing.rulesTextPosture !== "COMPLETE"
+      ) return [];
+      try {
+        const input: RuleEvidenceTextInput = Object.freeze({
+          requirement,
+          catalogTextEvidence:
+            catalogObservationDesk.materializeContractTextEvidence(
+              listing.listingRef,
+            ),
+        });
+        validateRuleEvidenceTextInput(input);
+        return [input];
+      } catch {
+        return [];
+      }
+    }));
+  };
+  const ruleEvidenceAgentInputsByTaskId = new Map<
+    Hash,
+    ValidatedRuleEvidenceTextInput
+  >();
+  const refreshRuleEvidenceAgentInputs = (): readonly RuleEvidenceTextInput[] => {
+    const inputs: readonly RuleEvidenceTextInput[] = Object.freeze([
+      ...ruleEvidenceClaimInputs(),
+      ...catalogRuleEvidenceInputs(),
+    ]);
     ruleEvidenceAgentInputsByTaskId.clear();
     for (const input of inputs) {
-      ruleEvidenceAgentInputsByTaskId.set(buildRuleEvidenceAgentTask(input).taskId, input);
+      ruleEvidenceAgentInputsByTaskId.set(
+        buildRuleEvidenceAgentTask(input).taskId,
+        validateRuleEvidenceTextInput(input),
+      );
     }
     return inputs;
   };
@@ -2636,8 +2698,7 @@ export function createControlPlane(options?: {
               responseStorage: false,
             });
             const record = ruleEvidenceClaimDesk.retainAgentResult({
-              requirement: source.requirement,
-              capture: source.capture,
+              validated: source,
               engine,
               startedAt: context.run.createdAt,
               completedAt: new Date().toISOString(),
@@ -2687,7 +2748,9 @@ export function createControlPlane(options?: {
         if (task.kind === "RULE_EVIDENCE_CLAIM") {
           const input = ruleEvidenceAgentInput(task.taskId);
           if (input === null) throw new Error("retained Agent task input is unavailable");
-          return buildRuleEvidenceAgentTaskPayload(input);
+          return buildRuleEvidenceAgentTaskPayload(
+            ruleEvidenceTextInputFromValidated(input),
+          );
         }
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
           const revision = ontologyAgentTaskRevision(task.taskId, run);
@@ -3730,6 +3793,7 @@ export function createControlPlane(options?: {
     );
     evidenceAcquisitionScheduler.reconcile(currentEvidenceRequirements);
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
+    reconcileRuleEvidenceAgentTasks();
     timings.push(Object.freeze({
       name: "projection-evidence-reconcile",
       durationMs: Math.max(0, performance.now() - evidenceReconcileStartedAt),
@@ -5124,7 +5188,7 @@ export function createControlPlane(options?: {
           Object.freeze({
             mode: "MEMORY" as const,
             durable: false,
-            schemaVersion: 45,
+            schemaVersion: 46,
             idempotencyKey: "revisionId" as const,
           }),
         automaticDispatch: false,
@@ -5875,7 +5939,7 @@ export function createControlPlane(options?: {
         storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
           mode: "MEMORY" as const,
           durable: false,
-          schemaVersion: 45,
+          schemaVersion: 46,
           idempotencyKey: "proposalId" as const,
         }),
         authority: "PROPOSE_ONLY",
@@ -6230,6 +6294,7 @@ export function createControlPlane(options?: {
       await broadcastProjection();
       const result = await pending;
       reconcileRelationDiscoveryTasks();
+      reconcileRuleEvidenceAgentTasks();
       await broadcastProjection();
       tickSearchIssues();
       writeJson(

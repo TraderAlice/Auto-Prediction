@@ -30,6 +30,10 @@ import {
   CodexAuthCacheCredentialProvider,
   type CodexOAuthCredentialProvider,
 } from "./codex-oauth.js";
+import {
+  validateRuleEvidenceTextInput,
+  type ValidatedRuleEvidenceTextInput,
+} from "./rule-evidence-text-source.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MODEL_PATTERN = /^[a-zA-Z0-9._:-]{1,100}$/u;
@@ -63,6 +67,14 @@ const CLAIM_KEYS = Object.freeze([
   "providerRequestAuthority", "rationale", "requirementId", "schemaVersion",
   "semanticDecisionAuthority", "trace", "unresolvedEvidence",
 ]);
+const CATALOG_CLAIM_KEYS = Object.freeze([
+  "acquisitionScopeIdentity", "artifactHash", "authority", "certificateAuthority",
+  "citations", "claimId", "completedAt", "disposition", "executionAuthority",
+  "interpreter", "listingRef", "observationId", "productionReviewAuthority",
+  "proposalId", "providerRequestAuthority", "rationale", "requirementId",
+  "schemaVersion", "semanticDecisionAuthority", "sourceArtifactId", "sourceKind",
+  "sourceRawHash", "textArtifactId", "textHash", "trace", "unresolvedEvidence",
+]);
 const CITATION_KEYS = Object.freeze(["end", "quote", "quoteHash", "start"]);
 const INTERPRETER_KEYS = Object.freeze([
   "identity", "model", "provider", "role", "transport",
@@ -75,6 +87,11 @@ const RECORD_KEYS = Object.freeze([
   "claim", "completedAt", "diagnostic", "documentId", "extractionId",
   "interpretationId", "interpreterIdentity", "model", "proposalId", "requirementId",
   "startedAt", "status",
+]);
+const CATALOG_RECORD_KEYS = Object.freeze([
+  "claim", "completedAt", "diagnostic", "interpretationId", "interpreterIdentity",
+  "model", "proposalId", "requirementId", "sourceArtifactId", "sourceKind",
+  "startedAt", "status", "textArtifactId",
 ]);
 
 export type RuleEvidenceClaimDisposition =
@@ -97,7 +114,7 @@ export type RuleEvidencePassageCitation = Readonly<{
   quoteHash: Hash;
 }>;
 
-export type RuleEvidenceClaim = Readonly<{
+export type DocumentRuleEvidenceClaim = Readonly<{
   schemaVersion: "pmh.rule-evidence-claim.v1" | "pmh.rule-evidence-claim.v2";
   claimId: Hash;
   requirementId: Hash;
@@ -137,6 +154,39 @@ export type RuleEvidenceClaim = Readonly<{
   artifactHash: Hash;
 }>;
 
+export type CatalogRuleEvidenceClaim = Readonly<{
+  schemaVersion: "pmh.rule-evidence-claim.v3";
+  claimId: Hash;
+  requirementId: Hash;
+  proposalId: Hash;
+  acquisitionScopeIdentity: Hash;
+  sourceKind: "CATALOG_CONTRACT_TEXT";
+  observationId: string;
+  sourceArtifactId: Hash;
+  textArtifactId: Hash;
+  sourceRawHash: Hash;
+  textHash: Hash;
+  listingRef: string;
+  disposition: RuleEvidenceClaimDisposition;
+  rationale: string;
+  citations: readonly RuleEvidencePassageCitation[];
+  unresolvedEvidence: readonly string[];
+  interpreter: DocumentRuleEvidenceClaim["interpreter"];
+  trace: DocumentRuleEvidenceClaim["trace"];
+  completedAt: string;
+  authority: "ADVISORY_EVIDENCE_INTERPRETATION_ONLY";
+  providerRequestAuthority: false;
+  semanticDecisionAuthority: false;
+  productionReviewAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  artifactHash: Hash;
+}>;
+
+export type RuleEvidenceClaim =
+  | DocumentRuleEvidenceClaim
+  | CatalogRuleEvidenceClaim;
+
 export type RuleEvidenceClaimDraft = Readonly<{
   disposition: RuleEvidenceClaimDisposition;
   rationale: string;
@@ -169,7 +219,7 @@ export interface RuleEvidenceClaimModelPort {
   interpret(input: RuleEvidenceClaimModelInput): Promise<RuleEvidenceClaimModelResult>;
 }
 
-export type RuleEvidenceClaimRecord = Readonly<{
+export type DocumentRuleEvidenceClaimRecord = Readonly<{
   interpretationId: Hash;
   requirementId: Hash;
   proposalId: Hash;
@@ -184,6 +234,38 @@ export type RuleEvidenceClaimRecord = Readonly<{
   claim: RuleEvidenceClaim | null;
 }>;
 
+export type CatalogRuleEvidenceClaimRecord = Readonly<{
+  interpretationId: Hash;
+  requirementId: Hash;
+  proposalId: Hash;
+  sourceKind: "CATALOG_CONTRACT_TEXT";
+  sourceArtifactId: Hash;
+  textArtifactId: Hash;
+  interpreterIdentity: Hash;
+  model: string;
+  status: "RUNNING" | "PASS" | "FAILED";
+  startedAt: string;
+  completedAt: string | null;
+  diagnostic: string | null;
+  claim: CatalogRuleEvidenceClaim | null;
+}>;
+
+export type RuleEvidenceClaimRecord =
+  | DocumentRuleEvidenceClaimRecord
+  | CatalogRuleEvidenceClaimRecord;
+
+export function isCatalogRuleEvidenceClaim(
+  claim: RuleEvidenceClaim,
+): claim is CatalogRuleEvidenceClaim {
+  return claim.schemaVersion === "pmh.rule-evidence-claim.v3";
+}
+
+export function isCatalogRuleEvidenceClaimRecord(
+  record: RuleEvidenceClaimRecord,
+): record is CatalogRuleEvidenceClaimRecord {
+  return "sourceKind" in record && record.sourceKind === "CATALOG_CONTRACT_TEXT";
+}
+
 export interface RuleEvidenceClaimRecordStore {
   readonly ruleEvidenceClaimStorage: OperationalStorageProjection<"interpretationId">;
   loadRuleEvidenceClaimRecords(limit: number): readonly RuleEvidenceClaimRecord[];
@@ -191,6 +273,16 @@ export interface RuleEvidenceClaimRecordStore {
     record: RuleEvidenceClaimRecord,
     retentionLimit: number,
   ): RuleEvidenceClaimRecord;
+}
+
+export interface CatalogRuleEvidenceClaimRecordStore {
+  loadCatalogRuleEvidenceClaimRecords(
+    limit: number,
+  ): readonly CatalogRuleEvidenceClaimRecord[];
+  saveCatalogRuleEvidenceClaimRecord(
+    record: CatalogRuleEvidenceClaimRecord,
+    retentionLimit: number,
+  ): CatalogRuleEvidenceClaimRecord;
 }
 
 export type RuleEvidenceClaimDeskProjection = Readonly<{
@@ -568,6 +660,18 @@ function interpretationId(input: Readonly<{
   });
 }
 
+function catalogInterpretationId(input: Readonly<{
+  requirementId: Hash;
+  sourceArtifactId: Hash;
+  textArtifactId: Hash;
+  interpreterIdentity: Hash;
+}>): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.rule-evidence-interpretation-run.v2",
+    ...input,
+  });
+}
+
 function validateInput(input: RuleEvidenceClaimModelInput): RuleEvidenceClaimModelInput {
   const requirement = assertEvidenceRequirement(input.requirement);
   const capture = assertEvidenceDocumentCapture(input.capture);
@@ -667,7 +771,7 @@ export function buildRuleEvidenceClaim(input: Readonly<{
   engine?: RuleEvidenceInterpreterEngine;
   completedAt: string;
   result: RuleEvidenceClaimModelResult;
-}>): RuleEvidenceClaim {
+}>): DocumentRuleEvidenceClaim {
   const validated = validateInput(input);
   if (!MODEL_PATTERN.test(input.model) || !isIso(input.completedAt)) {
     throw new Error("rule evidence claim interpreter metadata is invalid");
@@ -737,7 +841,96 @@ export function buildRuleEvidenceClaim(input: Readonly<{
   return assertRuleEvidenceClaim(Object.freeze({
     ...body,
     artifactHash: hashCanonical(body),
-  }));
+  })) as DocumentRuleEvidenceClaim;
+}
+
+export function buildCatalogRuleEvidenceClaim(input: Readonly<{
+  validated: ValidatedRuleEvidenceTextInput;
+  model: string;
+  engine: RuleEvidenceInterpreterEngine;
+  completedAt: string;
+  result: RuleEvidenceClaimModelResult;
+}>): CatalogRuleEvidenceClaim {
+  const { validated } = input;
+  if (
+    validated.source.kind !== "CATALOG_CONTRACT_TEXT" ||
+    validated.catalogTextEvidence === null ||
+    !MODEL_PATTERN.test(input.model) ||
+    !isIso(input.completedAt)
+  ) {
+    throw new Error("catalog rule evidence claim input is invalid");
+  }
+  const engine = assertRuleEvidenceInterpreterEngine(input.engine);
+  if (engine.model !== input.model || engine.transport !== "AGENT_RUNTIME") {
+    throw new Error("catalog rule evidence requires its Agent runtime engine");
+  }
+  const identity = ruleEvidenceInterpreterIdentity(engine);
+  const draft = validateRuleEvidenceClaimDraft(
+    input.result.draft,
+    validated.source.text,
+  );
+  const traceInput = input.result.trace;
+  if (
+    !Number.isSafeInteger(traceInput.searchEffectCount) ||
+    traceInput.searchEffectCount < 0 ||
+    !Number.isSafeInteger(traceInput.readEffectCount) ||
+    traceInput.readEffectCount < 0 ||
+    traceInput.searchEffectCount + traceInput.readEffectCount < 1 ||
+    !HASH_PATTERN.test(String(traceInput.submittedEffectHash))
+  ) {
+    throw new Error("catalog rule evidence claim tool trace is invalid");
+  }
+  const source = validated.source;
+  const claimId = catalogInterpretationId({
+    requirementId: validated.requirement.requirementId,
+    sourceArtifactId: source.sourceArtifactId,
+    textArtifactId: source.textArtifactId,
+    interpreterIdentity: identity,
+  });
+  const body = Object.freeze({
+    schemaVersion: "pmh.rule-evidence-claim.v3" as const,
+    claimId,
+    requirementId: validated.requirement.requirementId,
+    proposalId: validated.requirement.proposalId,
+    acquisitionScopeIdentity: validated.requirement.acquisitionScopeIdentity,
+    sourceKind: "CATALOG_CONTRACT_TEXT" as const,
+    observationId: source.observationId,
+    sourceArtifactId: source.sourceArtifactId,
+    textArtifactId: source.textArtifactId,
+    sourceRawHash: source.sourceRawHash,
+    textHash: source.textHash,
+    listingRef: source.listingRef!,
+    disposition: draft.disposition,
+    rationale: draft.rationale,
+    citations: draft.citations,
+    unresolvedEvidence: draft.unresolvedEvidence,
+    interpreter: Object.freeze({
+      identity,
+      transport: engine.transport,
+      provider: engine.provider.toLowerCase() as "deepseek" | "codex",
+      model: input.model,
+      role: "RULE_EVIDENCE_INTERPRETER" as const,
+    }),
+    trace: Object.freeze({
+      maximumSteps: MAX_STEPS as 20,
+      searchEffectCount: traceInput.searchEffectCount,
+      readEffectCount: traceInput.readEffectCount,
+      submittedEffectHash: traceInput.submittedEffectHash,
+      wholeResponseSchemaParsing: false as const,
+      terminalEffectEndsLoop: true as const,
+    }),
+    completedAt: input.completedAt,
+    authority: "ADVISORY_EVIDENCE_INTERPRETATION_ONLY" as const,
+    providerRequestAuthority: false as const,
+    semanticDecisionAuthority: false as const,
+    productionReviewAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return assertRuleEvidenceClaim(Object.freeze({
+    ...body,
+    artifactHash: hashCanonical(body),
+  })) as CatalogRuleEvidenceClaim;
 }
 
 export function assertRuleEvidenceClaim(value: unknown): RuleEvidenceClaim {
@@ -746,20 +939,43 @@ export function assertRuleEvidenceClaim(value: unknown): RuleEvidenceClaim {
   }
   const claim = value as RuleEvidenceClaim;
   const { artifactHash, ...body } = claim;
+  const catalog = claim.schemaVersion === "pmh.rule-evidence-claim.v3";
+  const sourceIdentityValid = catalog
+    ? exactKeys(claim, CATALOG_CLAIM_KEYS) &&
+      claim.sourceKind === "CATALOG_CONTRACT_TEXT" &&
+      /^catalog-observation:[0-9a-f]{64}$/u.test(claim.observationId) &&
+      HASH_PATTERN.test(claim.sourceArtifactId) &&
+      HASH_PATTERN.test(claim.textArtifactId) &&
+      HASH_PATTERN.test(claim.sourceRawHash) &&
+      HASH_PATTERN.test(claim.textHash) &&
+      boundedText(claim.listingRef, 500) &&
+      claim.claimId === catalogInterpretationId({
+        requirementId: claim.requirementId,
+        sourceArtifactId: claim.sourceArtifactId,
+        textArtifactId: claim.textArtifactId,
+        interpreterIdentity: claim.interpreter.identity,
+      })
+    : exactKeys(claim, CLAIM_KEYS) &&
+      ["pmh.rule-evidence-claim.v1", "pmh.rule-evidence-claim.v2"].includes(
+        claim.schemaVersion,
+      ) &&
+      HASH_PATTERN.test(claim.observationId) &&
+      HASH_PATTERN.test(claim.documentId) &&
+      HASH_PATTERN.test(claim.extractionId) &&
+      HASH_PATTERN.test(claim.documentRawHash) &&
+      HASH_PATTERN.test(claim.extractionTextHash) &&
+      claim.claimId === interpretationId({
+        requirementId: claim.requirementId,
+        documentId: claim.documentId,
+        extractionId: claim.extractionId,
+        interpreterIdentity: claim.interpreter.identity,
+      });
   if (
-    !exactKeys(claim, CLAIM_KEYS) ||
-    !["pmh.rule-evidence-claim.v1", "pmh.rule-evidence-claim.v2"].includes(
-      claim.schemaVersion,
-    ) ||
+    !sourceIdentityValid ||
     !HASH_PATTERN.test(String(claim.claimId)) ||
     !HASH_PATTERN.test(String(claim.requirementId)) ||
     !HASH_PATTERN.test(String(claim.proposalId)) ||
     !HASH_PATTERN.test(String(claim.acquisitionScopeIdentity)) ||
-    !HASH_PATTERN.test(String(claim.observationId)) ||
-    !HASH_PATTERN.test(String(claim.documentId)) ||
-    !HASH_PATTERN.test(String(claim.extractionId)) ||
-    !HASH_PATTERN.test(String(claim.documentRawHash)) ||
-    !HASH_PATTERN.test(String(claim.extractionTextHash)) ||
     !["SUPPORTS", "CONTRADICTS", "INCONCLUSIVE"].includes(claim.disposition) ||
     !boundedText(claim.rationale, 2_000) ||
     !Array.isArray(claim.citations) || claim.citations.length > MAX_CITATIONS ||
@@ -797,12 +1013,6 @@ export function assertRuleEvidenceClaim(value: unknown): RuleEvidenceClaim {
       isHistoricalInterpreterIdentity(claim.interpreter.model, claim.interpreter.identity)) ||
     !MODEL_PATTERN.test(claim.interpreter.model) ||
     claim.interpreter.role !== "RULE_EVIDENCE_INTERPRETER" ||
-    claim.claimId !== interpretationId({
-      requirementId: claim.requirementId,
-      documentId: claim.documentId,
-      extractionId: claim.extractionId,
-      interpreterIdentity: claim.interpreter.identity,
-    }) ||
     !exactKeys(claim.trace, TRACE_KEYS) ||
     claim.trace.maximumSteps !== MAX_STEPS ||
     !Number.isSafeInteger(claim.trace.searchEffectCount) ||
@@ -828,15 +1038,20 @@ export function assertRuleEvidenceClaimRecord(value: unknown): RuleEvidenceClaim
     throw new Error("stored rule evidence claim record is malformed");
   }
   const record = value as RuleEvidenceClaimRecord;
+  const catalog = isCatalogRuleEvidenceClaimRecord(record);
   const running = record.status === "RUNNING";
   const passed = record.status === "PASS";
   if (
-    !exactKeys(record, RECORD_KEYS) ||
+    !(catalog
+      ? exactKeys(record, CATALOG_RECORD_KEYS) &&
+        HASH_PATTERN.test(record.sourceArtifactId) &&
+        HASH_PATTERN.test(record.textArtifactId)
+      : exactKeys(record, RECORD_KEYS) &&
+        HASH_PATTERN.test(record.documentId) &&
+        HASH_PATTERN.test(record.extractionId)) ||
     !HASH_PATTERN.test(String(record.interpretationId)) ||
     !HASH_PATTERN.test(String(record.requirementId)) ||
     !HASH_PATTERN.test(String(record.proposalId)) ||
-    !HASH_PATTERN.test(String(record.documentId)) ||
-    !HASH_PATTERN.test(String(record.extractionId)) ||
     !HASH_PATTERN.test(String(record.interpreterIdentity)) ||
     !MODEL_PATTERN.test(record.model) ||
     !["RUNNING", "PASS", "FAILED"].includes(record.status) ||
@@ -847,12 +1062,19 @@ export function assertRuleEvidenceClaimRecord(value: unknown): RuleEvidenceClaim
     (passed && (record.diagnostic !== null || record.claim === null)) ||
     (record.status === "FAILED" && (!boundedText(record.diagnostic, 500) || record.claim !== null))
   ) throw new Error("stored rule evidence claim record violates its contract");
-  const expectedId = interpretationId({
-    requirementId: record.requirementId,
-    documentId: record.documentId,
-    extractionId: record.extractionId,
-    interpreterIdentity: record.interpreterIdentity,
-  });
+  const expectedId = isCatalogRuleEvidenceClaimRecord(record)
+    ? catalogInterpretationId({
+        requirementId: record.requirementId,
+        sourceArtifactId: record.sourceArtifactId,
+        textArtifactId: record.textArtifactId,
+        interpreterIdentity: record.interpreterIdentity,
+      })
+    : interpretationId({
+        requirementId: record.requirementId,
+        documentId: record.documentId,
+        extractionId: record.extractionId,
+        interpreterIdentity: record.interpreterIdentity,
+      });
   if (
     record.interpretationId !== expectedId ||
     !isSupportedInterpreterIdentity(record.model, record.interpreterIdentity)
@@ -863,8 +1085,13 @@ export function assertRuleEvidenceClaimRecord(value: unknown): RuleEvidenceClaim
       claim.claimId !== record.interpretationId ||
       claim.requirementId !== record.requirementId ||
       claim.proposalId !== record.proposalId ||
-      claim.documentId !== record.documentId ||
-      claim.extractionId !== record.extractionId ||
+      (isCatalogRuleEvidenceClaimRecord(record)
+        ? claim.schemaVersion !== "pmh.rule-evidence-claim.v3" ||
+          claim.sourceArtifactId !== record.sourceArtifactId ||
+          claim.textArtifactId !== record.textArtifactId
+        : claim.schemaVersion === "pmh.rule-evidence-claim.v3" ||
+          claim.documentId !== record.documentId ||
+          claim.extractionId !== record.extractionId) ||
       claim.interpreter.identity !== record.interpreterIdentity ||
       claim.interpreter.model !== record.model || claim.completedAt !== record.completedAt
     ) throw new Error("stored rule evidence claim record lineage is inconsistent");
@@ -1379,7 +1606,8 @@ export class RuleEvidenceClaimDesk {
       | null,
     model: string,
     private readonly retentionLimit = DEFAULT_RETENTION_LIMIT,
-    private readonly store?: RuleEvidenceClaimRecordStore,
+    private readonly store?: RuleEvidenceClaimRecordStore &
+      Partial<CatalogRuleEvidenceClaimRecordStore>,
     public readonly concurrencyLimit = 3,
     private readonly now: () => number = Date.now,
   ) {
@@ -1413,9 +1641,13 @@ export class RuleEvidenceClaimDesk {
       retentionLimit < 1 ||
       !Number.isSafeInteger(concurrencyLimit) || concurrencyLimit < 1 || concurrencyLimit > 8
     ) throw new Error("rule evidence claim desk configuration is invalid or unbounded");
-    this.#records = [...(
-      store?.loadRuleEvidenceClaimRecords(retentionLimit) ?? []
-    )].map(assertRuleEvidenceClaimRecord);
+    this.#records = [
+      ...(store?.loadRuleEvidenceClaimRecords(retentionLimit) ?? []),
+      ...(store?.loadCatalogRuleEvidenceClaimRecords?.(retentionLimit) ?? []),
+    ].map(assertRuleEvidenceClaimRecord).sort((left, right) =>
+      String(right.completedAt).localeCompare(String(left.completedAt)) ||
+      right.interpretationId.localeCompare(left.interpretationId)
+    ).slice(0, retentionLimit);
   }
 
   public currentEngine(): RuleEvidenceInterpreterEngine {
@@ -1544,8 +1776,9 @@ export class RuleEvidenceClaimDesk {
   }
 
   public retainAgentResult(input: Readonly<{
-    requirement: EvidenceRequirement;
-    capture: EvidenceDocumentCapture;
+    validated?: ValidatedRuleEvidenceTextInput;
+    requirement?: EvidenceRequirement;
+    capture?: EvidenceDocumentCapture;
     engine: RuleEvidenceInterpreterEngine;
     startedAt: string;
     completedAt: string;
@@ -1555,28 +1788,44 @@ export class RuleEvidenceClaimDesk {
     if (engine.transport !== "AGENT_RUNTIME") {
       throw new Error("externally retained rule evidence requires an Agent runtime engine");
     }
-    const validated = validateInput({
-      requirement: input.requirement,
-      capture: input.capture,
+    const validated = input.validated ?? validateRuleEvidenceTextInput({
+      requirement: input.requirement!,
+      capture: input.capture!,
     });
     if (!isIso(input.startedAt) || !isIso(input.completedAt) ||
         Date.parse(input.completedAt) < Date.parse(input.startedAt)) {
       throw new Error("Agent rule evidence chronology is invalid");
     }
-    const claim = buildRuleEvidenceClaim({
-      requirement: validated.requirement,
-      capture: validated.capture,
-      model: engine.model,
-      engine,
-      completedAt: input.completedAt,
-      result: input.result,
-    });
-    const record = assertRuleEvidenceClaimRecord(Object.freeze({
+    const claim = validated.source.kind === "CATALOG_CONTRACT_TEXT"
+      ? buildCatalogRuleEvidenceClaim({
+          validated,
+          model: engine.model,
+          engine,
+          completedAt: input.completedAt,
+          result: input.result,
+        })
+      : buildRuleEvidenceClaim({
+          requirement: validated.requirement,
+          capture: validated.capture!,
+          model: engine.model,
+          engine,
+          completedAt: input.completedAt,
+          result: input.result,
+        });
+    const recordBody = {
       interpretationId: claim.claimId,
       requirementId: claim.requirementId,
       proposalId: claim.proposalId,
-      documentId: claim.documentId,
-      extractionId: claim.extractionId,
+      ...(claim.schemaVersion === "pmh.rule-evidence-claim.v3"
+        ? {
+            sourceKind: claim.sourceKind,
+            sourceArtifactId: claim.sourceArtifactId,
+            textArtifactId: claim.textArtifactId,
+          }
+        : {
+            documentId: claim.documentId,
+            extractionId: claim.extractionId,
+          }),
       interpreterIdentity: claim.interpreter.identity,
       model: claim.interpreter.model,
       status: "PASS" as const,
@@ -1584,7 +1833,8 @@ export class RuleEvidenceClaimDesk {
       completedAt: input.completedAt,
       diagnostic: null,
       claim,
-    }));
+    };
+    const record = assertRuleEvidenceClaimRecord(Object.freeze(recordBody));
     const existing = this.#records.find((item) =>
       item.interpretationId === record.interpretationId
     );
@@ -1594,7 +1844,12 @@ export class RuleEvidenceClaimDesk {
       }
       return existing;
     }
-    const retained = this.store?.saveRuleEvidenceClaimRecord(record, this.retentionLimit) ?? record;
+    const retained = isCatalogRuleEvidenceClaimRecord(record)
+      ? this.store?.saveCatalogRuleEvidenceClaimRecord?.(
+          record,
+          this.retentionLimit,
+        ) ?? record
+      : this.store?.saveRuleEvidenceClaimRecord(record, this.retentionLimit) ?? record;
     return this.#replace(retained);
   }
 

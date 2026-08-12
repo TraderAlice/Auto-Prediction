@@ -443,7 +443,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 45,
+        schemaVersion: 46,
         idempotencyKey: "taskId",
       },
     });
@@ -632,11 +632,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(45);
+    expect(migrated.storage.schemaVersion).toBe(46);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 45,
+      schemaVersion: 46,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -668,6 +668,7 @@ describe("SQLite operational store", () => {
       "candidate_watch_refreshes",
       "catalog_contract_text_evidence",
       "catalog_observations",
+      "catalog_rule_evidence_claim_records",
       "credential_bindings",
       "discovery_runs",
       "evidence_acquisition_jobs",
@@ -718,14 +719,14 @@ describe("SQLite operational store", () => {
       "studio_projection_snapshot",
       "workload_routes",
     ]);
-    expect(version.user_version).toBe(45);
+    expect(version.user_version).toBe(46);
     inspected.close();
 
     const partial = new DatabaseSync(path);
     partial.exec("DROP TABLE search_lease_corpora");
     partial.exec("DROP TABLE search_lease_records");
     partial.exec("DROP TABLE search_notification_records");
-    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(45);
+    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(46);
     partial.close();
     const repaired = new SqliteOperationalStore(path);
     repaired.close();
@@ -752,7 +753,7 @@ describe("SQLite operational store", () => {
     partialExecutionSchema.exec("DROP TABLE agent_runtime_definitions");
     expect((partialExecutionSchema.prepare("PRAGMA user_version").get() as {
       user_version: number;
-    }).user_version).toBe(45);
+    }).user_version).toBe(46);
     partialExecutionSchema.close();
     const repairedExecutionSchema = new SqliteOperationalStore(path);
     repairedExecutionSchema.close();
@@ -774,7 +775,7 @@ describe("SQLite operational store", () => {
     expect(first.loadResearchDecisionEpisodes(10)).toEqual([expected]);
     expect(first.researchDecisionEpisodeStorage).toMatchObject({
       durable: true,
-      schemaVersion: 45,
+      schemaVersion: 46,
       idempotencyKey: "episodeId",
     });
     first.close();
@@ -800,7 +801,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 45,
+      schemaVersion: 46,
     });
     firstStore.close();
 
@@ -910,7 +911,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 45,
+      schemaVersion: 46,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -965,7 +966,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 45,
+      schemaVersion: 46,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -1012,7 +1013,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateWatchRefreshStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 45,
+      schemaVersion: 46,
       idempotencyKey: "refreshId",
     });
     first.close();
@@ -1054,7 +1055,7 @@ describe("SQLite operational store", () => {
     expect(first.anonymousSimulationMaterializationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 45,
+      schemaVersion: 46,
       idempotencyKey: "materializationId",
     });
     first.close();
@@ -1073,7 +1074,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 45,
+        schemaVersion: 46,
       },
     });
     expect(

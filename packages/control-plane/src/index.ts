@@ -18,6 +18,7 @@ export * from "./official-source-discovery-scheduler.js";
 export * from "./official-source-discovery-agent.js";
 export * from "./failure-budget-frontier.js";
 export * from "./rule-evidence-claim.js";
+export * from "./rule-evidence-text-source.js";
 export * from "./rule-evidence-claim-scheduler.js";
 export * from "./evidence-enriched-semantic-scope.js";
 export * from "./deepseek-model.js";

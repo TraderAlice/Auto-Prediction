@@ -150,6 +150,14 @@ describe("evidence-enriched semantic review", () => {
       evidenceBundle: bundle,
       claims: [claim],
     });
+    expect(enrichedArtifact).toMatchObject({
+      schemaVersion: "pmh.evidence-enriched-semantic-scope.v1",
+      claimBindings: [{
+        requirementId: claim.requirementId,
+        documentId: claim.documentId,
+        extractionId: claim.extractionId,
+      }],
+    });
     const baseScope = deriveSemanticReviewScope(proposal, bundle);
     const enrichedScope = deriveSemanticReviewScope(proposal, bundle, [claim]);
     expect(enrichedScope).toMatchObject({
