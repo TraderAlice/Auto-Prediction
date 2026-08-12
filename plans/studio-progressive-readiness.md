@@ -4,7 +4,7 @@ Status: active mainline construction
 
 Created: 2026-08-13
 
-Branch: `codex/projection-performance-attribution`
+Branch: `codex/studio-independent-desk-readiness`
 
 ## North-star role
 
@@ -59,9 +59,9 @@ replaces it.
 
 - [x] Render the normal navigation shell from last-known bounded state while
   displaying revalidation posture and age.
-- [ ] Keep independently loaded route memory, seed portfolio, and later desks
+- [x] Keep independently loaded route memory, seed portfolio, and later desks
   in local loading/error states rather than blocking the whole shell.
-- [ ] Preserve deep links and operator context through stale-to-live replacement.
+- [x] Preserve deep links and operator context through stale-to-live replacement.
 
 ## Qualification gates
 
@@ -135,6 +135,46 @@ On the current durable database:
 Control-plane qualification now covers 88 files and 617 tests; Studio covers
 26 tests. Phase 3 continues with independently ready route/seed desks so their
 multi-second derived reads cannot block or ambiguously degrade the main shell.
+
+## 2026-08-13 independent-desk qualification
+
+The route lifecycle and seed portfolio now share one bounded workspace read.
+It reuses one corpus, standing-route projection, execution snapshot, relation
+finding set, task-revision set, and seed-outcome projection instead of issuing
+three concurrent requests that repeat the expensive derivation. The existing
+route, seed-preview, and seed-outcome endpoints remain compatible diagnostic
+surfaces; Studio no longer fans out through them.
+
+The workspace envelope binds its source Studio revision and the identities of
+the route, seed-outcome, and optional seed-preview projections. Seed preview is
+an explicitly fallible child: missing runtime or credential capability is
+reported as `UNAVAILABLE` without discarding readable route history or seed
+outcomes. The envelope asserts zero provider/model requests, campaigns, runs,
+writes, dispatch, execution authority, external-write authority, and
+value-moving authority.
+
+Studio keeps last-known route data while a newer revision revalidates and shows
+`REVALIDATING` locally. A failed refresh retains that data and its local error
+instead of clearing the desk. Empty first load, stale revalidation, and local
+failure are therefore distinct operator states. The main shell and URL route
+are owned above this hook, so stale-to-live projection replacement updates the
+provider value without remounting `StudioShell`; deep links and focused review
+context remain intact. Route serialization round-trips are covered separately.
+
+Qualification after the change: Studio 29 tests, control-plane 617 tests, both
+TypeScript builds green. On the current live SQLite state, the unified workspace
+read completed in 6.30 seconds and 83 KB; the three compatibility requests
+completed in 5.05, 3.99, and 3.30 seconds respectively (12.34 seconds total).
+Thus the Studio path removes about half of the duplicated serial derivation
+while keeping that remaining latency local to one desk. Browser inspection on
+the Findings deep link confirmed that the main inbox and opportunity frontier
+remain usable while route memory loads and that the URL stays on
+`?view=findings` through projection replacement.
+
+The route desk builder is shared by both the new workspace endpoint and the
+legacy route endpoint so their value, selection, lifecycle, and timing semantics
+cannot drift. The next progressive boundary should be selected from measured
+Studio network cost rather than by splitting components speculatively.
 
 ## Authority boundary
 
