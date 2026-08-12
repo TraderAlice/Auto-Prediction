@@ -29,6 +29,7 @@ export const RELATION_DISCOVERY_TASK_PROTOCOL =
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_INSPECTED_LISTINGS = 24;
+const MAX_ROUTE_MEMBERS = 24;
 const RELATION_KINDS = Object.freeze([
   "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
   "CONDITIONAL", "RELATED", "CONFLICTING",
@@ -153,8 +154,8 @@ type FindingEnvelope = Readonly<{
   statement: string;
   rationale: string;
   recordedAt: string;
-  authority: "RELATION_FINDING_PROPOSAL_ONLY";
-  reviewStatus: "UNREVIEWED";
+  authority: "RELATION_FINDING_PROPOSAL_ONLY" | "SEARCH_ROUTING_ONLY";
+  reviewStatus: "UNREVIEWED" | "NOT_APPLICABLE_ROUTING_ONLY";
   semanticDecisionAuthority: false;
   probabilityAuthority: false;
   certificateAuthority: false;
@@ -165,24 +166,48 @@ type FindingEnvelope = Readonly<{
 
 export type RelationDiscoveryPositiveFinding = FindingEnvelope & Readonly<{
   kind: "RELATION_HYPOTHESIS";
+  authority: "RELATION_FINDING_PROPOSAL_ONLY";
+  reviewStatus: "UNREVIEWED";
   relationKind: MarketRelationKind;
   falsifiers: readonly string[];
 }>;
 
 export type RelationDiscoveryCounterexampleFinding = FindingEnvelope & Readonly<{
   kind: "COUNTEREXAMPLE";
+  authority: "RELATION_FINDING_PROPOSAL_ONLY";
+  reviewStatus: "UNREVIEWED";
   rejectedRelationKind: MarketRelationKind | null;
+  falsifiers: readonly string[];
+}>;
+
+export type RelationDiscoveryRouteLayer =
+  | "SUBJECT_REFERENCE"
+  | "EVENT_REFERENCE"
+  | "SETTLEMENT_REFERENCE";
+
+export type RelationDiscoveryRouteObservation = FindingEnvelope & Readonly<{
+  kind: "ONTOLOGY_ROUTE";
+  authority: "SEARCH_ROUTING_ONLY";
+  reviewStatus: "NOT_APPLICABLE_ROUTING_ONLY";
+  routeLayer: RelationDiscoveryRouteLayer;
+  searchSignals: readonly string[];
+  searchFields: readonly ("title" | "description" | "rulesText")[];
+  baselineListingRefs: readonly string[];
+  baselineListingEvidenceHashes: readonly Hash[];
+  baselineMembershipIdentity: Hash;
   falsifiers: readonly string[];
 }>;
 
 export type RelationDiscoveryFinding =
   | RelationDiscoveryPositiveFinding
-  | RelationDiscoveryCounterexampleFinding;
+  | RelationDiscoveryCounterexampleFinding
+  | RelationDiscoveryRouteObservation;
 
 export interface RelationDiscoveryFindingStore {
   readonly relationDiscoveryFindingStorage:
     OperationalStorageProjection<"findingId">;
   loadRelationDiscoveryFindings(limit: number): readonly RelationDiscoveryFinding[];
+  loadStandingOntologyRouteSourceFindings(): readonly RelationDiscoveryFinding[];
   saveRelationDiscoveryFindings(
     findings: readonly RelationDiscoveryFinding[],
   ): readonly RelationDiscoveryFinding[];
@@ -230,7 +255,9 @@ function exactKeys(value: Readonly<Record<string, unknown>>, expected: readonly 
   }
 }
 
-function listingEvidenceHash(listing: DiscoveryCatalogListing): Hash {
+export function relationDiscoveryListingEvidenceHash(
+  listing: DiscoveryCatalogListing,
+): Hash {
   return hashCanonical({
     schemaVersion: "pmh.relation-discovery-listing-evidence.v1",
     listingRef: listing.listingRef,
@@ -242,6 +269,25 @@ function listingEvidenceHash(listing: DiscoveryCatalogListing): Hash {
     rulesText: listing.rulesText ?? null,
     outcomes: listing.outcomes,
     closesAt: listing.closesAt,
+  });
+}
+
+export function ontologyRouteListingEvidenceHash(
+  listing: DiscoveryCatalogListing,
+): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.ontology-route-listing-evidence.v1",
+    listingRef: listing.listingRef,
+    protocolIdentity: listing.protocolIdentity,
+    title: listing.title,
+    description: listing.description,
+    rulesText: listing.rulesText ?? null,
+    outcomes: listing.outcomes.map((item) => Object.freeze({
+      venueOutcomeId: item.venueOutcomeId,
+      label: item.label,
+    })),
+    closesAt: listing.closesAt,
+    mechanism: listing.mechanism,
   });
 }
 
@@ -294,7 +340,8 @@ function assertRelationDiscoveryWorkContract(
       contractIdentity !== hashCanonical(body) ||
       !HASH_PATTERN.test(String(contract.workItemId)) ||
       !HASH_PATTERN.test(String(contract.searchScopeIdentity)) ||
-      !["WORLD_PROPOSITION_NEIGHBORHOOD", "ENTITY_ALIAS_NEIGHBORHOOD"]
+      !["WORLD_PROPOSITION_NEIGHBORHOOD", "ENTITY_ALIAS_NEIGHBORHOOD",
+        "STANDING_ROUTE_FOLLOWUP"]
         .includes(contract.kind) ||
       typeof contract.title !== "string" || contract.title.trim() === "" ||
       typeof contract.question !== "string" || contract.question.trim() === "" ||
@@ -400,8 +447,12 @@ export function assertRelationDiscoveryFinding(value: unknown): RelationDiscover
     finding.statement.length > 1_000 || typeof finding.rationale !== "string" ||
     finding.rationale.trim() === "" || finding.rationale.length > 2_000 ||
     canonicalIso(finding.recordedAt, "finding recordedAt") !== finding.recordedAt ||
-    finding.authority !== "RELATION_FINDING_PROPOSAL_ONLY" ||
-    finding.reviewStatus !== "UNREVIEWED" || finding.semanticDecisionAuthority !== false ||
+    (finding.kind === "ONTOLOGY_ROUTE"
+      ? finding.authority !== "SEARCH_ROUTING_ONLY" ||
+        finding.reviewStatus !== "NOT_APPLICABLE_ROUTING_ONLY"
+      : finding.authority !== "RELATION_FINDING_PROPOSAL_ONLY" ||
+        finding.reviewStatus !== "UNREVIEWED") ||
+    finding.semanticDecisionAuthority !== false ||
     finding.probabilityAuthority !== false || finding.certificateAuthority !== false ||
     finding.executionAuthority !== false || finding.externalWriteAuthority !== false ||
     finding.valueMovingAuthority !== false ||
@@ -412,7 +463,33 @@ export function assertRelationDiscoveryFinding(value: unknown): RelationDiscover
       !RELATION_KINDS.includes(finding.relationKind)) ||
     (finding.kind === "COUNTEREXAMPLE" && finding.rejectedRelationKind !== null &&
       !RELATION_KINDS.includes(finding.rejectedRelationKind)) ||
-    !["RELATION_HYPOTHESIS", "COUNTEREXAMPLE"].includes(finding.kind)
+    (finding.kind === "ONTOLOGY_ROUTE" && (
+      !["SUBJECT_REFERENCE", "EVENT_REFERENCE", "SETTLEMENT_REFERENCE"]
+        .includes(finding.routeLayer) ||
+      !Array.isArray(finding.searchSignals) || finding.searchSignals.length < 1 ||
+      finding.searchSignals.length > 8 || finding.searchSignals.some((item) =>
+        typeof item !== "string" || item.trim() === "" || item.length > 160) ||
+      new Set(finding.searchSignals).size !== finding.searchSignals.length ||
+      !Array.isArray(finding.searchFields) || finding.searchFields.length < 1 ||
+      finding.searchFields.some((item) => !["title", "description", "rulesText"].includes(item)) ||
+      new Set(finding.searchFields).size !== finding.searchFields.length ||
+      (finding.routeLayer !== "SETTLEMENT_REFERENCE" &&
+        (finding.searchFields.length !== 1 || finding.searchFields[0] !== "title")) ||
+      !Array.isArray(finding.baselineListingRefs) || finding.baselineListingRefs.length < 2 ||
+      finding.baselineListingRefs.length > MAX_ROUTE_MEMBERS ||
+      new Set(finding.baselineListingRefs).size !== finding.baselineListingRefs.length ||
+      !finding.listingRefs.every((item) => finding.baselineListingRefs.includes(item)) ||
+      !Array.isArray(finding.baselineListingEvidenceHashes) ||
+      finding.baselineListingEvidenceHashes.length !== finding.baselineListingRefs.length ||
+      finding.baselineListingEvidenceHashes.some((item) => !HASH_PATTERN.test(String(item))) ||
+      !HASH_PATTERN.test(String(finding.baselineMembershipIdentity)) ||
+      finding.baselineMembershipIdentity !== hashCanonical({
+        schemaVersion: "pmh.ontology-route-membership.v1",
+        listingRefs: finding.baselineListingRefs,
+        listingEvidenceHashes: finding.baselineListingEvidenceHashes,
+      })
+    )) ||
+    !["RELATION_HYPOTHESIS", "COUNTEREXAMPLE", "ONTOLOGY_ROUTE"].includes(finding.kind)
   ) throw new Error("relation discovery finding violates its bounded contract");
   return Object.freeze(finding);
 }
@@ -432,10 +509,23 @@ export function verifyRelationDiscoveryFindingEvidence(
     if (listing === undefined) {
       throw new Error("relation discovery finding references missing listing evidence");
     }
-    return listingEvidenceHash(listing);
+    return relationDiscoveryListingEvidenceHash(listing);
   });
   if (expected.some((hash, index) => hash !== finding.listingEvidenceHashes[index])) {
     throw new Error("relation discovery finding listing evidence hash is inconsistent");
+  }
+  if (finding.kind === "ONTOLOGY_ROUTE") {
+    const baselineExpected = finding.baselineListingRefs.map((ref) => {
+      const listing = byRef.get(ref);
+      if (listing === undefined) {
+        throw new Error("ontology route baseline references missing listing evidence");
+      }
+      return ontologyRouteListingEvidenceHash(listing);
+    });
+    if (baselineExpected.some((hash, index) =>
+      hash !== finding.baselineListingEvidenceHashes[index])) {
+      throw new Error("ontology route baseline evidence hash is inconsistent");
+    }
   }
   return finding;
 }
@@ -470,12 +560,27 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
   }),
   Object.freeze({
     name: "record_relation_hypothesis",
-    description: "Record an unreviewed relation hypothesis between two to eight inspected listings using an allowed candidate relation kind.",
+    description: "Record an unreviewed payoff-bearing relation hypothesis between two to eight inspected listings using an allowed candidate relation kind. RELATED is routing evidence and must use record_ontology_route instead.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
       required: ["relationKind", "listingRefs", "statement", "rationale", "falsifiers"],
       properties: {
         relationKind: { type: "string" }, listingRefs: { type: "array", minItems: 2, maxItems: 8, items: { type: "string" } },
+        statement: { type: "string" }, rationale: { type: "string" },
+        falsifiers: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" } },
+      },
+    }),
+  }),
+  Object.freeze({
+    name: "record_ontology_route",
+    description: "Record a standing search route grounded in two to eight inspected listings. This is routing memory only, never a payoff relation. SUBJECT_REFERENCE and EVENT_REFERENCE signals must occur in titles; SETTLEMENT_REFERENCE signals must occur in descriptions or retained rules. The first-party host derives exact baseline membership.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: ["routeLayer", "searchSignals", "listingRefs", "statement", "rationale", "falsifiers"],
+      properties: {
+        routeLayer: { enum: ["SUBJECT_REFERENCE", "EVENT_REFERENCE", "SETTLEMENT_REFERENCE"] },
+        searchSignals: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
+        listingRefs: { type: "array", minItems: 2, maxItems: 8, items: { type: "string" } },
         statement: { type: "string" }, rationale: { type: "string" },
         falsifiers: { type: "array", minItems: 1, maxItems: 12, items: { type: "string" } },
       },
@@ -503,6 +608,7 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
     }
     return Object.freeze([
       "record_relation_hypothesis",
+      "record_ontology_route",
       "record_relation_counterexample",
     ]);
   }
@@ -575,14 +681,17 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
   #record(
     context: AgentToolHostContext,
     input: Readonly<Record<string, unknown>>,
-    kind: RelationDiscoveryFinding["kind"],
-  ): RelationDiscoveryFinding {
+    kind: "RELATION_HYPOTHESIS" | "COUNTEREXAMPLE",
+  ): RelationDiscoveryPositiveFinding | RelationDiscoveryCounterexampleFinding {
     const listings = this.#listings(input.listingRefs, 2);
     const requestedKind = kind === "RELATION_HYPOTHESIS"
       ? text(input.relationKind, "relationKind", 80) as MarketRelationKind
       : input.rejectedRelationKind === null
         ? null
         : text(input.rejectedRelationKind, "rejectedRelationKind", 80) as MarketRelationKind;
+    if (kind === "RELATION_HYPOTHESIS" && requestedKind === "RELATED") {
+      throw new Error("RELATED is ontology routing evidence; use record_ontology_route");
+    }
     if (requestedKind !== null &&
         !this.workItem.candidateRelationKinds.includes(requestedKind)) {
       throw new Error("relation finding kind is outside the assigned candidate policy");
@@ -595,7 +704,7 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
       sourceAgentRunId: context.run.runId,
       sourceCorpusSnapshotIdentity: this.corpus.snapshotIdentity,
       listingRefs: Object.freeze(listings.map((item) => item.listingRef)),
-      listingEvidenceHashes: Object.freeze(listings.map(listingEvidenceHash)),
+      listingEvidenceHashes: Object.freeze(listings.map(relationDiscoveryListingEvidenceHash)),
       statement: text(input.statement, "statement", 1_000),
       rationale: text(input.rationale, "rationale", 2_000),
       falsifiers: texts(input.falsifiers, "falsifiers", 1, 12, 500),
@@ -616,6 +725,110 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
       ...body,
       findingId: hashCanonical(body),
     }));
+    if (!this.#findings.some((item) => item.findingId === finding.findingId)) {
+      this.#findings.push(finding);
+      this.findingStore?.saveRelationDiscoveryFindings([finding]);
+    }
+    return finding as RelationDiscoveryPositiveFinding |
+      RelationDiscoveryCounterexampleFinding;
+  }
+
+  #recordRoute(
+    context: AgentToolHostContext,
+    input: Readonly<Record<string, unknown>>,
+  ): RelationDiscoveryRouteObservation {
+    if (this.workItem.kind === "STANDING_ROUTE_FOLLOWUP") {
+      throw new Error("standing route follow-up cannot create another autonomous route");
+    }
+    const listings = this.#listings(input.listingRefs, 2);
+    const routeLayer = text(input.routeLayer, "routeLayer", 80) as
+      RelationDiscoveryRouteLayer;
+    if (!["SUBJECT_REFERENCE", "EVENT_REFERENCE", "SETTLEMENT_REFERENCE"]
+      .includes(routeLayer)) {
+      throw new Error("ontology route layer is unsupported");
+    }
+    const searchSignals = Object.freeze([...texts(
+      input.searchSignals,
+      "searchSignals",
+      1,
+      8,
+      160,
+    )].sort((left, right) => left.localeCompare(right)));
+    const searchFields = routeLayer === "SETTLEMENT_REFERENCE"
+      ? Object.freeze(["description", "rulesText"] as const)
+      : Object.freeze(["title"] as const);
+    const normalize = (value: string) => value.normalize("NFKC").toLocaleLowerCase("en-US");
+    for (const signal of searchSignals) {
+      const groundedCount = listings.filter((listing) => searchFields.some((field) => {
+        const value = field === "rulesText" ? listing.rulesText ?? "" : listing[field];
+        return normalize(value).includes(normalize(signal));
+      })).length;
+      if (groundedCount < 2) {
+        throw new Error("every ontology route signal must ground at least two inspected listings");
+      }
+    }
+    const membership = searchMarketCorpus(this.corpus, Object.freeze({
+      patterns: searchSignals,
+      syntax: "LITERAL" as const,
+      mode: "ALL" as const,
+      fields: searchFields,
+      limit: 50,
+    }));
+    if (membership.truncated || membership.matchCount > MAX_ROUTE_MEMBERS) {
+      throw new Error("ontology route baseline is too broad");
+    }
+    const baselineListings = Object.freeze(membership.hits.map((hit) =>
+      this.#listingByRef.get(hit.listingRef)!
+    ));
+    if (listings.some((listing) =>
+      !baselineListings.some((item) => item.listingRef === listing.listingRef))) {
+      throw new Error("ontology route signals do not cover every inspected listing");
+    }
+    const baselineListingRefs = Object.freeze(baselineListings.map((item) => item.listingRef));
+    const baselineListingEvidenceHashes = Object.freeze(baselineListings.map(
+      ontologyRouteListingEvidenceHash,
+    ));
+    const baselineMembershipIdentity = hashCanonical({
+      schemaVersion: "pmh.ontology-route-membership.v1",
+      listingRefs: baselineListingRefs,
+      listingEvidenceHashes: baselineListingEvidenceHashes,
+    });
+    const common = Object.freeze({
+      schemaVersion: "pmh.relation-discovery-finding.v1" as const,
+      workItemId: this.workItem.workItemId,
+      workArtifactHash: this.workItem.artifactHash,
+      sourceTaskId: context.task.taskId,
+      sourceAgentRunId: context.run.runId,
+      sourceCorpusSnapshotIdentity: this.corpus.snapshotIdentity,
+      listingRefs: Object.freeze(listings.map((item) => item.listingRef)),
+      listingEvidenceHashes: Object.freeze(listings.map(relationDiscoveryListingEvidenceHash)),
+      statement: text(input.statement, "statement", 1_000),
+      rationale: text(input.rationale, "rationale", 2_000),
+      falsifiers: texts(input.falsifiers, "falsifiers", 1, 12, 500),
+      recordedAt: context.run.createdAt,
+      authority: "SEARCH_ROUTING_ONLY" as const,
+      reviewStatus: "NOT_APPLICABLE_ROUTING_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    const body = Object.freeze({
+      ...common,
+      kind: "ONTOLOGY_ROUTE" as const,
+      routeLayer,
+      searchSignals,
+      searchFields,
+      baselineListingRefs,
+      baselineListingEvidenceHashes,
+      baselineMembershipIdentity,
+    });
+    const finding = assertRelationDiscoveryFinding(Object.freeze({
+      ...body,
+      findingId: hashCanonical(body),
+    })) as RelationDiscoveryRouteObservation;
     if (!this.#findings.some((item) => item.findingId === finding.findingId)) {
       this.#findings.push(finding);
       this.findingStore?.saveRelationDiscoveryFindings([finding]);
@@ -686,6 +899,12 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
       exactKeys(input, ["relationKind", "listingRefs", "statement", "rationale", "falsifiers"]);
       return Object.freeze({ status: "ACCEPTED" as const, output: this.#record(
         context, input, "RELATION_HYPOTHESIS",
+      ) });
+    }
+    if (context.toolName === "record_ontology_route") {
+      exactKeys(input, ["routeLayer", "searchSignals", "listingRefs", "statement", "rationale", "falsifiers"]);
+      return Object.freeze({ status: "ACCEPTED" as const, output: this.#recordRoute(
+        context, input,
       ) });
     }
     if (context.toolName === "record_relation_counterexample") {

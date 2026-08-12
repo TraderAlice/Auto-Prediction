@@ -19,6 +19,7 @@ const MAX_WORK_ITEMS = 200;
 export type OntologyRelationWorkKind =
   | "WORLD_PROPOSITION_NEIGHBORHOOD"
   | "ENTITY_ALIAS_NEIGHBORHOOD"
+  | "STANDING_ROUTE_FOLLOWUP"
   | "COUNTEREXAMPLE_MEMORY";
 
 export type OntologyRelationWorkDisposition =
@@ -299,7 +300,7 @@ export function assertOntologyRelationWorkItem(value: unknown): OntologyRelation
     !HASH_PATTERN.test(String(item.workItemId)) || item.workItemId !== expectedWorkId ||
     !HASH_PATTERN.test(String(item.artifactHash)) || item.artifactHash !== hashBody(body) ||
     !HASH_PATTERN.test(String(item.searchScopeIdentity)) ||
-    !["WORLD_PROPOSITION_NEIGHBORHOOD", "ENTITY_ALIAS_NEIGHBORHOOD",
+    !["WORLD_PROPOSITION_NEIGHBORHOOD", "ENTITY_ALIAS_NEIGHBORHOOD", "STANDING_ROUTE_FOLLOWUP",
       "COUNTEREXAMPLE_MEMORY"].includes(item.kind) ||
     !["RUNNABLE_RESEARCH", "NEGATIVE_EVIDENCE_ONLY",
       "BLOCKED_MISSING_ISSUE_LINEAGE"].includes(item.disposition) ||

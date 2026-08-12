@@ -17,8 +17,12 @@ import {
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildOntologyRelationWorkProjection,
+  buildStandingOntologyRouteProjection,
+  extendOntologyRelationWorkWithStandingRouteFollowups,
   materializeRelationDiscoveryTaskRevisions,
+  materializeStandingOntologyRouteFollowups,
   reconcileRelationDiscoveryTaskRevisions,
+  relationDiscoveryListingEvidenceHash,
   relationDiscoveryReviewLane,
   relationDiscoveryResearchInputIdentity,
   relationDiscoveryRevisionWorkItem,
@@ -218,6 +222,107 @@ function fixture() {
 }
 
 describe("ontology proposal relation work", () => {
+  it("compiles legacy entity RELATED findings into quiet standing routes", () => {
+    const work = fixture();
+    const source = work.proposals.find((item) => item.kind === "WORLD_PROPOSITION")!;
+    const entityBody = Object.freeze({
+      schemaVersion: "pmh.market-ontology-agent-proposal.v1" as const,
+      ontologyIdentity: source.ontologyIdentity,
+      sourceSnapshotIdentity: source.sourceSnapshotIdentity,
+      sourceAgentRunId: source.sourceAgentRunId,
+      sourceTrailheadIds: source.sourceTrailheadIds,
+      sourceRelationPatternIds: source.sourceRelationPatternIds,
+      listingBindings: source.listingBindings,
+      rationale: "The listing title names Mark Kelly.",
+      proposedAt: source.proposedAt,
+      authority: "PROPOSE_ONLY" as const,
+      reviewStatus: "UNREVIEWED" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+      kind: "ENTITY_ALIAS" as const,
+      canonicalLabel: "Mark Kelly",
+      aliases: Object.freeze(["Mark Kelly"]),
+      ambiguityNotes: Object.freeze(["The entity normalization is unreviewed."]),
+    });
+    const entity = assertMarketOntologyAgentProposal(Object.freeze({
+      ...entityBody,
+      proposalId: hashCanonical(entityBody),
+    }));
+    const relationWork = buildOntologyRelationWorkProjection({
+      proposals: [entity],
+      revisions: work.revisions,
+      execution: work.execution,
+    });
+    expect(relationWork.items[0]!.kind).toBe("ENTITY_ALIAS_NEIGHBORHOOD");
+    const revision = materializeRelationDiscoveryTaskRevisions({
+      relationWork,
+      corpus: work.corpus,
+    })[0]!;
+    const listingRefs = work.corpus.listings.slice(0, 2).map((item) => item.listingRef);
+    const findingBody = Object.freeze({
+      schemaVersion: "pmh.relation-discovery-finding.v1" as const,
+      workItemId: revision.workItemId,
+      workArtifactHash: revision.workArtifactHash,
+      sourceTaskId: revision.task.taskId,
+      sourceAgentRunId: hashCanonical({ run: "legacy-related" }),
+      sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+      listingRefs: Object.freeze(listingRefs),
+      listingEvidenceHashes: Object.freeze(work.corpus.listings.slice(0, 2)
+        .map(relationDiscoveryListingEvidenceHash)),
+      statement: "The contracts name the same Mark Kelly subject.",
+      rationale: "This is entity routing memory only.",
+      falsifiers: Object.freeze(["The name refers to different people."]),
+      recordedAt: NOW,
+      authority: "RELATION_FINDING_PROPOSAL_ONLY" as const,
+      reviewStatus: "UNREVIEWED" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+      kind: "RELATION_HYPOTHESIS" as const,
+      relationKind: "RELATED" as const,
+    });
+    const finding = Object.freeze({
+      ...findingBody,
+      findingId: hashCanonical(findingBody),
+    });
+    const projection = buildStandingOntologyRouteProjection({
+      findings: [finding],
+      taskRevisions: [revision],
+      loadCorpus: (identity) => identity === work.corpus.snapshotIdentity
+        ? work.corpus
+        : null,
+      currentCorpus: work.corpus,
+    });
+    expect(projection).toMatchObject({
+      routeCount: 1,
+      nativeRouteCount: 0,
+      legacyRouteCount: 1,
+      blockedRouteCount: 0,
+      quietRouteCount: 1,
+      followupEligibleRouteCount: 0,
+    });
+    expect(projection.routes[0]).toMatchObject({
+      route: {
+        sourceDisposition: "LEGACY_RELATED_FINDING",
+        routeLayer: "SUBJECT_REFERENCE",
+        searchSignals: ["Mark Kelly"],
+        baselineListingRefs: [
+          "venue-a:kelly-crime",
+          "venue-a:kelly-nominee",
+          "venue-b:kelly-crime",
+        ],
+      },
+      observation: { state: "QUIESCENT", followupEligible: false },
+    });
+  });
+
   it("consolidates duplicate semantic scopes without pairing unrelated run output", () => {
     const work = fixture();
     const projection = buildOntologyRelationWorkProjection(work);
@@ -754,7 +859,43 @@ describe("ontology proposal relation work", () => {
       falsifiers: ["The exact rules prove the relation under every relevant state."],
     };
     await host.execute(context("record_relation_counterexample", counterexample));
-    expect(host.findings()).toHaveLength(2);
+    await expect(host.execute(context("record_relation_hypothesis", {
+      ...hypothesis,
+      relationKind: "RELATED",
+    }))).rejects.toThrow("use record_ontology_route");
+    await expect(host.execute(context("record_ontology_route", {
+      routeLayer: "SUBJECT_REFERENCE",
+      searchSignals: ["Taylor Swift"],
+      listingRefs: refs,
+      statement: "The inspected contracts mention the same subject.",
+      rationale: "A standing route should wake only on membership novelty.",
+      falsifiers: ["The names refer to different subjects."],
+    }))).rejects.toThrow("ground at least two inspected listings");
+    const routeObservation = await host.execute(context("record_ontology_route", {
+      routeLayer: "SUBJECT_REFERENCE",
+      searchSignals: ["Mark Kelly"],
+      listingRefs: refs,
+      statement: "The inspected contracts mention the same named person.",
+      rationale: "The subject reference is routing evidence, not a payoff relation.",
+      falsifiers: ["The name refers to different people in these contracts."],
+    }));
+    expect(routeObservation.output).toMatchObject({
+      kind: "ONTOLOGY_ROUTE",
+      authority: "SEARCH_ROUTING_ONLY",
+      reviewStatus: "NOT_APPLICABLE_ROUTING_ONLY",
+      routeLayer: "SUBJECT_REFERENCE",
+      searchSignals: ["Mark Kelly"],
+      searchFields: ["title"],
+      baselineListingRefs: [
+        "venue-a:kelly-crime",
+        "venue-a:kelly-nominee",
+        "venue-b:kelly-crime",
+      ],
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      executionAuthority: false,
+    });
+    expect(host.findings()).toHaveLength(3);
     expect(host.findings()[0]).toMatchObject({
       workItemId: revision.workItemId,
       sourceTaskId: revision.task.taskId,
@@ -774,6 +915,204 @@ describe("ontology proposal relation work", () => {
       semanticDecisionAuthority: false,
     });
     const retained = host.findings();
+    const quietRoutes = buildStandingOntologyRouteProjection({
+      findings: retained,
+      taskRevisions: [revision],
+      loadCorpus: (identity) => identity === work.corpus.snapshotIdentity
+        ? work.corpus
+        : null,
+      currentCorpus: work.corpus,
+    });
+    expect(quietRoutes).toMatchObject({
+      routeCount: 1,
+      nativeRouteCount: 1,
+      legacyRouteCount: 0,
+      blockedRouteCount: 0,
+      quietRouteCount: 1,
+      followupEligibleRouteCount: 0,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      campaignsCreatedByRead: 0,
+      runsCreatedByRead: 0,
+    });
+    const receiveTimeOnlyCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: work.corpus.sourceSetIdentity,
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: work.corpus.listings.map((item) => Object.freeze({
+        ...item,
+        sourceReceivedAt: "2026-08-12T10:00:00.000Z",
+      })),
+    });
+    expect(buildStandingOntologyRouteProjection({
+      findings: retained,
+      taskRevisions: [revision],
+      loadCorpus: (identity) => identity === work.corpus.snapshotIdentity
+        ? work.corpus
+        : null,
+      currentCorpus: receiveTimeOnlyCorpus,
+    }).routes[0]!.observation).toMatchObject({
+      state: "QUIESCENT",
+      addedListingRefs: [],
+      removedListingRefs: [],
+      changedListingRefs: [],
+      followupEligible: false,
+    });
+    const expandedCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: work.corpus.sourceSetIdentity,
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: [
+        ...work.corpus.listings,
+        listing("venue-c:kelly-senate", "Will Mark Kelly win reelection to the Senate?"),
+      ],
+    });
+    const expandedProjection = buildStandingOntologyRouteProjection({
+      findings: retained,
+      taskRevisions: [revision],
+      loadCorpus: (identity) => identity === work.corpus.snapshotIdentity
+        ? work.corpus
+        : null,
+      currentCorpus: expandedCorpus,
+    });
+    expect(expandedProjection.routes[0]!.observation).toMatchObject({
+      state: "EXPANDED",
+      addedListingRefs: ["venue-c:kelly-senate"],
+      removedListingRefs: [],
+      changedListingRefs: [],
+      followupEligible: true,
+    });
+    const followupOntology = buildMarketOntologySnapshot(expandedCorpus);
+    const followups = materializeStandingOntologyRouteFollowups({
+      projection: expandedProjection,
+      ontology: followupOntology,
+    });
+    expect(followups).toHaveLength(1);
+    expect(followups[0]).toMatchObject({
+      routeId: expandedProjection.routes[0]!.route.routeId,
+      sourceObservationId: expandedProjection.routes[0]!.observation.observationId,
+      automaticDispatch: false,
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      executionAuthority: false,
+      workItem: {
+        kind: "STANDING_ROUTE_FOLLOWUP",
+        disposition: "RUNNABLE_RESEARCH",
+        campaignEligible: true,
+        candidateRelationKinds: [
+          "EQUIVALENT", "IMPLIES", "SUBSET", "MUTUALLY_EXCLUSIVE", "EXHAUSTIVE",
+          "CONDITIONAL", "CONFLICTING",
+        ],
+      },
+    });
+    expect(followups[0]!.workItem).toMatchObject({
+      sourceProposalIds: relationDiscoveryRevisionWorkItem(revision).sourceProposalIds,
+      sourceIssueIds: relationDiscoveryRevisionWorkItem(revision).sourceIssueIds,
+      sourceIssueRevisionIds:
+        relationDiscoveryRevisionWorkItem(revision).sourceIssueRevisionIds,
+    });
+    expect(followups[0]!.workItem.candidateRelationKinds).not.toContain("RELATED");
+    expect(materializeStandingOntologyRouteFollowups({
+      projection: expandedProjection,
+      ontology: followupOntology,
+    })).toEqual(followups);
+    const unrelatedAfterWakeCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: work.corpus.sourceSetIdentity,
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: [
+        ...expandedCorpus.listings,
+        listing("venue-z:unrelated", "Will an unrelated event happen in 2027?"),
+      ],
+    });
+    const unrelatedAfterWakeProjection = buildStandingOntologyRouteProjection({
+      findings: retained,
+      taskRevisions: [revision],
+      loadCorpus: (identity) => identity === work.corpus.snapshotIdentity
+        ? work.corpus
+        : null,
+      currentCorpus: unrelatedAfterWakeCorpus,
+    });
+    expect(unrelatedAfterWakeProjection.currentCorpusSnapshotIdentity)
+      .not.toBe(expandedProjection.currentCorpusSnapshotIdentity);
+    expect(unrelatedAfterWakeProjection.routes[0]!.observation.observationId)
+      .toBe(expandedProjection.routes[0]!.observation.observationId);
+    expect(materializeStandingOntologyRouteFollowups({
+      projection: unrelatedAfterWakeProjection,
+      ontology: buildMarketOntologySnapshot(unrelatedAfterWakeCorpus),
+    })).toEqual(followups);
+    const secondWakeCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: work.corpus.sourceSetIdentity,
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: [
+        ...unrelatedAfterWakeCorpus.listings,
+        listing("venue-d:kelly-cabinet", "Will Mark Kelly join the cabinet in 2027?"),
+      ],
+    });
+    const secondWakeProjection = buildStandingOntologyRouteProjection({
+      findings: retained,
+      taskRevisions: [revision],
+      loadCorpus: (identity) => identity === work.corpus.snapshotIdentity
+        ? work.corpus
+        : null,
+      currentCorpus: secondWakeCorpus,
+    });
+    const secondWakeFollowups = materializeStandingOntologyRouteFollowups({
+      projection: secondWakeProjection,
+      ontology: buildMarketOntologySnapshot(secondWakeCorpus),
+    });
+    expect(secondWakeFollowups).toHaveLength(1);
+    expect(secondWakeFollowups[0]!.observationMembershipIdentity)
+      .not.toBe(followups[0]!.observationMembershipIdentity);
+    expect(secondWakeFollowups[0]!.workItem.workItemId)
+      .not.toBe(followups[0]!.workItem.workItemId);
+    const routeExtendedWork = extendOntologyRelationWorkWithStandingRouteFollowups({
+      base: relationWork,
+      followups,
+    });
+    const followupRevision = materializeRelationDiscoveryTaskRevisions({
+      relationWork: routeExtendedWork,
+      corpus: expandedCorpus,
+    }).find((item) => relationDiscoveryRevisionWorkItem(item).kind ===
+      "STANDING_ROUTE_FOLLOWUP")!;
+    const followupRun = buildAgentRun({
+      task: followupRevision.task,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:standing-route-non-recursion-test",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const followupHost = new RelationDiscoveryAgentToolHost(
+      followupRevision.taskPayload,
+      expandedCorpus,
+      undefined,
+      relationDiscoveryRevisionWorkItem(followupRevision),
+    );
+    await expect(followupHost.execute({
+      run: followupRun,
+      task: followupRevision.task,
+      executionProfile: profile,
+      callId: "call-no-recursive-route",
+      toolName: "record_ontology_route",
+      input: {
+        routeLayer: "SUBJECT_REFERENCE",
+        searchSignals: ["Mark Kelly"],
+        listingRefs: followups[0]!.workItem.seedListingBindings
+          .slice(0, 2).map((item) => item.listingRef),
+        statement: "This must not create a recursively autonomous route.",
+        rationale: "The follow-up is already the single bounded wake hop.",
+        falsifiers: ["No recursion boundary exists."],
+      },
+    })).rejects.toThrow("cannot create another autonomous route");
+    expect(materializeStandingOntologyRouteFollowups({
+      projection: quietRoutes,
+      ontology: buildMarketOntologySnapshot(work.corpus),
+    })).toEqual([]);
     const positive = retained.find((item) => item.kind === "RELATION_HYPOTHESIS")!;
     if (positive.kind !== "RELATION_HYPOTHESIS") {
       throw new Error("positive relation finding fixture is missing");
@@ -912,7 +1251,21 @@ describe("ontology proposal relation work", () => {
     expect(reopened.loadRelationDiscoveryFindings(10)).toEqual(
       expect.arrayContaining(retained),
     );
-    expect(reopened.loadRelationDiscoveryFindings(10)).toHaveLength(2);
+    expect(reopened.loadRelationDiscoveryFindings(10)).toHaveLength(3);
+    expect(reopened.loadStandingOntologyRouteSourceFindings()).toEqual([
+      expect.objectContaining({
+        kind: "ONTOLOGY_ROUTE",
+        authority: "SEARCH_ROUTING_ONLY",
+        reviewStatus: "NOT_APPLICABLE_ROUTING_ONLY",
+      }),
+    ]);
+    expect(reopened.loadRelationDiscoveryTaskRevisionsForTaskIds([
+      revision.task.taskId,
+      revision.task.taskId,
+    ])).toEqual([revision]);
+    expect(() => reopened.loadRelationDiscoveryTaskRevisionsForTaskIds([
+      "sha256:not-a-task" as never,
+    ])).toThrow("invalid task id");
     reopened.close();
   });
 });

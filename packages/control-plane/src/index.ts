@@ -38,6 +38,7 @@ export * from "./relation-discovery-agent-tools.js";
 export * from "./relation-discovery-work.js";
 export * from "./relation-discovery-campaign.js";
 export * from "./relation-discovery-semantic-bridge.js";
+export * from "./standing-ontology-routes.js";
 export * from "./research-attention-allocation.js";
 export * from "./research-action-targets.js";
 export * from "./research-decision-outcomes.js";

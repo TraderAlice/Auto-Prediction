@@ -309,6 +309,35 @@ All reads remain provider-free and start no campaign or run. Workspace checks,
 production build pass with only the known Node 24 engine expectation and Studio
 chunk warning.
 
+The next active continuation is
+[`plans/standing-ontology-routes.md`](plans/standing-ontology-routes.md). Issue
+#125 treats the remaining `RELATED` representation as an ontological category
+error: a search route is still authored and stored as though it were a payoff
+hypothesis. The new object is a standing, evidence-bound subject/event/
+settlement query with exact baseline membership. It stays quiet across unrelated
+catalog churn and wakes one bounded, non-recursive payoff-search follow-up only
+when matching membership or material evidence changes. The live two-listing
+Lula finding is the first qualification: it should become a quiet subject route
+today and wake exactly once if a third grounded Lula contract appears later.
+
+Phases 1–4 now realize that object.
+Future Agents submit `record_ontology_route`; first-party code validates the
+route layer, literal signals, inspected evidence, and complete bounded baseline
+membership. Payoff hypotheses reject `RELATED`. Schema 42 retains native route
+effects while legacy `RELATED` findings compile through exact task/corpus
+lineage. The live Lula finding is now one quiet `SUBJECT_REFERENCE` route over
+the same two Gemini listings, with zero follow-up work and zero read-triggered
+provider/model/campaign/run activity. Synthetic qualification ignores
+receive-time-only churn, wakes on one added Mark Kelly contract, and compiles a
+stable one-hop work item that contains all seven payoff-bearing relation kinds
+but excludes `RELATED`. Native routes carry routing-only authority and no
+semantic-review posture. Their original ontology proposal/issue/revision
+lineage is preserved, route sources are loaded independently of recent-result
+UI windows, and eligible wakes reconcile into ordinary relation task revisions
+and retained attempt memory without automatic dispatch. Phase 5 will measure
+route cost, quiet duration, wake yield, and downstream opportunity progression,
+then expose those lifecycle states in the operator surface.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

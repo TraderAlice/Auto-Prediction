@@ -46,6 +46,7 @@ function family(input?: Readonly<{
     positiveFindingIds: [],
     counterexampleIds: [],
     positiveFindingCount: 0,
+    ontologyRouteObservationCount: 0,
     counterexampleCount: 0,
     noFindingTerminalRunCount: 0,
     ontologyRoutingOnlyFindingCount: 0,

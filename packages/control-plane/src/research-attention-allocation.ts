@@ -72,6 +72,7 @@ export type ResearchAttentionFamilyScorecard = Readonly<{
   positiveFindingIds: readonly Hash[];
   counterexampleIds: readonly Hash[];
   positiveFindingCount: number;
+  ontologyRouteObservationCount: number;
   counterexampleCount: number;
   noFindingTerminalRunCount: number;
   ontologyRoutingOnlyFindingCount: number;
@@ -478,6 +479,9 @@ export function buildResearchAttentionAllocation(input: Readonly<{
       runs.some((run) => run.runId === finding.sourceAgentRunId && run.status === "INTERRUPTED")
     ).map((finding) => finding.sourceAgentRunId));
     const positiveFindingCount = findings.filter((item) => item.kind === "RELATION_HYPOTHESIS").length;
+    const ontologyRouteObservationCount = findings.filter((item) =>
+      item.kind === "ONTOLOGY_ROUTE"
+    ).length;
     const counterexampleCount = findings.filter((item) => item.kind === "COUNTEREXAMPLE").length;
     const action = actionFor({
       workItem,
@@ -521,7 +525,8 @@ export function buildResearchAttentionAllocation(input: Readonly<{
       rejectedToolEffectCount: effects.filter((item) => item.status === "REJECTED").length,
       acceptedResultToolEffectCount: effects.filter((item) =>
         item.status === "ACCEPTED" &&
-        ["record_relation_hypothesis", "record_relation_counterexample"].includes(item.toolName)
+        ["record_relation_hypothesis", "record_ontology_route",
+          "record_relation_counterexample"].includes(item.toolName)
       ).length,
       positiveFindingIds: Object.freeze(findings.filter((item) =>
         item.kind === "RELATION_HYPOTHESIS"
@@ -530,6 +535,7 @@ export function buildResearchAttentionAllocation(input: Readonly<{
         item.kind === "COUNTEREXAMPLE"
       ).map((item) => item.findingId).sort()),
       positiveFindingCount,
+      ontologyRouteObservationCount,
       counterexampleCount,
       noFindingTerminalRunCount: runs.filter((run) =>
         terminal(run) && (findingsByRun.get(run.runId)?.length ?? 0) === 0

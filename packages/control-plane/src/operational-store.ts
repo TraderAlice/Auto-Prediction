@@ -244,7 +244,7 @@ import {
   type ResearchDecisionEpisodeStore,
 } from "./research-decision-outcomes.js";
 
-const SCHEMA_VERSION = 41;
+const SCHEMA_VERSION = 42;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -4147,7 +4147,7 @@ export class SqliteOperationalStore
               source_corpus_snapshot_identity GLOB 'sha256:[0-9a-f]*'
             ),
             finding_kind TEXT NOT NULL CHECK (
-              finding_kind IN ('RELATION_HYPOTHESIS', 'COUNTEREXAMPLE')
+              finding_kind IN ('RELATION_HYPOTHESIS', 'COUNTEREXAMPLE', 'ONTOLOGY_ROUTE')
             ),
             recorded_at TEXT NOT NULL,
             record_json TEXT NOT NULL CHECK (json_valid(record_json)),
@@ -4162,6 +4162,54 @@ export class SqliteOperationalStore
               work_item_id, recorded_at DESC, finding_id DESC
             );
           CREATE INDEX IF NOT EXISTS relation_discovery_findings_run
+            ON relation_discovery_findings (
+              source_agent_run_id, recorded_at, finding_id
+            );
+        `);
+      }
+      if (current >= 40 && current < 42 && relationDiscoveryFindingTableExists) {
+        this.#database.exec(`
+          ALTER TABLE relation_discovery_findings
+            RENAME TO relation_discovery_findings_v41;
+          CREATE TABLE relation_discovery_findings (
+            finding_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(finding_id) = 71 AND finding_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            work_item_id TEXT NOT NULL CHECK (
+              length(work_item_id) = 71 AND work_item_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_task_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            source_corpus_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_corpus_snapshot_identity) = 71 AND
+              source_corpus_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            finding_kind TEXT NOT NULL CHECK (
+              finding_kind IN ('RELATION_HYPOTHESIS', 'COUNTEREXAMPLE', 'ONTOLOGY_ROUTE')
+            ),
+            recorded_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (source_task_id) REFERENCES agent_tasks(task_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          INSERT INTO relation_discovery_findings (
+            finding_id, work_item_id, source_task_id, source_agent_run_id,
+            source_corpus_snapshot_identity, finding_kind, recorded_at,
+            record_json, record_hash
+          ) SELECT
+            finding_id, work_item_id, source_task_id, source_agent_run_id,
+            source_corpus_snapshot_identity, finding_kind, recorded_at,
+            record_json, record_hash
+          FROM relation_discovery_findings_v41;
+          DROP TABLE relation_discovery_findings_v41;
+          CREATE INDEX relation_discovery_findings_work
+            ON relation_discovery_findings (
+              work_item_id, recorded_at DESC, finding_id DESC
+            );
+          CREATE INDEX relation_discovery_findings_run
             ON relation_discovery_findings (
               source_agent_run_id, recorded_at, finding_id
             );
@@ -8473,6 +8521,31 @@ export class SqliteOperationalStore
     return Object.freeze(rows.map(parseRelationDiscoveryTaskRevision));
   }
 
+  public loadRelationDiscoveryTaskRevisionsForTaskIds(
+    taskIdsInput: readonly Hash[],
+  ): readonly RelationDiscoveryTaskRevision[] {
+    this.#assertOpen();
+    const taskIds = [...new Set(taskIdsInput)].sort();
+    if (taskIds.some((taskId) => !/^sha256:[0-9a-f]{64}$/u.test(String(taskId)))) {
+      throw new Error("relation discovery task revision lookup contains an invalid task id");
+    }
+    const statement = this.#database.prepare(
+      `SELECT revision_id, record_json, record_hash
+       FROM relation_discovery_task_revisions
+       WHERE task_id = ?
+       ORDER BY materialized_at DESC, revision_id DESC`,
+    );
+    const revisions = taskIds.flatMap((taskId) =>
+      statement.all(taskId).map(parseRelationDiscoveryTaskRevision)
+    );
+    return Object.freeze([...new Map(revisions.map((item) =>
+      [item.revisionId, item] as const
+    )).values()].sort((left, right) =>
+      right.materializedAt.localeCompare(left.materializedAt) ||
+      right.revisionId.localeCompare(left.revisionId)
+    ));
+  }
+
   public loadRelationDiscoveryCorpus(snapshotIdentity: Hash): MarketCorpusSnapshot | null {
     this.#assertOpen();
     const row = this.#database.prepare(
@@ -8582,6 +8655,26 @@ export class SqliteOperationalStore
       const corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
       if (corpus === null) {
         throw new Error("SQLite relation discovery finding lost its retained corpus");
+      }
+      return verifyRelationDiscoveryFindingEvidence(finding, corpus);
+    }));
+  }
+
+  public loadStandingOntologyRouteSourceFindings(): readonly RelationDiscoveryFinding[] {
+    this.#assertOpen();
+    const rows = this.#database.prepare(
+      `SELECT finding_id, record_json, record_hash
+       FROM relation_discovery_findings
+       WHERE finding_kind = 'ONTOLOGY_ROUTE'
+          OR (finding_kind = 'RELATION_HYPOTHESIS' AND
+              json_extract(record_json, '$.relationKind') = 'RELATED')
+       ORDER BY recorded_at DESC, finding_id DESC`,
+    ).all();
+    return Object.freeze(rows.map((row) => {
+      const finding = parseRelationDiscoveryFinding(row);
+      const corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
+      if (corpus === null) {
+        throw new Error("SQLite standing ontology route source lost its retained corpus");
       }
       return verifyRelationDiscoveryFindingEvidence(finding, corpus);
     }));
