@@ -1647,6 +1647,15 @@ clock wake-up is no longer treated as evidence novelty. Live 30-second sampling
 answered every readiness request inside one second while idle CPU remained
 near zero, replacing the prior repeated multi-second 100% stalls.
 
+The first persistent discovery wake-up is also implemented. It defaults to a
+60-second configurable cadence, reuses the frozen attention/target decision on
+unchanged state, and may only evolve membership under an already-retained
+research intent. It has no campaign-activation, provider, model or execution
+authority; the separate dispatcher still requires an explicitly active
+campaign, a current runnable task and remaining lineage budget. Agent
+Operations exposes wake and membership-change counts so persistence is visible
+without conflating scheduler liveness with useful research yield.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

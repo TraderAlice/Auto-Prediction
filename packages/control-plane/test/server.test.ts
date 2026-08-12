@@ -247,6 +247,12 @@ describe("control-plane HTTP surface", () => {
       decisions: { schemaVersion: string };
       relationCampaign: { schemaVersion: string };
       ontologyOutcomes: { schemaVersion: string };
+      discoveryCycle: {
+        schemaVersion: string;
+        providerRequestsStarted: number;
+        modelInvocationsStarted: number;
+        campaignActivationAuthority: boolean;
+      };
       providerRequestsStartedByRead: number;
       modelInvocationsStartedByRead: number;
       writesStartedByRead: number;
@@ -264,6 +270,12 @@ describe("control-plane HTTP surface", () => {
       decisions: { schemaVersion: "pmh.research-decision-outcome-projection.v1" },
       relationCampaign: { schemaVersion: "pmh.relation-discovery-campaign-preview.v1" },
       ontologyOutcomes: { schemaVersion: "pmh.ontology-allocation-outcome-projection.v1" },
+      discoveryCycle: {
+        schemaVersion: "pmh.discovery-cycle.v1",
+        providerRequestsStarted: 0,
+        modelInvocationsStarted: 0,
+        campaignActivationAuthority: false,
+      },
       providerRequestsStartedByRead: 0,
       modelInvocationsStartedByRead: 0,
       writesStartedByRead: 0,

@@ -506,6 +506,23 @@ type AgentWorkspace = Readonly<{
   targets: ResearchActionTargetProjection;
   decisions: ResearchDecisionOutcomeProjection;
   ontologyOutcomes: OntologyAllocationOutcomeProjection;
+  discoveryCycle: Readonly<{
+    schemaVersion: "pmh.discovery-cycle.v1";
+    enabled: boolean;
+    intervalMs: number | null;
+    tickCount: number;
+    membershipChangeCount: number;
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    lastMembershipChanged: boolean | null;
+    lastDiagnostic: string | null;
+    providerRequestsStarted: 0;
+    modelInvocationsStarted: 0;
+    campaignActivationAuthority: false;
+    executionAuthority: false;
+    externalWriteAuthority: false;
+    valueMovingAuthority: false;
+  }>;
   providerRequestsStartedByRead: 0;
   modelInvocationsStartedByRead: 0;
   writesStartedByRead: 0;
@@ -3376,6 +3393,10 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.decisions.schemaVersion !== "pmh.research-decision-outcome-projection.v1" ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
+    result.discoveryCycle.schemaVersion !== "pmh.discovery-cycle.v1" ||
+    result.discoveryCycle.providerRequestsStarted !== 0 ||
+    result.discoveryCycle.modelInvocationsStarted !== 0 ||
+    result.discoveryCycle.campaignActivationAuthority !== false ||
     result.providerRequestsStartedByRead !== 0 ||
     result.modelInvocationsStartedByRead !== 0 ||
     result.writesStartedByRead !== 0 ||
@@ -3395,6 +3416,8 @@ function AgentOperationsView() {
   const [outcomeData, setOutcomeData] = useState<ResearchDecisionOutcomeProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
     useState<OntologyAllocationOutcomeProjection | null>(null);
+  const [discoveryCycle, setDiscoveryCycle] =
+    useState<AgentWorkspace["discoveryCycle"] | null>(null);
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [taskId, setTaskId] = useState("");
@@ -3418,6 +3441,7 @@ function AgentOperationsView() {
     setTargetData(targets);
     setOutcomeData(outcomes);
     setOntologyOutcomeData(ontologyOutcomes);
+    setDiscoveryCycle(workspace.discoveryCycle);
     setTaskId((current) => next.tasks.some((task) =>
       task.taskId === current && task.readiness.status === "RUNNABLE"
     ) ? current : next.tasks.find((task) =>
@@ -3534,6 +3558,18 @@ function AgentOperationsView() {
         <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail={`${runnableTaskCount} current · ${supersededTaskCount} superseded in view`} />
         <Metric label="Known tokens" value={formatTokenCount((BigInt(consoleData.usage.inputTokens) + BigInt(consoleData.usage.outputTokens)).toString())} detail={`${consoleData.usage.incompleteTokenInvocationCount} invocations incomplete`} />
       </div>
+
+      {discoveryCycle !== null && (
+        <div className="research-attention-lock">
+          <RefreshCw size={14} />
+          <span>
+            Discovery cycle {discoveryCycle.enabled
+              ? `checks every ${Math.round((discoveryCycle.intervalMs ?? 0) / 1_000)}s`
+              : "disabled"} · {discoveryCycle.tickCount} wakes · {discoveryCycle.membershipChangeCount} membership changes
+          </span>
+          <code>0 provider · 0 model · no activation authority</code>
+        </div>
+      )}
 
       {ontologyOutcomeData !== null && (
         <Card className="research-attention-card">

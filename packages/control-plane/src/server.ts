@@ -25,6 +25,10 @@ import {
 } from "./candidate-watch.js";
 import { DiscoveryPool, HeuristicDiscoveryWorker } from "./discovery.js";
 import {
+  parseDiscoveryCycleInterval,
+  type DiscoveryCycleProjection,
+} from "./discovery-cycle.js";
+import {
   createDiscoveryModelRuntime,
   type DiscoveryModelRuntime,
 } from "./model-runtime.js";
@@ -1879,10 +1883,21 @@ export function createControlPlane(options?: {
     });
     return extendOntologyRelationWorkWithStandingRouteFollowups({ base, followups });
   };
+  let researchDerivationRevision = 0n;
+  let researchActionStateCache: Readonly<{
+    revision: bigint;
+    state: Readonly<{
+      allocation: ResearchAttentionAllocationProjection;
+      targets: ResearchActionTargetProjection;
+    }>;
+  }> | null = null;
   const currentResearchActionState = (): Readonly<{
     allocation: ResearchAttentionAllocationProjection;
     targets: ResearchActionTargetProjection;
   }> => {
+    if (researchActionStateCache?.revision === researchDerivationRevision) {
+      return researchActionStateCache.state;
+    }
     const proposals = marketOntologyAgentProposalStore
       ?.loadMarketOntologyAgentProposals(200) ?? [];
     const ontologyRevisions = ontologySearchIssueRevisionStore
@@ -1943,7 +1958,12 @@ export function createControlPlane(options?: {
       acquisitionJobs: acquisitionJobsForRequirementIds(activeRequirementIds),
       claimJobs: claimJobsForRequirementIds(activeRequirementIds),
     });
-    return Object.freeze({ allocation, targets });
+    const state = Object.freeze({ allocation, targets });
+    researchActionStateCache = Object.freeze({
+      revision: researchDerivationRevision,
+      state,
+    });
+    return state;
   };
   const loadResearchDecisionEpisodes = () => researchDecisionStore
     ?.loadResearchDecisionEpisodes(512) ?? inMemoryResearchDecisionEpisodes;
@@ -1966,7 +1986,6 @@ export function createControlPlane(options?: {
     ].slice(0, 512));
     return episode;
   };
-  let researchDerivationRevision = 0n;
   let baseSemanticReviewCandidateCache: Readonly<{
     revision: bigint;
     candidates: readonly SemanticReviewCandidate[];
@@ -3164,7 +3183,7 @@ export function createControlPlane(options?: {
       }))];
     }));
   };
-  const reconcileResearchAttentionRelationCampaign = (): void => {
+  const reconcileResearchAttentionRelationCampaign = (): boolean => {
     const snapshot = agentExecutionRegistry.snapshot();
     const intentExists = effectiveAgentCampaigns(snapshot.campaigns).some((campaign) =>
       (campaign.schemaVersion === "pmh.agent-campaign.v2" ||
@@ -3173,7 +3192,7 @@ export function createControlPlane(options?: {
       campaign.selectionBinding.selectionProtocol ===
         RESEARCH_ATTENTION_RELATION_SELECTION_PROTOCOL
     );
-    if (!intentExists) return;
+    if (!intentExists) return false;
     const allocation = currentResearchActionState().allocation;
     const materialized = materializeResearchAttentionRelationSelection({
       revisions: relationDiscoveryTaskRevisions,
@@ -3183,11 +3202,30 @@ export function createControlPlane(options?: {
       execution: snapshot,
       selectionBinding: materialized.selectionBinding,
     });
-    if (campaigns.length === 0) return;
+    if (campaigns.length === 0) return false;
     agentExecutionRegistry.saveBatch({ campaigns });
     const membership = campaigns.at(-1);
     if (membership !== undefined) captureResearchAttentionCampaignDecisions(membership);
+    return true;
   };
+  const discoveryCycleIntervalMs = parseDiscoveryCycleInterval(process.env);
+  let discoveryCycleState: DiscoveryCycleProjection = Object.freeze({
+    schemaVersion: "pmh.discovery-cycle.v1" as const,
+    enabled: discoveryCycleIntervalMs !== null,
+    intervalMs: discoveryCycleIntervalMs,
+    tickCount: 0,
+    membershipChangeCount: 0,
+    lastStartedAt: null as string | null,
+    lastCompletedAt: null as string | null,
+    lastMembershipChanged: null as boolean | null,
+    lastDiagnostic: null as string | null,
+    providerRequestsStarted: 0 as const,
+    modelInvocationsStarted: 0 as const,
+    campaignActivationAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     transitionStartup("DURABLE_RECOVERY");
     const realCandidateReady = realCandidatePreflightDesk.load();
@@ -3227,7 +3265,7 @@ export function createControlPlane(options?: {
     );
     await runStartupReconciliationStep(
       "RECONCILE_RESEARCH_ATTENTION_RELATION_CAMPAIGN",
-      reconcileResearchAttentionRelationCampaign,
+      () => { reconcileResearchAttentionRelationCampaign(); },
     );
     await runStartupReconciliationStep(
       "RECOVER_PREPARED_AGENT_RUNS",
@@ -4646,6 +4684,7 @@ export function createControlPlane(options?: {
         targets: research.targets,
         decisions,
         ontologyOutcomes: ontologyAllocationOutcomes(),
+        discoveryCycle: discoveryCycleState,
         providerRequestsStartedByRead: 0 as const,
         modelInvocationsStartedByRead: 0 as const,
         writesStartedByRead: 0 as const,
@@ -7525,6 +7564,7 @@ export function createControlPlane(options?: {
   let evidenceAcquisitionTimer: ReturnType<typeof setInterval> | null = null;
   let ruleEvidenceClaimTimer: ReturnType<typeof setInterval> | null = null;
   let agentCampaignTimer: ReturnType<typeof setInterval> | null = null;
+  let discoveryCycleTimer: ReturnType<typeof setInterval> | null = null;
   let catalogRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const searchIntervalMs = searchLeaseScheduler.intervalMs;
   if (searchIntervalMs !== null && searchIssueScheduler.tickIntervalMs === null) {
@@ -7854,6 +7894,42 @@ export function createControlPlane(options?: {
     agentCampaignTimer = setInterval(tickAgentCampaigns, agentCampaignTickMs);
     agentCampaignTimer.unref();
   });
+  if (discoveryCycleIntervalMs !== null) void ready.then(() => {
+    const tickDiscoveryCycle = () => {
+      const startedAt = new Date().toISOString();
+      try {
+        // The cycle owns selection continuity, never model spend. Reconciliation
+        // can only revise membership for an already-retained research intent;
+        // the separate dispatcher still requires an explicitly ACTIVE campaign,
+        // a runnable current task, and remaining lineage budget.
+        const changed = reconcileResearchAttentionRelationCampaign();
+        discoveryCycleState = Object.freeze({
+          ...discoveryCycleState,
+          tickCount: discoveryCycleState.tickCount + 1,
+          membershipChangeCount: discoveryCycleState.membershipChangeCount + (changed ? 1 : 0),
+          lastStartedAt: startedAt,
+          lastCompletedAt: new Date().toISOString(),
+          lastMembershipChanged: changed,
+          lastDiagnostic: null,
+        });
+        if (changed) {
+          void broadcastProjection();
+        }
+      } catch (error) {
+        discoveryCycleState = Object.freeze({
+          ...discoveryCycleState,
+          tickCount: discoveryCycleState.tickCount + 1,
+          lastStartedAt: startedAt,
+          lastCompletedAt: new Date().toISOString(),
+          lastMembershipChanged: false,
+          lastDiagnostic: error instanceof Error ? error.message : "discovery cycle failed",
+        });
+        // A later bounded wake-up retries from durable allocation and membership.
+      }
+    };
+    discoveryCycleTimer = setInterval(tickDiscoveryCycle, discoveryCycleIntervalMs);
+    discoveryCycleTimer.unref();
+  });
   server.once("close", () => {
     if (invalidationFlushTimer !== null) clearTimeout(invalidationFlushTimer);
     if (searchSchedulerTimer !== null) clearInterval(searchSchedulerTimer);
@@ -7869,6 +7945,7 @@ export function createControlPlane(options?: {
     if (evidenceAcquisitionTimer !== null) clearInterval(evidenceAcquisitionTimer);
     if (ruleEvidenceClaimTimer !== null) clearInterval(ruleEvidenceClaimTimer);
     if (agentCampaignTimer !== null) clearInterval(agentCampaignTimer);
+    if (discoveryCycleTimer !== null) clearInterval(discoveryCycleTimer);
     if (catalogRefreshTimer !== null) clearInterval(catalogRefreshTimer);
     discoveryLedger.close();
   });
