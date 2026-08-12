@@ -246,6 +246,31 @@ incomplete corpus is poor use of provider budget.
   admitted both Vite and the control plane; desktop/390 px visual inspection
   remains unclaimed because the browser-control URL policy rejected localhost.
 
+## Implemented checkpoint — observation/content continuity (2026-08-13)
+
+- A live Studio restart exposed an ontological category error in retained Rule
+  Evidence work. A conditional `304 Not Modified` is a novel acquisition
+  observation in time, but it still names the same immutable document bytes and
+  extracted text. The scheduler had treated the changed observation identity as
+  changed interpretation supply and failed the entire readiness projection.
+- Interpretation supply is now explicitly the exact
+  `requirement × proposal × document × extraction × raw hash × text hash`
+  tuple. Observation identity remains preserved on every acquisition and on the
+  original claim/job artifact, but does not authorize or require a second model
+  interpretation when the byte-bound supply is unchanged.
+- Reconciliation validates every current capture before comparing it with
+  retained work, reuses a completed interpretation across a later `304`, and
+  retains the old job byte-for-byte. A focused conditional-capture regression
+  proves the later observation is distinct while document/extraction identity,
+  provider attempt count, and retained job remain unchanged.
+- The existing live SQLite state now reaches `READY` and materializes its 2.35 MB
+  bounded Studio projection with zero provider requests and zero model
+  invocations during startup/read qualification. This establishes a reusable
+  ontology rule for the wider machine: **an observation is evidence that a
+  proposition-bearing artifact was seen at a time; it is not itself the
+  proposition-bearing artifact.** Fresh observation and semantic novelty must
+  remain separate identities throughout durable scheduling.
+
 ## Evidence contract
 
 1. Preserve adapter-owned typed locators in a backward-compatible discovery
