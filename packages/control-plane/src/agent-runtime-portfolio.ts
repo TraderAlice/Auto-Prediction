@@ -13,7 +13,10 @@ export function buildDefaultAgentRuntimePortfolio(
 ): AgentExecutionBatch {
   const createdAt = configuration.updatedAt;
   const pi = buildAgentRuntimeDefinition({ kind: "PI", version: "pi-cli-v1" });
-  const codex = buildAgentRuntimeDefinition({ kind: "CODEX", version: "codex-cli-v1" });
+  const codex = buildAgentRuntimeDefinition({
+    kind: "CODEX",
+    version: "codex-app-server-v2:0.147",
+  });
   const inProcess = buildAgentRuntimeDefinition({
     kind: "HARNESS_IN_PROCESS",
     version: "ai-sdk-loop-v1",
@@ -82,7 +85,7 @@ export function buildDefaultAgentRuntimePortfolio(
   });
   const codexAgent = buildExecutionProfile({
     ...common,
-    profileKey: "rule-evidence-codex-agent",
+    profileKey: "rule-evidence-codex-app-server",
     runtimeDefinition: codex,
     credentialBinding: codexCredential,
     modelProfile: codexModel,
@@ -103,10 +106,43 @@ export function buildDefaultAgentRuntimePortfolio(
   });
   const selected = configuration.provider === "CODEX" ? codexAgent : piDeepSeek;
   const route = buildWorkloadRoute({
-    routeKey: "rule-evidence-default",
+    routeKey: "rule-evidence-default-app-server-v2",
     revision: configuration.revision,
     taskKind: "RULE_EVIDENCE_CLAIM",
     executionProfileId: selected.executionProfileId,
+    updatedAt: createdAt,
+  });
+  const ontologyCommon = {
+    revision: configuration.revision,
+    toolProtocol: "MARKET_ONTOLOGY_AGENT_TOOLS_V1",
+    runBudget: {
+      maximumModelInvocations: 8,
+      maximumToolCalls: 24,
+      maximumWallClockMs: 300_000,
+      maximumInputTokens: "200000",
+      maximumOutputTokens: "20000",
+    },
+    createdAt,
+  } as const;
+  const ontologyCodexAppServer = buildExecutionProfile({
+    ...ontologyCommon,
+    profileKey: "ontology-codex-app-server",
+    runtimeDefinition: codex,
+    credentialBinding: codexCredential,
+    modelProfile: codexModel,
+  });
+  const ontologyPiCodex = buildExecutionProfile({
+    ...ontologyCommon,
+    profileKey: "ontology-pi-codex",
+    runtimeDefinition: pi,
+    credentialBinding: codexCredential,
+    modelProfile: codexModel,
+  });
+  const ontologyRoute = buildWorkloadRoute({
+    routeKey: "ontology-normalization-default",
+    revision: configuration.revision,
+    taskKind: "ONTOLOGY_NORMALIZATION",
+    executionProfileId: ontologyCodexAppServer.executionProfileId,
     updatedAt: createdAt,
   });
   return Object.freeze({
@@ -119,7 +155,9 @@ export function buildDefaultAgentRuntimePortfolio(
       codexAgent,
       inProcessCodex,
       inProcessDeepSeek,
+      ontologyCodexAppServer,
+      ontologyPiCodex,
     ]),
-    workloadRoutes: Object.freeze([route]),
+    workloadRoutes: Object.freeze([route, ontologyRoute]),
   });
 }

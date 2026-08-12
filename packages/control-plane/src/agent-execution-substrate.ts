@@ -143,7 +143,7 @@ export type ExecutionCapabilityObservation = Readonly<{
   observationId: Hash;
   executionProfileId: Hash;
   outcome: ExecutionCapabilityOutcome;
-  probeKind: "CODEX_USAGE" | "CONFIGURATION_ONLY";
+  probeKind: "CODEX_USAGE" | "CODEX_APP_SERVER_ACCOUNT" | "CONFIGURATION_ONLY";
   observedAt: string;
   validUntil: string;
   diagnostic: string;
@@ -824,7 +824,8 @@ export function assertExecutionCapabilityObservation(
     ]) ||
     record.schemaVersion !== "pmh.execution-capability-observation.v1" ||
     !EXECUTION_CAPABILITY_OUTCOMES.includes(record.outcome) ||
-    !["CODEX_USAGE", "CONFIGURATION_ONLY"].includes(record.probeKind) ||
+    !["CODEX_USAGE", "CODEX_APP_SERVER_ACCOUNT", "CONFIGURATION_ONLY"]
+      .includes(record.probeKind) ||
     record.inferenceRequestsStarted !== 0 || record.modelInvocationsStarted !== 0 ||
     record.secretMaterialRetained !== false || record.externalWriteAuthority !== false ||
     record.valueMovingAuthority !== false

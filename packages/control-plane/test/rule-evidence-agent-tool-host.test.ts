@@ -24,7 +24,7 @@ describe("Rule Evidence first-party Agent tool host", () => {
     };
     const portfolio = buildDefaultAgentRuntimePortfolio(configuration);
     const profile = portfolio.executionProfiles!.find((item) =>
-      item.profileKey === "rule-evidence-codex-agent"
+      item.profileKey === "rule-evidence-codex-app-server"
     )!;
     const task = buildAgentTask({
       kind: "RULE_EVIDENCE_CLAIM",

@@ -85,6 +85,27 @@ waiting for the browser to request its first projection is recorded separately
 and is not misclassified as backend work. This gives later performance work an
 evidence-backed target without delaying the listener or fabricating content.
 
+The next Codex runtime increment is
+[`plans/codex-app-server-runtime.md`](plans/codex-app-server-runtime.md). Local
+Codex 0.147.0 protocol evidence and a zero-inference account probe show that
+the official app-server can use the current ChatGPT login even though direct
+PMH, Pi, and `codex_cli_rs` backend probes were rejected. The integration
+replaces free-text fake tool actions with client-hosted dynamic tools, keeps the
+thread ephemeral and read-only, reject undeclared built-in effects, and retain
+model/effort, token, task, run, and campaign lineage through the provider-neutral
+substrate. It is now the primary path to a Terra-first ontology campaign. A
+live zero-inference preflight retained a usable `CODEX_APP_SERVER_ACCOUNT`
+observation with no secret text or model call. The first bounded Terra/high
+ontology run succeeded in 57 seconds through six native tool effects, including
+two first-party-rejected calls that the Agent repaired, and retained two
+unreviewed world propositions. A token-boundary follow-up succeeded in 29
+seconds with two fully measured model responses and no unknown usage, then
+honestly stopped after evidence inspection without manufacturing a proposal.
+The measured long-loop input cost is real context replay across responses, not
+a cumulative-counter duplication. One deliberately terminated protocol-timing
+run is retained as negative evidence. Campaign selection now de-duplicates on
+stable ontology-issue lineage rather than snapshot-dependent task IDs.
+
 The active construction plans are
 [`plans/semantic-family-retrieval.md`](plans/semantic-family-retrieval.md) and
 [`plans/heuristic-origin-discovery.md`](plans/heuristic-origin-discovery.md),

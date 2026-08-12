@@ -85,13 +85,18 @@ import {
   buildMarketOntologySnapshot,
   projectMarketOntology,
 } from "./market-ontology.js";
-import type { MarketOntologyAgentProposalStore } from "./market-ontology-agent-tools.js";
+import {
+  MarketOntologyAgentToolHost,
+  type MarketOntologyAgentProposalStore,
+  type MarketOntologyNormalizationTaskPayload,
+} from "./market-ontology-agent-tools.js";
 import {
   buildOntologySearchYieldProjection,
   materializeOntologySearchIssueRevisions,
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
 } from "./ontology-search-ecology.js";
+import { buildOntologyAgentCampaignPreview } from "./ontology-agent-campaign.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -273,9 +278,9 @@ import {
   EnvironmentCredentialResolver,
 } from "./agent-runtime-adapter.js";
 import {
-  createCodexCliAgentRuntimeAdapter,
   createPiCliAgentRuntimeAdapter,
 } from "./agent-cli-runtime.js";
+import { createCodexAppServerAgentRuntimeAdapter } from "./codex-app-server-runtime.js";
 import { createInProcessAiSdkAgentRuntimeAdapter } from "./agent-in-process-runtime.js";
 import { RuleEvidenceAgentToolHost } from "./rule-evidence-agent-tool-host.js";
 import { buildRuleEvidenceAgentMigration } from "./rule-evidence-agent-migration.js";
@@ -2069,6 +2074,12 @@ export function createControlPlane(options?: {
   };
   const ruleEvidenceAgentInput = (taskId: Hash) =>
     ruleEvidenceAgentInputsByTaskId.get(taskId) ?? null;
+  const ontologyAgentTaskPayload = (taskId: Hash) => ontologySearchIssueRevisions
+    .filter((item) => item.task.taskId === taskId)
+    .sort((left, right) =>
+      right.materializedAt.localeCompare(left.materializedAt) ||
+      right.revisionId.localeCompare(left.revisionId)
+    )[0]?.taskPayload ?? null;
   const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
     new AgentCampaignDispatcher({
       registry: agentExecutionRegistry,
@@ -2076,14 +2087,36 @@ export function createControlPlane(options?: {
       capabilityService: agentExecutionCapabilityService,
       adapters: [
         createPiCliAgentRuntimeAdapter({ environment: process.env, timeoutMs: 300_000 }),
-        createCodexCliAgentRuntimeAdapter({ environment: process.env, timeoutMs: 300_000 }),
+        createCodexAppServerAgentRuntimeAdapter({
+          environment: process.env,
+          turnTimeoutMs: 300_000,
+        }),
         createInProcessAiSdkAgentRuntimeAdapter({ timeoutMs: 300_000 }),
       ],
-      toolHost: new RuleEvidenceAgentToolHost(ruleEvidenceAgentInput),
+      toolHost: (task, taskPayload) => {
+        if (task.kind === "RULE_EVIDENCE_CLAIM") {
+          return new RuleEvidenceAgentToolHost(ruleEvidenceAgentInput);
+        }
+        if (task.kind === "ONTOLOGY_NORMALIZATION") {
+          return MarketOntologyAgentToolHost.fromTaskPayload(
+            taskPayload as MarketOntologyNormalizationTaskPayload,
+            marketOntologyAgentProposalStore ?? undefined,
+          );
+        }
+        throw new Error("Agent task has no registered first-party tool host");
+      },
       taskPayload: (task) => {
-        const input = ruleEvidenceAgentInput(task.taskId);
-        if (input === null) throw new Error("retained Agent task input is unavailable");
-        return buildRuleEvidenceAgentTaskPayload(input);
+        if (task.kind === "RULE_EVIDENCE_CLAIM") {
+          const input = ruleEvidenceAgentInput(task.taskId);
+          if (input === null) throw new Error("retained Agent task input is unavailable");
+          return buildRuleEvidenceAgentTaskPayload(input);
+        }
+        if (task.kind === "ONTOLOGY_NORMALIZATION") {
+          const payload = ontologyAgentTaskPayload(task.taskId);
+          if (payload === null) throw new Error("retained ontology task payload is unavailable");
+          return payload;
+        }
+        throw new Error("retained Agent task payload is unavailable");
       },
     });
   const migrateLegacyRuleEvidenceAgentRuns = (): void => {
@@ -2420,6 +2453,29 @@ export function createControlPlane(options?: {
       credentialSecretTextRetained: false as const,
       externalWriteAuthority: false as const,
       valueMovingAuthority: false as const,
+    });
+  };
+  const ontologyAgentCampaignPreview = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "ONTOLOGY_NORMALIZATION")
+      .sort((left, right) =>
+        right.revision - left.revision || right.updatedAt.localeCompare(left.updatedAt)
+      )[0];
+    if (route === undefined) throw new Error("Ontology execution workload route is unavailable");
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) throw new Error("Ontology execution profile is unavailable");
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (binding === undefined) throw new Error("Ontology credential binding is unavailable");
+    const configuration = await agentCredentialBroker.configuration(binding);
+    return buildOntologyAgentCampaignPreview({
+      revisions: ontologySearchIssueRevisions,
+      execution: snapshot,
+      capability: agentExecutionCapabilityService.project(profile, configuration),
     });
   };
   const discoveryExecutionCapability = async () => {
@@ -3493,6 +3549,69 @@ export function createControlPlane(options?: {
     }
     if (request.method === "GET" && url.pathname === "/api/v1/agent-execution") {
       writeJson(response, 200, await agentExecutionConsole());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/campaign-preview"
+    ) {
+      try {
+        await ready;
+        writeJson(response, 200, await ontologyAgentCampaignPreview());
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "ontology campaign preview is unavailable",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/market-ontology/campaigns"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 0) {
+          throw new Error("ontology campaign creation accepts an empty object only");
+        }
+        const preview = await ontologyAgentCampaignPreview();
+        if (!preview.creationEligible) throw new Error(preview.diagnostic);
+        const latestRevision = agentExecutionRegistry.snapshot().campaigns
+          .filter((item) => item.campaignKey === preview.campaignKey)
+          .reduce((maximum, item) => Math.max(maximum, item.revision), 0);
+        const campaign = buildPausedAgentCampaign({
+          campaignKey: preview.campaignKey,
+          revision: latestRevision + 1,
+          executionProfileId: preview.executionProfile.executionProfileId,
+          taskIds: preview.taskIds,
+          schedule: preview.schedule,
+          budget: preview.budget,
+          createdAt: new Date().toISOString(),
+        });
+        agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
+        await broadcastProjection();
+        writeJson(response, 201, {
+          ok: true,
+          campaign,
+          preview,
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "ontology campaign could not be created",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      }
       return;
     }
     const executionProfilePreflightMatch = url.pathname.match(

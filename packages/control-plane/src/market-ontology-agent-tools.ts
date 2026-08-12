@@ -449,6 +449,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     ontologyOrPayload: MarketOntologySnapshot | MarketOntologyNormalizationTaskPayload,
     corpus?: MarketCorpusSnapshot,
     taskPayload?: MarketOntologyNormalizationTaskPayload,
+    private readonly proposalStore?: MarketOntologyAgentProposalStore,
   ) {
     if (ontologyOrPayload.schemaVersion === "pmh.market-ontology.v1") {
       const ontology = assertMarketOntologySnapshot(ontologyOrPayload);
@@ -480,8 +481,14 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
 
   public static fromTaskPayload(
     taskPayload: MarketOntologyNormalizationTaskPayload,
+    proposalStore?: MarketOntologyAgentProposalStore,
   ): MarketOntologyAgentToolHost {
-    return new MarketOntologyAgentToolHost(taskPayload);
+    return new MarketOntologyAgentToolHost(
+      taskPayload,
+      undefined,
+      undefined,
+      proposalStore,
+    );
   }
 
   public manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[] {
@@ -552,6 +559,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     }) as MarketOntologyAgentProposal;
     if (!this.#proposals.some((item) => item.proposalId === proposal.proposalId)) {
       this.#proposals.push(proposal);
+      this.proposalStore?.saveMarketOntologyAgentProposals([proposal]);
     }
     return proposal;
   }

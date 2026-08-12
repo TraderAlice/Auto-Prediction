@@ -82,7 +82,7 @@ export type AgentCampaignDispatcherOptions = Readonly<{
   credentialBroker: AgentCredentialBroker;
   capabilityService?: AgentExecutionCapabilityService;
   adapters: readonly AgentRuntimeAdapter[];
-  toolHost: AgentToolHost;
+  toolHost: AgentToolHost | ((task: AgentTask, taskPayload: unknown) => AgentToolHost);
   taskPayload: (task: AgentTask) => unknown;
   now?: () => number;
 }>;
@@ -99,7 +99,7 @@ export class AgentCampaignDispatcher {
   readonly #credentialBroker: AgentCredentialBroker;
   readonly #capabilityService: AgentExecutionCapabilityService | undefined;
   readonly #adapters: ReadonlyMap<string, AgentRuntimeAdapter>;
-  readonly #toolHost: AgentToolHost;
+  readonly #toolHost: (task: AgentTask, taskPayload: unknown) => AgentToolHost;
   readonly #taskPayload: (task: AgentTask) => unknown;
   readonly #now: () => number;
   readonly #active = new Map<Hash, Promise<AgentRun>>();
@@ -110,7 +110,9 @@ export class AgentCampaignDispatcher {
     this.#registry = options.registry;
     this.#credentialBroker = options.credentialBroker;
     this.#capabilityService = options.capabilityService;
-    this.#toolHost = options.toolHost;
+    this.#toolHost = typeof options.toolHost === "function"
+      ? options.toolHost
+      : () => options.toolHost as AgentToolHost;
     this.#taskPayload = options.taskPayload;
     this.#now = options.now ?? Date.now;
     const adapters = new Map<string, AgentRuntimeAdapter>();
@@ -364,17 +366,18 @@ export class AgentCampaignDispatcher {
     }
     let result: Awaited<ReturnType<typeof executePreparedAgentRun>>;
     try {
+      const taskPayload = this.#taskPayload(task);
       result = await executePreparedAgentRun({
         run,
         task,
-        taskPayload: this.#taskPayload(task),
+        taskPayload,
         runtimeDefinition: runtime,
         credentialBinding: credential,
         modelProfile: model,
         executionProfile: profile,
         adapter,
         credentialBroker: this.#credentialBroker,
-        toolHost: this.#toolHost,
+        toolHost: this.#toolHost(task, taskPayload),
         now: this.#now,
         ...(campaign === null ? {} : {
           beforeModelInvocation: () => {
