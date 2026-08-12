@@ -467,6 +467,58 @@ describe("Agent runtime adapters", () => {
     });
   });
 
+  it("does not stage or start completion recovery past the invocation budget", async () => {
+    const cancel = vi.fn(async () => undefined);
+    const prepareCompletionRecovery = vi.fn(async () => undefined);
+    let advances = 0;
+    const adapter = new CodexAgentRuntimeAdapter(async () => ({
+      cancel,
+      prepareCompletionRecovery,
+      advance: async () => {
+        advances += 1;
+        return {
+          invocation: {
+            status: "SUCCEEDED" as const,
+            startedAt: NOW,
+            completedAt: NEXT,
+            inputTokens: "10",
+            outputTokens: "10",
+            reasoningTokens: "2",
+            failureCategory: null,
+          },
+          toolCalls: [],
+          completed: true,
+          completionAuthority: "DIAGNOSTIC_ONLY" as const,
+          finalArtifact: { diagnostic: "researched but did not submit" },
+        };
+      },
+    }));
+    const input = execution({
+      kind: "CODEX",
+      credential: codexCredential(),
+      model: codexModel(),
+      maximumModelInvocations: 1,
+      adapter,
+    });
+    const result = await executePreparedAgentRun({
+      ...input,
+      toolHost: {
+        manifest,
+        resultToolNames: () => ["submit_rule_evidence_claim"],
+        execute: async () => ({ status: "ACCEPTED", output: { ok: true } }),
+      },
+      now: () => Date.parse(NEXT),
+    });
+
+    expect(prepareCompletionRecovery).not.toHaveBeenCalled();
+    expect(advances).toBe(1);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(result.run).toMatchObject({
+      status: "INTERRUPTED",
+      terminalDiagnostic: "model invocation budget exhausted",
+    });
+  });
+
   it("fails before credential resolution when the task payload or adapter lineage is wrong", async () => {
     const wrongAdapter = new PiAgentRuntimeAdapter(async () => twoTurnSession(() => undefined));
     const input = execution({

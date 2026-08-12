@@ -243,6 +243,25 @@ horizontal overflow. Workspace checks, 598 control-plane tests, 24 Studio
 tests, the remaining workspace suites, and the production build pass; the
 known Node 24 engine expectation and existing Studio chunk-size warning remain.
 
+The next active continuation is
+[`plans/agent-result-completion-recovery.md`](plans/agent-result-completion-recovery.md).
+Issue #119 comes from the first allocation-connected relation run: Terra/high
+used four successful invocations and 74,669 / 997 / 715
+input/output/reasoning tokens to read exact work and inspect listings twice,
+then ended in diagnostic text without an accepted relation result tool. The
+runtime correctly failed closed, but discarded eight remaining invocation
+slots. The next slice adds at most one same-thread, budget-metered completion
+recovery turn. Free text remains non-authoritative; only a declared accepted
+result effect can make the run succeed, and a second diagnostic-only completion
+still fails closed. The provider-neutral contract and Codex same-thread
+implementation are now complete: recovery preparation starts no inference,
+all existing run/campaign budgets gate the next turn, every boundary remains
+metered, and only one recovery is permitted. Tests cover accepted recovery,
+second diagnostic failure, rejected-effect non-authority, and exhausted-budget
+blocking. All 601 control-plane tests, Studio and remaining workspace suites,
+checks, and production build pass. A bounded live retry remains deliberately
+after merge rather than hidden inside qualification.
+
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It
 separates provider-neutral tasks from Pi/Codex/in-process Agent runtimes,

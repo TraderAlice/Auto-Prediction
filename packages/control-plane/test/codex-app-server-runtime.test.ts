@@ -26,6 +26,7 @@ class FakeConnection implements CodexAppServerConnection {
   }>> = [];
   public closed = false;
   readonly #events: CodexAppServerInbound[];
+  #turnOrdinal = 0;
 
   public constructor(events: readonly CodexAppServerInbound[]) {
     this.#events = [...events];
@@ -38,7 +39,10 @@ class FakeConnection implements CodexAppServerConnection {
       model: "gpt-5.6-terra",
       modelProvider: "openai",
     };
-    if (method === "turn/start") return { turn: { id: "turn:test" } };
+    if (method === "turn/start") {
+      this.#turnOrdinal += 1;
+      return { turn: { id: this.#turnOrdinal === 1 ? "turn:test" : "turn:recovery" } };
+    }
     if (method === "turn/interrupt") return {};
     throw new Error(`unexpected fake request: ${method}`);
   }
@@ -298,6 +302,164 @@ describe("Codex app-server Agent runtime", () => {
     expect(work.connection.closed).toBe(true);
   });
 
+  it("recovers one diagnostic-only completion in the same thread through a result tool", async () => {
+    const work = fixture([
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:test",
+            status: "completed",
+            items: [{ type: "agentMessage", text: "The evidence appears contradictory." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:test",
+          tokenUsage: { last: { inputTokens: 40, outputTokens: 10, reasoningOutputTokens: 4 } },
+        },
+      },
+      {
+        method: "item/tool/call",
+        id: 301,
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          callId: "call:counterexample:recovery",
+          tool: "record_counterexample",
+          arguments: { reason: "The retained predicates differ." },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          tokenUsage: { last: { inputTokens: 50, outputTokens: 12, reasoningOutputTokens: 5 } },
+        },
+      },
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:recovery",
+            status: "completed",
+            items: [{ type: "agentMessage", text: "Counterexample retained." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          tokenUsage: { last: { inputTokens: 30, outputTokens: 5, reasoningOutputTokens: 1 } },
+        },
+      },
+    ]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: work.adapter,
+      credentialBroker: work.broker,
+      toolHost: work.toolHost,
+    });
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.modelInvocations).toHaveLength(3);
+    expect(result.toolEffects).toEqual([expect.objectContaining({
+      toolName: "record_counterexample",
+      status: "ACCEPTED",
+    })]);
+    expect(work.connection.requests.filter((item) => item.method === "turn/start"))
+      .toHaveLength(2);
+    expect(work.connection.requests[2]).toMatchObject({
+      method: "turn/start",
+      params: {
+        threadId: "thread:test",
+        input: [{ text: expect.stringContaining("Call exactly one declared result tool") }],
+      },
+    });
+    expect(work.connection.closed).toBe(true);
+  });
+
+  it("fails closed after a second diagnostic-only completion", async () => {
+    const work = fixture([
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:test",
+            status: "completed",
+            items: [{ type: "agentMessage", text: "I found no safe conclusion." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:test",
+          tokenUsage: { last: { inputTokens: 40, outputTokens: 10, reasoningOutputTokens: 4 } },
+        },
+      },
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:recovery",
+            status: "completed",
+            items: [{ type: "agentMessage", text: "I still found no safe conclusion." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          tokenUsage: { last: { inputTokens: 44, outputTokens: 11, reasoningOutputTokens: 5 } },
+        },
+      },
+    ]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: work.adapter,
+      credentialBroker: work.broker,
+      toolHost: work.toolHost,
+    });
+
+    expect(result.run).toMatchObject({
+      status: "FAILED",
+      terminalDiagnostic: "runtime completed without an accepted result effect",
+    });
+    expect(result.modelInvocations).toHaveLength(2);
+    expect(result.toolEffects).toHaveLength(0);
+    expect(work.connection.requests.filter((item) => item.method === "turn/start"))
+      .toHaveLength(2);
+    expect(work.connection.closed).toBe(true);
+  });
+
   it("does not treat diagnostic final text as success after a rejected result tool", async () => {
     const work = fixture([
       {
@@ -336,6 +498,25 @@ describe("Codex app-server Agent runtime", () => {
           threadId: "thread:test",
           turnId: "turn:test",
           tokenUsage: { last: { inputTokens: 20, outputTokens: 5, reasoningOutputTokens: 2 } },
+        },
+      },
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:recovery",
+            status: "completed",
+            items: [{ type: "agentMessage", text: "I still could not retain the result." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          tokenUsage: { last: { inputTokens: 22, outputTokens: 6, reasoningOutputTokens: 2 } },
         },
       },
     ]);
