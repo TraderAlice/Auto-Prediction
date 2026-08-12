@@ -109,6 +109,7 @@ import {
 } from "./ontology-relation-work.js";
 import {
   RelationDiscoveryAgentToolHost,
+  type RelationDiscoveryFinding,
   type RelationDiscoveryFindingStore,
   type RelationDiscoveryPositiveFinding,
   type RelationDiscoveryTaskPayload,
@@ -222,6 +223,7 @@ import {
 } from "./premise-analysis-scheduler.js";
 import {
   createPremiseEvidenceRouter,
+  premiseEvidenceCorpusIdentity,
   type PremiseEvidenceRouterPort,
 } from "./premise-evidence-router.js";
 import {
@@ -405,13 +407,51 @@ function writeJson(
   value: unknown,
   headers: Readonly<Record<string, string>> = {},
 ): void {
+  writeSerializedJson(response, status, serializeJson(value).body, headers);
+}
+
+type TimingMetric = Readonly<{
+  name: string;
+  durationMs: number;
+  description?: string;
+}>;
+
+function serializeJson(value: unknown): Readonly<{
+  body: string;
+  durationMs: number;
+  byteLength: number;
+}> {
+  const startedAt = performance.now();
+  const body = `${JSON.stringify(value)}\n`;
+  return Object.freeze({
+    body,
+    durationMs: Math.max(0, performance.now() - startedAt),
+    byteLength: Buffer.byteLength(body),
+  });
+}
+
+function formatServerTiming(metrics: readonly TimingMetric[]): string {
+  return metrics.map((metric) => {
+    const description = metric.description === undefined
+      ? ""
+      : `;desc=\"${metric.description.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}\"`;
+    return `${metric.name}${description};dur=${metric.durationMs.toFixed(1)}`;
+  }).join(", ");
+}
+
+function writeSerializedJson(
+  response: ServerResponse,
+  status: number,
+  body: string,
+  headers: Readonly<Record<string, string>> = {},
+): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     ...localStudioCorsHeaders(response.req),
     ...headers,
   });
-  response.end(`${JSON.stringify(value)}\n`);
+  response.end(body);
 }
 
 function requestAcceptsEtag(request: IncomingMessage, etag: string): boolean {
@@ -1662,19 +1702,31 @@ export function createControlPlane(options?: {
   };
   graphContextForLease = (snapshot, lens) =>
     searchSemanticGraphNeighborhood(semanticGraph(snapshot), lens);
-  const relationDiscoveryProposalCompilations = ():
+  const relationDiscoveryProposalCompilations = (input?: Readonly<{
+    findings: readonly RelationDiscoveryFinding[];
+    taskRevisions: readonly RelationDiscoveryTaskRevision[];
+  }> | null):
     readonly RelationDiscoveryProposalCompilation[] => {
     if (relationDiscoveryStore === null) return Object.freeze([]);
-    const findings = relationDiscoveryStore.loadRelationDiscoveryFindings(512)
+    const findings = (input?.findings ??
+      relationDiscoveryStore.loadRelationDiscoveryFindings(512))
       .filter((item): item is RelationDiscoveryPositiveFinding =>
         item.kind === "RELATION_HYPOTHESIS"
       );
-    const revisions = relationDiscoveryStore.loadRelationDiscoveryTaskRevisions(512);
+    const revisions = input?.taskRevisions ??
+      relationDiscoveryStore.loadRelationDiscoveryTaskRevisions(512);
+    const corpusByIdentity = new Map<Hash, MarketCorpusSnapshot | null>();
     return compileRelationDiscoveryFindingsForSemanticReview({
       findings,
       taskRevisions: revisions,
-      loadCorpus: (snapshotIdentity) =>
-        relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity),
+      loadCorpus: (snapshotIdentity) => {
+        if (corpusByIdentity.has(snapshotIdentity)) {
+          return corpusByIdentity.get(snapshotIdentity) ?? null;
+        }
+        const corpus = relationDiscoveryStore.loadRelationDiscoveryCorpus(snapshotIdentity);
+        corpusByIdentity.set(snapshotIdentity, corpus);
+        return corpus;
+      },
     });
   };
   const semanticReviewJobsForProposalIds = (
@@ -1847,8 +1899,10 @@ export function createControlPlane(options?: {
     ].slice(0, 512));
     return episode;
   };
-  const baseSemanticReviewCandidates = (): readonly SemanticReviewCandidate[] => {
-    const relationCompilations = relationDiscoveryProposalCompilations();
+  const baseSemanticReviewCandidates = (
+    relationCompilations: readonly RelationDiscoveryProposalCompilation[] =
+      relationDiscoveryProposalCompilations(),
+  ): readonly SemanticReviewCandidate[] => {
     const reviewableRelationCompilations =
       selectRelationDiscoverySemanticReviewCompilations(relationCompilations);
     const issues = new Map(
@@ -2094,6 +2148,7 @@ export function createControlPlane(options?: {
       ),
     );
     const currentCorpus = catalogObservationDesk.corpus();
+    const existingRoutingJobs = premiseEvidenceRoutingScheduler.projection().jobs;
     return Object.freeze(premiseAnalysisScheduler.projection().jobs.flatMap((job) => {
       const source = sources.get(job.proposalId);
       if (
@@ -2101,6 +2156,14 @@ export function createControlPlane(options?: {
         job.schemaVersion !== "pmh.premise-analysis-job.v3" ||
         job.outcomeCapsule === undefined || job.outcomeCapsule.unboundPremiseCount < 1
       ) return [];
+      // A terminal route already owns the bounded outcome regardless of later
+      // global catalog growth. The scheduler applies this same policy; avoid
+      // rebuilding and hashing a large corpus merely to rediscover it.
+      if (existingRoutingJobs.some((retained) =>
+        retained.proposal.proposalId === source.proposal.proposalId &&
+        retained.outcome.outcomeHash === job.outcomeCapsule!.outcomeHash &&
+        (retained.status === "PASS" || retained.status === "EXHAUSTED")
+      )) return [];
       const retainedListings = source.evidenceBundle?.listings ?? [];
       const listings = [...new Map([
         ...currentCorpus.listings.map((listing) => [listing.listingRef, listing] as const),
@@ -2119,10 +2182,12 @@ export function createControlPlane(options?: {
         excludedSourceCount: currentCorpus.excludedSourceCount,
         listings,
       });
+      const corpusIdentity = premiseEvidenceCorpusIdentity(corpus);
       return [Object.freeze({
         proposal: source.proposal,
         outcome: job.outcomeCapsule,
         corpus,
+        corpusIdentity,
       })];
     }));
   };
@@ -2147,11 +2212,21 @@ export function createControlPlane(options?: {
       right.createdAt.localeCompare(left.createdAt) || right.jobId.localeCompare(left.jobId)
     )[0]?.routerIdentity;
     if (currentRouterIdentity === undefined) return Object.freeze([]);
+    const retainedExpansionKeys = new Set(
+      premiseRouteExpansionScheduler.projection().jobs.map((job) =>
+        `${job.sourceRoute.artifactHash}\n${job.routeGroupId}`
+      ),
+    );
     return Object.freeze(routeJobs.flatMap((sourceJob) => {
       if (
         sourceJob.routerIdentity !== currentRouterIdentity ||
         sourceJob.status !== "PASS" || sourceJob.route === null
       ) return [];
+      const pendingGroups = sourceJob.route.groups.filter((group) =>
+        group.disposition === "TRADED_STATE_CANDIDATE" &&
+        !retainedExpansionKeys.has(`${sourceJob.route!.artifactHash}\n${group.groupId}`)
+      );
+      if (pendingGroups.length === 0) return [];
       const retained = retainedListingsByProposal.get(sourceJob.proposal.proposalId) ?? [];
       const availableCorpus = buildMarketCorpusSnapshot({
         sourceSetIdentity: hashCanonical({
@@ -2167,8 +2242,7 @@ export function createControlPlane(options?: {
           ...retained.map((listing) => [listing.listingRef, listing] as const),
         ]).values()],
       });
-      return sourceJob.route.groups.flatMap((group) => {
-        if (group.disposition !== "TRADED_STATE_CANDIDATE") return [];
+      return pendingGroups.flatMap((group) => {
         try {
           return [buildPremiseRouteExpansionCandidate({
             sourceJob,
@@ -2191,6 +2265,8 @@ export function createControlPlane(options?: {
     import("./probability-estimation-scheduler.js").ProbabilityEstimationEvidenceContext | null>();
   const probabilityEstimationCandidates = (
     retainedAttribution?: SemanticReviewAttributionSource,
+    relationCompilations: readonly RelationDiscoveryProposalCompilation[] =
+      relationDiscoveryProposalCompilations(),
   ): readonly ProbabilityEstimationCandidate[] => {
     const reviews = semanticReviewDesk.projection().records.filter((review) =>
       review.status === "PASS" && review.report !== null &&
@@ -2211,7 +2287,7 @@ export function createControlPlane(options?: {
       [issue.issueId, issue] as const
     ));
     const relationOriginsByProposal = new Map<Hash, RelationDiscoveryProposalCompilation[]>();
-    for (const compilation of relationDiscoveryProposalCompilations()) {
+    for (const compilation of relationCompilations) {
       const retained = relationOriginsByProposal.get(compilation.proposal.proposalId) ?? [];
       retained.push(compilation);
       relationOriginsByProposal.set(compilation.proposal.proposalId, retained);
@@ -2343,7 +2419,9 @@ export function createControlPlane(options?: {
     });
     return Object.freeze([...retainedCandidates, ...reviewCandidates]);
   };
-  const retainedEvidenceRequirements = (): readonly EvidenceRequirement[] => {
+  const retainedEvidenceRequirements = (
+    baseCandidates: readonly SemanticReviewCandidate[] = baseSemanticReviewCandidates(),
+  ): readonly EvidenceRequirement[] => {
     const retained = [...new Map([
       ...marketArchaeologistDesk.projection().records.flatMap((record) =>
         record.status === "PASS" && record.report !== null
@@ -2364,7 +2442,7 @@ export function createControlPlane(options?: {
         job.requirements
       ),
     ].map((requirement) => [requirement.requirementId, requirement] as const)).values()];
-    const currentByProposal = new Map(baseSemanticReviewCandidates().map((candidate) =>
+    const currentByProposal = new Map(baseCandidates.map((candidate) =>
       [candidate.proposal.proposalId, candidate] as const
     ));
     const currentListingByRef = new Map(catalogObservationDesk.corpus().listings.map(
@@ -3297,13 +3375,31 @@ export function createControlPlane(options?: {
     }>
   >();
   let activeRuns = 0;
-  const projection = async () => {
+  const projection = async (timings: TimingMetric[] = []) => {
+    const projectionStartedAt = performance.now();
+    const readyStartedAt = performance.now();
     await ready;
+    timings.push(Object.freeze({
+      name: "projection-ready",
+      durationMs: Math.max(0, performance.now() - readyStartedAt),
+    }));
+    const reconcileStartedAt = performance.now();
     const archaeologistProjection = marketArchaeologistDesk.projection();
     const realCandidateDisposition =
       realCandidatePreflightDesk.dispositionProjection();
     const semanticReviewProjection = semanticReviewDesk.projection();
-    const baseReviewCandidates = baseSemanticReviewCandidates();
+    const relationCompilationsStartedAt = performance.now();
+    const relationCompilations = relationDiscoveryProposalCompilations();
+    timings.push(Object.freeze({
+      name: "projection-relation-compilations",
+      durationMs: Math.max(0, performance.now() - relationCompilationsStartedAt),
+    }));
+    const baseCandidatesStartedAt = performance.now();
+    const baseReviewCandidates = baseSemanticReviewCandidates(relationCompilations);
+    timings.push(Object.freeze({
+      name: "projection-base-candidates",
+      durationMs: Math.max(0, performance.now() - baseCandidatesStartedAt),
+    }));
     const semanticReviewAdmission = buildSemanticReviewAdmissionProjection(
       baseReviewCandidates.map((candidate) => candidate.proposal),
     );
@@ -3325,21 +3421,78 @@ export function createControlPlane(options?: {
       probabilityEstimationScheduler.projection().jobs,
     );
     const semanticReviewAttributionSource = semanticReviewScheduler.attributionSource();
+    const probabilityReconcileStartedAt = performance.now();
     probabilityEstimationScheduler.reconcile(
-      probabilityEstimationCandidates(semanticReviewAttributionSource),
+      probabilityEstimationCandidates(
+        semanticReviewAttributionSource,
+        relationCompilations,
+      ),
       catalogObservationDesk.corpus(),
     );
-    premiseAnalysisScheduler.reconcile(premiseAnalysisCandidates(enrichedReviewCandidates));
-    premiseEvidenceRoutingScheduler.reconcile(
-      premiseEvidenceRoutingCandidates(enrichedReviewCandidates),
+    timings.push(Object.freeze({
+      name: "projection-probability-reconcile",
+      durationMs: Math.max(0, performance.now() - probabilityReconcileStartedAt),
+    }));
+    const premiseReconcileStartedAt = performance.now();
+    const premiseAnalysisCandidatesStartedAt = performance.now();
+    const currentPremiseAnalysisCandidates = premiseAnalysisCandidates(
+      enrichedReviewCandidates,
     );
-    premiseRouteExpansionScheduler.reconcile(premiseRouteExpansionCandidates());
-    const retainedCurrentEvidenceRequirements = retainedEvidenceRequirements();
+    timings.push(Object.freeze({
+      name: "projection-premise-analysis-candidates",
+      durationMs: Math.max(0, performance.now() - premiseAnalysisCandidatesStartedAt),
+    }));
+    const premiseAnalysisReconcileStartedAt = performance.now();
+    premiseAnalysisScheduler.reconcile(currentPremiseAnalysisCandidates);
+    timings.push(Object.freeze({
+      name: "projection-premise-analysis-reconcile",
+      durationMs: Math.max(0, performance.now() - premiseAnalysisReconcileStartedAt),
+    }));
+    const premiseRoutingCandidatesStartedAt = performance.now();
+    const currentPremiseRoutingCandidates = premiseEvidenceRoutingCandidates(
+      enrichedReviewCandidates,
+    );
+    timings.push(Object.freeze({
+      name: "projection-premise-routing-candidates",
+      durationMs: Math.max(0, performance.now() - premiseRoutingCandidatesStartedAt),
+    }));
+    const premiseRoutingReconcileStartedAt = performance.now();
+    premiseEvidenceRoutingScheduler.reconcile(
+      currentPremiseRoutingCandidates,
+    );
+    timings.push(Object.freeze({
+      name: "projection-premise-routing-reconcile",
+      durationMs: Math.max(0, performance.now() - premiseRoutingReconcileStartedAt),
+    }));
+    const premiseExpansionCandidatesStartedAt = performance.now();
+    const currentPremiseExpansionCandidates = premiseRouteExpansionCandidates();
+    timings.push(Object.freeze({
+      name: "projection-premise-expansion-candidates",
+      durationMs: Math.max(0, performance.now() - premiseExpansionCandidatesStartedAt),
+    }));
+    const premiseExpansionReconcileStartedAt = performance.now();
+    premiseRouteExpansionScheduler.reconcile(currentPremiseExpansionCandidates);
+    timings.push(Object.freeze({
+      name: "projection-premise-expansion-reconcile",
+      durationMs: Math.max(0, performance.now() - premiseExpansionReconcileStartedAt),
+    }));
+    timings.push(Object.freeze({
+      name: "projection-premise-reconcile",
+      durationMs: Math.max(0, performance.now() - premiseReconcileStartedAt),
+    }));
+    const evidenceReconcileStartedAt = performance.now();
+    const retainedCurrentEvidenceRequirements = retainedEvidenceRequirements(
+      baseReviewCandidates,
+    );
     const currentEvidenceRequirements = officialSourceDiscoveryScheduler.applyAdmissions(
       retainedCurrentEvidenceRequirements,
     );
     evidenceAcquisitionScheduler.reconcile(currentEvidenceRequirements);
     ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
+    timings.push(Object.freeze({
+      name: "projection-evidence-reconcile",
+      durationMs: Math.max(0, performance.now() - evidenceReconcileStartedAt),
+    }));
     const semanticReviewSchedulerProjection = semanticReviewScheduler.projection();
     const probabilitySemanticRepairProgress = buildProbabilitySemanticRepairProgress({
       queue: probabilityCaseRepairQueue,
@@ -3388,6 +3541,11 @@ export function createControlPlane(options?: {
           "RETAINED_RESEARCH_DEBT",
       })),
     );
+    timings.push(Object.freeze({
+      name: "projection-reconcile",
+      durationMs: Math.max(0, performance.now() - reconcileStartedAt),
+    }));
+    const derivedViewsStartedAt = performance.now();
     const probabilityEvidenceDebt = buildProbabilityEvidenceDebt({
       runs: probabilityEstimationDesk.projection().records,
       estimatorJobs: probabilityEstimationScheduler.projection().jobs,
@@ -3412,7 +3570,12 @@ export function createControlPlane(options?: {
       materializations: materializerProjection.records,
       proposalEconomicTriage: economicTriageProjection,
     });
-    return buildStudioProjection({
+    timings.push(Object.freeze({
+      name: "projection-derived-views",
+      durationMs: Math.max(0, performance.now() - derivedViewsStartedAt),
+    }));
+    const assemblyStartedAt = performance.now();
+    const current = buildStudioProjection({
       workers: pool.workers,
       activeRuns,
       modelProvider: modelRuntime.projection,
@@ -3464,12 +3627,22 @@ export function createControlPlane(options?: {
       realCandidateRescreen: realCandidatePreflightDesk.rescreenProjection(),
       candidateWatch: candidateWatchDesk.projection(),
     });
+    timings.push(Object.freeze({
+      name: "projection-assembly",
+      durationMs: Math.max(0, performance.now() - assemblyStartedAt),
+    }));
+    timings.push(Object.freeze({
+      name: "projection-total",
+      durationMs: Math.max(0, performance.now() - projectionStartedAt),
+    }));
+    return current;
   };
-  const liveProjection = async () => buildLiveStudioProjection(await projection());
+  type LiveProjection = ReturnType<typeof buildLiveStudioProjection>;
   type LiveProjectionSnapshot = Readonly<{
     revision: bigint;
-    projection: Awaited<ReturnType<typeof liveProjection>>;
+    projection: LiveProjection;
     etag: string;
+    buildTiming: readonly TimingMetric[];
   }>;
   let projectionRevision = 0n;
   let liveProjectionCache: LiveProjectionSnapshot | null = null;
@@ -3488,16 +3661,25 @@ export function createControlPlane(options?: {
     // second full derivation; the next request advances to the latest revision.
     if (liveProjectionBuild !== null) return liveProjectionBuild.promise;
     let pending: Promise<LiveProjectionSnapshot>;
-    pending = ready.then(() => {
+    const buildTiming: TimingMetric[] = [];
+    pending = ready.then(async () => {
       if (startupReadiness.status === "STARTING") {
         transitionStartup("MATERIALIZING_PROJECTION");
       }
-      return liveProjection();
+      const full = await projection(buildTiming);
+      const windowStartedAt = performance.now();
+      const current = buildLiveStudioProjection(full);
+      buildTiming.push(Object.freeze({
+        name: "projection-live-window",
+        durationMs: Math.max(0, performance.now() - windowStartedAt),
+      }));
+      return current;
     }).then((current) => {
       const snapshot = Object.freeze({
         revision,
         projection: current,
         etag: `"${current.identity.viewHash}"`,
+        buildTiming: Object.freeze([...buildTiming]),
       });
       if (projectionRevision === revision) liveProjectionCache = snapshot;
       if (startupReadiness.status === "STARTING") {
@@ -3939,9 +4121,24 @@ export function createControlPlane(options?: {
     if (request.method === "GET" && url.pathname === "/api/v1/projection") {
       const view = url.searchParams.get("view") ?? "live";
       if (view === "live") {
+        const requestStartedAt = performance.now();
+        const cachePosture = liveProjectionCache?.revision === projectionRevision
+          ? "hit"
+          : liveProjectionBuild === null ? "miss" : "coalesced";
         const snapshot = await liveProjectionSnapshot();
-        const headers = Object.freeze({
-          "access-control-expose-headers": "etag, x-pmh-projection-revision",
+        const requestDurationMs = Math.max(0, performance.now() - requestStartedAt);
+        const baseMetrics: TimingMetric[] = [Object.freeze({
+          name: "projection-cache",
+          description: cachePosture,
+          durationMs: 0,
+        })];
+        if (cachePosture === "miss") baseMetrics.push(...snapshot.buildTiming);
+        baseMetrics.push(Object.freeze({
+          name: "projection-request",
+          durationMs: requestDurationMs,
+        }));
+        const baseHeaders = Object.freeze({
+          "access-control-expose-headers": "etag, server-timing, x-pmh-projection-revision, x-pmh-response-bytes",
           "cache-control": "no-cache, private",
           etag: snapshot.etag,
           "x-pmh-projection-revision": snapshot.revision.toString(),
@@ -3949,14 +4146,35 @@ export function createControlPlane(options?: {
         if (requestAcceptsEtag(request, snapshot.etag)) {
           response.writeHead(304, {
             ...localStudioCorsHeaders(request),
-            ...headers,
+            ...baseHeaders,
+            "server-timing": formatServerTiming(baseMetrics),
           });
           response.end();
         } else {
-          writeJson(response, 200, snapshot.projection, headers);
+          const serialized = serializeJson(snapshot.projection);
+          const metrics = [...baseMetrics, Object.freeze({
+            name: "projection-json",
+            durationMs: serialized.durationMs,
+          })];
+          writeSerializedJson(response, 200, serialized.body, {
+            ...baseHeaders,
+            "server-timing": formatServerTiming(metrics),
+            "x-pmh-response-bytes": serialized.byteLength.toString(),
+          });
         }
       } else if (view === "full") {
-        writeJson(response, 200, await projection());
+        const timings: TimingMetric[] = [];
+        const current = await projection(timings);
+        const serialized = serializeJson(current);
+        timings.push(Object.freeze({
+          name: "projection-json",
+          durationMs: serialized.durationMs,
+        }));
+        writeSerializedJson(response, 200, serialized.body, {
+          "access-control-expose-headers": "server-timing, x-pmh-response-bytes",
+          "server-timing": formatServerTiming(timings),
+          "x-pmh-response-bytes": serialized.byteLength.toString(),
+        });
       } else {
         writeJson(response, 400, {
           ok: false,
@@ -4156,7 +4374,10 @@ export function createControlPlane(options?: {
       request.method === "GET" &&
       url.pathname === "/api/v1/market-ontology/standing-routes"
     ) {
+      const requestStartedAt = performance.now();
+      const routeTimings: TimingMetric[] = [];
       await ready;
+      const routeProjectionStartedAt = performance.now();
       const findings = relationDiscoveryStore
         ?.loadStandingOntologyRouteSourceFindings() ?? [];
       const taskRevisions = relationDiscoveryStore
@@ -4170,10 +4391,20 @@ export function createControlPlane(options?: {
           ?.loadRelationDiscoveryCorpus(snapshotIdentity) ?? null,
         currentCorpus: catalogObservationDesk.corpus(),
       });
+      routeTimings.push(Object.freeze({
+        name: "routes-projection",
+        durationMs: Math.max(0, performance.now() - routeProjectionStartedAt),
+      }));
+      const followupStartedAt = performance.now();
       const followups = materializeStandingOntologyRouteFollowups({
         projection,
         ontology: buildMarketOntologySnapshot(catalogObservationDesk.corpus()),
       });
+      routeTimings.push(Object.freeze({
+        name: "routes-followups",
+        durationMs: Math.max(0, performance.now() - followupStartedAt),
+      }));
+      const inputStartedAt = performance.now();
       const episodes = standingRouteEpisodeStore
         ?.loadStandingOntologyRouteObservationEpisodes(
           projection.families.map((item) => item.family.routeFamilyId),
@@ -4181,7 +4412,12 @@ export function createControlPlane(options?: {
       const execution = agentExecutionRegistry.snapshot();
       const findingsForValue = relationDiscoveryStore
         ?.loadRelationDiscoveryFindings(512) ?? [];
-      const compilations = relationDiscoveryProposalCompilations();
+      const allTaskRevisions = relationDiscoveryStore
+        ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions;
+      const compilations = relationDiscoveryProposalCompilations({
+        findings: findingsForValue,
+        taskRevisions: allTaskRevisions,
+      });
       const proposalIds = compilations.map((item) => item.proposal.proposalId);
       const semanticReviews = proposalIds.length === 0
         ? Object.freeze([])
@@ -4201,13 +4437,17 @@ export function createControlPlane(options?: {
         proposalOpportunityIds.has(item.opportunityId)
       ).map((item) => Object.freeze({ opportunityId: item.opportunityId }));
       const observedAt = new Date().toISOString();
+      routeTimings.push(Object.freeze({
+        name: "routes-inputs",
+        durationMs: Math.max(0, performance.now() - inputStartedAt),
+      }));
+      const valueStartedAt = performance.now();
       const value = buildStandingOntologyRouteValueProjection({
         projection,
         followups,
         episodes,
         execution,
-        taskRevisions: relationDiscoveryStore
-          ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
+        taskRevisions: allTaskRevisions,
         findings: findingsForValue,
         compilations,
         semanticReviews,
@@ -4215,21 +4455,34 @@ export function createControlPlane(options?: {
         opportunities,
         observedAt,
       });
+      routeTimings.push(Object.freeze({
+        name: "routes-value",
+        durationMs: Math.max(0, performance.now() - valueStartedAt),
+      }));
+      const seedOutcomeStartedAt = performance.now();
       const seedOutcomes = buildStandingRouteSeedOutcomeProjection({
         execution,
-        taskRevisions: relationDiscoveryStore
-          ?.loadRelationDiscoveryTaskRevisions(512) ?? relationDiscoveryTaskRevisions,
+        taskRevisions: allTaskRevisions,
         findings: findingsForValue,
         standingRoutes: projection,
         observedAt,
       });
+      routeTimings.push(Object.freeze({
+        name: "routes-seed-outcomes",
+        durationMs: Math.max(0, performance.now() - seedOutcomeStartedAt),
+      }));
+      const selectionStartedAt = performance.now();
       const selection = buildStandingRouteFamilySelectionProjection({
         routes: projection,
         value,
         seedOutcomes,
         observedAt,
       });
-      writeJson(response, 200, Object.freeze({
+      routeTimings.push(Object.freeze({
+        name: "routes-selection",
+        durationMs: Math.max(0, performance.now() - selectionStartedAt),
+      }));
+      const serialized = serializeJson(Object.freeze({
         ...projection,
         followupCount: followups.length,
         followups,
@@ -4238,6 +4491,19 @@ export function createControlPlane(options?: {
         value,
         selection,
       }));
+      routeTimings.push(Object.freeze({
+        name: "routes-json",
+        durationMs: serialized.durationMs,
+      }));
+      routeTimings.push(Object.freeze({
+        name: "routes-total",
+        durationMs: Math.max(0, performance.now() - requestStartedAt),
+      }));
+      writeSerializedJson(response, 200, serialized.body, {
+        "access-control-expose-headers": "server-timing, x-pmh-response-bytes",
+        "server-timing": formatServerTiming(routeTimings),
+        "x-pmh-response-bytes": serialized.byteLength.toString(),
+      });
       return;
     }
     if (

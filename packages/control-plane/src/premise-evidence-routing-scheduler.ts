@@ -40,6 +40,7 @@ export type PremiseEvidenceRoutingCandidate = Readonly<{
   proposal: MarketRelationProposal;
   outcome: PremiseAnalysisOutcomeCapsule;
   corpus: MarketCorpusSnapshot;
+  corpusIdentity?: Hash;
 }>;
 
 export type PremiseEvidenceRoutingJobRecord = Readonly<{
@@ -288,7 +289,8 @@ export class PremiseEvidenceRoutingScheduler {
       const proposal = assertProposal(candidate.proposal);
       const outcome = assertPremiseAnalysisOutcomeCapsule(candidate.outcome);
       if (proposal.proposalId !== outcome.proposalId || outcome.unboundPremiseCount < 1) continue;
-      const corpusIdentity = premiseEvidenceCorpusIdentity(candidate.corpus);
+      const corpusIdentity = candidate.corpusIdentity ??
+        premiseEvidenceCorpusIdentity(candidate.corpus);
       const scopedJobs = this.#jobs.filter((job) =>
         job.proposal.proposalId === proposal.proposalId &&
         job.outcome.outcomeHash === outcome.outcomeHash &&
@@ -395,7 +397,8 @@ export class PremiseEvidenceRoutingScheduler {
     const candidateByJob = new Map<Hash, PremiseEvidenceRoutingCandidate>();
     for (const candidate of candidates) {
       if (candidate.outcome.unboundPremiseCount < 1) continue;
-      const corpusIdentity = premiseEvidenceCorpusIdentity(candidate.corpus);
+      const corpusIdentity = candidate.corpusIdentity ??
+        premiseEvidenceCorpusIdentity(candidate.corpus);
       const scopedJobs = this.#jobs.filter((job) =>
         job.proposal.proposalId === candidate.proposal.proposalId &&
         job.outcome.outcomeHash === candidate.outcome.outcomeHash &&
