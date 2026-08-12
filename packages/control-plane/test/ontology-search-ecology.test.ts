@@ -2,9 +2,17 @@ import { hashCanonical } from "@pmh/domain";
 import { describe, expect, it } from "vitest";
 import {
   assertOntologySearchIssueRevision,
+  assertMarketOntologyAgentProposal,
+  buildAgentRun,
+  buildAgentTask,
+  buildAgentToolEffect,
+  buildDefaultAgentRuntimePortfolio,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
+  buildModelInvocation,
   buildOntologySearchYieldProjection,
+  completeAgentRun,
+  defaultAiRuntimeConfiguration,
   emptyAgentExecutionSnapshot,
   materializeOntologySearchIssueRevisions,
   SqliteOperationalStore,
@@ -137,6 +145,10 @@ describe("ontology search ecology", () => {
         unknownOutputInvocationCount: 0,
         unknownReasoningInvocationCount: 0,
       },
+      downstreamRelationWorkAttribution: {
+        status: "NOT_YET_CONNECTED",
+        workItemCount: 0,
+      },
       downstreamOpportunityAttribution: "NOT_YET_CONNECTED",
       authority: "DERIVED_RESEARCH_EVIDENCE_ONLY",
       semanticDecisionAuthority: false,
@@ -168,6 +180,147 @@ describe("ontology search ecology", () => {
       ...revision,
       taskPayload: { ...revision.taskPayload, trailheadIds: [] },
     })).toThrow(/(?:bounded|evidence) contract/iu);
+  });
+
+  it("retains issue yield when a newer ontology snapshot changes the task ID", () => {
+    const { corpus, ontology } = fixture();
+    const revisions = materializeOntologySearchIssueRevisions({
+      corpus,
+      ontology,
+      proposals: [],
+    });
+    const revision = revisions[0]!;
+    const historicalTask = buildAgentTask({
+      kind: "ONTOLOGY_NORMALIZATION",
+      protocol: revision.task.protocol,
+      inputArtifacts: revision.task.inputArtifacts,
+      taskPayload: { schemaVersion: "historical-ontology-payload.v1" },
+      requestedEffectProtocol: revision.task.requestedEffectProtocol,
+      provenanceRef: revision.task.provenanceRef,
+      priority: revision.task.priority,
+      createdAt: "2026-08-11T09:00:00.000Z",
+    });
+    expect(historicalTask.taskId).not.toBe(revision.task.taskId);
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(
+      { PMH_DISCOVERY_PROVIDER: "codex" },
+      () => Date.parse(RECEIVED_AT),
+    ));
+    const route = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "ONTOLOGY_NORMALIZATION"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    )!;
+    const model = portfolio.modelProfiles.find((item) =>
+      item.modelProfileId === profile.modelProfileId
+    )!;
+    const prepared = buildAgentRun({
+      task: historicalTask,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:historical-yield-test",
+        authorizedAt: "2026-08-11T09:00:00.000Z",
+      },
+      createdAt: "2026-08-11T09:00:00.000Z",
+    });
+    const run = completeAgentRun(
+      prepared,
+      "SUCCEEDED",
+      "2026-08-11T09:01:00.000Z",
+      null,
+    );
+    const invocation = buildModelInvocation({
+      run,
+      modelProfile: model,
+      ordinal: 1,
+      status: "SUCCEEDED",
+      startedAt: "2026-08-11T09:00:00.000Z",
+      completedAt: "2026-08-11T09:00:30.000Z",
+      inputTokens: "1234",
+      outputTokens: "56",
+      reasoningTokens: "12",
+    });
+    const effect = buildAgentToolEffect({
+      run,
+      ordinal: 1,
+      toolProtocol: revision.task.requestedEffectProtocol,
+      toolName: "propose_world_proposition",
+      status: "ACCEPTED",
+      canonicalInput: { label: "historical proposition" },
+      canonicalOutput: { accepted: true },
+      occurredAt: "2026-08-11T09:00:30.000Z",
+    });
+    const node = revision.taskPayload.listingEvidence[0]!.node;
+    const proposalBody = Object.freeze({
+      schemaVersion: "pmh.market-ontology-agent-proposal.v1" as const,
+      kind: "WORLD_PROPOSITION" as const,
+      ontologyIdentity: revision.ontologyIdentity,
+      sourceSnapshotIdentity: revision.sourceSnapshotIdentity,
+      sourceAgentRunId: run.runId,
+      sourceTrailheadIds: Object.freeze([revision.trailheadIds[0]!]),
+      sourceRelationPatternIds: Object.freeze([revision.relationPatternId]),
+      listingBindings: Object.freeze([Object.freeze({
+        listingRef: node.listingRef,
+        nodeId: node.nodeId,
+        worldFacetId: node.worldFacet.facetId,
+        settlementFacetId: node.settlementFacet.facetId,
+        tradedFacetId: node.tradedFacet.facetId,
+      })]),
+      rationale: "Historical evidence named the proposition.",
+      proposedAt: "2026-08-11T09:00:30.000Z",
+      authority: "PROPOSE_ONLY" as const,
+      reviewStatus: "UNREVIEWED" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+      label: "Mark Kelly charged with a federal crime in 2026",
+      subjectLabels: Object.freeze(["Mark Kelly"]),
+      predicate: "charged_with_federal_crime",
+      timeScope: "2026",
+      parameters: Object.freeze([]),
+      ambiguityNotes: Object.freeze(["The legal definition remains venue-specific."]),
+      falsifiers: Object.freeze(["The retained listing names a different person."]),
+    });
+    const proposal = assertMarketOntologyAgentProposal(Object.freeze({
+      ...proposalBody,
+      proposalId: hashCanonical(proposalBody),
+    }));
+    const execution = Object.freeze({
+      ...emptyAgentExecutionSnapshot(),
+      ...portfolio,
+      tasks: Object.freeze([historicalTask, ...revisions.map((item) => item.task)]),
+      runs: Object.freeze([run]),
+      modelInvocations: Object.freeze([invocation]),
+      toolEffects: Object.freeze([effect]),
+    });
+
+    const projection = buildOntologySearchYieldProjection({
+      revisions,
+      proposals: [proposal],
+      execution,
+    });
+
+    expect(projection).toMatchObject({
+      attemptedIssueCount: 1,
+      proposalCoveredIssueCount: 1,
+      runCount: 1,
+      succeededRunCount: 1,
+      modelInvocationCount: 1,
+      acceptedToolEffectCount: 1,
+      proposalCounts: { worldProposition: 1 },
+      usage: {
+        knownInputTokens: "1234",
+        knownOutputTokens: "56",
+        knownReasoningTokens: "12",
+      },
+    });
+    expect(projection.byIssue.find((item) => item.issueId === revision.issueId))
+      .toMatchObject({ runCount: 1, proposalCount: 1, knownInputTokens: "1234" });
   });
 
   it("persists exact task payload revisions after retaining provider-neutral tasks", () => {

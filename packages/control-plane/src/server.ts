@@ -97,6 +97,7 @@ import {
   type OntologySearchIssueRevisionStore,
 } from "./ontology-search-ecology.js";
 import { buildOntologyAgentCampaignPreview } from "./ontology-agent-campaign.js";
+import { buildOntologyRelationWorkProjection } from "./ontology-relation-work.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -3364,15 +3365,39 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/relation-work"
+    ) {
+      await ready;
+      const proposals = marketOntologyAgentProposalStore
+        ?.loadMarketOntologyAgentProposals(200) ?? [];
+      const revisions = ontologySearchIssueRevisionStore
+        ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+      writeJson(response, 200, buildOntologyRelationWorkProjection({
+        proposals,
+        revisions,
+        execution: agentExecutionRegistry.snapshot(),
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/market-ontology/search-ecology"
     ) {
       await ready;
       const proposals = marketOntologyAgentProposalStore
         ?.loadMarketOntologyAgentProposals(200) ?? [];
+      const retainedRevisions = ontologySearchIssueRevisionStore
+        ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions;
+      const relationWork = buildOntologyRelationWorkProjection({
+        proposals,
+        revisions: retainedRevisions,
+        execution: agentExecutionRegistry.snapshot(),
+      });
       const yieldProjection = buildOntologySearchYieldProjection({
         revisions: ontologySearchIssueRevisions,
         proposals,
         execution: agentExecutionRegistry.snapshot(),
+        relationWork,
       });
       const latestByIssue = new Map<Hash, OntologySearchIssueRevision>();
       for (const revision of ontologySearchIssueRevisions) {

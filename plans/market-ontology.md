@@ -5,7 +5,7 @@ Status: active mainline construction
 Issues: [#94](https://github.com/luokerenx4/my-little-pony/issues/94),
 [#96](https://github.com/luokerenx4/my-little-pony/issues/96)
 
-Current continuation branch: `codex/ontology-search-ecology`
+Current continuation branch: `codex/ontology-relation-work`
 
 ## North star
 
@@ -140,9 +140,9 @@ read-only proposal ledger is projected at
 
 Automatic dispatch remains deliberately absent. Provider-free issue
 materialization and the zero-cost yield baseline are now implemented in Phase
-4. The next controlled increment can let an explicitly activated campaign
-choose runtime, credential, model, and model-owned effort through the existing
-execution substrate.
+4. PR #99 qualified explicitly activated Terra/high campaigns through Codex
+app-server, including native tool repair and accurate long-loop usage. The
+active increment now converts retained proposals into stable relation work.
 
 ## Phase 4 — persistent search ecology
 
@@ -202,11 +202,11 @@ times so this regression cannot hide inside a broad startup phase again.
 
 ### Next gates
 
-1. Add an opt-in ontology campaign selector that samples a small differentiated
+1. [x] Add an opt-in ontology campaign selector that samples a small differentiated
    portfolio and resolves the operator's persisted Terra-first route; do not
    create a run until runtime, credential, model, and capability preflight all
    pass.
-2. Let accepted ontology proposals and counterexamples create or update
+2. [x] Let accepted ontology proposals and counterexamples create or update
    relation-bound discovery work without granting the proposing Agent semantic
    authority.
 3. Carry ontology issue/revision/trailhead lineage into reviewed findings,

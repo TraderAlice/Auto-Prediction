@@ -2340,6 +2340,30 @@ describe("control-plane HTTP surface", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    const ontologyRelationWorkResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/relation-work`,
+    );
+    expect(ontologyRelationWorkResponse.status).toBe(200);
+    await expect(ontologyRelationWorkResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.ontology-relation-work-projection.v1",
+      sourceProposalCount: 0,
+      workItemCount: 0,
+      runnableResearchCount: 0,
+      negativeMemoryCount: 0,
+      blockedMissingLineageCount: 0,
+      proposalToWorkCoverageBps: null,
+      items: [],
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      automaticDispatch: false,
+      authority: "RELATION_SEARCH_PROPOSAL_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
     const ontologyEcologyResponse = await fetch(
       `${baseUrl}/api/v1/market-ontology/search-ecology`,
     );
