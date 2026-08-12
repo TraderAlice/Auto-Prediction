@@ -1663,6 +1663,7 @@ const EMPTY_SEARCH_OUTCOME_ATTRIBUTION: StudioProjection["ai"]["searchOutcomeAtt
 const EMPTY_SEMANTIC_RELATION_GRAPH: StudioProjection["ai"]["semanticRelationGraph"] = {
   schemaVersion: "pmh.semantic-relation-graph.v1",
   graphIdentity: `sha256:${"0".repeat(64)}`,
+  marketOntologyIdentity: `sha256:${"0".repeat(64)}`,
   sourceSnapshotIdentity: `sha256:${"0".repeat(64)}`,
   sourceArtifactHashes: [],
   listingCount: 0,
@@ -1671,6 +1672,8 @@ const EMPTY_SEMANTIC_RELATION_GRAPH: StudioProjection["ai"]["semanticRelationGra
   resolutionBindingNodeCount: 0,
   relationCount: 0,
   feedbackCount: 0,
+  worldReferenceClusterCount: 0,
+  ontologyTrailheadCount: 0,
   listings: [],
   relations: [],
   feedback: [],
@@ -4395,6 +4398,16 @@ function MarketArchaeologistView() {
   );
   const latestTrailhead = latestTrailheadRecord?.fastLane.retrievalPlan
     ?.heuristicTrailhead ?? null;
+  const latestTrailheadRefs = latestTrailhead === null
+    ? []
+    : latestTrailhead.kind === "ONTOLOGY_DIVERGENCE"
+      ? latestTrailhead.anchorListingRefs
+      : [latestTrailhead.seedListingRef, ...latestTrailhead.relatedListingRefs];
+  const latestTrailheadSignals = latestTrailhead === null
+    ? []
+    : latestTrailhead.kind === "ONTOLOGY_DIVERGENCE"
+      ? latestTrailhead.sharedSubjectSignals
+      : latestTrailhead.seedSignals;
   const latestTrailheadGraph = latestTrailheadRecord === undefined
     ? null
     : graphReadability(latestTrailheadRecord);
@@ -4673,21 +4686,23 @@ function MarketArchaeologistView() {
                   <Badge variant="verified"><Sparkles size={11} /> LATEST TRAILHEAD</Badge>
                   <span>{latestTrailheadRecord.lease.semanticFamily?.replaceAll("_", " ")}</span>
                 </div>
-                <h3>{latestTrailhead.seedTitle ?? "Heuristic seed neighborhood"}</h3>
-                <code>{latestTrailhead.seedListingRef}</code>
+                <h3>{latestTrailhead.kind === "ONTOLOGY_DIVERGENCE"
+                  ? "Ontology divergence"
+                  : latestTrailhead.seedTitle ?? "Heuristic seed neighborhood"}</h3>
+                <code>{latestTrailheadRefs.join(" + ")}</code>
                 <p>
-                  The router started here because of rare signals, then assembled
-                  {" "}{latestTrailhead.relatedListingRefs.length} related contracts for the
-                  Agent to inspect before forming any claim.
+                  {latestTrailhead.kind === "ONTOLOGY_DIVERGENCE"
+                    ? latestTrailhead.searchQuestion
+                    : `The router started here because of rare signals, then assembled ${latestTrailhead.relatedListingRefs.length} related contracts for the Agent to inspect before forming any claim.`}
                 </p>
                 <div className="latest-discovery-signals">
-                  {latestTrailhead.seedSignals.map((signal) => (
+                  {latestTrailheadSignals.map((signal) => (
                     <span key={signal}>{signal}</span>
                   ))}
                 </div>
               </div>
               <dl>
-                <div><dt>neighbors</dt><dd>{latestTrailhead.relatedListingRefs.length}</dd></div>
+                <div><dt>contracts</dt><dd>{latestTrailheadRefs.length}</dd></div>
                 <div>
                   <dt>graph refs</dt>
                   <dd>{latestTrailheadGraph === null
@@ -5522,7 +5537,9 @@ function MarketArchaeologistView() {
                     : ` · anchors ${record.fastLane.retrievalPlan.anchorListingRefs.join(" + ")}`}
                   {record.fastLane.retrievalPlan.heuristicTrailhead == null
                     ? ""
-                    : ` · seed ${record.fastLane.retrievalPlan.heuristicTrailhead.seedListingRef} · ${record.fastLane.retrievalPlan.heuristicTrailhead.relatedListingRefs.length} neighbors · signals ${record.fastLane.retrievalPlan.heuristicTrailhead.seedSignals.join(", ")}`}
+                    : record.fastLane.retrievalPlan.heuristicTrailhead.kind === "ONTOLOGY_DIVERGENCE"
+                      ? ` · ontology pair ${record.fastLane.retrievalPlan.heuristicTrailhead.anchorListingRefs.join(" + ")} · facets ${record.fastLane.retrievalPlan.heuristicTrailhead.changedFacets.join(", ")} · signals ${record.fastLane.retrievalPlan.heuristicTrailhead.sharedSubjectSignals.join(", ")}`
+                      : ` · seed ${record.fastLane.retrievalPlan.heuristicTrailhead.seedListingRef} · ${record.fastLane.retrievalPlan.heuristicTrailhead.relatedListingRefs.length} neighbors · signals ${record.fastLane.retrievalPlan.heuristicTrailhead.seedSignals.join(", ")}`}
                 </p>
               )}
             </article>

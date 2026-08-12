@@ -5,8 +5,9 @@ under [`plans/market-ontology.md`](plans/market-ontology.md). Issue #94 treats a
 prediction market as three linked but non-identical objects: a world
 proposition, a venue settlement contract, and an observed traded payoff. The
 first provider-free slice now turns retained anonymous listing evidence into a
-content-addressed ontology and durable heuristic trailheads; Agents may use
-those trailheads to form and falsify relations, but the projection has no
+content-addressed ontology and durable heuristic trailheads; issue #96 extends
+that substrate into a persistent search ecology. Agents may use those
+trailheads to form and falsify relations, but the projection has no
 semantic, probability, certificate, or execution authority. A 4,706-listing
 anonymous qualification produced 512 bounded rare-signal clusters and 128
 diversified trailheads across 99 relation templates in 0.522 seconds with no
@@ -15,11 +16,19 @@ description-derived world facets, unlimited same-template samples, and
 unbounded single-token entity matches. Provider-neutral ontology-normalization
 tasks and first-party tools now let Pi, Codex, or the in-process AI SDK propose
 entity aliases, world propositions, and counterexamples against exact assigned
-evidence. SQLite schema 38 retains their full unreviewed content and run/facet
-lineage; no campaign or automatic provider request was created. The next phase
-is provider-free issue materialization plus durable search-yield attribution,
-before explicitly activated campaigns spend model budget. Search yield and
-reviewed opportunity value—not graph size—remain the selection signals.
+evidence. SQLite schema 39 now retains their full unreviewed content and
+run/facet lineage plus 64 current `selection lane × relation pattern` search
+work items. The live portfolio preserves 26 cross-venue, 24 world-divergence,
+and 14 settlement-divergence issue families; each has a complete replayable
+evidence payload and provider-neutral Agent task, but no run, campaign, or
+automatic provider request was created. The zero-cost yield baseline is
+therefore explicit: 64 eligible issues, zero attempts, zero invocations, zero
+proposals, and no downstream opportunity attribution yet. Moving snapshot
+validation out of the per-issue loop reduced ontology reconciliation from
+23.904 seconds to 1.214 seconds while retaining per-task evidence validation.
+The next phase is an explicitly budgeted small campaign plus
+proposal-to-opportunity attribution. Search yield and reviewed opportunity
+value—not graph size—remain the selection signals.
 
 The active AI architecture migration is
 [`plans/agent-execution-substrate.md`](plans/agent-execution-substrate.md). It

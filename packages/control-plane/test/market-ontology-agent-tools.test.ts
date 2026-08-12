@@ -70,6 +70,7 @@ function fixture() {
   )!;
   const payload = buildMarketOntologyNormalizationTaskPayload({
     ontology,
+    corpus,
     trailheadIds: [trailhead.trailheadId],
   });
   const task = buildAgentTask({
@@ -215,6 +216,28 @@ describe("market ontology Agent tools", () => {
     expect(work.host.proposals()).toHaveLength(0);
   });
 
+  it("replays an assigned tool host from its durable payload after the corpus rotates", async () => {
+    const work = fixture();
+    const replayed = MarketOntologyAgentToolHost.fromTaskPayload(work.payload);
+    const evidence = await replayed.execute({
+      run: work.run,
+      task: work.task,
+      executionProfile: work.profile,
+      callId: "call:durable-replay:1",
+      toolName: "read_ontology_trailhead_evidence",
+      input: { trailheadId: work.trailhead.trailheadId },
+    });
+
+    expect(evidence).toEqual(await work.host.execute({
+      run: work.run,
+      task: work.task,
+      executionProfile: work.profile,
+      callId: "call:current-corpus:1",
+      toolName: "read_ontology_trailhead_evidence",
+      input: { trailheadId: work.trailhead.trailheadId },
+    }));
+  });
+
   it("runs through the provider-neutral long-loop adapter as tool effects", async () => {
     const work = fixture();
     let turn = 0;
@@ -329,7 +352,7 @@ describe("market ontology Agent tools", () => {
     expect(store.loadMarketOntologyAgentProposals(10)).toEqual([proposal]);
     expect(store.marketOntologyAgentProposalStorage).toMatchObject({
       durable: false,
-      schemaVersion: 38,
+      schemaVersion: 39,
       idempotencyKey: "proposalId",
     });
     store.close();

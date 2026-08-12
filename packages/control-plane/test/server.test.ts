@@ -2340,6 +2340,29 @@ describe("control-plane HTTP surface", () => {
       certificateAuthority: false,
       executionAuthority: false,
     });
+    const ontologyEcologyResponse = await fetch(
+      `${baseUrl}/api/v1/market-ontology/search-ecology`,
+    );
+    expect(ontologyEcologyResponse.status).toBe(200);
+    await expect(ontologyEcologyResponse.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.ontology-search-ecology.v1",
+      yield: {
+        schemaVersion: "pmh.ontology-search-yield.v1",
+        issueCount: 0,
+        runCount: 0,
+        modelInvocationCount: 0,
+        downstreamOpportunityAttribution: "NOT_YET_CONNECTED",
+      },
+      issues: [],
+      automaticDispatch: false,
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      authority: "SEARCH_WORK_ASSIGNMENT_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
     const searchResponse = await fetch(
       `${baseUrl}/api/v1/market-corpus/search`,
       {
@@ -2780,7 +2803,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 38,
+        schemaVersion: 39,
         },
         records: [{ investigationId: created.investigationId }],
       });

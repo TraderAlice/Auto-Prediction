@@ -23,6 +23,7 @@ export const MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL =
 
 const MAX_ASSIGNED_TRAILHEADS = 16;
 const MAX_LISTING_REFS = 16;
+const MAX_LISTING_EVIDENCE = MAX_ASSIGNED_TRAILHEADS * 2;
 const MAX_ALIASES = 16;
 const MAX_SUBJECT_LABELS = 8;
 const MAX_PARAMETERS = 12;
@@ -35,6 +36,19 @@ export type MarketOntologyNormalizationTaskPayload = Readonly<{
   ontologyIdentity: Hash;
   sourceSnapshotIdentity: Hash;
   trailheadIds: readonly Hash[];
+  trailheads: readonly MarketOntologyTrailhead[];
+  listingEvidence: readonly Readonly<{
+    listingRef: string;
+    title: string;
+    descriptionExcerpt: string;
+    rulesTextExcerpt: string | null;
+    outcomes: MarketCorpusSnapshot["listings"][number]["outcomes"];
+    closesAt: string | null;
+    sourceRawHash: string;
+    protocolIdentity: string;
+    node: MarketOntologyListingNode;
+    contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY";
+  }>[];
   objective:
     "PROPOSE_EVIDENCE_BOUND_ENTITY_AND_WORLD_PROPOSITION_NORMALIZATION";
   authority: "PROPOSE_ONLY";
@@ -58,6 +72,7 @@ type ProposalEnvelope = Readonly<{
   sourceSnapshotIdentity: Hash;
   sourceAgentRunId: Hash;
   sourceTrailheadIds: readonly Hash[];
+  sourceRelationPatternIds: readonly Hash[];
   listingBindings: readonly MarketOntologyListingBinding[];
   rationale: string;
   proposedAt: string;
@@ -178,6 +193,87 @@ function binding(node: MarketOntologyListingNode): MarketOntologyListingBinding 
   });
 }
 
+function canonicalIdentityMatches(
+  value: Readonly<Record<string, unknown>>,
+  identityField: string,
+): boolean {
+  const identity = value[identityField];
+  if (!HASH_PATTERN.test(String(identity))) return false;
+  const body = { ...value };
+  delete body[identityField];
+  return identity === hashCanonical(body);
+}
+
+export function assertMarketOntologyNormalizationTaskPayload(
+  value: unknown,
+): MarketOntologyNormalizationTaskPayload {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("market ontology normalization task payload is malformed");
+  }
+  const payload = value as MarketOntologyNormalizationTaskPayload;
+  const trailheadIds = Array.isArray(payload.trailheadIds) ? payload.trailheadIds : [];
+  const trailheads = Array.isArray(payload.trailheads) ? payload.trailheads : [];
+  const listingEvidence = Array.isArray(payload.listingEvidence) ? payload.listingEvidence : [];
+  const assignedRefs = new Set(trailheads.flatMap((item) => item?.listingRefs ?? []));
+  const evidenceRefs = listingEvidence.map((item) => item?.listingRef);
+  if (
+    payload.schemaVersion !== "pmh.market-ontology-normalization-task.v1" ||
+    !HASH_PATTERN.test(String(payload.ontologyIdentity)) ||
+    !HASH_PATTERN.test(String(payload.sourceSnapshotIdentity)) ||
+    trailheadIds.length === 0 || trailheadIds.length > MAX_ASSIGNED_TRAILHEADS ||
+    new Set(trailheadIds).size !== trailheadIds.length ||
+    trailheadIds.some((id) => !HASH_PATTERN.test(String(id))) ||
+    trailheads.length !== trailheadIds.length ||
+    trailheads.some((item, index) =>
+      item?.trailheadId !== trailheadIds[index] ||
+      !canonicalIdentityMatches(
+        item as unknown as Readonly<Record<string, unknown>>,
+        "trailheadId",
+      ) ||
+      item.listingRefs.length !== 2 ||
+      !["CROSS_VENUE", "WORLD_DIVERGENCE", "SETTLEMENT_DIVERGENCE"]
+        .includes(item.selectionLane) ||
+      item.authority !== "SEARCH_ROUTING_ONLY" || item.semanticDecisionAuthority !== false ||
+      item.probabilityAuthority !== false || item.certificateAuthority !== false ||
+      item.executionAuthority !== false
+    ) ||
+    listingEvidence.length === 0 || listingEvidence.length > MAX_LISTING_EVIDENCE ||
+    new Set(evidenceRefs).size !== evidenceRefs.length ||
+    evidenceRefs.some((ref) => typeof ref !== "string" || !assignedRefs.has(ref)) ||
+    assignedRefs.size !== evidenceRefs.length ||
+    listingEvidence.some((item) =>
+      typeof item?.title !== "string" || typeof item.descriptionExcerpt !== "string" ||
+      !Array.isArray(item.outcomes) || item.outcomes.length === 0 ||
+      typeof item.sourceRawHash !== "string" || !HASH_PATTERN.test(item.sourceRawHash) ||
+      typeof item.protocolIdentity !== "string" || item.protocolIdentity.trim() === "" ||
+      item.contentPolicy !== "UNTRUSTED_VENUE_TEXT_DATA_ONLY" ||
+      item.node?.listingRef !== item.listingRef ||
+      !canonicalIdentityMatches(
+        item.node as unknown as Readonly<Record<string, unknown>>,
+        "nodeId",
+      ) ||
+      !canonicalIdentityMatches(
+        item.node.worldFacet as unknown as Readonly<Record<string, unknown>>,
+        "facetId",
+      ) ||
+      !canonicalIdentityMatches(
+        item.node.settlementFacet as unknown as Readonly<Record<string, unknown>>,
+        "facetId",
+      ) ||
+      !canonicalIdentityMatches(
+        item.node.tradedFacet as unknown as Readonly<Record<string, unknown>>,
+        "facetId",
+      )
+    ) ||
+    payload.objective !==
+      "PROPOSE_EVIDENCE_BOUND_ENTITY_AND_WORLD_PROPOSITION_NORMALIZATION" ||
+    payload.authority !== "PROPOSE_ONLY" || payload.semanticDecisionAuthority !== false ||
+    payload.probabilityAuthority !== false || payload.certificateAuthority !== false ||
+    payload.executionAuthority !== false
+  ) throw new Error("market ontology normalization task payload violates its evidence contract");
+  return payload;
+}
+
 export function assertMarketOntologyAgentProposal(
   value: unknown,
 ): MarketOntologyAgentProposal {
@@ -196,6 +292,9 @@ export function assertMarketOntologyAgentProposal(
     !Array.isArray(proposal.sourceTrailheadIds) || proposal.sourceTrailheadIds.length === 0 ||
     proposal.sourceTrailheadIds.length > MAX_ASSIGNED_TRAILHEADS ||
     proposal.sourceTrailheadIds.some((id) => !HASH_PATTERN.test(String(id))) ||
+    !Array.isArray(proposal.sourceRelationPatternIds) ||
+    proposal.sourceRelationPatternIds.length === 0 ||
+    proposal.sourceRelationPatternIds.some((id) => !HASH_PATTERN.test(String(id))) ||
     !Array.isArray(proposal.listingBindings) || proposal.listingBindings.length === 0 ||
     proposal.listingBindings.length > MAX_LISTING_REFS ||
     proposal.listingBindings.some((item) =>
@@ -214,28 +313,65 @@ export function assertMarketOntologyAgentProposal(
   return proposal;
 }
 
+export function createMarketOntologyNormalizationTaskPayloadBuilder(input: Readonly<{
+  ontology: MarketOntologySnapshot;
+  corpus: MarketCorpusSnapshot;
+}>): (trailheadIds: readonly Hash[]) => MarketOntologyNormalizationTaskPayload {
+  const ontology = assertMarketOntologySnapshot(input.ontology);
+  const corpus = assertMarketCorpusSnapshot(input.corpus);
+  if (corpus.snapshotIdentity !== ontology.sourceSnapshotIdentity) {
+    throw new Error("ontology normalization task corpus lineage is inconsistent");
+  }
+  const trailheadsById = new Map(ontology.trailheads.map((item) => [item.trailheadId, item]));
+  const nodesByRef = new Map(ontology.nodes.map((item) => [item.listingRef, item]));
+  const listingsByRef = new Map(corpus.listings.map((item) => [item.listingRef, item]));
+  return (requestedTrailheadIds) => {
+    const trailheadIds = Object.freeze([...new Set(requestedTrailheadIds)].sort());
+    if (trailheadIds.length === 0 || trailheadIds.length > MAX_ASSIGNED_TRAILHEADS ||
+        trailheadIds.some((id) => !trailheadsById.has(id))) {
+      throw new Error("ontology normalization task trailheads are invalid or out of scope");
+    }
+    const trailheads = Object.freeze(trailheadIds.map((id) => trailheadsById.get(id)!));
+    const listingEvidence = Object.freeze([
+      ...new Set(trailheads.flatMap((item) => item.listingRefs)),
+    ].sort().map((ref) => {
+      const listing = listingsByRef.get(ref)!;
+      return Object.freeze({
+        listingRef: ref,
+        title: listing.title,
+        descriptionExcerpt: listing.description.slice(0, 2_000),
+        rulesTextExcerpt: listing.rulesText?.slice(0, 4_000) ?? null,
+        outcomes: listing.outcomes,
+        closesAt: listing.closesAt,
+        sourceRawHash: listing.sourceRawHash,
+        protocolIdentity: listing.protocolIdentity,
+        node: nodesByRef.get(ref)!,
+        contentPolicy: "UNTRUSTED_VENUE_TEXT_DATA_ONLY" as const,
+      });
+    }));
+    return Object.freeze(assertMarketOntologyNormalizationTaskPayload({
+      schemaVersion: "pmh.market-ontology-normalization-task.v1" as const,
+      ontologyIdentity: ontology.ontologyIdentity,
+      sourceSnapshotIdentity: ontology.sourceSnapshotIdentity,
+      trailheadIds,
+      trailheads,
+      listingEvidence,
+      objective: "PROPOSE_EVIDENCE_BOUND_ENTITY_AND_WORLD_PROPOSITION_NORMALIZATION" as const,
+      authority: "PROPOSE_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+    }));
+  };
+}
+
 export function buildMarketOntologyNormalizationTaskPayload(input: Readonly<{
   ontology: MarketOntologySnapshot;
+  corpus: MarketCorpusSnapshot;
   trailheadIds: readonly Hash[];
 }>): MarketOntologyNormalizationTaskPayload {
-  const ontology = assertMarketOntologySnapshot(input.ontology);
-  const trailheadIds = Object.freeze([...new Set(input.trailheadIds)].sort());
-  if (trailheadIds.length === 0 || trailheadIds.length > MAX_ASSIGNED_TRAILHEADS ||
-      trailheadIds.some((id) => !ontology.trailheads.some((item) => item.trailheadId === id))) {
-    throw new Error("ontology normalization task trailheads are invalid or out of scope");
-  }
-  return Object.freeze({
-    schemaVersion: "pmh.market-ontology-normalization-task.v1" as const,
-    ontologyIdentity: ontology.ontologyIdentity,
-    sourceSnapshotIdentity: ontology.sourceSnapshotIdentity,
-    trailheadIds,
-    objective: "PROPOSE_EVIDENCE_BOUND_ENTITY_AND_WORLD_PROPOSITION_NORMALIZATION" as const,
-    authority: "PROPOSE_ONLY" as const,
-    semanticDecisionAuthority: false as const,
-    probabilityAuthority: false as const,
-    certificateAuthority: false as const,
-    executionAuthority: false as const,
-  });
+  return createMarketOntologyNormalizationTaskPayloadBuilder(input)(input.trailheadIds);
 }
 
 const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
@@ -299,31 +435,53 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
 export class MarketOntologyAgentToolHost implements AgentToolHost {
   readonly #assignedTrailheads: readonly MarketOntologyTrailhead[];
   readonly #nodesByRef: ReadonlyMap<string, MarketOntologyListingNode>;
-  readonly #listingsByRef: ReadonlyMap<string, MarketCorpusSnapshot["listings"][number]>;
+  readonly #listingsByRef: ReadonlyMap<
+    string,
+    MarketOntologyNormalizationTaskPayload["listingEvidence"][number]
+  >;
   readonly #allowedRefs: ReadonlySet<string>;
   readonly #proposals: MarketOntologyAgentProposal[] = [];
+  readonly #ontologyIdentity: Hash;
+  readonly #sourceSnapshotIdentity: Hash;
+  public readonly taskPayload: MarketOntologyNormalizationTaskPayload;
 
   public constructor(
-    private readonly ontology: MarketOntologySnapshot,
-    private readonly corpus: MarketCorpusSnapshot,
-    public readonly taskPayload: MarketOntologyNormalizationTaskPayload,
+    ontologyOrPayload: MarketOntologySnapshot | MarketOntologyNormalizationTaskPayload,
+    corpus?: MarketCorpusSnapshot,
+    taskPayload?: MarketOntologyNormalizationTaskPayload,
   ) {
-    assertMarketOntologySnapshot(ontology);
-    assertMarketCorpusSnapshot(corpus);
-    if (corpus.snapshotIdentity !== ontology.sourceSnapshotIdentity ||
-        taskPayload.ontologyIdentity !== ontology.ontologyIdentity ||
-        taskPayload.sourceSnapshotIdentity !== corpus.snapshotIdentity) {
-      throw new Error("ontology Agent tool host evidence lineage is inconsistent");
+    if (ontologyOrPayload.schemaVersion === "pmh.market-ontology.v1") {
+      const ontology = assertMarketOntologySnapshot(ontologyOrPayload);
+      if (corpus === undefined || taskPayload === undefined) {
+        throw new Error("ontology Agent tool host current evidence is incomplete");
+      }
+      assertMarketCorpusSnapshot(corpus);
+      this.taskPayload = assertMarketOntologyNormalizationTaskPayload(taskPayload);
+      if (corpus.snapshotIdentity !== ontology.sourceSnapshotIdentity ||
+          this.taskPayload.ontologyIdentity !== ontology.ontologyIdentity ||
+          this.taskPayload.sourceSnapshotIdentity !== corpus.snapshotIdentity) {
+        throw new Error("ontology Agent tool host evidence lineage is inconsistent");
+      }
+    } else {
+      if (corpus !== undefined || taskPayload !== undefined) {
+        throw new Error("ontology Agent tool host replay accepts the task payload only");
+      }
+      this.taskPayload = assertMarketOntologyNormalizationTaskPayload(ontologyOrPayload);
     }
-    this.#assignedTrailheads = Object.freeze(taskPayload.trailheadIds.map((id) =>
-      ontology.trailheads.find((item) => item.trailheadId === id)!
-    ));
-    if (this.#assignedTrailheads.some((item) => item === undefined)) {
-      throw new Error("ontology Agent tool host assignment is unavailable");
-    }
-    this.#nodesByRef = new Map(ontology.nodes.map((item) => [item.listingRef, item]));
-    this.#listingsByRef = new Map(corpus.listings.map((item) => [item.listingRef, item]));
+    this.#ontologyIdentity = this.taskPayload.ontologyIdentity;
+    this.#sourceSnapshotIdentity = this.taskPayload.sourceSnapshotIdentity;
+    this.#assignedTrailheads = this.taskPayload.trailheads;
+    this.#nodesByRef = new Map(this.taskPayload.listingEvidence
+      .map((item) => [item.listingRef, item.node]));
+    this.#listingsByRef = new Map(this.taskPayload.listingEvidence
+      .map((item) => [item.listingRef, item]));
     this.#allowedRefs = new Set(this.#assignedTrailheads.flatMap((item) => item.listingRefs));
+  }
+
+  public static fromTaskPayload(
+    taskPayload: MarketOntologyNormalizationTaskPayload,
+  ): MarketOntologyAgentToolHost {
+    return new MarketOntologyAgentToolHost(taskPayload);
   }
 
   public manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[] {
@@ -353,6 +511,13 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
       .sort());
   }
 
+  #sourceRelationPatternIds(bindings: readonly MarketOntologyListingBinding[]): readonly Hash[] {
+    const refs = new Set(bindings.map((item) => item.listingRef));
+    return Object.freeze([...new Set(this.#assignedTrailheads
+      .filter((trailhead) => trailhead.listingRefs.some((ref) => refs.has(ref)))
+      .map((item) => item.relationPatternId))].sort());
+  }
+
   #record(
     context: AgentToolHostContext,
     body: MarketOntologyAgentProposalDraft,
@@ -363,10 +528,11 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
       throw new Error("ontology tool call task lineage is invalid");
     }
     const envelope = Object.freeze({
-      ontologyIdentity: this.ontology.ontologyIdentity,
-      sourceSnapshotIdentity: this.corpus.snapshotIdentity,
+      ontologyIdentity: this.#ontologyIdentity,
+      sourceSnapshotIdentity: this.#sourceSnapshotIdentity,
       sourceAgentRunId: context.run.runId,
       sourceTrailheadIds: this.#sourceTrailheadIds(body.listingBindings),
+      sourceRelationPatternIds: this.#sourceRelationPatternIds(body.listingBindings),
       listingBindings: body.listingBindings,
       rationale: body.rationale,
       proposedAt: context.run.createdAt,
@@ -402,7 +568,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
       exactKeys(input, []);
       return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
         schemaVersion: "pmh.market-ontology-assignment.v1",
-        ontologyIdentity: this.ontology.ontologyIdentity,
+        ontologyIdentity: this.#ontologyIdentity,
         trailheads: this.#assignedTrailheads.map((item) => Object.freeze({
           trailheadId: item.trailheadId,
           listingRefs: item.listingRefs,
@@ -421,7 +587,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
       if (trailhead === undefined) throw new Error("ontology trailhead is outside the assignment");
       return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
         schemaVersion: "pmh.market-ontology-trailhead-evidence.v1",
-        ontologyIdentity: this.ontology.ontologyIdentity,
+        ontologyIdentity: this.#ontologyIdentity,
         trailhead,
         listings: trailhead.listingRefs.map((ref) => {
           const listing = this.#listingsByRef.get(ref)!;
@@ -429,8 +595,8 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
           return Object.freeze({
             listingRef: ref,
             title: listing.title,
-            descriptionExcerpt: listing.description.slice(0, 2_000),
-            rulesTextExcerpt: listing.rulesText?.slice(0, 4_000) ?? null,
+            descriptionExcerpt: listing.descriptionExcerpt,
+            rulesTextExcerpt: listing.rulesTextExcerpt,
             outcomes: listing.outcomes,
             closesAt: listing.closesAt,
             sourceRawHash: listing.sourceRawHash,

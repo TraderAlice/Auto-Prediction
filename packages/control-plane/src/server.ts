@@ -86,6 +86,12 @@ import {
   projectMarketOntology,
 } from "./market-ontology.js";
 import type { MarketOntologyAgentProposalStore } from "./market-ontology-agent-tools.js";
+import {
+  buildOntologySearchYieldProjection,
+  materializeOntologySearchIssueRevisions,
+  type OntologySearchIssueRevision,
+  type OntologySearchIssueRevisionStore,
+} from "./ontology-search-ecology.js";
 import type {
   DiscoveryCatalogMode,
   DiscoveryRunRecord,
@@ -825,6 +831,16 @@ function supportsMarketOntologyAgentProposals(
     typeof candidate.saveMarketOntologyAgentProposals === "function";
 }
 
+function supportsOntologySearchIssueRevisions(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & OntologySearchIssueRevisionStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<OntologySearchIssueRevisionStore>;
+  return candidate.ontologySearchIssueRevisionStorage !== undefined &&
+    typeof candidate.loadOntologySearchIssueRevisions === "function" &&
+    typeof candidate.saveOntologySearchIssueRevisions === "function";
+}
+
 function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   expectedRevision: number;
   provider: (typeof AI_RUNTIME_PROVIDERS)[number];
@@ -995,6 +1011,12 @@ export function createControlPlane(options?: {
     supportsMarketOntologyAgentProposals(options?.discoveryStore)
       ? options.discoveryStore
       : null;
+  const ontologySearchIssueRevisionStore =
+    supportsOntologySearchIssueRevisions(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
+  let ontologySearchIssueRevisions: readonly OntologySearchIssueRevision[] =
+    ontologySearchIssueRevisionStore?.loadOntologySearchIssueRevisions(512) ?? [];
   agentExecutionRegistry.importLegacyConfiguration(
     aiRuntimeConfigurationDesk.current(),
   );
@@ -2104,6 +2126,10 @@ export function createControlPlane(options?: {
     completedAt: string;
     durationMs: number;
   }>> = [];
+  const startupReconciliationTimings: Array<Readonly<{
+    step: string;
+    durationMs: number;
+  }>> = [];
   let startupReadiness = Object.freeze({
     schemaVersion: "pmh.startup-readiness.v1" as const,
     status: "STARTING" as "STARTING" | "READY" | "FAILED",
@@ -2115,6 +2141,7 @@ export function createControlPlane(options?: {
     phaseElapsedMs: 0 as number,
     diagnostic: null as string | null,
     phaseTimings: Object.freeze([...startupPhaseTimings]),
+    reconciliationTimings: Object.freeze([...startupReconciliationTimings]),
     projectionResource: "/api/v1/projection" as const,
     providerRequestsStarted: 0 as const,
     modelInvocationsStarted: 0 as const,
@@ -2157,7 +2184,33 @@ export function createControlPlane(options?: {
       phaseElapsedMs: startupReadiness.completedAt === null
         ? Math.max(0, nowMs - startupPhaseStartedAtMs)
         : startupReadiness.phaseElapsedMs,
+      reconciliationTimings: Object.freeze([...startupReconciliationTimings]),
     });
+  };
+  const runStartupReconciliationStep = (step: string, action: () => void): void => {
+    const startedAtMs = Date.now();
+    action();
+    startupReconciliationTimings.push(Object.freeze({
+      step,
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+    }));
+  };
+  const reconcileOntologySearchIssues = (): void => {
+    if (ontologySearchIssueRevisionStore === null) return;
+    const corpus = catalogObservationDesk.corpus();
+    const ontology = buildMarketOntologySnapshot(corpus);
+    const proposals = marketOntologyAgentProposalStore
+      ?.loadMarketOntologyAgentProposals(200) ?? [];
+    const revisions = materializeOntologySearchIssueRevisions({
+      ontology,
+      corpus,
+      proposals,
+    });
+    agentExecutionRegistry.saveBatch({
+      tasks: revisions.map((item) => item.task),
+    });
+    ontologySearchIssueRevisionStore.saveOntologySearchIssueRevisions(revisions);
+    ontologySearchIssueRevisions = revisions;
   };
   const ready = (options?.startupGate ?? Promise.resolve()).then(async () => {
     transitionStartup("DURABLE_RECOVERY");
@@ -2172,10 +2225,14 @@ export function createControlPlane(options?: {
         : []),
     ]);
     transitionStartup("AGENT_RECONCILIATION");
-    synchronizeLifecycleSources();
-    reconcileRuleEvidenceAgentTasks();
-    migrateLegacyRuleEvidenceAgentRuns();
-    agentCampaignDispatcher.recoverPreparedRuns();
+    runStartupReconciliationStep("SYNCHRONIZE_LIFECYCLE_SOURCES", synchronizeLifecycleSources);
+    runStartupReconciliationStep("RECONCILE_RULE_EVIDENCE_TASKS", reconcileRuleEvidenceAgentTasks);
+    runStartupReconciliationStep("MIGRATE_LEGACY_RULE_EVIDENCE_RUNS", migrateLegacyRuleEvidenceAgentRuns);
+    runStartupReconciliationStep("RECONCILE_ONTOLOGY_SEARCH_ISSUES", reconcileOntologySearchIssues);
+    runStartupReconciliationStep(
+      "RECOVER_PREPARED_AGENT_RUNS",
+      () => { agentCampaignDispatcher.recoverPreparedRuns(); },
+    );
     transitionStartup("WAITING_FOR_PROJECTION");
   });
   void ready.catch((error: unknown) => {
@@ -3251,6 +3308,73 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/market-ontology/search-ecology"
+    ) {
+      await ready;
+      const proposals = marketOntologyAgentProposalStore
+        ?.loadMarketOntologyAgentProposals(200) ?? [];
+      const yieldProjection = buildOntologySearchYieldProjection({
+        revisions: ontologySearchIssueRevisions,
+        proposals,
+        execution: agentExecutionRegistry.snapshot(),
+      });
+      const latestByIssue = new Map<Hash, OntologySearchIssueRevision>();
+      for (const revision of ontologySearchIssueRevisions) {
+        const current = latestByIssue.get(revision.issueId);
+        if (current === undefined || revision.materializedAt > current.materializedAt ||
+            (revision.materializedAt === current.materializedAt &&
+              revision.revisionId > current.revisionId)) {
+          latestByIssue.set(revision.issueId, revision);
+        }
+      }
+      const issues = Object.freeze([...latestByIssue.values()]
+        .sort((left, right) =>
+          right.priority - left.priority || left.issueId.localeCompare(right.issueId)
+        )
+        .map((revision) => Object.freeze({
+          issueId: revision.issueId,
+          revisionId: revision.revisionId,
+          relationPatternId: revision.relationPatternId,
+          selectionLane: revision.selectionLane,
+          coverageState: revision.coverageState,
+          priority: revision.priority,
+          campaignEligible: revision.campaignEligible,
+          automaticDispatch: revision.automaticDispatch,
+          taskId: revision.task.taskId,
+          trailheadIds: revision.trailheadIds,
+          representativePairs: revision.taskPayload.trailheads.slice(0, 3).map((item) =>
+            Object.freeze({
+              trailheadId: item.trailheadId,
+              listingRefs: item.listingRefs,
+              listingTitleExcerpts: item.listingTitleExcerpts,
+              changedFacets: item.changedFacets,
+            })
+          ),
+        })));
+      writeJson(response, 200, Object.freeze({
+        schemaVersion: "pmh.ontology-search-ecology.v1",
+        yield: yieldProjection,
+        issues,
+        storage: ontologySearchIssueRevisionStore?.ontologySearchIssueRevisionStorage ??
+          Object.freeze({
+            mode: "MEMORY" as const,
+            durable: false,
+            schemaVersion: 39,
+            idempotencyKey: "revisionId" as const,
+          }),
+        automaticDispatch: false,
+        providerRequestsStarted: 0,
+        modelInvocationsStarted: 0,
+        authority: "SEARCH_WORK_ASSIGNMENT_ONLY",
+        semanticDecisionAuthority: false,
+        probabilityAuthority: false,
+        certificateAuthority: false,
+        executionAuthority: false,
+      }));
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/premise-evidence-routing"
     ) {
       await ready;
@@ -3752,7 +3876,7 @@ export function createControlPlane(options?: {
         storage: marketOntologyAgentProposalStore?.marketOntologyAgentProposalStorage ?? Object.freeze({
           mode: "MEMORY" as const,
           durable: false,
-          schemaVersion: 38,
+          schemaVersion: 39,
           idempotencyKey: "proposalId" as const,
         }),
         authority: "PROPOSE_ONLY",
