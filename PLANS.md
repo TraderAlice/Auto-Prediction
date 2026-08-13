@@ -1,6 +1,25 @@
 # Plans
 
 The active execution continuation is
+[`plans/exploration-experiment-episodes.md`](plans/exploration-experiment-episodes.md).
+Issue #223 follows the V8 readiness adoption. The ledger now retains searches,
+prototype-test actions and terminals, but cannot exactly join a domain
+readiness transition to the generic ordered tool effect that caused it. A
+post-effect observation boundary and provider-free episode compiler will make
+the whole search experiment—not only its terminal—the reusable unit for
+cross-run learning and attention selection.
+
+Issue #223 is selected `ADOPT`. Schema 58 now retains every V9 post-effect
+readiness and compact yield observation against exact effect/invocation/input
+lineage. The first live Terra/high episode completed with seven calls and seven
+effects: 32 raw hits became five qualified hits, three listings were inspected,
+one first-party rejection was retained, and effect 6 made bounded exhaustion
+eligible before effect 7 submitted it. The complete episode used 163,898 input,
+1,162 output and 391 reasoning tokens. A transient empty catalog hid the
+projection without deleting the durable episode; last-known experiment-memory
+visibility is the next observed product frontier.
+
+The selected execution continuation is
 [`plans/exploration-action-readiness.md`](plans/exploration-action-readiness.md).
 Issue #221 follows the adopted V7 live specimen. The run eventually retained a
 correct bounded exhaustion, but first learned two terminal prerequisites by

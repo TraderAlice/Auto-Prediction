@@ -1183,6 +1183,7 @@ function supportsMechanismPrototypeExploration(
     candidate.mechanismPrototypeExplorationExhaustionStorage !== undefined &&
     candidate.mechanismPrototypeExplorationRoleSearchObservationStorage !== undefined &&
     candidate.mechanismPrototypeExplorationActionObservationStorage !== undefined &&
+    candidate.mechanismPrototypeExplorationStepObservationStorage !== undefined &&
     typeof candidate.loadMechanismPrototypeExplorationInputs === "function" &&
     typeof candidate.saveMechanismPrototypeExplorationInputs === "function" &&
     typeof candidate.loadMechanismPrototypeExplorationTrailheads === "function" &&
@@ -1192,7 +1193,9 @@ function supportsMechanismPrototypeExploration(
     typeof candidate.loadMechanismPrototypeExplorationRoleSearchObservations === "function" &&
     typeof candidate.saveMechanismPrototypeExplorationRoleSearchObservations === "function" &&
     typeof candidate.loadMechanismPrototypeExplorationActionObservations === "function" &&
-    typeof candidate.saveMechanismPrototypeExplorationActionObservations === "function";
+    typeof candidate.saveMechanismPrototypeExplorationActionObservations === "function" &&
+    typeof candidate.loadMechanismPrototypeExplorationStepObservations === "function" &&
+    typeof candidate.saveMechanismPrototypeExplorationStepObservations === "function";
 }
 
 function supportsWorldStateMechanismObservations(
@@ -3867,6 +3870,8 @@ export function createControlPlane(options?: {
         .loadMechanismPrototypeExplorationRoleSearchObservations(2_048),
       actionObservations: mechanismPrototypeExplorationStore
         .loadMechanismPrototypeExplorationActionObservations(2_048),
+      stepObservations: mechanismPrototypeExplorationStore
+        .loadMechanismPrototypeExplorationStepObservations(8_192),
       execution: agentExecutionRegistry.snapshot(),
       corpus,
       ontology: buildMarketOntologySnapshot(corpus),
@@ -4409,6 +4414,8 @@ export function createControlPlane(options?: {
             ?.loadMechanismPrototypeExplorationRoleSearchObservations(2_048) ?? [],
           actionObservations: mechanismPrototypeExplorationStore
             ?.loadMechanismPrototypeExplorationActionObservations(2_048) ?? [],
+          stepObservations: mechanismPrototypeExplorationStore
+            ?.loadMechanismPrototypeExplorationStepObservations(8_192) ?? [],
           execution: agentExecutionRegistry.snapshot(),
           corpus,
           ontology: buildMarketOntologySnapshot(corpus),

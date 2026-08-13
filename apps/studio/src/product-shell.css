@@ -3002,6 +3002,48 @@ footer {
   gap: 10px;
 }
 
+.mechanism-experiment-memory {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+
+.mechanism-experiment-memory-head,
+.mechanism-experiment-row > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mechanism-experiment-memory-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.mechanism-experiment-memory small,
+.mechanism-experiment-row span {
+  color: var(--muted-foreground);
+}
+
+.mechanism-experiment-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mechanism-experiment-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
 .mechanism-seed-pair {
   display: grid;
   gap: 5px;
@@ -3018,6 +3060,10 @@ footer {
   }
 
   .mechanism-exploration-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mechanism-experiment-rows {
     grid-template-columns: 1fr;
   }
 

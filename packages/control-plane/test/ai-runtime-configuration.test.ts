@@ -60,7 +60,7 @@ describe("AI runtime configuration", () => {
       })).toThrow(AiRuntimeConfigurationConflictError);
       expect(JSON.stringify(desk.projection())).not.toMatch(/access.?token|api.?key/i);
       expect(desk.projection()).toMatchObject({
-        storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 57 },
+        storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 58 },
         credentialTextRetained: false,
         executionAuthority: false,
       });

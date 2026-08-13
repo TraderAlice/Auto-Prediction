@@ -602,6 +602,11 @@ export interface AgentToolHost {
     status: "ACCEPTED" | "REJECTED";
     output: unknown;
   }>>;
+  observeEffect?(input: Readonly<{
+    context: AgentToolHostContext;
+    result: Readonly<{ status: "ACCEPTED" | "REJECTED"; output: unknown }>;
+    effect: AgentToolEffect;
+  }>): Promise<void> | void;
 }
 
 export type AgentRuntimeExecutionResult = Readonly<{
@@ -996,6 +1001,18 @@ export async function executePreparedAgentRun(
         effects.push(effect);
         await input.onProgress?.(Object.freeze({
           toolEffects: Object.freeze([effect]),
+        }));
+        await input.toolHost.observeEffect?.(Object.freeze({
+          context: Object.freeze({
+            run: valid.run,
+            task: valid.task,
+            executionProfile: valid.profile,
+            callId,
+            toolName,
+            input: call.input,
+          }),
+          result,
+          effect,
         }));
         if (explicitResultToolPolicy && effect.status === "ACCEPTED" &&
             resultToolNames.includes(effect.toolName)) {

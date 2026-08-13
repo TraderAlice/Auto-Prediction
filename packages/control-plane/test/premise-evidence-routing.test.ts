@@ -277,7 +277,7 @@ describe("premise evidence routing", () => {
       expect(scheduler.projection()).toMatchObject({
         pendingCount: 1,
         sourcePremiseCount: 0,
-        storage: { durable: true, schemaVersion: 57 },
+        storage: { durable: true, schemaVersion: 58 },
       });
       await Promise.all(scheduler.tick([candidate]));
       expect(scheduler.projection()).toMatchObject({

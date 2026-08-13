@@ -782,7 +782,7 @@ type WorldStateMechanismProjection = Readonly<{
     }>>;
   }>;
   mechanismPrototypeExploration: null | Readonly<{
-    schemaVersion: "pmh.mechanism-prototype-exploration-projection.v1";
+    schemaVersion: "pmh.mechanism-prototype-exploration-projection.v2";
     projectionIdentity: string;
     prototypeCount: number;
     lensCount: number;
@@ -811,11 +811,37 @@ type WorldStateMechanismProjection = Readonly<{
       roleBoundTrailheadCount: number;
       roleAwareExhaustionCount: number;
       retainedActionObservationCount: number;
+      retainedExperimentStepCount: number;
+      experimentEpisodeCount: number;
+      completeExperimentEpisodeCount: number;
       resultRepairInvocationCount: number;
       resultRepairInputTokens: string;
     }>;
     corpusSnapshotIdentity: string;
     corpusSemanticIdentity: string;
+    experimentEpisodes: ReadonlyArray<Readonly<{
+      episodeId: string;
+      runStatus: "INTERRUPTED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+      ledgerCompleteness: "COMPLETE_EFFECT_LEDGER" | "PARTIAL_EFFECT_LEDGER";
+      terminalOutcome: "TRAILHEAD" | "EXHAUSTION" | "NO_ACCEPTED_TERMINAL";
+      completedAt: string;
+      firstPositiveEligibleEffectOrdinal: number | null;
+      firstExhaustionEligibleEffectOrdinal: number | null;
+      yield: Readonly<{
+        effectCount: number;
+        rejectedEffectCount: number;
+        searchEffectCount: number;
+        rawHitCount: number;
+        qualifiedHitCount: number;
+        rolePairCount: number;
+        inspectedListingCount: number;
+        acceptedActionCount: number;
+      }>;
+      usage: Readonly<{
+        invocationCount: number;
+        knownInputTokens: string;
+      }>;
+    }>>;
     lenses: ReadonlyArray<Readonly<{
       lensId: string;
       axis: "AGGREGATE_INSTITUTION" | "SUBJECT_AND_GEOGRAPHY" |
@@ -4081,7 +4107,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
       "pmh.retained-world-state-mechanism-memory.v1" ||
     (result.worldStateMechanisms.mechanismPrototypeExploration !== null &&
       result.worldStateMechanisms.mechanismPrototypeExploration.schemaVersion !==
-        "pmh.mechanism-prototype-exploration-projection.v1") ||
+        "pmh.mechanism-prototype-exploration-projection.v2") ||
     result.worldStateMechanisms.familyScorecards.schemaVersion !==
       "pmh.world-state-mechanism-family-scorecards.v1" ||
     result.worldStateMechanisms.familyScorecards.attentionPolicyAuthority !== false ||
@@ -4589,6 +4615,35 @@ function AgentOperationsView() {
                     Create paused campaign
                   </Button>
                 </div>
+                <div className="mechanism-experiment-memory">
+                  <div className="mechanism-experiment-memory-head">
+                    <div>
+                      <span className="eyebrow">Experiment memory</span>
+                      <strong>{worldStateMechanisms.mechanismPrototypeExploration.usage.experimentEpisodeCount} replayable episodes</strong>
+                    </div>
+                    <Badge variant={worldStateMechanisms.mechanismPrototypeExploration.usage.completeExperimentEpisodeCount === worldStateMechanisms.mechanismPrototypeExploration.usage.experimentEpisodeCount ? "verified" : "warning"}>
+                      {worldStateMechanisms.mechanismPrototypeExploration.usage.completeExperimentEpisodeCount} COMPLETE
+                    </Badge>
+                  </div>
+                  {worldStateMechanisms.mechanismPrototypeExploration.experimentEpisodes.length === 0 ? (
+                    <small>The next V9 run will retain effect-by-effect readiness, search yield and token lineage.</small>
+                  ) : (
+                    <div className="mechanism-experiment-rows">
+                      {worldStateMechanisms.mechanismPrototypeExploration.experimentEpisodes.slice(0, 4).map((episode) => (
+                        <div key={episode.episodeId} className="mechanism-experiment-row">
+                          <div>
+                            <Badge variant={episode.terminalOutcome === "TRAILHEAD" ? "verified" : episode.terminalOutcome === "EXHAUSTION" ? "warning" : "shadow"}>
+                              {episode.terminalOutcome.replaceAll("_", " ")}
+                            </Badge>
+                            <code>{episode.episodeId.slice(7, 19)}</code>
+                          </div>
+                          <span>{episode.yield.searchEffectCount} searches · {episode.yield.rawHitCount} raw → {episode.yield.qualifiedHitCount} qualified → {episode.yield.rolePairCount} pairs · {episode.yield.inspectedListingCount} inspected</span>
+                          <span>{episode.usage.invocationCount} calls · {formatTokenCount(episode.usage.knownInputTokens)} input · {episode.yield.rejectedEffectCount} rejected effects</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="mechanism-exploration-grid">
                   {worldStateMechanisms.mechanismPrototypeExploration.lenses.map((lens) => (
                     <article key={lens.lensId} className="mechanism-prototype-card">
@@ -4637,7 +4692,7 @@ function AgentOperationsView() {
                 </div>
                 <div className="research-attention-lock">
                   <CircleOff size={14} />
-                  <span>{worldStateMechanisms.mechanismPrototypeExploration.usage.modelInvocationCount} model calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.knownInputTokens)} input tokens · {worldStateMechanisms.mechanismPrototypeExploration.usage.resultRepairInvocationCount} repair calls / {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.resultRepairInputTokens)} repair input · {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchRawHitCount} raw hits → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchQualifiedHitCount} role-qualified → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchPairCount} pairs → {worldStateMechanisms.mechanismPrototypeExploration.usage.inspectedEvidenceBindingCount} inspected · {worldStateMechanisms.mechanismPrototypeExploration.usage.retainedActionObservationCount} durable test actions</span>
+                  <span>{worldStateMechanisms.mechanismPrototypeExploration.usage.modelInvocationCount} model calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.knownInputTokens)} input tokens · {worldStateMechanisms.mechanismPrototypeExploration.usage.resultRepairInvocationCount} repair calls / {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.resultRepairInputTokens)} repair input · {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchRawHitCount} raw hits → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchQualifiedHitCount} role-qualified → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchPairCount} pairs → {worldStateMechanisms.mechanismPrototypeExploration.usage.inspectedEvidenceBindingCount} inspected · {worldStateMechanisms.mechanismPrototypeExploration.usage.retainedActionObservationCount} durable test actions · {worldStateMechanisms.mechanismPrototypeExploration.usage.retainedExperimentStepCount} causal steps</span>
                   <code>HEURISTIC ROUTING ONLY</code>
                 </div>
               </section>

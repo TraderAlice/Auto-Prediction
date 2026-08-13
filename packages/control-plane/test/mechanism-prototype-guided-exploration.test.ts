@@ -5,10 +5,15 @@ import {
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildAgentRun,
+  completeAgentRun,
+  buildModelInvocation,
+  buildAgentToolEffect,
   activateAgentCampaign,
   buildMechanismPrototypeExplorationCampaignPreview,
   buildMechanismPrototypeExplorationPrototypeReferences,
   buildMechanismPrototypeExplorationExhaustion,
+  buildMechanismPrototypeExplorationStepObservation,
+  compileMechanismPrototypeExplorationExperimentEpisodes,
   buildPausedAgentCampaign,
   buildDefaultAgentRuntimePortfolio,
   defaultAiRuntimeConfiguration,
@@ -627,8 +632,93 @@ describe("mechanism-prototype exploration Agent tools", () => {
       authorization: { kind: "MANUAL", authorizationRef: "operator:test", authorizedAt: NOW },
       createdAt: NOW,
     });
-    return { lens, prototype, snapshot, profile, run };
+    return { lens, prototype, snapshot, profile, model, run };
   }
+
+  it("compiles exact ordered effects into a causal experiment episode", () => {
+    const { lens, profile, model, run } = runtimeFixture();
+    const invocation = buildModelInvocation({
+      run, modelProfile: model, ordinal: 1, status: "SUCCEEDED",
+      startedAt: NOW, completedAt: "2026-08-13T10:28:28.396Z",
+      inputTokens: "1200", outputTokens: "80", reasoningTokens: "20",
+      purpose: "PRIMARY_REASONING",
+    });
+    const readiness = (overrides: Partial<{
+      exhaustionEligible: boolean; failedTransferTestOrdinals: readonly number[];
+    }> = {}) => Object.freeze({
+      positiveEligible: false, positiveMissingPrerequisites: [
+        "ROLE_SEARCH_PAIR", "INSPECTED_ROLE_PAIR", "APPLIED_TRANSFER_TEST",
+      ],
+      exhaustionEligible: overrides.exhaustionEligible ?? false,
+      exhaustionMissingPrerequisites: overrides.exhaustionEligible
+        ? [] : ["FAILED_TRANSFER_TEST"],
+      searchedResultCount: 1, roleSearchResultCount: 0, rolePairCount: 0,
+      inspectedListingCount: 1, inspectedRolePairCount: 0,
+      appliedTransferTestOrdinals: [],
+      failedTransferTestOrdinals: overrides.failedTransferTestOrdinals ?? [],
+      activatedCounterScenarioOrdinals: [],
+    });
+    const definitions = [
+      { toolName: "search_mechanism_exploration_corpus", kind: "FLAT_SEARCH" as const,
+        readiness: readiness(), summary: { rawHitCount: 4, qualifiedHitCount: 4,
+          pairCount: 0, inspectedListingCount: 0, acceptedActionCount: 0,
+          acceptedTerminalCount: 0 } },
+      { toolName: "inspect_mechanism_exploration_listings", kind: "INSPECTION" as const,
+        readiness: readiness(), summary: { rawHitCount: 0, qualifiedHitCount: 0,
+          pairCount: 0, inspectedListingCount: 1, acceptedActionCount: 0,
+          acceptedTerminalCount: 0 } },
+      { toolName: "mark_transfer_test_1_failed", kind: "PROTOTYPE_ACTION" as const,
+        readiness: readiness({ exhaustionEligible: true, failedTransferTestOrdinals: [1] }),
+        summary: { rawHitCount: 0, qualifiedHitCount: 0, pairCount: 0,
+          inspectedListingCount: 0, acceptedActionCount: 1, acceptedTerminalCount: 0 } },
+      { toolName: "record_mechanism_exploration_exhaustion",
+        kind: "EXHAUSTION_TERMINAL" as const,
+        readiness: readiness({ exhaustionEligible: true, failedTransferTestOrdinals: [1] }),
+        summary: { rawHitCount: 0, qualifiedHitCount: 0, pairCount: 0,
+          inspectedListingCount: 0, acceptedActionCount: 0, acceptedTerminalCount: 1 } },
+    ];
+    const effects = definitions.map((definition, index) => buildAgentToolEffect({
+      run, ordinal: index + 1, toolProtocol: MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL,
+      toolName: definition.toolName, status: "ACCEPTED", canonicalInput: {},
+      canonicalOutput: definition.summary, sourceInvocation: invocation,
+      occurredAt: `2026-08-13T10:28:${30 + index}.396Z`,
+    }));
+    const steps = effects.map((effect, index) =>
+      buildMechanismPrototypeExplorationStepObservation({
+        researchInput: lens.currentInputRevision, effect,
+        sourceToolCallId: `call:${index + 1}`,
+        readinessAfter: definitions[index]!.readiness,
+        resultSummary: Object.freeze({ kind: definitions[index]!.kind,
+          ...definitions[index]!.summary }),
+      })
+    );
+    const completed = completeAgentRun(run, "SUCCEEDED",
+      "2026-08-13T10:28:40.396Z", null);
+    const episodes = compileMechanismPrototypeExplorationExperimentEpisodes({
+      inputs: [lens.currentInputRevision], stepObservations: steps,
+      execution: { runtimeDefinitions: [], credentialBindings: [], modelProfiles: [model],
+        executionProfiles: [profile], capabilityObservations: [], workloadRoutes: [], tasks: [],
+        runs: [completed], modelInvocations: [invocation], toolEffects: effects,
+        runArtifacts: [], runAnnotations: [], campaigns: [], resultSelections: [] },
+    });
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]).toMatchObject({
+      sourceAgentRunId: run.runId, runStatus: "SUCCEEDED",
+      ledgerCompleteness: "COMPLETE_EFFECT_LEDGER", terminalOutcome: "EXHAUSTION",
+      firstPositiveEligibleEffectOrdinal: null, firstExhaustionEligibleEffectOrdinal: 3,
+      yield: { effectCount: 4, acceptedEffectCount: 4, rejectedEffectCount: 0,
+        searchEffectCount: 1, rawHitCount: 4, qualifiedHitCount: 4,
+        inspectedListingCount: 1, acceptedActionCount: 1 },
+      usage: { invocationCount: 1, knownInputTokens: "1200",
+        knownOutputTokens: "80", knownReasoningTokens: "20" },
+      authority: "PROVIDER_FREE_EXPLORATION_EXPERIMENT_MEMORY_ONLY",
+      semanticDecisionAuthority: false, valueMovingAuthority: false,
+    });
+    expect(episodes[0]!.steps[2]).toMatchObject({
+      effectOrdinal: 3, invocationPurpose: "PRIMARY_REASONING",
+      exhaustionBecameEligible: true,
+    });
+  });
 
   it("searches and inspects before retaining an exact routing-only trailhead", async () => {
     const { lens, prototype, snapshot, profile, run } = runtimeFixture();
@@ -766,7 +856,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const observations: MechanismPrototypeExplorationRoleSearchObservation[] = [];
     const actionObservations: MechanismPrototypeExplorationActionObservation[] = [];
     const storage = <K extends string>(idempotencyKey: K) => Object.freeze({
-      mode: "MEMORY" as const, durable: false, schemaVersion: 57, idempotencyKey,
+      mode: "MEMORY" as const, durable: false, schemaVersion: 58, idempotencyKey,
     });
     const store: MechanismPrototypeExplorationStore = {
       mechanismPrototypeExplorationInputStorage: storage("inputRevisionId"),
@@ -774,6 +864,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       mechanismPrototypeExplorationExhaustionStorage: storage("exhaustionId"),
       mechanismPrototypeExplorationRoleSearchObservationStorage: storage("observationId"),
       mechanismPrototypeExplorationActionObservationStorage: storage("observationId"),
+      mechanismPrototypeExplorationStepObservationStorage: storage("observationId"),
       loadMechanismPrototypeExplorationInputs: () => [],
       saveMechanismPrototypeExplorationInputs: (values) => values,
       loadMechanismPrototypeExplorationTrailheads: () => [],
@@ -790,6 +881,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
         actionObservations.push(...values);
         return values;
       },
+      loadMechanismPrototypeExplorationStepObservations: () => [],
+      saveMechanismPrototypeExplorationStepObservations: (values) => values,
     };
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot, store,
