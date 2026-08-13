@@ -109,7 +109,8 @@ function intentFor(
   effects: readonly AgentToolEffect[],
   runHasHistoricalUnlinkedEffects: boolean,
 ): OntologyAgentIntentStratum {
-  if (invocation.schemaVersion === "pmh.model-invocation.v3" &&
+  if ((invocation.schemaVersion === "pmh.model-invocation.v3" ||
+      invocation.schemaVersion === "pmh.model-invocation.v4") &&
       invocation.purpose === "RESULT_REPAIR") return "RESULT_REPAIR";
   if (effects.length === 0) {
     return runHasHistoricalUnlinkedEffects

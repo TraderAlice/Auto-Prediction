@@ -18,6 +18,17 @@ historical Iowa run did not consume a current specimen. Full checks, 700
 control-plane tests, 30 Studio tests and the production build pass; capability
 refresh and one explicit Terra observation are the next gate.
 
+That first observation exposed a runtime-state defect before semantic work.
+Codex app-server emitted `Reconnecting... 2/5`; the adapter cancelled because
+it treated every `error` notification as terminal, leaving one failed run with
+unknown usage and zero effects. The campaign paused and the new policy rotated
+the preview to the Mary Peltola specimen. Issue #201 follows Codex CLI 0.147.0's
+generated `ErrorNotification.willRetry` contract: retrying notifications remain
+inside the same bounded turn, terminal/malformed errors still fail closed, and
+a new model-invocation runtime-recovery field preserves the incident without
+turning a successful call's diagnostic into a failure. A rotated specimen is
+the next live gate; Antonelli will not be silently replayed.
+
 Issue #190 repairs a restart-continuity defect discovered against the live
 SQLite volume. Semantic-review startup loaded findings and task revisions from
 two independent 512-row recent windows, so a valid older exact revision could

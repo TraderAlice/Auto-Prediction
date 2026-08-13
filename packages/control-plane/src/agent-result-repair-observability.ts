@@ -77,10 +77,13 @@ const BUDGET_TERMINATIONS = new Set([
 
 function repairInvocations(
   invocations: readonly ModelInvocation[],
-): readonly Extract<ModelInvocation, { schemaVersion: "pmh.model-invocation.v3" }>[] {
+): readonly Extract<ModelInvocation, {
+  schemaVersion: "pmh.model-invocation.v3" | "pmh.model-invocation.v4";
+}>[] {
   return invocations.filter((invocation): invocation is Extract<ModelInvocation, {
-    schemaVersion: "pmh.model-invocation.v3";
-  }> => invocation.schemaVersion === "pmh.model-invocation.v3" &&
+    schemaVersion: "pmh.model-invocation.v3" | "pmh.model-invocation.v4";
+  }> => (invocation.schemaVersion === "pmh.model-invocation.v3" ||
+      invocation.schemaVersion === "pmh.model-invocation.v4") &&
     invocation.purpose === "RESULT_REPAIR");
 }
 
@@ -234,7 +237,8 @@ export function buildAgentResultRepairProjection(input: Readonly<{
     incompleteUsageInvocationCount: runs.reduce((total, run) =>
       total + run.incompleteUsageInvocationCount, 0),
     historicalUnclassifiedInvocationCount: input.execution.modelInvocations.filter(
-      (invocation) => invocation.schemaVersion !== "pmh.model-invocation.v3",
+      (invocation) => invocation.schemaVersion !== "pmh.model-invocation.v3" &&
+        invocation.schemaVersion !== "pmh.model-invocation.v4",
     ).length,
     unlinkedRejectedEffectCount: input.execution.toolEffects.filter((effect) =>
       effect.status === "REJECTED" && !linkedRejectedEffectIds.has(effect.effectId)

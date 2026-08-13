@@ -200,6 +200,7 @@ describe("Codex app-server Agent runtime", () => {
     const work = fixture([{
       method: "error",
       params: {
+        willRetry: false,
         error: {
           code: "invalid_request",
           message: "Dynamic tool schema is unsupported.\nReview the declared schema.",
@@ -231,6 +232,138 @@ describe("Codex app-server Agent runtime", () => {
       ),
     });
     expect(result.modelInvocations[0]?.diagnostic).not.toContain("must-not-be-retained");
+  });
+
+  it("continues the same bounded turn through retrying error notifications", async () => {
+    const work = fixture([
+      {
+        method: "error",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:test",
+          willRetry: true,
+          error: { message: "Reconnecting... 2/5", additionalDetails: null },
+        },
+      },
+      {
+        method: "item/tool/call",
+        id: 102,
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:test",
+          callId: "call:counterexample:retry",
+          tool: "record_counterexample",
+          arguments: { reason: "The bounded turn recovered." },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:test",
+          tokenUsage: {
+            last: { inputTokens: 90, outputTokens: 18, reasoningOutputTokens: 7 },
+          },
+        },
+      },
+    ]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: work.adapter,
+      credentialBroker: work.broker,
+      toolHost: work.toolHost,
+    });
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.modelInvocations).toHaveLength(1);
+    expect(result.modelInvocations[0]).toMatchObject({
+      schemaVersion: "pmh.model-invocation.v4",
+      status: "SUCCEEDED",
+      inputTokens: "90",
+      diagnostic: null,
+      runtimeRecovery: {
+        kind: "TRANSIENT_ERROR_NOTIFICATION",
+        notificationCount: 1,
+        lastDiagnostic: "code=unknown; message=Reconnecting... 2/5",
+      },
+    });
+    expect(result.toolEffects).toHaveLength(1);
+    expect(work.connection.requests.filter((item) => item.method === "turn/start")).toHaveLength(1);
+  });
+
+  it("fails closed when an error notification omits its retry state", async () => {
+    const work = fixture([{
+      method: "error",
+      params: {
+        threadId: "thread:test",
+        turnId: "turn:test",
+        error: { message: "Ambiguous transport state" },
+      },
+    }]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: work.adapter,
+      credentialBroker: work.broker,
+      toolHost: work.toolHost,
+    });
+
+    expect(result.modelInvocations[0]).toMatchObject({
+      status: "FAILED",
+      failureCategory: "CODEX_APP_SERVER_PROTOCOL",
+      diagnostic: expect.stringContaining("malformed retry state"),
+    });
+  });
+
+  it("retains transient recovery separately when the same turn later fails", async () => {
+    const work = fixture([
+      {
+        method: "error",
+        params: {
+          threadId: "thread:test", turnId: "turn:test", willRetry: true,
+          error: { message: "Reconnecting... 1/5" },
+        },
+      },
+      {
+        method: "error",
+        params: {
+          threadId: "thread:test", turnId: "turn:test", willRetry: false,
+          error: { code: "transport_closed", message: "Connection could not recover" },
+        },
+      },
+    ]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run, task: work.task, taskPayload: work.payload,
+      runtimeDefinition: work.runtime, credentialBinding: work.credential,
+      modelProfile: work.model, executionProfile: work.profile,
+      adapter: work.adapter, credentialBroker: work.broker, toolHost: work.toolHost,
+    });
+
+    expect(result.modelInvocations[0]).toMatchObject({
+      schemaVersion: "pmh.model-invocation.v4",
+      status: "FAILED",
+      failureCategory: "CODEX_APP_SERVER_PROTOCOL",
+      diagnostic: expect.stringContaining("Connection could not recover"),
+      runtimeRecovery: {
+        kind: "TRANSIENT_ERROR_NOTIFICATION",
+        notificationCount: 1,
+        lastDiagnostic: "code=unknown; message=Reconnecting... 1/5",
+      },
+    });
   });
 
   it("executes native dynamic tools and retains usage through the generic long loop", async () => {

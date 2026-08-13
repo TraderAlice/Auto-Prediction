@@ -512,6 +512,11 @@ export type AgentRuntimeTurn = Readonly<{
     reasoningTokens: string | null;
     failureCategory: string | null;
     diagnostic?: string | null;
+    runtimeRecovery?: Readonly<{
+      kind: "TRANSIENT_ERROR_NOTIFICATION";
+      notificationCount: number;
+      lastDiagnostic: string;
+    }> | null;
   }>;
   toolCalls: readonly AgentRuntimeToolCall[];
   completed: boolean;
@@ -811,6 +816,7 @@ export async function executePreparedAgentRun(
         diagnostic: turn.invocation.diagnostic ?? null,
         purpose: invocationPurpose,
         repairContext: nextInvocationRepairContext,
+        runtimeRecovery: turn.invocation.runtimeRecovery ?? null,
       });
       nextInvocationRepairContext = null;
       invocations.push(invocation);

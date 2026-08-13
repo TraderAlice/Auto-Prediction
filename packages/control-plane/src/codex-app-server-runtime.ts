@@ -160,6 +160,8 @@ class CodexAppServerSession implements AgentRuntimeSession {
     reasoningTokens: null,
   });
   #responseUsageObserved = false;
+  #retryingErrorNotificationCount = 0;
+  #lastRetryingErrorDiagnostic: string | null = null;
   #boundaryStartedAtMs = Date.now();
   #pendingRecoveryPrompt: string | null = null;
   #closed = false;
@@ -235,6 +237,13 @@ class CodexAppServerSession implements AgentRuntimeSession {
     diagnostic: string | null = null,
   ): AgentRuntimeTurn["invocation"] {
     const completedAtMs = Math.max(this.#boundaryStartedAtMs, Date.now());
+    const runtimeRecovery = this.#retryingErrorNotificationCount === 0
+      ? null
+      : Object.freeze({
+          kind: "TRANSIENT_ERROR_NOTIFICATION" as const,
+          notificationCount: this.#retryingErrorNotificationCount,
+          lastDiagnostic: this.#lastRetryingErrorDiagnostic ?? "diagnostic unavailable",
+        });
     const invocation = Object.freeze({
       status,
       startedAt: new Date(this.#boundaryStartedAtMs).toISOString(),
@@ -242,6 +251,7 @@ class CodexAppServerSession implements AgentRuntimeSession {
       ...this.#latestUsage,
       failureCategory,
       diagnostic,
+      runtimeRecovery,
     });
     this.#boundaryStartedAtMs = completedAtMs;
     this.#latestUsage = Object.freeze({
@@ -250,6 +260,8 @@ class CodexAppServerSession implements AgentRuntimeSession {
       reasoningTokens: null,
     });
     this.#responseUsageObserved = false;
+    this.#retryingErrorNotificationCount = 0;
+    this.#lastRetryingErrorDiagnostic = null;
     return invocation;
   }
 
@@ -419,6 +431,16 @@ class CodexAppServerSession implements AgentRuntimeSession {
           continue;
         }
         if (inbound.method === "error") {
+          if (params.willRetry === true) {
+            this.#retryingErrorNotificationCount += 1;
+            this.#lastRetryingErrorDiagnostic = boundedErrorNotification(inbound.params);
+            continue;
+          }
+          if (params.willRetry !== false) {
+            throw new Error(
+              `Codex app-server error notification has malformed retry state: ${boundedErrorNotification(inbound.params)}`,
+            );
+          }
           throw new Error(
             `Codex app-server emitted an error notification: ${boundedErrorNotification(inbound.params)}`,
           );

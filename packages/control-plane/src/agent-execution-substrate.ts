@@ -319,6 +319,12 @@ export type ModelInvocationPurpose =
   | "TOOL_CONTINUATION"
   | "RESULT_REPAIR";
 
+export type ModelInvocationRuntimeRecovery = Readonly<{
+  kind: "TRANSIENT_ERROR_NOTIFICATION";
+  notificationCount: number;
+  lastDiagnostic: string;
+}>;
+
 export type ModelInvocation = Readonly<
   | (ModelInvocationFields & {
       schemaVersion: "pmh.model-invocation.v1";
@@ -335,6 +341,16 @@ export type ModelInvocation = Readonly<
         attemptOrdinal: number;
         rejectedResultEffectIds: readonly Hash[];
       }> | null;
+    })
+  | (ModelInvocationFields & {
+      schemaVersion: "pmh.model-invocation.v4";
+      diagnostic: string | null;
+      purpose: ModelInvocationPurpose;
+      repairContext: Readonly<{
+        attemptOrdinal: number;
+        rejectedResultEffectIds: readonly Hash[];
+      }> | null;
+      runtimeRecovery: ModelInvocationRuntimeRecovery | null;
     })
 >;
 
@@ -1808,8 +1824,12 @@ export function assertModelInvocation(value: unknown): ModelInvocation {
     exactKeys(record, [...commonKeys, "diagnostic"]);
   const isV3 = record.schemaVersion === "pmh.model-invocation.v3" &&
     exactKeys(record, [...commonKeys, "diagnostic", "purpose", "repairContext"]);
+  const isV4 = record.schemaVersion === "pmh.model-invocation.v4" &&
+    exactKeys(record, [
+      ...commonKeys, "diagnostic", "purpose", "repairContext", "runtimeRecovery",
+    ]);
   if (
-    (!isV1 && !isV2 && !isV3) ||
+    (!isV1 && !isV2 && !isV3 && !isV4) ||
     !MODEL_ACCESS_DRIVERS.includes(record.accessDriver) ||
     !["SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"].includes(record.status) ||
     record.responseStorage !== false
@@ -1833,8 +1853,7 @@ export function assertModelInvocation(value: unknown): ModelInvocation {
   if (record.status === "SUCCEEDED" && record.failureCategory !== null) {
     throw new Error("Successful model invocation cannot have a failure category");
   }
-  if (record.schemaVersion === "pmh.model-invocation.v2" ||
-      record.schemaVersion === "pmh.model-invocation.v3") {
+  if (record.schemaVersion !== "pmh.model-invocation.v1") {
     if (record.diagnostic !== null) {
       boundedText(record.diagnostic, "Model invocation diagnostic", 2_000);
     }
@@ -1842,12 +1861,14 @@ export function assertModelInvocation(value: unknown): ModelInvocation {
       throw new Error("Successful model invocation cannot have a diagnostic");
     }
   }
-  if (record.schemaVersion === "pmh.model-invocation.v3" &&
+  if ((record.schemaVersion === "pmh.model-invocation.v3" ||
+      record.schemaVersion === "pmh.model-invocation.v4") &&
       !["PRIMARY_REASONING", "TOOL_CONTINUATION", "RESULT_REPAIR"]
         .includes(record.purpose)) {
     throw new Error("Model invocation purpose is invalid");
   }
-  if (record.schemaVersion === "pmh.model-invocation.v3") {
+  if (record.schemaVersion === "pmh.model-invocation.v3" ||
+      record.schemaVersion === "pmh.model-invocation.v4") {
     if ((record.purpose === "RESULT_REPAIR") !== (record.repairContext !== null)) {
       throw new Error("Model invocation repair context is inconsistent");
     }
@@ -1868,6 +1889,21 @@ export function assertModelInvocation(value: unknown): ModelInvocation {
         throw new Error("Model invocation repair context repeats an effect ID");
       }
     }
+  }
+  if (record.schemaVersion === "pmh.model-invocation.v4" && record.runtimeRecovery !== null) {
+    if (!exactKeys(record.runtimeRecovery, [
+      "kind", "notificationCount", "lastDiagnostic",
+    ]) || record.runtimeRecovery.kind !== "TRANSIENT_ERROR_NOTIFICATION" ||
+        !Number.isSafeInteger(record.runtimeRecovery.notificationCount) ||
+        record.runtimeRecovery.notificationCount < 1 ||
+        record.runtimeRecovery.notificationCount > 100_000) {
+      throw new Error("Model invocation runtime recovery is invalid");
+    }
+    boundedText(
+      record.runtimeRecovery.lastDiagnostic,
+      "Model invocation runtime recovery diagnostic",
+      500,
+    );
   }
   assertHashIdentity(record.invocationId, identity, "Model invocation identity");
   return record;
@@ -1890,6 +1926,7 @@ export function buildModelInvocation(input: Readonly<{
     attemptOrdinal: number;
     rejectedResultEffectIds: readonly Hash[];
   }> | null;
+  runtimeRecovery?: ModelInvocationRuntimeRecovery | null;
 }>): ModelInvocation {
   const run = assertAgentRun(input.run);
   const model = assertModelProfile(input.modelProfile);
@@ -1898,7 +1935,9 @@ export function buildModelInvocation(input: Readonly<{
     ordinal: positiveInteger(input.ordinal, "Model invocation ordinal", 100_000),
   });
   return assertModelInvocation(Object.freeze({
-    schemaVersion: "pmh.model-invocation.v3" as const,
+    schemaVersion: input.runtimeRecovery === undefined || input.runtimeRecovery === null
+      ? "pmh.model-invocation.v3" as const
+      : "pmh.model-invocation.v4" as const,
     invocationId: hashCanonical(identity),
     ...identity,
     accessDriver: model.accessDriver,
@@ -1934,6 +1973,21 @@ export function buildModelInvocation(input: Readonly<{
           ),
         })
       : null,
+    ...(input.runtimeRecovery === undefined || input.runtimeRecovery === null ? {} : {
+      runtimeRecovery: Object.freeze({
+        kind: input.runtimeRecovery.kind,
+        notificationCount: positiveInteger(
+          input.runtimeRecovery.notificationCount,
+          "Runtime recovery notification count",
+          100_000,
+        ),
+        lastDiagnostic: boundedText(
+          input.runtimeRecovery.lastDiagnostic,
+          "Runtime recovery diagnostic",
+          500,
+        ),
+      }),
+    }),
     responseStorage: false as const,
   }));
 }

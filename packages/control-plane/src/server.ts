@@ -3969,7 +3969,8 @@ export function createControlPlane(options?: {
       const runtime = profile === undefined ? undefined : runtimesById.get(
         profile.runtimeDefinitionId,
       );
-      const invocationPurpose = invocation.schemaVersion === "pmh.model-invocation.v3"
+      const invocationPurpose = invocation.schemaVersion === "pmh.model-invocation.v3" ||
+          invocation.schemaVersion === "pmh.model-invocation.v4"
         ? invocation.purpose
         : "HISTORICAL_UNCLASSIFIED";
       const identity = `${runtime?.kind ?? "UNKNOWN"}|${model?.model ?? "UNKNOWN"}|${task?.kind ?? "UNKNOWN"}|${invocationPurpose}`;

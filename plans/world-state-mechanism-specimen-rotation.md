@@ -74,9 +74,29 @@ preflight observation had expired.
 - [ ] Attribute accepted proposal, falsifier, abstention, no-result and exact
   token/runtime cost before selecting the next engineering change.
 
+The first live specimen retained a real negative runtime observation before
+useful model work. Campaign run
+`sha256:cccda3ede0dbce2a343e47db243d66fa628bc2d022b2b36a334fdcd8db6f700a`
+failed after 36 seconds with one invocation, unknown usage and zero tool
+effects. Codex app-server emitted `Reconnecting... 2/5`; the adapter treated
+that progress notification as terminal protocol failure. The campaign was
+paused immediately. Preview v2 then proved live rotation to the Mary Peltola
+Alaska governor-versus-Senate specimen: one selected task is terminally
+attempted, one is frozen next and six are deferred.
+
+Issue [#201](https://github.com/luokerenx4/my-little-pony/issues/201) addresses
+the runtime defect before the rotated specimen spends. Codex CLI 0.147.0's
+generated official app-server types define `ErrorNotification` with an exact
+`willRetry` boolean. `true` is now bounded same-turn progress, while `false` or
+a malformed/missing field remains terminal. Recovered invocations retain a
+separate typed `runtimeRecovery` observation rather than misusing a successful
+invocation's failure diagnostic. The existing turn and whole-run deadlines
+still bound endless reconnecting; the adapter does not create a new turn,
+model invocation or campaign retry.
+
 ## Construction qualification
 
-Workspace type checks, 105 control-plane files / 700 tests, five Studio files /
+Workspace type checks, 105 control-plane files / 703 tests, five Studio files /
 30 tests and the production Studio build pass on the available Node 22 host.
 The known Node 24 engine expectation and existing Studio chunk-size warning
 remain; neither is introduced by this change.

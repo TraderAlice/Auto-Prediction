@@ -226,6 +226,11 @@ type AgentExecutionConsole = Readonly<{
     failureCategory?: string | null;
     diagnostic?: string | null;
     purpose?: "PRIMARY_REASONING" | "TOOL_CONTINUATION" | "RESULT_REPAIR";
+    runtimeRecovery?: Readonly<{
+      kind: "TRANSIENT_ERROR_NOTIFICATION";
+      notificationCount: number;
+      lastDiagnostic: string;
+    }> | null;
     repairContext?: Readonly<{
       attemptOrdinal: number;
       rejectedResultEffectIds: readonly string[];
