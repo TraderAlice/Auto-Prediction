@@ -353,12 +353,17 @@ import {
   type WorldRelationExperimentInputStore,
 } from "./world-relation-experiment-work.js";
 import {
+  assertWorldRelationExperimentCheckpoint,
+  type WorldRelationExperimentCheckpoint,
+  type WorldRelationExperimentCheckpointStore,
+} from "./world-relation-experiment-checkpoint.js";
+import {
   assertSettlementProjectionObservation,
   type SettlementProjectionObservation,
   type SettlementProjectionObservationStore,
 } from "./settlement-projection-compiler.js";
 
-const SCHEMA_VERSION = 62;
+const SCHEMA_VERSION = 63;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -2040,6 +2045,25 @@ function parseWorldRelationExperimentInput(
   return revision;
 }
 
+function parseWorldRelationExperimentCheckpoint(
+  value: unknown,
+): WorldRelationExperimentCheckpoint {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world relation experiment checkpoint row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.checkpoint_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world relation experiment checkpoint row has invalid columns");
+  }
+  const checkpoint = assertWorldRelationExperimentCheckpoint(JSON.parse(row.record_json));
+  if (checkpoint.checkpointId !== row.checkpoint_id ||
+      checkpoint.checkpointId !== row.record_hash) {
+    throw new Error("SQLite world relation experiment checkpoint identity mismatch");
+  }
+  return checkpoint;
+}
+
 function parseWorldStateMechanismProposal(value: unknown): WorldStateMechanismProposal {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite world-state mechanism proposal row is malformed");
@@ -2705,6 +2729,7 @@ export class SqliteOperationalStore
     StudioProjectionSnapshotStore,
     WorldHistoryOntologyStore,
     WorldRelationExperimentInputStore,
+    WorldRelationExperimentCheckpointStore,
     SettlementProjectionObservationStore
 {
   readonly #database: DatabaseSync;
@@ -2836,6 +2861,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"inputRevisionId">;
   public readonly worldRelationExperimentCorpusStorage:
     OperationalStorageProjection<"snapshotIdentity">;
+  public readonly worldRelationExperimentCheckpointStorage:
+    OperationalStorageProjection<"checkpointId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -3259,6 +3286,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "snapshotIdentity",
+    });
+    this.worldRelationExperimentCheckpointStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "checkpointId",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -3820,6 +3853,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'world_relation_experiment_corpora'`,
       )
       .get() !== undefined;
+    const worldRelationExperimentCheckpointTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_experiment_checkpoints'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -3893,6 +3932,7 @@ export class SqliteOperationalStore
       && worldRelationExperimentTableExists
       && worldRelationExperimentInputTableExists
       && worldRelationExperimentCorpusTableExists
+      && worldRelationExperimentCheckpointTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -6509,6 +6549,27 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS settlement_projection_observations_identity
             ON settlement_projection_observations (
               observation_id, observed_at DESC, artifact_hash DESC
+            );
+        `);
+      }
+      if (current < 63 || !worldRelationExperimentCheckpointTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_relation_experiment_checkpoints (
+            checkpoint_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(checkpoint_id) = 71 AND checkpoint_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL UNIQUE,
+            closed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = checkpoint_id),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES world_relation_experiment_inputs(input_revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_experiment_checkpoints_input
+            ON world_relation_experiment_checkpoints (
+              input_revision_id, closed_at DESC, checkpoint_id DESC
             );
         `);
       }
@@ -13637,6 +13698,67 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return inputs;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationExperimentCheckpoints(
+    limit: number,
+  ): readonly WorldRelationExperimentCheckpoint[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT checkpoint_id, record_json, record_hash
+       FROM world_relation_experiment_checkpoints
+       ORDER BY closed_at DESC, checkpoint_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationExperimentCheckpoint));
+  }
+
+  public saveWorldRelationExperimentCheckpoints(
+    checkpointsInput: readonly WorldRelationExperimentCheckpoint[],
+  ): readonly WorldRelationExperimentCheckpoint[] {
+    this.#assertOpen();
+    const checkpoints = Object.freeze(checkpointsInput.map(
+      assertWorldRelationExperimentCheckpoint,
+    ));
+    if (new Set(checkpoints.map((item) => item.checkpointId)).size !== checkpoints.length ||
+        new Set(checkpoints.map((item) => item.sourceAgentRunId)).size !== checkpoints.length) {
+      throw new Error("world relation checkpoint batch repeats an identity or run");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const checkpoint of checkpoints) {
+        if (this.loadWorldRelationExperimentInput(checkpoint.inputRevisionId) === null) {
+          throw new Error("world relation checkpoint references an unavailable exact input");
+        }
+        const run = this.#database.prepare(
+          "SELECT status FROM agent_runs WHERE run_id = ?",
+        ).get(checkpoint.sourceAgentRunId) as Readonly<{ status: string }> | undefined;
+        if (run?.status !== "SUCCEEDED") {
+          throw new Error("world relation checkpoint requires a durable successful Agent run");
+        }
+        this.#database.prepare(
+          `INSERT INTO world_relation_experiment_checkpoints (
+             checkpoint_id, input_revision_id, source_agent_run_id, closed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(checkpoint_id) DO NOTHING`,
+        ).run(checkpoint.checkpointId, checkpoint.inputRevisionId,
+          checkpoint.sourceAgentRunId, checkpoint.closedAt,
+          canonicalJson(checkpoint), checkpoint.checkpointId);
+        const row = this.#database.prepare(
+          `SELECT checkpoint_id, record_json, record_hash
+           FROM world_relation_experiment_checkpoints WHERE checkpoint_id = ?`,
+        ).get(checkpoint.checkpointId);
+        if (parseWorldRelationExperimentCheckpoint(row).checkpointId !==
+            checkpoint.checkpointId) {
+          throw new Error("world relation checkpoint identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return checkpoints;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

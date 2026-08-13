@@ -12,7 +12,10 @@ import {
   buildModelProfile,
   buildWorldPredicateArtifact,
   completeAgentRun,
+  checkpointWorldRelationExperimentRun,
+  compileWorldRelationExperimentFromCheckpoint,
   compileWorldRelationExperimentFromRun,
+  buildWorldRelationExperimentAssignment,
   WORLD_RELATION_EXPERIMENT_TOOL_PROTOCOL,
   WorldRelationExperimentAgentToolHost,
   type AgentToolHostContext,
@@ -243,6 +246,37 @@ describe("world relation Agent tools", () => {
     expect(experiment.adverseAssignments[0]?.truthByPredicateId[work.cola.predicateId])
       .toBe(false);
     expect(experiment.counterworlds[0]?.result).toBe("INCONCLUSIVE");
+
+    const assignment = buildWorldRelationExperimentAssignment({
+      frontier: work.frontier,
+      corpus: work.corpus,
+    });
+    const checkpoint = checkpointWorldRelationExperimentRun({
+      host: work.host,
+      inputRevisionId: assignment.inputRevision.inputRevisionId,
+      execution: { run: completed, modelInvocations: invocations, toolEffects: effects,
+        runArtifacts: [], finalArtifactHash: hash("final"), runtimeKind: "CODEX",
+        credentialBindingId: work.credential.credentialBindingId,
+        secretMaterialRetained: false },
+    });
+    expect(checkpoint.authority).toBe("FIRST_PARTY_REPLAYABLE_TOOL_HOST_STATE");
+    expect(checkpoint.sourceAgentRunId).toBe(completed.runId);
+    expect(compileWorldRelationExperimentFromCheckpoint({
+      checkpoint,
+      inputRevision: assignment.inputRevision,
+      corpus: assignment.corpus,
+      projections: assignment.projections,
+    })).toEqual(experiment);
+    expect(() => compileWorldRelationExperimentFromCheckpoint({
+      checkpoint,
+      inputRevision: buildWorldRelationExperimentAssignment({
+        frontier: work.frontier,
+        corpus: buildMarketCorpusSnapshot({ sourceSetIdentity: hash("other-source"),
+          eligibleSourceCount: 1, excludedSourceCount: 0,
+          listings: work.corpus.listings }),
+      }).inputRevision,
+      corpus: assignment.corpus,
+    })).toThrow(/does not bind the exact retained input/iu);
   });
 
   it("deduplicates shared raw catalog evidence across inspected listings", async () => {

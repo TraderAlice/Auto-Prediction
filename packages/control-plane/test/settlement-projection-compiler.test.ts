@@ -212,7 +212,7 @@ describe("first-party settlement projection compiler", () => {
       expect(store.saveSettlementProjectionObservations(result.observations))
         .toEqual(result.observations);
       expect(store.settlementProjectionObservationStorage).toMatchObject({
-        durable: true, schemaVersion: 62, idempotencyKey: "artifactHash",
+        durable: true, schemaVersion: 63, idempotencyKey: "artifactHash",
       });
       store.close();
       store = new SqliteOperationalStore(path);

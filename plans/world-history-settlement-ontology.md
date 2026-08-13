@@ -245,3 +245,31 @@ an orchestration-budget interruption rather than negative semantic yield. The
 immutable execution profile advances to revision 2 with 16 invocations and a
 400,000-input-token ceiling; the next specimen must prove that this margin
 closes the lifecycle instead of merely expanding exploration.
+
+The revision-2 Terra/high specimen (`7fcbe4bf…`) did close the complete
+lifecycle: ten accepted effects, zero rejections, a successful terminal,
+190,626 input tokens, 2,635 output tokens and 1,359 reasoning tokens. It then
+exposed a first-party materialization defect rather than a model defect.
+Multiple listings from one immutable catalog response legitimately shared one
+`sourceRawHash`, while the experiment validator requires evidence identities
+to be unique. The materializer now deduplicates shared raw evidence and
+repeated search neighborhoods, and post-run failure annotations retain the
+compact diagnostic instead of only its hash.
+
+That failure also changes the durable boundary. A successful Agent terminal
+can no longer exist only inside the live tool-host process. Schema 63 adds a
+content-addressed world-relation checkpoint that binds the exact retained
+input, frontier revision, corpus snapshot, accepted effect IDs, invocation
+IDs, usage, searched neighborhoods, inspected listing refs, complete
+counterworld and terminal disposition. The checkpoint is written before
+experiment compilation. Reconciliation replays any checkpoint whose
+successful run has no materialized experiment, using retained first-party
+inputs and projections without another provider request. Focused tests cover
+exact replay equivalence, mismatched-input rejection, durable restart and the
+requirement that both the exact input and a successful run already exist.
+
+The next live specimen must prove both layers together: successful terminal →
+durable checkpoint → materialized experiment, followed by a process restart
+that leaves the artifact idempotently recoverable. After that evidence, the
+active continuation moves from lifecycle durability to shadow opportunity
+construction from supported probabilistic relations.

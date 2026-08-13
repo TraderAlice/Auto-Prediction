@@ -152,9 +152,12 @@ import {
   type WorldRelationExperimentInputStore,
 } from "./world-relation-experiment-work.js";
 import {
-  compileWorldRelationExperimentFromRun,
+  checkpointWorldRelationExperimentRun,
+  compileWorldRelationExperimentFromCheckpoint,
   WorldRelationExperimentAgentToolHost,
 } from "./world-relation-agent-tools.js";
+import type { WorldRelationExperimentCheckpointStore } from
+  "./world-relation-experiment-checkpoint.js";
 import {
   buildWorldStateMechanismResearchTaskContract,
   buildWorldStateMechanismResearchYield,
@@ -1281,16 +1284,19 @@ function supportsRelationDiscoveryRecords(
 function supportsWorldRelationExperimentRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & WorldHistoryOntologyStore &
-  WorldRelationExperimentInputStore & SettlementProjectionObservationStore {
+  WorldRelationExperimentInputStore & WorldRelationExperimentCheckpointStore &
+  SettlementProjectionObservationStore {
   if (store === undefined) return false;
   const candidate = store as Partial<WorldHistoryOntologyStore &
-    WorldRelationExperimentInputStore & SettlementProjectionObservationStore>;
+    WorldRelationExperimentInputStore & WorldRelationExperimentCheckpointStore &
+    SettlementProjectionObservationStore>;
   return candidate.worldPredicateArtifactStorage !== undefined &&
     candidate.settlementProjectionStorage !== undefined &&
     candidate.settlementProjectionObservationStorage !== undefined &&
     candidate.worldRelationExperimentStorage !== undefined &&
     candidate.worldRelationExperimentInputStorage !== undefined &&
     candidate.worldRelationExperimentCorpusStorage !== undefined &&
+    candidate.worldRelationExperimentCheckpointStorage !== undefined &&
     typeof candidate.loadWorldPredicateArtifacts === "function" &&
     typeof candidate.saveWorldPredicateArtifacts === "function" &&
     typeof candidate.loadSettlementProjections === "function" &&
@@ -1303,7 +1309,9 @@ function supportsWorldRelationExperimentRecords(
     typeof candidate.loadWorldRelationExperimentInput === "function" &&
     typeof candidate.saveWorldRelationExperimentInputs === "function" &&
     typeof candidate.loadWorldRelationExperimentCorpus === "function" &&
-    typeof candidate.saveWorldRelationExperimentCorpus === "function";
+    typeof candidate.saveWorldRelationExperimentCorpus === "function" &&
+    typeof candidate.loadWorldRelationExperimentCheckpoints === "function" &&
+    typeof candidate.saveWorldRelationExperimentCheckpoints === "function";
 }
 
 function supportsStandingOntologyRouteObservationEpisodes(
@@ -3698,8 +3706,20 @@ export function createControlPlane(options?: {
         if (task.kind !== "WORLD_RELATION_EXPERIMENT" ||
             !(toolHost instanceof WorldRelationExperimentAgentToolHost) ||
             worldRelationExperimentStore === null || execution.run.status !== "SUCCEEDED") return;
+        const assignment = worldRelationExperimentAssignment(task.taskId);
+        const checkpoint = checkpointWorldRelationExperimentRun({
+          host: toolHost,
+          inputRevisionId: assignment.inputRevision.inputRevisionId,
+          execution,
+        });
+        worldRelationExperimentStore.saveWorldRelationExperimentCheckpoints([checkpoint]);
         worldRelationExperimentStore.saveWorldRelationExperiments([
-          compileWorldRelationExperimentFromRun({ host: toolHost, execution }),
+          compileWorldRelationExperimentFromCheckpoint({
+            checkpoint,
+            inputRevision: assignment.inputRevision,
+            corpus: assignment.corpus,
+            projections: assignment.projections,
+          }),
         ]);
       },
     });
@@ -4074,6 +4094,33 @@ export function createControlPlane(options?: {
     worldRelationExperimentStore.saveSettlementProjectionObservations(
       settlement.observations,
     );
+    const retainedExperimentsBeforeReplay =
+      worldRelationExperimentStore.loadWorldRelationExperiments(2_048);
+    const materializedRunIds = new Set(retainedExperimentsBeforeReplay.map((item) =>
+      item.sourceAgentRunId));
+    for (const checkpoint of worldRelationExperimentStore
+      .loadWorldRelationExperimentCheckpoints(2_048)
+      .filter((item) => !materializedRunIds.has(item.sourceAgentRunId))) {
+      const revision = worldRelationExperimentStore.loadWorldRelationExperimentInput(
+        checkpoint.inputRevisionId,
+      );
+      const retainedCorpus = revision === null ? null :
+        worldRelationExperimentStore.loadWorldRelationExperimentCorpus(
+          revision.corpusSnapshotIdentity,
+        );
+      if (revision === null || retainedCorpus === null) continue;
+      const projectionHashes = new Set(revision.settlementProjectionArtifactHashes);
+      worldRelationExperimentStore.saveWorldRelationExperiments([
+        compileWorldRelationExperimentFromCheckpoint({
+          checkpoint,
+          inputRevision: revision,
+          corpus: retainedCorpus,
+          projections: worldRelationExperimentStore.loadSettlementProjections(2_048)
+            .filter((item) => projectionHashes.has(item.artifactHash)),
+        }),
+      ]);
+      materializedRunIds.add(checkpoint.sourceAgentRunId);
+    }
     currentSettlementProjections = settlement.projections;
     currentSettlementProjectionObservations = settlement.observations;
     const projections = currentSettlementProjections;

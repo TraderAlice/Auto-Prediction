@@ -13,6 +13,12 @@ import {
   type WorldRelationExperiment,
 } from "./world-history-ontology.js";
 import type { WorldRelationFrontierSeed } from "./world-history-ontology-adapter.js";
+import {
+  buildWorldRelationExperimentCheckpoint,
+  type WorldRelationExperimentCheckpoint,
+} from "./world-relation-experiment-checkpoint.js";
+import type { WorldRelationExperimentInputRevision } from
+  "./world-relation-experiment-work.js";
 
 export const WORLD_RELATION_EXPERIMENT_TOOL_PROTOCOL =
   "WORLD_RELATION_EXPERIMENT_TOOLS_V1" as const;
@@ -446,6 +452,111 @@ function tokenSum(
   values: readonly (string | null)[],
 ): string {
   return values.reduce<bigint>((sum, value) => sum + BigInt(value ?? "0"), 0n).toString();
+}
+
+export function checkpointWorldRelationExperimentRun(input: Readonly<{
+  host: WorldRelationExperimentAgentToolHost;
+  inputRevisionId: Hash;
+  execution: AgentRuntimeExecutionResult;
+}>): WorldRelationExperimentCheckpoint {
+  const terminal = input.host.terminalDraft();
+  if (terminal === null || input.execution.run.status !== "SUCCEEDED" ||
+      input.execution.run.completedAt === null) {
+    throw new Error("world relation checkpoint requires a successful terminal run");
+  }
+  const counterworld = input.host.counterworld();
+  return buildWorldRelationExperimentCheckpoint({
+    inputRevisionId: input.inputRevisionId,
+    frontierId: input.host.frontier.frontierId,
+    frontierArtifactHash: input.host.frontier.artifactHash,
+    corpusSnapshotIdentity: input.host.corpus.snapshotIdentity,
+    sourceAgentRunId: input.execution.run.runId,
+    sourceToolEffectIds: input.execution.toolEffects.filter((item) =>
+      item.status === "ACCEPTED").map((item) => item.effectId),
+    invocationIds: input.execution.modelInvocations.map((item) => item.invocationId),
+    usage: {
+      inputTokens: tokenSum(input.execution.modelInvocations.map((item) => item.inputTokens)),
+      outputTokens: tokenSum(input.execution.modelInvocations.map((item) => item.outputTokens)),
+      reasoningTokens: tokenSum(input.execution.modelInvocations.map((item) => item.reasoningTokens)),
+    },
+    searchNeighborhoods: input.host.searches().map((item) => item.query.patterns.join(" ")),
+    inspectedListingRefs: input.host.inspectedListingRefs(),
+    counterworld: counterworld === null ? null : {
+      description: counterworld.description,
+      truthByPredicateId: counterworld.truthByPredicateId,
+      outcome: counterworld.outcome!,
+      outcomeDescription: counterworld.outcomeDescription!,
+    },
+    terminalDisposition: terminal.disposition,
+    rationale: terminal.rationale,
+    closedAt: input.execution.run.completedAt,
+  });
+}
+
+export function compileWorldRelationExperimentFromCheckpoint(input: Readonly<{
+  checkpoint: WorldRelationExperimentCheckpoint;
+  inputRevision: WorldRelationExperimentInputRevision;
+  corpus: MarketCorpusSnapshot;
+  projections?: readonly SettlementProjection[];
+}>): WorldRelationExperiment {
+  const { checkpoint, inputRevision, corpus } = input;
+  if (checkpoint.inputRevisionId !== inputRevision.inputRevisionId ||
+      checkpoint.frontierId !== inputRevision.frontier.frontierId ||
+      checkpoint.frontierArtifactHash !== inputRevision.frontier.artifactHash ||
+      checkpoint.corpusSnapshotIdentity !== inputRevision.corpusSnapshotIdentity ||
+      corpus.snapshotIdentity !== inputRevision.corpusSnapshotIdentity) {
+    throw new Error("world relation checkpoint does not bind the exact retained input");
+  }
+  const listingByRef = new Map(corpus.listings.map((item) => [item.listingRef, item]));
+  if (checkpoint.inspectedListingRefs.some((item) => !listingByRef.has(item))) {
+    throw new Error("world relation checkpoint references an unavailable retained listing");
+  }
+  const expectedPredicates = inputRevision.frontier.predicates.map((item) =>
+    item.predicateId).sort();
+  if (checkpoint.counterworld !== null &&
+      Object.keys(checkpoint.counterworld.truthByPredicateId).sort().join("\n") !==
+        expectedPredicates.join("\n")) {
+    throw new Error("world relation checkpoint counterworld does not bind the exact frontier");
+  }
+  const projectionHashes = new Set(inputRevision.settlementProjectionArtifactHashes);
+  const projections = (input.projections ?? []).filter((item) =>
+    projectionHashes.has(item.artifactHash));
+  if (projections.length !== projectionHashes.size) {
+    throw new Error("world relation checkpoint replay lacks an exact settlement projection");
+  }
+  const frontier = inputRevision.frontier;
+  const counterworld = checkpoint.counterworld;
+  return buildWorldRelationExperiment({
+    relationKind: frontier.relationKind,
+    predicateArtifacts: frontier.predicates,
+    antecedentPredicateIds: frontier.antecedentPredicateIds,
+    consequentPredicateIds: frontier.consequentPredicateIds,
+    latentPredicateIds: frontier.latentPredicateIds,
+    temporalPosture: frontier.temporalPosture,
+    adverseAssignments: checkpoint.terminalDisposition === "EXHAUSTED" ||
+      counterworld === null ? [] : [{
+        truthByPredicateId: counterworld.truthByPredicateId,
+        rationale: counterworld.description,
+      }],
+    searchNeighborhoods: checkpoint.searchNeighborhoods,
+    inspectedProjectionIds: projections.filter((item) =>
+      checkpoint.inspectedListingRefs.includes(item.listing.listingRef)
+    ).map((item) => item.projectionId),
+    counterworlds: counterworld === null ? [] : [{
+      description: `${counterworld.description} Test outcome: ${counterworld.outcomeDescription}`,
+      truthByPredicateId: counterworld.truthByPredicateId,
+      result: counterworld.outcome,
+      evidenceBindingHashes: [...new Set(checkpoint.inspectedListingRefs.map((listingRef) =>
+        listingByRef.get(listingRef)!.sourceRawHash as Hash))],
+    }],
+    terminalDisposition: checkpoint.terminalDisposition,
+    rationale: checkpoint.rationale,
+    sourceAgentRunId: checkpoint.sourceAgentRunId,
+    sourceToolEffectIds: checkpoint.sourceToolEffectIds,
+    invocationIds: checkpoint.invocationIds,
+    usage: checkpoint.usage,
+    closedAt: checkpoint.closedAt,
+  });
 }
 
 export function compileWorldRelationExperimentFromRun(input: Readonly<{

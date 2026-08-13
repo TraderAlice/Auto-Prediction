@@ -5,11 +5,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   assertWorldRelationExperimentInputRevision,
+  buildAgentRun,
   buildDefaultAgentRuntimePortfolio,
   buildMarketCorpusSnapshot,
   buildWorldPredicateArtifact,
   buildWorldRelationExperimentAssignment,
   buildWorldRelationExperimentCampaignPreview,
+  buildWorldRelationExperimentCheckpoint,
+  completeAgentRun,
   defaultAiRuntimeConfiguration,
   SqliteOperationalStore,
   type WorldRelationFrontierSeed,
@@ -160,7 +163,7 @@ describe("world relation experiment work", () => {
       expect(store.saveWorldRelationExperimentInputs([work.inputRevision]))
         .toEqual([work.inputRevision]);
       expect(store.worldRelationExperimentInputStorage).toMatchObject({
-        durable: true, schemaVersion: 62, idempotencyKey: "inputRevisionId",
+        durable: true, schemaVersion: 63, idempotencyKey: "inputRevisionId",
       });
     } finally {
       store.close();
@@ -171,6 +174,63 @@ describe("world relation experiment work", () => {
         .toEqual(work.inputRevision);
       expect(store.loadWorldRelationExperimentCorpus(work.corpus.snapshotIdentity))
         .toEqual(work.corpus);
+    } finally {
+      store.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retains a replayable terminal checkpoint only after its exact input and successful run", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-world-relation-checkpoint-"));
+    const databasePath = join(directory, "control-plane.sqlite");
+    const work = assignment();
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(at));
+    const route = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "WORLD_RELATION_EXPERIMENT")!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId)!;
+    const prepared = buildAgentRun({ task: work.task, executionProfile: profile,
+      runOrdinal: 1, authorization: { kind: "MANUAL", authorizationRef: "operator:test",
+        authorizedAt: at }, createdAt: at });
+    const run = completeAgentRun(prepared, "SUCCEEDED", "2026-08-14T00:00:01.000Z", null);
+    const checkpoint = buildWorldRelationExperimentCheckpoint({
+      inputRevisionId: work.inputRevision.inputRevisionId,
+      frontierId: work.inputRevision.frontier.frontierId,
+      frontierArtifactHash: work.inputRevision.frontier.artifactHash,
+      corpusSnapshotIdentity: work.corpus.snapshotIdentity,
+      sourceAgentRunId: run.runId,
+      sourceToolEffectIds: [], invocationIds: [],
+      usage: { inputTokens: "0", outputTokens: "0", reasoningTokens: "0" },
+      searchNeighborhoods: ["cola"], inspectedListingRefs: [], counterworld: null,
+      terminalDisposition: "EXHAUSTED", rationale: "No additional listing survived search.",
+      closedAt: run.completedAt!,
+    });
+    let store = new SqliteOperationalStore(databasePath);
+    try {
+      expect(() => store.saveWorldRelationExperimentCheckpoints([checkpoint]))
+        .toThrow(/unavailable exact input/iu);
+      store.saveWorldPredicateArtifacts(work.inputRevision.frontier.predicates);
+      store.saveWorldRelationExperimentCorpus(work.corpus);
+      store.saveWorldRelationExperimentInputs([work.inputRevision]);
+      store.saveAgentExecutionBatch({
+        runtimeDefinitions: portfolio.runtimeDefinitions,
+        credentialBindings: portfolio.credentialBindings,
+        modelProfiles: portfolio.modelProfiles,
+        executionProfiles: portfolio.executionProfiles,
+        workloadRoutes: portfolio.workloadRoutes,
+        tasks: [work.task], runs: [run],
+      });
+      expect(store.saveWorldRelationExperimentCheckpoints([checkpoint]))
+        .toEqual([checkpoint]);
+      expect(store.worldRelationExperimentCheckpointStorage).toMatchObject({
+        durable: true, schemaVersion: 63, idempotencyKey: "checkpointId",
+      });
+    } finally {
+      store.close();
+    }
+    store = new SqliteOperationalStore(databasePath);
+    try {
+      expect(store.loadWorldRelationExperimentCheckpoints(10)).toEqual([checkpoint]);
     } finally {
       store.close();
       await rm(directory, { recursive: true, force: true });

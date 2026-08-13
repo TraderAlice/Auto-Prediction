@@ -110,6 +110,7 @@ export * from "./settlement-projection-compiler.js";
 export * from "./world-relation-truth-bridge.js";
 export * from "./world-relation-agent-tools.js";
 export * from "./world-relation-experiment-work.js";
+export * from "./world-relation-experiment-checkpoint.js";
 export * from "./world-state-mechanism-observer.js";
 export * from "./world-state-mechanism-research.js";
 export * from "./world-state-mechanism-family-scorecard.js";
