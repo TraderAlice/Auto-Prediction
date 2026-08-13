@@ -1,5 +1,23 @@
 # Plans
 
+The active execution continuation is
+[`plans/world-state-mechanism-specimen-rotation.md`](plans/world-state-mechanism-specimen-rotation.md).
+Issue #199 closes a budget-to-membership defect discovered before the next live
+Terra specimen. The provider-free allocation currently selects eight diverse
+world-state mechanism actions, but the campaign's whole-lineage ceiling is only
+eight calls and 200,000 input tokens; the one productive historical run used
+seven calls and 148,341 input tokens by itself. The broad portfolio remains
+visible for comparison, while each manual campaign now freezes one exact,
+previously unattempted action. Any terminal campaign result—including failure
+or principled no-result—rotates the next preview to the next deterministic
+ranked action instead of silently retrying or letting hash order monopolize
+Agent attention. Preview and creation remain zero-inference and paused; live
+qualification selected one Antonelli grand-prix/championship specimen from the
+eight-action portfolio and deferred seven with zero model calls. The retained
+historical Iowa run did not consume a current specimen. Full checks, 700
+control-plane tests, 30 Studio tests and the production build pass; capability
+refresh and one explicit Terra observation are the next gate.
+
 Issue #190 repairs a restart-continuity defect discovered against the live
 SQLite volume. Semantic-review startup loaded findings and task revisions from
 two independent 512-row recent windows, so a valid older exact revision could

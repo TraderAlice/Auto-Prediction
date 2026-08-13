@@ -440,9 +440,14 @@ export function buildWorldStateMechanismAllocation(input: Readonly<{
     return order[left.disposition] - order[right.disposition] ||
       left.mechanismIssueId.localeCompare(right.mechanismIssueId);
   }));
-  const selectedActions = Object.freeze(actions.filter((item) =>
-    item.disposition === "SELECTED_FOR_MECHANISM_RESEARCH"
+  const actionsByAssignment = new Map(actions.map((item) =>
+    [item.assignmentId, item] as const
   ));
+  const selectedActions = Object.freeze([...selectedIds].map((assignmentId) => {
+    const action = actionsByAssignment.get(assignmentId);
+    if (action === undefined) throw new Error("selected mechanism allocation action is unavailable");
+    return action;
+  }));
   const reasonCounts = new Map<WorldStateMechanismSuitabilityHazard | "PORTFOLIO_REDUNDANCY", number>();
   for (const action of actions) {
     if (action.disposition === "HELD_LOW_STRUCTURAL_SUITABILITY") {

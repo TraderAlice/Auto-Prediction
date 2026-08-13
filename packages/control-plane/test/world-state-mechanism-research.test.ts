@@ -61,6 +61,25 @@ function fixture(receivedAt = NOW) {
   return { corpus, ontology, revisions, assignments };
 }
 
+function twoIssueFixture() {
+  const corpus = buildMarketCorpusSnapshot({
+    sourceSetIdentity: hashCanonical({ fixture: "mechanism-rotation" }),
+    eligibleSourceCount: 2, excludedSourceCount: 0,
+    listings: [
+      listing("a:trump-shot", "Will Trump be shot during August?"),
+      listing("b:trump-cola", "Will Trump livestream drinking cola during September?"),
+      listing("a:kelly-crime", "Will Mark Kelly be charged with a federal crime in 2026?"),
+      listing("b:kelly-nominee", "Will Mark Kelly win the 2028 Democratic nomination?"),
+    ],
+  });
+  const ontology = buildMarketOntologySnapshot(corpus);
+  const revisions = materializeOntologySearchIssueRevisions({ ontology, corpus, proposals: [] });
+  const assignments = materializeWorldStateMechanismResearchAssignments({
+    revisions, proposals: [], counterexamples: [], abstentions: [],
+  });
+  return { revisions, assignments };
+}
+
 describe("world-state mechanism research role", () => {
   it("accounts for retained mechanism memory across assignment windows", () => {
     const work = fixture();
@@ -253,14 +272,22 @@ describe("world-state mechanism research role", () => {
       assignments: work.assignments, revisions: work.revisions, execution, capability,
     });
     expect(preview).toMatchObject({
+      schemaVersion: "pmh.world-state-mechanism-campaign-preview.v2",
       schedule: { kind: "MANUAL_ONLY" },
       taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
       budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 8 },
+      taskIds: [preview.taskIds[0]],
+      portfolioSelectedTaskCount: 1,
+      terminallyAttemptedSelectedTaskCount: 0,
+      specimenTaskLimit: 1,
+      deferredSelectedTaskCount: 0,
       creationEligible: true,
       dispatchEligible: true,
       providerRequestsStarted: 0,
       modelInvocationsStarted: 0,
     });
+    expect(preview.taskIds).toHaveLength(1);
+    expect(preview.selectionBinding.taskBindings).toHaveLength(1);
     expect(buildWorldStateMechanismResearchYield({
       assignments: work.assignments, execution,
     })).toMatchObject({
@@ -274,6 +301,69 @@ describe("world-state mechanism research role", () => {
         unknownUsageInvocationCount: 0,
       }]),
     });
+  });
+
+  it("rotates a bounded campaign specimen after any terminal mechanism attempt", () => {
+    const { assignments, revisions } = twoIssueFixture();
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
+    const route = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "WORLD_STATE_MECHANISM_RESEARCH"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    )!;
+    const capability = {
+      schemaVersion: "pmh.execution-capability.v1", executionProfileId: profile.executionProfileId,
+      runtimeKind: "CODEX", credentialKind: "CODEX_OAUTH", accessDriver: "CODEX_RESPONSES",
+      model: "gpt-5.6-terra", configured: true, credentialPresent: true,
+      dispatchEligibility: "ELIGIBLE", diagnostic: "ready", observedAt: NOW,
+      authority: "EXECUTION_CAPABILITY_ONLY", secretMaterialRetained: false,
+      externalWriteAuthority: false, valueMovingAuthority: false,
+    } as const;
+    const baseExecution = {
+      runtimeDefinitions: portfolio.runtimeDefinitions,
+      credentialBindings: portfolio.credentialBindings,
+      modelProfiles: portfolio.modelProfiles,
+      executionProfiles: portfolio.executionProfiles,
+      workloadRoutes: portfolio.workloadRoutes,
+      campaigns: [], tasks: assignments.map((item) => item.task), runs: [],
+      modelInvocations: [], toolEffects: [], runArtifacts: [], runAnnotations: [],
+      resultSelections: [],
+    };
+    const first = buildWorldStateMechanismCampaignPreview({
+      assignments, revisions, execution: baseExecution, capability,
+    });
+    expect(first.taskIds).toHaveLength(1);
+    const paused = buildPausedAgentCampaign({
+      campaignKey: first.campaignKey, revision: 1,
+      executionProfileId: profile.executionProfileId, taskIds: first.taskIds,
+      schedule: first.schedule, budget: first.budget,
+      selectionBinding: first.selectionBinding, taskRunPolicy: first.taskRunPolicy,
+      createdAt: NOW,
+    });
+    const active = activateAgentCampaign(paused, "operator:rotation-test", NOW);
+    const task = assignments.find((item) => item.task.taskId === first.taskIds[0])!.task;
+    const terminal = completeAgentRun(buildAgentRun({
+      task, executionProfile: profile, runOrdinal: 1,
+      authorization: { kind: "CAMPAIGN", campaign: active, authorizedAt: NOW },
+      createdAt: NOW,
+    }), "FAILED", NOW, "bounded negative result");
+    const rotated = buildWorldStateMechanismCampaignPreview({
+      assignments, revisions,
+      execution: { ...baseExecution, campaigns: [active], runs: [terminal] },
+      capability,
+    });
+    expect(rotated.taskIds).toHaveLength(1);
+    expect(rotated.taskIds[0]).not.toBe(first.taskIds[0]);
+    expect(rotated).toMatchObject({
+      portfolioSelectedTaskCount: 2,
+      terminallyAttemptedSelectedTaskCount: 1,
+      specimenTaskLimit: 1,
+      deferredSelectedTaskCount: 0,
+      creationEligible: true,
+    });
+    expect(rotated.campaignKey).not.toBe(first.campaignKey);
+    expect(rotated.selectionBinding.taskBindings).toHaveLength(1);
   });
 
   it("resolves a frozen campaign revision without current assignment membership", () => {

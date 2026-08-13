@@ -11,8 +11,15 @@ import { mechanismResearchSemanticInputIdentity, worldStateMechanismResearchIssu
 export const WORLD_STATE_MECHANISM_SELECTION_PROTOCOL =
   "WORLD_STATE_MECHANISM_RESEARCH_SELECTION_V1" as const;
 
+const WORLD_STATE_MECHANISM_SPECIMEN_POLICY = Object.freeze({
+  schemaVersion: "pmh.world-state-mechanism-campaign-specimen-policy.v1" as const,
+  maximumTasksPerCampaign: 1 as const,
+  rotationTrigger: "TERMINAL_CAMPAIGN_ATTEMPT" as const,
+  automaticDispatch: false as const,
+});
+
 export type WorldStateMechanismCampaignPreview = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-campaign-preview.v1";
+  schemaVersion: "pmh.world-state-mechanism-campaign-preview.v2";
   previewIdentity: Hash;
   campaignKey: string;
   workloadRoute: WorkloadRoute;
@@ -22,6 +29,10 @@ export type WorldStateMechanismCampaignPreview = Readonly<{
   selectionBinding: AgentCampaignSelectionBinding;
   taskIds: readonly Hash[];
   mechanismIssueIds: readonly Hash[];
+  portfolioSelectedTaskCount: number;
+  terminallyAttemptedSelectedTaskCount: number;
+  specimenTaskLimit: 1;
+  deferredSelectedTaskCount: number;
   omittedEligibleIssueCount: number;
   schedule: Readonly<{ kind: "MANUAL_ONLY"; intervalMs: null }>;
   taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE";
@@ -72,18 +83,48 @@ export function buildWorldStateMechanismCampaignSelectionBinding(input: Readonly
       semanticInputIdentity: mechanismResearchSemanticInputIdentity(revision),
     });
   }).sort((left, right) => left.taskId.localeCompare(right.taskId));
+  const selectionPolicyIdentity = input.allocation === undefined
+    ? hashCanonical({
+        schemaVersion: "pmh.world-state-mechanism-selection-policy.v1",
+        maximumTasks: 8,
+        oneRunPerExactInput: true,
+        automaticDispatch: false,
+      })
+    : hashCanonical({
+        allocationPolicyIdentity: input.allocation.policy.policyIdentity,
+        specimenPolicy: WORLD_STATE_MECHANISM_SPECIMEN_POLICY,
+      });
+  const selectionIdentity = input.allocation === undefined
+    ? hashCanonical(bindings)
+    : hashCanonical({
+        allocationProjectionIdentity: input.allocation.projectionIdentity,
+        selectionPolicyIdentity,
+        selectedActionRefs: bindings.map((item) => item.selectionActionRef),
+      });
   return assertAgentCampaignSelectionBinding(Object.freeze({
     schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
     selectionProtocol: WORLD_STATE_MECHANISM_SELECTION_PROTOCOL,
-    selectionIdentity: input.allocation?.projectionIdentity ?? hashCanonical(bindings),
-    selectionPolicyIdentity: input.allocation?.policy.policyIdentity ?? hashCanonical({
-      schemaVersion: "pmh.world-state-mechanism-selection-policy.v1",
-      maximumTasks: 8,
-      oneRunPerExactInput: true,
-      automaticDispatch: false,
-    }),
+    selectionIdentity,
+    selectionPolicyIdentity,
     taskBindings: Object.freeze(bindings),
   }));
+}
+
+function terminallyAttemptedMechanismTaskIds(
+  execution: AgentExecutionSnapshot,
+): ReadonlySet<Hash> {
+  const mechanismCampaignIds = new Set(execution.campaigns.flatMap((campaign) =>
+    campaign.schemaVersion !== "pmh.agent-campaign.v1" &&
+      campaign.selectionBinding.selectionProtocol === WORLD_STATE_MECHANISM_SELECTION_PROTOCOL
+      ? [campaign.campaignId]
+      : []
+  ));
+  return new Set(execution.runs.flatMap((run) =>
+    run.status !== "PREPARED" && run.authorization.campaignId !== null &&
+      mechanismCampaignIds.has(run.authorization.campaignId)
+      ? [run.taskId]
+      : []
+  ));
 }
 
 export function resolveWorldStateMechanismTaskRevision(input: Readonly<{
@@ -148,7 +189,14 @@ export function buildWorldStateMechanismCampaignPreview(input: Readonly<{
     revisions: input.revisions,
   });
   const assignments = new Map(input.assignments.map((item) => [item.assignmentId, item] as const));
-  const selected = allocation.selectedActions.map((item) => {
+  const attemptedTaskIds = terminallyAttemptedMechanismTaskIds(input.execution);
+  const terminallyAttemptedSelectedTaskCount = allocation.selectedActions.filter((item) =>
+    attemptedTaskIds.has(item.taskId)
+  ).length;
+  const specimenActions = allocation.selectedActions.filter((item) =>
+    !attemptedTaskIds.has(item.taskId)
+  ).slice(0, WORLD_STATE_MECHANISM_SPECIMEN_POLICY.maximumTasksPerCampaign);
+  const selected = specimenActions.map((item) => {
     const assignment = assignments.get(item.assignmentId);
     if (assignment === undefined) throw new Error("mechanism allocation assignment is unavailable");
     return assignment;
@@ -159,7 +207,7 @@ export function buildWorldStateMechanismCampaignPreview(input: Readonly<{
     allocation,
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.world-state-mechanism-campaign-preview.v1" as const,
+    schemaVersion: "pmh.world-state-mechanism-campaign-preview.v2" as const,
     campaignKey: `world-state-mechanism-${selectionBinding.selectionIdentity.slice(7)}`,
     workloadRoute: route,
     executionProfile: profile,
@@ -168,6 +216,13 @@ export function buildWorldStateMechanismCampaignPreview(input: Readonly<{
     selectionBinding,
     taskIds: Object.freeze(selected.map((item) => item.task.taskId)),
     mechanismIssueIds: Object.freeze(selected.map((item) => item.mechanismIssueId)),
+    portfolioSelectedTaskCount: allocation.selectedCount,
+    terminallyAttemptedSelectedTaskCount,
+    specimenTaskLimit: WORLD_STATE_MECHANISM_SPECIMEN_POLICY.maximumTasksPerCampaign,
+    deferredSelectedTaskCount: Math.max(
+      0,
+      allocation.selectedCount - terminallyAttemptedSelectedTaskCount - selected.length,
+    ),
     omittedEligibleIssueCount: Math.max(0, allocation.eligibleCount - selected.length),
     schedule: Object.freeze({ kind: "MANUAL_ONLY" as const, intervalMs: null }),
     taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE" as const,
@@ -183,10 +238,13 @@ export function buildWorldStateMechanismCampaignPreview(input: Readonly<{
     diagnostic: selected.length === 0
       ? allocation.eligibleCount === 0
         ? "No mechanism issue has an unexplored exact ontology input revision"
+        : terminallyAttemptedSelectedTaskCount === allocation.selectedCount &&
+            allocation.selectedCount > 0
+        ? "Every selected mechanism specimen already has a terminal campaign attempt"
         : "No unexplored input satisfies the structural mechanism suitability policy"
       : input.capability.dispatchEligibility !== "ELIGIBLE"
       ? input.capability.diagnostic
-      : `${selected.length} mechanism research tasks await explicit campaign activation`,
+      : `1 of ${allocation.selectedCount} selected mechanism specimens awaits explicit campaign activation`,
     providerRequestsStarted: 0 as const,
     modelInvocationsStarted: 0 as const,
     authority: "CAMPAIGN_PROPOSAL_ONLY" as const,
