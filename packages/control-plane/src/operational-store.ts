@@ -7716,6 +7716,12 @@ export class SqliteOperationalStore
     );
     const tasks = indexed(existing.tasks, batch.tasks, (record) => record.taskId, "task");
     const runs = indexed(existing.runs, batch.runs, (record) => record.runId, "run");
+    const invocations = indexed(
+      existing.modelInvocations,
+      batch.modelInvocations,
+      (record) => record.invocationId,
+      "model invocation",
+    );
     const artifacts = indexed(
       existing.runArtifacts,
       batch.runArtifacts,
@@ -7761,6 +7767,14 @@ export class SqliteOperationalStore
     for (const effect of batch.toolEffects) {
       if (!runs.has(effect.runId)) {
         throw new Error("Agent tool effect references an unavailable run");
+      }
+      if (effect.schemaVersion === "pmh.agent-tool-effect.v3") {
+        const source = invocations.get(effect.sourceInvocationId);
+        if (source === undefined || source.runId !== effect.runId) {
+          throw new Error(
+            "Agent tool effect references an unavailable or incompatible source invocation",
+          );
+        }
       }
     }
     for (const artifact of batch.runArtifacts) {

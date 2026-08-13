@@ -360,6 +360,11 @@ export type AgentToolEffect = Readonly<
       schemaVersion: "pmh.agent-tool-effect.v2";
       diagnostic: string | null;
     })
+  | (AgentToolEffectFields & {
+      schemaVersion: "pmh.agent-tool-effect.v3";
+      diagnostic: string | null;
+      sourceInvocationId: Hash;
+    })
 >;
 
 export type AgentRunArtifact = Readonly<{
@@ -1916,15 +1921,20 @@ export function assertAgentToolEffect(value: unknown): AgentToolEffect {
       "valueMovingAuthority",
     ];
   if (
-    !["pmh.agent-tool-effect.v1", "pmh.agent-tool-effect.v2"].includes(record.schemaVersion) ||
-    !exactKeys(record, record.schemaVersion === "pmh.agent-tool-effect.v2"
-      ? [...keys, "diagnostic"]
-      : keys) ||
-    (record.schemaVersion === "pmh.agent-tool-effect.v2" &&
+    !["pmh.agent-tool-effect.v1", "pmh.agent-tool-effect.v2",
+      "pmh.agent-tool-effect.v3"].includes(record.schemaVersion) ||
+    !exactKeys(record, record.schemaVersion === "pmh.agent-tool-effect.v3"
+      ? [...keys, "diagnostic", "sourceInvocationId"]
+      : record.schemaVersion === "pmh.agent-tool-effect.v2"
+        ? [...keys, "diagnostic"]
+        : keys) ||
+    ((record.schemaVersion === "pmh.agent-tool-effect.v2" ||
+      record.schemaVersion === "pmh.agent-tool-effect.v3") &&
       (record.diagnostic === undefined || (record.diagnostic !== null &&
         boundedText(record.diagnostic, "Agent tool effect diagnostic", 1_000) !==
           record.diagnostic))) ||
-    (record.schemaVersion === "pmh.agent-tool-effect.v2" &&
+    ((record.schemaVersion === "pmh.agent-tool-effect.v2" ||
+      record.schemaVersion === "pmh.agent-tool-effect.v3") &&
       (record.status === "REJECTED") !== (record.diagnostic !== null)) ||
     !["ACCEPTED", "REJECTED"].includes(record.status) ||
     [record.semanticDecisionAuthority, record.certificateAuthority,
@@ -1935,6 +1945,12 @@ export function assertAgentToolEffect(value: unknown): AgentToolEffect {
     ordinal: positiveInteger(record.ordinal, "Agent tool effect ordinal", 100_000),
     toolProtocol: identifier(record.toolProtocol, "Agent tool protocol"),
     canonicalInputHash: hash(record.canonicalInputHash, "Agent tool input hash"),
+    ...(record.schemaVersion === "pmh.agent-tool-effect.v3" ? {
+      sourceInvocationId: hash(
+        record.sourceInvocationId,
+        "Agent tool effect source invocation ID",
+      ),
+    } : {}),
   };
   identifier(record.toolName, "Agent tool name");
   hash(record.canonicalOutputHash, "Agent tool output hash");
@@ -1952,14 +1968,24 @@ export function buildAgentToolEffect(input: Readonly<{
   canonicalInput: unknown;
   canonicalOutput: unknown;
   diagnostic?: string | null;
+  sourceInvocation?: ModelInvocation;
   occurredAt: string;
 }>): AgentToolEffect {
   const run = assertAgentRun(input.run);
+  const sourceInvocation = input.sourceInvocation === undefined
+    ? undefined
+    : assertModelInvocation(input.sourceInvocation);
+  if (sourceInvocation !== undefined && sourceInvocation.runId !== run.runId) {
+    throw new Error("Agent tool effect source invocation belongs to another run");
+  }
   const identity = Object.freeze({
     runId: run.runId,
     ordinal: positiveInteger(input.ordinal, "Agent tool effect ordinal", 100_000),
     toolProtocol: identifier(input.toolProtocol, "Agent tool protocol"),
     canonicalInputHash: hashCanonical(input.canonicalInput),
+    ...(sourceInvocation === undefined ? {} : {
+      sourceInvocationId: sourceInvocation.invocationId,
+    }),
   });
   const common = Object.freeze({
     effectId: hashCanonical(identity),
@@ -1976,6 +2002,16 @@ export function buildAgentToolEffect(input: Readonly<{
   // Legacy migrations intentionally omit the field and must reproduce their
   // original v1 bytes. New runtimes always pass a diagnostic slot (null for
   // accepted effects), giving rejected calls durable, operator-readable cause.
+  if (sourceInvocation !== undefined) {
+    return assertAgentToolEffect(Object.freeze({
+      schemaVersion: "pmh.agent-tool-effect.v3" as const,
+      ...common,
+      diagnostic: input.status === "REJECTED"
+        ? boundedText(input.diagnostic ?? "tool rejected", "Agent tool effect diagnostic", 1_000)
+        : null,
+      sourceInvocationId: sourceInvocation.invocationId,
+    }));
+  }
   return input.diagnostic === undefined
     ? assertAgentToolEffect(Object.freeze({
         schemaVersion: "pmh.agent-tool-effect.v1" as const,

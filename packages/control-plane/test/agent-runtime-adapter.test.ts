@@ -400,6 +400,8 @@ describe("Agent runtime adapters", () => {
       expect(result.modelInvocations).toHaveLength(2);
       expect(result.toolEffects).toHaveLength(1);
       expect(result.toolEffects[0]).toMatchObject({
+        schemaVersion: "pmh.agent-tool-effect.v3",
+        sourceInvocationId: result.modelInvocations[0]!.invocationId,
         status: "REJECTED",
         semanticDecisionAuthority: false,
         certificateAuthority: false,

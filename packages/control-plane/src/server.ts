@@ -44,6 +44,10 @@ import {
   type AgentResultRepairProjection,
 } from "./agent-result-repair-observability.js";
 import {
+  buildOntologyAgentIntentCostProjection,
+  type OntologyAgentIntentCostProjection,
+} from "./ontology-agent-intent-cost.js";
+import {
   createDiscoveryModelRuntime,
   type DiscoveryModelRuntime,
 } from "./model-runtime.js";
@@ -3874,6 +3878,23 @@ export function createControlPlane(options?: {
       execution: snapshot,
     });
   };
+  const ontologyAgentIntentCostProjection = (
+    snapshot = agentExecutionRegistry.snapshot(),
+  ): OntologyAgentIntentCostProjection => {
+    const timestamps = [
+      ...snapshot.runs.flatMap((run) => [run.createdAt, run.completedAt].filter(
+        (value): value is string => value !== null,
+      )),
+      ...snapshot.modelInvocations.flatMap((invocation) => [
+        invocation.startedAt, invocation.completedAt,
+      ]),
+      ...snapshot.toolEffects.map((effect) => effect.occurredAt),
+    ];
+    return buildOntologyAgentIntentCostProjection({
+      observedAt: timestamps.sort().at(-1) ?? "1970-01-01T00:00:00.000Z",
+      execution: snapshot,
+    });
+  };
   const semanticNoveltyProjection = (
     snapshot = agentExecutionRegistry.snapshot(),
   ): RelationDiscoverySemanticNoveltyProjection => {
@@ -5212,6 +5233,7 @@ export function createControlPlane(options?: {
         discoverySignals: currentDiscoverySignalProjection(),
         discoveryYield: currentDiscoveryYieldProjection(),
         resultRepairs: agentResultRepairProjection(agentSnapshot),
+        ontologyAgentIntentCost: ontologyAgentIntentCostProjection(agentSnapshot),
         semanticNovelty: semanticNoveltyProjection(agentSnapshot),
         worldStateMechanisms: worldStateMechanismProjection(),
         ontologyOutcomes: ontologyAllocationOutcomes(),

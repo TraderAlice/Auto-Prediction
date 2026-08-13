@@ -654,17 +654,17 @@ describe("Codex app-server Agent runtime", () => {
     });
     expect(result.toolEffects).toEqual([
       expect.objectContaining({
-        schemaVersion: "pmh.agent-tool-effect.v2",
+        schemaVersion: "pmh.agent-tool-effect.v3",
         status: "REJECTED",
         diagnostic: "reason must quote the retained source text [opaque] [url]",
       }),
       expect.objectContaining({
-        schemaVersion: "pmh.agent-tool-effect.v2",
+        schemaVersion: "pmh.agent-tool-effect.v3",
         status: "REJECTED",
         diagnostic: "reason must quote the retained source text [opaque] [url]",
       }),
       expect.objectContaining({
-        schemaVersion: "pmh.agent-tool-effect.v2",
+        schemaVersion: "pmh.agent-tool-effect.v3",
         status: "ACCEPTED",
         diagnostic: null,
       }),

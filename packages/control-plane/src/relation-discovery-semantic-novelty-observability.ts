@@ -58,7 +58,8 @@ const HASH = /^sha256:[0-9a-f]{64}$/u;
 
 function parseRejection(effect: AgentToolEffect):
   RelationDiscoverySemanticNoveltyRejection | null {
-  if (effect.schemaVersion !== "pmh.agent-tool-effect.v2" ||
+  if ((effect.schemaVersion !== "pmh.agent-tool-effect.v2" &&
+      effect.schemaVersion !== "pmh.agent-tool-effect.v3") ||
       effect.status !== "REJECTED" || effect.diagnostic === null ||
       !["record_relation_hypothesis", "record_relation_counterexample",
         "record_ontology_route"].includes(effect.toolName) ||
