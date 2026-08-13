@@ -1,4 +1,5 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
+import type { OperationalStorageProjection } from "./types.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const UNSIGNED_INTEGER_PATTERN = /^(?:0|[1-9]\d*)$/u;
@@ -215,6 +216,27 @@ export type WorldRelationCompilerBridge = Readonly<{
   probabilityAuthority: false;
   certificateAuthority: false;
 }>;
+
+export interface WorldHistoryOntologyStore {
+  readonly worldPredicateArtifactStorage:
+    OperationalStorageProjection<"artifactHash">;
+  readonly settlementProjectionStorage:
+    OperationalStorageProjection<"artifactHash">;
+  readonly worldRelationExperimentStorage:
+    OperationalStorageProjection<"artifactHash">;
+  loadWorldPredicateArtifacts(limit: number): readonly WorldPredicateArtifact[];
+  saveWorldPredicateArtifacts(
+    artifacts: readonly WorldPredicateArtifact[],
+  ): readonly WorldPredicateArtifact[];
+  loadSettlementProjections(limit: number): readonly SettlementProjection[];
+  saveSettlementProjections(
+    projections: readonly SettlementProjection[],
+  ): readonly SettlementProjection[];
+  loadWorldRelationExperiments(limit: number): readonly WorldRelationExperiment[];
+  saveWorldRelationExperiments(
+    experiments: readonly WorldRelationExperiment[],
+  ): readonly WorldRelationExperiment[];
+}
 
 function record(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {

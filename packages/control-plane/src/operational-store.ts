@@ -338,8 +338,17 @@ import {
   type StudioProjectionSnapshot,
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
+import {
+  assertSettlementProjection,
+  assertWorldPredicateArtifact,
+  assertWorldRelationExperiment,
+  type SettlementProjection,
+  type WorldHistoryOntologyStore,
+  type WorldPredicateArtifact,
+  type WorldRelationExperiment,
+} from "./world-history-ontology.js";
 
-const SCHEMA_VERSION = 59;
+const SCHEMA_VERSION = 60;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1918,6 +1927,71 @@ function parseMarketOntologyAgentProposal(value: unknown): MarketOntologyAgentPr
   return proposal;
 }
 
+function parseWorldPredicateArtifact(value: unknown): WorldPredicateArtifact {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world predicate artifact row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.artifact_hash !== "string" || typeof row.predicate_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world predicate artifact row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world predicate artifact contains invalid JSON");
+  }
+  const artifact = assertWorldPredicateArtifact(decoded);
+  if (artifact.artifactHash !== row.artifact_hash || artifact.predicateId !== row.predicate_id ||
+      artifact.artifactHash !== row.record_hash) {
+    throw new Error("SQLite world predicate artifact identity mismatch");
+  }
+  return artifact;
+}
+
+function parseSettlementProjection(value: unknown): SettlementProjection {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite settlement projection row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.artifact_hash !== "string" || typeof row.projection_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite settlement projection row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite settlement projection contains invalid JSON");
+  }
+  const projection = assertSettlementProjection(decoded);
+  if (projection.artifactHash !== row.artifact_hash ||
+      projection.projectionId !== row.projection_id ||
+      projection.artifactHash !== row.record_hash) {
+    throw new Error("SQLite settlement projection identity mismatch");
+  }
+  return projection;
+}
+
+function parseWorldRelationExperiment(value: unknown): WorldRelationExperiment {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world relation experiment row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.artifact_hash !== "string" || typeof row.experiment_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world relation experiment row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world relation experiment contains invalid JSON");
+  }
+  const experiment = assertWorldRelationExperiment(decoded);
+  if (experiment.artifactHash !== row.artifact_hash ||
+      experiment.experimentId !== row.experiment_id ||
+      experiment.artifactHash !== row.record_hash) {
+    throw new Error("SQLite world relation experiment identity mismatch");
+  }
+  return experiment;
+}
+
 function parseWorldStateMechanismProposal(value: unknown): WorldStateMechanismProposal {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite world-state mechanism proposal row is malformed");
@@ -2580,7 +2654,8 @@ export class SqliteOperationalStore
     ResearchDecisionEpisodeStore,
     ResearchDecisionOutcomeObservationStore,
     DiscoverySignalStore,
-    StudioProjectionSnapshotStore
+    StudioProjectionSnapshotStore,
+    WorldHistoryOntologyStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -2699,6 +2774,12 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"signalId">;
   public readonly studioProjectionSnapshotStorage:
     OperationalStorageProjection<"singleton">;
+  public readonly worldPredicateArtifactStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly settlementProjectionStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly worldRelationExperimentStorage:
+    OperationalStorageProjection<"artifactHash">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -3086,6 +3167,24 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "singleton",
+    });
+    this.worldPredicateArtifactStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.settlementProjectionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.worldRelationExperimentStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -3611,6 +3710,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'studio_projection_snapshot'`,
       )
       .get() !== undefined;
+    const worldPredicateArtifactTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_predicate_artifacts'`,
+      )
+      .get() !== undefined;
+    const settlementProjectionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'settlement_projections'`,
+      )
+      .get() !== undefined;
+    const worldRelationExperimentTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_experiments'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -3678,6 +3795,9 @@ export class SqliteOperationalStore
       && researchDecisionOutcomeObservationBoundaryExists
       && researchDecisionOutcomeObservationYieldVectorCurrent
       && studioProjectionSnapshotTableExists
+      && worldPredicateArtifactTableExists
+      && settlementProjectionTableExists
+      && worldRelationExperimentTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -6145,6 +6265,81 @@ export class SqliteOperationalStore
           CREATE UNIQUE INDEX IF NOT EXISTS research_decision_outcomes_transition
             ON research_decision_outcome_observations (
               episode_id, IFNULL(previous_observation_id, '')
+            );
+        `);
+      }
+      if (current < 60 || !worldPredicateArtifactTableExists ||
+          !settlementProjectionTableExists || !worldRelationExperimentTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_predicate_artifacts (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            predicate_id TEXT NOT NULL CHECK (
+              length(predicate_id) = 71 AND predicate_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            epistemic_posture TEXT NOT NULL CHECK (epistemic_posture IN (
+              'SEARCH_HYPOTHESIS_ONLY', 'EVIDENCE_BOUND_PROPOSITION',
+              'SETTLEMENT_BOUND_PREDICATE'
+            )),
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = artifact_hash)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_predicate_artifacts_predicate
+            ON world_predicate_artifacts (
+              predicate_id, proposed_at DESC, artifact_hash DESC
+            );
+
+          CREATE TABLE IF NOT EXISTS settlement_projections (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            projection_id TEXT NOT NULL CHECK (
+              length(projection_id) = 71 AND projection_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL,
+            compiler_admission TEXT NOT NULL CHECK (
+              compiler_admission IN ('EXACT_BINARY_ELIGIBLE', 'RESEARCH_ONLY')
+            ),
+            observed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = artifact_hash)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS settlement_projections_listing
+            ON settlement_projections (
+              listing_ref, observed_at DESC, artifact_hash DESC
+            );
+          CREATE INDEX IF NOT EXISTS settlement_projections_identity
+            ON settlement_projections (
+              projection_id, observed_at DESC, artifact_hash DESC
+            );
+
+          CREATE TABLE IF NOT EXISTS world_relation_experiments (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            experiment_id TEXT NOT NULL CHECK (
+              length(experiment_id) = 71 AND experiment_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            relation_kind TEXT NOT NULL,
+            terminal_disposition TEXT NOT NULL CHECK (terminal_disposition IN (
+              'SUPPORTED_HARD', 'SUPPORTED_PROBABILISTIC', 'FALSIFIED',
+              'EXHAUSTED', 'UNRESOLVED'
+            )),
+            source_agent_run_id TEXT NOT NULL,
+            closed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = artifact_hash),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_experiments_scope
+            ON world_relation_experiments (
+              experiment_id, closed_at DESC, artifact_hash DESC
+            );
+          CREATE INDEX IF NOT EXISTS world_relation_experiments_run
+            ON world_relation_experiments (
+              source_agent_run_id, closed_at, artifact_hash
             );
         `);
       }
@@ -12926,6 +13121,185 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return episodes;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldPredicateArtifacts(limit: number): readonly WorldPredicateArtifact[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_hash, predicate_id, record_json, record_hash
+       FROM world_predicate_artifacts
+       ORDER BY proposed_at DESC, artifact_hash DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldPredicateArtifact));
+  }
+
+  public saveWorldPredicateArtifacts(
+    artifactsInput: readonly WorldPredicateArtifact[],
+  ): readonly WorldPredicateArtifact[] {
+    this.#assertOpen();
+    const artifacts = Object.freeze(artifactsInput.map(assertWorldPredicateArtifact));
+    if (new Set(artifacts.map((item) => item.artifactHash)).size !== artifacts.length) {
+      throw new Error("world predicate artifact batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const artifact of artifacts) {
+        this.#database.prepare(
+          `INSERT INTO world_predicate_artifacts (
+             artifact_hash, predicate_id, epistemic_posture, proposed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_hash) DO NOTHING`,
+        ).run(
+          artifact.artifactHash, artifact.predicateId, artifact.epistemicPosture,
+          artifact.proposedAt, canonicalJson(artifact), artifact.artifactHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT artifact_hash, predicate_id, record_json, record_hash
+           FROM world_predicate_artifacts WHERE artifact_hash = ?`,
+        ).get(artifact.artifactHash);
+        if (parseWorldPredicateArtifact(row).artifactHash !== artifact.artifactHash) {
+          throw new Error("world predicate artifact identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return artifacts;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSettlementProjections(limit: number): readonly SettlementProjection[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_hash, projection_id, record_json, record_hash
+       FROM settlement_projections
+       ORDER BY observed_at DESC, artifact_hash DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseSettlementProjection));
+  }
+
+  public saveSettlementProjections(
+    projectionsInput: readonly SettlementProjection[],
+  ): readonly SettlementProjection[] {
+    this.#assertOpen();
+    const projections = Object.freeze(projectionsInput.map(assertSettlementProjection));
+    if (new Set(projections.map((item) => item.artifactHash)).size !== projections.length) {
+      throw new Error("settlement projection batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const projection of projections) {
+        for (const binding of projection.predicateBindings) {
+          const predicate = this.#database.prepare(
+            `SELECT artifact_hash FROM world_predicate_artifacts
+             WHERE artifact_hash = ? AND predicate_id = ?`,
+          ).get(binding.predicateArtifactHash, binding.predicateId);
+          if (predicate === undefined) {
+            throw new Error("settlement projection references an unavailable predicate revision");
+          }
+        }
+        this.#database.prepare(
+          `INSERT INTO settlement_projections (
+             artifact_hash, projection_id, listing_ref, compiler_admission,
+             observed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_hash) DO NOTHING`,
+        ).run(
+          projection.artifactHash, projection.projectionId, projection.listing.listingRef,
+          projection.compilerAdmission, projection.observedAt,
+          canonicalJson(projection), projection.artifactHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT artifact_hash, projection_id, record_json, record_hash
+           FROM settlement_projections WHERE artifact_hash = ?`,
+        ).get(projection.artifactHash);
+        if (parseSettlementProjection(row).artifactHash !== projection.artifactHash) {
+          throw new Error("settlement projection artifact identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return projections;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationExperiments(limit: number): readonly WorldRelationExperiment[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_hash, experiment_id, record_json, record_hash
+       FROM world_relation_experiments
+       ORDER BY closed_at DESC, artifact_hash DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationExperiment));
+  }
+
+  public saveWorldRelationExperiments(
+    experimentsInput: readonly WorldRelationExperiment[],
+  ): readonly WorldRelationExperiment[] {
+    this.#assertOpen();
+    const experiments = Object.freeze(experimentsInput.map(assertWorldRelationExperiment));
+    if (new Set(experiments.map((item) => item.artifactHash)).size !== experiments.length) {
+      throw new Error("world relation experiment batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const experiment of experiments) {
+        const run = this.#database.prepare(
+          "SELECT run_id FROM agent_runs WHERE run_id = ?",
+        ).get(experiment.sourceAgentRunId);
+        if (run === undefined) {
+          throw new Error("world relation experiment references an unavailable Agent run");
+        }
+        const availablePredicates = new Set((this.#database.prepare(
+          `SELECT DISTINCT predicate_id FROM world_predicate_artifacts
+           WHERE predicate_id IN (${experiment.predicateIds.map(() => "?").join(",")})`,
+        ).all(...experiment.predicateIds) as unknown as readonly Readonly<{ predicate_id: string }>[])
+          .map((item) => item.predicate_id));
+        if (experiment.predicateIds.some((item) => !availablePredicates.has(item))) {
+          throw new Error("world relation experiment references unavailable predicates");
+        }
+        if (experiment.inspectedProjectionIds.length > 0) {
+          const availableProjections = new Set((this.#database.prepare(
+            `SELECT DISTINCT projection_id FROM settlement_projections
+             WHERE projection_id IN (${experiment.inspectedProjectionIds.map(() => "?").join(",")})`,
+          ).all(...experiment.inspectedProjectionIds) as unknown as readonly Readonly<{ projection_id: string }>[])
+            .map((item) => item.projection_id));
+          if (experiment.inspectedProjectionIds.some((item) => !availableProjections.has(item))) {
+            throw new Error("world relation experiment references unavailable projections");
+          }
+        }
+        this.#database.prepare(
+          `INSERT INTO world_relation_experiments (
+             artifact_hash, experiment_id, relation_kind, terminal_disposition,
+             source_agent_run_id, closed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_hash) DO NOTHING`,
+        ).run(
+          experiment.artifactHash, experiment.experimentId, experiment.relationKind,
+          experiment.terminalDisposition, experiment.sourceAgentRunId,
+          experiment.closedAt, canonicalJson(experiment), experiment.artifactHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT artifact_hash, experiment_id, record_json, record_hash
+           FROM world_relation_experiments WHERE artifact_hash = ?`,
+        ).get(experiment.artifactHash);
+        if (parseWorldRelationExperiment(row).artifactHash !== experiment.artifactHash) {
+          throw new Error("world relation experiment artifact identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return experiments;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

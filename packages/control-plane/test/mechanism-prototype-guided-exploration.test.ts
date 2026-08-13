@@ -969,7 +969,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const { lens, prototype, snapshot, profile, model, run } = runtimeFixture();
     const steps: MechanismPrototypeExplorationStepObservation[] = [];
     const storage = <K extends string>(idempotencyKey: K) => Object.freeze({
-      mode: "MEMORY" as const, durable: false, schemaVersion: 59, idempotencyKey,
+      mode: "MEMORY" as const, durable: false, schemaVersion: 60, idempotencyKey,
     });
     const store: MechanismPrototypeExplorationStore = {
       mechanismPrototypeExplorationInputStorage: storage("inputRevisionId"),
@@ -1262,7 +1262,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const flatObservations: MechanismPrototypeExplorationFlatSearchObservation[] = [];
     const actionObservations: MechanismPrototypeExplorationActionObservation[] = [];
     const storage = <K extends string>(idempotencyKey: K) => Object.freeze({
-      mode: "MEMORY" as const, durable: false, schemaVersion: 59, idempotencyKey,
+      mode: "MEMORY" as const, durable: false, schemaVersion: 60, idempotencyKey,
     });
     const store: MechanismPrototypeExplorationStore = {
       mechanismPrototypeExplorationInputStorage: storage("inputRevisionId"),
@@ -1409,7 +1409,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       expect(reopened.loadMechanismPrototypeExplorationFlatSearchObservations(10))
         .toEqual([observation]);
       expect(reopened.mechanismPrototypeExplorationFlatSearchObservationStorage)
-        .toMatchObject({ mode: "SQLITE_WAL", durable: true, schemaVersion: 59,
+        .toMatchObject({ mode: "SQLITE_WAL", durable: true, schemaVersion: 60,
           idempotencyKey: "observationId" });
       reopened.close();
     } finally {

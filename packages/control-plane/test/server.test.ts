@@ -3569,7 +3569,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-            schemaVersion: 59,
+            schemaVersion: 60,
         },
         records: [{ investigationId: created.investigationId }],
       });

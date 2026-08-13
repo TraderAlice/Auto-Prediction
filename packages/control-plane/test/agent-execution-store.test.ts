@@ -90,7 +90,7 @@ describe("SQLite Agent execution substrate", () => {
       automaticDispatchFromConfiguration: false,
       runArtifactCount: 0,
       runAnnotationCount: 0,
-      storage: { schemaVersion: 59, durable: true },
+      storage: { schemaVersion: 60, durable: true },
     });
     first.close();
 

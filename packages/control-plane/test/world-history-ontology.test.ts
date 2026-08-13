@@ -9,6 +9,12 @@ import {
   buildWorldRelationExperiment,
   inspectWorldRelationCompilerBridge,
 } from "../src/world-history-ontology.js";
+import { SqliteOperationalStore } from "../src/operational-store.js";
+import {
+  buildAgentRun,
+  buildAgentTask,
+  importLegacyAiRuntimeConfiguration,
+} from "../src/agent-execution-substrate.js";
 
 const hash = (label: string) => hashCanonical({ label });
 const observedAt = "2026-08-14T00:00:00.000Z";
@@ -262,5 +268,104 @@ describe("world-history settlement ontology", () => {
       ...event,
       semantic: { ...event.semantic, verbPhrase: "is not shot" },
     })).toThrow(/identity/i);
+  });
+
+  it("replays predicate revisions, projections, and experiments without rewriting history", () => {
+    const store = new SqliteOperationalStore(":memory:");
+    const event = predicate({
+      verbPhrase: "is fatally shot",
+      posture: "SETTLEMENT_BOUND_PREDICATE",
+      listingRef: "venue-a:fatal",
+    });
+    const revised = buildWorldPredicateArtifact({
+      ...event,
+      ambiguityNotes: ["A second source uses a narrower definition of fatality."],
+      proposedAt: "2026-08-14T01:00:00.000Z",
+    });
+    const mapped = projection("venue-a:fatal", event);
+    store.saveWorldPredicateArtifacts([event, revised]);
+    store.saveSettlementProjections([mapped]);
+
+    const imported = importLegacyAiRuntimeConfiguration({
+      schemaVersion: "pmh.ai-runtime-configuration.v2",
+      revision: 1,
+      provider: "CODEX",
+      codexModel: "gpt-5.6-terra",
+      codexReasoningEffort: "high",
+      deepseekAutomationEnabled: false,
+      updatedAt: observedAt,
+    });
+    store.saveAgentExecutionBatch({
+      runtimeDefinitions: [imported.runtimeDefinition],
+      credentialBindings: [imported.credentialBinding],
+      modelProfiles: [imported.modelProfile],
+      executionProfiles: [imported.executionProfile],
+      workloadRoutes: [imported.workloadRoute],
+    });
+    const task = buildAgentTask({
+      kind: "ONTOLOGY_NORMALIZATION",
+      protocol: "WORLD_HISTORY_ONTOLOGY_TASK_V1",
+      inputArtifacts: [],
+      taskPayload: { fixture: true },
+      requestedEffectProtocol: "WORLD_HISTORY_ONTOLOGY_TOOLS_V1",
+      priority: 1,
+      provenanceRef: "fixture:world-history",
+      createdAt: observedAt,
+    });
+    const run = buildAgentRun({
+      task,
+      executionProfile: imported.executionProfile,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "fixture:test",
+        authorizedAt: observedAt,
+      },
+      runOrdinal: 1,
+      createdAt: observedAt,
+    });
+    store.saveAgentExecutionBatch({ tasks: [task], runs: [run] });
+    const experiment = buildWorldRelationExperiment({
+      relationKind: "MUTUALLY_EXCLUSIVE",
+      predicateArtifacts: [event, predicate({ verbPhrase: "publicly appears", operatorKind: "PUBLIC_ACTION" })],
+      antecedentPredicateIds: [event.predicateId],
+      consequentPredicateIds: [predicate({ verbPhrase: "publicly appears", operatorKind: "PUBLIC_ACTION" }).predicateId],
+      latentPredicateIds: [],
+      temporalPosture: "ANTECEDENT_PRECEDES_CONSEQUENT",
+      adverseAssignments: [{
+        truthByPredicateId: {
+          [event.predicateId]: true,
+          [predicate({ verbPhrase: "publicly appears", operatorKind: "PUBLIC_ACTION" }).predicateId]: true,
+        },
+        rationale: "Fatality and a later personal appearance cannot both obtain.",
+      }],
+      searchNeighborhoods: ["fatality and later appearance"],
+      inspectedProjectionIds: [mapped.projectionId],
+      counterworlds: [{
+        description: "A recording or proxy is not a personal appearance.",
+        truthByPredicateId: {
+          [event.predicateId]: true,
+          [predicate({ verbPhrase: "publicly appears", operatorKind: "PUBLIC_ACTION" }).predicateId]: true,
+        },
+        result: "REJECTED",
+        evidenceBindingHashes: [hash("appearance-rules")],
+      }],
+      terminalDisposition: "SUPPORTED_HARD",
+      rationale: "The personal action requires the person to be alive.",
+      sourceAgentRunId: run.runId,
+      sourceToolEffectIds: [hash("effect")],
+      invocationIds: [hash("invocation")],
+      usage: { inputTokens: "10", outputTokens: "5", reasoningTokens: "2" },
+      closedAt: observedAt,
+    });
+    const appearance = predicate({ verbPhrase: "publicly appears", operatorKind: "PUBLIC_ACTION" });
+    store.saveWorldPredicateArtifacts([appearance]);
+    store.saveWorldRelationExperiments([experiment]);
+
+    expect(store.loadWorldPredicateArtifacts(10).filter((item) =>
+      item.predicateId === event.predicateId
+    )).toHaveLength(2);
+    expect(store.loadSettlementProjections(10)).toEqual([mapped]);
+    expect(store.loadWorldRelationExperiments(10)).toEqual([experiment]);
+    store.close();
   });
 });
