@@ -746,7 +746,9 @@ type WorldStateMechanismProjection = Readonly<{
         promotionReadinessStatus: string;
         subjectBindingReviewCount: number;
         latestSubjectBindingDecision: "APPROVED" | "REJECTED" | "NEEDS_EVIDENCE" | "NONE";
-        observationCount: number;
+        retainedObservationCount: number;
+        observationEpisodeCount: number;
+        historicalDuplicateObservationCount: number;
         latestObservationStatus: string;
         wakeCount: number;
       }>;
@@ -4434,13 +4436,16 @@ function AgentOperationsView() {
                         <div><strong>{scorecard.evidence.counterScenarioCount + scorecard.evidence.counterexampleCount}</strong><span>falsification cases</span></div>
                         <div><strong>{scorecard.evidence.assessmentCount + scorecard.evidence.assessmentAbstentionCount}</strong><span>binding results</span></div>
                         <div><strong>{scorecard.evidence.subjectBindingReviewCount}</strong><span>reviews</span></div>
-                        <div><strong>{scorecard.evidence.observationCount}</strong><span>observations</span></div>
+                        <div><strong>{scorecard.evidence.observationEpisodeCount}</strong><span>observation episodes</span></div>
                         <div><strong>{scorecard.evidence.wakeCount}</strong><span>wakes</span></div>
                       </div>
                       <div className="mechanism-family-scorecard-cost">
                         <span>{formatTokenCount(scorecard.authoringUsage.knownInputTokens)} authoring input</span>
                         <span>{formatTokenCount(scorecard.assessmentUsage.knownInputTokens)} assessment input</span>
                         <span>{formatTokenCount(scorecard.totalUsage.knownInputTokens)} unique total</span>
+                        {scorecard.evidence.historicalDuplicateObservationCount > 0 && (
+                          <span>{scorecard.evidence.retainedObservationCount} retained observations · {scorecard.evidence.historicalDuplicateObservationCount} historical duplicates</span>
+                        )}
                         {(scorecard.totalUsage.missingSourceRunCount > 0 ||
                           scorecard.totalUsage.unknownUsageInvocationCount > 0) && (
                           <span>{scorecard.totalUsage.missingSourceRunCount} missing runs · {scorecard.totalUsage.unknownUsageInvocationCount} incomplete calls</span>

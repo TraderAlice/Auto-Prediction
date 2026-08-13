@@ -2029,6 +2029,14 @@ while two subsequent READY refreshes over 4,267 listings left the count at 64.
 New review bindings and changed membership still establish baselines or wakes;
 no historical evidence was deleted and observation remains provider-free.
 
+Issue #197 makes the scorecard consume semantic observation episodes rather
+than raw retained rows. Adjacent equal route/review/status/membership states
+collapse into one episode, but A → B → A remains three ordered episodes. The
+live route reports 64 raw historical rows, one evidence episode and 63
+historical duplicates, with its latest blocked status and promotion-ready
+frontier unchanged. Studio exposes both episode value and retained diagnostics;
+no SQLite rewrite or inference occurs.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a

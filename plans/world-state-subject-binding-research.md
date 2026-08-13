@@ -171,6 +171,16 @@ anonymous refreshes over 4,267 listings left the row count exactly 64. Existing
 rows were not deleted, and the original changed-membership wake tests still
 pass with zero model or provider calls from observation.
 
+Issue [#197](https://github.com/luokerenx4/my-little-pony/issues/197) corrects
+the value projection for those historical rows. Ordered adjacent observations
+with the same route revision, review binding, status and membership identity
+form one semantic episode; a later A → B → A return remains three episodes,
+not two unique states. The live family now reports 64 retained observation rows,
+one semantic episode and 63 historical duplicates while preserving
+`BLOCKED_SUBJECT_BINDING` as the latest status and `READY_FOR_PROMOTION` as the
+research frontier. Studio labels episode value separately from raw history;
+the database is unchanged.
+
 Issue [#185](https://github.com/luokerenx4/my-little-pony/issues/185) now
 materializes provider-free promotion readiness without choosing the promotion
 authority. Exact current-input coverage, independent authoring and assessment

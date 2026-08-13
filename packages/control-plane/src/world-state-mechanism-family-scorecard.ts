@@ -49,7 +49,9 @@ export type WorldStateMechanismFamilyScorecard = Readonly<{
     promotionReadinessStatus: WorldStateSubjectBindingPromotionReadinessItem["status"] | "NO_CASE";
     subjectBindingReviewCount: number;
     latestSubjectBindingDecision: WorldStateMechanismSubjectBindingReview["decision"] | "NONE";
-    observationCount: number;
+    retainedObservationCount: number;
+    observationEpisodeCount: number;
+    historicalDuplicateObservationCount: number;
     latestObservationStatus: WorldStateMechanismObservation["status"] | "UNOBSERVED";
     wakeCount: number;
   }>;
@@ -76,6 +78,21 @@ export type WorldStateMechanismFamilyScorecardProjection = Readonly<{
   attentionPolicyAuthority: false;
   authority: "DERIVED_MECHANISM_FAMILY_EVIDENCE_ONLY";
 }>;
+
+type ObservationEpisodeState = Pick<WorldStateMechanismObservation,
+  "routeId" | "subjectBindingReviewId" | "status" | "membershipIdentity">;
+
+export function countWorldStateMechanismObservationEpisodes(
+  observations: readonly ObservationEpisodeState[],
+): number {
+  return observations.filter((item, index) => {
+    const previous = observations[index - 1];
+    return previous === undefined || previous.routeId !== item.routeId ||
+      previous.subjectBindingReviewId !== item.subjectBindingReviewId ||
+      previous.status !== item.status ||
+      previous.membershipIdentity !== item.membershipIdentity;
+  }).length;
+}
 
 function usage(
   execution: AgentExecutionSnapshot,
@@ -132,6 +149,7 @@ export function buildWorldStateMechanismFamilyScorecards(input: Readonly<{
       item.routeFamilyId === route.routeFamilyId
     ).sort((left, right) => left.observedAt.localeCompare(right.observedAt) ||
       left.observationId.localeCompare(right.observationId));
+    const observationEpisodeCount = countWorldStateMechanismObservationEpisodes(observations);
     const wakes = input.wakes.filter((item) => item.routeFamilyId === route.routeFamilyId);
     const authoringRunIds = route.sourceAgentRunIds;
     const assessmentRunIds = readiness?.assessmentUsage.runIds ?? [];
@@ -170,7 +188,9 @@ export function buildWorldStateMechanismFamilyScorecards(input: Readonly<{
         promotionReadinessStatus: readiness?.status ?? "NO_CASE" as const,
         subjectBindingReviewCount: reviews.length,
         latestSubjectBindingDecision: latestReview?.decision ?? "NONE" as const,
-        observationCount: observations.length,
+        retainedObservationCount: observations.length,
+        observationEpisodeCount,
+        historicalDuplicateObservationCount: observations.length - observationEpisodeCount,
         latestObservationStatus: latestObservation?.status ?? "UNOBSERVED" as const,
         wakeCount: wakes.length,
       }),

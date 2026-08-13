@@ -8,6 +8,7 @@ import {
   buildWorldStateMechanismFamilyScorecards,
   buildWorldStateMechanismProposal,
   compileConsolidatedWorldStateMechanismRoutes,
+  countWorldStateMechanismObservationEpisodes,
   defaultAiRuntimeConfiguration,
   emptyAgentExecutionSnapshot,
   type WorldStateSubjectBindingPromotionReadinessItem,
@@ -16,6 +17,20 @@ import {
 const NOW = "2026-08-13T12:00:00.000Z";
 
 describe("world-state mechanism family scorecards", () => {
+  it("counts ordered A to B to A state as three semantic episodes", () => {
+    const routeId = hashCanonical({ route: 1 });
+    const membershipA = hashCanonical({ membership: "A" });
+    const membershipB = hashCanonical({ membership: "B" });
+    const state = (membershipIdentity: typeof membershipA) => ({
+      routeId, subjectBindingReviewId: null, status: "BLOCKED_SUBJECT_BINDING" as const,
+      membershipIdentity,
+    });
+    expect(countWorldStateMechanismObservationEpisodes([
+      state(membershipA), state(membershipA), state(membershipB), state(membershipB),
+      state(membershipA),
+    ])).toBe(3);
+  });
+
   it("separates exact authoring and assessment cost without double counting shared runs", () => {
     const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
     const profile = portfolio.executionProfiles.find((item) =>
@@ -95,7 +110,8 @@ describe("world-state mechanism family scorecards", () => {
       frontier: "READY_FOR_PROMOTION", sharedAuthoringAssessmentRunCount: 0,
       evidence: { proposalCount: 1, counterScenarioCount: 2, assessmentCount: 1,
         assessmentRecommendation: "APPROVE", subjectBindingReviewCount: 0,
-        latestObservationStatus: "UNOBSERVED" },
+        retainedObservationCount: 0, observationEpisodeCount: 0,
+        historicalDuplicateObservationCount: 0, latestObservationStatus: "UNOBSERVED" },
       authoringUsage: { sourceRunCount: 1, modelInvocationCount: 1,
         knownInputTokens: "100" },
       assessmentUsage: { sourceRunCount: 1, modelInvocationCount: 1,
