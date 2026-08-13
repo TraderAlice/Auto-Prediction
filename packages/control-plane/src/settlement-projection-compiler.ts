@@ -1,4 +1,8 @@
-import { hashCanonical, type Hash } from "@pmh/domain";
+import { hashBytes, hashCanonical, type Hash } from "@pmh/domain";
+import {
+  assertEvidenceDocumentCapture,
+  type EvidenceDocumentCapture,
+} from "./evidence-document.js";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import type { MarketOntologySnapshot } from "./market-ontology.js";
 import type { DiscoveryCatalogListing } from "./types.js";
@@ -54,6 +58,24 @@ export type SettlementProjectionCompilation = Readonly<{
   observations: readonly SettlementProjectionObservation[];
 }>;
 
+export type SettlementVenuePolicyEvidence = Readonly<{
+  schemaVersion: "pmh.settlement-venue-policy-evidence.v1";
+  evidenceId: Hash;
+  venueId: string;
+  protocolIdentity: string;
+  locatorIdentity: Hash;
+  documentId: Hash;
+  extractionId: Hash;
+  rawHash: Hash;
+  textHash: Hash;
+  text: string;
+  extractionStatus: "EXTRACTED" | "TRUNCATED";
+  receivedAt: string;
+  authority: "RETAINED_FIRST_PARTY_DOCUMENT_EXTRACTION";
+  semanticDecisionAuthority: false;
+  executionAuthority: false;
+}>;
+
 export interface SettlementProjectionObservationStore {
   readonly settlementProjectionObservationStorage:
     OperationalStorageProjection<"artifactHash">;
@@ -66,6 +88,7 @@ export interface SettlementProjectionObservationStore {
 }
 
 const VOID_OR_DISCRETION = /\b(?:void|voided|refund|refunded|cancel(?:led|ed)?|invalid|discretion|sole discretion|clarification|override)\b/iu;
+const VENUE_SETTLEMENT_DISCRETION = /\b(?:prior\s+to\s+settlement[\s\S]{0,800}(?:sole|full)\s+discretion|(?:sole|full)\s+discretion[\s\S]{0,800}(?:settlement|final\s+outcome)|full\s+discretion\s+in\s+reviewing\s+markets)\b/iu;
 const AFFIRMATIVE = /\b(?:resolve(?:s|d)?|settle(?:s|d)?)\s+(?:to\s+)?(?:the\s+)?["']?yes["']?\s+if\b/iu;
 const NEGATIVE = /\botherwise\b[^.]{0,160}\b(?:no|resolve(?:s|d)?\s+(?:to\s+)?(?:the\s+)?["']?no)\b|\bresolve(?:s|d)?\s+(?:to\s+)?(?:the\s+)?["']?no["']?\s+(?:if|otherwise)\b/iu;
 const STOP = new Set(["will", "would", "could", "does", "the", "and", "that", "this",
@@ -92,6 +115,7 @@ function exactBlockers(input: Readonly<{
   listing: DiscoveryCatalogListing;
   outcomeShape: string;
   predicate: WorldPredicateArtifact;
+  venuePolicyEvidence: readonly SettlementVenuePolicyEvidence[];
 }>): readonly SettlementProjectionBlocker[] {
   const blockers: SettlementProjectionBlocker[] = [];
   if (input.outcomeShape !== "BINARY_YES_NO_LABELS") blockers.push("NON_BINARY_OUTCOME_SPACE");
@@ -110,8 +134,94 @@ function exactBlockers(input: Readonly<{
       blockers.push("MISSING_NEGATIVE_RESOLUTION_CLAUSE");
     }
   }
+  if (input.venuePolicyEvidence.some((item) => VENUE_SETTLEMENT_DISCRETION.test(item.text))) {
+    blockers.push("VOID_REFUND_OR_DISCRETION_OVERRIDE");
+  }
   if (!grounded(input.predicate, input.listing)) blockers.push("PREDICATE_TERMS_NOT_GROUNDED");
   return Object.freeze([...new Set(blockers)].sort());
+}
+
+function venuePolicyEvidenceIdentity(input: Omit<SettlementVenuePolicyEvidence,
+  "schemaVersion" | "evidenceId" | "authority" | "semanticDecisionAuthority" |
+  "executionAuthority" | "text"
+>): Hash {
+  return hashCanonical({
+    schemaVersion: "pmh.settlement-venue-policy-evidence-identity.v1",
+    ...input,
+  });
+}
+
+function assertSettlementVenuePolicyEvidence(
+  value: SettlementVenuePolicyEvidence,
+): SettlementVenuePolicyEvidence {
+  const { schemaVersion, evidenceId, authority, semanticDecisionAuthority,
+    executionAuthority, text, ...identity } = value;
+  if (
+    schemaVersion !== "pmh.settlement-venue-policy-evidence.v1" ||
+    evidenceId !== venuePolicyEvidenceIdentity(identity) ||
+    value.textHash !== hashBytes(new TextEncoder().encode(text)) ||
+    authority !== "RETAINED_FIRST_PARTY_DOCUMENT_EXTRACTION" ||
+    semanticDecisionAuthority !== false || executionAuthority !== false
+  ) throw new Error("settlement venue policy evidence violates its bounded contract");
+  return Object.freeze(value);
+}
+
+export function settlementVenuePolicyEvidenceFromCaptures(
+  captures: readonly EvidenceDocumentCapture[],
+): readonly SettlementVenuePolicyEvidence[] {
+  const evidence = new Map<Hash, SettlementVenuePolicyEvidence>();
+  for (const input of captures) {
+    const capture = assertEvidenceDocumentCapture(input);
+    if (capture.document.record.role !== "VENUE_RULE_DOCUMENT") continue;
+    const identity = Object.freeze({
+      venueId: capture.document.record.venueId,
+      protocolIdentity: capture.document.record.protocolIdentity,
+      locatorIdentity: capture.document.record.locatorIdentity,
+      documentId: capture.document.record.documentId,
+      extractionId: capture.extraction.record.extractionId,
+      rawHash: capture.document.record.rawHash,
+      textHash: capture.extraction.record.textHash,
+      extractionStatus: capture.extraction.record.status,
+      receivedAt: capture.observation.receivedAt,
+    });
+    const item = assertSettlementVenuePolicyEvidence(Object.freeze({
+      schemaVersion: "pmh.settlement-venue-policy-evidence.v1" as const,
+      evidenceId: venuePolicyEvidenceIdentity(identity),
+      ...identity,
+      text: capture.extraction.text,
+      authority: "RETAINED_FIRST_PARTY_DOCUMENT_EXTRACTION" as const,
+      semanticDecisionAuthority: false as const,
+      executionAuthority: false as const,
+    }));
+    const prior = evidence.get(item.evidenceId);
+    if (prior === undefined || item.receivedAt > prior.receivedAt) evidence.set(item.evidenceId, item);
+  }
+  return Object.freeze([...evidence.values()].sort((left, right) =>
+    left.evidenceId.localeCompare(right.evidenceId)));
+}
+
+function matchingVenuePolicyEvidence(input: Readonly<{
+  listing: DiscoveryCatalogListing;
+  evidence: readonly SettlementVenuePolicyEvidence[];
+}>): readonly SettlementVenuePolicyEvidence[] {
+  const locators = new Set((input.listing.evidenceLocators ?? [])
+    .filter((item) => item.role === "VENUE_RULE_DOCUMENT")
+    .map((item) => item.locatorIdentity));
+  const latestByLocator = new Map<Hash, SettlementVenuePolicyEvidence>();
+  for (const candidateInput of input.evidence) {
+    const candidate = assertSettlementVenuePolicyEvidence(candidateInput);
+    if (candidate.venueId !== input.listing.venueId ||
+        candidate.protocolIdentity !== input.listing.protocolIdentity ||
+        !locators.has(candidate.locatorIdentity)) continue;
+    const prior = latestByLocator.get(candidate.locatorIdentity);
+    if (prior === undefined || candidate.receivedAt > prior.receivedAt ||
+        (candidate.receivedAt === prior.receivedAt &&
+          candidate.evidenceId > prior.evidenceId)) {
+      latestByLocator.set(candidate.locatorIdentity, candidate);
+    }
+  }
+  return Object.freeze([...latestByLocator.values()].sort((left, right) =>
+    left.locatorIdentity.localeCompare(right.locatorIdentity)));
 }
 
 function observation(input: Omit<SettlementProjectionObservation,
@@ -176,6 +286,7 @@ export function compileSettlementProjections(input: Readonly<{
   corpus: MarketCorpusSnapshot;
   ontology: MarketOntologySnapshot;
   predicates: readonly WorldPredicateArtifact[];
+  venuePolicyEvidence?: readonly SettlementVenuePolicyEvidence[];
 }>): SettlementProjectionCompilation {
   if (input.ontology.sourceSnapshotIdentity !== input.corpus.snapshotIdentity) {
     throw new Error("settlement projection compiler requires the exact ontology corpus");
@@ -215,8 +326,12 @@ export function compileSettlementProjections(input: Readonly<{
       continue;
     }
     const sourcePredicate = unique[0];
+    const venuePolicyEvidence = matchingVenuePolicyEvidence({
+      listing,
+      evidence: input.venuePolicyEvidence ?? [],
+    });
     const blockers = exactBlockers({ listing, outcomeShape: node.settlementFacet.outcomeShape,
-      predicate: sourcePredicate });
+      predicate: sourcePredicate, venuePolicyEvidence });
     const ruleEvidenceHash = hashCanonical({
       rulesText: listing.rulesText,
       rulesTextPosture: listing.rulesTextPosture ?? null,
@@ -224,6 +339,10 @@ export function compileSettlementProjections(input: Readonly<{
       sourceRawHash: listing.sourceRawHash,
       protocolIdentity: listing.protocolIdentity,
     });
+    const ruleEvidenceHashes = Object.freeze([
+      ruleEvidenceHash,
+      ...venuePolicyEvidence.map((item) => item.textHash),
+    ].sort());
     const predicate = blockers.length === 0
       ? buildWorldPredicateArtifact({ ...sourcePredicate,
           observability: "RULE_DEFINED", epistemicPosture: "SETTLEMENT_BOUND_PREDICATE" })
@@ -239,17 +358,17 @@ export function compileSettlementProjections(input: Readonly<{
       truthStates: blockers.length === 0 ? [
         { truthByPredicateId: { [predicate.predicateId]: false }, listingTruth: false,
           disposition: "RESOLVES", rationale: "The exact predicate is false; the explicit otherwise clause resolves No.",
-          ruleEvidenceHashes: [ruleEvidenceHash] },
+          ruleEvidenceHashes },
         { truthByPredicateId: { [predicate.predicateId]: true }, listingTruth: true,
           disposition: "RESOLVES", rationale: "The exact predicate is true; the explicit affirmative clause resolves Yes.",
-          ruleEvidenceHashes: [ruleEvidenceHash] },
+          ruleEvidenceHashes },
       ] : [
         { truthByPredicateId: { [predicate.predicateId]: false }, listingTruth: null,
           disposition: "UNRESOLVED", rationale: "The first-party compiler cannot prove the false-state settlement mapping.",
-          ruleEvidenceHashes: [ruleEvidenceHash] },
+          ruleEvidenceHashes },
         { truthByPredicateId: { [predicate.predicateId]: true }, listingTruth: null,
           disposition: "UNRESOLVED", rationale: "The first-party compiler cannot prove the true-state settlement mapping.",
-          ruleEvidenceHashes: [ruleEvidenceHash] },
+          ruleEvidenceHashes },
       ],
       mappingPosture: blockers.length === 0 ? "TOTAL_EXACT" :
         blockers.includes("VOID_REFUND_OR_DISCRETION_OVERRIDE") ? "VOIDABLE_OVERRIDE" : "AMBIGUOUS",

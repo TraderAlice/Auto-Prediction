@@ -7,7 +7,12 @@ import {
   adaptMarketOntologyWorldProposition,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
+  buildDiscoveryEvidenceLocator,
+  buildEvidenceDocumentFetchPolicy,
+  buildEvidenceRequirements,
   compileSettlementProjections,
+  EvidenceDocumentFetcher,
+  settlementVenuePolicyEvidenceFromCaptures,
   type DiscoveryCatalogListing,
   type MarketOntologyWorldPropositionProposal,
   SqliteOperationalStore,
@@ -89,6 +94,72 @@ describe("first-party settlement projection compiler", () => {
       disposition: "RESEARCH_ONLY_PROJECTED",
       blockers: ["VOID_REFUND_OR_DISCRETION_OVERRIDE"],
     });
+  });
+
+  it("binds retained venue-wide settlement discretion through the listing locator", async () => {
+    const venueRuleUrl = "https://rules.example.com/current-rulebook.txt";
+    const locator = buildDiscoveryEvidenceLocator({
+      venueId: "fixture", protocolIdentity: "fixture:v1",
+      role: "VENUE_RULE_DOCUMENT", url: venueRuleUrl,
+    });
+    if (locator === null) throw new Error("missing fixture venue rule locator");
+    const input = fixture({ evidenceLocators: [locator] });
+    const requirementListings = [
+      input.corpus.listings[0]!,
+      listing({ listingRef: "fixture:cola-peer", venueInstrumentId: "cola-peer" }),
+    ];
+    const requirement = buildEvidenceRequirements({
+      origin: "SEMANTIC_REVIEW", proposalId: hash("venue-policy-proposal"),
+      proposalListingRefs: requirementListings.map((item) => item.listingRef),
+      listings: requirementListings,
+      drafts: [{
+        kind: "VENUE_POLICY",
+        listingRefs: [input.corpus.listings[0]!.listingRef],
+        claim: "The venue retains final settlement discretion.",
+        reason: "Venue-wide review authority changes the world-to-settlement mapping.",
+        satisfyingObservation: "The official rulebook grants settlement discretion.",
+        contradictingObservation: "The rulebook makes settlement mechanically exhaustive.",
+        temporalPosture: "CURRENT",
+      }],
+    })[0]!;
+    const capture = await new EvidenceDocumentFetcher({
+      policies: [buildEvidenceDocumentFetchPolicy({
+        venueId: "fixture", protocolIdentity: "fixture:v1",
+        role: "VENUE_RULE_DOCUMENT", allowedHostnames: ["rules.example.com"],
+        allowedContentTypes: ["text/plain"],
+      })],
+      fetch: async () => new Response(
+        "Prior to Settlement, the Company may at its sole discretion undertake a review process. The Company has full discretion in reviewing markets and determines the final outcome.",
+        { status: 200, headers: { "content-type": "text/plain" } },
+      ),
+      resolve: async () => [{ address: "8.8.8.8", family: 4 as const }],
+      now: () => Date.parse(at),
+    }).capture({ requirement, locatorIdentity: locator.locatorIdentity });
+    const venuePolicyEvidence = settlementVenuePolicyEvidenceFromCaptures([capture]);
+    const result = compileSettlementProjections({
+      ...input, predicates: [input.predicate], venuePolicyEvidence,
+    });
+
+    expect(venuePolicyEvidence[0]).toMatchObject({
+      venueId: "fixture", protocolIdentity: "fixture:v1",
+      locatorIdentity: locator.locatorIdentity,
+      authority: "RETAINED_FIRST_PARTY_DOCUMENT_EXTRACTION",
+      semanticDecisionAuthority: false,
+    });
+    expect(result.projections[0]).toMatchObject({
+      mappingPosture: "VOIDABLE_OVERRIDE", compilerAdmission: "RESEARCH_ONLY",
+    });
+    expect(result.projections[0]?.truthStates.every((state) =>
+      state.ruleEvidenceHashes.includes(capture.extraction.record.textHash))).toBe(true);
+    expect(result.observations[0]).toMatchObject({
+      disposition: "RESEARCH_ONLY_PROJECTED",
+      blockers: ["VOID_REFUND_OR_DISCRETION_OVERRIDE"],
+    });
+
+    const unbound = fixture();
+    expect(compileSettlementProjections({
+      ...unbound, predicates: [unbound.predicate], venuePolicyEvidence,
+    }).projections[0]?.mappingPosture).toBe("TOTAL_EXACT");
   });
 
   it("records exact ambiguity debt instead of choosing between two predicates", () => {

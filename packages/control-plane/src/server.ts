@@ -140,6 +140,7 @@ import {
 } from "./world-history-ontology.js";
 import {
   compileSettlementProjections,
+  settlementVenuePolicyEvidenceFromCaptures,
   type SettlementProjectionObservationStore,
 } from "./settlement-projection-compiler.js";
 import {
@@ -1601,6 +1602,10 @@ export function createControlPlane(options?: {
   ) ? options.discoveryStore : null;
   let worldRelationExperimentAssignments:
     readonly WorldRelationExperimentAssignment[] = [];
+  let currentSettlementProjections:
+    readonly import("./world-history-ontology.js").SettlementProjection[] = [];
+  let currentSettlementProjectionObservations:
+    readonly import("./settlement-projection-compiler.js").SettlementProjectionObservation[] = [];
   const studioProjectionSnapshotStore = supportsStudioProjectionSnapshots(
       options?.discoveryStore,
     )
@@ -4050,17 +4055,28 @@ export function createControlPlane(options?: {
     const sourcePredicates = [...new Map(frontiers.flatMap((item) => item.predicates)
       .map((item) => [item.artifactHash, item] as const)).values()];
     worldRelationExperimentStore.saveWorldPredicateArtifacts(sourcePredicates);
+    const captureSource = options?.discoveryStore as Partial<{
+      loadRetainedEvidenceDocumentCaptures(): readonly import("./evidence-document.js").EvidenceDocumentCapture[];
+    }> | undefined;
+    const venuePolicyEvidence = captureSource?.loadRetainedEvidenceDocumentCaptures === undefined
+      ? []
+      : settlementVenuePolicyEvidenceFromCaptures(
+          captureSource.loadRetainedEvidenceDocumentCaptures(),
+        );
     const settlement = compileSettlementProjections({
       corpus,
       ontology: buildMarketOntologySnapshot(corpus),
       predicates: sourcePredicates,
+      venuePolicyEvidence,
     });
     worldRelationExperimentStore.saveWorldPredicateArtifacts(settlement.predicates);
     worldRelationExperimentStore.saveSettlementProjections(settlement.projections);
     worldRelationExperimentStore.saveSettlementProjectionObservations(
       settlement.observations,
     );
-    const projections = worldRelationExperimentStore.loadSettlementProjections(2_048);
+    currentSettlementProjections = settlement.projections;
+    currentSettlementProjectionObservations = settlement.observations;
+    const projections = currentSettlementProjections;
     const experiments = worldRelationExperimentStore.loadWorldRelationExperiments(2_048);
     worldRelationExperimentAssignments = frontiers
       .map((frontier) => buildWorldRelationExperimentAssignment({
@@ -4569,7 +4585,7 @@ export function createControlPlane(options?: {
       ?.loadSettlementProjections(2_048) ?? [];
     const inputs = worldRelationExperimentStore
       ?.loadWorldRelationExperimentInputs(2_048) ?? [];
-    const settlementObservations = worldRelationExperimentStore
+    const retainedSettlementObservations = worldRelationExperimentStore
       ?.loadSettlementProjectionObservations(2_048) ?? [];
     const experiments = worldRelationExperimentStore
       ?.loadWorldRelationExperiments(2_048) ?? [];
@@ -4577,21 +4593,23 @@ export function createControlPlane(options?: {
     const body = Object.freeze({
       schemaVersion: "pmh.world-relation-experiment-projection.v1" as const,
       predicateArtifactCount: predicates.length,
-      settlementProjectionCount: projections.length,
+      settlementProjectionCount: currentSettlementProjections.length,
+      retainedSettlementProjectionCount: projections.length,
       retainedInputRevisionCount: inputs.length,
       retainedExperimentCount: experiments.length,
-      settlementObservationCount: settlementObservations.length,
+      settlementObservationCount: currentSettlementProjectionObservations.length,
+      retainedSettlementObservationCount: retainedSettlementObservations.length,
       settlementDispositionCounts: Object.freeze({
-        exact: settlementObservations.filter((item) =>
+        exact: currentSettlementProjectionObservations.filter((item) =>
           item.disposition === "EXACT_PROJECTED").length,
-        researchOnly: settlementObservations.filter((item) =>
+        researchOnly: currentSettlementProjectionObservations.filter((item) =>
           item.disposition === "RESEARCH_ONLY_PROJECTED").length,
-        blocked: settlementObservations.filter((item) =>
+        blocked: currentSettlementProjectionObservations.filter((item) =>
           item.disposition === "BLOCKED").length,
       }),
       settlementBlockerCounts: Object.freeze(Object.fromEntries(
-        [...new Set(settlementObservations.flatMap((item) => item.blockers))]
-          .sort().map((blocker) => [blocker, settlementObservations.filter((item) =>
+        [...new Set(currentSettlementProjectionObservations.flatMap((item) => item.blockers))]
+          .sort().map((blocker) => [blocker, currentSettlementProjectionObservations.filter((item) =>
             item.blockers.includes(blocker)).length]),
       )),
       currentFrontiers: Object.freeze(worldRelationExperimentAssignments.map((item) =>
@@ -7272,6 +7290,7 @@ export function createControlPlane(options?: {
         const job = await pending;
         ruleEvidenceClaimScheduler.reconcile(ruleEvidenceClaimInputs());
         reconcileRuleEvidenceAgentTasks();
+        if (job.status === "CAPTURED") reconcileWorldRelationExperiments();
         await broadcastProjection();
         writeJson(response, job.status === "CAPTURED" ? 200 : 422, job);
       } catch (error) {
@@ -7280,6 +7299,34 @@ export function createControlPlane(options?: {
           diagnostic: error instanceof Error
             ? error.message
             : "evidence acquisition run could not start",
+          executionAuthority: false,
+        });
+      }
+      return;
+    }
+    const evidenceAcquisitionRetryMatch = url.pathname.match(
+      /^\/api\/v1\/evidence-acquisition\/(sha256:[0-9a-f]{64})\/retry$/u,
+    );
+    if (request.method === "POST" && evidenceAcquisitionRetryMatch !== null) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (
+          body === null || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 0
+        ) throw new Error("evidence acquisition retry accepts only an empty object");
+        evidenceAcquisitionScheduler.reconcile(evidenceRequirements());
+        const job = evidenceAcquisitionScheduler.retryExhaustedJob(
+          evidenceAcquisitionRetryMatch[1] as Hash,
+        );
+        await broadcastProjection();
+        writeJson(response, 200, job);
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error
+            ? error.message
+            : "evidence acquisition retry could not be admitted",
           executionAuthority: false,
         });
       }

@@ -189,33 +189,48 @@ manual campaign creation and a compact Studio projection are implemented.
 Price-only corpus refreshes preserve the semantic input identity, while a new
 frontier evidence revision or terminal experiment memory produces a new bounded
 experiment input. The live Studio projection currently exposes two untested
-common-cause frontiers, six retained predicate artifacts, ten exact input
-revisions and zero settlement projections; the latter is now the dominant
-compiler-value bottleneck.
+common-cause frontiers and four current settlement projections. Retained
+projection history is reported separately from the current generation so an
+Agent cannot mistake superseded mappings for concurrent truths.
 
 ## Active continuation
 
-1. Extend the first-party settlement compiler from exact catalog contract text
-   to retained official venue-rule evidence without allowing advisory Agent
-   interpretation alone to confer exactness.
-2. Route durable settlement blocker observations into evidence acquisition and
+1. Route durable settlement blocker observations into evidence acquisition and
    measure blocker retirement by new evidence revision.
-3. Run a Terra/high world-relation specimen only after at least two real
-   listings have durable projections; compare terminal yield, counterworld
+2. Run a Terra/high world-relation specimen against the current four real
+   research-only projections; compare terminal yield, counterworld
    coverage, structural rejection and token cost with mechanism exploration.
-4. Feed admitted hard/probabilistic bridges into shadow opportunity construction
+3. Feed admitted hard/probabilistic bridges into shadow opportunity construction
    and measure whether they produce new payoff-state candidates rather than only
    ontology artifacts.
+4. Generalize venue-policy interpretation from the first conservative
+   settlement-discretion pattern into a bounded rule-policy compiler with
+   explicit positive and negative fixtures per supported venue dialect.
 
 No user decision blocks this continuation. Subject/alias promotion authority
 remains a separate queued policy question; current artifacts retain research
 authority only.
 
 The first settlement compiler and durable observation ledger are now active.
-On the live Polymarket US frontier they produce four research-only projections,
-two per relation frontier. All four share one explicit debt:
-`MISSING_NEGATIVE_RESOLUTION_CLAUSE`. This is useful fail-closed evidence, not a
-parser failure: the retained contract text states the affirmative payout but
-does not establish an iff/otherwise-No mapping. Existing catalog-rule evidence
-contains no covering claim for these four listings, so the next iteration must
-qualify a first-party venue-level rule or retain them as research-only.
+On the live Polymarket US frontier they produce four current research-only
+projections, two per relation frontier. All four retain
+`MISSING_NEGATIVE_RESOLUTION_CLAUSE` and now also carry
+`VOID_REFUND_OR_DISCRETION_OVERRIDE`. A newly captured, correctly typed
+`VENUE_RULE_DOCUMENT` is bound by venue, protocol and locator identity; its
+content-addressed extraction contains the venue-wide pre-settlement review and
+final-outcome discretion clauses. The deterministic compiler therefore marks
+the mapping `VOIDABLE_OVERRIDE` and includes the venue text hash in each truth
+state's rule-evidence lineage. This is stronger negative ontology evidence than
+the earlier generic ambiguity: the current official policy itself prevents a
+total world-history → contract-outcome mapping.
+
+Live operation also exposed two infrastructure debts and retired both. The
+document validator had admitted venue-rule fetch policies but rejected the
+resulting role at persistence; it now accepts the bounded role with focused
+coverage. A previously exhausted anonymous read can now be explicitly retried
+through a control-plane transition without resetting lifetime request usage.
+The live CFTC DOCX retry succeeded on attempt four and retained raw document,
+extraction and observation lineage. Finally, a successful evidence acquisition
+now reconciles world relations immediately rather than waiting for restart, and
+the projection API separates four current mappings from twenty-four retained
+historical artifacts.

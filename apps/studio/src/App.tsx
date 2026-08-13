@@ -378,9 +378,11 @@ type WorldRelationExperimentProjection = Readonly<{
   projectionIdentity: string;
   predicateArtifactCount: number;
   settlementProjectionCount: number;
+  retainedSettlementProjectionCount: number;
   retainedInputRevisionCount: number;
   retainedExperimentCount: number;
   settlementObservationCount: number;
+  retainedSettlementObservationCount: number;
   settlementDispositionCounts: Readonly<{
     exact: number;
     researchOnly: number;
@@ -5188,13 +5190,13 @@ function AgentOperationsView() {
             <div className="research-attention-summary">
               <div><strong>{worldRelationExperiments.currentFrontiers.length}</strong><span>current frontiers</span></div>
               <div><strong>{worldRelationExperiments.predicateArtifactCount}</strong><span>world predicates</span></div>
-              <div><strong>{worldRelationExperiments.settlementProjectionCount}</strong><span>settlement mappings</span></div>
+              <div><strong>{worldRelationExperiments.settlementProjectionCount}</strong><span>current settlement mappings</span></div>
               <div><strong>{worldRelationExperiments.retainedInputRevisionCount}</strong><span>exact input revisions</span></div>
             </div>
             {worldRelationExperiments.settlementObservationCount > 0 && (
               <div className="research-attention-lock">
                 <Database size={14} />
-                <span>{worldRelationExperiments.settlementDispositionCounts.exact} exact · {worldRelationExperiments.settlementDispositionCounts.researchOnly} research-only · {worldRelationExperiments.settlementDispositionCounts.blocked} blocked settlement observations</span>
+                <span>{worldRelationExperiments.settlementDispositionCounts.exact} exact · {worldRelationExperiments.settlementDispositionCounts.researchOnly} research-only · {worldRelationExperiments.settlementDispositionCounts.blocked} blocked current mappings</span>
                 <code>{Object.entries(worldRelationExperiments.settlementBlockerCounts)
                   .sort((left, right) => right[1] - left[1])
                   .slice(0, 2).map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`).join(" · ") || "NO DEBT"}</code>
@@ -5234,7 +5236,7 @@ function AgentOperationsView() {
                     <code>{frontier.frontierId.slice(7, 19)}</code>
                   </div>
                   <strong>{frontier.predicateLabels.join(" ↔ ")}</strong>
-                  <p>{frontier.settlementProjectionCount} exact settlement mappings · {frontier.priorExperimentCount} prior terminal memories</p>
+                  <p>{frontier.settlementProjectionCount} current settlement mappings · {frontier.priorExperimentCount} prior terminal memories</p>
                 </article>
               ))}
             </div>

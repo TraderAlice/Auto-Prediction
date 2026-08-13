@@ -851,7 +851,8 @@ export function assertStoredEvidenceDocument(value: unknown): StoredEvidenceDocu
     !HASH_PATTERN.test(String(record.finalLocatorIdentity)) ||
     !HASH_PATTERN.test(String(record.rawHash)) ||
     !nonEmpty(record.venueId, 256) || !nonEmpty(record.protocolIdentity, 1_000) ||
-    !["CONTRACT_RULE_DOCUMENT", "OUTCOME_RESOLUTION_SOURCE"].includes(record.role) ||
+    !["CONTRACT_RULE_DOCUMENT", "VENUE_RULE_DOCUMENT", "OUTCOME_RESOLUTION_SOURCE"]
+      .includes(record.role) ||
     !nonEmpty(record.requestedUrl, 2_048) || !nonEmpty(record.finalUrl, 2_048) ||
     !iso(record.receivedAt) || record.httpStatus !== 200 ||
     !nonEmpty(record.contentType, 256) ||
