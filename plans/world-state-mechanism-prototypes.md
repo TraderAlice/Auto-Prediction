@@ -85,9 +85,9 @@ admission. Content-hash validation is repeated after restart.
   exact unattempted candidate and never auto-dispatches.
 - [x] Add route-instance versus prototype projections and usage/yield
   scorecards to the control-plane API and Studio.
-- [ ] Qualify the first prototype decision against the Iowa/Alaska candidate
+- [x] Qualify the first prototype decision against the Iowa/Alaska candidate
   using Terra/high and pause immediately after the terminal observation.
-- [ ] Use accepted prototype, abstention, repair friction and exact token/runtime
+- [x] Use accepted prototype, abstention, repair friction and exact token/runtime
   cost to decide whether prototype-driven search should enter attention
   allocation.
 
@@ -98,6 +98,25 @@ run, eight model invocations, 200,000 input tokens, 20,000 output tokens and
 concrete routes and prototype candidates as distinct layers with exact inherited
 authoring cost; visual inspection found no console errors and the new panel
 uses the existing product typography and spacing system.
+
+Live Terra/high qualification completed in run `sha256:015e43…` against exact
+input `sha256:b86969…`. The run succeeded in 119 seconds with four known-usage
+invocations: 83,855 input, 2,516 output and 268 reasoning tokens. It read the
+exact candidate twice, submitted one ungrounded variable value that the
+first-party tool rejected, then repaired inside the same run and retained
+prototype `sha256:4e08b7…`. The campaign was immediately paused at revision 3
+(`sha256:c9d76a…`). There were zero unknown-usage calls and no external writes
+or value-moving effects.
+
+The accepted prototype is “One state Senate seat contributes to national
+Senate control.” It retains four exact variable roles (party subject, state
+election trigger, office-holding state, and national Senate dependent), four
+transfer tests, and three counter-scenarios. Its evidence is useful enough to
+guide new search, but only two highly similar election instances support it.
+Selection outcome: do **not** put this prototype directly into automatic
+attention allocation. Use it as a heuristic lens for deliberately seeking a
+third, structurally related but semantically more distant instance; success or
+failure there is the next transferability observation.
 
 ## Selection gates
 
