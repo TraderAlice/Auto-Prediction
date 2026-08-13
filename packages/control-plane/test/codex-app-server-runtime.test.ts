@@ -196,6 +196,43 @@ describe("Codex app-server Agent runtime", () => {
     });
   });
 
+  it("retains bounded error-notification code and message without arbitrary payload fields", async () => {
+    const work = fixture([{
+      method: "error",
+      params: {
+        error: {
+          code: "invalid_request",
+          message: "Dynamic tool schema is unsupported.\nReview the declared schema.",
+          secret: "must-not-be-retained",
+        },
+        unrelated: "also-must-not-be-retained",
+      },
+    }]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: work.adapter,
+      credentialBroker: work.broker,
+      toolHost: work.toolHost,
+    });
+
+    expect(result.run.status).toBe("FAILED");
+    expect(result.modelInvocations[0]).toMatchObject({
+      status: "FAILED",
+      failureCategory: "CODEX_APP_SERVER_PROTOCOL",
+      diagnostic: expect.stringContaining(
+        "code=invalid_request; message=Dynamic tool schema is unsupported. Review the declared schema.",
+      ),
+    });
+    expect(result.modelInvocations[0]?.diagnostic).not.toContain("must-not-be-retained");
+  });
+
   it("executes native dynamic tools and retains usage through the generic long loop", async () => {
     const work = fixture([
       {

@@ -1957,6 +1957,17 @@ may promote that assessment into the routing-only subject review consumed by
 provider-free observation. The first live qualification is the retained
 Democratic Party route; it remains blocked meanwhile.
 
+The independent Agent path is now provider-free complete through paused
+campaign creation, but its first bounded Terra/high specimen is
+`HOLD_RUNTIME_DIAGNOSTIC`. Account preflight started zero inference. The exact
+case-bound run then failed on its first invocation before any first-party tool
+effect because Codex app-server emitted an error notification whose structured
+diagnostic the runtime discarded. Usage remains unknown and the route has no
+assessment, abstention or review; the campaign was paused immediately. Bounded
+protocol code/message retention is now the prerequisite to a controlled probe.
+This is runtime evidence, not a negative semantic result, and the spent attempt
+cannot recur implicitly under once-per-lineage policy.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a

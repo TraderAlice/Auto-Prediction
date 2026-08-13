@@ -79,6 +79,17 @@ live zero-inference preview selected the one Democratic Party case and correctly
 held dispatch pending capability preflight. All 692 control-plane tests and
 workspace checks pass.
 
+The first explicitly activated live specimen is currently
+`HOLD_RUNTIME_DIAGNOSTIC`, not a subject-identity verdict. Codex app-server /
+Terra high passed account preflight with zero inference, and the paused campaign
+bound the one exact case revision. Its first run failed before any first-party
+tool effect when app-server emitted an error notification on the first model
+invocation. Usage is unknown, no assessment or abstention exists, and the
+campaign was paused immediately. The runtime had collapsed the notification to
+a generic sentence, so the next gate is bounded retention of only its protocol
+code and diagnostic message before a deliberately authorized probe. The failed
+attempt remains terminal evidence and cannot recur implicitly.
+
 ## Phase 3 — promotion and observation
 
 - [ ] Project assessment sufficiency separately from subject-binding review
@@ -109,6 +120,21 @@ workspace checks pass.
 - [ ] Refresh and restart preserve the stable case and exact assessment lineage
   without model calls on read.
 - [ ] Full tests, checks and production build pass.
+
+## Live qualification ledger
+
+- Capability preflight observation:
+  `sha256:74c784be64090dfa372841bb9d3856876dd9f9f48a432dc4842dbedf5e56ffa3`
+  (`USABLE`, zero inference).
+- Exact subject-binding input revision:
+  `sha256:a63d23b457f1d725b9c0bc2b7e17573d89b107af77880247cb86717c6a1a79a1`.
+- Failed Agent run:
+  `sha256:403d9b0376d70a960c1b970e9fc9e8bfa4af12e31bdb4c2e2761137b1dc60405`.
+- Failed invocation:
+  `sha256:45408019a4193330cee1e800a1dcdfa436688fb1c41696f2a1d7296613a44021`
+  (`CODEX_APP_SERVER_PROTOCOL`, unknown token usage, zero tool effects).
+- The exact-input run annotation succeeded before execution; no subject-binding
+  assessment, abstention, review or route observation was created.
 
 ## Non-goals
 

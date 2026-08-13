@@ -61,6 +61,24 @@ function boundedDiagnostic(value: unknown, fallback: string): string {
   return raw.slice(0, MAX_DIAGNOSTIC_CHARACTERS);
 }
 
+function boundedErrorNotification(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "code=unknown; message=no diagnostic message";
+  }
+  const params = value as Readonly<Record<string, unknown>>;
+  const candidate = params.error !== null && typeof params.error === "object" &&
+      !Array.isArray(params.error)
+    ? params.error as Readonly<Record<string, unknown>>
+    : params;
+  const code = typeof candidate.code === "number" || typeof candidate.code === "string"
+    ? String(candidate.code).slice(0, 80)
+    : "unknown";
+  const message = typeof candidate.message === "string"
+    ? candidate.message.replace(/\s+/gu, " ").trim().slice(0, 350)
+    : "no diagnostic message";
+  return `code=${code}; message=${message}`;
+}
+
 function initialPrompt(context: AgentRuntimeOpenContext): string {
   return [
     "You are an Agent inside a first-party controlled prediction-market research loop.",
@@ -401,7 +419,9 @@ class CodexAppServerSession implements AgentRuntimeSession {
           continue;
         }
         if (inbound.method === "error") {
-          throw new Error("Codex app-server emitted an error notification");
+          throw new Error(
+            `Codex app-server emitted an error notification: ${boundedErrorNotification(inbound.params)}`,
+          );
         }
         if (inbound.id !== undefined) {
           throw new Error(`Codex app-server requested an undeclared method: ${inbound.method}`);
