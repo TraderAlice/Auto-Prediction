@@ -24,6 +24,7 @@ import {
   materializeMechanismPrototypeExplorationProjection,
   materializeWorldStateMechanismPrototypeResearchCases,
   MechanismPrototypeExplorationAgentToolHost,
+  assertMechanismPrototypeExplorationActionReadiness,
   MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL,
   type DiscoveryCatalogListing,
   type MechanismPrototypeExplorationActionObservation,
@@ -660,15 +661,32 @@ describe("mechanism-prototype exploration Agent tools", () => {
         aggregateListingRef: "venue-sport:constructors",
         groundedBridgeSignals: expect.arrayContaining(["scuderia ferrari"]) }],
       semanticDecisionAuthority: false,
+      readiness: {
+        searchedResultCount: 1, roleSearchResultCount: 1, rolePairCount: 1,
+        inspectedListingCount: 0, inspectedRolePairCount: 0,
+        positive: { eligible: false,
+          missingPrerequisites: ["INSPECTED_ROLE_PAIR", "APPLIED_TRANSFER_TEST"] },
+        exhaustion: { eligible: false,
+          missingPrerequisites: ["INSPECTED_LISTING", "FAILED_TRANSFER_TEST"] },
+        prescriptiveSearchAuthority: false, semanticDecisionAuthority: false,
+      },
     } });
+    assertMechanismPrototypeExplorationActionReadiness(
+      (search.output as { readiness: unknown }).readiness,
+    );
     const roleSearchResultId = (search.output as { resultIdentity: Hash }).resultIdentity;
     await host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "inspect_mechanism_exploration_listings",
       input: { listingRefs: ["venue-sport:constructors", "venue-race:italy"] },
     });
-    await host.execute({ task: lens.task, run, executionProfile: profile,
+    const applied = await host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "mark_transfer_test_1_applied", input: {} });
+    expect(applied).toMatchObject({ output: { readiness: {
+      appliedTransferTestOrdinals: [1], inspectedRolePairCount: 1,
+      positive: { eligible: true, missingPrerequisites: [] },
+      exhaustion: { eligible: false, missingPrerequisites: ["FAILED_TRANSFER_TEST"] },
+    } } });
     const retained = await host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "submit_mechanism_exploration_trailhead",
@@ -994,7 +1012,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
         structuralAnalogy: "Uninspected analogy.", surfaceDifferences: ["sports"], searchSignals: ["sports"],
         noveltyAxisExplanation: "Cross-domain.", rationale: "Not inspected.",
       },
-    })).rejects.toThrow(/prior exact role-search pair/u);
+    })).resolves.toMatchObject({ status: "REJECTED", output: {
+      diagnostic: expect.stringMatching(/prior exact role-search pair/u),
+      readiness: { positive: { eligible: false,
+        missingPrerequisites: expect.arrayContaining(["ROLE_SEARCH_PAIR"]) } },
+    } });
     await expect(host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "record_mechanism_exploration_exhaustion",

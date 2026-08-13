@@ -49,6 +49,86 @@ export type MechanismPrototypeExplorationPrototypeReference = Readonly<{
   text: string;
 }>;
 
+export const MECHANISM_PROTOTYPE_EXPLORATION_POSITIVE_PREREQUISITES = Object.freeze([
+  "ROLE_SEARCH_PAIR", "INSPECTED_ROLE_PAIR", "APPLIED_TRANSFER_TEST",
+] as const);
+export const MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES = Object.freeze([
+  "EXACT_SEARCH", "INSPECTED_LISTING", "FAILED_TRANSFER_TEST",
+] as const);
+
+export type MechanismPrototypeExplorationActionReadiness = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v1";
+  searchedResultCount: number;
+  roleSearchResultCount: number;
+  rolePairCount: number;
+  inspectedListingCount: number;
+  inspectedRolePairCount: number;
+  appliedTransferTestOrdinals: readonly number[];
+  failedTransferTestOrdinals: readonly number[];
+  activatedCounterScenarioOrdinals: readonly number[];
+  positive: Readonly<{
+    eligible: boolean;
+    missingPrerequisites: readonly (typeof MECHANISM_PROTOTYPE_EXPLORATION_POSITIVE_PREREQUISITES)[number][];
+  }>;
+  exhaustion: Readonly<{
+    eligible: boolean;
+    missingPrerequisites: readonly (typeof MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES)[number][];
+  }>;
+  authority: "FIRST_PARTY_EXPERIMENT_READINESS_ONLY";
+  prescriptiveSearchAuthority: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export function assertMechanismPrototypeExplorationActionReadiness(
+  value: unknown,
+): MechanismPrototypeExplorationActionReadiness {
+  const item = object(value);
+  exactKeys(item, [
+    "schemaVersion", "searchedResultCount", "roleSearchResultCount", "rolePairCount",
+    "inspectedListingCount", "inspectedRolePairCount", "appliedTransferTestOrdinals",
+    "failedTransferTestOrdinals", "activatedCounterScenarioOrdinals", "positive",
+    "exhaustion", "authority", "prescriptiveSearchAuthority", "semanticDecisionAuthority",
+    "probabilityAuthority", "certificateAuthority", "executionAuthority",
+    "externalWriteAuthority", "valueMovingAuthority",
+  ]);
+  const positive = object(item.positive);
+  const exhaustion = object(item.exhaustion);
+  exactKeys(positive, ["eligible", "missingPrerequisites"]);
+  exactKeys(exhaustion, ["eligible", "missingPrerequisites"]);
+  const counts = [item.searchedResultCount, item.roleSearchResultCount, item.rolePairCount,
+    item.inspectedListingCount, item.inspectedRolePairCount];
+  const ordinalLists = [item.appliedTransferTestOrdinals, item.failedTransferTestOrdinals,
+    item.activatedCounterScenarioOrdinals];
+  const positiveMissing = positive.missingPrerequisites;
+  const exhaustionMissing = exhaustion.missingPrerequisites;
+  if (item.schemaVersion !== "pmh.mechanism-prototype-exploration-action-readiness.v1" ||
+      counts.some((count) => !Number.isSafeInteger(count) || Number(count) < 0) ||
+      ordinalLists.some((list) => !Array.isArray(list) || list.some((ordinal) =>
+        !Number.isSafeInteger(ordinal) || Number(ordinal) < 1
+      ) || new Set(list).size !== list.length) ||
+      typeof positive.eligible !== "boolean" || !Array.isArray(positiveMissing) ||
+      positiveMissing.some((name) =>
+        !MECHANISM_PROTOTYPE_EXPLORATION_POSITIVE_PREREQUISITES.includes(name as never)
+      ) || positive.eligible !== (positiveMissing.length === 0) ||
+      typeof exhaustion.eligible !== "boolean" || !Array.isArray(exhaustionMissing) ||
+      exhaustionMissing.some((name) =>
+        !MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES.includes(name as never)
+      ) || exhaustion.eligible !== (exhaustionMissing.length === 0) ||
+      item.authority !== "FIRST_PARTY_EXPERIMENT_READINESS_ONLY" ||
+      item.prescriptiveSearchAuthority !== false || item.semanticDecisionAuthority !== false ||
+      item.probabilityAuthority !== false || item.certificateAuthority !== false ||
+      item.executionAuthority !== false || item.externalWriteAuthority !== false ||
+      item.valueMovingAuthority !== false) {
+    throw new Error("mechanism exploration action readiness is invalid");
+  }
+  return value as MechanismPrototypeExplorationActionReadiness;
+}
+
 export function buildMechanismPrototypeExplorationPrototypeReferences(
   prototype: WorldStateMechanismPrototypeProposal,
 ): Readonly<{
@@ -252,6 +332,71 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     return Object.freeze([...this.#exhaustions]);
   }
 
+  public readiness(): MechanismPrototypeExplorationActionReadiness {
+    const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+    const ordinalSet = (selected: ReadonlySet<string>, available:
+      readonly MechanismPrototypeExplorationPrototypeReference[]) => Object.freeze(available
+        .map((item, index) => selected.has(item.text) ? index + 1 : null)
+        .filter((ordinal): ordinal is number => ordinal !== null));
+    const rolePairs = [...this.#roleSearchResults.values()].flatMap((result) => result.pairs);
+    const inspectedRolePairCount = rolePairs.filter((pair) =>
+      this.#inspectedListingRefs.has(pair.componentListingRef) &&
+      this.#inspectedListingRefs.has(pair.aggregateListingRef)
+    ).length;
+    const positiveMissing = MECHANISM_PROTOTYPE_EXPLORATION_POSITIVE_PREREQUISITES.filter(
+      (prerequisite) => prerequisite === "ROLE_SEARCH_PAIR" ? rolePairs.length === 0
+        : prerequisite === "INSPECTED_ROLE_PAIR" ? inspectedRolePairCount === 0
+        : this.#appliedTransferTests.size === 0,
+    );
+    const exhaustionMissing = MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES.filter(
+      (prerequisite) => prerequisite === "EXACT_SEARCH" ? this.#searchedResultIds.size === 0
+        : prerequisite === "INSPECTED_LISTING" ? this.#inspectedListingRefs.size === 0
+        : this.#failedTransferTests.size === 0,
+    );
+    return assertMechanismPrototypeExplorationActionReadiness(Object.freeze({
+      schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v1" as const,
+      searchedResultCount: this.#searchedResultIds.size,
+      roleSearchResultCount: this.#roleSearchResults.size,
+      rolePairCount: rolePairs.length,
+      inspectedListingCount: this.#inspectedListingRefs.size,
+      inspectedRolePairCount,
+      appliedTransferTestOrdinals: ordinalSet(this.#appliedTransferTests,
+        references.transferTests),
+      failedTransferTestOrdinals: ordinalSet(this.#failedTransferTests,
+        references.transferTests),
+      activatedCounterScenarioOrdinals: ordinalSet(this.#activatedCounterScenarios,
+        references.counterScenarios),
+      positive: Object.freeze({ eligible: positiveMissing.length === 0,
+        missingPrerequisites: positiveMissing }),
+      exhaustion: Object.freeze({ eligible: exhaustionMissing.length === 0,
+        missingPrerequisites: exhaustionMissing }),
+      authority: "FIRST_PARTY_EXPERIMENT_READINESS_ONLY" as const,
+      prescriptiveSearchAuthority: false as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    }));
+  }
+
+  #accepted(output: unknown) {
+    const body = output !== null && typeof output === "object" && !Array.isArray(output)
+      ? output as Readonly<Record<string, unknown>>
+      : Object.freeze({ result: output });
+    return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+      ...body, readiness: this.readiness(),
+    }) });
+  }
+
+  #rejected(diagnostic: string) {
+    return Object.freeze({ status: "REJECTED" as const, output: Object.freeze({
+      diagnostic,
+      readiness: this.readiness(),
+    }) });
+  }
+
   public async execute(context: AgentToolHostContext): Promise<Readonly<{
     status: "ACCEPTED" | "REJECTED";
     output: unknown;
@@ -267,16 +412,16 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       exactKeys(input, []);
       this.#lensReadCount += 1;
       if (this.#lensReadCount > 1) {
-        return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+        return this.#accepted(Object.freeze({
           schemaVersion: "pmh.mechanism-prototype-exploration-lens-reference.v1",
           inputRevisionId: this.researchInput.inputRevisionId,
           semanticInputIdentity: this.researchInput.semanticInputIdentity,
           diagnostic: "lens already supplied in this run; continue from retained context",
           authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_REFERENCE_ONLY",
-        }) });
+        }));
       }
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
-      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+      return this.#accepted(Object.freeze({
         schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v4",
         inputRevisionId: this.researchInput.inputRevisionId,
         semanticInputIdentity: this.researchInput.semanticInputIdentity,
@@ -307,7 +452,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         }),
         terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
         authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_ONLY",
-      }) });
+      }));
     }
     const transferAction = context.toolName.match(
       /^mark_transfer_test_([1-9][0-9]*)_(applied|failed)$/u,
@@ -340,10 +485,10 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           exactText: reference.text,
         }),
       ]);
-      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+      return this.#accepted(Object.freeze({
         action: transferAction[2], transferTest: reference.text,
         authority: "EXACT_PROTOTYPE_TEST_SELECTION_ONLY",
-      }) });
+      }));
     }
     const counterAction = context.toolName.match(/^activate_counter_scenario_([1-9][0-9]*)$/u);
     if (counterAction !== null) {
@@ -365,10 +510,10 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           exactText: reference.text,
         }),
       ]);
-      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+      return this.#accepted(Object.freeze({
         action: "activated", counterScenario: reference.text,
         authority: "EXACT_PROTOTYPE_COUNTER_SCENARIO_SELECTION_ONLY",
-      }) });
+      }));
     }
     if (context.toolName === "search_mechanism_exploration_corpus") {
       exactKeys(input, ["patterns", "syntax", "mode", "fields", "venueIds", "limit"]);
@@ -385,7 +530,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       });
       this.#searchedResultIds.add(result.resultIdentity);
       for (const hit of result.hits) this.#searchedListingRefs.add(hit.listingRef);
-      return Object.freeze({ status: "ACCEPTED" as const, output: result });
+      return this.#accepted(result);
     }
     if (context.toolName === "search_mechanism_exploration_roles") {
       exactKeys(input, ["component", "aggregate", "bridgeSignals", "pairLimit"]);
@@ -416,7 +561,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       for (const hit of [...result.componentHits, ...result.aggregateHits]) {
         this.#searchedListingRefs.add(hit.listingRef);
       }
-      return Object.freeze({ status: "ACCEPTED" as const, output: result });
+      return this.#accepted(result);
     }
     if (context.toolName === "inspect_mechanism_exploration_listings") {
       exactKeys(input, ["listingRefs"]);
@@ -433,7 +578,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         this.#inspectedListingRefs.add(ref);
         return listing;
       });
-      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({ listings }) });
+      return this.#accepted(Object.freeze({ listings }));
     }
     if (context.toolName === "submit_mechanism_exploration_trailhead") {
       exactKeys(input, [
@@ -450,10 +595,14 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         candidate.aggregateListingRef === aggregateListingRef
       );
       if (roleSearchResult === undefined || pair === undefined) {
-        throw new Error("mechanism exploration positive requires a prior exact role-search pair");
+        return this.#rejected(
+          "mechanism exploration positive requires a prior exact role-search pair",
+        );
       }
       if (this.#appliedTransferTests.size === 0) {
-        throw new Error("mechanism exploration positive requires an applied transfer-test action");
+        return this.#rejected(
+          "mechanism exploration positive requires an applied transfer-test action",
+        );
       }
       const trailhead = buildMechanismPrototypeExplorationTrailhead({
         researchInput: this.researchInput, prototype: this.prototype, corpus: this.corpus,
@@ -492,18 +641,20 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         this.#trailheads.push(trailhead);
         this.store?.saveMechanismPrototypeExplorationTrailheads([trailhead]);
       }
-      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+      return this.#accepted(Object.freeze({
         trailheadId: trailhead.trailheadId,
         authority: trailhead.authority,
         separateSemanticResearchRequired: true,
-      }) });
+      }));
     }
     if (context.toolName === "record_mechanism_exploration_exhaustion") {
       exactKeys(input, [
         "inspectedListingRefs", "searchedNeighborhoods", "reason",
       ]);
       if (this.#failedTransferTests.size === 0) {
-        throw new Error("mechanism exploration exhaustion requires a failed transfer-test action");
+        return this.#rejected(
+          "mechanism exploration exhaustion requires a failed transfer-test action",
+        );
       }
       const roleSearchResults = [...this.#roleSearchResults.values()];
       const exhaustion = buildMechanismPrototypeExplorationExhaustion({
@@ -533,11 +684,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         this.#exhaustions.push(exhaustion);
         this.store?.saveMechanismPrototypeExplorationExhaustions([exhaustion]);
       }
-      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+      return this.#accepted(Object.freeze({
         exhaustionId: exhaustion.exhaustionId,
         authority: exhaustion.authority,
         semanticDecisionAuthority: false,
-      }) });
+      }));
     }
     throw new Error("mechanism exploration tool is unsupported");
   }

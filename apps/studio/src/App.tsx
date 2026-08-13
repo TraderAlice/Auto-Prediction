@@ -811,6 +811,8 @@ type WorldStateMechanismProjection = Readonly<{
       roleBoundTrailheadCount: number;
       roleAwareExhaustionCount: number;
       retainedActionObservationCount: number;
+      resultRepairInvocationCount: number;
+      resultRepairInputTokens: string;
     }>;
     corpusSnapshotIdentity: string;
     corpusSemanticIdentity: string;
@@ -4635,7 +4637,7 @@ function AgentOperationsView() {
                 </div>
                 <div className="research-attention-lock">
                   <CircleOff size={14} />
-                  <span>{worldStateMechanisms.mechanismPrototypeExploration.usage.modelInvocationCount} model calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.knownInputTokens)} input tokens · {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchRawHitCount} raw hits → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchQualifiedHitCount} role-qualified → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchPairCount} pairs → {worldStateMechanisms.mechanismPrototypeExploration.usage.inspectedEvidenceBindingCount} inspected · {worldStateMechanisms.mechanismPrototypeExploration.usage.retainedActionObservationCount} durable test actions</span>
+                  <span>{worldStateMechanisms.mechanismPrototypeExploration.usage.modelInvocationCount} model calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.knownInputTokens)} input tokens · {worldStateMechanisms.mechanismPrototypeExploration.usage.resultRepairInvocationCount} repair calls / {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.resultRepairInputTokens)} repair input · {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchRawHitCount} raw hits → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchQualifiedHitCount} role-qualified → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchPairCount} pairs → {worldStateMechanisms.mechanismPrototypeExploration.usage.inspectedEvidenceBindingCount} inspected · {worldStateMechanisms.mechanismPrototypeExploration.usage.retainedActionObservationCount} durable test actions</span>
                   <code>HEURISTIC ROUTING ONLY</code>
                 </div>
               </section>

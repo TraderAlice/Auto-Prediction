@@ -1,5 +1,14 @@
 # Plans
 
+The active execution continuation is
+[`plans/exploration-action-readiness.md`](plans/exploration-action-readiness.md).
+Issue #221 follows the adopted V7 live specimen. The run eventually retained a
+correct bounded exhaustion, but first learned two terminal prerequisites by
+making rejected calls, and the runtime then labelled all productive search and
+inspection turns as result repair. The first-party host should expose compact,
+query-agnostic experiment readiness after every effect; generic repair
+attribution should end after an accepted non-result state transition.
+
 The selected execution continuation is
 [`plans/role-aware-exploration-retrieval.md`](plans/role-aware-exploration-retrieval.md).
 Issue #219 follows the first V3 live negative result. A flat OR query over
