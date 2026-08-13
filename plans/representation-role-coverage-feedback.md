@@ -77,5 +77,25 @@ Implementation and provider-free qualification complete on branch
   probability, certificate, execution, external-write or value-moving authority.
 
 Qualification: control-plane 108 files / 745 tests, Studio 5 files / 30 tests,
-and both builds pass. Terra/high selection evidence remains pending; do not call
-this an Agent-yield or token-efficiency win until that specimen is retained.
+and both builds pass.
+
+Terra/high selection run
+`f3889b1505519cc8c7857abc4c90254e0bea125821d84d61f3e55329138111f2`
+retained one flat-search observation, two role-search observations and 15 exact
+effects. After reading feedback at effect 6, the Agent left the previously
+observed sports representation blind spot. It recovered 25 exact Senate flat
+hits and then a role-aware Polymarket US frontier with 20 component listings,
+two aggregate listings and grounded component/aggregate pairs.
+
+The run is negative orchestration evidence: it used all 16 invocations and
+537,506 input tokens, then interrupted on the input-token budget before closing
+its hypothesis. Three effects were rejected. Before reading feedback, the Agent
+re-read the lens and atlas and declared `DIFFERENT_TEST` against an existing
+family. After one accepted counter-scenario action it attempted two other
+counter-scenario tools that could not match the active exact binding.
+
+Selection: `ADOPT` the feedback and durable flat coordinates as diagnostic and
+measurement infrastructure. Do not claim an Agent-yield or token-efficiency
+win. The next continuation should make the callable tool manifest follow the
+first-party state machine so stale reads, incompatible hypothesis intents and
+non-selected prototype actions are not offered as valid choices.
