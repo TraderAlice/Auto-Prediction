@@ -158,6 +158,8 @@ import {
 } from "./world-relation-agent-tools.js";
 import type { WorldRelationExperimentCheckpointStore } from
   "./world-relation-experiment-checkpoint.js";
+import { compileWorldRelationShadowTradeHypotheses } from
+  "./world-relation-shadow-hypothesis.js";
 import {
   buildWorldStateMechanismResearchTaskContract,
   buildWorldStateMechanismResearchYield,
@@ -4636,6 +4638,26 @@ export function createControlPlane(options?: {
       ?.loadSettlementProjectionObservations(2_048) ?? [];
     const experiments = worldRelationExperimentStore
       ?.loadWorldRelationExperiments(2_048) ?? [];
+    const inputById = new Map(inputs.map((item) => [item.inputRevisionId, item] as const));
+    const corpusById = new Map(inputs.flatMap((item) => {
+      const corpus = worldRelationExperimentStore?.loadWorldRelationExperimentCorpus(
+        item.corpusSnapshotIdentity,
+      ) ?? null;
+      return corpus === null ? [] : [[item.corpusSnapshotIdentity, corpus] as const];
+    }));
+    const shadowHypotheses = experiments.flatMap((experiment) => {
+      const checkpoint = worldRelationExperimentStore
+        ?.loadWorldRelationExperimentCheckpoints(2_048)
+        .find((item) => item.sourceAgentRunId === experiment.sourceAgentRunId);
+      const revision = checkpoint === undefined ? undefined : inputById.get(checkpoint.inputRevisionId);
+      const corpus = revision === undefined ? undefined : corpusById.get(revision.corpusSnapshotIdentity);
+      if (revision === undefined || corpus === undefined) return [];
+      const allowedHashes = new Set(revision.settlementProjectionArtifactHashes);
+      return compileWorldRelationShadowTradeHypotheses({
+        experiment, inputRevision: revision, corpus,
+        projections: projections.filter((item) => allowedHashes.has(item.artifactHash)),
+      });
+    });
     const execution = agentExecutionRegistry.snapshot();
     const body = Object.freeze({
       schemaVersion: "pmh.world-relation-experiment-projection.v1" as const,
@@ -4644,6 +4666,12 @@ export function createControlPlane(options?: {
       retainedSettlementProjectionCount: projections.length,
       retainedInputRevisionCount: inputs.length,
       retainedExperimentCount: experiments.length,
+      shadowHypothesisCount: shadowHypotheses.length,
+      shadowHypothesisStatusCounts: Object.freeze(Object.fromEntries(
+        ["READY_FOR_PROBABILITY_BOUND", "SETTLEMENT_MAPPING_BLOCKED",
+          "NON_POSITIVE_INDICATIVE_MARGIN", "RESEARCH_ONLY"].map((status) => [status,
+          shadowHypotheses.filter((item) => item.status === status).length]),
+      )),
       settlementObservationCount: currentSettlementProjectionObservations.length,
       retainedSettlementObservationCount: retainedSettlementObservations.length,
       settlementDispositionCounts: Object.freeze({
@@ -4690,6 +4718,7 @@ export function createControlPlane(options?: {
         sourceAgentRunId: item.sourceAgentRunId,
         closedAt: item.closedAt,
       }))),
+      shadowHypotheses: Object.freeze(shadowHypotheses.slice(0, 128)),
       providerRequestsStartedByRead: 0 as const,
       modelInvocationsStartedByRead: 0 as const,
       writesStartedByRead: 0 as const,

@@ -381,6 +381,8 @@ type WorldRelationExperimentProjection = Readonly<{
   retainedSettlementProjectionCount: number;
   retainedInputRevisionCount: number;
   retainedExperimentCount: number;
+  shadowHypothesisCount: number;
+  shadowHypothesisStatusCounts: Readonly<Record<string, number>>;
   settlementObservationCount: number;
   retainedSettlementObservationCount: number;
   settlementDispositionCounts: Readonly<{
@@ -414,6 +416,24 @@ type WorldRelationExperimentProjection = Readonly<{
     usage: Readonly<{ inputTokens: string; outputTokens: string; reasoningTokens: string }>;
     sourceAgentRunId: string;
     closedAt: string;
+  }>>;
+  shadowHypotheses: ReadonlyArray<Readonly<{
+    hypothesisId: string;
+    adverseListingStateId: string;
+    legs: ReadonlyArray<Readonly<{
+      listingRef: string;
+      adverseTruth: boolean;
+      outcome: "TRUE" | "FALSE";
+      indicativeAskUnits: string | null;
+      priceScale: string;
+    }>>;
+    payoffShape: Readonly<{
+      grossFailureBudgetUnits: string | null;
+      commonPriceScale: string | null;
+      breakEvenAdverseProbabilityUpperPpm: string | null;
+    }>;
+    status: string;
+    blockers: readonly string[];
   }>>;
   providerRequestsStartedByRead: 0;
   modelInvocationsStartedByRead: 0;
@@ -5256,6 +5276,30 @@ function AgentOperationsView() {
                     </div>
                     <strong>{experiment.relationKind.replaceAll("_", " ")}</strong>
                     <p>{experiment.counterworldCount} counterworlds · {experiment.searchNeighborhoodCount} searches · {experiment.inspectedProjectionCount} settlement inspections · {formatTokenCount(experiment.usage.inputTokens)} input tokens</p>
+                  </article>
+                ))}
+              </div>
+            )}
+            {worldRelationExperiments.shadowHypotheses.length > 0 && (
+              <div className="research-attention-actions">
+                {worldRelationExperiments.shadowHypotheses.slice(0, 8).map((hypothesis) => (
+                  <article key={hypothesis.hypothesisId}>
+                    <div className="research-attention-action-head">
+                      <div>
+                        <Badge variant={hypothesis.status === "READY_FOR_PROBABILITY_BOUND"
+                          ? "verified" : hypothesis.status === "NON_POSITIVE_INDICATIVE_MARGIN"
+                            ? "warning" : "shadow"}>
+                          {hypothesis.status.replaceAll("_", " ")}
+                        </Badge>
+                        <Badge variant="muted">ADVERSE {hypothesis.adverseListingStateId}</Badge>
+                      </div>
+                      <code>{hypothesis.payoffShape.breakEvenAdverseProbabilityUpperPpm === null
+                        ? "NO ε" : `${(Number(hypothesis.payoffShape.breakEvenAdverseProbabilityUpperPpm) / 10_000).toFixed(2)}% ε`}</code>
+                    </div>
+                    <strong>{hypothesis.legs.map((leg) =>
+                      `${leg.outcome} ${leg.listingRef.split(":").at(-1)}`).join(" + ")}</strong>
+                    <p>{hypothesis.blockers.slice(0, 3).map((item) =>
+                      item.replaceAll("_", " ")).join(" · ")}</p>
                   </article>
                 ))}
               </div>

@@ -294,3 +294,24 @@ trade hypotheses: map traded outcome legs to the adverse-state probability
 bound, retain quote-time and settlement-policy uncertainty separately, and
 measure whether the implied interval can dominate executable cost without
 calling the result strict arbitrage.
+
+The first shadow compiler is now active. For each supported probabilistic
+experiment it projects the adverse world into listing truth, buys the
+per-listing complement of that adverse state, and computes the indicative
+failure budget with bigint rational fixed-point arithmetic. It never invents
+an adverse probability upper bound: `ε` remains a separate estimator artifact.
+It also retains quote posture (`indicative`, zero fee, zero depth), exact-input
+lineage, settlement admission and authority denial. The live Alaska specimen
+produces `Alaska NO + national Republican control YES`; at retained prices
+`0.54 + 0.507 = 1.047`, so its zero-fee gross failure budget is `-0.047` and
+break-even `ε` is zero. The projection is additionally blocked by non-exact
+venue settlement mapping and missing probability bound. This negative
+economic screen is useful: it prevents spending estimator tokens on a semantic
+relation whose current complement portfolio has no indicative margin even
+before fees and depth.
+
+The next continuation should distinguish blocker priority in the scheduler:
+retire non-positive indicative margin immediately; route positive-margin but
+non-exact mappings to settlement evidence; and only route positive-margin,
+exact-mapped hypotheses to adverse-probability estimation. Then bind fresh
+book asks and depth before calling any result a bounded shadow candidate.
