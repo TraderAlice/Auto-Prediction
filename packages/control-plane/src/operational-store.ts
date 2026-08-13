@@ -8883,7 +8883,16 @@ export class SqliteOperationalStore
       this.#database.prepare(
         `DELETE FROM ontology_search_issue_revisions
          WHERE revision_id IN (
-           SELECT revision_id FROM ontology_search_issue_revisions
+           SELECT revision.revision_id
+           FROM ontology_search_issue_revisions AS revision
+           WHERE NOT EXISTS (
+             SELECT 1
+             FROM agent_campaigns AS campaign,
+                  json_each(campaign.record_json, '$.selectionBinding.taskBindings') AS binding
+             WHERE json_extract(binding.value, '$.inputRevisionKind') =
+                     'ONTOLOGY_SEARCH_ISSUE'
+               AND json_extract(binding.value, '$.inputRevisionId') = revision.revision_id
+           )
            ORDER BY materialized_at DESC, revision_id DESC LIMIT -1 OFFSET ?
          )`,
       ).run(MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS);

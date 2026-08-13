@@ -1,15 +1,19 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import { describe, expect, it } from "vitest";
 import {
+  activateAgentCampaign,
+  buildAgentRun,
   buildDefaultAgentRuntimePortfolio,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildWorldStateMechanismCampaignPreview,
   buildWorldStateMechanismResearchYield,
+  buildPausedAgentCampaign,
   defaultAiRuntimeConfiguration,
   materializeOntologySearchIssueRevisions,
   materializeWorldStateMechanismResearchAssignments,
   MarketOntologyAgentToolHost,
+  resolveWorldStateMechanismTaskRevision,
   WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL,
   type DiscoveryCatalogListing,
 } from "../src/index.js";
@@ -169,5 +173,79 @@ describe("world-state mechanism research role", () => {
         unknownUsageInvocationCount: 0,
       }]),
     });
+  });
+
+  it("resolves a frozen campaign revision without current assignment membership", () => {
+    const work = fixture();
+    const assignment = work.assignments[0]!;
+    const revision = work.revisions.find((item) =>
+      item.revisionId === assignment.sourceRevisionId
+    )!;
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
+    const route = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "WORLD_STATE_MECHANISM_RESEARCH"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    )!;
+    const preview = buildWorldStateMechanismCampaignPreview({
+      assignments: [assignment],
+      revisions: [revision],
+      execution: {
+        runtimeDefinitions: portfolio.runtimeDefinitions,
+        credentialBindings: portfolio.credentialBindings,
+        modelProfiles: portfolio.modelProfiles,
+        executionProfiles: portfolio.executionProfiles,
+        workloadRoutes: portfolio.workloadRoutes,
+        campaigns: [], tasks: [assignment.task], runs: [], modelInvocations: [],
+        toolEffects: [], runArtifacts: [], runAnnotations: [], resultSelections: [],
+      },
+      capability: {
+        schemaVersion: "pmh.execution-capability.v1",
+        executionProfileId: profile.executionProfileId,
+        runtimeKind: "CODEX", credentialKind: "CODEX_OAUTH",
+        accessDriver: "CODEX_RESPONSES", model: "gpt-5.6-terra",
+        configured: true, credentialPresent: true, dispatchEligibility: "ELIGIBLE",
+        diagnostic: "ready", observedAt: NOW, authority: "EXECUTION_CAPABILITY_ONLY",
+        secretMaterialRetained: false, externalWriteAuthority: false,
+        valueMovingAuthority: false,
+      },
+    });
+    const paused = buildPausedAgentCampaign({
+      campaignKey: preview.campaignKey,
+      revision: 1,
+      executionProfileId: profile.executionProfileId,
+      taskIds: preview.taskIds,
+      schedule: preview.schedule,
+      budget: preview.budget,
+      selectionBinding: preview.selectionBinding,
+      taskRunPolicy: preview.taskRunPolicy,
+      createdAt: NOW,
+    });
+    const active = activateAgentCampaign(paused, "operator:frozen-replay", NOW);
+    const run = buildAgentRun({
+      task: assignment.task,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: { kind: "CAMPAIGN", campaign: active, authorizedAt: NOW },
+      createdAt: NOW,
+    });
+
+    expect(resolveWorldStateMechanismTaskRevision({
+      taskId: assignment.task.taskId,
+      run,
+      campaigns: [active],
+      assignments: [],
+      currentRevisions: [],
+      loadRevision: (revisionId) => revisionId === revision.revisionId ? revision : null,
+    })).toEqual(revision);
+    expect(() => resolveWorldStateMechanismTaskRevision({
+      taskId: assignment.task.taskId,
+      run,
+      campaigns: [active],
+      assignments: [],
+      currentRevisions: [],
+      loadRevision: () => null,
+    })).toThrow(/cannot be resolved/);
   });
 });

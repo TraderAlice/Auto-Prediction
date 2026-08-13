@@ -6,7 +6,7 @@ import {
   buildWorldStateMechanismAllocation,
   type WorldStateMechanismAllocationProjection,
 } from "./world-state-mechanism-allocation.js";
-import { mechanismResearchSemanticInputIdentity, type WorldStateMechanismResearchAssignment } from "./world-state-mechanism-research.js";
+import { mechanismResearchSemanticInputIdentity, worldStateMechanismResearchIssueIdentity, type WorldStateMechanismResearchAssignment } from "./world-state-mechanism-research.js";
 
 export const WORLD_STATE_MECHANISM_SELECTION_PROTOCOL =
   "WORLD_STATE_MECHANISM_RESEARCH_SELECTION_V1" as const;
@@ -95,8 +95,8 @@ export function resolveWorldStateMechanismTaskRevision(input: Readonly<{
   loadRevision?: (revisionId: Hash) => OntologySearchIssueRevision | null;
 }>): OntologySearchIssueRevision {
   const assignment = input.assignments.find((item) => item.task.taskId === input.taskId);
-  if (assignment === undefined) throw new Error("mechanism research assignment is unavailable");
   if (input.run.authorization.kind !== "CAMPAIGN") {
+    if (assignment === undefined) throw new Error("mechanism research assignment is unavailable");
     const revision = input.loadRevision?.(assignment.sourceRevisionId) ??
       input.currentRevisions.find((item) => item.revisionId === assignment.sourceRevisionId);
     if (revision === undefined) throw new Error("mechanism research exact input is unavailable");
@@ -119,7 +119,8 @@ export function resolveWorldStateMechanismTaskRevision(input: Readonly<{
     input.currentRevisions.find((item) => item.revisionId === binding.inputRevisionId);
   if (revision === undefined || binding.exactInputHash !== hashCanonical(revision.taskPayload) ||
       binding.semanticInputIdentity !== mechanismResearchSemanticInputIdentity(revision) ||
-      binding.workFamilyRef !== `world-state-mechanism-issue:${assignment.mechanismIssueId}`) {
+      binding.workFamilyRef !==
+        `world-state-mechanism-issue:${worldStateMechanismResearchIssueIdentity(revision)}`) {
     throw new Error("mechanism campaign exact input binding cannot be resolved");
   }
   return revision;

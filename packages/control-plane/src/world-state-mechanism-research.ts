@@ -91,6 +91,27 @@ export function worldStateMechanismResearchIssueIdentity(
   });
 }
 
+export function buildWorldStateMechanismResearchTaskContract(
+  revision: OntologySearchIssueRevision,
+): WorldStateMechanismResearchTaskContract {
+  return Object.freeze({
+    schemaVersion: "pmh.world-state-mechanism-research-task.v1" as const,
+    mechanismIssueId: worldStateMechanismResearchIssueIdentity(revision),
+    sourceOntologyIssueId: revision.issueId,
+    relationPatternId: revision.relationPatternId,
+    selectionLane: revision.selectionLane,
+    objective: "PROPOSE_FALSIFY_OR_ABSTAIN_FROM_EVIDENCE_BOUND_WORLD_STATE_MECHANISM" as const,
+    inputBinding: "EXACT_ONTOLOGY_INPUT_BOUND_BY_CAMPAIGN_SELECTION" as const,
+    authority: "WORLD_STATE_MECHANISM_RESEARCH_PROPOSAL_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+}
+
 export function materializeWorldStateMechanismResearchAssignments(input: Readonly<{
   revisions: readonly OntologySearchIssueRevision[];
   proposals: readonly WorldStateMechanismProposal[];
@@ -99,22 +120,7 @@ export function materializeWorldStateMechanismResearchAssignments(input: Readonl
 }>): readonly WorldStateMechanismResearchAssignment[] {
   return Object.freeze(input.revisions.map((revision) => {
     const mechanismIssueId = worldStateMechanismResearchIssueIdentity(revision);
-    const taskContract = Object.freeze({
-      schemaVersion: "pmh.world-state-mechanism-research-task.v1" as const,
-      mechanismIssueId,
-      sourceOntologyIssueId: revision.issueId,
-      relationPatternId: revision.relationPatternId,
-      selectionLane: revision.selectionLane,
-      objective: "PROPOSE_FALSIFY_OR_ABSTAIN_FROM_EVIDENCE_BOUND_WORLD_STATE_MECHANISM" as const,
-      inputBinding: "EXACT_ONTOLOGY_INPUT_BOUND_BY_CAMPAIGN_SELECTION" as const,
-      authority: "WORLD_STATE_MECHANISM_RESEARCH_PROPOSAL_ONLY" as const,
-      semanticDecisionAuthority: false as const,
-      probabilityAuthority: false as const,
-      certificateAuthority: false as const,
-      executionAuthority: false as const,
-      externalWriteAuthority: false as const,
-      valueMovingAuthority: false as const,
-    });
+    const taskContract = buildWorldStateMechanismResearchTaskContract(revision);
     const task = buildAgentTask({
       kind: "WORLD_STATE_MECHANISM_RESEARCH",
       protocol: WORLD_STATE_MECHANISM_RESEARCH_TASK_PROTOCOL,

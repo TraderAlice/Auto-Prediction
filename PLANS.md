@@ -1911,6 +1911,17 @@ including no-result interruption, suppresses that task across the lineage. The
 live specimen remains paused until full qualification proves its preview has
 four rather than five dispatchable tasks.
 
+That live proof passed without inference: a v3 upgrade revision preceded the
+new activation revision, and preview reported four untouched tasks rather than
+five. Dispatch then failed before run creation because the second immutable
+binding pointed to an ontology revision already deleted by the global 512-row
+rolling window. The binding and hashes survived, but the evidence object did
+not. Issue #175 makes campaign-bound ontology revisions GC roots and resolves
+campaign inputs from binding plus retained historical revision instead of the
+current assignment projection. Missing revisions still fail closed. The old
+specimen stays paused and unrecoverable; a successor must be frozen only after
+this evidence-lifetime invariant is qualified.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a
