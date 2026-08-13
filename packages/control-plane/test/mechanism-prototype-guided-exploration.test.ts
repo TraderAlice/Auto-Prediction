@@ -821,19 +821,14 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const protocol = lens.task.requestedEffectProtocol;
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
-      "read_mechanism_exploration_lens",
+      "read_mechanism_exploration_context",
     ]);
     await host.execute({ task: lens.task, run, executionProfile: profile,
-      callId: "recovery:lens", toolName: "read_mechanism_exploration_lens", input: {} });
+      callId: "recovery:lens", toolName: "read_mechanism_exploration_context", input: {} });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "open_exploration_hypothesis",
     ]);
     await openHypothesis({ host, lens, run, profile, suffix: "recovery" });
-    expect(host.completionRecoveryToolNames(protocol)).toEqual([
-      "read_corpus_dialect_atlas",
-    ]);
-    await host.execute({ task: lens.task, run, executionProfile: profile,
-      callId: "recovery:dialect", toolName: "read_corpus_dialect_atlas", input: {} });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "search_mechanism_exploration_roles", "search_mechanism_exploration_corpus",
     ]);
@@ -849,10 +844,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
       callId: "recovery:inspect", toolName: "inspect_mechanism_exploration_listings",
       input: { listingRefs: ["venue-sport:constructors"] } });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
-      "mark_transfer_test_1_applied", "mark_transfer_test_1_failed",
+      "record_active_prototype_test_outcome",
     ]);
     await host.execute({ task: lens.task, run, executionProfile: profile,
-      callId: "recovery:fail", toolName: "mark_transfer_test_1_failed", input: {} });
+      callId: "recovery:fail", toolName: "record_active_prototype_test_outcome",
+      input: { outcome: "FAILED" } });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "close_exploration_hypothesis",
     ]);
@@ -878,11 +874,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
       exhaustionEligible: boolean; failedTransferTestOrdinals: readonly number[];
     }> = {}) => Object.freeze({
       positiveEligible: false, positiveMissingPrerequisites: [
-        "ROLE_SEARCH_PAIR", "INSPECTED_ROLE_PAIR", "APPLIED_TRANSFER_TEST",
+        "ROLE_SEARCH_PAIR", "INSPECTED_ROLE_PAIR", "SUPPORTED_PROTOTYPE_TEST",
       ],
       exhaustionEligible: overrides.exhaustionEligible ?? false,
       exhaustionMissingPrerequisites: overrides.exhaustionEligible
-        ? [] : ["FAILED_TRANSFER_TEST"],
+        ? [] : ["FAILED_PROTOTYPE_TEST"],
       searchedResultCount: 1, roleSearchResultCount: 0, rolePairCount: 0,
       inspectedListingCount: 1, inspectedRolePairCount: 0,
       appliedTransferTestOrdinals: [],
@@ -898,7 +894,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
         readiness: readiness(), summary: { rawHitCount: 0, qualifiedHitCount: 0,
           pairCount: 0, inspectedListingCount: 1, acceptedActionCount: 0,
           acceptedTerminalCount: 0 } },
-      { toolName: "mark_transfer_test_1_failed", kind: "PROTOTYPE_ACTION" as const,
+      { toolName: "record_active_prototype_test_outcome", kind: "PROTOTYPE_ACTION" as const,
         readiness: readiness({ exhaustionEligible: true, failedTransferTestOrdinals: [1] }),
         summary: { rawHitCount: 0, qualifiedHitCount: 0, pairCount: 0,
           inspectedListingCount: 0, acceptedActionCount: 1, acceptedTerminalCount: 0 } },
@@ -1079,7 +1075,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const lensRead = await nextHost.execute({ task: lens.task, run,
       executionProfile: profile, callId: "lens:attention",
-      toolName: "read_mechanism_exploration_lens", input: {} });
+      toolName: "read_mechanism_exploration_context", input: {} });
     expect(lensRead).toMatchObject({ status: "ACCEPTED", output: {
       hypothesisIntentAttention: {
         portfolioIdentity: memory.hypothesisIntentAttentionPortfolio.portfolioIdentity,
@@ -1126,9 +1122,12 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const manifest = host.manifest(lens.task.requestedEffectProtocol);
     expect(manifest.map((tool) => tool.name)).toEqual(expect.arrayContaining([
-      "read_corpus_dialect_atlas",
-      "mark_transfer_test_1_applied", "mark_transfer_test_1_failed",
-      "activate_counter_scenario_1",
+      "read_mechanism_exploration_context",
+      "record_active_prototype_test_outcome",
+    ]));
+    expect(manifest.map((tool) => tool.name)).not.toEqual(expect.arrayContaining([
+      "read_corpus_dialect_atlas", "mark_transfer_test_1_applied",
+      "mark_transfer_test_1_failed", "activate_counter_scenario_1",
     ]));
     expect(host.resultToolNames(lens.task.requestedEffectProtocol)).toEqual([
       "submit_mechanism_exploration_trailhead",
@@ -1155,10 +1154,10 @@ describe("mechanism-prototype exploration Agent tools", () => {
         searchedResultCount: 1, roleSearchResultCount: 1, rolePairCount: 1,
         inspectedListingCount: 0, inspectedRolePairCount: 0,
         positive: { eligible: false,
-          missingPrerequisites: ["INSPECTED_ROLE_PAIR", "APPLIED_TRANSFER_TEST",
+          missingPrerequisites: ["INSPECTED_ROLE_PAIR", "SUPPORTED_PROTOTYPE_TEST",
             "CLOSED_HYPOTHESIS"] },
         exhaustion: { eligible: false,
-          missingPrerequisites: ["INSPECTED_LISTING", "FAILED_TRANSFER_TEST",
+          missingPrerequisites: ["INSPECTED_LISTING", "FAILED_PROTOTYPE_TEST",
             "CLOSED_HYPOTHESIS"] },
         prescriptiveSearchAuthority: false, semanticDecisionAuthority: false,
       },
@@ -1174,12 +1173,12 @@ describe("mechanism-prototype exploration Agent tools", () => {
     });
     await openHypothesis({ host, lens, run, profile, suffix: "trailhead" });
     const applied = await host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "mark_transfer_test_1_applied", input: {} });
+      toolName: "record_active_prototype_test_outcome", input: { outcome: "SUPPORTED" } });
     expect(applied).toMatchObject({ output: { readiness: {
       appliedTransferTestOrdinals: [1], inspectedRolePairCount: 1,
       positive: { eligible: false, missingPrerequisites: ["CLOSED_HYPOTHESIS"] },
       exhaustion: { eligible: false,
-        missingPrerequisites: ["FAILED_TRANSFER_TEST", "CLOSED_HYPOTHESIS"] },
+        missingPrerequisites: ["FAILED_PROTOTYPE_TEST", "CLOSED_HYPOTHESIS"] },
     } } });
     const closed = await closeHypothesis({ host, lens, run, profile, suffix: "trailhead" });
     expect(closed).toMatchObject({ output: { readiness: {
@@ -1326,7 +1325,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
     });
     await openHypothesis({ host, lens, run, profile, suffix: "persisted-action" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
-      callId: "action:1", toolName: "mark_transfer_test_1_applied", input: {} });
+      callId: "action:1", toolName: "record_active_prototype_test_outcome",
+      input: { outcome: "SUPPORTED" } });
     expect(actionObservations).toHaveLength(1);
     expect(actionObservations[0]).toMatchObject({
       lensId: lens.lensId,
@@ -1449,7 +1449,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       } });
     await openHypothesis({ host, lens, run, profile, suffix: "surface-axis" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "mark_transfer_test_1_applied", input: {} });
+      toolName: "record_active_prototype_test_outcome", input: { outcome: "SUPPORTED" } });
     await closeHypothesis({ host, lens, run, profile, suffix: "surface-axis" });
     await expect(host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "submit_mechanism_exploration_trailhead", input: {
@@ -1511,7 +1511,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       await openHypothesis({ host, lens, run, profile,
         suffix: seatRef.replace(/[^a-z]/gu, "-") });
       await host.execute({ task: lens.task, run, executionProfile: profile,
-        toolName: "mark_transfer_test_1_applied", input: {} });
+        toolName: "record_active_prototype_test_outcome", input: { outcome: "SUPPORTED" } });
       await closeHypothesis({ host, lens, run, profile,
         suffix: seatRef.replace(/[^a-z]/gu, "-") });
       return { host, roleSearchResultId:
@@ -1545,13 +1545,13 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const read = await host.execute({
       task: lens.task, run, executionProfile: profile,
-      toolName: "read_mechanism_exploration_lens", input: {},
+      toolName: "read_mechanism_exploration_context", input: {},
     });
     const serialized = JSON.stringify(read.output);
     expect(read).toMatchObject({
       status: "ACCEPTED",
       output: {
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v6",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v7",
         axisContract: {
           admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
           sourcePredicateFamilies: expect.arrayContaining(["ELECTION_OR_OFFICE"]),
@@ -1562,78 +1562,58 @@ describe("mechanism-prototype exploration Agent tools", () => {
           atlasIdentity: buildCorpusDialectAtlas(snapshot).atlasIdentity,
           listingCount: snapshot.listingCount,
           venueCount: 4,
-          detailTool: "read_corpus_dialect_atlas",
-          detailedExemplarsOmitted: true,
           semanticDecisionAuthority: false,
           schedulingAuthority: false,
           executionAuthority: false,
         },
         prototype: {
-          transferTests: [{ appliedTool: "mark_transfer_test_1_applied",
-            failedTool: "mark_transfer_test_1_failed", text: prototype.transferTests[0] }],
+          transferTests: [{ handle: "transfer-test:1", text: prototype.transferTests[0] }],
+          activeTestOutcomeTool: "record_active_prototype_test_outcome",
         },
         terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
       },
     });
     expect(serialized).not.toContain("coverageMembers");
-    expect(serialized).not.toContain("predicateNeighborhoods");
-    expect(serialized.length).toBeLessThan(20_000);
+    expect(serialized).toContain("predicateNeighborhoods");
+    expect(serialized.length).toBeLessThan(30_000);
     expect(JSON.stringify(expandedInput).length).toBeGreaterThan(serialized.length * 3);
   });
 
-  it("lets the Agent inspect a bounded exact corpus-dialect atlas on demand", async () => {
+  it("returns the exact corpus-dialect atlas in the single bounded context read", async () => {
     const { lens, prototype, snapshot, profile, run } = runtimeFixture();
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
     );
     const first = await host.execute({ task: lens.task, run, executionProfile: profile,
-      callId: "dialect:first", toolName: "read_corpus_dialect_atlas", input: {} });
+      callId: "context:first", toolName: "read_mechanism_exploration_context", input: {} });
     expect(first).toMatchObject({ status: "ACCEPTED", output: {
-      schemaVersion: "pmh.corpus-dialect-atlas.v1",
-      sourceSnapshotIdentity: snapshot.snapshotIdentity,
-      listingCount: snapshot.listingCount,
-      venueCount: 4,
-      predicateNeighborhoods: expect.arrayContaining([
-        expect.objectContaining({ predicateFamily: "SPORTS_RESULT",
-          componentRoleCueCount: 0, aggregateRoleCueCount: 1,
-          exemplars: expect.arrayContaining([
-            expect.objectContaining({ listingRef: "venue-sport:constructors",
-              title: expect.stringContaining("constructors championship") }),
+      schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v7",
+      corpusDialectAtlas: {
+        detailedAtlas: {
+          schemaVersion: "pmh.corpus-dialect-atlas.v1",
+          sourceSnapshotIdentity: snapshot.snapshotIdentity,
+          listingCount: snapshot.listingCount,
+          venueCount: 4,
+          predicateNeighborhoods: expect.arrayContaining([
+            expect.objectContaining({ predicateFamily: "SPORTS_RESULT",
+              componentRoleCueCount: 0, aggregateRoleCueCount: 1,
+              exemplars: expect.arrayContaining([
+                expect.objectContaining({ listingRef: "venue-sport:constructors",
+                  title: expect.stringContaining("constructors championship") }),
+              ]),
+            }),
           ]),
-        }),
-      ]),
-      roleNeighborhoods: {
-        predicateFamilyCounts: expect.arrayContaining([
-          { predicateFamily: "SPORTS_RESULT", componentRoleCueCount: 0,
-            aggregateRoleCueCount: 1 },
-        ]),
-        component: { listingCount: 2, venueCount: 2,
-          exemplars: expect.arrayContaining([
-            expect.objectContaining({ listingRef: "venue-race:italy",
-              title: expect.stringContaining("Grand Prix") }),
-          ]) },
-        aggregate: { listingCount: 2, venueCount: 2,
-          exemplars: expect.arrayContaining([
-            expect.objectContaining({ listingRef: "venue-sport:constructors",
-              title: expect.stringContaining("constructors championship") }),
-          ]) },
+        },
       },
-      ontologicalPosture:
-        "VENUE_TITLE_IS_CONTRACT_SURFACE_LANGUAGE_NOT_CERTIFIED_WORLD_SEMANTICS",
-      authority: "LEXICAL_QUERY_RECONNAISSANCE_ONLY",
-      subjectIdentityAuthority: false, semanticDecisionAuthority: false,
-      probabilityAuthority: false, schedulingAuthority: false,
-      certificateAuthority: false, executionAuthority: false,
-      effects: { providerRequests: false, externalWrites: false,
-        valueMovingActions: false, liveExecutionEnabled: false },
+      authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_ONLY",
     } });
     const repeated = await host.execute({ task: lens.task, run,
-      executionProfile: profile, callId: "dialect:repeat",
-      toolName: "read_corpus_dialect_atlas", input: {} });
+      executionProfile: profile, callId: "context:repeat",
+      toolName: "read_mechanism_exploration_context", input: {} });
     expect(repeated).toMatchObject({ status: "ACCEPTED", output: {
-      schemaVersion: "pmh.corpus-dialect-atlas-reference.v1",
-      atlasIdentity: buildCorpusDialectAtlas(snapshot).atlasIdentity,
-      authority: "LEXICAL_QUERY_RECONNAISSANCE_REFERENCE_ONLY",
+      schemaVersion: "pmh.mechanism-prototype-exploration-context-reference.v1",
+      inputRevisionId: lens.currentInputRevision.inputRevisionId,
+      authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_REFERENCE_ONLY",
     } });
   });
 
@@ -1644,7 +1624,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     await openHypothesis({ host, lens, run, profile, suffix: "invalid-terminal" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "mark_transfer_test_1_failed", input: {} });
+      toolName: "record_active_prototype_test_outcome", input: { outcome: "FAILED" } });
     await closeHypothesis({ host, lens, run, profile, suffix: "invalid-terminal" });
     await expect(host.execute({
       task: lens.task, run, executionProfile: profile,
@@ -1671,7 +1651,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     })).rejects.toThrow(/inspected|search/u);
   });
 
-  it("materializes exact prototype prose from zero-argument action tools", async () => {
+  it("binds outcomes to the active exact prototype test without caller ordinals", async () => {
     const { lens, prototype, snapshot, profile, run } = runtimeFixture();
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
@@ -1688,21 +1668,18 @@ describe("mechanism-prototype exploration Agent tools", () => {
       input: { listingRefs: ["venue-sport:constructors"] },
     });
     await expect(host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "mark_transfer_test_999_failed", input: {} }))
-      .rejects.toThrow(/transfer action is unknown/u);
-    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "mark_transfer_test_1_failed", input: {} }))
+      toolName: "record_active_prototype_test_outcome", input: { outcome: "FAILED" } }))
       .resolves.toMatchObject({ status: "REJECTED", output: {
-        diagnostic: "prototype action requires an active falsifiable hypothesis",
+        diagnostic: "prototype outcome requires an active falsifiable hypothesis",
       } });
     await openHypothesis({ host, lens, run, profile, suffix: "exhaustion" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "mark_transfer_test_1_failed", input: {} });
+      toolName: "record_active_prototype_test_outcome", input: { outcome: "FAILED" } });
     await closeHypothesis({ host, lens, run, profile, suffix: "exhaustion" });
     await openHypothesis({ host, lens, run, profile, suffix: "counter-scenario",
       prototypeTestHandle: "counter-scenario:1" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "activate_counter_scenario_1", input: {} });
+      toolName: "record_active_prototype_test_outcome", input: { outcome: "SUPPORTED" } });
     await closeHypothesis({ host, lens, run, profile, suffix: "counter-scenario" });
     const terminal = () => host.execute({
       task: lens.task, run, executionProfile: profile,

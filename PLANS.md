@@ -1,6 +1,25 @@
 # Plans
 
 The active execution continuation is
+[`plans/state-scoped-exploration-tools.md`](plans/state-scoped-exploration-tools.md).
+Issue #245 follows Terra/high run `f3889b15…`: representation feedback found a
+grounded Senate frontier, but a static capability surface allowed three
+structurally impossible effects and exhausted 537,506 input tokens. Codex
+app-server currently declares dynamic tools at thread start, so this generation
+will make the static surface state-safe through one context read, exact legal
+hypothesis schema branches, and active-binding outcome tools.
+
+Issue #245 is selected `ABANDON` as an architecture. Two Terra/high specimens
+showed that the static thread-start manifest remained callable out of state and
+that Codex sampled only the three fields inside a composed `allOf/oneOf`
+branch, omitting six root-required hypothesis fields. One run spent eight
+invocations and 173,562 input tokens on two repeated reads and five rejected
+hypotheses. The useful host-bound, symmetric prototype-outcome semantics should
+be extracted into a clean successor; the next continuation will physically
+narrow capability per state transition with fresh bounded Agent threads rather
+than treating prompt recommendations or composed schema as access control.
+
+The active execution continuation is
 [`plans/representation-role-coverage-feedback.md`](plans/representation-role-coverage-feedback.md).
 Issue #243 follows the adopted dialect atlas. Exact live evidence distinguishes
 a real source absence from an ontology blind spot: nine Opinion `A vs B`
