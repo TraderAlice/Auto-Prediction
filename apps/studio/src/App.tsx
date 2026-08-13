@@ -440,6 +440,40 @@ type ResearchDecisionOutcomeProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type DiscoverySignalProjection = Readonly<{
+  schemaVersion: "pmh.discovery-signal-projection.v1";
+  projectionIdentity: string;
+  observedAt: string;
+  signalCount: number;
+  unreadCount: number;
+  kindCounts: Readonly<Record<string, number>>;
+  signals: ReadonlyArray<Readonly<{
+    signalId: string;
+    kind: "CAMPAIGN_MEMBERSHIP_ADDED" | "STRUCTURED_OUTCOME" |
+      "REPEATED_COSTLY_NO_MOVEMENT" | "PORTFOLIO_EXHAUSTED";
+    status: "UNREAD" | "READ";
+    severity: "INFO" | "ATTENTION" | "WARNING";
+    title: string;
+    summary: string;
+    observedAt: string;
+    workItemId: string | null;
+    episodeId: string | null;
+    outcomeState: string | null;
+    noveltyReason: string | null;
+    knownTokenDelta: string;
+    providerRequestsStarted: 0;
+    modelInvocationsStarted: 0;
+    campaignsActivated: 0;
+    runsStarted: 0;
+    automaticDispatch: false;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  writesStartedByRead: 0;
+  automaticDispatch: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type OntologyAllocationOutcomeProjection = Readonly<{
   schemaVersion: "pmh.ontology-allocation-outcome-projection.v1";
   projectionIdentity: string;
@@ -515,6 +549,7 @@ type AgentWorkspace = Readonly<{
   relationCampaign: RelationDiscoveryCampaignPreview;
   targets: ResearchActionTargetProjection;
   decisions: ResearchDecisionOutcomeProjection;
+  discoverySignals: DiscoverySignalProjection;
   ontologyOutcomes: OntologyAllocationOutcomeProjection;
   discoveryCycle: Readonly<{
     schemaVersion: "pmh.discovery-cycle.v1";
@@ -3401,6 +3436,11 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.attention.schemaVersion !== "pmh.research-attention-allocation.v1" ||
     result.targets.schemaVersion !== "pmh.research-action-target-projection.v1" ||
     result.decisions.schemaVersion !== "pmh.research-decision-outcome-projection.v1" ||
+    result.discoverySignals.schemaVersion !== "pmh.discovery-signal-projection.v1" ||
+    result.discoverySignals.providerRequestsStartedByRead !== 0 ||
+    result.discoverySignals.modelInvocationsStartedByRead !== 0 ||
+    result.discoverySignals.writesStartedByRead !== 0 ||
+    result.discoverySignals.automaticDispatch !== false ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
     result.discoveryCycle.schemaVersion !== "pmh.discovery-cycle.v1" ||
@@ -3424,6 +3464,8 @@ function AgentOperationsView() {
   const [flywheelData, setFlywheelData] = useState<RelationDiscoveryCampaignPreview | null>(null);
   const [targetData, setTargetData] = useState<ResearchActionTargetProjection | null>(null);
   const [outcomeData, setOutcomeData] = useState<ResearchDecisionOutcomeProjection | null>(null);
+  const [discoverySignals, setDiscoverySignals] =
+    useState<DiscoverySignalProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
     useState<OntologyAllocationOutcomeProjection | null>(null);
   const [discoveryCycle, setDiscoveryCycle] =
@@ -3450,6 +3492,7 @@ function AgentOperationsView() {
     setFlywheelData(flywheel);
     setTargetData(targets);
     setOutcomeData(outcomes);
+    setDiscoverySignals(workspace.discoverySignals);
     setOntologyOutcomeData(ontologyOutcomes);
     setDiscoveryCycle(workspace.discoveryCycle);
     setTaskId((current) => next.tasks.some((task) =>
@@ -3470,6 +3513,22 @@ function AgentOperationsView() {
       )?.executionProfileId || "";
     });
     setDiagnostic(null);
+  }
+
+  async function acknowledgeSignal(signalId: string) {
+    setBusy(`signal:${signalId}`);
+    try {
+      const response = await fetch(
+        `/api/v1/discovery-signals/${encodeURIComponent(signalId)}/acknowledgements`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      await refresh();
+    } catch (error) {
+      setDiagnostic(error instanceof Error ? error.message : "Signal acknowledgement failed");
+    } finally {
+      setBusy(null);
+    }
   }
 
   useEffect(() => {
@@ -3579,6 +3638,59 @@ function AgentOperationsView() {
           </span>
           <code>0 provider · 0 model · no activation authority</code>
         </div>
+      )}
+
+      {discoverySignals !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Discovery signal inbox</span>
+              <h2>Only actionable state changes interrupt the operator</h2>
+              <p>Membership, structured outcomes, repeated costly no-movement and portfolio exhaustion are durable. Timer wakes and model chatter stay silent.</p>
+            </div>
+            <Badge variant={discoverySignals.unreadCount > 0 ? "warning" : "shadow"}>
+              {discoverySignals.unreadCount} UNREAD
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-actions">
+              {discoverySignals.signals.length === 0 ? (
+                <div className="empty-state">No actionable discovery transition has occurred.</div>
+              ) : discoverySignals.signals.slice(0, 12).map((signal) => (
+                <article key={signal.signalId} className={signal.status === "READ" ? "is-read" : ""}>
+                  <div className="research-attention-action-head">
+                    <div>
+                      <Badge variant={signal.severity === "WARNING" ? "warning" :
+                        signal.severity === "ATTENTION" ? "verified" : "muted"}>
+                        {signal.kind.replaceAll("_", " ")}
+                      </Badge>
+                      {signal.noveltyReason !== null && (
+                        <Badge variant="muted">{signal.noveltyReason.replaceAll("_", " ")}</Badge>
+                      )}
+                    </div>
+                    <code>{new Date(signal.observedAt).toLocaleString()}</code>
+                  </div>
+                  <strong>{signal.title}</strong>
+                  <p>{signal.summary}</p>
+                  <div className="research-attention-facts">
+                    <span>{formatTokenCount(signal.knownTokenDelta)} attributed tokens</span>
+                    <span>{signal.outcomeState?.replaceAll("_", " ") ?? "lineage transition"}</span>
+                    <span>0 provider · 0 model · 0 runs by signal</span>
+                  </div>
+                  {signal.status === "UNREAD" ? (
+                    <Button
+                      variant="outline"
+                      disabled={busy !== null}
+                      onClick={() => void acknowledgeSignal(signal.signalId)}
+                    >
+                      Mark read
+                    </Button>
+                  ) : <Badge variant="shadow">READ</Badge>}
+                </article>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {ontologyOutcomeData !== null && (

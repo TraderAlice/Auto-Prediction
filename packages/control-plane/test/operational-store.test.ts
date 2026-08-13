@@ -11,6 +11,7 @@ import {
   buildLiveStudioProjection,
   buildStudioProjection,
   buildStudioProjectionSnapshot,
+  acknowledgeDiscoverySignal,
   createPiInvestigatorRuntime,
   DiscoveryLedger,
   DiscoveryAgentSession,
@@ -19,6 +20,7 @@ import {
   InvestigationDesk,
   researchDecisionEpisodeId,
   type DiscoveryTask,
+  type DiscoverySignalRecord,
   type CandidateWatchRefreshRecord,
   type PiProcessResult,
   type ResearchDecisionEpisode,
@@ -67,13 +69,15 @@ function researchDecisionEpisode(
   const allocationActionId = hashCanonical({ action: "store" });
   const targetId = hashCanonical({ target: "store" });
   const captureRef = "operator:store-test";
+  const noveltyReason = "NEW_STABLE_FAMILY" as const;
   return {
-    schemaVersion: "pmh.research-decision-episode.v1",
+    schemaVersion: "pmh.research-decision-episode.v2",
     episodeId: researchDecisionEpisodeId({
       allocationProjectionIdentity,
       allocationActionId,
       targetId,
       captureRef,
+      noveltyReason,
     }),
     capturedAt,
     captureRef,
@@ -83,6 +87,7 @@ function researchDecisionEpisode(
     allocationActionId,
     allocationActionKind: "EXPLORE_NEW_FAMILY",
     allocationLane: "EXPLORATION",
+    noveltyReason,
     actionTargetProjectionIdentity: hashCanonical({ projection: "target-store" }),
     targetId,
     workItemId: hashCanonical({ work: "store" }),
@@ -99,6 +104,9 @@ function researchDecisionEpisode(
       semanticReviewJobIds: [],
       probabilityJobIds: [],
       exactTargetArtifactRefs: [],
+      counterexampleCount: 0,
+      noFindingTerminalRunCount: 0,
+      successfulWithoutAcceptedResultCount: 0,
       cost: {
         knownInputTokens: "0",
         knownOutputTokens: "0",
@@ -130,26 +138,37 @@ function researchDecisionEpisode(
   };
 }
 
-function noveltyBoundResearchDecisionEpisode(): ResearchDecisionEpisode {
-  const legacy = researchDecisionEpisode();
-  const noveltyReason = "NEW_STABLE_FAMILY" as const;
+function discoverySignal(): DiscoverySignalRecord {
+  const dedupeIdentity = hashCanonical({ signal: "store" });
   return {
-    ...legacy,
-    schemaVersion: "pmh.research-decision-episode.v2",
-    noveltyReason,
-    baseline: {
-      ...legacy.baseline,
-      counterexampleCount: 0,
-      noFindingTerminalRunCount: 0,
-      successfulWithoutAcceptedResultCount: 0,
-    },
-    episodeId: researchDecisionEpisodeId({
-      allocationProjectionIdentity: legacy.allocationProjectionIdentity,
-      allocationActionId: legacy.allocationActionId,
-      targetId: legacy.targetId,
-      captureRef: legacy.captureRef,
-      noveltyReason,
+    schemaVersion: "pmh.discovery-signal.v1",
+    signalId: hashCanonical({
+      schemaVersion: "pmh.discovery-signal-id.v1",
+      dedupeIdentity,
     }),
+    dedupeIdentity,
+    kind: "CAMPAIGN_MEMBERSHIP_ADDED",
+    status: "UNREAD",
+    severity: "INFO",
+    title: "Fixture membership added",
+    summary: "An exact fixture task entered one retained lineage.",
+    observedAt: "2026-08-12T12:00:00.000Z",
+    readAt: null,
+    workItemId: hashCanonical({ work: "signal-store" }),
+    episodeId: hashCanonical({ episode: "signal-store" }),
+    allocationActionId: hashCanonical({ action: "signal-store" }),
+    outcomeState: null,
+    noveltyReason: "NEW_STABLE_FAMILY",
+    artifactRefs: [],
+    knownTokenDelta: "0",
+    authority: "DISCOVERY_SIGNAL_ONLY",
+    providerRequestsStarted: 0,
+    modelInvocationsStarted: 0,
+    campaignsActivated: 0,
+    runsStarted: 0,
+    automaticDispatch: false,
+    externalWriteAuthority: false,
+    valueMovingAuthority: false,
   };
 }
 
@@ -466,7 +485,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 47,
+        schemaVersion: 48,
         idempotencyKey: "taskId",
       },
     });
@@ -655,11 +674,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(47);
+    expect(migrated.storage.schemaVersion).toBe(48);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 47,
+      schemaVersion: 48,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -695,6 +714,7 @@ describe("SQLite operational store", () => {
       "contract_semantic_continuities",
       "credential_bindings",
       "discovery_runs",
+      "discovery_signals",
       "evidence_acquisition_jobs",
       "evidence_document_observations",
       "evidence_document_texts",
@@ -743,14 +763,14 @@ describe("SQLite operational store", () => {
       "studio_projection_snapshot",
       "workload_routes",
     ]);
-    expect(version.user_version).toBe(47);
+    expect(version.user_version).toBe(48);
     inspected.close();
 
     const partial = new DatabaseSync(path);
     partial.exec("DROP TABLE search_lease_corpora");
     partial.exec("DROP TABLE search_lease_records");
     partial.exec("DROP TABLE search_notification_records");
-    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(47);
+    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(48);
     partial.close();
     const repaired = new SqliteOperationalStore(path);
     repaired.close();
@@ -777,7 +797,7 @@ describe("SQLite operational store", () => {
     partialExecutionSchema.exec("DROP TABLE agent_runtime_definitions");
     expect((partialExecutionSchema.prepare("PRAGMA user_version").get() as {
       user_version: number;
-    }).user_version).toBe(47);
+    }).user_version).toBe(48);
     partialExecutionSchema.close();
     const repairedExecutionSchema = new SqliteOperationalStore(path);
     repairedExecutionSchema.close();
@@ -792,28 +812,89 @@ describe("SQLite operational store", () => {
 
   it("retains immutable research decision episodes idempotently across restart", async () => {
     const path = await databasePath();
-    const expected = noveltyBoundResearchDecisionEpisode();
-    const legacy = researchDecisionEpisode("2026-08-12T11:00:00.000Z");
+    const expected = researchDecisionEpisode();
     const first = new SqliteOperationalStore(path);
     expect(first.saveResearchDecisionEpisode(expected)).toEqual(expected);
     expect(first.saveResearchDecisionEpisode(expected)).toEqual(expected);
-    expect(first.saveResearchDecisionEpisode(legacy)).toEqual(legacy);
-    expect(first.loadResearchDecisionEpisodes(10)).toEqual([expected, legacy]);
+    expect(first.loadResearchDecisionEpisodes(10)).toEqual([expected]);
     expect(first.researchDecisionEpisodeStorage).toMatchObject({
       durable: true,
-      schemaVersion: 47,
+      schemaVersion: 48,
       idempotencyKey: "episodeId",
     });
     first.close();
 
     const second = new SqliteOperationalStore(path);
     expect(second.loadResearchDecisionEpisode(expected.episodeId)).toEqual(expected);
-    expect(second.loadResearchDecisionEpisode(legacy.episodeId)).toEqual(legacy);
-    expect(second.loadResearchDecisionEpisodes(10)).toEqual([expected, legacy]);
+    expect(second.loadResearchDecisionEpisodes(10)).toEqual([expected]);
     expect(() => second.saveResearchDecisionEpisode({
       ...expected,
       capturedAt: "2026-08-12T12:01:00.000Z",
     })).toThrow(/already bound elsewhere/u);
+    second.close();
+  });
+
+  it("retires pre-novelty decision episodes at the schema-48 boundary", async () => {
+    const path = await databasePath();
+    const current = researchDecisionEpisode();
+    const first = new SqliteOperationalStore(path);
+    first.saveResearchDecisionEpisode(current);
+    first.close();
+
+    const database = new DatabaseSync(path);
+    const legacyId = hashCanonical({ legacy: "decision" });
+    const legacy = {
+      ...current,
+      schemaVersion: "pmh.research-decision-episode.v1",
+      episodeId: legacyId,
+      noveltyReason: undefined,
+      baseline: {
+        ...current.baseline,
+        counterexampleCount: undefined,
+        noFindingTerminalRunCount: undefined,
+        successfulWithoutAcceptedResultCount: undefined,
+      },
+    };
+    database.prepare(
+      `INSERT INTO research_decision_episodes (
+         episode_id, captured_at, work_item_id, allocation_action_id,
+         target_id, record_json, record_hash
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      legacyId, current.capturedAt, current.workItemId, current.allocationActionId,
+      current.targetId, JSON.stringify(legacy), hashCanonical({ legacy: "record" }),
+    );
+    database.exec("DROP TABLE discovery_signals; PRAGMA user_version = 47");
+    database.close();
+
+    const migrated = new SqliteOperationalStore(path);
+    expect(migrated.loadResearchDecisionEpisodes(10)).toEqual([current]);
+    expect(migrated.storage.schemaVersion).toBe(48);
+    migrated.close();
+  });
+
+  it("retains and acknowledges discovery signals across restart", async () => {
+    const path = await databasePath();
+    const expected = discoverySignal();
+    const first = new SqliteOperationalStore(path);
+    expect(first.saveDiscoverySignalRecord(expected)).toEqual(expected);
+    const read = acknowledgeDiscoverySignal(expected, "2026-08-12T13:00:00.000Z");
+    expect(first.saveDiscoverySignalRecord(read)).toEqual(read);
+    expect(first.discoverySignalStorage).toMatchObject({
+      durable: true, schemaVersion: 48, idempotencyKey: "signalId",
+    });
+    first.close();
+
+    const second = new SqliteOperationalStore(path);
+    expect(second.loadDiscoverySignalRecords(10)).toEqual([read]);
+    expect(second.loadDiscoverySignalRecord(expected.signalId)).toEqual(read);
+    expect(() => second.saveDiscoverySignalRecord(expected)).toThrow(
+      /source state is immutable/u,
+    );
+    expect(() => second.saveDiscoverySignalRecord({
+      ...read,
+      summary: "rewritten source meaning",
+    })).toThrow(/source state is immutable/u);
     second.close();
   });
 
@@ -828,7 +909,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 47,
+      schemaVersion: 48,
     });
     firstStore.close();
 
@@ -938,7 +1019,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 47,
+      schemaVersion: 48,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -993,7 +1074,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 47,
+      schemaVersion: 48,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -1040,7 +1121,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateWatchRefreshStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 47,
+      schemaVersion: 48,
       idempotencyKey: "refreshId",
     });
     first.close();
@@ -1082,7 +1163,7 @@ describe("SQLite operational store", () => {
     expect(first.anonymousSimulationMaterializationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 47,
+      schemaVersion: 48,
       idempotencyKey: "materializationId",
     });
     first.close();
@@ -1101,7 +1182,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 47,
+        schemaVersion: 48,
       },
     });
     expect(

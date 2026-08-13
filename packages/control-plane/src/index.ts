@@ -12,6 +12,7 @@ export * from "./discovery-agent.js";
 export * from "./discovery-evidence-locator.js";
 export * from "./discovery-ledger.js";
 export * from "./discovery-cycle.js";
+export * from "./discovery-signals.js";
 export * from "./evidence-requirement.js";
 export * from "./evidence-document.js";
 export * from "./evidence-acquisition-scheduler.js";

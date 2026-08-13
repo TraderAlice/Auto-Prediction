@@ -254,6 +254,11 @@ import {
   type RelationDiscoveryTaskRevisionStore,
 } from "./relation-discovery-work.js";
 import {
+  assertDiscoverySignalRecord,
+  type DiscoverySignalRecord,
+  type DiscoverySignalStore,
+} from "./discovery-signals.js";
+import {
   assertResearchDecisionEpisode,
   type ResearchDecisionEpisode,
   type ResearchDecisionEpisodeStore,
@@ -269,7 +274,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 47;
+const SCHEMA_VERSION = 48;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -292,6 +297,12 @@ type StoredCatalogObservationRow = Readonly<{
   record_json: string;
   record_hash: string;
   raw_bytes: Uint8Array;
+}>;
+
+type DiscoverySignalRow = Readonly<{
+  signal_id: string;
+  record_json: string;
+  record_hash: string;
 }>;
 
 type CatalogContractTextEvidenceRow = Readonly<{
@@ -1958,6 +1969,26 @@ function parseResearchDecisionEpisode(value: unknown): ResearchDecisionEpisode {
   return episode;
 }
 
+function parseDiscoverySignal(value: unknown): DiscoverySignalRecord {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite discovery signal row is malformed");
+  }
+  const row = value as DiscoverySignalRow;
+  if (typeof row.signal_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite discovery signal row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite discovery signal contains invalid JSON");
+  }
+  const signal = assertDiscoverySignalRecord(decoded);
+  if (signal.signalId !== row.signal_id || hashCanonical(signal) !== row.record_hash) {
+    throw new Error("SQLite discovery signal identity mismatch");
+  }
+  return signal;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -2022,6 +2053,7 @@ export class SqliteOperationalStore
     RelationDiscoveryFindingStore,
     StandingOntologyRouteObservationEpisodeStore,
     ResearchDecisionEpisodeStore,
+    DiscoverySignalStore,
     StudioProjectionSnapshotStore
 {
   readonly #database: DatabaseSync;
@@ -2097,6 +2129,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"episodeId">;
   public readonly researchDecisionEpisodeStorage:
     OperationalStorageProjection<"episodeId">;
+  public readonly discoverySignalStorage:
+    OperationalStorageProjection<"signalId">;
   public readonly studioProjectionSnapshotStorage:
     OperationalStorageProjection<"singleton">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
@@ -2354,6 +2388,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "episodeId",
+    });
+    this.discoverySignalStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "signalId",
     });
     this.studioProjectionSnapshotStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2736,6 +2776,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'research_decision_episodes'`,
       )
       .get() !== undefined;
+    const discoverySignalTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'discovery_signals'`,
+      )
+      .get() !== undefined;
     const studioProjectionSnapshotTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2785,6 +2831,7 @@ export class SqliteOperationalStore
       && relationDiscoveryFindingTableExists
       && standingOntologyRouteObservationEpisodeTableExists
       && researchDecisionEpisodeTableExists
+      && discoverySignalTableExists
       && studioProjectionSnapshotTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
@@ -4609,6 +4656,38 @@ export class SqliteOperationalStore
             ON contract_semantic_continuities (listing_ref, continuity_id DESC);
         `);
       }
+      if (current < 48 || !discoverySignalTableExists) {
+        // Pre-alpha decision episodes without a first-party novelty premise are
+        // intentionally retired instead of teaching every future reader a
+        // permanently ambiguous legacy ontology.
+        this.#database.exec(`
+          DELETE FROM research_decision_episodes
+          WHERE json_extract(record_json, '$.schemaVersion') !=
+                'pmh.research-decision-episode.v2';
+
+          CREATE TABLE IF NOT EXISTS discovery_signals (
+            signal_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(signal_id) = 71 AND signal_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            dedupe_identity TEXT NOT NULL UNIQUE CHECK (
+              length(dedupe_identity) = 71 AND
+              dedupe_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            status TEXT NOT NULL CHECK (status IN ('UNREAD', 'READ')),
+            kind TEXT NOT NULL CHECK (kind IN (
+              'CAMPAIGN_MEMBERSHIP_ADDED', 'STRUCTURED_OUTCOME',
+              'REPEATED_COSTLY_NO_MOVEMENT', 'PORTFOLIO_EXHAUSTED'
+            )),
+            observed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS discovery_signals_status_time
+            ON discovery_signals (status, observed_at DESC, signal_id DESC);
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -4730,6 +4809,72 @@ export class SqliteOperationalStore
     const stored = this.loadResearchDecisionEpisode(episode.episodeId);
     if (stored === null || hashCanonical(stored) !== recordHash) {
       throw new Error("research decision episode identity is already bound elsewhere");
+    }
+    return stored;
+  }
+
+  public loadDiscoverySignalRecords(limit: number): readonly DiscoverySignalRecord[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    if (limit > 512) throw new Error("discovery signal limit exceeds 512");
+    const rows = this.#database.prepare(
+      `SELECT signal_id, record_json, record_hash
+       FROM discovery_signals
+       ORDER BY observed_at DESC, signal_id ASC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseDiscoverySignal));
+  }
+
+  public loadDiscoverySignalRecord(signalId: Hash): DiscoverySignalRecord | null {
+    this.#assertOpen();
+    if (!/^sha256:[0-9a-f]{64}$/u.test(String(signalId))) {
+      throw new Error("discovery signal identity is invalid");
+    }
+    const row = this.#database.prepare(
+      `SELECT signal_id, record_json, record_hash
+       FROM discovery_signals WHERE signal_id = ?`,
+    ).get(signalId);
+    return row === undefined ? null : parseDiscoverySignal(row);
+  }
+
+  public saveDiscoverySignalRecord(
+    recordInput: DiscoverySignalRecord,
+  ): DiscoverySignalRecord {
+    this.#assertOpen();
+    const record = assertDiscoverySignalRecord(recordInput);
+    const existing = this.loadDiscoverySignalRecord(record.signalId);
+    if (existing !== null) {
+      const sourceIdentity = (item: DiscoverySignalRecord) => hashCanonical({
+        ...item,
+        status: "UNREAD",
+        readAt: null,
+      });
+      if (sourceIdentity(existing) !== sourceIdentity(record) ||
+          (existing.status === "READ" &&
+            (record.status !== "READ" || record.readAt !== existing.readAt))) {
+        throw new Error("discovery signal source state is immutable");
+      }
+    }
+    const recordJson = canonicalJson(record);
+    const recordHash = hashCanonical(record);
+    this.#database.prepare(
+      `INSERT INTO discovery_signals (
+         signal_id, dedupe_identity, status, kind, observed_at,
+         record_json, record_hash
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(signal_id) DO UPDATE SET
+         status = excluded.status,
+         record_json = excluded.record_json,
+         record_hash = excluded.record_hash
+       WHERE discovery_signals.dedupe_identity = excluded.dedupe_identity`,
+    ).run(
+      record.signalId, record.dedupeIdentity, record.status, record.kind,
+      record.observedAt, recordJson, recordHash,
+    );
+    const stored = this.loadDiscoverySignalRecord(record.signalId);
+    if (stored === null || hashCanonical(stored) !== recordHash) {
+      throw new Error("discovery signal identity is already bound elsewhere");
     }
     return stored;
   }

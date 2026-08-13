@@ -71,14 +71,15 @@ export type ResearchDecisionEvidenceBaseline = Readonly<{
   semanticReviewJobIds: readonly Hash[];
   probabilityJobIds: readonly Hash[];
   exactTargetArtifactRefs: readonly Hash[];
-  counterexampleCount?: number;
-  noFindingTerminalRunCount?: number;
-  successfulWithoutAcceptedResultCount?: number;
+  counterexampleCount: number;
+  noFindingTerminalRunCount: number;
+  successfulWithoutAcceptedResultCount: number;
   cost: ResearchDecisionCost;
   usageComplete: boolean;
 }>;
 
-type ResearchDecisionEpisodeFields = Readonly<{
+export type ResearchDecisionEpisode = Readonly<{
+  schemaVersion: "pmh.research-decision-episode.v2";
   episodeId: Hash;
   capturedAt: string;
   captureRef: string;
@@ -88,6 +89,7 @@ type ResearchDecisionEpisodeFields = Readonly<{
   allocationActionId: Hash;
   allocationActionKind: ResearchAttentionAllocationAction["kind"];
   allocationLane: ResearchAttentionAllocationAction["lane"];
+  noveltyReason: ResearchAttentionNoveltyReason;
   actionTargetProjectionIdentity: Hash;
   targetId: Hash;
   workItemId: Hash | null;
@@ -109,15 +111,6 @@ type ResearchDecisionEpisodeFields = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
-
-export type ResearchDecisionEpisode =
-  | Readonly<ResearchDecisionEpisodeFields & {
-      schemaVersion: "pmh.research-decision-episode.v1";
-    }>
-  | Readonly<ResearchDecisionEpisodeFields & {
-      schemaVersion: "pmh.research-decision-episode.v2";
-      noveltyReason: ResearchAttentionNoveltyReason;
-    }>;
 
 export interface ResearchDecisionEpisodeStore {
   loadResearchDecisionEpisodes(limit: number): readonly ResearchDecisionEpisode[];
@@ -141,7 +134,7 @@ export type ResearchDecisionOutcome = Readonly<{
   episodeId: Hash;
   capturedAt: string;
   allocationActionId: Hash;
-  noveltyReason: ResearchAttentionNoveltyReason | "LEGACY_UNBOUND";
+  noveltyReason: ResearchAttentionNoveltyReason;
   targetId: Hash;
   workItemId: Hash | null;
   observedAt: string;
@@ -250,7 +243,7 @@ export function researchDecisionEpisodeId(input: Readonly<{
   allocationActionId: Hash;
   targetId: Hash;
   captureRef: string;
-  noveltyReason?: ResearchAttentionNoveltyReason;
+  noveltyReason: ResearchAttentionNoveltyReason;
 }>): Hash {
   return hashCanonical({
     schemaVersion: "pmh.research-decision-episode-identity.v1",
@@ -379,10 +372,7 @@ export function assertResearchDecisionEpisode(value: unknown): ResearchDecisionE
   const item = value as ResearchDecisionEpisode;
   const baseline = item.baseline;
   const nullableHashes = [item.workItemId, item.proposalId, item.requirementId, item.sourceTaskId];
-  const noveltyBound = item.schemaVersion === "pmh.research-decision-episode.v2";
-  const legacy = item.schemaVersion === "pmh.research-decision-episode.v1";
-  const noveltyReason = noveltyBound ? item.noveltyReason : undefined;
-  if ((!legacy && !noveltyBound) ||
+  if (item.schemaVersion !== "pmh.research-decision-episode.v2" ||
       !HASH_PATTERN.test(String(item.episodeId)) ||
       !HASH_PATTERN.test(String(item.allocationProjectionIdentity)) ||
       !HASH_PATTERN.test(String(item.allocationPolicyIdentity)) ||
@@ -404,14 +394,12 @@ export function assertResearchDecisionEpisode(value: unknown): ResearchDecisionE
       !validHashes(baseline.semanticReviewJobIds) ||
       !validHashes(baseline.probabilityJobIds) ||
       !validHashes(baseline.exactTargetArtifactRefs) || !validCost(baseline.cost) ||
-      (noveltyBound && !NOVELTY_REASONS.includes(
-        noveltyReason as (typeof NOVELTY_REASONS)[number]
-      )) ||
-      (noveltyBound && [baseline.counterexampleCount,
+      !NOVELTY_REASONS.includes(item.noveltyReason) ||
+      [baseline.counterexampleCount,
         baseline.noFindingTerminalRunCount,
         baseline.successfulWithoutAcceptedResultCount].some((count) =>
         !Number.isSafeInteger(count) || Number(count) < 0
-      )) ||
+      ) ||
       typeof baseline.usageComplete !== "boolean" ||
       baseline.usageComplete !== (
         baseline.cost.unknownInputInvocationCount === 0 &&
@@ -427,20 +415,13 @@ export function assertResearchDecisionEpisode(value: unknown): ResearchDecisionE
       item.semanticDecisionAuthority !== false || item.certificateAuthority !== false ||
       item.executionAuthority !== false || item.externalWriteAuthority !== false ||
       item.valueMovingAuthority !== false ||
-      item.episodeId !== (noveltyBound
-        ? researchDecisionEpisodeId({
-            allocationProjectionIdentity: item.allocationProjectionIdentity,
-            allocationActionId: item.allocationActionId,
-            targetId: item.targetId,
-            captureRef: item.captureRef,
-            noveltyReason: noveltyReason!,
-          })
-        : researchDecisionEpisodeId({
-            allocationProjectionIdentity: item.allocationProjectionIdentity,
-            allocationActionId: item.allocationActionId,
-            targetId: item.targetId,
-            captureRef: item.captureRef,
-          }))) {
+      item.episodeId !== researchDecisionEpisodeId({
+        allocationProjectionIdentity: item.allocationProjectionIdentity,
+        allocationActionId: item.allocationActionId,
+        targetId: item.targetId,
+        captureRef: item.captureRef,
+        noveltyReason: item.noveltyReason,
+      })) {
     throw new Error("research decision episode violates its bounded contract");
   }
   return Object.freeze(item);
@@ -548,18 +529,17 @@ function outcome(input: Readonly<{
   const antiLoopMemory = Object.freeze({
     newCounterexampleCount: Math.max(
       0,
-      retainedCounterexampleCount - (input.episode.baseline.counterexampleCount ??
-        input.episode.baseline.counterexampleIds.length),
+      retainedCounterexampleCount - input.episode.baseline.counterexampleCount,
     ),
     newNoFindingTerminalRunCount: Math.max(
       0,
       retainedNoFindingTerminalRunCount -
-        (input.episode.baseline.noFindingTerminalRunCount ?? 0),
+        input.episode.baseline.noFindingTerminalRunCount,
     ),
     newSuccessfulWithoutAcceptedResultCount: Math.max(
       0,
       retainedSuccessfulWithoutAcceptedResultCount -
-        (input.episode.baseline.successfulWithoutAcceptedResultCount ?? 0),
+        input.episode.baseline.successfulWithoutAcceptedResultCount,
     ),
     retainedCounterexampleCount,
     retainedNoFindingTerminalRunCount,
@@ -631,8 +611,7 @@ function outcome(input: Readonly<{
     episodeId: input.episode.episodeId,
     capturedAt: input.episode.capturedAt,
     allocationActionId: input.episode.allocationActionId,
-    noveltyReason: input.episode.schemaVersion === "pmh.research-decision-episode.v2"
-      ? input.episode.noveltyReason : "LEGACY_UNBOUND" as const,
+    noveltyReason: input.episode.noveltyReason,
     targetId: input.episode.targetId,
     workItemId: input.episode.workItemId,
     observedAt: input.observedAt,
