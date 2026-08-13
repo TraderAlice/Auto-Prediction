@@ -7,6 +7,7 @@ import {
   buildAgentRun,
   activateAgentCampaign,
   buildMechanismPrototypeExplorationCampaignPreview,
+  buildMechanismPrototypeExplorationPrototypeReferences,
   buildMechanismPrototypeExplorationExhaustion,
   buildPausedAgentCampaign,
   buildDefaultAgentRuntimePortfolio,
@@ -417,6 +418,61 @@ describe("mechanism-prototype-guided exploration substrate", () => {
     });
   });
 
+  it("does not confuse an attempted run with durable semantic coverage", () => {
+    const { sourceInput, prototype } = acceptedPrototype();
+    const snapshot = corpus();
+    const projection = materializeMechanismPrototypeExplorationProjection({
+      prototypes: [prototype], prototypeInputs: [sourceInput], corpus: snapshot,
+      ontology: buildMarketOntologySnapshot(snapshot),
+    });
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
+    const route = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "MECHANISM_PROTOTYPE_EXPLORATION"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    )!;
+    const baseExecution = {
+      ...portfolio, campaigns: [], tasks: projection.lenses.map((item) => item.task),
+      runs: [], modelInvocations: [], toolEffects: [], runArtifacts: [], runAnnotations: [],
+      resultSelections: [], capabilityObservations: [],
+    };
+    const capability = {
+      schemaVersion: "pmh.execution-capability.v1" as const,
+      executionProfileId: profile.executionProfileId,
+      runtimeKind: "CODEX" as const, credentialKind: "CODEX_OAUTH" as const,
+      accessDriver: "CODEX_RESPONSES" as const, model: "gpt-5.6-terra",
+      configured: true, credentialPresent: true, dispatchEligibility: "ELIGIBLE" as const,
+      diagnostic: "ready", observedAt: NOW, authority: "EXECUTION_CAPABILITY_ONLY" as const,
+      secretMaterialRetained: false, externalWriteAuthority: false, valueMovingAuthority: false,
+    };
+    const firstPreview = buildMechanismPrototypeExplorationCampaignPreview({
+      lenses: projection.lenses, execution: baseExecution, capability,
+    });
+    const paused = buildPausedAgentCampaign({
+      campaignKey: firstPreview.campaignKey, revision: 1,
+      executionProfileId: profile.executionProfileId, taskIds: firstPreview.taskIds,
+      schedule: firstPreview.schedule, budget: firstPreview.budget,
+      selectionBinding: firstPreview.selectionBinding,
+      taskRunPolicy: firstPreview.taskRunPolicy, createdAt: NOW,
+    });
+    const active = activateAgentCampaign(paused, "operator:attempt-test", NOW);
+    const selected = projection.lenses.find((item) =>
+      item.task.taskId === firstPreview.taskIds[0]
+    )!;
+    const interrupted = buildAgentRun({
+      task: selected.task, executionProfile: profile, runOrdinal: 1,
+      authorization: { kind: "CAMPAIGN", campaign: active, authorizedAt: NOW }, createdAt: NOW,
+    });
+    const retryPreview = buildMechanismPrototypeExplorationCampaignPreview({
+      lenses: projection.lenses,
+      execution: { ...baseExecution, campaigns: [active], runs: [interrupted] },
+      capability,
+    });
+    expect(retryPreview.taskIds).toEqual(firstPreview.taskIds);
+    expect(retryPreview.creationEligible).toBe(true);
+  });
+
   it("resolves the campaign-retained input after the live corpus revision rotates", () => {
     const { sourceInput, prototype } = acceptedPrototype();
     const oldCorpus = corpus(1);
@@ -516,6 +572,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
     );
+    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
     expect(host.resultToolNames(lens.task.requestedEffectProtocol)).toEqual([
       "submit_mechanism_exploration_trailhead",
       "record_mechanism_exploration_exhaustion",
@@ -541,8 +598,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
         listingRefs: ["venue-sport:constructors", "venue-race:italy"],
         structuralAnalogy: "One race result may contribute points to an aggregate constructors championship.",
         surfaceDifferences: ["sports points replace office membership"],
-        appliedTransferTests: [prototype.transferTests[0]],
-        activatedCounterScenarios: [], searchSignals: ["race", "constructors championship"],
+        appliedTransferTestRefs: [references.transferTests[0]!.ref],
+        activatedCounterScenarioRefs: [], searchSignals: ["race", "constructors championship"],
         noveltyAxisExplanation: "The surface domain changes from elections to motorsport.",
         rationale: "The exact pair merits separate semantic mechanism research.",
       },
@@ -551,6 +608,44 @@ describe("mechanism-prototype exploration Agent tools", () => {
       status: "ACCEPTED",
       output: { authority: "PROTOTYPE_GUIDED_TRAILHEAD_ROUTING_ONLY" },
     });
+    expect(host.trailheads()[0]).toMatchObject({
+      appliedTransferTests: [prototype.transferTests[0]],
+      activatedCounterScenarios: [],
+    });
+  });
+
+  it("keeps scheduling coverage out of the compact reasoning view", async () => {
+    const { lens, prototype, snapshot, profile, run } = runtimeFixture();
+    const expandedInput = Object.freeze({
+      ...lens.currentInputRevision,
+      coverageMembers: Object.freeze(Array.from({ length: 202 }, (_, index) => Object.freeze({
+        listingRef: `coverage:${index}`,
+        semanticListingIdentity: hash(`coverage:${index}`),
+        inclusionReasons: Object.freeze(["PROTOTYPE_SIGNAL_MATCH" as const]),
+      }))),
+    });
+    const host = new MechanismPrototypeExplorationAgentToolHost(
+      expandedInput, prototype, snapshot,
+    );
+    const read = await host.execute({
+      task: lens.task, run, executionProfile: profile,
+      toolName: "read_mechanism_exploration_lens", input: {},
+    });
+    const serialized = JSON.stringify(read.output);
+    expect(read).toMatchObject({
+      status: "ACCEPTED",
+      output: {
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v2",
+        coverage: { memberCount: 202, membersOmittedFromReasoningView: true },
+        prototype: {
+          transferTests: [{ ref: expect.stringMatching(/^sha256:/u), text: prototype.transferTests[0] }],
+        },
+        terminalReferencePolicy: "CITE_EXACT_FIRST_PARTY_REFS",
+      },
+    });
+    expect(serialized).not.toContain("coverageMembers");
+    expect(serialized.length).toBeLessThan(20_000);
+    expect(JSON.stringify(expandedInput).length).toBeGreaterThan(serialized.length * 3);
   });
 
   it("rejects uninspected positives and empty-search exhaustion", async () => {
@@ -558,14 +653,15 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
     );
+    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
     await expect(host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "submit_mechanism_exploration_trailhead",
       input: {
         listingRefs: ["venue-sport:constructors", "venue-race:italy"],
         structuralAnalogy: "Uninspected analogy.", surfaceDifferences: ["sports"],
-        appliedTransferTests: [prototype.transferTests[0]],
-        activatedCounterScenarios: [], searchSignals: ["sports"],
+        appliedTransferTestRefs: [references.transferTests[0]!.ref],
+        activatedCounterScenarioRefs: [], searchSignals: ["sports"],
         noveltyAxisExplanation: "Cross-domain.", rationale: "Not inspected.",
       },
     })).rejects.toThrow(/inspected/u);
@@ -575,9 +671,47 @@ describe("mechanism-prototype exploration Agent tools", () => {
       input: {
         inspectedListingRefs: ["venue-sport:constructors"],
         searchedNeighborhoods: ["motorsport"],
-        failedTransferTests: [prototype.transferTests[0]],
-        activatedCounterScenarios: [], reason: "No exact analogy survived.",
+        failedTransferTestRefs: [references.transferTests[0]!.ref],
+        activatedCounterScenarioRefs: [], reason: "No exact analogy survived.",
       },
     })).rejects.toThrow(/inspected|search/u);
+  });
+
+  it("fails closed on foreign prototype references and materializes exact exhaustion prose", async () => {
+    const { lens, prototype, snapshot, profile, run } = runtimeFixture();
+    const host = new MechanismPrototypeExplorationAgentToolHost(
+      lens.currentInputRevision, prototype, snapshot,
+    );
+    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
+    await host.execute({
+      task: lens.task, run, executionProfile: profile,
+      toolName: "search_mechanism_exploration_corpus",
+      input: { patterns: ["Scuderia Ferrari"], syntax: "LITERAL", mode: "ANY",
+        fields: ["title"], venueIds: [], limit: 10 },
+    });
+    await host.execute({
+      task: lens.task, run, executionProfile: profile,
+      toolName: "inspect_mechanism_exploration_listings",
+      input: { listingRefs: ["venue-sport:constructors"] },
+    });
+    const terminal = (failedTransferTestRefs: readonly string[]) => host.execute({
+      task: lens.task, run, executionProfile: profile,
+      toolName: "record_mechanism_exploration_exhaustion",
+      input: {
+        inspectedListingRefs: ["venue-sport:constructors"],
+        searchedNeighborhoods: ["motorsport aggregate"],
+        failedTransferTestRefs,
+        activatedCounterScenarioRefs: [],
+        reason: "The inspected aggregate does not establish a component pair.",
+      },
+    });
+    await expect(terminal([hash("foreign-prototype-test")]))
+      .rejects.toThrow(/unknown transfer test reference/u);
+    await expect(terminal([prototype.transferTests[0]!]))
+      .rejects.toThrow(/references are invalid/u);
+    await expect(terminal([references.transferTests[0]!.ref]))
+      .resolves.toMatchObject({ status: "ACCEPTED" });
+    expect(host.exhaustions()[0]?.failedTransferTests)
+      .toEqual([prototype.transferTests[0]]);
   });
 });

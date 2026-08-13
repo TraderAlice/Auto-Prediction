@@ -131,25 +131,15 @@ export function buildMechanismPrototypeExplorationCampaignPreview(input: Readonl
     item.executionProfileId === workloadRoute.executionProfileId
   );
   if (executionProfile === undefined || executionProfile.toolPolicy.protocol !==
-      "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V1") {
+      "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V2") {
     throw new Error("mechanism exploration execution profile is unavailable");
   }
-  const completedSemanticInputs = new Set(input.execution.campaigns.flatMap((campaign) =>
-    campaign.schemaVersion === "pmh.agent-campaign.v1" ||
-      campaign.selectionBinding.selectionProtocol !==
-        MECHANISM_PROTOTYPE_EXPLORATION_SELECTION_PROTOCOL
-      ? []
-      : campaign.selectionBinding.taskBindings.flatMap((binding) =>
-          input.execution.runs.some((run) => run.taskId === binding.taskId &&
-            run.authorization.kind === "CAMPAIGN" &&
-            run.authorization.campaignId === campaign.campaignId)
-            ? [binding.semanticInputIdentity]
-            : []
-        )
-  ));
   const eligible = [...input.lenses]
-    .filter((lens) => lens.campaignEligible &&
-      !completedSemanticInputs.has(lens.currentInputRevision.semanticInputIdentity))
+    // A run attempt is operational history, not semantic coverage. The lens
+    // compiler derives campaignEligible from durable trailheads/exhaustions and
+    // relevant coverage novelty. This intentionally leaves interrupted or
+    // protocol-rejected work eligible for an explicitly revised campaign.
+    .filter((lens) => lens.campaignEligible)
     .sort((left, right) =>
       Number(right.currentInputRevision.seedTrailheads.length > 0) -
         Number(left.currentInputRevision.seedTrailheads.length > 0) ||

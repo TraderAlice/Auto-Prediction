@@ -1,6 +1,6 @@
 # Lens-scoped semantic novelty
 
-Status: active mainline construction
+Status: completed mainline predecessor
 
 Issue: [#213](https://github.com/luokerenx4/my-little-pony/issues/213)
 
@@ -53,8 +53,8 @@ full corpus hash.
   expose both in Studio.
 - [x] Confirm the live counterexample exhaustion closes its relevant scope
   after ordinary refresh, with zero provider/model calls.
-- [ ] Add one synthetic relevant listing and prove only the matching lens
-  reopens; remove the synthetic evidence after qualification.
+- [x] Change one in-scope listing's semantic text and prove the matching lens
+  reopens while price/raw/receive-time changes and unrelated additions do not.
 
 The first provider-free implementation keeps the exact full-corpus snapshot,
 global semantic identity, source set and ontology identity on every input while

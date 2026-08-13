@@ -1,6 +1,18 @@
 # Plans
 
 The active execution continuation is
+[`plans/compact-exploration-agent-protocol.md`](plans/compact-exploration-agent-protocol.md).
+Issue #215 turns the second live prototype-guided specimen's failure into a
+protocol correction. A zero-seed surface-domain run spent 231,850 known input
+tokens across eight Terra invocations while performing only one search and one
+inspection. Four repeated lens reads re-injected a 202-member scheduling scope,
+then the terminal exhaustion was rejected because the Agent paraphrased a
+transfer test instead of reproducing its exact text. The durable exact input
+must remain complete, but ordinary reasoning receives a compact projection and
+uses stable first-party references for prototype tests and counter-scenarios.
+Invalid references fail closed; the host materializes exact retained prose.
+
+The completed predecessor is
 [`plans/lens-scoped-semantic-novelty.md`](plans/lens-scoped-semantic-novelty.md).
 Issue #213 separates exact global corpus lineage from paid-search novelty. The
 first live prototype-guided specimen retained a valid cross-chamber exhaustion,
