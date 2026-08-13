@@ -9,8 +9,10 @@ import {
   candidateWatchSources,
   AnonymousSimulationMaterializerDesk,
   buildLiveStudioProjection,
+  buildDiscoveryYieldProjection,
   buildStudioProjection,
   buildStudioProjectionSnapshot,
+  buildResearchDecisionOutcomeObservation,
   acknowledgeDiscoverySignal,
   createPiInvestigatorRuntime,
   DiscoveryLedger,
@@ -24,6 +26,7 @@ import {
   type CandidateWatchRefreshRecord,
   type PiProcessResult,
   type ResearchDecisionEpisode,
+  type ResearchDecisionOutcome,
   type StoredAnonymousSimulationMaterialization,
   type StoredCandidateBookObservation,
 } from "../src/index.js";
@@ -170,6 +173,66 @@ function discoverySignal(): DiscoverySignalRecord {
     externalWriteAuthority: false,
     valueMovingAuthority: false,
   };
+}
+
+function researchDecisionOutcome(
+  episode = researchDecisionEpisode(),
+  observedAt = "2026-08-12T12:05:00.000Z",
+): ResearchDecisionOutcome {
+  const body = {
+    schemaVersion: "pmh.research-decision-outcome.v1" as const,
+    episodeId: episode.episodeId,
+    capturedAt: episode.capturedAt,
+    allocationActionId: episode.allocationActionId,
+    noveltyReason: episode.noveltyReason,
+    targetId: episode.targetId,
+    workItemId: episode.workItemId,
+    observedAt,
+    state: "UNACTED_READY" as const,
+    attributionBasis: "NOT_ACTED" as const,
+    baselineValueStage: episode.baseline.valueStage,
+    currentValueStage: "UNATTEMPTED" as const,
+    valueStageDelta: 0,
+    currentTargetState: "READY_RELATION_DISCOVERY" as const,
+    newArtifactRefs: [],
+    yieldDelta: {
+      newRunCount: 0,
+      newPositiveFindingCount: 0,
+      newCounterexampleCount: 0,
+      newSemanticReviewJobCount: 0,
+      newProbabilityJobCount: 0,
+      newExactTargetArtifactCount: 0,
+      newNoFindingTerminalRunCount: 0,
+      newSuccessfulWithoutAcceptedResultCount: 0,
+      positiveValueStageDelta: 0,
+    },
+    antiLoopMemory: {
+      newCounterexampleCount: 0,
+      newNoFindingTerminalRunCount: 0,
+      newSuccessfulWithoutAcceptedResultCount: 0,
+      retainedCounterexampleCount: 0,
+      retainedNoFindingTerminalRunCount: 0,
+      exactTaskAlreadyAttempted: false,
+    },
+    costDelta: {
+      knownInputTokens: "0", knownOutputTokens: "0", knownReasoningTokens: "0",
+      knownWallClockMs: "0", unknownInputInvocationCount: 0,
+      unknownOutputInvocationCount: 0, unknownReasoningInvocationCount: 0,
+      incompleteWallClockRunCount: 0, providerRequestCount: 0, toolCallCount: 0,
+      fetchAttemptCount: 0, interpretationAttemptCount: 0,
+    },
+    usageComplete: true,
+    diagnostic: "The exact selected target remains ready with no observed downstream movement",
+    authority: "DESCRIPTIVE_RESEARCH_ATTRIBUTION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    policyMutationAuthority: false as const,
+    automaticDispatch: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  };
+  return { ...body, outcomeId: hashCanonical(body) };
 }
 
 function investigationTask(
@@ -485,7 +548,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 48,
+        schemaVersion: 49,
         idempotencyKey: "taskId",
       },
     });
@@ -674,11 +737,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(48);
+    expect(migrated.storage.schemaVersion).toBe(49);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 48,
+      schemaVersion: 49,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -746,6 +809,7 @@ describe("SQLite operational store", () => {
       "relation_discovery_findings",
       "relation_discovery_task_revisions",
       "research_decision_episodes",
+      "research_decision_outcome_observations",
       "result_selections",
       "rule_evidence_claim_jobs",
       "rule_evidence_claim_records",
@@ -763,14 +827,14 @@ describe("SQLite operational store", () => {
       "studio_projection_snapshot",
       "workload_routes",
     ]);
-    expect(version.user_version).toBe(48);
+    expect(version.user_version).toBe(49);
     inspected.close();
 
     const partial = new DatabaseSync(path);
     partial.exec("DROP TABLE search_lease_corpora");
     partial.exec("DROP TABLE search_lease_records");
     partial.exec("DROP TABLE search_notification_records");
-    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(48);
+    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(49);
     partial.close();
     const repaired = new SqliteOperationalStore(path);
     repaired.close();
@@ -797,7 +861,7 @@ describe("SQLite operational store", () => {
     partialExecutionSchema.exec("DROP TABLE agent_runtime_definitions");
     expect((partialExecutionSchema.prepare("PRAGMA user_version").get() as {
       user_version: number;
-    }).user_version).toBe(48);
+    }).user_version).toBe(49);
     partialExecutionSchema.close();
     const repairedExecutionSchema = new SqliteOperationalStore(path);
     repairedExecutionSchema.close();
@@ -819,7 +883,7 @@ describe("SQLite operational store", () => {
     expect(first.loadResearchDecisionEpisodes(10)).toEqual([expected]);
     expect(first.researchDecisionEpisodeStorage).toMatchObject({
       durable: true,
-      schemaVersion: 48,
+      schemaVersion: 49,
       idempotencyKey: "episodeId",
     });
     first.close();
@@ -869,7 +933,7 @@ describe("SQLite operational store", () => {
 
     const migrated = new SqliteOperationalStore(path);
     expect(migrated.loadResearchDecisionEpisodes(10)).toEqual([current]);
-    expect(migrated.storage.schemaVersion).toBe(48);
+    expect(migrated.storage.schemaVersion).toBe(49);
     migrated.close();
   });
 
@@ -881,7 +945,7 @@ describe("SQLite operational store", () => {
     const read = acknowledgeDiscoverySignal(expected, "2026-08-12T13:00:00.000Z");
     expect(first.saveDiscoverySignalRecord(read)).toEqual(read);
     expect(first.discoverySignalStorage).toMatchObject({
-      durable: true, schemaVersion: 48, idempotencyKey: "signalId",
+      durable: true, schemaVersion: 49, idempotencyKey: "signalId",
     });
     first.close();
 
@@ -898,6 +962,113 @@ describe("SQLite operational store", () => {
     second.close();
   });
 
+  it("retains a linear append-only research outcome observation chain", async () => {
+    const path = await databasePath();
+    const episode = researchDecisionEpisode();
+    const first = new SqliteOperationalStore(path);
+    first.saveResearchDecisionEpisode(episode);
+    const initial = buildResearchDecisionOutcomeObservation({
+      previous: null,
+      outcome: researchDecisionOutcome(episode),
+      observedAt: "2026-08-12T12:05:00.000Z",
+      trigger: "STARTUP_RECONCILIATION",
+      triggerRef: "startup:test",
+    });
+    expect(first.saveResearchDecisionOutcomeObservation(initial)).toEqual(initial);
+    expect(first.saveResearchDecisionOutcomeObservation(initial)).toEqual(initial);
+    const advancedOutcome = {
+      ...researchDecisionOutcome(episode, "2026-08-12T12:10:00.000Z"),
+      state: "ADVANCED" as const,
+      attributionBasis: "TARGET_LINEAGE_OBSERVED" as const,
+      valueStageDelta: 3,
+      currentValueStage: "POSITIVE_FINDING" as const,
+      yieldDelta: {
+        newRunCount: 0,
+        newPositiveFindingCount: 1,
+        newCounterexampleCount: 0,
+        newSemanticReviewJobCount: 0,
+        newProbabilityJobCount: 0,
+        newExactTargetArtifactCount: 0,
+        newNoFindingTerminalRunCount: 0,
+        newSuccessfulWithoutAcceptedResultCount: 0,
+        positiveValueStageDelta: 3,
+      },
+      diagnostic: "Exact family lineage gained one positive finding",
+    };
+    const { outcomeId: _oldOutcomeId, ...advancedBody } = advancedOutcome;
+    const advanced = buildResearchDecisionOutcomeObservation({
+      previous: initial,
+      outcome: { ...advancedBody, outcomeId: hashCanonical(advancedBody) },
+      observedAt: "2026-08-12T12:10:00.000Z",
+      trigger: "AGENT_TASK_COMPLETION",
+      triggerRef: "task:test",
+    });
+    expect(first.saveResearchDecisionOutcomeObservation(advanced)).toEqual(advanced);
+    expect(first.researchDecisionOutcomeObservationStorage).toMatchObject({
+      durable: true, schemaVersion: 49, idempotencyKey: "observationId",
+    });
+    const expectedYield = buildDiscoveryYieldProjection({
+      observedAt: advanced.observedAt,
+      episodes: [episode],
+      observations: [advanced, initial],
+    });
+    expect(() => first.saveResearchDecisionOutcomeObservation(
+      buildResearchDecisionOutcomeObservation({
+        previous: initial,
+        outcome: researchDecisionOutcome(episode, "2026-08-12T12:15:00.000Z"),
+        observedAt: "2026-08-12T12:15:00.000Z",
+        trigger: "DISCOVERY_CYCLE",
+        triggerRef: "cycle:test",
+      }),
+    )).toThrow(/predecessor is not latest/u);
+    first.close();
+
+    const second = new SqliteOperationalStore(path);
+    expect(second.loadLatestResearchDecisionOutcomeObservation(episode.episodeId))
+      .toEqual(advanced);
+    expect(second.loadResearchDecisionOutcomeObservations(10)).toEqual([
+      advanced, initial,
+    ]);
+    expect(buildDiscoveryYieldProjection({
+      observedAt: advanced.observedAt,
+      episodes: second.loadResearchDecisionEpisodes(10),
+      observations: second.loadResearchDecisionOutcomeObservations(10),
+    })).toEqual(expectedYield);
+    second.close();
+  });
+
+  it("repairs the unpublished pre-boundary outcome observation table", async () => {
+    const path = await databasePath();
+    const first = new SqliteOperationalStore(path);
+    first.close();
+    const database = new DatabaseSync(path);
+    database.exec(`
+      DROP TABLE research_decision_outcome_observations;
+      CREATE TABLE research_decision_outcome_observations (
+        observation_id TEXT PRIMARY KEY NOT NULL,
+        state_identity TEXT NOT NULL,
+        previous_observation_id TEXT,
+        episode_id TEXT NOT NULL,
+        work_item_id TEXT,
+        observed_at TEXT NOT NULL,
+        record_json TEXT NOT NULL,
+        record_hash TEXT NOT NULL
+      ) STRICT;
+      PRAGMA user_version = 49;
+    `);
+    database.close();
+
+    const repaired = new SqliteOperationalStore(path);
+    expect(repaired.loadResearchDecisionOutcomeObservations(10)).toEqual([]);
+    repaired.close();
+    const inspected = new DatabaseSync(path);
+    const columns = inspected.prepare(
+      "PRAGMA table_info(research_decision_outcome_observations)",
+    ).all().map((row) => (row as { name: string }).name);
+    expect(columns).toContain("boundary_episode_id");
+    inspected.close();
+  });
+
   it("restores passed investigations and task idempotency across store lifetimes", async () => {
     const path = await databasePath();
     const firstStore = new SqliteOperationalStore(path);
@@ -909,7 +1080,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 48,
+      schemaVersion: 49,
     });
     firstStore.close();
 
@@ -1019,7 +1190,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 48,
+      schemaVersion: 49,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -1074,7 +1245,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 48,
+      schemaVersion: 49,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -1121,7 +1292,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateWatchRefreshStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 48,
+      schemaVersion: 49,
       idempotencyKey: "refreshId",
     });
     first.close();
@@ -1163,7 +1334,7 @@ describe("SQLite operational store", () => {
     expect(first.anonymousSimulationMaterializationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 48,
+      schemaVersion: 49,
       idempotencyKey: "materializationId",
     });
     first.close();
@@ -1182,7 +1353,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 48,
+        schemaVersion: 49,
       },
     });
     expect(

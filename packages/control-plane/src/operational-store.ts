@@ -264,6 +264,11 @@ import {
   type ResearchDecisionEpisodeStore,
 } from "./research-decision-outcomes.js";
 import {
+  assertResearchDecisionOutcomeObservation,
+  type ResearchDecisionOutcomeObservation,
+  type ResearchDecisionOutcomeObservationStore,
+} from "./research-decision-outcome-observations.js";
+import {
   assertStandingOntologyRouteObservationEpisode,
   type StandingOntologyRouteObservationEpisode,
   type StandingOntologyRouteObservationEpisodeStore,
@@ -274,7 +279,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 48;
+const SCHEMA_VERSION = 49;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -301,6 +306,12 @@ type StoredCatalogObservationRow = Readonly<{
 
 type DiscoverySignalRow = Readonly<{
   signal_id: string;
+  record_json: string;
+  record_hash: string;
+}>;
+
+type ResearchDecisionOutcomeObservationRow = Readonly<{
+  observation_id: string;
   record_json: string;
   record_hash: string;
 }>;
@@ -1989,6 +2000,29 @@ function parseDiscoverySignal(value: unknown): DiscoverySignalRecord {
   return signal;
 }
 
+function parseResearchDecisionOutcomeObservation(
+  value: unknown,
+): ResearchDecisionOutcomeObservation {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite research decision outcome observation row is malformed");
+  }
+  const row = value as ResearchDecisionOutcomeObservationRow;
+  if (typeof row.observation_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite research decision outcome observation row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite research decision outcome observation contains invalid JSON");
+  }
+  const observation = assertResearchDecisionOutcomeObservation(decoded);
+  if (observation.observationId !== row.observation_id ||
+      hashCanonical(observation) !== row.record_hash) {
+    throw new Error("SQLite research decision outcome observation identity mismatch");
+  }
+  return observation;
+}
+
 function readPragmaNumber(database: DatabaseSync, pragma: string): number {
   const row = database.prepare(`PRAGMA ${pragma}`).get();
   if (row === undefined || row === null || typeof row !== "object") {
@@ -2053,6 +2087,7 @@ export class SqliteOperationalStore
     RelationDiscoveryFindingStore,
     StandingOntologyRouteObservationEpisodeStore,
     ResearchDecisionEpisodeStore,
+    ResearchDecisionOutcomeObservationStore,
     DiscoverySignalStore,
     StudioProjectionSnapshotStore
 {
@@ -2129,6 +2164,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"episodeId">;
   public readonly researchDecisionEpisodeStorage:
     OperationalStorageProjection<"episodeId">;
+  public readonly researchDecisionOutcomeObservationStorage:
+    OperationalStorageProjection<"observationId">;
   public readonly discoverySignalStorage:
     OperationalStorageProjection<"signalId">;
   public readonly studioProjectionSnapshotStorage:
@@ -2388,6 +2425,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "episodeId",
+    });
+    this.researchDecisionOutcomeObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
     });
     this.discoverySignalStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2782,6 +2825,25 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'discovery_signals'`,
       )
       .get() !== undefined;
+    const researchDecisionOutcomeObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'research_decision_outcome_observations'`,
+      )
+      .get() !== undefined;
+    const researchDecisionOutcomeObservationBoundaryExists =
+      researchDecisionOutcomeObservationTableExists &&
+      this.#database.prepare(
+        "PRAGMA table_info(research_decision_outcome_observations)",
+      ).all().some((row) => (row as { name?: unknown }).name === "boundary_episode_id");
+    const researchDecisionOutcomeObservationYieldVectorCurrent =
+      researchDecisionOutcomeObservationBoundaryExists &&
+      this.#database.prepare(
+        `SELECT observation_id
+         FROM research_decision_outcome_observations
+         WHERE json_type(record_json, '$.outcome.yieldDelta.newRunCount') IS NULL
+         LIMIT 1`,
+      ).get() === undefined;
     const studioProjectionSnapshotTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2832,6 +2894,9 @@ export class SqliteOperationalStore
       && standingOntologyRouteObservationEpisodeTableExists
       && researchDecisionEpisodeTableExists
       && discoverySignalTableExists
+      && researchDecisionOutcomeObservationTableExists
+      && researchDecisionOutcomeObservationBoundaryExists
+      && researchDecisionOutcomeObservationYieldVectorCurrent
       && studioProjectionSnapshotTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
@@ -4688,6 +4753,73 @@ export class SqliteOperationalStore
             ON discovery_signals (status, observed_at DESC, signal_id DESC);
         `);
       }
+      if (current < 49 || !researchDecisionOutcomeObservationTableExists ||
+          !researchDecisionOutcomeObservationBoundaryExists ||
+          !researchDecisionOutcomeObservationYieldVectorCurrent) {
+        // Schema 49 was still local-only when the explicit successor boundary
+        // and typed retained-run yield became part of the observation identity.
+        // Any earlier rows are reproducible projections, so repair the
+        // unpublished table instead of teaching the product an ambiguous
+        // compatibility state.
+        this.#database.exec("DROP TABLE IF EXISTS research_decision_outcome_observations");
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS research_decision_outcome_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND
+              observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            state_identity TEXT NOT NULL CHECK (
+              length(state_identity) = 71 AND
+              state_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            previous_observation_id TEXT CHECK (
+              previous_observation_id IS NULL OR (
+                length(previous_observation_id) = 71 AND
+                previous_observation_id GLOB 'sha256:[0-9a-f]*'
+              )
+            ),
+            boundary_episode_id TEXT CHECK (
+              boundary_episode_id IS NULL OR (
+                length(boundary_episode_id) = 71 AND
+                boundary_episode_id GLOB 'sha256:[0-9a-f]*'
+              )
+            ),
+            episode_id TEXT NOT NULL CHECK (
+              length(episode_id) = 71 AND episode_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            work_item_id TEXT CHECK (
+              work_item_id IS NULL OR (
+                length(work_item_id) = 71 AND
+                work_item_id GLOB 'sha256:[0-9a-f]*'
+              )
+            ),
+            observed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (episode_id)
+              REFERENCES research_decision_episodes(episode_id) ON DELETE RESTRICT,
+            FOREIGN KEY (boundary_episode_id)
+              REFERENCES research_decision_episodes(episode_id) ON DELETE RESTRICT,
+            FOREIGN KEY (previous_observation_id)
+              REFERENCES research_decision_outcome_observations(observation_id)
+              ON DELETE RESTRICT
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS research_decision_outcomes_episode_time
+            ON research_decision_outcome_observations (
+              episode_id, observed_at DESC, observation_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS research_decision_outcomes_work_time
+            ON research_decision_outcome_observations (
+              work_item_id, observed_at DESC, observation_id DESC
+            );
+          CREATE UNIQUE INDEX IF NOT EXISTS research_decision_outcomes_transition
+            ON research_decision_outcome_observations (
+              episode_id, IFNULL(previous_observation_id, '')
+            );
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -4809,6 +4941,116 @@ export class SqliteOperationalStore
     const stored = this.loadResearchDecisionEpisode(episode.episodeId);
     if (stored === null || hashCanonical(stored) !== recordHash) {
       throw new Error("research decision episode identity is already bound elsewhere");
+    }
+    return stored;
+  }
+
+  public loadResearchDecisionOutcomeObservations(
+    limit: number,
+  ): readonly ResearchDecisionOutcomeObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    if (limit > 4096) {
+      throw new Error("research decision outcome observation limit exceeds 4096");
+    }
+    const rows = this.#database.prepare(
+      `SELECT observation_id, record_json, record_hash
+       FROM research_decision_outcome_observations
+       ORDER BY observed_at DESC, observation_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseResearchDecisionOutcomeObservation));
+  }
+
+  public loadResearchDecisionOutcomeObservation(
+    observationId: Hash,
+  ): ResearchDecisionOutcomeObservation | null {
+    this.#assertOpen();
+    if (!/^sha256:[0-9a-f]{64}$/u.test(String(observationId))) {
+      throw new Error("research decision outcome observation identity is invalid");
+    }
+    const row = this.#database.prepare(
+      `SELECT observation_id, record_json, record_hash
+       FROM research_decision_outcome_observations
+       WHERE observation_id = ?`,
+    ).get(observationId);
+    return row === undefined ? null : parseResearchDecisionOutcomeObservation(row);
+  }
+
+  public loadLatestResearchDecisionOutcomeObservation(
+    episodeId: Hash,
+  ): ResearchDecisionOutcomeObservation | null {
+    this.#assertOpen();
+    if (!/^sha256:[0-9a-f]{64}$/u.test(String(episodeId))) {
+      throw new Error("research decision episode identity is invalid");
+    }
+    const row = this.#database.prepare(
+      `SELECT observation_id, record_json, record_hash
+       FROM research_decision_outcome_observations
+       WHERE episode_id = ?
+       ORDER BY observed_at DESC, observation_id DESC
+       LIMIT 1`,
+    ).get(episodeId);
+    return row === undefined ? null : parseResearchDecisionOutcomeObservation(row);
+  }
+
+  public saveResearchDecisionOutcomeObservation(
+    observationInput: ResearchDecisionOutcomeObservation,
+  ): ResearchDecisionOutcomeObservation {
+    this.#assertOpen();
+    const observation = assertResearchDecisionOutcomeObservation(observationInput);
+    const episode = this.loadResearchDecisionEpisode(observation.episodeId);
+    if (episode === null || episode.workItemId !== observation.workItemId) {
+      throw new Error("research decision outcome observation episode is unavailable");
+    }
+    if (observation.boundaryEpisodeId !== null) {
+      const boundary = this.loadResearchDecisionEpisode(observation.boundaryEpisodeId);
+      if (boundary === null || boundary.workItemId === null ||
+          boundary.workItemId !== episode.workItemId ||
+          boundary.capturedAt.localeCompare(episode.capturedAt) < 0) {
+        throw new Error("research decision outcome boundary episode is invalid");
+      }
+    }
+    const recordJson = canonicalJson(observation);
+    const recordHash = hashCanonical(observation);
+    const retained = this.loadResearchDecisionOutcomeObservation(
+      observation.observationId,
+    );
+    if (retained !== null) {
+      if (hashCanonical(retained) !== recordHash) {
+        throw new Error("research decision outcome observation identity is already bound");
+      }
+      return retained;
+    }
+    const latest = this.loadLatestResearchDecisionOutcomeObservation(
+      observation.episodeId,
+    );
+    if ((latest?.observationId ?? null) !== observation.previousObservationId) {
+      throw new Error("research decision outcome observation predecessor is not latest");
+    }
+    this.#database.prepare(
+      `INSERT INTO research_decision_outcome_observations (
+         observation_id, state_identity, previous_observation_id,
+         boundary_episode_id, episode_id, work_item_id, observed_at,
+         record_json, record_hash
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(observation_id) DO NOTHING`,
+    ).run(
+      observation.observationId,
+      observation.stateIdentity,
+      observation.previousObservationId,
+      observation.boundaryEpisodeId,
+      observation.episodeId,
+      observation.workItemId,
+      observation.observedAt,
+      recordJson,
+      recordHash,
+    );
+    const stored = this.loadResearchDecisionOutcomeObservation(
+      observation.observationId,
+    );
+    if (stored === null || hashCanonical(stored) !== recordHash) {
+      throw new Error("research decision outcome observation transition already exists");
     }
     return stored;
   }

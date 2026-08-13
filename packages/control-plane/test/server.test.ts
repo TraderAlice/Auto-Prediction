@@ -260,6 +260,14 @@ describe("control-plane HTTP surface", () => {
         writesStartedByRead: number;
         automaticDispatch: boolean;
       };
+      discoveryYield: {
+        schemaVersion: string;
+        providerRequestsStartedByRead: number;
+        modelInvocationsStartedByRead: number;
+        writesStartedByRead: number;
+        automaticDispatch: boolean;
+        policyMutationAuthority: boolean;
+      };
       providerRequestsStartedByRead: number;
       modelInvocationsStartedByRead: number;
       writesStartedByRead: number;
@@ -289,6 +297,14 @@ describe("control-plane HTTP surface", () => {
         modelInvocationsStartedByRead: 0,
         writesStartedByRead: 0,
         automaticDispatch: false,
+      },
+      discoveryYield: {
+        schemaVersion: "pmh.discovery-yield-projection.v1",
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        writesStartedByRead: 0,
+        automaticDispatch: false,
+        policyMutationAuthority: false,
       },
       providerRequestsStartedByRead: 0,
       modelInvocationsStartedByRead: 0,
@@ -3370,7 +3386,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 48,
+        schemaVersion: 49,
         },
         records: [{ investigationId: created.investigationId }],
       });
