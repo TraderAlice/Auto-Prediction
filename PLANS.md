@@ -1,6 +1,26 @@
 # Plans
 
 The active execution continuation is
+[`plans/representation-role-coverage-feedback.md`](plans/representation-role-coverage-feedback.md).
+Issue #243 follows the adopted dialect atlas. Exact live evidence distinguishes
+a real source absence from an ontology blind spot: nine Opinion `A vs B`
+component candidates existed but the current first-party role classifier
+rejected all nine. The next generation will compile this representation-role
+gap into descriptive acquisition/ontology/bridge feedback and retain exact
+flat-search coordinates, without treating lexical retrieval as semantic
+realization or automatically changing the classifier.
+
+Issue #243 is selected `ADOPT` as diagnostic and measurement infrastructure.
+The Terra/high specimen left the sports representation blind spot and recovered
+a 20-component / 2-aggregate Senate frontier with grounded Polymarket US pairs,
+but spent 16 invocations and 537,506 input tokens before interruption. Three
+rejected effects show that static tool exposure—not missing descriptive
+evidence—is now the dominant orchestration defect. The next continuation will
+make the callable tool manifest state-scoped so the model cannot select stale
+reads, an incompatible family intent, or prototype actions outside the active
+exact binding.
+
+The active execution continuation is
 [`plans/corpus-dialect-atlas.md`](plans/corpus-dialect-atlas.md).
 Issue #241 follows the first portfolio-guided `EXTEND` specimen. The Agent
 selected the intended experiment but guessed a generic sports vocabulary that

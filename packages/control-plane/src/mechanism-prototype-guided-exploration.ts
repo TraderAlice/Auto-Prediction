@@ -1,6 +1,7 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   assertMarketCorpusSnapshot,
+  assertMarketCorpusSearchResult,
   searchMarketCorpus,
   type MarketCorpusSearchHit,
   type MarketCorpusSearchQuery,
@@ -269,6 +270,28 @@ export type MechanismPrototypeExplorationRoleSearchObservation = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type MechanismPrototypeExplorationFlatSearchObservation = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-flat-search-observation.v1";
+  observationId: Hash;
+  lensId: Hash;
+  inputRevisionId: Hash;
+  semanticInputIdentity: Hash;
+  prototypeId: Hash;
+  axis: MechanismPrototypeExplorationAxis;
+  sourceAgentRunId: Hash;
+  sourceToolCallId: string;
+  capturedAt: string;
+  result: MarketCorpusSearchResult;
+  authority: "DURABLE_FLAT_SEARCH_RETRIEVAL_EVIDENCE_ONLY";
+  lexicalHitSemanticAuthority: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type MechanismPrototypeExplorationActionObservation = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-action-observation.v1";
   observationId: Hash;
@@ -403,7 +426,8 @@ export type MechanismPrototypeExplorationStepObservation = Readonly<{
   toolName: string;
   status: "ACCEPTED" | "REJECTED";
   resultSummary: Readonly<{
-    kind: "LENS_READ" | "DIALECT_ATLAS_READ" | "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
+    kind: "LENS_READ" | "DIALECT_ATLAS_READ" | "REPRESENTATION_ROLE_FEEDBACK_READ" |
+      "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
       "PROTOTYPE_ACTION" | "POSITIVE_TERMINAL" | "EXHAUSTION_TERMINAL" |
       "HYPOTHESIS_ACTION" | "OTHER";
     rawHitCount: number;
@@ -518,7 +542,7 @@ export type MechanismPrototypeExplorationExperimentEpisode = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v4";
+  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v5";
   projectionIdentity: Hash;
   retainedInputCount: number;
   retainedStepCount: number;
@@ -609,7 +633,7 @@ export type MechanismPrototypeExplorationHypothesisIntentAttentionPortfolio = Re
 }>;
 
 export type MechanismPrototypeExplorationHypothesisIntentRealization = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v2";
   reportId: Hash;
   hypothesisId: Hash;
   episodeId: Hash;
@@ -628,9 +652,12 @@ export type MechanismPrototypeExplorationHypothesisIntentRealization = Readonly<
     semanticInputIdentity: Hash;
     sourceAgentRunId: Hash;
     roleSearchObservationCount: number;
+    flatSearchObservationCount: number;
     listingRefCount: number;
+    lexicalRetrievalListingRefCount: number;
     pairRefCount: number;
     listingSetHash: Hash;
+    lexicalRetrievalListingSetHash: Hash;
     pairSetHash: Hash;
   }>;
   comparison: Readonly<{
@@ -638,9 +665,12 @@ export type MechanismPrototypeExplorationHypothesisIntentRealization = Readonly<
     referenceSemanticInputCount: number;
     referenceRunCount: number;
     referenceListingRefCount: number;
+    referenceLexicalRetrievalListingRefCount: number;
     referencePairRefCount: number;
     overlappingListingRefCount: number;
     newListingRefCount: number;
+    overlappingLexicalRetrievalListingRefCount: number;
+    newLexicalRetrievalListingRefCount: number;
     overlappingPairRefCount: number;
     newPairRefCount: number;
     independentSemanticInput: boolean;
@@ -648,7 +678,9 @@ export type MechanismPrototypeExplorationHypothesisIntentRealization = Readonly<
   }>;
   yield: MechanismPrototypeExplorationHypothesisFamily["yield"];
   usage: MechanismPrototypeExplorationHypothesisFamily["usage"];
-  identityBasis: "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_SEARCH_COORDINATES";
+  lexicalRetrievalPosture:
+    "FLAT_SEARCH_HITS_ARE_RETRIEVAL_COORDINATES_NOT_SEMANTIC_FRONTIER_EVIDENCE";
+  identityBasis: "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_AND_FLAT_SEARCH_COORDINATES";
   proseSimilarityUsed: false;
   schedulingAuthority: false;
   semanticDecisionAuthority: false;
@@ -701,7 +733,7 @@ export function buildMechanismPrototypeExplorationHypothesisIntentAttentionPortf
   const unsorted = intents.map((declaredIntent) => {
     const reports = input.reports.filter((report) => report.declaredIntent === declaredIntent);
     const comparable = reports.filter((report) => report.referenceFamilyCount > 0 &&
-      report.current.roleSearchObservationCount > 0);
+      report.current.roleSearchObservationCount + report.current.flatSearchObservationCount > 0);
     const realized = reports.filter((report) =>
       report.realizedClassification.startsWith("REALIZED_")
     );
@@ -921,6 +953,8 @@ export interface MechanismPrototypeExplorationStore {
     OperationalStorageProjection<"exhaustionId">;
   readonly mechanismPrototypeExplorationRoleSearchObservationStorage:
     OperationalStorageProjection<"observationId">;
+  readonly mechanismPrototypeExplorationFlatSearchObservationStorage:
+    OperationalStorageProjection<"observationId">;
   readonly mechanismPrototypeExplorationActionObservationStorage:
     OperationalStorageProjection<"observationId">;
   readonly mechanismPrototypeExplorationStepObservationStorage:
@@ -945,6 +979,11 @@ export interface MechanismPrototypeExplorationStore {
   saveMechanismPrototypeExplorationRoleSearchObservations(observations:
     readonly MechanismPrototypeExplorationRoleSearchObservation[]):
     readonly MechanismPrototypeExplorationRoleSearchObservation[];
+  loadMechanismPrototypeExplorationFlatSearchObservations(limit: number):
+    readonly MechanismPrototypeExplorationFlatSearchObservation[];
+  saveMechanismPrototypeExplorationFlatSearchObservations(observations:
+    readonly MechanismPrototypeExplorationFlatSearchObservation[]):
+    readonly MechanismPrototypeExplorationFlatSearchObservation[];
   loadMechanismPrototypeExplorationActionObservations(limit: number):
     readonly MechanismPrototypeExplorationActionObservation[];
   saveMechanismPrototypeExplorationActionObservations(observations:
@@ -2558,6 +2597,77 @@ export function assertMechanismPrototypeExplorationRoleSearchObservation(
   return value as MechanismPrototypeExplorationRoleSearchObservation;
 }
 
+export function buildMechanismPrototypeExplorationFlatSearchObservation(input: Readonly<{
+  researchInput: MechanismPrototypeExplorationInputRevision;
+  sourceAgentRunId: Hash;
+  sourceToolCallId: string;
+  capturedAt: string;
+  result: MarketCorpusSearchResult;
+}>): MechanismPrototypeExplorationFlatSearchObservation {
+  const researchInput = assertMechanismPrototypeExplorationInputRevision(input.researchInput);
+  const result = assertMarketCorpusSearchResult(input.result);
+  if (!HASH_PATTERN.test(input.sourceAgentRunId) ||
+      input.sourceToolCallId.trim().length < 1 || input.sourceToolCallId.length > 500 ||
+      !Number.isFinite(Date.parse(input.capturedAt)) ||
+      result.snapshotIdentity !== researchInput.corpusSnapshotIdentity) {
+    throw new Error("mechanism exploration flat-search observation lineage is invalid");
+  }
+  const body = Object.freeze({
+    schemaVersion: "pmh.mechanism-prototype-exploration-flat-search-observation.v1" as const,
+    lensId: researchInput.lensId,
+    inputRevisionId: researchInput.inputRevisionId,
+    semanticInputIdentity: researchInput.semanticInputIdentity,
+    prototypeId: researchInput.prototypeId,
+    axis: researchInput.axis,
+    sourceAgentRunId: input.sourceAgentRunId,
+    sourceToolCallId: input.sourceToolCallId,
+    capturedAt: input.capturedAt,
+    result,
+    authority: "DURABLE_FLAT_SEARCH_RETRIEVAL_EVIDENCE_ONLY" as const,
+    lexicalHitSemanticAuthority: false as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return Object.freeze({ ...body, observationId: hashCanonical(body) });
+}
+
+export function assertMechanismPrototypeExplorationFlatSearchObservation(
+  value: unknown,
+): MechanismPrototypeExplorationFlatSearchObservation {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("mechanism exploration flat-search observation is malformed");
+  }
+  const item = value as MechanismPrototypeExplorationFlatSearchObservation;
+  const { observationId, ...body } = item;
+  let result: MarketCorpusSearchResult;
+  try { result = assertMarketCorpusSearchResult(item.result); } catch {
+    throw new Error("mechanism exploration flat-search observation identity is invalid");
+  }
+  if (!HASH_PATTERN.test(String(observationId)) || hashCanonical(body) !== observationId ||
+      item.schemaVersion !==
+        "pmh.mechanism-prototype-exploration-flat-search-observation.v1" ||
+      !HASH_PATTERN.test(String(item.lensId)) ||
+      !HASH_PATTERN.test(String(item.inputRevisionId)) ||
+      !HASH_PATTERN.test(String(item.semanticInputIdentity)) ||
+      !HASH_PATTERN.test(String(item.prototypeId)) ||
+      !HASH_PATTERN.test(String(item.sourceAgentRunId)) ||
+      typeof item.sourceToolCallId !== "string" || item.sourceToolCallId.length < 1 ||
+      item.sourceToolCallId.length > 500 || !Number.isFinite(Date.parse(item.capturedAt)) ||
+      result.snapshotIdentity === undefined ||
+      item.authority !== "DURABLE_FLAT_SEARCH_RETRIEVAL_EVIDENCE_ONLY" ||
+      item.lexicalHitSemanticAuthority !== false || item.semanticDecisionAuthority !== false ||
+      item.probabilityAuthority !== false || item.certificateAuthority !== false ||
+      item.executionAuthority !== false || item.externalWriteAuthority !== false ||
+      item.valueMovingAuthority !== false) {
+    throw new Error("mechanism exploration flat-search observation identity is invalid");
+  }
+  return Object.freeze(item);
+}
+
 export function buildMechanismPrototypeExplorationActionObservation(input: Readonly<{
   researchInput: MechanismPrototypeExplorationInputRevision;
   sourceAgentRunId: Hash;
@@ -2715,7 +2825,8 @@ export function assertMechanismPrototypeExplorationStepObservation(
       typeof item.toolName !== "string" || item.toolName.length < 1 ||
       !["ACCEPTED", "REJECTED"].includes(String(item.status)) ||
       summary === undefined || ![
-        "LENS_READ", "DIALECT_ATLAS_READ", "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
+        "LENS_READ", "DIALECT_ATLAS_READ", "REPRESENTATION_ROLE_FEEDBACK_READ",
+        "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
         "PROTOTYPE_ACTION", "POSITIVE_TERMINAL", "EXHAUSTION_TERMINAL",
         "HYPOTHESIS_ACTION", "OTHER",
       ].includes(String(summary.kind)) || [
@@ -2979,6 +3090,7 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
   inputs: readonly MechanismPrototypeExplorationInputRevision[];
   stepObservations: readonly MechanismPrototypeExplorationStepObservation[];
   roleSearchObservations?: readonly MechanismPrototypeExplorationRoleSearchObservation[];
+  flatSearchObservations?: readonly MechanismPrototypeExplorationFlatSearchObservation[];
   execution: AgentExecutionSnapshot;
   episodeLimit?: number;
 }>): MechanismPrototypeExplorationMemoryProjection {
@@ -2990,6 +3102,9 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
   );
   const retainedRoleSearchObservations = (input.roleSearchObservations ?? []).map(
     assertMechanismPrototypeExplorationRoleSearchObservation,
+  );
+  const retainedFlatSearchObservations = (input.flatSearchObservations ?? []).map(
+    assertMechanismPrototypeExplorationFlatSearchObservation,
   );
   const episodeLimit = input.episodeLimit ?? 32;
   if (!Number.isSafeInteger(episodeLimit) || episodeLimit < 1 || episodeLimit > 512) {
@@ -3111,6 +3226,10 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
       observation.sourceAgentRunId === member.episode.sourceAgentRunId &&
       callIds.has(observation.sourceToolCallId)
     );
+    const flatObservations = retainedFlatSearchObservations.filter((observation) =>
+      observation.sourceAgentRunId === member.episode.sourceAgentRunId &&
+      callIds.has(observation.sourceToolCallId)
+    );
     const listingRefs = [...new Set(observations.flatMap((observation) => [
       ...observation.result.componentHits.map((hit) => hit.listingRef),
       ...observation.result.aggregateHits.map((hit) => hit.listingRef),
@@ -3119,6 +3238,9 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
       observation.result.pairs.map((pair) =>
         `${pair.componentListingRef}\u0000${pair.aggregateListingRef}`
       )))].sort();
+    const lexicalRetrievalListingRefs = [...new Set(flatObservations.flatMap((observation) =>
+      observation.result.hits.map((hit) => hit.listingRef)
+    ))].sort();
     const steps = member.episode.steps.filter((step) =>
       step.effectOrdinal >= member.hypothesis.openedEffectOrdinal &&
       step.effectOrdinal <= end
@@ -3128,7 +3250,8 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
     )).values()];
     const sumTokens = (key: "inputTokens" | "outputTokens" | "reasoningTokens") =>
       invocations.reduce((total, step) => total + BigInt(step[key] ?? "0"), 0n).toString();
-    return Object.freeze({ observations, listingRefs, pairRefs, steps, invocations,
+    return Object.freeze({ observations, flatObservations, listingRefs,
+      lexicalRetrievalListingRefs, pairRefs, steps, invocations,
       usage: Object.freeze({ invocationCount: invocations.length,
         knownInputTokens: sumTokens("inputTokens"), knownOutputTokens: sumTokens("outputTokens"),
         knownReasoningTokens: sumTokens("reasoningTokens"),
@@ -3162,10 +3285,18 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
     const current = exactCoordinates(member);
     const references = referenceMembers.map(exactCoordinates);
     const referenceListingRefs = new Set(references.flatMap((item) => item.listingRefs));
+    const referenceLexicalRetrievalListingRefs = new Set(references.flatMap((item) =>
+      item.lexicalRetrievalListingRefs
+    ));
     const referencePairRefs = new Set(references.flatMap((item) => item.pairRefs));
     const overlappingListingRefCount = current.listingRefs.filter((ref) =>
       referenceListingRefs.has(ref)).length;
     const newListingRefCount = current.listingRefs.length - overlappingListingRefCount;
+    const overlappingLexicalRetrievalListingRefCount =
+      current.lexicalRetrievalListingRefs.filter((ref) =>
+        referenceLexicalRetrievalListingRefs.has(ref)).length;
+    const newLexicalRetrievalListingRefCount = current.lexicalRetrievalListingRefs.length -
+      overlappingLexicalRetrievalListingRefCount;
     const overlappingPairRefCount = current.pairRefs.filter((ref) =>
       referencePairRefs.has(ref)).length;
     const newPairRefCount = current.pairRefs.length - overlappingPairRefCount;
@@ -3176,8 +3307,9 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
     const independentRun = referenceMembers.length > 0 && referenceMembers.every((candidate) =>
       candidate.episode.sourceAgentRunId !== member.episode.sourceAgentRunId
     );
-    const comparable = referenceMembers.length > 0 && current.observations.length > 0 &&
-      references.some((item) => item.observations.length > 0);
+    const comparable = referenceMembers.length > 0 &&
+      current.observations.length + current.flatObservations.length > 0 &&
+      references.some((item) => item.observations.length + item.flatObservations.length > 0);
     const realizedClassification =
       classifyMechanismPrototypeExplorationHypothesisIntentRealization({
         declaredIntent: hypothesis.familyIntent, comparable,
@@ -3186,7 +3318,7 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
     const referenceFamilyIds = new Set(referenceMembers.map((candidate) =>
       familyIdOf(candidate.episode, candidate.hypothesis)));
     const body = Object.freeze({
-      schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v1" as const,
+      schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v2" as const,
       hypothesisId: member.hypothesis.hypothesisId, episodeId: member.episode.episodeId,
       episodeCompletedAt: member.episode.completedAt, runStatus: member.episode.runStatus,
       terminalOutcome: member.episode.terminalOutcome,
@@ -3202,8 +3334,11 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
       current: Object.freeze({ semanticInputIdentity: member.episode.semanticInputIdentity,
         sourceAgentRunId: member.episode.sourceAgentRunId,
         roleSearchObservationCount: current.observations.length,
+        flatSearchObservationCount: current.flatObservations.length,
         listingRefCount: current.listingRefs.length, pairRefCount: current.pairRefs.length,
+        lexicalRetrievalListingRefCount: current.lexicalRetrievalListingRefs.length,
         listingSetHash: hashCanonical(current.listingRefs),
+        lexicalRetrievalListingSetHash: hashCanonical(current.lexicalRetrievalListingRefs),
         pairSetHash: hashCanonical(current.pairRefs) }),
       comparison: Object.freeze({ referenceHypothesisCount: referenceMembers.length,
         referenceSemanticInputCount: new Set(referenceMembers.map((candidate) =>
@@ -3211,12 +3346,17 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
         referenceRunCount: new Set(referenceMembers.map((candidate) =>
           candidate.episode.sourceAgentRunId)).size,
         referenceListingRefCount: referenceListingRefs.size,
+        referenceLexicalRetrievalListingRefCount: referenceLexicalRetrievalListingRefs.size,
         referencePairRefCount: referencePairRefs.size,
         overlappingListingRefCount, newListingRefCount,
+        overlappingLexicalRetrievalListingRefCount, newLexicalRetrievalListingRefCount,
         overlappingPairRefCount, newPairRefCount,
         independentSemanticInput, independentRun }),
       yield: current.yield, usage: current.usage,
-      identityBasis: "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_SEARCH_COORDINATES" as const,
+      lexicalRetrievalPosture:
+        "FLAT_SEARCH_HITS_ARE_RETRIEVAL_COORDINATES_NOT_SEMANTIC_FRONTIER_EVIDENCE" as const,
+      identityBasis:
+        "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_AND_FLAT_SEARCH_COORDINATES" as const,
       proseSimilarityUsed: false as const, schedulingAuthority: false as const,
       semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
       executionAuthority: false as const, externalWriteAuthority: false as const,
@@ -3235,7 +3375,7 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
       total + BigInt(episode.usage[key]), 0n
     ).toString();
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v4" as const,
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v5" as const,
     retainedInputCount: retainedInputs.length,
     retainedStepCount: retainedSteps.length,
     episodeCount: episodes.length,

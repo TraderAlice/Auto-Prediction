@@ -167,6 +167,8 @@ import {
 } from "./mechanism-prototype-guided-exploration.js";
 import { MechanismPrototypeExplorationAgentToolHost } from
   "./mechanism-prototype-guided-exploration-agent-tools.js";
+import { buildRepresentationRoleCoverageFeedback } from
+  "./representation-role-coverage-feedback.js";
 import {
   buildMechanismPrototypeExplorationCampaignPreview,
   resolveMechanismPrototypeExplorationCampaignInput,
@@ -1183,6 +1185,7 @@ function supportsMechanismPrototypeExploration(
     candidate.mechanismPrototypeExplorationTrailheadStorage !== undefined &&
     candidate.mechanismPrototypeExplorationExhaustionStorage !== undefined &&
     candidate.mechanismPrototypeExplorationRoleSearchObservationStorage !== undefined &&
+    candidate.mechanismPrototypeExplorationFlatSearchObservationStorage !== undefined &&
     candidate.mechanismPrototypeExplorationActionObservationStorage !== undefined &&
     candidate.mechanismPrototypeExplorationStepObservationStorage !== undefined &&
     typeof candidate.loadMechanismPrototypeExplorationInputs === "function" &&
@@ -1193,6 +1196,8 @@ function supportsMechanismPrototypeExploration(
     typeof candidate.saveMechanismPrototypeExplorationExhaustions === "function" &&
     typeof candidate.loadMechanismPrototypeExplorationRoleSearchObservations === "function" &&
     typeof candidate.saveMechanismPrototypeExplorationRoleSearchObservations === "function" &&
+    typeof candidate.loadMechanismPrototypeExplorationFlatSearchObservations === "function" &&
+    typeof candidate.saveMechanismPrototypeExplorationFlatSearchObservations === "function" &&
     typeof candidate.loadMechanismPrototypeExplorationActionObservations === "function" &&
     typeof candidate.saveMechanismPrototypeExplorationActionObservations === "function" &&
     typeof candidate.loadMechanismPrototypeExplorationStepObservations === "function" &&
@@ -3439,7 +3444,14 @@ export function createControlPlane(options?: {
               .loadMechanismPrototypeExplorationStepObservations(8_192),
             roleSearchObservations: mechanismPrototypeExplorationStore
               .loadMechanismPrototypeExplorationRoleSearchObservations(2_048),
+            flatSearchObservations: mechanismPrototypeExplorationStore
+              .loadMechanismPrototypeExplorationFlatSearchObservations(2_048),
             execution: agentExecutionRegistry.snapshot(),
+          });
+          const representationRoleFeedback = buildRepresentationRoleCoverageFeedback({
+            corpus,
+            roleSearchObservations: mechanismPrototypeExplorationStore
+              .loadMechanismPrototypeExplorationRoleSearchObservations(2_048),
           });
           return new MechanismPrototypeExplorationAgentToolHost(
             input,
@@ -3448,6 +3460,7 @@ export function createControlPlane(options?: {
             mechanismPrototypeExplorationStore,
             memory.hypothesisFamilies,
             memory.hypothesisIntentAttentionPortfolio,
+            representationRoleFeedback,
           );
         }
         if (task.kind === "RELATION_DISCOVERY") {
@@ -4421,6 +4434,8 @@ export function createControlPlane(options?: {
         stepObservations: explorationSteps,
         roleSearchObservations: mechanismPrototypeExplorationStore
           ?.loadMechanismPrototypeExplorationRoleSearchObservations(2_048) ?? [],
+        flatSearchObservations: mechanismPrototypeExplorationStore
+          ?.loadMechanismPrototypeExplorationFlatSearchObservations(2_048) ?? [],
         execution,
       });
     const corpus = catalogObservationDesk.corpus();

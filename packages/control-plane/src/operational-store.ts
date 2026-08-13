@@ -282,6 +282,7 @@ import {
 import {
   assertMechanismPrototypeExplorationActionObservation,
   assertMechanismPrototypeExplorationStepObservation,
+  assertMechanismPrototypeExplorationFlatSearchObservation,
   assertMechanismPrototypeExplorationRoleSearchObservation,
   assertMechanismPrototypeExplorationExhaustion,
   assertMechanismPrototypeExplorationInputRevision,
@@ -289,6 +290,7 @@ import {
   type MechanismPrototypeExplorationExhaustion,
   type MechanismPrototypeExplorationActionObservation,
   type MechanismPrototypeExplorationInputRevision,
+  type MechanismPrototypeExplorationFlatSearchObservation,
   type MechanismPrototypeExplorationRoleSearchObservation,
   type MechanismPrototypeExplorationStepObservation,
   type MechanismPrototypeExplorationStore,
@@ -337,7 +339,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 58;
+const SCHEMA_VERSION = 59;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -2226,6 +2228,27 @@ function parseMechanismPrototypeExplorationRoleSearchObservation(
   return observation;
 }
 
+function parseMechanismPrototypeExplorationFlatSearchObservation(
+  value: unknown,
+): MechanismPrototypeExplorationFlatSearchObservation {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" || typeof row.observation_id !== "string" ||
+      typeof row.lens_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism exploration flat-search observation row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism exploration flat-search observation contains invalid JSON");
+  }
+  const observation = assertMechanismPrototypeExplorationFlatSearchObservation(decoded);
+  if (observation.observationId !== row.observation_id ||
+      observation.lensId !== row.lens_id || hashCanonical(observation) !== row.record_hash) {
+    throw new Error("SQLite mechanism exploration flat-search observation identity mismatch");
+  }
+  return observation;
+}
+
 function parseMechanismPrototypeExplorationActionObservation(
   value: unknown,
 ): MechanismPrototypeExplorationActionObservation {
@@ -2648,6 +2671,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"exhaustionId">;
   public readonly mechanismPrototypeExplorationRoleSearchObservationStorage:
     OperationalStorageProjection<"observationId">;
+  public readonly mechanismPrototypeExplorationFlatSearchObservationStorage:
+    OperationalStorageProjection<"observationId">;
   public readonly mechanismPrototypeExplorationActionObservationStorage:
     OperationalStorageProjection<"observationId">;
   public readonly mechanismPrototypeExplorationStepObservationStorage:
@@ -2973,6 +2998,12 @@ export class SqliteOperationalStore
       idempotencyKey: "exhaustionId",
     });
     this.mechanismPrototypeExplorationRoleSearchObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
+    });
+    this.mechanismPrototypeExplorationFlatSearchObservationStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
@@ -3480,6 +3511,13 @@ export class SqliteOperationalStore
            name = 'mechanism_prototype_exploration_role_search_observations'`,
       )
       .get() !== undefined;
+    const mechanismPrototypeExplorationFlatSearchObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND
+           name = 'mechanism_prototype_exploration_flat_search_observations'`,
+      )
+      .get() !== undefined;
     const mechanismPrototypeExplorationActionObservationTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -3624,6 +3662,7 @@ export class SqliteOperationalStore
       && mechanismPrototypeExplorationTrailheadTableExists
       && mechanismPrototypeExplorationExhaustionTableExists
       && mechanismPrototypeExplorationRoleSearchObservationTableExists
+      && mechanismPrototypeExplorationFlatSearchObservationTableExists
       && mechanismPrototypeExplorationActionObservationTableExists
       && mechanismPrototypeExplorationStepObservationTableExists
       && worldStateMechanismObservationTableExists
@@ -5571,6 +5610,34 @@ export class SqliteOperationalStore
             );
           CREATE UNIQUE INDEX IF NOT EXISTS mechanism_prototype_exploration_action_call
             ON mechanism_prototype_exploration_action_observations (
+              source_agent_run_id, json_extract(record_json, '$.sourceToolCallId')
+            );
+        `);
+      }
+      if (current < 59 || !mechanismPrototypeExplorationFlatSearchObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS mechanism_prototype_exploration_flat_search_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            lens_id TEXT NOT NULL,
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES mechanism_prototype_exploration_inputs(input_revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS mechanism_prototype_exploration_flat_search_lens
+            ON mechanism_prototype_exploration_flat_search_observations (
+              lens_id, captured_at DESC, observation_id DESC
+            );
+          CREATE UNIQUE INDEX IF NOT EXISTS mechanism_prototype_exploration_flat_search_call
+            ON mechanism_prototype_exploration_flat_search_observations (
               source_agent_run_id, json_extract(record_json, '$.sourceToolCallId')
             );
         `);
@@ -10110,6 +10177,79 @@ export class SqliteOperationalStore
         );
         if (hashCanonical(stored) !== recordHash) {
           throw new Error("observationId is already bound to another role-search observation");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return observations;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadMechanismPrototypeExplorationFlatSearchObservations(
+    limit: number,
+  ): readonly MechanismPrototypeExplorationFlatSearchObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT observation_id, lens_id, record_json, record_hash
+       FROM mechanism_prototype_exploration_flat_search_observations
+       ORDER BY captured_at DESC, observation_id DESC LIMIT ?`,
+    ).all(limit).map(parseMechanismPrototypeExplorationFlatSearchObservation));
+  }
+
+  public saveMechanismPrototypeExplorationFlatSearchObservations(
+    values: readonly MechanismPrototypeExplorationFlatSearchObservation[],
+  ): readonly MechanismPrototypeExplorationFlatSearchObservation[] {
+    this.#assertOpen();
+    const observations = Object.freeze(values
+      .map(assertMechanismPrototypeExplorationFlatSearchObservation));
+    if (new Set(observations.map((item) => item.observationId)).size !==
+        observations.length) {
+      throw new Error("mechanism exploration flat-search batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const observation of observations) {
+        const inputRow = this.#database.prepare(
+          `SELECT input_revision_id, lens_id, record_json, record_hash
+           FROM mechanism_prototype_exploration_inputs WHERE input_revision_id = ?`,
+        ).get(observation.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(observation.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (inputRow === undefined || typeof runRow?.task_id !== "string") {
+          throw new Error("mechanism exploration flat-search references unavailable lineage");
+        }
+        const input = parseMechanismPrototypeExplorationInput(inputRow);
+        if (!this.#mechanismPrototypeExplorationRunMatchesInput(runRow.task_id, input) ||
+            input.lensId !== observation.lensId ||
+            input.prototypeId !== observation.prototypeId ||
+            input.semanticInputIdentity !== observation.semanticInputIdentity ||
+            input.axis !== observation.axis ||
+            input.corpusSnapshotIdentity !== observation.result.snapshotIdentity) {
+          throw new Error("mechanism exploration flat-search is outside its exact input lineage");
+        }
+        const recordJson = canonicalJson(observation);
+        const recordHash = hashCanonical(observation);
+        this.#database.prepare(
+          `INSERT INTO mechanism_prototype_exploration_flat_search_observations (
+             observation_id, lens_id, input_revision_id, source_agent_run_id,
+             captured_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+        ).run(observation.observationId, observation.lensId, observation.inputRevisionId,
+          observation.sourceAgentRunId, observation.capturedAt, recordJson, recordHash);
+        const stored = parseMechanismPrototypeExplorationFlatSearchObservation(
+          this.#database.prepare(
+            `SELECT observation_id, lens_id, record_json, record_hash
+             FROM mechanism_prototype_exploration_flat_search_observations
+             WHERE observation_id = ?`,
+          ).get(observation.observationId),
+        );
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("observationId is already bound to another flat-search observation");
         }
       }
       this.#database.exec("COMMIT");

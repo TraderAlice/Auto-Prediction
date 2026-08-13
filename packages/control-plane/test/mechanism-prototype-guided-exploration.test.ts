@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   assertMechanismPrototypeExplorationInputRevision,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildCorpusDialectAtlas,
+  buildRepresentationRoleCoverageFeedback,
   buildAgentRun,
   completeAgentRun,
   buildModelInvocation,
@@ -13,6 +18,8 @@ import {
   buildMechanismPrototypeExplorationCampaignPreview,
   buildMechanismPrototypeExplorationPrototypeReferences,
   buildMechanismPrototypeExplorationExhaustion,
+  buildMechanismPrototypeExplorationFlatSearchObservation,
+  buildMechanismPrototypeExplorationRoleSearchObservation,
   buildMechanismPrototypeExplorationStepObservation,
   compileMechanismPrototypeExplorationExperimentEpisodes,
   buildMechanismPrototypeExplorationMemoryProjection,
@@ -23,6 +30,8 @@ import {
   defaultAiRuntimeConfiguration,
   resolveMechanismPrototypeExplorationCampaignInput,
   searchMechanismPrototypeExplorationRoles,
+  searchMechanismPrototypeExplorationCorpus,
+  SqliteOperationalStore,
   buildExecutionProfile,
   buildAgentRuntimeDefinition,
   buildCredentialBinding,
@@ -37,6 +46,7 @@ import {
   MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL,
   type DiscoveryCatalogListing,
   type MechanismPrototypeExplorationActionObservation,
+  type MechanismPrototypeExplorationFlatSearchObservation,
   type MechanismPrototypeExplorationRoleSearchObservation,
   type MechanismPrototypeExplorationStore,
   type WorldStateMechanismProposal,
@@ -92,11 +102,12 @@ function mechanismProposal(input: Readonly<{
 }
 
 function acceptedPrototype() {
+  const mechanismProposals = [
+    mechanismProposal({ party: "Democratic Party", state: "Iowa", run: "iowa" }),
+    mechanismProposal({ party: "Republican Party", state: "Alaska", run: "alaska" }),
+  ];
   const sourceInput = materializeWorldStateMechanismPrototypeResearchCases(
-    compileConsolidatedWorldStateMechanismRoutes([
-      mechanismProposal({ party: "Democratic Party", state: "Iowa", run: "iowa" }),
-      mechanismProposal({ party: "Republican Party", state: "Alaska", run: "alaska" }),
-    ]),
+    compileConsolidatedWorldStateMechanismRoutes(mechanismProposals),
   )[0]!.currentInputRevision;
   const prototype = buildWorldStateMechanismPrototypeProposal({
     researchInput: sourceInput,
@@ -118,7 +129,7 @@ function acceptedPrototype() {
     rationale: "The two source routes share a typed mechanism but retain distinct evidence.",
     proposedAt: NOW,
   });
-  return { sourceInput, prototype };
+  return { sourceInput, prototype, mechanismProposals };
 }
 
 function listing(input: Readonly<{
@@ -192,8 +203,59 @@ function corpus(version = 1) {
 }
 
 describe("mechanism-prototype-guided exploration substrate", () => {
+  it("causally distinguishes role-ontology blindness, scoped absence, and bridge gaps", () => {
+    const { sourceInput, prototype, mechanismProposals } = acceptedPrototype();
+    const snapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hash("feedback-source"), eligibleSourceCount: 1,
+      excludedSourceCount: 0,
+      listings: [
+        listing({ ref: "opinion:a-vs-b", venue: "opinion", title: "Baltimore vs Buffalo" }),
+        listing({ ref: "sports:race", venue: "sports", title: "Will Baltimore win the Italian Grand Prix race?" }),
+        listing({ ref: "sports:championship", venue: "sports", title: "Will McLaren win the Formula 1 constructors championship?" }),
+      ],
+    });
+    const lens = materializeMechanismPrototypeExplorationProjection({
+      prototypes: [prototype], prototypeInputs: [sourceInput], corpus: snapshot,
+      ontology: buildMarketOntologySnapshot(snapshot),
+    }).lenses[0]!;
+    const observe = (call: string, result: ReturnType<typeof searchMechanismPrototypeExplorationRoles>) =>
+      buildMechanismPrototypeExplorationRoleSearchObservation({
+        researchInput: lens.currentInputRevision, sourceAgentRunId: hash(`run:${call}`),
+        sourceToolCallId: call, capturedAt: NOW, result,
+      });
+    const blind = observe("blind", searchMechanismPrototypeExplorationRoles({ corpus: snapshot,
+      componentQuery: { patterns: ["vs"], fields: ["title"] },
+      aggregateQuery: { patterns: ["constructors championship"], fields: ["title"] },
+      bridgeSignals: ["Baltimore"] }));
+    const absent = observe("absent", searchMechanismPrototypeExplorationRoles({ corpus: snapshot,
+      componentQuery: { patterns: ["nonexistent lacrosse"] },
+      aggregateQuery: { patterns: ["constructors championship"] },
+      bridgeSignals: ["Ferrari"] }));
+    const bridge = observe("bridge", searchMechanismPrototypeExplorationRoles({ corpus: snapshot,
+      componentQuery: { patterns: ["Italian Grand Prix"] },
+      aggregateQuery: { patterns: ["constructors championship"] },
+      bridgeSignals: ["unshared subject"] }));
+    const feedback = buildRepresentationRoleCoverageFeedback({ corpus: snapshot,
+      roleSearchObservations: [blind, absent, bridge] });
+    expect(feedback).toMatchObject({ retainedObservationCount: 3,
+      classificationCounts: { SOURCE_ABSENT: 1, ONTOLOGY_BLIND_SPOT: 1,
+        BRIDGE_GAP: 1, OBSERVATION_INSUFFICIENT: 0 },
+      automaticMutation: false, automaticAcquisition: false, automaticDispatch: false,
+      semanticDecisionAuthority: false, executionAuthority: false });
+    expect(feedback.gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ classification: "ONTOLOGY_BLIND_SPOT", role: "COMPONENT",
+        recommendedAction: "MUTATE_ROLE_ONTOLOGY", rawHitCount: 1,
+        classifiedHitCount: 0, exactListingRefs: ["opinion:a-vs-b"],
+        observedTitleForms: ["VERSUS"], lexicalPresenceSemanticAuthority: false }),
+      expect.objectContaining({ classification: "SOURCE_ABSENT", role: "COMPONENT",
+        recommendedAction: "ACQUIRE_SOURCE", rawHitCount: 0 }),
+      expect.objectContaining({ classification: "BRIDGE_GAP", role: "PAIR_BRIDGE",
+        recommendedAction: "INVESTIGATE_BRIDGE", pairCount: 0 }),
+    ]));
+  });
+
   it("materializes differentiated zero-authority search lenses from one prototype", () => {
-    const { sourceInput, prototype } = acceptedPrototype();
+    const { sourceInput, prototype, mechanismProposals } = acceptedPrototype();
     const snapshot = corpus();
     const projection = materializeMechanismPrototypeExplorationProjection({
       prototypes: [prototype],
@@ -606,7 +668,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const report = (declaredIntent: "REPLICATE" | "DIFFERENT_TEST",
       classification: "REALIZED_REPLICATION" | "REALIZED_DIFFERENT_TEST") => Object.freeze({
       schemaVersion:
-        "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v1" as const,
+        "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v2" as const,
       reportId: hash(`report:${declaredIntent}`), hypothesisId: hash(`hypothesis:${declaredIntent}`),
       episodeId: hash(`episode:${declaredIntent}`), episodeCompletedAt: NOW,
       runStatus: "SUCCEEDED" as const, terminalOutcome: "EXHAUSTION" as const,
@@ -616,12 +678,17 @@ describe("mechanism-prototype exploration Agent tools", () => {
       comparisonBasis: "DECLARED_PRIOR_FAMILY" as const, referenceFamilyCount: 1,
       current: Object.freeze({ semanticInputIdentity: hash(`input:${declaredIntent}`),
         sourceAgentRunId: hash(`run:${declaredIntent}`), roleSearchObservationCount: 1,
-        listingRefCount: 1, pairRefCount: 0, listingSetHash: hash("listings"),
+        flatSearchObservationCount: 0, listingRefCount: 1,
+        lexicalRetrievalListingRefCount: 0, pairRefCount: 0,
+        listingSetHash: hash("listings"), lexicalRetrievalListingSetHash: hash("flat-listings"),
         pairSetHash: hash("pairs") }),
       comparison: Object.freeze({ referenceHypothesisCount: 1,
         referenceSemanticInputCount: 1, referenceRunCount: 1,
-        referenceListingRefCount: 1, referencePairRefCount: 0,
+        referenceListingRefCount: 1, referenceLexicalRetrievalListingRefCount: 0,
+        referencePairRefCount: 0,
         overlappingListingRefCount: 0, newListingRefCount: 1,
+        overlappingLexicalRetrievalListingRefCount: 0,
+        newLexicalRetrievalListingRefCount: 0,
         overlappingPairRefCount: 0, newPairRefCount: 0,
         independentSemanticInput: true, independentRun: true }),
       yield: Object.freeze({ effectCount: 5, searchEffectCount: 1, rawHitCount: 10,
@@ -629,7 +696,10 @@ describe("mechanism-prototype exploration Agent tools", () => {
       usage: Object.freeze({ invocationCount: 5, knownInputTokens: "1000",
         knownOutputTokens: "100", knownReasoningTokens: "50",
         unknownUsageInvocationCount: 0 }),
-      identityBasis: "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_SEARCH_COORDINATES" as const,
+      lexicalRetrievalPosture:
+        "FLAT_SEARCH_HITS_ARE_RETRIEVAL_COORDINATES_NOT_SEMANTIC_FRONTIER_EVIDENCE" as const,
+      identityBasis:
+        "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_AND_FLAT_SEARCH_COORDINATES" as const,
       proseSimilarityUsed: false as const, schedulingAuthority: false as const,
       semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
       executionAuthority: false as const, externalWriteAuthority: false as const,
@@ -670,7 +740,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
   });
 
   function runtimeFixture(axis: "SURFACE_DOMAIN" | "SUBJECT_AND_GEOGRAPHY" = "SURFACE_DOMAIN") {
-    const { sourceInput, prototype } = acceptedPrototype();
+    const { sourceInput, prototype, mechanismProposals } = acceptedPrototype();
     const snapshot = corpus();
     const lens = materializeMechanismPrototypeExplorationProjection({
       prototypes: [prototype], prototypeInputs: [sourceInput], corpus: snapshot,
@@ -703,7 +773,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       authorization: { kind: "MANUAL", authorizationRef: "operator:test", authorizedAt: NOW },
       createdAt: NOW,
     });
-    return { lens, prototype, snapshot, profile, model, run };
+    return { lens, prototype, mechanismProposals, snapshot, runtime, credential, profile, model, run };
   }
 
   async function openHypothesis(input: Readonly<{
@@ -904,19 +974,21 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const { lens, prototype, snapshot, profile, model, run } = runtimeFixture();
     const steps: MechanismPrototypeExplorationStepObservation[] = [];
     const storage = <K extends string>(idempotencyKey: K) => Object.freeze({
-      mode: "MEMORY" as const, durable: false, schemaVersion: 58, idempotencyKey,
+      mode: "MEMORY" as const, durable: false, schemaVersion: 59, idempotencyKey,
     });
     const store: MechanismPrototypeExplorationStore = {
       mechanismPrototypeExplorationInputStorage: storage("inputRevisionId"),
       mechanismPrototypeExplorationTrailheadStorage: storage("trailheadId"),
       mechanismPrototypeExplorationExhaustionStorage: storage("exhaustionId"),
       mechanismPrototypeExplorationRoleSearchObservationStorage: storage("observationId"),
+      mechanismPrototypeExplorationFlatSearchObservationStorage: storage("observationId"),
       mechanismPrototypeExplorationActionObservationStorage: storage("observationId"),
       mechanismPrototypeExplorationStepObservationStorage: storage("observationId"),
       loadMechanismPrototypeExplorationInputs: () => [], saveMechanismPrototypeExplorationInputs: (v) => v,
       loadMechanismPrototypeExplorationTrailheads: () => [], saveMechanismPrototypeExplorationTrailheads: (v) => v,
       loadMechanismPrototypeExplorationExhaustions: () => [], saveMechanismPrototypeExplorationExhaustions: (v) => v,
       loadMechanismPrototypeExplorationRoleSearchObservations: () => [], saveMechanismPrototypeExplorationRoleSearchObservations: (v) => v,
+      loadMechanismPrototypeExplorationFlatSearchObservations: () => [], saveMechanismPrototypeExplorationFlatSearchObservations: (v) => v,
       loadMechanismPrototypeExplorationActionObservations: () => [], saveMechanismPrototypeExplorationActionObservations: (v) => v,
       loadMechanismPrototypeExplorationStepObservations: () => steps,
       saveMechanismPrototypeExplorationStepObservations: (v) => { steps.push(...v); return v; },
@@ -1187,18 +1259,20 @@ describe("mechanism-prototype exploration Agent tools", () => {
     });
   });
 
-  it("persists each accepted role search before any terminal result exists", async () => {
+  it("persists each accepted role and flat search before any terminal result exists", async () => {
     const { lens, prototype, snapshot, profile, run } = runtimeFixture();
     const observations: MechanismPrototypeExplorationRoleSearchObservation[] = [];
+    const flatObservations: MechanismPrototypeExplorationFlatSearchObservation[] = [];
     const actionObservations: MechanismPrototypeExplorationActionObservation[] = [];
     const storage = <K extends string>(idempotencyKey: K) => Object.freeze({
-      mode: "MEMORY" as const, durable: false, schemaVersion: 58, idempotencyKey,
+      mode: "MEMORY" as const, durable: false, schemaVersion: 59, idempotencyKey,
     });
     const store: MechanismPrototypeExplorationStore = {
       mechanismPrototypeExplorationInputStorage: storage("inputRevisionId"),
       mechanismPrototypeExplorationTrailheadStorage: storage("trailheadId"),
       mechanismPrototypeExplorationExhaustionStorage: storage("exhaustionId"),
       mechanismPrototypeExplorationRoleSearchObservationStorage: storage("observationId"),
+      mechanismPrototypeExplorationFlatSearchObservationStorage: storage("observationId"),
       mechanismPrototypeExplorationActionObservationStorage: storage("observationId"),
       mechanismPrototypeExplorationStepObservationStorage: storage("observationId"),
       loadMechanismPrototypeExplorationInputs: () => [],
@@ -1210,6 +1284,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
       loadMechanismPrototypeExplorationRoleSearchObservations: () => observations,
       saveMechanismPrototypeExplorationRoleSearchObservations: (values) => {
         observations.push(...values);
+        return values;
+      },
+      loadMechanismPrototypeExplorationFlatSearchObservations: () => flatObservations,
+      saveMechanismPrototypeExplorationFlatSearchObservations: (values) => {
+        flatObservations.push(...values);
         return values;
       },
       loadMechanismPrototypeExplorationActionObservations: () => actionObservations,
@@ -1260,6 +1339,18 @@ describe("mechanism-prototype exploration Agent tools", () => {
       authority: "DURABLE_PROTOTYPE_EXPLORATION_ACTION_ONLY",
       semanticDecisionAuthority: false,
     });
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "flat-search:1", toolName: "search_mechanism_exploration_corpus", input: {
+        patterns: ["Ferrari"], syntax: "LITERAL", mode: "ANY",
+        fields: ["title"], venueIds: [], limit: 10,
+      } });
+    expect(flatObservations).toHaveLength(1);
+    expect(flatObservations[0]).toMatchObject({
+      sourceAgentRunId: run.runId, sourceToolCallId: "flat-search:1",
+      result: { query: { patterns: ["Ferrari"] }, hits: expect.any(Array) },
+      authority: "DURABLE_FLAT_SEARCH_RETRIEVAL_EVIDENCE_ONLY",
+      lexicalHitSemanticAuthority: false, semanticDecisionAuthority: false,
+    });
     const interruptedProjection = materializeMechanismPrototypeExplorationProjection({
       prototypes: [prototype],
       prototypeInputs: [lens.sourcePrototypeInput],
@@ -1278,6 +1369,54 @@ describe("mechanism-prototype exploration Agent tools", () => {
       roleSearchRawHitCount: 2, roleSearchQualifiedHitCount: 2, roleSearchPairCount: 1,
       retainedActionObservationCount: 1,
     });
+  });
+
+  it("restores exact flat-search retrieval coordinates across SQLite restart", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pmh-flat-search-"));
+    const databasePath = join(directory, "control-plane.sqlite");
+    try {
+      const { lens, prototype, snapshot, runtime, credential, profile, model, run } = runtimeFixture();
+      const result = searchMechanismPrototypeExplorationCorpus({ corpus: snapshot,
+        query: { patterns: ["Ferrari"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], limit: 10 } });
+      const observation = buildMechanismPrototypeExplorationFlatSearchObservation({
+        researchInput: lens.currentInputRevision, sourceAgentRunId: run.runId,
+        sourceToolCallId: "flat:durable", capturedAt: run.createdAt, result,
+      });
+      const first = new SqliteOperationalStore(databasePath);
+      first.saveAgentExecutionBatch({ runtimeDefinitions: [runtime],
+        credentialBindings: [credential], modelProfiles: [model],
+        executionProfiles: [profile], tasks: [lens.task], runs: [run] });
+      first.close();
+      const seed = new DatabaseSync(databasePath);
+      seed.prepare(`INSERT INTO world_state_mechanism_prototype_inputs (
+        revision_id, candidate_id, materialized_at, record_json, record_hash
+      ) VALUES (?, ?, ?, ?, ?)`)
+        .run(lens.sourcePrototypeInput.revisionId, lens.sourcePrototypeInput.candidateId,
+          lens.sourcePrototypeInput.materializedAt, JSON.stringify(lens.sourcePrototypeInput),
+          hashCanonical(lens.sourcePrototypeInput));
+      seed.prepare(`INSERT INTO world_state_mechanism_prototypes (
+        prototype_id, candidate_id, input_revision_id, source_agent_run_id,
+        proposed_at, record_json, record_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(prototype.prototypeId, prototype.candidateId, lens.sourcePrototypeInput.revisionId,
+          run.runId, prototype.proposedAt, JSON.stringify(prototype), hashCanonical(prototype));
+      seed.close();
+      const persisted = new SqliteOperationalStore(databasePath);
+      persisted.saveMechanismPrototypeExplorationInputs([lens.currentInputRevision]);
+      expect(persisted.saveMechanismPrototypeExplorationFlatSearchObservations([observation]))
+        .toEqual([observation]);
+      persisted.close();
+      const reopened = new SqliteOperationalStore(databasePath);
+      expect(reopened.loadMechanismPrototypeExplorationFlatSearchObservations(10))
+        .toEqual([observation]);
+      expect(reopened.mechanismPrototypeExplorationFlatSearchObservationStorage)
+        .toMatchObject({ mode: "SQLITE_WAL", durable: true, schemaVersion: 59,
+          idempotencyKey: "observationId" });
+      reopened.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("rejects cross-venue election parameter novelty from the world-domain lane", async () => {
@@ -1412,7 +1551,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(read).toMatchObject({
       status: "ACCEPTED",
       output: {
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v5",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v6",
         axisContract: {
           admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
           sourcePredicateFamilies: expect.arrayContaining(["ELECTION_OR_OFFICE"]),

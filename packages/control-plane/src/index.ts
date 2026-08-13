@@ -35,6 +35,7 @@ export * from "./market-archaeologist.js";
 export * from "./opportunity-lifecycle-desk.js";
 export * from "./market-corpus.js";
 export * from "./corpus-dialect-atlas.js";
+export * from "./representation-role-coverage-feedback.js";
 export * from "./market-ontology.js";
 export * from "./market-ontology-agent-tools.js";
 export * from "./ontology-search-ecology.js";
