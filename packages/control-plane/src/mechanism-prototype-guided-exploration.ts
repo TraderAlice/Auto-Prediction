@@ -492,7 +492,7 @@ export type MechanismPrototypeExplorationExperimentEpisode = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v2";
   projectionIdentity: Hash;
   retainedInputCount: number;
   retainedStepCount: number;
@@ -512,6 +512,8 @@ export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
     unknownUsageInvocationCount: number;
   }>;
   episodes: readonly MechanismPrototypeExplorationExperimentEpisode[];
+  hypothesisFamilyCount: number;
+  hypothesisFamilies: readonly MechanismPrototypeExplorationHypothesisFamily[];
   currentCorpusAuthority: false;
   currentEligibilityAuthority: false;
   campaignAuthority: false;
@@ -529,6 +531,51 @@ export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
   semanticDecisionAuthority: false;
   probabilityAuthority: false;
   certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type MechanismPrototypeExplorationHypothesisFamily = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-family.v1";
+  familyId: Hash;
+  prototypeId: Hash;
+  axis: MechanismPrototypeExplorationAxis;
+  testBinding: MechanismPrototypeExplorationHypothesis["testBinding"];
+  hypothesisCount: number;
+  distinctRunCount: number;
+  distinctSemanticInputCount: number;
+  dispositionCounts: Readonly<Record<
+    (typeof MECHANISM_PROTOTYPE_EXPLORATION_HYPOTHESIS_DISPOSITIONS)[number], number
+  >>;
+  selectionSignal: "FIRST_OBSERVATION" | "MIXED_EVIDENCE" |
+    "REPLICATED_FALSIFICATION" | "REPLICATION_YIELD";
+  recentExemplars: readonly Readonly<{
+    hypothesisId: Hash;
+    materialVariation: string;
+    disposition: NonNullable<MechanismPrototypeExplorationHypothesis["disposition"]>;
+    falsifyingObservation: string;
+  }>[];
+  yield: Readonly<{
+    effectCount: number;
+    searchEffectCount: number;
+    rawHitCount: number;
+    qualifiedHitCount: number;
+    rolePairCount: number;
+    inspectedListingCount: number;
+  }>;
+  usage: Readonly<{
+    invocationCount: number;
+    knownInputTokens: string;
+    knownOutputTokens: string;
+    knownReasoningTokens: string;
+    unknownUsageInvocationCount: number;
+  }>;
+  identityBasis: "EXACT_PROTOTYPE_AXIS_AND_TEST_BINDING";
+  proseSimilarityUsed: false;
+  schedulingAuthority: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
   executionAuthority: false;
   externalWriteAuthority: false;
   valueMovingAuthority: false;
@@ -2686,12 +2733,106 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
     stepObservations: retainedSteps,
     execution: input.execution,
   }).slice(0, episodeLimit);
+  const familyMembers = episodes.flatMap((episode) => (episode.hypotheses ?? [])
+    .flatMap((hypothesis) => hypothesis.final.status !== "CLOSED" ||
+        hypothesis.final.disposition === null ? [] : [Object.freeze({ episode, hypothesis })]));
+  const familyKeys = [...new Set(familyMembers.map(({ episode, hypothesis }) =>
+    hashCanonical(Object.freeze({
+      schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-family-identity.v1",
+      prototypeId: episode.prototypeId, axis: episode.axis,
+      testBinding: hypothesis.final.testBinding,
+    }))
+  ))];
+  const hypothesisFamilies: readonly MechanismPrototypeExplorationHypothesisFamily[] =
+    Object.freeze(familyKeys.map((familyId) => {
+      const members = familyMembers.filter(({ episode, hypothesis }) => hashCanonical(
+        Object.freeze({
+          schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-family-identity.v1",
+          prototypeId: episode.prototypeId, axis: episode.axis,
+          testBinding: hypothesis.final.testBinding,
+        })) === familyId);
+      const first = members[0]!;
+      const spans = members.map(({ episode, hypothesis }) => {
+        const steps = episode.steps.filter((step) =>
+          step.effectOrdinal >= hypothesis.openedEffectOrdinal &&
+          step.effectOrdinal <= (hypothesis.closedEffectOrdinal ?? step.effectOrdinal)
+        );
+        const invocationIds = new Set(steps.map((step) => step.sourceInvocationId));
+        const uniqueInvocationSteps = steps.filter((step) => {
+          if (!invocationIds.has(step.sourceInvocationId)) return false;
+          invocationIds.delete(step.sourceInvocationId);
+          return true;
+        });
+        return Object.freeze({ steps, invocations: uniqueInvocationSteps });
+      });
+      const dispositions = members.map(({ hypothesis }) => hypothesis.final.disposition!);
+      const count = (value: typeof dispositions[number]) =>
+        dispositions.filter((item) => item === value).length;
+      const dispositionCounts = Object.freeze({ SUPPORTED: count("SUPPORTED"),
+        WEAKENED: count("WEAKENED"), FALSIFIED: count("FALSIFIED"),
+        UNRESOLVED: count("UNRESOLVED") });
+      const sumTokens = (key: "inputTokens" | "outputTokens" | "reasoningTokens") =>
+        spans.flatMap((span) => span.invocations).reduce((total, step) =>
+          total + BigInt(step[key] ?? "0"), 0n).toString();
+      const body = Object.freeze({
+        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-family.v1" as const,
+        familyId, prototypeId: first.episode.prototypeId, axis: first.episode.axis,
+        testBinding: first.hypothesis.final.testBinding,
+        hypothesisCount: members.length,
+        distinctRunCount: new Set(members.map(({ episode }) => episode.sourceAgentRunId)).size,
+        distinctSemanticInputCount: new Set(members.map(({ episode }) =>
+          episode.semanticInputIdentity)).size,
+        dispositionCounts,
+        selectionSignal: members.length === 1 ? "FIRST_OBSERVATION" as const
+          : dispositionCounts.FALSIFIED === members.length
+            ? "REPLICATED_FALSIFICATION" as const
+            : dispositionCounts.SUPPORTED + dispositionCounts.WEAKENED > 0 &&
+                dispositionCounts.FALSIFIED > 0
+              ? "MIXED_EVIDENCE" as const : "REPLICATION_YIELD" as const,
+        recentExemplars: Object.freeze(members.slice(0, 4).map(({ hypothesis }) =>
+          Object.freeze({ hypothesisId: hypothesis.hypothesisId,
+            materialVariation: hypothesis.final.materialVariation,
+            disposition: hypothesis.final.disposition!,
+            falsifyingObservation: hypothesis.final.falsifyingObservation }))
+        ),
+        yield: Object.freeze({
+          effectCount: spans.reduce((n, span) => n + span.steps.length, 0),
+          searchEffectCount: spans.reduce((n, span) => n + span.steps.filter((step) =>
+            step.resultSummary.kind === "FLAT_SEARCH" ||
+            step.resultSummary.kind === "ROLE_SEARCH").length, 0),
+          rawHitCount: spans.flatMap((span) => span.steps).reduce((n, step) =>
+            n + step.resultSummary.rawHitCount, 0),
+          qualifiedHitCount: spans.flatMap((span) => span.steps).reduce((n, step) =>
+            n + step.resultSummary.qualifiedHitCount, 0),
+          rolePairCount: spans.flatMap((span) => span.steps).reduce((n, step) =>
+            n + step.resultSummary.pairCount, 0),
+          inspectedListingCount: spans.flatMap((span) => span.steps).reduce((n, step) =>
+            n + step.resultSummary.inspectedListingCount, 0),
+        }),
+        usage: Object.freeze({
+          invocationCount: spans.reduce((n, span) => n + span.invocations.length, 0),
+          knownInputTokens: sumTokens("inputTokens"),
+          knownOutputTokens: sumTokens("outputTokens"),
+          knownReasoningTokens: sumTokens("reasoningTokens"),
+          unknownUsageInvocationCount: spans.flatMap((span) => span.invocations)
+            .filter((step) => step.inputTokens === null || step.outputTokens === null ||
+              step.reasoningTokens === null).length,
+        }),
+        identityBasis: "EXACT_PROTOTYPE_AXIS_AND_TEST_BINDING" as const,
+        proseSimilarityUsed: false as const, schedulingAuthority: false as const,
+        semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
+        executionAuthority: false as const, externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+      });
+      return body;
+    }).sort((left, right) => right.hypothesisCount - left.hypothesisCount ||
+      left.familyId.localeCompare(right.familyId)));
   const sum = (key: "knownInputTokens" | "knownOutputTokens" |
     "knownReasoningTokens") => episodes.reduce((total, episode) =>
       total + BigInt(episode.usage[key]), 0n
     ).toString();
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v1" as const,
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v2" as const,
     retainedInputCount: retainedInputs.length,
     retainedStepCount: retainedSteps.length,
     episodeCount: episodes.length,
@@ -2718,6 +2859,8 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
         total + episode.usage.unknownUsageInvocationCount, 0),
     }),
     episodes,
+    hypothesisFamilyCount: hypothesisFamilies.length,
+    hypothesisFamilies,
     currentCorpusAuthority: false as const,
     currentEligibilityAuthority: false as const,
     campaignAuthority: false as const,

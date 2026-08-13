@@ -3092,6 +3092,36 @@ footer {
   line-height: 1.4;
 }
 
+.hypothesis-family-memory {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.hypothesis-family-row {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  font-size: 12px;
+}
+
+.hypothesis-family-row > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hypothesis-family-row span,
+.hypothesis-family-row small {
+  color: var(--muted-foreground);
+}
+
 .mechanism-seed-pair {
   display: grid;
   gap: 5px;

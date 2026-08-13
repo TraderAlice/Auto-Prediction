@@ -845,6 +845,24 @@ describe("mechanism-prototype exploration Agent tools", () => {
         final: { disposition: "FALSIFIED" }, openedEffectOrdinal: 1,
         closedEffectOrdinal: 3 }], usage: { knownInputTokens: "300" },
     });
+    const memory = buildMechanismPrototypeExplorationMemoryProjection({
+      inputs: [lens.currentInputRevision], stepObservations: steps,
+      execution: { runtimeDefinitions: [], credentialBindings: [], modelProfiles: [model],
+        executionProfiles: [profile], capabilityObservations: [], workloadRoutes: [], tasks: [],
+        runs: [completeAgentRun(run, "SUCCEEDED", NOW, null)], modelInvocations: invocations,
+        toolEffects: effects, runArtifacts: [], runAnnotations: [], campaigns: [],
+        resultSelections: [] },
+    });
+    expect(memory).toMatchObject({ hypothesisFamilyCount: 1,
+      hypothesisFamilies: [{ axis: "SURFACE_DOMAIN", hypothesisCount: 1,
+        distinctRunCount: 1, distinctSemanticInputCount: 1,
+        dispositionCounts: { SUPPORTED: 0, WEAKENED: 0, FALSIFIED: 1, UNRESOLVED: 0 },
+        selectionSignal: "FIRST_OBSERVATION",
+        yield: { effectCount: 3, searchEffectCount: 0 },
+        usage: { invocationCount: 3, knownInputTokens: "300" },
+        identityBasis: "EXACT_PROTOTYPE_AXIS_AND_TEST_BINDING",
+        proseSimilarityUsed: false, schedulingAuthority: false,
+        semanticDecisionAuthority: false, valueMovingAuthority: false }] });
   });
 
   it("searches and inspects before retaining an exact routing-only trailhead", async () => {

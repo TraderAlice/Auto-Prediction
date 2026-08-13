@@ -1,6 +1,23 @@
 # Plans
 
 The active execution continuation is
+[`plans/hypothesis-family-memory.md`](plans/hypothesis-family-memory.md).
+Issue #229 compiles exact prototype/test coordinates across V10 episodes so
+already falsified conjectures become reusable selection evidence rather than a
+new 200k-token purchase under paraphrased prose. Family memory is descriptive
+only: a new corpus input may justify replication, and no family can assert
+semantic equivalence or block scheduling.
+
+Issue #229 is selected `ADOPT`. The first exact family separates 155,406 input
+tokens of hypothesis testing from the 217,978-token whole episode, while
+retaining the same 38→16→0 search yield and falsified disposition. V9 memory is
+not fabricated into a family. The public memory/world-state projections advance
+to V2/V7 after hot-reload evidence caught an incompatible required-field
+addition. The next continuation will expose compact family history to the
+Agent and require a declared `EXTEND / REPLICATE / DIFFERENT_TEST` intent,
+without granting the family automatic scheduling authority.
+
+The active execution continuation is
 [`plans/falsifiable-exploration-hypotheses.md`](plans/falsifiable-exploration-hypotheses.md).
 Issue #227 turns durable V9 search episodes into hypothesis-bearing experiments.
 Reconnaissance remains open-ended, but a terminal result must close an explicit,

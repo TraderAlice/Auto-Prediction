@@ -672,7 +672,7 @@ type SemanticNoveltyProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 type WorldStateMechanismProjection = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-projection.v6";
+  schemaVersion: "pmh.world-state-mechanism-projection.v7";
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
@@ -782,7 +782,7 @@ type WorldStateMechanismProjection = Readonly<{
     }>>;
   }>;
   mechanismPrototypeExplorationMemory: Readonly<{
-    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v1";
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v2";
     projectionIdentity: string;
     retainedInputCount: number;
     retainedStepCount: number;
@@ -843,6 +843,30 @@ type WorldStateMechanismProjection = Readonly<{
         openedEffectOrdinal: number;
         closedEffectOrdinal: number | null;
       }>>;
+    }>>;
+    hypothesisFamilyCount: number;
+    hypothesisFamilies: ReadonlyArray<Readonly<{
+      familyId: string;
+      axis: string;
+      testBinding: Readonly<{ kind: string; ordinal: number; handle: string; exactText: string }>;
+      hypothesisCount: number;
+      distinctRunCount: number;
+      distinctSemanticInputCount: number;
+      dispositionCounts: Readonly<{ SUPPORTED: number; WEAKENED: number;
+        FALSIFIED: number; UNRESOLVED: number }>;
+      selectionSignal: "FIRST_OBSERVATION" | "MIXED_EVIDENCE" |
+        "REPLICATED_FALSIFICATION" | "REPLICATION_YIELD";
+      recentExemplars: ReadonlyArray<Readonly<{
+        hypothesisId: string; materialVariation: string; disposition: string;
+        falsifyingObservation: string;
+      }>>;
+      yield: Readonly<{ effectCount: number; searchEffectCount: number;
+        rawHitCount: number; qualifiedHitCount: number; rolePairCount: number;
+        inspectedListingCount: number }>;
+      usage: Readonly<{ invocationCount: number; knownInputTokens: string }>;
+      proseSimilarityUsed: false;
+      schedulingAuthority: false;
+      semanticDecisionAuthority: false;
     }>>;
     currentCorpusAuthority: false;
     currentEligibilityAuthority: false;
@@ -4161,7 +4185,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
-      "pmh.world-state-mechanism-projection.v6" ||
+      "pmh.world-state-mechanism-projection.v7" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness.schemaVersion !==
       "pmh.world-state-subject-binding-promotion-readiness.v1" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
@@ -4173,7 +4197,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.worldStateMechanisms.retainedMechanismMemory.schemaVersion !==
       "pmh.retained-world-state-mechanism-memory.v1" ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory.schemaVersion !==
-      "pmh.mechanism-prototype-exploration-memory-projection.v1" ||
+      "pmh.mechanism-prototype-exploration-memory-projection.v2" ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
       .currentCorpusAuthority !== false ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
@@ -4702,6 +4726,32 @@ function AgentOperationsView() {
                 <span>{worldStateMechanisms.mechanismPrototypeExplorationMemory.retainedStepCount} causal steps · {worldStateMechanisms.mechanismPrototypeExplorationMemory.usage.invocationCount} episode calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExplorationMemory.usage.knownInputTokens)} episode input</span>
                 <code>NO CURRENT-CORPUS AUTHORITY</code>
               </div>
+              {worldStateMechanisms.mechanismPrototypeExplorationMemory.hypothesisFamilies.length > 0 && (
+                <div className="hypothesis-family-memory">
+                  <div className="mechanism-experiment-memory-head">
+                    <div>
+                      <span className="eyebrow">Hypothesis family memory</span>
+                      <strong>{worldStateMechanisms.mechanismPrototypeExplorationMemory.hypothesisFamilyCount} exact test families</strong>
+                      <small>Grouped by prototype, variation axis and exact test binding—not prose similarity or semantic truth.</small>
+                    </div>
+                    <Badge variant="shadow">NO SCHEDULING AUTHORITY</Badge>
+                  </div>
+                  {worldStateMechanisms.mechanismPrototypeExplorationMemory.hypothesisFamilies.slice(0, 4).map((family) => (
+                    <article key={family.familyId} className="hypothesis-family-row">
+                      <div>
+                        <Badge variant={family.selectionSignal === "REPLICATED_FALSIFICATION" ? "warning" : "shadow"}>
+                          {family.selectionSignal.replaceAll("_", " ")}
+                        </Badge>
+                        <code>{family.familyId.slice(7, 19)}</code>
+                      </div>
+                      <strong>{family.testBinding.handle} · {family.axis.replaceAll("_", " ")}</strong>
+                      <span>{family.hypothesisCount} hypotheses / {family.distinctSemanticInputCount} exact inputs · {family.dispositionCounts.FALSIFIED} falsified · {family.dispositionCounts.SUPPORTED} supported</span>
+                      <span>{family.yield.searchEffectCount} searches · {family.yield.rawHitCount} raw → {family.yield.qualifiedHitCount} qualified → {family.yield.rolePairCount} pairs · {family.yield.inspectedListingCount} inspected</span>
+                      <small>{family.usage.invocationCount} hypothesis-span calls · {formatTokenCount(family.usage.knownInputTokens)} input · exact coordinates only</small>
+                    </article>
+                  ))}
+                </div>
+              )}
             </section>
             {worldStateMechanisms.mechanismPrototypeExploration === null && (
               <section className="mechanism-exploration-unavailable">
