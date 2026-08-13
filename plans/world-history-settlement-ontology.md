@@ -177,4 +177,12 @@ or value-moving operations.
 
 ## Status
 
-Architecture and domain implementation in progress.
+Domain, SQLite persistence, legacy adapters and both compiler bridges are
+implemented. The state-refreshed Agent protocol now supports up to eight
+independently named corpus neighborhoods, exact evidence inspection, an
+Agent-selected complete true/false counterworld assignment, host-bound outcome
+recording, bounded terminal dispositions, and post-run injection of exact
+run/effect/invocation/token lineage. Focused protocol tests reject stale tools,
+incomplete counterworlds and unsupported hard conclusions. Campaign selection,
+runtime routing, durable input revisions and the compact Studio projection are
+the active implementation frontier.
