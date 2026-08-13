@@ -3526,6 +3526,19 @@ export function createControlPlane(options?: {
       invalidateAgentTaskReadiness();
     }
   };
+  const reconcileWorldStateMechanismResearchAssignments = (): void => {
+    worldStateMechanismResearchAssignments =
+      materializeWorldStateMechanismResearchAssignments({
+        revisions: ontologySearchIssueRevisions,
+        proposals: worldStateMechanismProposalStore
+          ?.loadWorldStateMechanismProposals(512) ?? [],
+        counterexamples: worldStateMechanismCounterexampleStore
+          ?.loadWorldStateMechanismCounterexamples(512) ?? [],
+        abstentions: worldStateMechanismAbstentionStore
+          ?.loadWorldStateMechanismAbstentions(512) ?? [],
+      });
+    invalidateAgentTaskReadiness();
+  };
   const reconcileRelationDiscoveryTasks = (): void => {
     if (relationDiscoveryStore === null) return;
     const corpus = catalogObservationDesk.corpus();
@@ -5207,6 +5220,14 @@ export function createControlPlane(options?: {
   };
   const reconcileAfterAgentTaskCompletion = async (taskId: Hash): Promise<void> => {
     const task = agentExecutionRegistry.snapshot().tasks.find((item) => item.taskId === taskId);
+    if (task?.kind === "WORLD_STATE_MECHANISM_RESEARCH") {
+      try {
+        reconcileWorldStateMechanismResearchAssignments();
+        reconcileWorldStateMechanismObservations();
+      } catch {
+        // Durable results remain authoritative; startup or catalog refresh retries projection repair.
+      }
+    }
     if (task?.kind === "ONTOLOGY_NORMALIZATION" || task?.kind === "RELATION_DISCOVERY") {
       try {
         reconcileWorldStateMechanismObservations();
