@@ -1,6 +1,15 @@
 # Plans
 
 The active execution continuation is
+[`plans/state-refreshed-agent-boundary.md`](plans/state-refreshed-agent-boundary.md).
+Issue #247 follows abandoned mutation PR #246. Codex app-server binds dynamic
+tools at thread start, and live Terra evidence shows prompt recommendations
+plus composed schema do not make that surface state-safe. The next candidate
+will add an opt-in runtime manifest-refresh contract: settle the current
+effect, rotate to a fresh ephemeral thread with only currently legal tools,
+and carry a bounded exact transcript across the boundary.
+
+The active execution continuation is
 [`plans/representation-role-coverage-feedback.md`](plans/representation-role-coverage-feedback.md).
 Issue #243 follows the adopted dialect atlas. Exact live evidence distinguishes
 a real source absence from an ontology blind spot: nine Opinion `A vs B`
