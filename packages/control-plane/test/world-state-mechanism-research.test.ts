@@ -10,6 +10,7 @@ import {
   buildWorldStateMechanismCampaignPreview,
   buildWorldStateMechanismResearchYield,
   buildPausedAgentCampaign,
+  buildWorldStateMechanismProposal,
   defaultAiRuntimeConfiguration,
   completeAgentRun,
   materializeOntologySearchIssueRevisions,
@@ -22,7 +23,7 @@ import {
 
 const NOW = "2026-08-13T12:00:00.000Z";
 
-function listing(ref: string, title: string): DiscoveryCatalogListing {
+function listing(ref: string, title: string, receivedAt = NOW): DiscoveryCatalogListing {
   const [venueId, venueInstrumentId] = ref.split(":") as [string, string];
   return Object.freeze({
     listingRef: ref, venueId, venueInstrumentId, title, description: title,
@@ -33,18 +34,18 @@ function listing(ref: string, title: string): DiscoveryCatalogListing {
       Object.freeze({ venueOutcomeId: "no", label: "No", indicativePrice: "600000000000000000" }),
     ]),
     priceScale: "1000000000000000000", quantityScale: "1000000000000000000",
-    minPriceTick: "1", sourceKind: "LIVE_OBSERVATION", sourceReceivedAt: NOW,
+    minPriceTick: "1", sourceKind: "LIVE_OBSERVATION", sourceReceivedAt: receivedAt,
     sourceRawHash: hashCanonical({ ref }), protocolIdentity: `protocol:${venueId}:v1`,
   });
 }
 
-function fixture() {
+function fixture(receivedAt = NOW) {
   const corpus = buildMarketCorpusSnapshot({
     sourceSetIdentity: hashCanonical({ fixture: "mechanism-research" }),
     eligibleSourceCount: 2, excludedSourceCount: 0,
     listings: [
-      listing("a:trump-shot", "Will Trump be shot during August?"),
-      listing("b:trump-cola", "Will Trump livestream drinking cola during September?"),
+      listing("a:trump-shot", "Will Trump be shot during August?", receivedAt),
+      listing("b:trump-cola", "Will Trump livestream drinking cola during September?", receivedAt),
     ],
   });
   const ontology = buildMarketOntologySnapshot(corpus);
@@ -314,5 +315,77 @@ describe("world-state mechanism research role", () => {
         runCount: 1,
       })]),
     });
+  });
+
+  it("carries evidence-bound mechanism coverage across exact revision snapshots", () => {
+    const historical = fixture("2026-08-13T11:00:00.000Z");
+    const current = fixture("2026-08-13T12:00:00.000Z");
+    const historicalRevision = historical.revisions[0]!;
+    const currentRevision = current.revisions.find((item) =>
+      item.issueId === historicalRevision.issueId
+    )!;
+    expect(currentRevision.revisionId).not.toBe(historicalRevision.revisionId);
+    const proposal = buildWorldStateMechanismProposal({
+      ontologyIdentity: historicalRevision.ontologyIdentity,
+      sourceSnapshotIdentity: historicalRevision.sourceSnapshotIdentity,
+      sourceIssueRevisionId: historicalRevision.revisionId,
+      sourceAgentRunId: hashCanonical({ run: "historical-mechanism" }),
+      sourceTrailheadIds: [historicalRevision.trailheadIds[0]!],
+      sourceRelationPatternIds: [historicalRevision.relationPatternId],
+      subjectLabel: "Trump",
+      subjectAliases: ["Trump"],
+      subjectAmbiguityNotes: ["Both bindings must refer to the same person."],
+      trigger: {
+        predicateLabel: "is shot during August",
+        searchSignals: ["shot", "August"],
+        influence: "MAY_DEGRADE_STATE",
+        evidenceBindings: [{
+          listingRef: "a:trump-shot", title: "Will Trump be shot during August?",
+          nodeId: hashCanonical({ node: "shot" }),
+          worldFacetId: hashCanonical({ facet: "shot" }),
+          sourceRawHash: hashCanonical({ raw: "shot" }),
+          protocolIdentity: "protocol:a:v1",
+        }],
+      },
+      state: { dimension: "PHYSICAL_CAPABILITY", label: "Trump can appear publicly" },
+      dependent: {
+        predicateLabel: "livestreams drinking cola during September",
+        searchSignals: ["livestream", "cola", "September"],
+        requirement: "STATE_INFLUENCES_LIKELIHOOD",
+        evidenceBindings: [{
+          listingRef: "b:trump-cola",
+          title: "Will Trump livestream drinking cola during September?",
+          nodeId: hashCanonical({ node: "cola" }),
+          worldFacetId: hashCanonical({ facet: "cola" }),
+          sourceRawHash: hashCanonical({ raw: "cola" }),
+          protocolIdentity: "protocol:b:v1",
+        }],
+      },
+      temporalPosture: "TRIGGER_PRECEDES_DEPENDENT",
+      counterScenarios: ["Trump recovers before September."],
+      rationale: "The first event may change the likelihood of the later public action.",
+      proposedAt: NOW,
+    });
+
+    const withoutEvidence = materializeWorldStateMechanismResearchAssignments({
+      revisions: [currentRevision], proposals: [proposal], counterexamples: [], abstentions: [],
+    })[0]!;
+    expect(withoutEvidence).toMatchObject({
+      coverageState: "UNEXPLORED",
+      campaignEligible: true,
+      matchedProposalIds: [],
+    });
+    const covered = materializeWorldStateMechanismResearchAssignments({
+      revisions: [currentRevision],
+      historicalRevisions: [historicalRevision],
+      proposals: [proposal], counterexamples: [], abstentions: [],
+    })[0]!;
+    expect(covered).toMatchObject({
+      mechanismIssueId: historical.assignments[0]!.mechanismIssueId,
+      coverageState: "PROPOSED",
+      campaignEligible: false,
+      matchedProposalIds: [proposal.proposalId],
+    });
+    expect(proposal.sourceIssueRevisionId).toBe(historicalRevision.revisionId);
   });
 });

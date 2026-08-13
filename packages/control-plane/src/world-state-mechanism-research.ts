@@ -114,10 +114,16 @@ export function buildWorldStateMechanismResearchTaskContract(
 
 export function materializeWorldStateMechanismResearchAssignments(input: Readonly<{
   revisions: readonly OntologySearchIssueRevision[];
+  historicalRevisions?: readonly OntologySearchIssueRevision[];
   proposals: readonly WorldStateMechanismProposal[];
   counterexamples: readonly WorldStateMechanismCounterexample[];
   abstentions: readonly WorldStateMechanismAbstention[];
 }>): readonly WorldStateMechanismResearchAssignment[] {
+  const revisionLineages = new Map(
+    [...input.revisions, ...(input.historicalRevisions ?? [])].map((revision) =>
+      [revision.revisionId, worldStateMechanismResearchIssueIdentity(revision)] as const
+    ),
+  );
   return Object.freeze(input.revisions.map((revision) => {
     const mechanismIssueId = worldStateMechanismResearchIssueIdentity(revision);
     const taskContract = buildWorldStateMechanismResearchTaskContract(revision);
@@ -135,11 +141,11 @@ export function materializeWorldStateMechanismResearchAssignments(input: Readonl
       priority: priority(revision.selectionLane) * 100,
       createdAt: ESTABLISHED_AT,
     });
-    const matchesRevision = (item: { sourceIssueRevisionId: Hash }): boolean =>
-      item.sourceIssueRevisionId === revision.revisionId;
-    const proposals = input.proposals.filter(matchesRevision);
-    const counterexamples = input.counterexamples.filter(matchesRevision);
-    const abstentions = input.abstentions.filter(matchesRevision);
+    const matchesLineage = (item: { sourceIssueRevisionId: Hash }): boolean =>
+      revisionLineages.get(item.sourceIssueRevisionId) === mechanismIssueId;
+    const proposals = input.proposals.filter(matchesLineage);
+    const counterexamples = input.counterexamples.filter(matchesLineage);
+    const abstentions = input.abstentions.filter(matchesLineage);
     const resultKinds = [proposals.length > 0, counterexamples.length > 0, abstentions.length > 0]
       .filter(Boolean).length;
     const coverageState = resultKinds > 1 ? "MIXED" as const

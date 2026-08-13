@@ -1937,6 +1937,16 @@ where the durable proposal and compiled route existed while assignment-based
 `CONTINUE_WITH_COST_REVISION`: qualify route observation and reduce repeated
 context cost before additional fan-out.
 
+Issue #179 closes the resulting revision-identity leak. Exact ontology snapshots
+are evidence observations; they are not new mechanism questions merely because
+receive time or catalog content rotated. Mechanism proposals, falsifiers and
+abstentions now cover a current assignment when their retained source revision
+shares its stable mechanism-issue identity. The original result remains bound to
+the exact revision the Agent inspected, and missing historical evidence fails
+closed. This prevents catalog refresh from silently repurchasing a 148k-input
+discovery while leaving route observation and semantic review independently
+current.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a

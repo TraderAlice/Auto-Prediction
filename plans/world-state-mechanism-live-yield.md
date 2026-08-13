@@ -159,6 +159,19 @@ assignment coverage, allocation and yield counters reconcile at completion;
 repeated full-context input before running the remaining four tasks. Do not
 interpret the accepted proposal as an arbitrage certificate.
 
+Completion reconciliation exposed one more ontology-lifetime distinction. The
+accepted proposal is immutably bound to the exact ontology revision the Agent
+read, while a later anonymous catalog refresh produces a successor revision for
+the same stable mechanism question. Treating coverage as exact-revision-only
+made the allocator call that question unexplored again and could repay the full
+148k-input discovery cost without new semantic work. Issue #179 therefore
+defines mechanism discovery coverage at the stable mechanism-issue lineage:
+proposals, falsifiers and abstentions from a retained historical revision cover
+its current successor only when both revisions derive the same stable issue
+identity. Exact result provenance is not rewritten, and a missing historical
+revision fails closed. Current evidence must still be re-observed against the
+route before any semantic or probability authority advances.
+
 The anonymous corpus refreshed while this hold was being qualified, moving the
 current allocator from 24 suitable / 5 selected to 25 / 6. The paused campaign
 correctly retains the original five allocation actions and exact issue

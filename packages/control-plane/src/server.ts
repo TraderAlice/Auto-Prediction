@@ -1405,6 +1405,24 @@ export function createControlPlane(options?: {
     ontologySearchIssueRevisionStore?.loadOntologySearchIssueRevisions(512) ?? [];
   let worldStateMechanismResearchAssignments:
     readonly WorldStateMechanismResearchAssignment[] = [];
+  const worldStateMechanismResearchEvidence = () => {
+    const proposals = worldStateMechanismProposalStore
+      ?.loadWorldStateMechanismProposals(512) ?? [];
+    const counterexamples = worldStateMechanismCounterexampleStore
+      ?.loadWorldStateMechanismCounterexamples(512) ?? [];
+    const abstentions = worldStateMechanismAbstentionStore
+      ?.loadWorldStateMechanismAbstentions(512) ?? [];
+    const historicalRevisions = [...new Set([
+      ...proposals.map((item) => item.sourceIssueRevisionId),
+      ...counterexamples.map((item) => item.sourceIssueRevisionId),
+      ...abstentions.map((item) => item.sourceIssueRevisionId),
+    ])].flatMap((revisionId) => {
+      const revision = ontologySearchIssueRevisionStore
+        ?.loadOntologySearchIssueRevision(revisionId) ?? null;
+      return revision === null ? [] : [revision];
+    });
+    return Object.freeze({ proposals, counterexamples, abstentions, historicalRevisions });
+  };
   const relationDiscoveryStore = supportsRelationDiscoveryRecords(options?.discoveryStore)
     ? options.discoveryStore
     : null;
@@ -3427,12 +3445,7 @@ export function createControlPlane(options?: {
     const ontology = buildMarketOntologySnapshot(corpus);
     const proposals = marketOntologyAgentProposalStore
       ?.loadMarketOntologyAgentProposals(200) ?? [];
-    const mechanismProposals = worldStateMechanismProposalStore
-      ?.loadWorldStateMechanismProposals(512) ?? [];
-    const mechanismCounterexamples = worldStateMechanismCounterexampleStore
-      ?.loadWorldStateMechanismCounterexamples(512) ?? [];
-    const mechanismAbstentions = worldStateMechanismAbstentionStore
-      ?.loadWorldStateMechanismAbstentions(512) ?? [];
+    const mechanismEvidence = worldStateMechanismResearchEvidence();
     const retainedRevisions = ontologySearchIssueRevisionStore
       .loadOntologySearchIssueRevisions(512);
     currentStartupReconciliationStep = "RECONCILE_ONTOLOGY_SEARCH_ISSUES:MATERIALIZE";
@@ -3463,9 +3476,7 @@ export function createControlPlane(options?: {
     worldStateMechanismResearchAssignments =
       materializeWorldStateMechanismResearchAssignments({
         revisions: ontologySearchIssueRevisions,
-        proposals: mechanismProposals,
-        counterexamples: mechanismCounterexamples,
-        abstentions: mechanismAbstentions,
+        ...mechanismEvidence,
       });
     const mechanismTasks = worldStateMechanismResearchAssignments
       .map((item) => item.task)
@@ -3530,12 +3541,7 @@ export function createControlPlane(options?: {
     worldStateMechanismResearchAssignments =
       materializeWorldStateMechanismResearchAssignments({
         revisions: ontologySearchIssueRevisions,
-        proposals: worldStateMechanismProposalStore
-          ?.loadWorldStateMechanismProposals(512) ?? [],
-        counterexamples: worldStateMechanismCounterexampleStore
-          ?.loadWorldStateMechanismCounterexamples(512) ?? [],
-        abstentions: worldStateMechanismAbstentionStore
-          ?.loadWorldStateMechanismAbstentions(512) ?? [],
+        ...worldStateMechanismResearchEvidence(),
       });
     invalidateAgentTaskReadiness();
   };
