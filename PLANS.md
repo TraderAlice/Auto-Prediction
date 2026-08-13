@@ -1922,6 +1922,21 @@ current assignment projection. Missing revisions still fail closed. The old
 specimen stays paused and unrecoverable; a successor must be frozen only after
 this evidence-lifetime invariant is qualified.
 
+The GC-pinned successor has now produced the first accepted mechanism route.
+Five bound revisions survived a real anonymous catalog refresh with zero Agent
+runs or invocations, then one explicitly authorized Terra/high run read two
+trailhead evidence objects and repaired two rejected proposals into one accepted
+result on invocation seven. It used 148,341 input, 2,749 output and 648 reasoning
+tokens over about 197 seconds; the campaign was paused with four tasks untouched.
+The route says a Democratic Iowa Senate-seat win may influence but neither
+necessitates nor suffices for Democratic national Senate control, and retains
+three counter-scenarios. It correctly remains `UNREVIEWED / UNOBSERVED` with no
+semantic or trading authority. Issue #177 repairs the observed projection lag
+where the durable proposal and compiled route existed while assignment-based
+`proposedCount` still read zero. The selection disposition is now
+`CONTINUE_WITH_COST_REVISION`: qualify route observation and reduce repeated
+context cost before additional fan-out.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a

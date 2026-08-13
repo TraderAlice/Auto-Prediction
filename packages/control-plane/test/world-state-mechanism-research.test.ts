@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   activateAgentCampaign,
   buildAgentRun,
+  buildAgentToolEffect,
   buildDefaultAgentRuntimePortfolio,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
@@ -10,6 +11,7 @@ import {
   buildWorldStateMechanismResearchYield,
   buildPausedAgentCampaign,
   defaultAiRuntimeConfiguration,
+  completeAgentRun,
   materializeOntologySearchIssueRevisions,
   materializeWorldStateMechanismResearchAssignments,
   MarketOntologyAgentToolHost,
@@ -247,5 +249,70 @@ describe("world-state mechanism research role", () => {
       currentRevisions: [],
       loadRevision: () => null,
     })).toThrow(/cannot be resolved/);
+  });
+
+  it("counts accepted terminal effects immediately and excludes rejected repair attempts", () => {
+    const work = fixture();
+    const assignment = work.assignments[0]!;
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
+    const route = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "WORLD_STATE_MECHANISM_RESEARCH"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    )!;
+    const prepared = buildAgentRun({
+      task: assignment.task,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: { kind: "MANUAL", authorizationRef: "operator:yield", authorizedAt: NOW },
+      createdAt: NOW,
+    });
+    const run = completeAgentRun(prepared, "SUCCEEDED", NOW, null);
+    const rejected = buildAgentToolEffect({
+      run,
+      ordinal: 1,
+      toolProtocol: WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL,
+      toolName: "propose_world_state_mechanism",
+      status: "REJECTED",
+      canonicalInput: { attempt: 1 },
+      canonicalOutput: { accepted: false },
+      occurredAt: NOW,
+    });
+    const execution = {
+      runtimeDefinitions: portfolio.runtimeDefinitions,
+      credentialBindings: portfolio.credentialBindings,
+      modelProfiles: portfolio.modelProfiles,
+      executionProfiles: portfolio.executionProfiles,
+      workloadRoutes: portfolio.workloadRoutes,
+      campaigns: [], tasks: [assignment.task], runs: [run], modelInvocations: [],
+      toolEffects: [rejected], runArtifacts: [], runAnnotations: [], resultSelections: [],
+    };
+    expect(buildWorldStateMechanismResearchYield({
+      assignments: work.assignments,
+      execution,
+    })).toMatchObject({ proposedCount: 0, acceptedResultCount: 0 });
+
+    const accepted = buildAgentToolEffect({
+      run,
+      ordinal: 2,
+      toolProtocol: WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL,
+      toolName: "propose_world_state_mechanism",
+      status: "ACCEPTED",
+      canonicalInput: { attempt: 2 },
+      canonicalOutput: { accepted: true },
+      occurredAt: NOW,
+    });
+    expect(buildWorldStateMechanismResearchYield({
+      assignments: work.assignments,
+      execution: { ...execution, toolEffects: [rejected, accepted] },
+    })).toMatchObject({
+      proposedCount: 1,
+      acceptedResultCount: 1,
+      outcomeStrata: expect.arrayContaining([expect.objectContaining({
+        outcome: "PROPOSAL",
+        runCount: 1,
+      })]),
+    });
   });
 });

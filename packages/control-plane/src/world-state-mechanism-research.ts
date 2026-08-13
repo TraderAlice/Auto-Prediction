@@ -224,6 +224,15 @@ export function buildWorldStateMechanismResearchYield(input: Readonly<{
     ].includes(item.toolName)
   );
   const attemptedTasks = new Set(runs.map((item) => item.taskId));
+  const runTaskIds = new Map(runs.map((item) => [item.runId, item.taskId] as const));
+  const tasksWithAcceptedResult = (toolName: string): ReadonlySet<Hash> => new Set(
+    acceptedResults.filter((item) => item.toolName === toolName)
+      .map((item) => runTaskIds.get(item.runId))
+      .filter((taskId): taskId is Hash => taskId !== undefined),
+  );
+  const proposedTasks = tasksWithAcceptedResult("propose_world_state_mechanism");
+  const falsifiedTasks = tasksWithAcceptedResult("record_world_state_mechanism_counterexample");
+  const abstainedTasks = tasksWithAcceptedResult("record_world_state_mechanism_abstention");
   const outcome = (runId: Hash): WorldStateMechanismResearchYield["outcomeStrata"][number]["outcome"] => {
     const names = new Set(acceptedResults.filter((item) => item.runId === runId)
       .map((item) => item.toolName));
@@ -259,11 +268,9 @@ export function buildWorldStateMechanismResearchYield(input: Readonly<{
     schemaVersion: "pmh.world-state-mechanism-research-yield.v1" as const,
     eligibleCount: input.assignments.filter((item) => item.campaignEligible).length,
     attemptedCount: input.assignments.filter((item) => attemptedTasks.has(item.task.taskId)).length,
-    proposedCount: input.assignments.filter((item) => item.matchedProposalIds.length > 0).length,
-    abstainedCount: input.assignments.filter((item) => item.matchedAbstentionIds.length > 0).length,
-    falsifiedCount: input.assignments.filter((item) =>
-      item.matchedCounterexampleIds.length > 0
-    ).length,
+    proposedCount: proposedTasks.size,
+    abstainedCount: abstainedTasks.size,
+    falsifiedCount: falsifiedTasks.size,
     runCount: runs.length,
     modelInvocationCount: invocations.length,
     acceptedResultCount: acceptedResults.length,

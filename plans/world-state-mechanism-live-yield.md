@@ -1,6 +1,6 @@
 # World-state mechanism live-yield qualification
 
-Status: historical specimen held by lost exact revision; successor required
+Status: first accepted route retained; continue with cost revision
 
 Issue: [#170](https://github.com/luokerenx4/my-little-pony/issues/170)
 
@@ -43,14 +43,14 @@ The experiment budget is a ceiling, not a throughput target:
 - [x] Activate with an explicit experiment reference and dispatch exactly once.
 - [x] Observe the first run to a terminal state without dispatching the other
   four tasks.
-- [ ] Retain accepted proposal, counterexample, or abstention effects with exact
+- [x] Retain accepted proposal, counterexample, or abstention effects with exact
   invocation, run, issue-revision and allocation lineage.
 
 ## Phase 3 — yield and selection evidence
 
 - [x] Report proposal / falsifier / abstention / no-terminal-result counts.
 - [x] Attribute input, output and reasoning tokens by terminal result kind.
-- [ ] Inspect whether selected relations are true mechanism research or reveal
+- [x] Inspect whether selected relations are true mechanism research or reveal
   another structural allocation defect.
 - [x] Update the plan with `CONTINUE`, `REVISE_SELECTION`, or `HOLD_RUNTIME`
   before allowing any recurring mechanism campaign.
@@ -129,6 +129,35 @@ the current assignment. The already-deleted revision cannot be reconstructed
 from its hash, so this five-task specimen remains negative evidence and must not
 resume. Create a newly frozen successor only after the retention invariant
 passes full qualification.
+
+The GC-pinned successor qualified the full loop. Its five exact revisions
+remained reachable after a real seven-source anonymous catalog refresh, while
+the Agent ledger stayed at 258 runs / 575 invocations and the campaign remained
+paused. Codex app-server / Terra high then passed a fresh zero-inference
+preflight. One explicitly activated, concurrency-one dispatch produced run
+`sha256:88d95effdf1ee19a2db60885f2b5cdbc92bd7d4d962b28ffafc644bce2e6a6f9`.
+The Agent read coverage, its assigned trailhead list, and two exact evidence
+objects. Two proposal effects were rejected by the first-party validator; a
+seventh repair invocation submitted an accepted proposal and the run succeeded.
+The campaign was immediately paused with its other four tasks untouched.
+
+The accepted mechanism is a probabilistic, not logical, route: a Democratic
+Iowa Senate-seat win may enable or raise the likelihood of Democratic national
+Senate control, but is neither necessary nor sufficient. The proposal binds one
+trigger and one dependent listing, distinguishes the local seat from chamber-
+wide control, and retains three counter-scenarios. It compiled to one route in
+`UNREVIEWED / UNOBSERVED` state with no semantic, probability, certificate,
+execution, external-write, or value-moving authority.
+
+Disposition: `CONTINUE_WITH_COST_REVISION`.
+
+This is meaningful AI-native yield, but the cost is too high for naive campaign
+fan-out: 7 invocations, 148,341 input, 2,749 output, 648 reasoning tokens, and
+about 197 seconds for one proposal. The next work should (1) make durable result,
+assignment coverage, allocation and yield counters reconcile at completion;
+(2) qualify subject binding and live observation for this route; and (3) reduce
+repeated full-context input before running the remaining four tasks. Do not
+interpret the accepted proposal as an arbitrage certificate.
 
 The anonymous corpus refreshed while this hold was being qualified, moving the
 current allocator from 24 suitable / 5 selected to 25 / 6. The paused campaign
