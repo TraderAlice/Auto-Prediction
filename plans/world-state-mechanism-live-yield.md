@@ -1,6 +1,6 @@
 # World-state mechanism live-yield qualification
 
-Status: bounded runtime retest gated by once-per-lineage policy qualification
+Status: historical specimen held by lost exact revision; successor required
 
 Issue: [#170](https://github.com/luokerenx4/my-little-pony/issues/170)
 
@@ -110,6 +110,25 @@ an existing selection-bound mechanism v2 specimen through an append-only v3
 revision before granting authority. Interrupted, failed, and successful runs
 all count as attempts. Resume only after that policy passes full qualification
 and the upgraded live preview reports four—not five—dispatchable tasks.
+
+The qualified policy upgrade produced exactly that evidence: append-only rev 6
+was a paused v3 upgrade, rev 7 carried activation authority, and its preview
+reported four dispatchable tasks with the original three invocations and token
+cost unchanged. Dispatch still stopped before preparing a run, now because the
+second frozen `inputRevisionId` could no longer be resolved. SQLite's 512-row
+ontology-revision GC had deleted old revisions without considering campaign
+selection bindings, leaving an immutable pointer and hash but no retained
+evidence object. No second run or model invocation was created, and rev 8 paused
+the campaign.
+
+Issue #175 fixes the evidence lifetime rather than fabricating a recovery. A
+campaign-bound ontology revision is now a GC root; bounded retention applies
+only to unreferenced revisions. Campaign resolution starts from the immutable
+binding and retained historical revision, while manual resolution still needs
+the current assignment. The already-deleted revision cannot be reconstructed
+from its hash, so this five-task specimen remains negative evidence and must not
+resume. Create a newly frozen successor only after the retention invariant
+passes full qualification.
 
 The anonymous corpus refreshed while this hold was being qualified, moving the
 current allocator from 24 suitable / 5 selected to 25 / 6. The paused campaign

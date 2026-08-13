@@ -134,6 +134,7 @@ import {
   type WorldStateMechanismProposalStore,
 } from "./world-state-mechanism.js";
 import {
+  buildWorldStateMechanismResearchTaskContract,
   buildWorldStateMechanismResearchYield,
   materializeWorldStateMechanismResearchAssignments,
   type WorldStateMechanismResearchAssignment,
@@ -3252,14 +3253,9 @@ export function createControlPlane(options?: {
             : revision.taskPayload;
         }
         if (task.kind === "WORLD_STATE_MECHANISM_RESEARCH") {
-          const assignment = worldStateMechanismResearchAssignments.find((item) =>
-            item.task.taskId === task.taskId
+          return buildWorldStateMechanismResearchTaskContract(
+            worldStateMechanismTaskRevision(task.taskId, run),
           );
-          if (assignment === undefined) {
-            throw new Error("mechanism research task contract is unavailable");
-          }
-          worldStateMechanismTaskRevision(task.taskId, run);
-          return assignment.taskContract;
         }
         if (task.kind === "RELATION_DISCOVERY") {
           const revision = relationDiscoveryTaskRevision(task.taskId, run);

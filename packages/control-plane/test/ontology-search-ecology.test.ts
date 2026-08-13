@@ -4,6 +4,7 @@ import {
   assertOntologySearchIssueRevision,
   assertMarketOntologyAgentProposal,
   buildAgentRun,
+  buildPausedAgentCampaign,
   buildAgentTask,
   buildAgentToolEffect,
   buildDefaultAgentRuntimePortfolio,
@@ -499,6 +500,72 @@ describe("ontology search ecology", () => {
       schemaVersion: 52,
       idempotencyKey: "revisionId",
     });
+    store.close();
+  });
+
+  it("pins campaign-bound exact revisions outside the rolling retention window", () => {
+    const revisions = Array.from({ length: 520 }, (_, index) => {
+      const receivedAt = new Date(Date.parse(RECEIVED_AT) + index * 60_000).toISOString();
+      const input = fixture(receivedAt);
+      return materializeOntologySearchIssueRevisions({
+        corpus: input.corpus,
+        ontology: input.ontology,
+        proposals: [],
+      });
+    }).flat();
+    expect(revisions.length).toBeGreaterThan(512);
+    const ordered = [...revisions].sort((left, right) =>
+      left.materializedAt.localeCompare(right.materializedAt) ||
+      left.revisionId.localeCompare(right.revisionId)
+    );
+    const pinned = ordered[0]!;
+    const unpinned = ordered[1]!;
+    const store = new SqliteOperationalStore(":memory:");
+    const tasks = [...new Map(revisions.map((item) => [item.task.taskId, item.task])).values()];
+    store.saveAgentExecutionBatch({ tasks });
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(RECEIVED_AT));
+    const profile = portfolio.executionProfiles[0]!;
+    const campaign = buildPausedAgentCampaign({
+      campaignKey: "ontology-revision-retention-fixture",
+      revision: 1,
+      executionProfileId: profile.executionProfileId,
+      taskIds: [pinned.task.taskId],
+      schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+      budget: {
+        maximumConcurrentRuns: 1, maximumModelInvocations: 1,
+        maximumInputTokens: "1", maximumOutputTokens: "1", maximumWallClockMs: 1,
+      },
+      selectionBinding: {
+        schemaVersion: "pmh.agent-campaign-selection-binding.v1",
+        selectionProtocol: "ONTOLOGY_RETENTION_FIXTURE_V1",
+        selectionIdentity: pinned.revisionId,
+        selectionPolicyIdentity: hashCanonical({ policy: "pin-exact-revision" }),
+        taskBindings: [{
+          taskId: pinned.task.taskId,
+          workFamilyRef: `ontology-issue:${pinned.issueId}`,
+          selectionActionRef: pinned.revisionId,
+          selectionActionKind: "PIN_EXACT_REVISION",
+          inputRevisionKind: "ONTOLOGY_SEARCH_ISSUE",
+          inputRevisionId: pinned.revisionId,
+          exactInputHash: hashCanonical(pinned.taskPayload),
+          semanticInputIdentity: pinned.revisionId,
+        }],
+      },
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      createdAt: RECEIVED_AT,
+    });
+    store.saveAgentExecutionBatch({
+      runtimeDefinitions: portfolio.runtimeDefinitions,
+      credentialBindings: portfolio.credentialBindings,
+      modelProfiles: portfolio.modelProfiles,
+      executionProfiles: portfolio.executionProfiles,
+      campaigns: [campaign],
+    });
+    store.saveOntologySearchIssueRevisions(revisions);
+
+    expect(store.loadOntologySearchIssueRevision(pinned.revisionId)).toEqual(pinned);
+    expect(store.loadOntologySearchIssueRevision(unpinned.revisionId)).toBeNull();
+    expect(store.loadOntologySearchIssueRevisions(1_000)).toHaveLength(513);
     store.close();
   });
 });
