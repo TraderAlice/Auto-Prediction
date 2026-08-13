@@ -70,6 +70,17 @@ export type MechanismPrototypeExplorationSeed = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type MechanismPrototypeExplorationCoverageMember = Readonly<{
+  listingRef: string;
+  semanticListingIdentity: Hash;
+  inclusionReasons: readonly (
+    | "DETERMINISTIC_SEED_MEMBER"
+    | "PROTOTYPE_SIGNAL_MATCH"
+    | "COMPONENT_AGGREGATE_ROLE_CUE"
+    | "INSTITUTION_FRONTIER_CUE"
+  )[];
+}>;
+
 export type MechanismPrototypeExplorationInputRevision = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-input.v1";
   inputRevisionId: Hash;
@@ -78,6 +89,8 @@ export type MechanismPrototypeExplorationInputRevision = Readonly<{
   sourcePrototypeInputRevisionId: Hash;
   axis: MechanismPrototypeExplorationAxis;
   semanticInputIdentity: Hash;
+  coverageScopeIdentity?: Hash;
+  coverageMembers?: readonly MechanismPrototypeExplorationCoverageMember[];
   corpusSnapshotIdentity: Hash;
   corpusSemanticIdentity: Hash;
   sourceSetIdentity: Hash;
@@ -128,6 +141,7 @@ export type MechanismPrototypeExplorationLens = Readonly<{
   retainedTrailheadIds: readonly Hash[];
   retainedExhaustionIds: readonly Hash[];
   retainedSemanticInputCount: number;
+  uncoveredCoverageMemberCount: number;
   state: "UNEXPLORED" | "TRAILHEAD_RECORDED" | "EXHAUSTED" | "MIXED_RESULTS";
   campaignEligible: boolean;
   automaticDispatch: false;
@@ -288,6 +302,74 @@ function exactHashes(values: readonly Hash[]): readonly Hash[] {
     throw new Error("mechanism exploration lineage contains an invalid hash");
   }
   return result as readonly Hash[];
+}
+
+const COVERAGE_STOP_WORDS = new Set([
+  "after", "before", "between", "control", "election", "holding", "influences",
+  "market", "national", "office", "outcome", "party", "result", "state", "winner",
+  "with", "will", "would",
+]);
+
+function coverageSignalTokens(
+  prototype: WorldStateMechanismPrototypeProposal,
+  sourceInput: WorldStateMechanismPrototypeInputRevision,
+): readonly string[] {
+  return exactStrings([
+    ...prototype.searchSignals,
+    ...prototype.variableSlots.flatMap((slot) => slot.values.map((item) => item.value)),
+    ...sourceInput.memberRoutes.flatMap((route) => [
+      ...route.canonicalRoute.canonicalSubjectLabels,
+      ...route.canonicalRoute.canonicalTriggerSearchSignals,
+      ...route.canonicalRoute.canonicalDependentSearchSignals,
+    ]),
+  ].flatMap((value) => canonicalText(value).split(/[^\p{L}\p{N}]+/gu))
+    .filter((token) => token.length >= 4 && !COVERAGE_STOP_WORDS.has(token)));
+}
+
+function materializeCoverageMembers(input: Readonly<{
+  corpus: MarketCorpusSnapshot;
+  prototype: WorldStateMechanismPrototypeProposal;
+  sourceInput: WorldStateMechanismPrototypeInputRevision;
+  axis: MechanismPrototypeExplorationAxis;
+  seeds: readonly MechanismPrototypeExplorationSeed[];
+}>): readonly MechanismPrototypeExplorationCoverageMember[] {
+  const seedRefs = new Set(input.seeds.flatMap((seed) => seed.listingRefs));
+  const signalTokens = coverageSignalTokens(input.prototype, input.sourceInput);
+  const sourceInstitutions = new Set(input.sourceInput.memberRoutes.flatMap((route) => [
+    ...institutionFamilies(route.canonicalRoute.triggerPredicate),
+    ...institutionFamilies(route.canonicalRoute.dependentPredicate),
+  ]));
+  return Object.freeze(input.corpus.listings.flatMap((listing) => {
+    // A deterministic seed is already the narrowest provider-free neighborhood
+    // admitted by this lens. Do not let broad lexical cues silently enlarge a
+    // paid-search coverage scope around it.
+    if (seedRefs.size > 0 && !seedRefs.has(listing.listingRef)) return [];
+    const text = canonicalText([
+      listing.title, listing.description, listing.rulesText ?? "",
+      ...listing.outcomes.map((outcome) => outcome.label),
+    ].join(" "));
+    const signalMatches = signalTokens.filter((token) => text.includes(token));
+    const roleCue = componentCue(listing.title) || aggregateCue(listing.title);
+    const institutions = institutionFamilies(listing.title);
+    const institutionFrontier = roleCue && (
+      institutions.size === 0 || [...institutions].some((item) => !sourceInstitutions.has(item))
+    );
+    const reasons = exactStrings([
+      ...(seedRefs.has(listing.listingRef) ? ["DETERMINISTIC_SEED_MEMBER"] : []),
+      ...(signalMatches.length >= 1 ? ["PROTOTYPE_SIGNAL_MATCH"] : []),
+      ...(input.axis === "SURFACE_DOMAIN" && roleCue
+        ? ["COMPONENT_AGGREGATE_ROLE_CUE"] : []),
+      ...((input.axis === "AGGREGATE_INSTITUTION" ||
+          input.axis === "COUNTEREXAMPLE_FRONTIER") && institutionFrontier
+        ? ["INSTITUTION_FRONTIER_CUE"] : []),
+    ]) as MechanismPrototypeExplorationCoverageMember["inclusionReasons"];
+    if (reasons.length === 0) return [];
+    return [Object.freeze({
+      listingRef: listing.listingRef,
+      semanticListingIdentity: buildSearchScopeIdentity([listing]).semanticScopeIdentity,
+      inclusionReasons: reasons,
+    })];
+  }).sort((left, right) => left.listingRef.localeCompare(right.listingRef)));
 }
 
 function assertExplorationSeed(value: unknown): MechanismPrototypeExplorationSeed {
@@ -572,6 +654,7 @@ function verifyPrototypeLineage(input: Readonly<{
 export function materializeMechanismPrototypeExplorationProjection(input: Readonly<{
   prototypes: readonly WorldStateMechanismPrototypeProposal[];
   prototypeInputs: readonly WorldStateMechanismPrototypeInputRevision[];
+  explorationInputs?: readonly MechanismPrototypeExplorationInputRevision[];
   trailheads?: readonly MechanismPrototypeExplorationTrailhead[];
   exhaustions?: readonly MechanismPrototypeExplorationExhaustion[];
   execution?: AgentExecutionSnapshot;
@@ -590,6 +673,11 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
     .map(assertMechanismPrototypeExplorationTrailhead);
   const retainedExhaustions = (input.exhaustions ?? [])
     .map(assertMechanismPrototypeExplorationExhaustion);
+  const retainedInputs = (input.explorationInputs ?? [])
+    .map(assertMechanismPrototypeExplorationInputRevision);
+  const retainedInputById = new Map(retainedInputs.map((item) =>
+    [item.inputRevisionId, item] as const
+  ));
   const corpusSemanticIdentity = buildSearchScopeIdentity(corpus.listings)
     .semanticScopeIdentity;
   const lenses = Object.freeze(prototypes.flatMap((prototype) => {
@@ -609,12 +697,21 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
           left.seedId.localeCompare(right.seedId))
         .slice(0, MAX_SEEDS_PER_LENS));
       const excludedListingRefs = knownListingRefs(sourceInput);
+      const coverageMembers = materializeCoverageMembers({
+        corpus, prototype, sourceInput, axis, seeds: seedTrailheads,
+      });
+      const coverageScopeIdentity = hashCanonical({
+        schemaVersion: "pmh.mechanism-prototype-exploration-coverage-scope.v1",
+        lensId,
+        axis,
+        members: coverageMembers,
+      });
       const semanticInputIdentity = hashCanonical({
         schemaVersion: "pmh.mechanism-prototype-exploration-semantic-input.v1",
         lensId,
         prototypeId: prototype.prototypeId,
         sourcePrototypeInputRevisionId: sourceInput.revisionId,
-        corpusSemanticIdentity,
+        coverageScopeIdentity,
         knownMemberRouteFamilyIds: sourceInput.memberRouteFamilyIds,
         excludedListingRefs,
         seedTrailheadIds: seedTrailheads.map((item) => item.seedId),
@@ -626,6 +723,8 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         sourcePrototypeInputRevisionId: sourceInput.revisionId,
         axis,
         semanticInputIdentity,
+        coverageScopeIdentity,
+        coverageMembers,
         corpusSnapshotIdentity: corpus.snapshotIdentity,
         corpusSemanticIdentity,
         sourceSetIdentity: corpus.sourceSetIdentity,
@@ -688,10 +787,33 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         ...retainedLensTrailheads.map((item) => item.semanticInputIdentity),
         ...retainedLensExhaustions.map((item) => item.semanticInputIdentity),
       ]).size;
-      const state = matchedTrailheadIds.length > 0 && matchedExhaustionIds.length > 0
+      const coveredSemanticListings = new Set([
+        ...retainedLensTrailheads.flatMap((item) => {
+          const retainedInput = retainedInputById.get(item.inputRevisionId);
+          return retainedInput?.coverageMembers?.map((member) =>
+            member.semanticListingIdentity
+          ) ?? item.evidenceBindings.map((binding) => binding.semanticListingIdentity);
+        }),
+        ...retainedLensExhaustions.flatMap((item) => {
+          const retainedInput = retainedInputById.get(item.inputRevisionId);
+          return retainedInput?.coverageMembers?.map((member) =>
+            member.semanticListingIdentity
+          ) ?? item.inspectedEvidenceBindings.map((binding) =>
+            binding.semanticListingIdentity
+          );
+        }),
+      ]);
+      const uncoveredCoverageMemberCount = coverageMembers.filter((member) =>
+        !coveredSemanticListings.has(member.semanticListingIdentity)
+      ).length;
+      const historicallyAttempted = retainedTrailheadIds.length > 0 ||
+        retainedExhaustionIds.length > 0;
+      const campaignEligible = !historicallyAttempted || uncoveredCoverageMemberCount > 0;
+      const state = campaignEligible ? "UNEXPLORED" as const
+        : retainedTrailheadIds.length > 0 && retainedExhaustionIds.length > 0
         ? "MIXED_RESULTS" as const
-        : matchedTrailheadIds.length > 0 ? "TRAILHEAD_RECORDED" as const
-        : matchedExhaustionIds.length > 0 ? "EXHAUSTED" as const
+        : retainedTrailheadIds.length > 0 ? "TRAILHEAD_RECORDED" as const
+        : retainedExhaustionIds.length > 0 ? "EXHAUSTED" as const
         : "UNEXPLORED" as const;
       return Object.freeze({
         schemaVersion: "pmh.mechanism-prototype-exploration-lens.v1" as const,
@@ -708,8 +830,9 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         retainedTrailheadIds,
         retainedExhaustionIds,
         retainedSemanticInputCount,
+        uncoveredCoverageMemberCount,
         state,
-        campaignEligible: state === "UNEXPLORED",
+        campaignEligible,
         automaticDispatch: false as const,
         authority: "HEURISTIC_EXPLORATION_ASSIGNMENT_ONLY" as const,
         semanticDecisionAuthority: false as const,
@@ -807,6 +930,18 @@ export function assertMechanismPrototypeExplorationInputRevision(
       revision.semanticInputIdentity, revision.corpusSnapshotIdentity,
       revision.corpusSemanticIdentity, revision.sourceSetIdentity,
       revision.ontologyIdentity].every((item) => HASH_PATTERN.test(String(item))) ||
+    (revision.coverageScopeIdentity !== undefined &&
+      !HASH_PATTERN.test(String(revision.coverageScopeIdentity))) ||
+    (revision.coverageMembers !== undefined && (
+      !Array.isArray(revision.coverageMembers) || revision.coverageMembers.some((member) =>
+        !bounded(member.listingRef, 1_000) ||
+        !HASH_PATTERN.test(String(member.semanticListingIdentity)) ||
+        member.inclusionReasons.length < 1 || member.inclusionReasons.some((reason: string) =>
+          !["DETERMINISTIC_SEED_MEMBER", "PROTOTYPE_SIGNAL_MATCH",
+            "COMPONENT_AGGREGATE_ROLE_CUE", "INSTITUTION_FRONTIER_CUE"].includes(reason)
+        )
+      )
+    )) ||
     !MECHANISM_PROTOTYPE_EXPLORATION_AXES.includes(revision.axis) ||
     exactHashes(revision.knownMemberRouteFamilyIds).join("\n") !==
       revision.knownMemberRouteFamilyIds.join("\n") ||

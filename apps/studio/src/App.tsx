@@ -814,6 +814,12 @@ type WorldStateMechanismProjection = Readonly<{
       currentInputRevision: Readonly<{
         inputRevisionId: string;
         semanticInputIdentity: string;
+        coverageScopeIdentity?: string;
+        coverageMembers?: readonly Readonly<{
+          listingRef: string;
+          semanticListingIdentity: string;
+          inclusionReasons: readonly string[];
+        }>[];
         seedTrailheads: readonly Readonly<{
           seedId: string;
           listingTitleExcerpts: readonly [string, string];
@@ -825,6 +831,7 @@ type WorldStateMechanismProjection = Readonly<{
       retainedTrailheadIds: readonly string[];
       retainedExhaustionIds: readonly string[];
       retainedSemanticInputCount: number;
+      uncoveredCoverageMemberCount: number;
       state: "UNEXPLORED" | "TRAILHEAD_RECORDED" | "EXHAUSTED" | "MIXED_RESULTS";
       campaignEligible: boolean;
     }>>;
@@ -4585,6 +4592,7 @@ function AgentOperationsView() {
                           ? lens.retainedSemanticInputCount > 0
                             ? "new semantic input eligible" : "first input eligible"
                           : "current input covered"}</span>
+                        <span>{lens.currentInputRevision.coverageMembers?.length ?? 0} relevant contracts · {lens.uncoveredCoverageMemberCount} uncovered</span>
                       </div>
                     </article>
                   ))}

@@ -1,6 +1,16 @@
 # Plans
 
 The active execution continuation is
+[`plans/lens-scoped-semantic-novelty.md`](plans/lens-scoped-semantic-novelty.md).
+Issue #213 separates exact global corpus lineage from paid-search novelty. The
+first live prototype-guided specimen retained a valid cross-chamber exhaustion,
+but an unrelated catalog rotation immediately changed the global semantic hash
+and reopened the lens. A provider-free lens coverage scope must preserve every
+exact run input while only repurchasing Agent work when listings relevant to
+the prototype and variation axis actually change. Empty/zero-seed scopes remain
+valid initial work; relevance is a scheduling boundary, never semantic truth.
+
+The completed predecessor is
 [`plans/mechanism-prototype-guided-exploration.md`](plans/mechanism-prototype-guided-exploration.md).
 Issue #211 treats the accepted mechanism prototype as a search lens rather than
 a claim template. Its invariant, variable roles, transfer tests and

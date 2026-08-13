@@ -255,7 +255,7 @@ describe("mechanism-prototype-guided exploration substrate", () => {
     }
   });
 
-  it("separates retained lens history from the current semantic-input state", async () => {
+  it("keeps completed coverage closed under unrelated semantic catalog additions", async () => {
     const { sourceInput, prototype } = acceptedPrototype();
     const firstCorpus = corpus(1);
     const first = materializeMechanismPrototypeExplorationProjection({
@@ -301,32 +301,60 @@ describe("mechanism-prototype-guided exploration substrate", () => {
       reason: "The inspected aggregate alone does not establish a component-to-aggregate pair.",
       proposedAt: NOW,
     });
-    const secondBase = corpus(2);
-    const secondCorpus = buildMarketCorpusSnapshot({
-      sourceSetIdentity: secondBase.sourceSetIdentity,
+    const unrelatedBase = corpus(2);
+    const unrelatedCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: unrelatedBase.sourceSetIdentity,
       eligibleSourceCount: 5,
       excludedSourceCount: 0,
-      listings: [...secondBase.listings, listing({
-        ref: "venue-cup:new-semantic-member", venue: "venue-cup",
-        title: "Will the new club win the continental cup?",
+      listings: [...unrelatedBase.listings, listing({
+        ref: "venue-culture:new-album", venue: "venue-culture",
+        title: "Will Taylor Swift release a new album this year?",
         receivedAt: "2026-08-13T12:00:00.000Z",
       })],
     });
-    const rotated = materializeMechanismPrototypeExplorationProjection({
-      prototypes: [prototype], prototypeInputs: [sourceInput], corpus: secondCorpus,
-      ontology: buildMarketOntologySnapshot(secondCorpus),
+    const covered = materializeMechanismPrototypeExplorationProjection({
+      prototypes: [prototype], prototypeInputs: [sourceInput], corpus: unrelatedCorpus,
+      ontology: buildMarketOntologySnapshot(unrelatedCorpus),
+      explorationInputs: [lens.currentInputRevision],
       exhaustions: [exhaustion],
     });
-    const rotatedLens = rotated.lenses.find((item) => item.lensId === lens.lensId)!;
+    const coveredLens = covered.lenses.find((item) => item.lensId === lens.lensId)!;
     expect(search).toMatchObject({ status: "ACCEPTED" });
-    expect(rotatedLens).toMatchObject({
-      state: "UNEXPLORED", campaignEligible: true, exhaustionIds: [],
+    expect(coveredLens.currentInputRevision.inputRevisionId)
+      .not.toBe(lens.currentInputRevision.inputRevisionId);
+    expect(coveredLens.currentInputRevision.coverageScopeIdentity)
+      .toBe(lens.currentInputRevision.coverageScopeIdentity);
+    expect(coveredLens).toMatchObject({
+      state: "EXHAUSTED", campaignEligible: false,
       retainedSemanticInputCount: 1, retainedTrailheadIds: [],
       retainedExhaustionIds: [expect.stringMatching(/^sha256:/u)],
+      uncoveredCoverageMemberCount: 0,
     });
-    expect(rotated).toMatchObject({
+    expect(covered).toMatchObject({
       attemptedLensCount: 1, exhaustedLensCount: 1,
-      currentSemanticAttemptedLensCount: 0, currentSemanticExhaustedLensCount: 0,
+      currentSemanticAttemptedLensCount: 1, currentSemanticExhaustedLensCount: 1,
+    });
+
+    const relevantCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: unrelatedBase.sourceSetIdentity,
+      eligibleSourceCount: 4,
+      excludedSourceCount: 0,
+      listings: unrelatedBase.listings.map((item) =>
+        item.listingRef !== "venue-sport:constructors" ? item : listing({
+          ref: item.listingRef, venue: item.venueId,
+          title: "Will Scuderia Ferrari win the 2026 Formula 1 constructors championship?",
+          receivedAt: "2026-08-13T12:00:00.000Z",
+        })
+      ),
+    });
+    const reopened = materializeMechanismPrototypeExplorationProjection({
+      prototypes: [prototype], prototypeInputs: [sourceInput], corpus: relevantCorpus,
+      ontology: buildMarketOntologySnapshot(relevantCorpus),
+      explorationInputs: [lens.currentInputRevision], exhaustions: [exhaustion],
+    });
+    expect(reopened.lenses.find((item) => item.lensId === lens.lensId)).toMatchObject({
+      state: "UNEXPLORED", campaignEligible: true, retainedSemanticInputCount: 1,
+      uncoveredCoverageMemberCount: 1,
     });
   });
 

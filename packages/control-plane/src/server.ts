@@ -3851,6 +3851,8 @@ export function createControlPlane(options?: {
         .loadWorldStateMechanismPrototypeProposals(512),
       prototypeInputs: worldStateMechanismPrototypeStore
         .loadWorldStateMechanismPrototypeInputs(2_048),
+      explorationInputs: mechanismPrototypeExplorationStore
+        .loadMechanismPrototypeExplorationInputs(2_048),
       trailheads: mechanismPrototypeExplorationStore
         .loadMechanismPrototypeExplorationTrailheads(512),
       exhaustions: mechanismPrototypeExplorationStore
@@ -4387,6 +4389,8 @@ export function createControlPlane(options?: {
       : materializeMechanismPrototypeExplorationProjection({
           prototypes: prototypeProposals,
           prototypeInputs,
+          explorationInputs: mechanismPrototypeExplorationStore
+            ?.loadMechanismPrototypeExplorationInputs(2_048) ?? [],
           trailheads: mechanismPrototypeExplorationStore
             ?.loadMechanismPrototypeExplorationTrailheads(512) ?? [],
           exhaustions: mechanismPrototypeExplorationStore
