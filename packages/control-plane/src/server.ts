@@ -138,6 +138,7 @@ import {
   materializeWorldStateMechanismResearchAssignments,
   type WorldStateMechanismResearchAssignment,
 } from "./world-state-mechanism-research.js";
+import { buildWorldStateMechanismAllocation } from "./world-state-mechanism-allocation.js";
 import {
   buildWorldStateMechanismCampaignPreview,
   resolveWorldStateMechanismTaskRevision,
@@ -4033,6 +4034,10 @@ export function createControlPlane(options?: {
       proposalCount: proposals.length,
       counterexampleCount: counterexamples.length,
       abstentionCount: abstentions.length,
+      allocation: buildWorldStateMechanismAllocation({
+        assignments: worldStateMechanismResearchAssignments,
+        revisions: ontologySearchIssueRevisions,
+      }),
       researchYield: buildWorldStateMechanismResearchYield({
         assignments: worldStateMechanismResearchAssignments,
         execution: agentExecutionRegistry.snapshot(),

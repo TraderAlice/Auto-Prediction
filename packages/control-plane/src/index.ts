@@ -104,6 +104,7 @@ export * from "./relation-discovery-semantic-novelty-observability.js";
 export * from "./world-state-mechanism.js";
 export * from "./world-state-mechanism-observer.js";
 export * from "./world-state-mechanism-research.js";
+export * from "./world-state-mechanism-allocation.js";
 export * from "./world-state-mechanism-campaign.js";
 export * from "./agent-campaign-dispatcher.js";
 export * from "./agent-input-revision-binding.js";
