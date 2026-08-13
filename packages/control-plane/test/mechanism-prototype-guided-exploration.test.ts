@@ -13,6 +13,7 @@ import {
   buildDefaultAgentRuntimePortfolio,
   defaultAiRuntimeConfiguration,
   resolveMechanismPrototypeExplorationCampaignInput,
+  searchMechanismPrototypeExplorationRoles,
   buildExecutionProfile,
   buildAgentRuntimeDefinition,
   buildCredentialBinding,
@@ -25,6 +26,9 @@ import {
   MechanismPrototypeExplorationAgentToolHost,
   MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL,
   type DiscoveryCatalogListing,
+  type MechanismPrototypeExplorationActionObservation,
+  type MechanismPrototypeExplorationRoleSearchObservation,
+  type MechanismPrototypeExplorationStore,
   type WorldStateMechanismProposal,
 } from "../src/index.js";
 
@@ -464,6 +468,7 @@ describe("mechanism-prototype-guided exploration substrate", () => {
       taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE", creationEligible: true,
       dispatchEligible: false, automaticDispatch: false, providerRequestsStarted: 0,
       modelInvocationsStarted: 0,
+      budget: { maximumModelInvocations: 12, maximumInputTokens: "300000" },
     });
     const selectedLens = projection.lenses.find((item) =>
       item.task.taskId === preview.taskIds[0]
@@ -629,34 +634,49 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
     );
-    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
+    const manifest = host.manifest(lens.task.requestedEffectProtocol);
+    expect(manifest.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+      "mark_transfer_test_1_applied", "mark_transfer_test_1_failed",
+      "activate_counter_scenario_1",
+    ]));
     expect(host.resultToolNames(lens.task.requestedEffectProtocol)).toEqual([
       "submit_mechanism_exploration_trailhead",
       "record_mechanism_exploration_exhaustion",
     ]);
     const search = await host.execute({
       task: lens.task, run, executionProfile: profile,
-      toolName: "search_mechanism_exploration_corpus",
+      toolName: "search_mechanism_exploration_roles",
       input: {
-        patterns: ["Scuderia Ferrari"], syntax: "LITERAL", mode: "ANY",
-        fields: ["title"], venueIds: [], limit: 10,
+        component: { patterns: ["race"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["constructors championship"], syntax: "LITERAL",
+          mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
       },
     });
-    expect(search).toMatchObject({ status: "ACCEPTED" });
+    expect(search).toMatchObject({ status: "ACCEPTED", output: {
+      rawComponentHitCount: 1, rawAggregateHitCount: 1, pairCount: 1,
+      pairs: [{ componentListingRef: "venue-race:italy",
+        aggregateListingRef: "venue-sport:constructors",
+        groundedBridgeSignals: expect.arrayContaining(["scuderia ferrari"]) }],
+      semanticDecisionAuthority: false,
+    } });
+    const roleSearchResultId = (search.output as { resultIdentity: Hash }).resultIdentity;
     await host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "inspect_mechanism_exploration_listings",
       input: { listingRefs: ["venue-sport:constructors", "venue-race:italy"] },
     });
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "mark_transfer_test_1_applied", input: {} });
     const retained = await host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "submit_mechanism_exploration_trailhead",
       input: {
-        listingRefs: ["venue-sport:constructors", "venue-race:italy"],
+        roleSearchResultId, componentListingRef: "venue-race:italy",
+        aggregateListingRef: "venue-sport:constructors",
         structuralAnalogy: "One race result may contribute points to an aggregate constructors championship.",
-        surfaceDifferences: ["sports points replace office membership"],
-        appliedTransferTestRefs: [references.transferTests[0]!.ref],
-        activatedCounterScenarioRefs: [], searchSignals: ["race", "constructors championship"],
+        surfaceDifferences: ["sports points replace office membership"], searchSignals: ["race", "constructors championship"],
         noveltyAxisExplanation: "The surface domain changes from elections to motorsport.",
         rationale: "The exact pair merits separate semantic mechanism research.",
       },
@@ -676,6 +696,139 @@ describe("mechanism-prototype exploration Agent tools", () => {
         admissible: true,
         authority: "EXPLORATION_AXIS_ADMISSION_ONLY",
       },
+      roleSearchBinding: {
+        resultIdentity: roleSearchResultId,
+        componentListingRef: "venue-race:italy",
+        aggregateListingRef: "venue-sport:constructors",
+        groundedBridgeSignals: expect.arrayContaining(["scuderia ferrari"]),
+        semanticDecisionAuthority: false,
+      },
+    });
+  });
+
+  it("rejects parallel alternatives and returns only role-grounded bridge pairs", () => {
+    const snapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hash("role-search-source-set"), eligibleSourceCount: 2,
+      excludedSourceCount: 0, listings: [
+        listing({ ref: "sports:baltimore", venue: "sports",
+          title: "AFC Championship Winner — Baltimore" }),
+        listing({ ref: "sports:buffalo", venue: "sports",
+          title: "AFC Championship Winner — Buffalo" }),
+        listing({ ref: "race:italy", venue: "race",
+          title: "Will Scuderia Ferrari win the Italian Grand Prix race?" }),
+        listing({ ref: "f1:constructors", venue: "f1",
+          title: "Will Scuderia Ferrari win the Formula 1 constructors championship?" }),
+      ],
+    });
+    const result = searchMechanismPrototypeExplorationRoles({
+      corpus: snapshot,
+      componentQuery: { patterns: ["race", "AFC Championship"], syntax: "LITERAL",
+        mode: "ANY", fields: ["title"], limit: 10 },
+      aggregateQuery: { patterns: ["constructors championship", "AFC Championship"],
+        syntax: "LITERAL", mode: "ANY", fields: ["title"], limit: 10 },
+      bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
+    });
+    expect(result).toMatchObject({
+      rawComponentHitCount: 3, rawAggregateHitCount: 3,
+      componentHits: [{ listingRef: "race:italy" }],
+      aggregateHits: [{ listingRef: "f1:constructors" }],
+      unclassifiedComponentListingRefs: ["sports:baltimore", "sports:buffalo"],
+      unclassifiedAggregateListingRefs: ["sports:baltimore", "sports:buffalo"],
+      pairCount: 1,
+      pairs: [{ componentListingRef: "race:italy",
+        aggregateListingRef: "f1:constructors",
+        groundedBridgeSignals: expect.arrayContaining(["scuderia ferrari"]) }],
+      roleCueSemanticAuthority: false,
+      bridgeSignalSubjectIdentityAuthority: false,
+    });
+  });
+
+  it("persists each accepted role search before any terminal result exists", async () => {
+    const { lens, prototype, snapshot, profile, run } = runtimeFixture();
+    const observations: MechanismPrototypeExplorationRoleSearchObservation[] = [];
+    const actionObservations: MechanismPrototypeExplorationActionObservation[] = [];
+    const storage = <K extends string>(idempotencyKey: K) => Object.freeze({
+      mode: "MEMORY" as const, durable: false, schemaVersion: 57, idempotencyKey,
+    });
+    const store: MechanismPrototypeExplorationStore = {
+      mechanismPrototypeExplorationInputStorage: storage("inputRevisionId"),
+      mechanismPrototypeExplorationTrailheadStorage: storage("trailheadId"),
+      mechanismPrototypeExplorationExhaustionStorage: storage("exhaustionId"),
+      mechanismPrototypeExplorationRoleSearchObservationStorage: storage("observationId"),
+      mechanismPrototypeExplorationActionObservationStorage: storage("observationId"),
+      loadMechanismPrototypeExplorationInputs: () => [],
+      saveMechanismPrototypeExplorationInputs: (values) => values,
+      loadMechanismPrototypeExplorationTrailheads: () => [],
+      saveMechanismPrototypeExplorationTrailheads: (values) => values,
+      loadMechanismPrototypeExplorationExhaustions: () => [],
+      saveMechanismPrototypeExplorationExhaustions: (values) => values,
+      loadMechanismPrototypeExplorationRoleSearchObservations: () => observations,
+      saveMechanismPrototypeExplorationRoleSearchObservations: (values) => {
+        observations.push(...values);
+        return values;
+      },
+      loadMechanismPrototypeExplorationActionObservations: () => actionObservations,
+      saveMechanismPrototypeExplorationActionObservations: (values) => {
+        actionObservations.push(...values);
+        return values;
+      },
+    };
+    const host = new MechanismPrototypeExplorationAgentToolHost(
+      lens.currentInputRevision, prototype, snapshot, store,
+    );
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "role-search:1", toolName: "search_mechanism_exploration_roles", input: {
+        component: { patterns: ["race"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["constructors championship"], syntax: "LITERAL",
+          mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
+      } });
+    expect(host.trailheads()).toEqual([]);
+    expect(host.exhaustions()).toEqual([]);
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      lensId: lens.lensId,
+      inputRevisionId: lens.currentInputRevision.inputRevisionId,
+      sourceAgentRunId: run.runId,
+      sourceToolCallId: "role-search:1",
+      capturedAt: run.createdAt,
+      result: { pairCount: 1 },
+      authority: "DURABLE_ROLE_SEARCH_EVIDENCE_ONLY",
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+    });
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "action:1", toolName: "mark_transfer_test_1_applied", input: {} });
+    expect(actionObservations).toHaveLength(1);
+    expect(actionObservations[0]).toMatchObject({
+      lensId: lens.lensId,
+      inputRevisionId: lens.currentInputRevision.inputRevisionId,
+      sourceAgentRunId: run.runId,
+      sourceToolCallId: "action:1",
+      action: "TRANSFER_TEST_APPLIED",
+      ordinal: 1,
+      exactText: prototype.transferTests[0],
+      authority: "DURABLE_PROTOTYPE_EXPLORATION_ACTION_ONLY",
+      semanticDecisionAuthority: false,
+    });
+    const interruptedProjection = materializeMechanismPrototypeExplorationProjection({
+      prototypes: [prototype],
+      prototypeInputs: [lens.sourcePrototypeInput],
+      explorationInputs: [lens.currentInputRevision],
+      roleSearchObservations: observations,
+      actionObservations,
+      execution: { runtimeDefinitions: [], credentialBindings: [], modelProfiles: [],
+        executionProfiles: [], capabilityObservations: [], workloadRoutes: [], tasks: [],
+        runs: [run], modelInvocations: [], toolEffects: [], runArtifacts: [],
+        runAnnotations: [], campaigns: [], resultSelections: [] },
+      corpus: snapshot,
+      ontology: buildMarketOntologySnapshot(snapshot),
+    });
+    expect(interruptedProjection.usage).toMatchObject({
+      sourceRunCount: 1, roleSearchResultCount: 1,
+      roleSearchRawHitCount: 2, roleSearchQualifiedHitCount: 2, roleSearchPairCount: 1,
+      retainedActionObservationCount: 1,
     });
   });
 
@@ -695,22 +848,27 @@ describe("mechanism-prototype exploration Agent tools", () => {
       lens.currentInputRevision, prototype, electionSnapshot,
     );
     const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
-    await host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "search_mechanism_exploration_corpus", input: {
-        patterns: ["Republican Party"], syntax: "LITERAL", mode: "ANY",
-        fields: ["title"], venueIds: [], limit: 10,
+    const roleSearch = await host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "search_mechanism_exploration_roles", input: {
+        component: { patterns: ["Iowa Senate Election"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["control"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Republican Party"], pairLimit: 10,
       } });
     await host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "inspect_mechanism_exploration_listings", input: {
         listingRefs: ["venue-a:iowa-republican", "venue-b:senate-control-republican"],
       } });
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "mark_transfer_test_1_applied", input: {} });
     await expect(host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "submit_mechanism_exploration_trailhead", input: {
-        listingRefs: ["venue-a:iowa-republican", "venue-b:senate-control-republican"],
+        roleSearchResultId: (roleSearch.output as { resultIdentity: Hash }).resultIdentity,
+        componentListingRef: "venue-a:iowa-republican",
+        aggregateListingRef: "venue-b:senate-control-republican",
         structuralAnalogy: "One state seat contributes to national chamber control.",
-        surfaceDifferences: ["venues and state-party parameters differ"],
-        appliedTransferTestRefs: [references.transferTests[0]!.ref],
-        activatedCounterScenarioRefs: [], searchSignals: ["republican", "senate"],
+        surfaceDifferences: ["venues and state-party parameters differ"], searchSignals: ["republican", "senate"],
         noveltyAxisExplanation: "Cross-venue election pair.",
         rationale: "Candidate remains in the election domain.",
       } })).rejects.toThrow(
@@ -733,15 +891,14 @@ describe("mechanism-prototype exploration Agent tools", () => {
           title: "Which party will control the U.S. Senate? — Republican Party" }),
       ],
     });
-    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
-    const terminal = (listingRefs: readonly string[], host:
+    const terminal = (seatRef: string, roleSearchResultId: Hash, host:
       MechanismPrototypeExplorationAgentToolHost) => host.execute({
         task: lens.task, run, executionProfile: profile,
         toolName: "submit_mechanism_exploration_trailhead", input: {
-          listingRefs, structuralAnalogy: "One state seat contributes to chamber control.",
-          surfaceDifferences: ["state parameter differs"],
-          appliedTransferTestRefs: [references.transferTests[0]!.ref],
-          activatedCounterScenarioRefs: [], searchSignals: ["state", "senate"],
+          roleSearchResultId, componentListingRef: seatRef,
+          aggregateListingRef: "geo:senate-control",
+          structuralAnalogy: "One state seat contributes to chamber control.",
+          surfaceDifferences: ["state parameter differs"], searchSignals: ["state", "senate"],
           noveltyAxisExplanation: "Geography parameter changes.",
           rationale: "The role structure remains in the election domain.",
         },
@@ -750,24 +907,30 @@ describe("mechanism-prototype exploration Agent tools", () => {
       const host = new MechanismPrototypeExplorationAgentToolHost(
         lens.currentInputRevision, prototype, geographySnapshot,
       );
-      await host.execute({ task: lens.task, run, executionProfile: profile,
-        toolName: "search_mechanism_exploration_corpus", input: {
-          patterns: ["Senate"], syntax: "LITERAL", mode: "ANY",
-          fields: ["title"], venueIds: [], limit: 10,
+      const roleSearch = await host.execute({ task: lens.task, run, executionProfile: profile,
+        toolName: "search_mechanism_exploration_roles", input: {
+          component: { patterns: [seatRef.includes("iowa") ? "Iowa" : "Georgia"],
+            syntax: "LITERAL", mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+          aggregate: { patterns: ["control"], syntax: "LITERAL", mode: "ANY",
+            fields: ["title"], venueIds: [], limit: 10 },
+          bridgeSignals: ["Republican Party"], pairLimit: 10,
         } });
       await host.execute({ task: lens.task, run, executionProfile: profile,
         toolName: "inspect_mechanism_exploration_listings", input: {
           listingRefs: [seatRef, "geo:senate-control"],
         } });
-      return host;
+      await host.execute({ task: lens.task, run, executionProfile: profile,
+        toolName: "mark_transfer_test_1_applied", input: {} });
+      return { host, roleSearchResultId:
+        (roleSearch.output as { resultIdentity: Hash }).resultIdentity };
     };
-    const knownHost = await inspectPair("geo:iowa-seat");
-    await expect(terminal(["geo:iowa-seat", "geo:senate-control"], knownHost))
+    const known = await inspectPair("geo:iowa-seat");
+    await expect(terminal("geo:iowa-seat", known.roleSearchResultId, known.host))
       .rejects.toThrow(/does not satisfy SUBJECT_AND_GEOGRAPHY/u);
-    const novelHost = await inspectPair("geo:georgia-seat");
-    await expect(terminal(["geo:georgia-seat", "geo:senate-control"], novelHost))
+    const novel = await inspectPair("geo:georgia-seat");
+    await expect(terminal("geo:georgia-seat", novel.roleSearchResultId, novel.host))
       .resolves.toMatchObject({ status: "ACCEPTED" });
-    expect(novelHost.trailheads()[0]?.axisAssessment).toMatchObject({
+    expect(novel.host.trailheads()[0]?.axisAssessment).toMatchObject({
       requestedAxis: "SUBJECT_AND_GEOGRAPHY",
       groundedAxisEvidenceSignals: ["georgia"],
       observedNoveltyDimensions: expect.arrayContaining(["SUBJECT_OR_GEOGRAPHY_PARAMETER"]),
@@ -795,7 +958,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(read).toMatchObject({
       status: "ACCEPTED",
       output: {
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v3",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v4",
         axisContract: {
           admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
           sourcePredicateFamilies: expect.arrayContaining(["ELECTION_OR_OFFICE"]),
@@ -803,9 +966,10 @@ describe("mechanism-prototype exploration Agent tools", () => {
         },
         coverage: { memberCount: 202, membersOmittedFromReasoningView: true },
         prototype: {
-          transferTests: [{ ref: expect.stringMatching(/^sha256:/u), text: prototype.transferTests[0] }],
+          transferTests: [{ appliedTool: "mark_transfer_test_1_applied",
+            failedTool: "mark_transfer_test_1_failed", text: prototype.transferTests[0] }],
         },
-        terminalReferencePolicy: "CITE_EXACT_FIRST_PARTY_REFS",
+        terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
       },
     });
     expect(serialized).not.toContain("coverageMembers");
@@ -818,36 +982,34 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
     );
-    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "mark_transfer_test_1_failed", input: {} });
     await expect(host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "submit_mechanism_exploration_trailhead",
       input: {
-        listingRefs: ["venue-sport:constructors", "venue-race:italy"],
-        structuralAnalogy: "Uninspected analogy.", surfaceDifferences: ["sports"],
-        appliedTransferTestRefs: [references.transferTests[0]!.ref],
-        activatedCounterScenarioRefs: [], searchSignals: ["sports"],
+        roleSearchResultId: hash("unsearched-role-result"),
+        componentListingRef: "venue-race:italy",
+        aggregateListingRef: "venue-sport:constructors",
+        structuralAnalogy: "Uninspected analogy.", surfaceDifferences: ["sports"], searchSignals: ["sports"],
         noveltyAxisExplanation: "Cross-domain.", rationale: "Not inspected.",
       },
-    })).rejects.toThrow(/inspected/u);
+    })).rejects.toThrow(/prior exact role-search pair/u);
     await expect(host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "record_mechanism_exploration_exhaustion",
       input: {
         inspectedListingRefs: ["venue-sport:constructors"],
-        searchedNeighborhoods: ["motorsport"],
-        failedTransferTestRefs: [references.transferTests[0]!.ref],
-        activatedCounterScenarioRefs: [], reason: "No exact analogy survived.",
+        searchedNeighborhoods: ["motorsport"], reason: "No exact analogy survived.",
       },
     })).rejects.toThrow(/inspected|search/u);
   });
 
-  it("fails closed on foreign prototype references and materializes exact exhaustion prose", async () => {
+  it("materializes exact prototype prose from zero-argument action tools", async () => {
     const { lens, prototype, snapshot, profile, run } = runtimeFixture();
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
     );
-    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
     await host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "search_mechanism_exploration_corpus",
@@ -859,24 +1021,27 @@ describe("mechanism-prototype exploration Agent tools", () => {
       toolName: "inspect_mechanism_exploration_listings",
       input: { listingRefs: ["venue-sport:constructors"] },
     });
-    const terminal = (failedTransferTestRefs: readonly string[]) => host.execute({
+    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "mark_transfer_test_999_failed", input: {} }))
+      .rejects.toThrow(/transfer action is unknown/u);
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "mark_transfer_test_1_failed", input: {} });
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "activate_counter_scenario_1", input: {} });
+    const terminal = () => host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "record_mechanism_exploration_exhaustion",
       input: {
         inspectedListingRefs: ["venue-sport:constructors"],
         searchedNeighborhoods: ["motorsport aggregate"],
-        failedTransferTestRefs,
-        activatedCounterScenarioRefs: [],
         reason: "The inspected aggregate does not establish a component pair.",
       },
     });
-    await expect(terminal([hash("foreign-prototype-test")]))
-      .rejects.toThrow(/unknown transfer test reference/u);
-    await expect(terminal([prototype.transferTests[0]!]))
-      .rejects.toThrow(/references are invalid/u);
-    await expect(terminal([references.transferTests[0]!.ref]))
+    await expect(terminal())
       .resolves.toMatchObject({ status: "ACCEPTED" });
     expect(host.exhaustions()[0]?.failedTransferTests)
       .toEqual([prototype.transferTests[0]]);
+    expect(host.exhaustions()[0]?.activatedCounterScenarios)
+      .toEqual([prototype.counterScenarios[0]]);
   });
 });
