@@ -1800,6 +1800,26 @@ JSON-RPC error to the word `Error`. Bounded protocol code/message evidence is
 now retained for recurrence. The qualification campaign is paused and
 exhausted; no further model call can start implicitly.
 
+The next active continuation is
+[`plans/ontology-agent-intent-cost.md`](plans/ontology-agent-intent-cost.md).
+Issue #164 closes the evidence gap between model invocations and the tool calls
+they emit. One invocation will be treated as a non-divisible cost unit and
+bound to every resulting effect; provider-free projection can then distinguish
+evidence inspection, ordinary ontology output, mechanism inspection, mechanism
+output, repair, mixed intent, and no-effect spend without guessing from
+timestamps or double-counting batched calls. Historical unlinked effects remain
+explicit unknowns rather than receiving invented attribution.
+
+The provider-free live baseline now makes that unknown visible. Eight retained
+ontology runs contain 29 invocations and 554,881 known total tokens. Six repair
+invocations account for 118,794 tokens; 20 historical invocations / 411,581
+tokens cannot be linked exactly to old v1/v2 effects; three invocations /
+24,506 tokens have no retained effect. Across 19 historical effects, mechanism
+memory was never inspected and no mechanism result tool was called. This does
+not reject the mechanism ontology—it identifies Agent tool-choice topology as
+the next experiment. New v3 effects bind exact source invocation identity, and
+Agent Operations presents the reconciled funnel without a provider call.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

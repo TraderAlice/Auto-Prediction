@@ -183,6 +183,7 @@ describe("SQLite Agent execution substrate", () => {
       status: "ACCEPTED",
       canonicalInput: { disposition: "SUPPORTS" },
       canonicalOutput: { accepted: true },
+      sourceInvocation: invocation,
       occurredAt: "2026-08-10T12:01:03.000Z",
     });
     store.saveAgentExecutionBatch({
@@ -239,7 +240,12 @@ describe("SQLite Agent execution substrate", () => {
         runId: run.runId,
         inputTokens: "1234",
       }],
-      toolEffects: [{ effectId: effect.effectId, status: "ACCEPTED" }],
+      toolEffects: [{
+        effectId: effect.effectId,
+        status: "ACCEPTED",
+        schemaVersion: "pmh.agent-tool-effect.v3",
+        sourceInvocationId: invocation.invocationId,
+      }],
       runArtifacts: [{ artifactId: artifact.artifactId, contentHash: artifactContentHash }],
       runAnnotations: [{ annotationId: annotation.annotationId }],
       resultSelections: [{ selectionId: selection.selectionId }],
@@ -258,6 +264,30 @@ describe("SQLite Agent execution substrate", () => {
       }),
     ]));
     expect(JSON.stringify(snapshot)).not.toContain("test-only-secret-value");
+    const danglingEffect = buildAgentToolEffect({
+      run,
+      ordinal: 2,
+      toolProtocol: imported.executionProfile.toolPolicy.protocol,
+      toolName: "submit_rule_evidence_claim",
+      status: "ACCEPTED",
+      canonicalInput: { disposition: "SUPPORTS", duplicate: true },
+      canonicalOutput: { accepted: true },
+      sourceInvocation: buildModelInvocation({
+        purpose: "PRIMARY_REASONING",
+        run,
+        modelProfile: imported.modelProfile,
+        ordinal: 2,
+        status: "SUCCEEDED",
+        startedAt: "2026-08-10T12:01:03.000Z",
+        completedAt: "2026-08-10T12:01:03.500Z",
+        inputTokens: "1",
+        outputTokens: "1",
+        reasoningTokens: "0",
+      }),
+      occurredAt: "2026-08-10T12:01:03.500Z",
+    });
+    expect(() => store.saveAgentExecutionBatch({ toolEffects: [danglingEffect] }))
+      .toThrow(/source invocation/iu);
     store.close();
   });
 

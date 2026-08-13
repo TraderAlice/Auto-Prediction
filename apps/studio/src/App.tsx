@@ -702,6 +702,48 @@ type WorldStateMechanismProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type OntologyAgentIntentCostProjection = Readonly<{
+  schemaVersion: "pmh.ontology-agent-intent-cost-projection.v1";
+  projectionIdentity: string;
+  observedAt: string;
+  ontologyRunCount: number;
+  ontologyInvocationCount: number;
+  exactLinkedInvocationCount: number;
+  historicalUnlinkedInvocationCount: number;
+  unlinkedHistoricalEffectCount: number;
+  invalidExactLineageEffectCount: number;
+  acceptedOrdinaryResultCallCount: number;
+  rejectedOrdinaryResultCallCount: number;
+  mechanismInspectionCallCount: number;
+  acceptedMechanismResultCallCount: number;
+  rejectedMechanismResultCallCount: number;
+  knownInputTokens: string;
+  knownOutputTokens: string;
+  knownReasoningTokens: string;
+  knownTotalTokens: string;
+  incompleteUsageInvocationCount: number;
+  totalsReconcile: true;
+  strata: ReadonlyArray<Readonly<{
+    stratum: string;
+    invocationCount: number;
+    knownInputTokens: string;
+    knownOutputTokens: string;
+    knownReasoningTokens: string;
+    knownTotalTokens: string;
+    incompleteUsageInvocationCount: number;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  writesStartedByRead: 0;
+  automaticDispatch: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  policyMutationAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type OntologyAllocationOutcomeProjection = Readonly<{
   schemaVersion: "pmh.ontology-allocation-outcome-projection.v1";
   projectionIdentity: string;
@@ -782,6 +824,7 @@ type AgentWorkspace = Readonly<{
   resultRepairs: AgentResultRepairProjection;
   semanticNovelty: SemanticNoveltyProjection;
   worldStateMechanisms: WorldStateMechanismProjection;
+  ontologyAgentIntentCost: OntologyAgentIntentCostProjection;
   ontologyOutcomes: OntologyAllocationOutcomeProjection;
   discoveryCycle: Readonly<{
     schemaVersion: "pmh.discovery-cycle.v1";
@@ -3712,6 +3755,17 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.worldStateMechanisms.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.probabilityAuthority !== false ||
     result.worldStateMechanisms.certificateAuthority !== false ||
+    result.ontologyAgentIntentCost.schemaVersion !==
+      "pmh.ontology-agent-intent-cost-projection.v1" ||
+    result.ontologyAgentIntentCost.providerRequestsStartedByRead !== 0 ||
+    result.ontologyAgentIntentCost.modelInvocationsStartedByRead !== 0 ||
+    result.ontologyAgentIntentCost.writesStartedByRead !== 0 ||
+    result.ontologyAgentIntentCost.automaticDispatch !== false ||
+    result.ontologyAgentIntentCost.semanticDecisionAuthority !== false ||
+    result.ontologyAgentIntentCost.probabilityAuthority !== false ||
+    result.ontologyAgentIntentCost.policyMutationAuthority !== false ||
+    result.ontologyAgentIntentCost.certificateAuthority !== false ||
+    result.ontologyAgentIntentCost.executionAuthority !== false ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
     result.discoveryCycle.schemaVersion !== "pmh.discovery-cycle.v1" ||
@@ -3745,6 +3799,8 @@ function AgentOperationsView() {
     useState<SemanticNoveltyProjection | null>(null);
   const [worldStateMechanisms, setWorldStateMechanisms] =
     useState<WorldStateMechanismProjection | null>(null);
+  const [ontologyAgentIntentCost, setOntologyAgentIntentCost] =
+    useState<OntologyAgentIntentCostProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
     useState<OntologyAllocationOutcomeProjection | null>(null);
   const [discoveryCycle, setDiscoveryCycle] =
@@ -3776,6 +3832,7 @@ function AgentOperationsView() {
     setResultRepairs(workspace.resultRepairs);
     setSemanticNovelty(workspace.semanticNovelty);
     setWorldStateMechanisms(workspace.worldStateMechanisms);
+    setOntologyAgentIntentCost(workspace.ontologyAgentIntentCost);
     setOntologyOutcomeData(ontologyOutcomes);
     setDiscoveryCycle(workspace.discoveryCycle);
     setTaskId((current) => next.tasks.some((task) =>
@@ -4097,6 +4154,56 @@ function AgentOperationsView() {
               <Waypoints size={14} />
               <span>Routing-only ontology · no probability, certificate, dispatch, or trading authority</span>
               <code>{worldStateMechanisms.projectionIdentity.slice(7, 19)}</code>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {ontologyAgentIntentCost !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Ontology Agent behavior</span>
+              <h2>Where does ontology reasoning spend go?</h2>
+              <p>Each model invocation is counted once and linked to the exact tools it emitted. Mixed batches stay mixed; historical effects are never assigned by timestamp guesswork.</p>
+            </div>
+            <Badge variant={ontologyAgentIntentCost.exactLinkedInvocationCount > 0 ? "verified" : "shadow"}>
+              {ontologyAgentIntentCost.exactLinkedInvocationCount}/{ontologyAgentIntentCost.ontologyInvocationCount} LINKED
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-summary">
+              <div><strong>{formatTokenCount(ontologyAgentIntentCost.knownTotalTokens)}</strong><span>known tokens</span></div>
+              <div><strong>{ontologyAgentIntentCost.mechanismInspectionCallCount}</strong><span>mechanism inspections</span></div>
+              <div><strong>{ontologyAgentIntentCost.acceptedMechanismResultCallCount}</strong><span>mechanisms admitted</span></div>
+              <div><strong>{ontologyAgentIntentCost.rejectedMechanismResultCallCount}</strong><span>mechanisms rejected</span></div>
+            </div>
+            <div className="research-attention-actions">
+              {ontologyAgentIntentCost.strata.filter((stratum) =>
+                stratum.invocationCount > 0
+              ).map((stratum) => (
+                <article key={stratum.stratum}>
+                  <div className="research-attention-action-head">
+                    <div>
+                      <Badge variant={stratum.stratum.includes("MECHANISM") ? "verified" :
+                        stratum.stratum === "RESULT_REPAIR" ? "warning" : "muted"}>
+                        {stratum.stratum.replaceAll("_", " ")}
+                      </Badge>
+                    </div>
+                    <code>{stratum.invocationCount} CALL{stratum.invocationCount === 1 ? "" : "S"}</code>
+                  </div>
+                  <strong>{formatTokenCount(stratum.knownTotalTokens)} known tokens</strong>
+                  <p>{formatTokenCount(stratum.knownInputTokens)} input · {formatTokenCount(stratum.knownOutputTokens)} output · {formatTokenCount(stratum.knownReasoningTokens)} reasoning</p>
+                  <div className="research-attention-facts">
+                    <span>{stratum.incompleteUsageInvocationCount} incomplete usage records</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="research-attention-lock">
+              <Waypoints size={14} />
+              <span>{ontologyAgentIntentCost.unlinkedHistoricalEffectCount} historical unlinked effects · {ontologyAgentIntentCost.invalidExactLineageEffectCount} invalid exact links · totals reconcile</span>
+              <code>{ontologyAgentIntentCost.projectionIdentity.slice(7, 19)}</code>
             </div>
           </CardContent>
         </Card>

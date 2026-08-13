@@ -893,7 +893,8 @@ export async function executePreparedAgentRun(
               effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
             ).slice(-4).map((effect) => Object.freeze({
               toolName: effect.toolName,
-              diagnostic: effect.schemaVersion === "pmh.agent-tool-effect.v2"
+              diagnostic: effect.schemaVersion === "pmh.agent-tool-effect.v2" ||
+                  effect.schemaVersion === "pmh.agent-tool-effect.v3"
                 ? effect.diagnostic ?? "first-party result validation rejected the call"
                 : "first-party result validation rejected the call",
             })));
@@ -972,6 +973,7 @@ export async function executePreparedAgentRun(
           status: result.status,
           canonicalInput: call.input,
           canonicalOutput: result.output,
+          sourceInvocation: invocation,
           diagnostic: result.status === "REJECTED" && result.output !== null &&
               typeof result.output === "object" &&
               typeof (result.output as { diagnostic?: unknown }).diagnostic === "string"
