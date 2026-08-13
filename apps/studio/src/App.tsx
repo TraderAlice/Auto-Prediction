@@ -474,6 +474,87 @@ type DiscoverySignalProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type DiscoveryYieldProjection = Readonly<{
+  schemaVersion: "pmh.discovery-yield-projection.v1";
+  projectionIdentity: string;
+  observedAt: string;
+  episodeCount: number;
+  observationCount: number;
+  windowCount: number;
+  campaignMembershipBoundWindowCount: number;
+  newRunCount: number;
+  actedWindowCount: number;
+  openWindowCount: number;
+  terminalWindowCount: number;
+  comparableTerminalWindowCount: number;
+  productiveComparableWindowCount: number;
+  nonComparableWindowCount: number;
+  representedStratumCount: number;
+  qualifiedStratumCount: number;
+  windows: ReadonlyArray<Readonly<{
+    windowId: string;
+    episodeId: string;
+    downstreamSystem: string;
+    noveltyReason: string;
+    status: "OPEN_UNACTED" | "OPEN_IN_FLIGHT" | "CLOSED_BY_SUCCESSOR" |
+      "CURRENT_TERMINAL_OBSERVATION" | "INCOMPARABLE";
+    integrity: string;
+    comparable: boolean;
+    acted: boolean;
+    terminal: boolean;
+    campaignMembershipBound: boolean;
+    cost: Readonly<{
+      knownInputTokens: string;
+      knownOutputTokens: string;
+      knownReasoningTokens: string;
+    }>;
+    yieldDelta: Readonly<{
+      newRunCount: number;
+      newPositiveFindingCount: number;
+      newCounterexampleCount: number;
+      newNoFindingTerminalRunCount: number;
+      positiveValueStageDelta: number;
+    }>;
+    diagnostic: string;
+  }>>;
+  strata: ReadonlyArray<Readonly<{
+    stratumId: string;
+    allocationLane: string;
+    allocationActionKind: string;
+    noveltyReason: string;
+    downstreamSystem: string;
+    selectedWindowCount: number;
+    actedWindowCount: number;
+    terminalWindowCount: number;
+    comparableTerminalWindowCount: number;
+    nonComparableWindowCount: number;
+    positiveFindingCount: number;
+    counterexampleCount: number;
+    noFindingTerminalRunCount: number;
+    newRunCount: number;
+    semanticReviewJobCount: number;
+    probabilityJobCount: number;
+    positiveValueStageDelta: number;
+    productiveWindowCount: number;
+    spentWithoutMovementWindowCount: number;
+    knownTotalTokens: string;
+    yieldCostEstimateQualified: boolean;
+    ratesPer100kKnownTokens: Readonly<{
+      scale: "1000000";
+      positiveFindings: string | null;
+      counterexamples: string | null;
+      productiveWindows: string | null;
+      positiveValueStageDelta: string | null;
+    }>;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  writesStartedByRead: 0;
+  automaticDispatch: false;
+  policyMutationAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type OntologyAllocationOutcomeProjection = Readonly<{
   schemaVersion: "pmh.ontology-allocation-outcome-projection.v1";
   projectionIdentity: string;
@@ -550,6 +631,7 @@ type AgentWorkspace = Readonly<{
   targets: ResearchActionTargetProjection;
   decisions: ResearchDecisionOutcomeProjection;
   discoverySignals: DiscoverySignalProjection;
+  discoveryYield: DiscoveryYieldProjection;
   ontologyOutcomes: OntologyAllocationOutcomeProjection;
   discoveryCycle: Readonly<{
     schemaVersion: "pmh.discovery-cycle.v1";
@@ -867,6 +949,16 @@ function formatTokenCount(value: string | null): string {
     return BigInt(value).toLocaleString("en-US");
   } catch {
     return value;
+  }
+}
+
+function formatYieldRate(value: string | null): string {
+  if (value === null) return "unqualified";
+  try {
+    const hundredths = BigInt(value) * 100n / 1_000_000n;
+    return `${hundredths / 100n}.${(hundredths % 100n).toString().padStart(2, "0")}`;
+  } catch {
+    return "unqualified";
   }
 }
 
@@ -3441,6 +3533,12 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.discoverySignals.modelInvocationsStartedByRead !== 0 ||
     result.discoverySignals.writesStartedByRead !== 0 ||
     result.discoverySignals.automaticDispatch !== false ||
+    result.discoveryYield.schemaVersion !== "pmh.discovery-yield-projection.v1" ||
+    result.discoveryYield.providerRequestsStartedByRead !== 0 ||
+    result.discoveryYield.modelInvocationsStartedByRead !== 0 ||
+    result.discoveryYield.writesStartedByRead !== 0 ||
+    result.discoveryYield.automaticDispatch !== false ||
+    result.discoveryYield.policyMutationAuthority !== false ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
     result.discoveryCycle.schemaVersion !== "pmh.discovery-cycle.v1" ||
@@ -3466,6 +3564,8 @@ function AgentOperationsView() {
   const [outcomeData, setOutcomeData] = useState<ResearchDecisionOutcomeProjection | null>(null);
   const [discoverySignals, setDiscoverySignals] =
     useState<DiscoverySignalProjection | null>(null);
+  const [discoveryYield, setDiscoveryYield] =
+    useState<DiscoveryYieldProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
     useState<OntologyAllocationOutcomeProjection | null>(null);
   const [discoveryCycle, setDiscoveryCycle] =
@@ -3493,6 +3593,7 @@ function AgentOperationsView() {
     setTargetData(targets);
     setOutcomeData(outcomes);
     setDiscoverySignals(workspace.discoverySignals);
+    setDiscoveryYield(workspace.discoveryYield);
     setOntologyOutcomeData(ontologyOutcomes);
     setDiscoveryCycle(workspace.discoveryCycle);
     setTaskId((current) => next.tasks.some((task) =>
@@ -3688,6 +3789,102 @@ function AgentOperationsView() {
                   ) : <Badge variant="shadow">READ</Badge>}
                 </article>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {discoveryYield !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Discovery yield attribution</span>
+              <h2>Which semantic search strategies earn new evidence?</h2>
+              <p>Append-only observations close non-overlapping decision windows before tokens or findings are compared. No scalar score can mutate policy.</p>
+            </div>
+            <Badge variant={discoveryYield.qualifiedStratumCount > 0 ? "verified" : "shadow"}>
+              {discoveryYield.qualifiedStratumCount}/{discoveryYield.representedStratumCount} STRATA QUALIFIED
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-lock">
+              <span>
+                {discoveryYield.observationCount} observations → {discoveryYield.episodeCount} allocations →{" "}
+                {discoveryYield.campaignMembershipBoundWindowCount} campaign memberships →{" "}
+                {discoveryYield.newRunCount} retained runs → {discoveryYield.terminalWindowCount} terminal outcomes
+              </span>
+              <code>EXACT FUNNEL</code>
+            </div>
+            <div className="research-attention-summary">
+              <div><strong>{discoveryYield.observationCount}</strong><span>observations</span></div>
+              <div><strong>{discoveryYield.episodeCount}</strong><span>allocations</span></div>
+              <div><strong>{discoveryYield.actedWindowCount}</strong><span>acted windows</span></div>
+              <div><strong>{discoveryYield.productiveComparableWindowCount}</strong><span>productive</span></div>
+            </div>
+            <div className="research-attention-actions">
+              {discoveryYield.strata.length === 0 ? (
+                <div className="empty-state">No decision window has enough retained observation state for policy comparison.</div>
+              ) : discoveryYield.strata.slice(0, 8).map((stratum) => (
+                <article key={stratum.stratumId}>
+                  <div className="research-attention-action-head">
+                    <div>
+                      <Badge variant={stratum.yieldCostEstimateQualified ? "verified" : "muted"}>
+                        {stratum.yieldCostEstimateQualified ? "RATE QUALIFIED" : "SPARSE EVIDENCE"}
+                      </Badge>
+                      <Badge variant="muted">{stratum.downstreamSystem.replaceAll("_", " ")}</Badge>
+                      <Badge variant="muted">{stratum.noveltyReason.replaceAll("_", " ")}</Badge>
+                    </div>
+                    <code>{stratum.stratumId.slice(7, 19)}</code>
+                  </div>
+                  <strong>{stratum.allocationActionKind.replaceAll("_", " ")}</strong>
+                  <p>{stratum.comparableTerminalWindowCount}/{stratum.terminalWindowCount} terminal windows are comparable under the exact policy stratum.</p>
+                  <div className="research-attention-facts">
+                    <span>{formatTokenCount(stratum.knownTotalTokens)} attributable tokens</span>
+                    <span>{stratum.newRunCount} retained runs</span>
+                    <span>{stratum.positiveFindingCount} positive · {stratum.counterexampleCount} counter</span>
+                    <span>{stratum.noFindingTerminalRunCount} no-yield memory</span>
+                    <span>{stratum.positiveValueStageDelta} stage movement</span>
+                    <span>{formatYieldRate(stratum.ratesPer100kKnownTokens.positiveFindings)} positive / 100k tokens</span>
+                    <span>{formatYieldRate(stratum.ratesPer100kKnownTokens.counterexamples)} counter / 100k tokens</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+            {discoveryYield.windows.length > 0 && (
+              <div className="research-attention-actions">
+                {discoveryYield.windows.slice(-4).reverse().map((window) => {
+                  const tokens = BigInt(window.cost.knownInputTokens) +
+                    BigInt(window.cost.knownOutputTokens) +
+                    BigInt(window.cost.knownReasoningTokens);
+                  return (
+                    <article key={window.windowId}>
+                      <div className="research-attention-action-head">
+                        <div>
+                          <Badge variant={window.comparable ? "verified" :
+                            window.status.startsWith("OPEN_") ? "muted" : "warning"}>
+                            {window.status.replaceAll("_", " ")}
+                          </Badge>
+                          <Badge variant="muted">{window.integrity.replaceAll("_", " ")}</Badge>
+                        </div>
+                        <code>{window.episodeId.slice(7, 19)}</code>
+                      </div>
+                      <strong>{window.downstreamSystem.replaceAll("_", " ")}</strong>
+                      <p>{window.diagnostic}</p>
+                      <div className="research-attention-facts">
+                        <span>{formatTokenCount(tokens.toString())} interval tokens</span>
+                        <span>{window.yieldDelta.newRunCount} retained runs</span>
+                        <span>{window.yieldDelta.newPositiveFindingCount} positive</span>
+                        <span>{window.yieldDelta.newCounterexampleCount} counter</span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+            <div className="research-attention-lock">
+              <CircleOff size={14} />
+              <span>{discoveryYield.comparableTerminalWindowCount} comparable terminal · {discoveryYield.nonComparableWindowCount} open or incomparable · policy mutation disabled</span>
+              <code>{discoveryYield.projectionIdentity.slice(7, 19)}</code>
             </div>
           </CardContent>
         </Card>

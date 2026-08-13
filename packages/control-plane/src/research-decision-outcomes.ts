@@ -145,6 +145,17 @@ export type ResearchDecisionOutcome = Readonly<{
   valueStageDelta: number | null;
   currentTargetState: ResearchActionTarget["state"] | null;
   newArtifactRefs: readonly Hash[];
+  yieldDelta: Readonly<{
+    newRunCount: number;
+    newPositiveFindingCount: number;
+    newCounterexampleCount: number;
+    newSemanticReviewJobCount: number;
+    newProbabilityJobCount: number;
+    newExactTargetArtifactCount: number;
+    newNoFindingTerminalRunCount: number;
+    newSuccessfulWithoutAcceptedResultCount: number;
+    positiveValueStageDelta: number;
+  }>;
   antiLoopMemory: Readonly<{
     newCounterexampleCount: number;
     newNoFindingTerminalRunCount: number;
@@ -427,6 +438,81 @@ export function assertResearchDecisionEpisode(value: unknown): ResearchDecisionE
   return Object.freeze(item);
 }
 
+export function assertResearchDecisionOutcome(value: unknown): ResearchDecisionOutcome {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("research decision outcome is malformed");
+  }
+  const item = value as ResearchDecisionOutcome;
+  const nullableHashes = [item.workItemId];
+  const nonNegativeIntegers = [
+    item.antiLoopMemory?.newCounterexampleCount,
+    item.antiLoopMemory?.newNoFindingTerminalRunCount,
+    item.antiLoopMemory?.newSuccessfulWithoutAcceptedResultCount,
+    item.antiLoopMemory?.retainedCounterexampleCount,
+    item.antiLoopMemory?.retainedNoFindingTerminalRunCount,
+    item.yieldDelta?.newRunCount,
+    item.yieldDelta?.newPositiveFindingCount,
+    item.yieldDelta?.newCounterexampleCount,
+    item.yieldDelta?.newSemanticReviewJobCount,
+    item.yieldDelta?.newProbabilityJobCount,
+    item.yieldDelta?.newExactTargetArtifactCount,
+    item.yieldDelta?.newNoFindingTerminalRunCount,
+    item.yieldDelta?.newSuccessfulWithoutAcceptedResultCount,
+    item.yieldDelta?.positiveValueStageDelta,
+  ];
+  const { outcomeId: _outcomeId, ...body } = item;
+  if (item.schemaVersion !== "pmh.research-decision-outcome.v1" ||
+      !HASH_PATTERN.test(String(item.outcomeId)) ||
+      !HASH_PATTERN.test(String(item.episodeId)) ||
+      !HASH_PATTERN.test(String(item.allocationActionId)) ||
+      !HASH_PATTERN.test(String(item.targetId)) ||
+      nullableHashes.some((hash) => hash !== null && !HASH_PATTERN.test(String(hash))) ||
+      !Number.isFinite(Date.parse(String(item.capturedAt))) ||
+      !Number.isFinite(Date.parse(String(item.observedAt))) ||
+      !["UNACTED_READY", "USEFUL_NEGATIVE_MEMORY", "IN_FLIGHT", "ADVANCED",
+        "SPENT_WITHOUT_MOVEMENT", "REGRESSED_OR_RESCOPED", "TERMINAL_HOLD",
+        "ATTRIBUTION_INCOMPLETE"].includes(item.state) ||
+      !["NOT_ACTED", "TARGET_LINEAGE_OBSERVED"].includes(item.attributionBasis) ||
+      !NOVELTY_REASONS.includes(item.noveltyReason) ||
+      !VALUE_STAGES.includes(item.baselineValueStage) ||
+      (item.currentValueStage !== null && !VALUE_STAGES.includes(item.currentValueStage)) ||
+      (item.valueStageDelta !== null && !Number.isSafeInteger(item.valueStageDelta)) ||
+      (item.currentTargetState !== null && !TARGET_STATES.includes(item.currentTargetState)) ||
+      !validHashes(item.newArtifactRefs) || !validCost(item.costDelta) ||
+      item.antiLoopMemory === null || typeof item.antiLoopMemory !== "object" ||
+      item.yieldDelta === null || typeof item.yieldDelta !== "object" ||
+      nonNegativeIntegers.some((count) => !Number.isSafeInteger(count) || Number(count) < 0) ||
+      typeof item.antiLoopMemory.exactTaskAlreadyAttempted !== "boolean" ||
+      item.yieldDelta.newCounterexampleCount !==
+        item.antiLoopMemory.newCounterexampleCount ||
+      item.yieldDelta.newNoFindingTerminalRunCount !==
+        item.antiLoopMemory.newNoFindingTerminalRunCount ||
+      item.yieldDelta.newSuccessfulWithoutAcceptedResultCount !==
+        item.antiLoopMemory.newSuccessfulWithoutAcceptedResultCount ||
+      typeof item.usageComplete !== "boolean" ||
+      typeof item.diagnostic !== "string" || item.diagnostic.length < 1 ||
+      item.diagnostic.length > 500 ||
+      item.authority !== "DESCRIPTIVE_RESEARCH_ATTRIBUTION_ONLY" ||
+      item.semanticDecisionAuthority !== false || item.policyMutationAuthority !== false ||
+      item.automaticDispatch !== false || item.certificateAuthority !== false ||
+      item.executionAuthority !== false || item.externalWriteAuthority !== false ||
+      item.valueMovingAuthority !== false || item.outcomeId !== hashCanonical(body)) {
+    throw new Error("research decision outcome violates its descriptive contract");
+  }
+  return Object.freeze(item);
+}
+
+export function researchDecisionOutcomeStateIdentity(
+  value: ResearchDecisionOutcome,
+): Hash {
+  const outcome = assertResearchDecisionOutcome(value);
+  const { outcomeId: _outcomeId, observedAt: _observedAt, ...state } = outcome;
+  return hashCanonical({
+    schemaVersion: "pmh.research-decision-outcome-state.v1",
+    state,
+  });
+}
+
 function subtractCost(current: ResearchDecisionCost, prior: ResearchDecisionCost): ResearchDecisionCost {
   const subtractString = (left: string, right: string) => {
     const delta = BigInt(left) - BigInt(right);
@@ -522,6 +608,21 @@ function outcome(input: Readonly<{
   const newProgressArtifactCount = currentProgressArtifacts.filter((item) =>
     !baselineProgressArtifacts.has(item)
   ).length;
+  const newRunCount = (family?.runIds ?? []).filter((item) =>
+    !input.episode.baseline.runIds.includes(item)
+  ).length;
+  const newPositiveFindingCount = (family?.positiveFindingIds ?? []).filter((item) =>
+    !input.episode.baseline.positiveFindingIds.includes(item)
+  ).length;
+  const newSemanticReviewJobCount = (family?.semanticReviewJobIds ?? []).filter((item) =>
+    !input.episode.baseline.semanticReviewJobIds.includes(item)
+  ).length;
+  const newProbabilityJobCount = (family?.probabilityJobIds ?? []).filter((item) =>
+    !input.episode.baseline.probabilityJobIds.includes(item)
+  ).length;
+  const newExactTargetArtifactCount = (target?.exactArtifactRefs ?? []).filter((item) =>
+    !input.episode.baseline.exactTargetArtifactRefs.includes(item)
+  ).length;
   const retainedCounterexampleCount = family?.counterexampleCount ?? 0;
   const retainedNoFindingTerminalRunCount = family?.noFindingTerminalRunCount ?? 0;
   const retainedSuccessfulWithoutAcceptedResultCount =
@@ -558,6 +659,18 @@ function outcome(input: Readonly<{
   const currentValueStage = family?.valueStage ?? null;
   const valueStageDelta = currentValueStage === null ? null :
     STAGE_RANK[currentValueStage] - baselineRank;
+  const yieldDelta = Object.freeze({
+    newRunCount,
+    newPositiveFindingCount,
+    newCounterexampleCount: antiLoopMemory.newCounterexampleCount,
+    newSemanticReviewJobCount,
+    newProbabilityJobCount,
+    newExactTargetArtifactCount,
+    newNoFindingTerminalRunCount: antiLoopMemory.newNoFindingTerminalRunCount,
+    newSuccessfulWithoutAcceptedResultCount:
+      antiLoopMemory.newSuccessfulWithoutAcceptedResultCount,
+    positiveValueStageDelta: Math.max(0, valueStageDelta ?? 0),
+  });
   const usageComplete = input.episode.baseline.usageComplete &&
     currentCost.unknownInputInvocationCount === 0 &&
     currentCost.unknownOutputInvocationCount === 0 &&
@@ -623,6 +736,7 @@ function outcome(input: Readonly<{
     valueStageDelta,
     currentTargetState: target?.state ?? null,
     newArtifactRefs,
+    yieldDelta,
     antiLoopMemory,
     costDelta,
     usageComplete,
@@ -636,7 +750,10 @@ function outcome(input: Readonly<{
     externalWriteAuthority: false as const,
     valueMovingAuthority: false as const,
   });
-  return Object.freeze({ ...body, outcomeId: hashCanonical(body) });
+  return assertResearchDecisionOutcome(Object.freeze({
+    ...body,
+    outcomeId: hashCanonical(body),
+  }));
 }
 
 export function buildResearchDecisionOutcomeProjection(input: Readonly<{

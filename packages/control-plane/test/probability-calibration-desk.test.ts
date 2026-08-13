@@ -218,9 +218,9 @@ describe("probability calibration desk", () => {
       snapshotCount: 1,
       currentArtifactHash: currentHash,
       storage: {
-        bounds: { mode: "SQLITE_WAL", durable: true, schemaVersion: 48 },
-        observations: { mode: "SQLITE_WAL", durable: true, schemaVersion: 48 },
-        snapshots: { mode: "SQLITE_WAL", durable: true, schemaVersion: 48 },
+        bounds: { mode: "SQLITE_WAL", durable: true, schemaVersion: 49 },
+        observations: { mode: "SQLITE_WAL", durable: true, schemaVersion: 49 },
+        snapshots: { mode: "SQLITE_WAL", durable: true, schemaVersion: 49 },
       },
     });
     expect(secondDesk.recordResolution({

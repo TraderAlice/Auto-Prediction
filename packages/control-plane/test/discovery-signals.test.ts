@@ -77,6 +77,17 @@ function outcomes(state: "UNACTED_READY" | "USEFUL_NEGATIVE_MEMORY" =
     valueStageDelta: state === "UNACTED_READY" ? 0 : 2,
     currentTargetState: "READY_RELATION_DISCOVERY" as const,
     newArtifactRefs: state === "UNACTED_READY" ? [] : [counterexampleId],
+    yieldDelta: {
+      newRunCount: 0,
+      newPositiveFindingCount: 0,
+      newCounterexampleCount: state === "UNACTED_READY" ? 0 : 1,
+      newSemanticReviewJobCount: 0,
+      newProbabilityJobCount: 0,
+      newExactTargetArtifactCount: 0,
+      newNoFindingTerminalRunCount: 0,
+      newSuccessfulWithoutAcceptedResultCount: 0,
+      positiveValueStageDelta: state === "UNACTED_READY" ? 0 : 2,
+    },
     antiLoopMemory: {
       newCounterexampleCount: state === "UNACTED_READY" ? 0 : 1,
       newNoFindingTerminalRunCount: 0,

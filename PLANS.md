@@ -1689,6 +1689,30 @@ console errors. Full workspace checks, 648 control-plane tests, 30 Studio tests,
 and the production build pass; only the known Node 24 engine expectation and
 existing Studio chunk-size warning remain.
 
+The active continuation is now
+[`plans/discovery-yield-attribution.md`](plans/discovery-yield-attribution.md).
+Current research-decision outcomes are truthful point-in-time views, but they
+are not yet additive historical samples: overlapping baselines can charge one
+token interval or downstream artifact to multiple decisions. The next
+first-party object is therefore an append-only outcome observation and a
+non-overlapping same-family decision window. Only after that boundary is exact
+may the product compare policy strata by separate positive, negative,
+stage-movement and cost vectors per 100,000 known tokens. Sparse or incomplete
+strata remain visible but cannot mutate policy, and historical Rule Evidence
+failures cannot characterize relation-discovery yield.
+
+That continuation is now qualified for serial integration. SQLite schema 49
+retains append-only outcome observations and derives exact successor-bounded
+decision windows. The Agent workspace and Studio show the complete
+`observation → allocation → campaign membership → retained run → terminal
+outcome` funnel, while policy strata preserve findings, counterexamples,
+negative memory, stage movement and bigint cost as separate dimensions. The
+live 1.1 GB ledger truthfully reports one campaign-bound open allocation, zero
+new runs, zero terminal samples and no qualified rate. Restart reproduces every
+content identity; synthetic tests prove non-overlapping cost/artifact credit and
+downstream isolation. Full checks, 653 control-plane tests, 30 Studio tests and
+the production build pass.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

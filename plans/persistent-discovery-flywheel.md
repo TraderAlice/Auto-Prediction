@@ -82,13 +82,19 @@ free text is not a result, and a catalog snapshot change alone is not novelty.
 
 ## Phase 4 — yield dashboard and policy evolution
 
-- [ ] Show the cycle as `observation → allocation → membership → run → outcome`
+The active implementation plan is
+[`discovery-yield-attribution.md`](discovery-yield-attribution.md). It inserts
+append-only outcome observations and non-overlapping same-family decision
+windows before any token-normalized dashboard is allowed to claim strategy
+yield.
+
+- [x] Show the cycle as `observation → allocation → membership → run → outcome`
   with per-family tokens, wall time, structured result yield and downstream
   stage movement.
-- [ ] Separate historical Rule Evidence failures from discovery-runtime yield;
+- [x] Separate historical Rule Evidence failures from discovery-runtime yield;
   the live 549-invocation total is dominated by 488 Rule Evidence invocations,
   including 458 failures, and must not characterize relation discovery.
-- [ ] Compare allocation strata by findings, counterexamples, reviewed relation
+- [x] Compare allocation strata by findings, counterexamples, reviewed relation
   movement and cost. Change lane budgets only through versioned policy evidence.
 - [ ] Replace the monolithic first-load Studio projection with view-local,
   independently cached read models so a growing research ledger cannot starve

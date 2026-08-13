@@ -277,7 +277,7 @@ describe("official source discovery scheduler", () => {
     ])).toEqual([]);
     expect(first.projection().storage).toMatchObject({
       mode: "MEMORY",
-      schemaVersion: 48,
+      schemaVersion: 49,
       idempotencyKey: "jobId",
     });
     const restored = new OfficialSourceDiscoveryScheduler({

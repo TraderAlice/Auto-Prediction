@@ -36,6 +36,10 @@ import {
   type DiscoverySignalStore,
 } from "./discovery-signals.js";
 import {
+  buildDiscoveryYieldProjection,
+  type DiscoveryYieldProjection,
+} from "./discovery-yield-attribution.js";
+import {
   createDiscoveryModelRuntime,
   type DiscoveryModelRuntime,
 } from "./model-runtime.js";
@@ -188,6 +192,13 @@ import {
   type ResearchDecisionEpisode,
   type ResearchDecisionEpisodeStore,
 } from "./research-decision-outcomes.js";
+import {
+  buildResearchDecisionOutcomeObservation,
+  researchDecisionOutcomeObservationStateIdentity,
+  type ResearchDecisionOutcomeObservation,
+  type ResearchDecisionOutcomeObservationStore,
+  type ResearchDecisionOutcomeObservationTrigger,
+} from "./research-decision-outcome-observations.js";
 import type { ResearchAttentionAllocationProjection } from "./research-attention-allocation.js";
 import type {
   DiscoveryCatalogMode,
@@ -1080,6 +1091,20 @@ function supportsDiscoverySignals(
     typeof candidate.saveDiscoverySignalRecord === "function";
 }
 
+function supportsResearchDecisionOutcomeObservations(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & ResearchDecisionOutcomeObservationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<ResearchDecisionOutcomeObservationStore> & Readonly<{
+    researchDecisionOutcomeObservationStorage?: unknown;
+  }>;
+  return candidate.researchDecisionOutcomeObservationStorage !== undefined &&
+    typeof candidate.loadResearchDecisionOutcomeObservations === "function" &&
+    typeof candidate.loadResearchDecisionOutcomeObservation === "function" &&
+    typeof candidate.loadLatestResearchDecisionOutcomeObservation === "function" &&
+    typeof candidate.saveResearchDecisionOutcomeObservation === "function";
+}
+
 function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   expectedRevision: number;
   provider: (typeof AI_RUNTIME_PROVIDERS)[number];
@@ -1282,8 +1307,14 @@ export function createControlPlane(options?: {
   const discoverySignalStore = supportsDiscoverySignals(options?.discoveryStore)
     ? options.discoveryStore
     : null;
+  const researchDecisionOutcomeObservationStore =
+    supportsResearchDecisionOutcomeObservations(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
   let inMemoryResearchDecisionEpisodes: readonly ResearchDecisionEpisode[] = Object.freeze([]);
   let inMemoryDiscoverySignals: readonly DiscoverySignalRecord[] = Object.freeze([]);
+  let inMemoryResearchDecisionOutcomeObservations:
+    readonly ResearchDecisionOutcomeObservation[] = Object.freeze([]);
   let relationDiscoveryTaskRevisions: readonly RelationDiscoveryTaskRevision[] =
     relationDiscoveryStore?.loadRelationDiscoveryTaskRevisions(512) ?? [];
   agentExecutionRegistry.importLegacyConfiguration(
@@ -2030,14 +2061,98 @@ export function createControlPlane(options?: {
       left.signalId.localeCompare(right.signalId)).slice(0, 4096));
     return signal;
   };
-  const currentResearchDecisionOutcomes = () => {
+  const loadLatestResearchDecisionOutcomeObservation = (episodeId: Hash) =>
+    researchDecisionOutcomeObservationStore
+      ?.loadLatestResearchDecisionOutcomeObservation(episodeId) ??
+    inMemoryResearchDecisionOutcomeObservations.find((item) =>
+      item.episodeId === episodeId
+    ) ?? null;
+  const loadResearchDecisionOutcomeObservations = () =>
+    researchDecisionOutcomeObservationStore
+      ?.loadResearchDecisionOutcomeObservations(4096) ??
+    inMemoryResearchDecisionOutcomeObservations;
+  const saveResearchDecisionOutcomeObservation = (
+    observation: ResearchDecisionOutcomeObservation,
+  ) => {
+    if (researchDecisionOutcomeObservationStore !== null) {
+      return researchDecisionOutcomeObservationStore
+        .saveResearchDecisionOutcomeObservation(observation);
+    }
+    const retained = inMemoryResearchDecisionOutcomeObservations.find((item) =>
+      item.observationId === observation.observationId
+    );
+    if (retained !== undefined) {
+      if (hashCanonical(retained) !== hashCanonical(observation)) {
+        throw new Error("research outcome observation identity is already bound");
+      }
+      return retained;
+    }
+    const latest = loadLatestResearchDecisionOutcomeObservation(observation.episodeId);
+    if ((latest?.observationId ?? null) !== observation.previousObservationId) {
+      throw new Error("research outcome observation predecessor is not latest");
+    }
+    inMemoryResearchDecisionOutcomeObservations = Object.freeze([
+      observation,
+      ...inMemoryResearchDecisionOutcomeObservations,
+    ].sort((left, right) => right.observedAt.localeCompare(left.observedAt) ||
+      right.observationId.localeCompare(left.observationId)).slice(0, 4096));
+    return observation;
+  };
+  const currentResearchDecisionOutcomes = (observedAt?: string) => {
     const current = currentResearchActionState();
     return buildResearchDecisionOutcomeProjection({
-      observedAt: current.allocation.observedAt,
+      observedAt: observedAt ?? current.allocation.observedAt,
       episodes: loadResearchDecisionEpisodes(),
       allocation: current.allocation,
       targets: current.targets,
     });
+  };
+  const reconcileResearchDecisionOutcomeObservations = (
+    trigger: ResearchDecisionOutcomeObservationTrigger,
+    triggerRef: string,
+    boundaryEpisodes: readonly ResearchDecisionEpisode[] = Object.freeze([]),
+  ): number => {
+    const observedAt = new Date().toISOString();
+    const retainedEpisodes = loadResearchDecisionEpisodes();
+    const boundaryByPredecessor = new Map<Hash, ResearchDecisionEpisode>();
+    for (const boundary of boundaryEpisodes) {
+      if (boundary.workItemId === null) continue;
+      const family = retainedEpisodes.filter((item) =>
+        item.workItemId === boundary.workItemId
+      ).sort((left, right) => left.capturedAt.localeCompare(right.capturedAt) ||
+        left.episodeId.localeCompare(right.episodeId));
+      const boundaryIndex = family.findIndex((item) =>
+        item.episodeId === boundary.episodeId
+      );
+      const predecessor = boundaryIndex > 0 ? family[boundaryIndex - 1] : undefined;
+      if (predecessor !== undefined) {
+        boundaryByPredecessor.set(predecessor.episodeId, boundary);
+      }
+    }
+    let created = 0;
+    for (const outcome of currentResearchDecisionOutcomes(observedAt).outcomes) {
+      const previous = loadLatestResearchDecisionOutcomeObservation(outcome.episodeId);
+      if (previous !== null && previous.boundaryEpisodeId !== null) {
+        continue;
+      }
+      const boundaryEpisodeId = boundaryByPredecessor.get(outcome.episodeId)?.episodeId ?? null;
+      if (previous?.stateIdentity === researchDecisionOutcomeObservationStateIdentity(
+        outcome,
+        boundaryEpisodeId,
+      )) {
+        continue;
+      }
+      saveResearchDecisionOutcomeObservation(buildResearchDecisionOutcomeObservation({
+        previous,
+        outcome,
+        observedAt,
+        trigger,
+        triggerRef,
+        boundaryEpisodeId,
+      }));
+      created += 1;
+    }
+    return created;
   };
   const reconcileDiscoverySignals = (): number => {
     const current = currentResearchActionState();
@@ -2061,6 +2176,18 @@ export function createControlPlane(options?: {
     observedAt: currentResearchActionState().allocation.observedAt,
     signals: loadDiscoverySignals(),
   });
+  const currentDiscoveryYieldProjection = (): DiscoveryYieldProjection => {
+    const observations = loadResearchDecisionOutcomeObservations();
+    const allocationObservedAt = currentResearchActionState().allocation.observedAt;
+    const observedAt = observations.reduce((latest, item) =>
+      item.observedAt > latest ? item.observedAt : latest,
+    allocationObservedAt);
+    return buildDiscoveryYieldProjection({
+      observedAt,
+      episodes: loadResearchDecisionEpisodes(),
+      observations,
+    });
+  };
   let baseSemanticReviewCandidateCache: Readonly<{
     revision: bigint;
     candidates: readonly SemanticReviewCandidate[];
@@ -3280,7 +3407,14 @@ export function createControlPlane(options?: {
     if (campaigns.length === 0) return false;
     agentExecutionRegistry.saveBatch({ campaigns });
     const membership = campaigns.at(-1);
-    if (membership !== undefined) captureResearchAttentionCampaignDecisions(membership);
+    const capturedEpisodes = membership === undefined
+      ? Object.freeze([])
+      : captureResearchAttentionCampaignDecisions(membership);
+    reconcileResearchDecisionOutcomeObservations(
+      "CAMPAIGN_MEMBERSHIP_RECONCILIATION",
+      membership?.campaignId ?? "campaign:membership-reconciliation",
+      capturedEpisodes,
+    );
     reconcileDiscoverySignals();
     return true;
   };
@@ -3342,6 +3476,13 @@ export function createControlPlane(options?: {
     await runStartupReconciliationStep(
       "RECONCILE_RESEARCH_ATTENTION_RELATION_CAMPAIGN",
       () => { reconcileResearchAttentionRelationCampaign(); },
+    );
+    await runStartupReconciliationStep(
+      "RECONCILE_RESEARCH_DECISION_OUTCOME_OBSERVATIONS",
+      () => { reconcileResearchDecisionOutcomeObservations(
+        "STARTUP_RECONCILIATION",
+        "startup:control-plane",
+      ); },
     );
     await runStartupReconciliationStep(
       "RECONCILE_DISCOVERY_SIGNALS",
@@ -4631,6 +4772,10 @@ export function createControlPlane(options?: {
         // Startup or the next catalog refresh retries durable route reconciliation.
       }
     }
+    reconcileResearchDecisionOutcomeObservations(
+      "AGENT_TASK_COMPLETION",
+      taskId,
+    );
     reconcileDiscoverySignals();
     await broadcastProjection();
   };
@@ -4765,6 +4910,7 @@ export function createControlPlane(options?: {
         targets: research.targets,
         decisions,
         discoverySignals: currentDiscoverySignalProjection(),
+        discoveryYield: currentDiscoveryYieldProjection(),
         ontologyOutcomes: ontologyAllocationOutcomes(),
         discoveryCycle: discoveryCycleState,
         providerRequestsStartedByRead: 0 as const,
@@ -5435,6 +5581,14 @@ export function createControlPlane(options?: {
       writeJson(response, 200, currentDiscoverySignalProjection());
       return;
     }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/discovery-yield"
+    ) {
+      await ready;
+      writeJson(response, 200, currentDiscoveryYieldProjection());
+      return;
+    }
     const discoverySignalAcknowledgement = url.pathname.match(
       /^\/api\/v1\/discovery-signals\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
     );
@@ -5492,11 +5646,16 @@ export function createControlPlane(options?: {
         const existing = researchDecisionStore?.loadResearchDecisionEpisode(episodeId) ??
           inMemoryResearchDecisionEpisodes.find((item) => item.episodeId === episodeId) ?? null;
         if (existing !== null) {
+          const observationsCreated = reconcileResearchDecisionOutcomeObservations(
+            "OPERATOR_DECISION_CAPTURE",
+            `operator-decision:${episodeId}`,
+            [existing],
+          );
           writeJson(response, 200, Object.freeze({
             ok: true,
             idempotentReplay: true,
             episode: existing,
-            localResearchLedgerWrites: 0,
+            localResearchLedgerWrites: observationsCreated,
             providerRequestsStarted: 0,
             modelInvocationsStarted: 0,
             fetchesStarted: 0,
@@ -5514,11 +5673,16 @@ export function createControlPlane(options?: {
           capturedAt: new Date().toISOString(),
           captureRef: requestBody.captureRef,
         }));
+        const observationsCreated = reconcileResearchDecisionOutcomeObservations(
+          "OPERATOR_DECISION_CAPTURE",
+          `operator-decision:${episode.episodeId}`,
+          [episode],
+        );
         writeJson(response, 201, Object.freeze({
           ok: true,
           idempotentReplay: false,
           episode,
-          localResearchLedgerWrites: 1,
+          localResearchLedgerWrites: 1 + observationsCreated,
           providerRequestsStarted: 0,
           modelInvocationsStarted: 0,
           fetchesStarted: 0,
@@ -6732,6 +6896,10 @@ export function createControlPlane(options?: {
       reconcileRelationDiscoveryTasks();
       migrateStandingRouteSeedCampaigns();
       reconcileResearchAttentionRelationCampaign();
+      reconcileResearchDecisionOutcomeObservations(
+        "CATALOG_RECONCILIATION",
+        "catalog:operator-refresh",
+      );
       reconcileDiscoverySignals();
       reconcileRuleEvidenceAgentTasks();
       await broadcastProjection();
@@ -7766,6 +7934,10 @@ export function createControlPlane(options?: {
               reconcileRelationDiscoveryTasks();
               migrateStandingRouteSeedCampaigns();
               reconcileResearchAttentionRelationCampaign();
+              reconcileResearchDecisionOutcomeObservations(
+                "CATALOG_RECONCILIATION",
+                "catalog:scheduled-refresh",
+              );
               reconcileDiscoverySignals();
             } catch {
               // Retained tasks and route episodes remain authoritative. A later
@@ -8023,6 +8195,10 @@ export function createControlPlane(options?: {
         // the separate dispatcher still requires an explicitly ACTIVE campaign,
         // a runnable current task, and remaining lineage budget.
         const changed = reconcileResearchAttentionRelationCampaign();
+        const observationsCreated = reconcileResearchDecisionOutcomeObservations(
+          "DISCOVERY_CYCLE",
+          `discovery-cycle:${discoveryCycleState.tickCount + 1}`,
+        );
         const signalsCreated = reconcileDiscoverySignals();
         discoveryCycleState = Object.freeze({
           ...discoveryCycleState,
@@ -8033,7 +8209,7 @@ export function createControlPlane(options?: {
           lastMembershipChanged: changed,
           lastDiagnostic: null,
         });
-        if (changed || signalsCreated > 0) {
+        if (changed || observationsCreated > 0 || signalsCreated > 0) {
           void broadcastProjection();
         }
       } catch (error) {
