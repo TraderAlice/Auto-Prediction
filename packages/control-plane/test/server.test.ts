@@ -454,8 +454,17 @@ describe("control-plane HTTP surface", () => {
         semanticDecisionAuthority: false,
       },
       worldStateMechanisms: {
-        schemaVersion: "pmh.world-state-mechanism-projection.v5",
+        schemaVersion: "pmh.world-state-mechanism-projection.v6",
         routeCount: 0,
+        mechanismPrototypeExplorationMemory: {
+          schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v1",
+          episodeCount: 0,
+          currentCorpusAuthority: false,
+          currentEligibilityAuthority: false,
+          effects: { providerRequests: 0, modelInvocations: 0, tasks: 0,
+            campaigns: 0, dispatches: 0, writes: 0, externalWrites: 0,
+            valueMovingActions: 0 },
+        },
         providerRequestsStartedByRead: 0,
         modelInvocationsStartedByRead: 0,
         writesStartedByRead: 0,
@@ -474,8 +483,13 @@ describe("control-plane HTTP surface", () => {
       .toBe(workspace.attention.projectionIdentity);
     await expect(fetch(`${baseUrl}/api/v1/world-state-mechanisms`)
       .then((result) => result.json())).resolves.toMatchObject({
-        schemaVersion: "pmh.world-state-mechanism-projection.v5",
+        schemaVersion: "pmh.world-state-mechanism-projection.v6",
         routeCount: 0,
+        mechanismPrototypeExplorationMemory: {
+          schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v1",
+          currentCorpusAuthority: false,
+          currentEligibilityAuthority: false,
+        },
         providerRequestsStartedByRead: 0,
         modelInvocationsStartedByRead: 0,
         writesStartedByRead: 0,

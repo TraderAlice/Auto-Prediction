@@ -160,6 +160,7 @@ import {
   resolveWorldStateMechanismPrototypeCampaignInput,
 } from "./world-state-mechanism-prototype-campaign.js";
 import {
+  buildMechanismPrototypeExplorationMemoryProjection,
   materializeMechanismPrototypeExplorationProjection,
   type MechanismPrototypeExplorationLens,
   type MechanismPrototypeExplorationStore,
@@ -4398,14 +4399,24 @@ export function createControlPlane(options?: {
       ?.loadWorldStateMechanismPrototypeProposals(512) ?? [];
     const prototypeInputs = worldStateMechanismPrototypeStore
       ?.loadWorldStateMechanismPrototypeInputs(2_048) ?? [];
+    const explorationInputs = mechanismPrototypeExplorationStore
+      ?.loadMechanismPrototypeExplorationInputs(2_048) ?? [];
+    const explorationSteps = mechanismPrototypeExplorationStore
+      ?.loadMechanismPrototypeExplorationStepObservations(8_192) ?? [];
+    const execution = agentExecutionRegistry.snapshot();
+    const mechanismPrototypeExplorationMemory =
+      buildMechanismPrototypeExplorationMemoryProjection({
+        inputs: explorationInputs,
+        stepObservations: explorationSteps,
+        execution,
+      });
     const corpus = catalogObservationDesk.corpus();
     const mechanismPrototypeExploration = corpus.listingCount === 0
       ? null
       : materializeMechanismPrototypeExplorationProjection({
           prototypes: prototypeProposals,
           prototypeInputs,
-          explorationInputs: mechanismPrototypeExplorationStore
-            ?.loadMechanismPrototypeExplorationInputs(2_048) ?? [],
+          explorationInputs,
           trailheads: mechanismPrototypeExplorationStore
             ?.loadMechanismPrototypeExplorationTrailheads(512) ?? [],
           exhaustions: mechanismPrototypeExplorationStore
@@ -4414,9 +4425,8 @@ export function createControlPlane(options?: {
             ?.loadMechanismPrototypeExplorationRoleSearchObservations(2_048) ?? [],
           actionObservations: mechanismPrototypeExplorationStore
             ?.loadMechanismPrototypeExplorationActionObservations(2_048) ?? [],
-          stepObservations: mechanismPrototypeExplorationStore
-            ?.loadMechanismPrototypeExplorationStepObservations(8_192) ?? [],
-          execution: agentExecutionRegistry.snapshot(),
+          stepObservations: explorationSteps,
+          execution,
           corpus,
           ontology: buildMarketOntologySnapshot(corpus),
         });
@@ -4445,7 +4455,7 @@ export function createControlPlane(options?: {
       left.observationId.localeCompare(right.observationId)
     )) latestObservationByFamily.set(observation.routeFamilyId, observation);
     const body = Object.freeze({
-      schemaVersion: "pmh.world-state-mechanism-projection.v5" as const,
+      schemaVersion: "pmh.world-state-mechanism-projection.v6" as const,
       proposalCount: proposals.length,
       counterexampleCount: counterexamples.length,
       abstentionCount: abstentions.length,
@@ -4500,6 +4510,7 @@ export function createControlPlane(options?: {
             campaignEligible: item.campaignEligible,
           }))),
       }),
+      mechanismPrototypeExplorationMemory,
       mechanismPrototypeExploration,
       familyScorecards: buildWorldStateMechanismFamilyScorecards({
         routes,
