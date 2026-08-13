@@ -1,6 +1,25 @@
 # Plans
 
 The active execution continuation is
+[`plans/state-aware-agent-completion-recovery.md`](plans/state-aware-agent-completion-recovery.md).
+Issue #235 separates dynamic long-loop continuation routing from terminal result
+authority. A failed post-V12 Terra/high specimen spent all 16 invocations and
+351,340 input tokens while five premature terminal attempts produced no useful
+state transition. The runtime—not the model—was repeatedly prescribing terminal
+tools before first-party readiness existed. Focused qualification now proves
+that a host may recommend the next exact continuation without allowing that
+effect to finish the run.
+
+Issue #235 is selected `ADOPT`. The matched Terra/high specimen completed the
+whole lens → hypothesis → search → inspect → exact test → closure → exhaustion
+episode in seven calls / 174,981 input with seven accepted effects and zero
+rejections. Against the unchanged-budget baseline, calls fell 16→7, input fell
+351,340→174,981, and rejections fell 7→0. Its exact `REPLICATE` declaration is a
+realized replication on an independent semantic input and run. The next
+continuation can use intent realization and orchestration cost as a measured
+attention portfolio instead of forcing every family through one search lane.
+
+The active execution continuation is
 [`plans/hypothesis-intent-realization.md`](plans/hypothesis-intent-realization.md).
 Issue #233 measures whether V11's declared `EXTEND / REPLICATE /
 DIFFERENT_TEST` intent actually changed the exact evidence frontier or produced

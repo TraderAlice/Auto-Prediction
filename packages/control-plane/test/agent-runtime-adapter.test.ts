@@ -685,6 +685,101 @@ describe("Agent runtime adapters", () => {
     });
   });
 
+  it("recovers through a dynamic nonterminal tool without granting completion authority", async () => {
+    const prepareCompletionRecovery = vi.fn(async () => undefined);
+    let turn = 0;
+    const times = [NOW, NEXT, LATER, "2026-08-10T12:00:03.000Z"];
+    const adapter = new CodexAgentRuntimeAdapter(async () => ({
+      prepareCompletionRecovery,
+      advance: async () => {
+        const ordinal = turn++;
+        return ordinal === 0 ? {
+          invocation: { status: "SUCCEEDED" as const, startedAt: times[0]!,
+            completedAt: times[1]!, inputTokens: "10", outputTokens: "2",
+            reasoningTokens: "1", failureCategory: null },
+          toolCalls: [], completed: true, completionAuthority: "DIAGNOSTIC_ONLY" as const,
+          finalArtifact: { diagnostic: "paused before inspecting" },
+        } : {
+          invocation: { status: "SUCCEEDED" as const, startedAt: times[ordinal]!,
+            completedAt: times[ordinal + 1]!, inputTokens: "10", outputTokens: "2",
+            reasoningTokens: "1", failureCategory: null },
+          toolCalls: [ordinal === 1
+            ? { callId: "call:inspect", toolName: "inspect_evidence", input: {} }
+            : { callId: "call:result", toolName: "submit_rule_evidence_claim", input: {} }],
+          completed: false, finalArtifact: null,
+        };
+      },
+    }));
+    const input = execution({ kind: "CODEX", credential: codexCredential(),
+      model: codexModel(), adapter });
+    let inspected = false;
+    const result = await executePreparedAgentRun({
+      ...input,
+      toolHost: {
+        manifest,
+        resultToolNames: () => ["submit_rule_evidence_claim"],
+        completionRecoveryToolNames: () => inspected
+          ? ["submit_rule_evidence_claim"] : ["inspect_evidence"],
+        execute: async (context) => {
+          if (context.toolName === "inspect_evidence") inspected = true;
+          return { status: "ACCEPTED", output: { retained: true } };
+        },
+      },
+      now: () => Date.parse("2026-08-10T12:00:03.000Z"),
+    });
+
+    expect(prepareCompletionRecovery).toHaveBeenCalledWith({
+      attemptOrdinal: 1,
+      recommendedToolNames: ["inspect_evidence"],
+      resultToolNames: ["submit_rule_evidence_claim"],
+      recentToolRejections: [],
+    });
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.toolEffects.map((effect) => effect.toolName)).toEqual([
+      "inspect_evidence", "submit_rule_evidence_claim",
+    ]);
+    expect(result.modelInvocations.map((item) => item.purpose)).toEqual([
+      "PRIMARY_REASONING", "TOOL_CONTINUATION", "TOOL_CONTINUATION",
+    ]);
+    expect(result.runArtifacts).toEqual([
+      expect.objectContaining({ kind: "RESULT_TOOL_FINAL" }),
+    ]);
+  });
+
+  it("fails closed when completion recovery mixes continuation and terminal tools", async () => {
+    const prepareCompletionRecovery = vi.fn(async () => undefined);
+    const adapter = new CodexAgentRuntimeAdapter(async () => ({
+      prepareCompletionRecovery,
+      advance: async () => ({
+        invocation: { status: "SUCCEEDED" as const, startedAt: NOW, completedAt: NEXT,
+          inputTokens: "10", outputTokens: "2", reasoningTokens: "1",
+          failureCategory: null },
+        toolCalls: [], completed: true, completionAuthority: "DIAGNOSTIC_ONLY" as const,
+        finalArtifact: { diagnostic: "paused" },
+      }),
+    }));
+    const input = execution({ kind: "CODEX", credential: codexCredential(),
+      model: codexModel(), adapter });
+    const result = await executePreparedAgentRun({
+      ...input,
+      toolHost: {
+        manifest,
+        resultToolNames: () => ["submit_rule_evidence_claim"],
+        completionRecoveryToolNames: () => [
+          "inspect_evidence", "submit_rule_evidence_claim",
+        ],
+        execute: async () => ({ status: "ACCEPTED", output: {} }),
+      },
+      now: () => Date.parse(LATER),
+    });
+    expect(result.run).toMatchObject({
+      status: "FAILED",
+      terminalDiagnostic: "runtime adapter failed",
+    });
+    expect(prepareCompletionRecovery).not.toHaveBeenCalled();
+    expect(result.toolEffects).toHaveLength(0);
+  });
+
   it("fails before credential resolution when the task payload or adapter lineage is wrong", async () => {
     const wrongAdapter = new PiAgentRuntimeAdapter(async () => twoTurnSession(() => undefined));
     const input = execution({

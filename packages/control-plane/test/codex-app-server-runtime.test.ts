@@ -635,7 +635,11 @@ describe("Codex app-server Agent runtime", () => {
       method: "turn/start",
       params: {
         threadId: "thread:test",
-        input: [{ text: expect.stringContaining("Call exactly one declared result tool") }],
+        input: [{
+          text: expect.stringContaining(
+            "Call exactly one currently recommended next-step tool",
+          ),
+        }],
       },
     });
     expect(work.connection.closed).toBe(true);

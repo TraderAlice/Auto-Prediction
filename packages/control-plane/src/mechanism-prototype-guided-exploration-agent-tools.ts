@@ -409,6 +409,58 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     ]);
   }
 
+  public completionRecoveryToolNames(protocol: string): readonly string[] {
+    if (protocol !== MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL) {
+      throw new Error("mechanism exploration tool protocol is unsupported");
+    }
+    if (this.#lensReadCount === 0) {
+      return Object.freeze(["read_mechanism_exploration_lens"]);
+    }
+    const readiness = this.readiness();
+    if (this.#activeHypothesis === null) {
+      const terminal: string[] = [];
+      if (readiness.positive.eligible) terminal.push("submit_mechanism_exploration_trailhead");
+      if (readiness.exhaustion.eligible) {
+        terminal.push("record_mechanism_exploration_exhaustion");
+      }
+      return terminal.length > 0
+        ? Object.freeze(terminal)
+        : Object.freeze(["open_exploration_hypothesis"]);
+    }
+    const binding = this.#activeHypothesis.testBinding;
+    const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+    const selected = binding.kind === "TRANSFER_TEST"
+      ? references.transferTests[binding.ordinal - 1]
+      : references.counterScenarios[binding.ordinal - 1];
+    if (selected === undefined || selected.handle !== binding.handle) {
+      throw new Error("active hypothesis binding is outside the prototype manifest");
+    }
+    const actionRetained = binding.kind === "TRANSFER_TEST"
+      ? this.#appliedTransferTests.has(selected.text) || this.#failedTransferTests.has(selected.text)
+      : this.#activatedCounterScenarios.has(selected.text);
+    if (actionRetained) return Object.freeze(["close_exploration_hypothesis"]);
+    const seededListingCount = new Set(this.researchInput.seedTrailheads.flatMap((item) =>
+      item.listingRefs
+    )).size;
+    if (this.#searchedResultIds.size === 0 ||
+        (this.#searchedListingRefs.size === 0 && this.#inspectedListingRefs.size === 0 &&
+          seededListingCount === 0)) {
+      return Object.freeze([
+        "search_mechanism_exploration_roles",
+        "search_mechanism_exploration_corpus",
+      ]);
+    }
+    if (this.#inspectedListingRefs.size === 0) {
+      return Object.freeze(["inspect_mechanism_exploration_listings"]);
+    }
+    return binding.kind === "TRANSFER_TEST"
+      ? Object.freeze([
+          `mark_transfer_test_${binding.ordinal}_applied`,
+          `mark_transfer_test_${binding.ordinal}_failed`,
+        ])
+      : Object.freeze([`activate_counter_scenario_${binding.ordinal}`]);
+  }
+
   public trailheads(): readonly MechanismPrototypeExplorationTrailhead[] {
     return Object.freeze([...this.#trailheads]);
   }

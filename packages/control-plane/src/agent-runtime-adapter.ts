@@ -497,7 +497,7 @@ export type AgentRuntimeInvocationPurpose =
   | "TOOL_CONTINUATION"
   | "RESULT_REPAIR";
 
-export type AgentRuntimeResultRejection = Readonly<{
+export type AgentRuntimeToolRejection = Readonly<{
   toolName: string;
   diagnostic: string;
 }>;
@@ -549,8 +549,9 @@ export interface AgentRuntimeSession {
   settleAcceptedResult?(toolResults: readonly AgentRuntimeToolResult[]): Promise<void>;
   prepareCompletionRecovery?(input: Readonly<{
     attemptOrdinal: number;
+    recommendedToolNames: readonly string[];
     resultToolNames: readonly string[];
-    recentResultRejections: readonly AgentRuntimeResultRejection[];
+    recentToolRejections: readonly AgentRuntimeToolRejection[];
   }>): Promise<void>;
   cancel?(): Promise<void>;
 }
@@ -598,6 +599,7 @@ export type AgentToolHostContext = Readonly<{
 export interface AgentToolHost {
   manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[];
   resultToolNames?(toolProtocol: string): readonly string[];
+  completionRecoveryToolNames?(toolProtocol: string): readonly string[];
   execute(context: AgentToolHostContext): Promise<Readonly<{
     status: "ACCEPTED" | "REJECTED";
     output: unknown;
@@ -746,6 +748,18 @@ export async function executePreparedAgentRun(
       new Set(resultToolNames).size !== resultToolNames.length ||
       resultToolNames.some((name) => !toolManifest.some((tool) => tool.name === name))
     ) throw new Error("Agent result tool policy is missing or outside the manifest");
+    const completionRecoveryToolNames = () => {
+      const names = Object.freeze((input.toolHost.completionRecoveryToolNames?.(
+        valid.profile.toolPolicy.protocol,
+      ) ?? resultToolNames).map((name) =>
+        identifier(name, "Agent completion-recovery tool name")
+      ));
+      if (
+        names.length === 0 || new Set(names).size !== names.length ||
+        names.some((name) => !toolManifest.some((tool) => tool.name === name))
+      ) throw new Error("Agent completion-recovery tool policy is empty or outside the manifest");
+      return names;
+    };
     session = await input.adapter.open(Object.freeze({
       run: valid.run,
       task: valid.task,
@@ -906,8 +920,17 @@ export async function executePreparedAgentRun(
             }
             completionRecoveryAttemptCount += 1;
             activeRepairAttemptOrdinal = completionRecoveryAttemptCount;
-            const recentResultRejections = Object.freeze(effects.filter((effect) =>
-              effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
+            const recommendedToolNames = completionRecoveryToolNames();
+            const terminalRecovery = recommendedToolNames.every((name) =>
+              resultToolNames.includes(name)
+            );
+            if (!terminalRecovery && recommendedToolNames.some((name) =>
+              resultToolNames.includes(name)
+            )) throw new Error(
+              "Agent completion-recovery policy mixes terminal and continuation tools",
+            );
+            const recentToolRejections = Object.freeze(effects.filter((effect) =>
+              effect.status === "REJECTED"
             ).slice(-4).map((effect) => Object.freeze({
               toolName: effect.toolName,
               diagnostic: effect.schemaVersion === "pmh.agent-tool-effect.v2" ||
@@ -917,17 +940,19 @@ export async function executePreparedAgentRun(
             })));
             await session.prepareCompletionRecovery(Object.freeze({
               attemptOrdinal: completionRecoveryAttemptCount,
+              recommendedToolNames,
               resultToolNames,
-              recentResultRejections,
+              recentToolRejections,
             }));
             toolResults = Object.freeze([]);
-            nextInvocationPurpose = "RESULT_REPAIR";
-            nextInvocationRepairContext = Object.freeze({
-              attemptOrdinal: activeRepairAttemptOrdinal,
+            if (!terminalRecovery) activeRepairAttemptOrdinal = null;
+            nextInvocationPurpose = terminalRecovery ? "RESULT_REPAIR" : "TOOL_CONTINUATION";
+            nextInvocationRepairContext = terminalRecovery ? Object.freeze({
+              attemptOrdinal: completionRecoveryAttemptCount,
               rejectedResultEffectIds: Object.freeze(effects.filter((effect) =>
                 effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
               ).slice(-4).map((effect) => effect.effectId)),
-            });
+            }) : null;
             continue;
           }
           await session.cancel?.();

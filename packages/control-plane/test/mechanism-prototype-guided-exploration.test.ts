@@ -690,6 +690,53 @@ describe("mechanism-prototype exploration Agent tools", () => {
       } });
   }
 
+  it("routes completion recovery through the exact hypothesis state machine", async () => {
+    const { lens, prototype, snapshot, profile, run } = runtimeFixture();
+    const host = new MechanismPrototypeExplorationAgentToolHost(
+      lens.currentInputRevision, prototype, snapshot,
+    );
+    const protocol = lens.task.requestedEffectProtocol;
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "read_mechanism_exploration_lens",
+    ]);
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "recovery:lens", toolName: "read_mechanism_exploration_lens", input: {} });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "open_exploration_hypothesis",
+    ]);
+    await openHypothesis({ host, lens, run, profile, suffix: "recovery" });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "search_mechanism_exploration_roles", "search_mechanism_exploration_corpus",
+    ]);
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "recovery:search", toolName: "search_mechanism_exploration_corpus", input: {
+        patterns: ["Scuderia Ferrari"], syntax: "LITERAL", mode: "ANY",
+        fields: ["title"], venueIds: [], limit: 10,
+      } });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "inspect_mechanism_exploration_listings",
+    ]);
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "recovery:inspect", toolName: "inspect_mechanism_exploration_listings",
+      input: { listingRefs: ["venue-sport:constructors"] } });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "mark_transfer_test_1_applied", "mark_transfer_test_1_failed",
+    ]);
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "recovery:fail", toolName: "mark_transfer_test_1_failed", input: {} });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "close_exploration_hypothesis",
+    ]);
+    await closeHypothesis({ host, lens, run, profile, suffix: "recovery" });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "record_mechanism_exploration_exhaustion",
+    ]);
+    expect(host.resultToolNames(protocol)).toEqual([
+      "submit_mechanism_exploration_trailhead",
+      "record_mechanism_exploration_exhaustion",
+    ]);
+  });
+
   it("compiles exact ordered effects into a causal experiment episode", () => {
     const { lens, profile, model, run } = runtimeFixture();
     const invocation = buildModelInvocation({

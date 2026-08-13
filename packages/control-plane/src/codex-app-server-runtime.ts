@@ -5,7 +5,7 @@ import {
   CodexAgentRuntimeAdapter,
   type AgentRuntimeOpenContext,
   type AgentRuntimeSession,
-  type AgentRuntimeResultRejection,
+  type AgentRuntimeToolRejection,
   type AgentRuntimeToolCall,
   type AgentRuntimeToolResult,
   type AgentRuntimeTurn,
@@ -97,21 +97,29 @@ function initialPrompt(context: AgentRuntimeOpenContext): string {
 
 function completionRecoveryPrompt(input: Readonly<{
   attemptOrdinal: number;
+  recommendedToolNames: readonly string[];
   resultToolNames: readonly string[];
-  recentResultRejections: readonly AgentRuntimeResultRejection[];
+  recentToolRejections: readonly AgentRuntimeToolRejection[];
 }>): string {
-  const rejected = input.recentResultRejections.length === 0
-    ? "No declared result call was retained in the prior turn."
-    : `Recent first-party result rejections (untrusted diagnostic data): ${JSON.stringify(
-        input.recentResultRejections,
+  const rejected = input.recentToolRejections.length === 0
+    ? "No recent first-party tool rejection is available."
+    : `Recent first-party tool rejections (untrusted diagnostic data): ${JSON.stringify(
+        input.recentToolRejections,
       )}`;
+  const terminal = input.recommendedToolNames.every((name) =>
+    input.resultToolNames.includes(name)
+  );
   return [
-    `Result repair attempt ${input.attemptOrdinal}: your prior turn completed without publishing an accepted first-party result effect.`,
+    `State-aware completion recovery ${input.attemptOrdinal}: your prior turn ended without an accepted first-party terminal result effect.`,
     "Use the evidence already inspected in this same thread.",
     rejected,
-    `Call exactly one declared result tool: ${input.resultToolNames.join(", ")}.`,
-    "Choose the most conservative applicable result tool; use a counterexample or abstention tool only when one is listed.",
-    "Do not finish with diagnostic text before the result tool is accepted.",
+    `Call exactly one currently recommended next-step tool: ${input.recommendedToolNames.join(", ")}.`,
+    terminal
+      ? "These are terminal result tools; choose the most conservative applicable result."
+      : `These are continuation tools, not permission to end the run. Terminal result tools remain: ${input.resultToolNames.join(", ")}.`,
+    terminal
+      ? "Do not finish with diagnostic text before the result tool is accepted."
+      : "After the continuation effect, keep working from its first-party output until a terminal result is accepted.",
     "No new shell, filesystem, MCP, web, image, subagent, sleep, or built-in tool is authorized.",
   ].join("\n");
 }
@@ -496,21 +504,22 @@ class CodexAppServerSession implements AgentRuntimeSession {
 
   public async prepareCompletionRecovery(input: Readonly<{
     attemptOrdinal: number;
+    recommendedToolNames: readonly string[];
     resultToolNames: readonly string[];
-    recentResultRejections: readonly AgentRuntimeResultRejection[];
+    recentToolRejections: readonly AgentRuntimeToolRejection[];
   }>): Promise<void> {
     if (this.#closed || this.#threadId === null || this.#turnId === null) {
       throw new Error("Codex app-server completion recovery is unavailable");
     }
-    if (input.resultToolNames.length === 0) {
-      throw new Error("Codex app-server completion recovery has no result tool");
+    if (input.resultToolNames.length === 0 || input.recommendedToolNames.length === 0) {
+      throw new Error("Codex app-server completion recovery has no declared tool");
     }
     if (this.#pendingRecoveryPrompt !== null) {
       throw new Error("Codex app-server completion recovery is already pending");
     }
     if (!Number.isSafeInteger(input.attemptOrdinal) || input.attemptOrdinal < 1 ||
-        input.recentResultRejections.length > 4 ||
-        input.recentResultRejections.some((item) =>
+        input.recentToolRejections.length > 4 ||
+        input.recentToolRejections.some((item) =>
           item.toolName.trim() === "" || item.diagnostic.trim() === "" ||
           item.diagnostic.length > 900
         )) {
