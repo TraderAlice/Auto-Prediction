@@ -19,6 +19,7 @@ import {
   buildAgentTask,
   type AgentExecutionSnapshot,
   type AgentTask,
+  type AgentToolEffect,
 } from "./agent-execution-substrate.js";
 import type { OperationalStorageProjection } from "./types.js";
 import {
@@ -37,7 +38,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V8" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V9" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -292,6 +293,118 @@ export type MechanismPrototypeExplorationActionObservation = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type MechanismPrototypeExplorationStepObservation = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-step-observation.v1";
+  observationId: Hash;
+  lensId: Hash;
+  inputRevisionId: Hash;
+  semanticInputIdentity: Hash;
+  prototypeId: Hash;
+  axis: MechanismPrototypeExplorationAxis;
+  sourceAgentRunId: Hash;
+  sourceInvocationId: Hash;
+  sourceEffectId: Hash;
+  sourceToolCallId: string;
+  effectOrdinal: number;
+  toolName: string;
+  status: "ACCEPTED" | "REJECTED";
+  resultSummary: Readonly<{
+    kind: "LENS_READ" | "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
+      "PROTOTYPE_ACTION" | "POSITIVE_TERMINAL" | "EXHAUSTION_TERMINAL" |
+      "OTHER";
+    rawHitCount: number;
+    qualifiedHitCount: number;
+    pairCount: number;
+    inspectedListingCount: number;
+    acceptedActionCount: number;
+    acceptedTerminalCount: number;
+  }>;
+  readinessAfter: Readonly<{
+    positiveEligible: boolean;
+    positiveMissingPrerequisites: readonly string[];
+    exhaustionEligible: boolean;
+    exhaustionMissingPrerequisites: readonly string[];
+    searchedResultCount: number;
+    roleSearchResultCount: number;
+    rolePairCount: number;
+    inspectedListingCount: number;
+    inspectedRolePairCount: number;
+    appliedTransferTestOrdinals: readonly number[];
+    failedTransferTestOrdinals: readonly number[];
+    activatedCounterScenarioOrdinals: readonly number[];
+  }>;
+  observedAt: string;
+  authority: "DURABLE_EXPLORATION_EXPERIMENT_STEP_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type MechanismPrototypeExplorationExperimentEpisode = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-experiment-episode.v1";
+  episodeId: Hash;
+  lensId: Hash;
+  inputRevisionId: Hash;
+  semanticInputIdentity: Hash;
+  prototypeId: Hash;
+  axis: MechanismPrototypeExplorationAxis;
+  sourceAgentRunId: Hash;
+  taskId: Hash;
+  runStatus: Exclude<import("./agent-execution-substrate.js").AgentRun["status"], "PREPARED">;
+  completedAt: string;
+  ledgerCompleteness: "COMPLETE_EFFECT_LEDGER" | "PARTIAL_EFFECT_LEDGER";
+  terminalOutcome: "TRAILHEAD" | "EXHAUSTION" | "NO_ACCEPTED_TERMINAL";
+  firstPositiveEligibleEffectOrdinal: number | null;
+  firstExhaustionEligibleEffectOrdinal: number | null;
+  steps: readonly Readonly<{
+    effectOrdinal: number;
+    sourceEffectId: Hash;
+    sourceInvocationId: Hash;
+    invocationOrdinal: number;
+    invocationPurpose: import("./agent-execution-substrate.js").ModelInvocationPurpose |
+      "HISTORICAL_UNCLASSIFIED";
+    invocationStatus: import("./agent-execution-substrate.js").ModelInvocation["status"];
+    inputTokens: string | null;
+    outputTokens: string | null;
+    reasoningTokens: string | null;
+    toolName: string;
+    effectStatus: "ACCEPTED" | "REJECTED";
+    resultSummary: MechanismPrototypeExplorationStepObservation["resultSummary"];
+    readinessBefore: MechanismPrototypeExplorationStepObservation["readinessAfter"] | null;
+    readinessAfter: MechanismPrototypeExplorationStepObservation["readinessAfter"];
+    positiveBecameEligible: boolean;
+    exhaustionBecameEligible: boolean;
+  }>[];
+  yield: Readonly<{
+    effectCount: number;
+    acceptedEffectCount: number;
+    rejectedEffectCount: number;
+    searchEffectCount: number;
+    rawHitCount: number;
+    qualifiedHitCount: number;
+    rolePairCount: number;
+    inspectedListingCount: number;
+    acceptedActionCount: number;
+  }>;
+  usage: Readonly<{
+    invocationCount: number;
+    knownInputTokens: string;
+    knownOutputTokens: string;
+    knownReasoningTokens: string;
+    unknownUsageInvocationCount: number;
+  }>;
+  authority: "PROVIDER_FREE_EXPLORATION_EXPERIMENT_MEMORY_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type MechanismPrototypeExplorationRoleSearchBinding = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-role-search-binding.v1";
   resultIdentity: Hash;
@@ -388,6 +501,8 @@ export interface MechanismPrototypeExplorationStore {
     OperationalStorageProjection<"observationId">;
   readonly mechanismPrototypeExplorationActionObservationStorage:
     OperationalStorageProjection<"observationId">;
+  readonly mechanismPrototypeExplorationStepObservationStorage:
+    OperationalStorageProjection<"observationId">;
   loadMechanismPrototypeExplorationInputs(limit: number):
     readonly MechanismPrototypeExplorationInputRevision[];
   saveMechanismPrototypeExplorationInputs(inputs:
@@ -413,6 +528,11 @@ export interface MechanismPrototypeExplorationStore {
   saveMechanismPrototypeExplorationActionObservations(observations:
     readonly MechanismPrototypeExplorationActionObservation[]):
     readonly MechanismPrototypeExplorationActionObservation[];
+  loadMechanismPrototypeExplorationStepObservations(limit: number):
+    readonly MechanismPrototypeExplorationStepObservation[];
+  saveMechanismPrototypeExplorationStepObservations(observations:
+    readonly MechanismPrototypeExplorationStepObservation[]):
+    readonly MechanismPrototypeExplorationStepObservation[];
 }
 
 export type MechanismPrototypeExplorationUsage = Readonly<{
@@ -435,7 +555,7 @@ export type MechanismPrototypeExplorationUsage = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationProjection = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-projection.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-projection.v2";
   projectionIdentity: Hash;
   prototypeCount: number;
   lensCount: number;
@@ -465,11 +585,15 @@ export type MechanismPrototypeExplorationProjection = Readonly<{
     roleBoundTrailheadCount: number;
     roleAwareExhaustionCount: number;
     retainedActionObservationCount: number;
+    retainedExperimentStepCount: number;
+    experimentEpisodeCount: number;
+    completeExperimentEpisodeCount: number;
     resultRepairInvocationCount: number;
     resultRepairInputTokens: string;
   }>;
   corpusSnapshotIdentity: Hash;
   corpusSemanticIdentity: Hash;
+  experimentEpisodes: readonly MechanismPrototypeExplorationExperimentEpisode[];
   lenses: readonly MechanismPrototypeExplorationLens[];
   effects: Readonly<{
     providerRequests: 0;
@@ -1026,6 +1150,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
   exhaustions?: readonly MechanismPrototypeExplorationExhaustion[];
   roleSearchObservations?: readonly MechanismPrototypeExplorationRoleSearchObservation[];
   actionObservations?: readonly MechanismPrototypeExplorationActionObservation[];
+  stepObservations?: readonly MechanismPrototypeExplorationStepObservation[];
   execution?: AgentExecutionSnapshot;
   corpus: MarketCorpusSnapshot;
   ontology: MarketOntologySnapshot;
@@ -1046,6 +1171,8 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
     .map(assertMechanismPrototypeExplorationRoleSearchObservation);
   const retainedActionObservations = (input.actionObservations ?? [])
     .map(assertMechanismPrototypeExplorationActionObservation);
+  const retainedStepObservations = (input.stepObservations ?? [])
+    .map(assertMechanismPrototypeExplorationStepObservation);
   const retainedInputs = (input.explorationInputs ?? [])
     .map(assertMechanismPrototypeExplorationInputRevision);
   const retainedInputById = new Map(retainedInputs.map((item) =>
@@ -1240,6 +1367,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
     ...retainedExhaustions.map((item) => item.sourceAgentRunId),
     ...retainedRoleSearchObservations.map((item) => item.sourceAgentRunId),
     ...retainedActionObservations.map((item) => item.sourceAgentRunId),
+    ...retainedStepObservations.map((item) => item.sourceAgentRunId),
   ]);
   const sourceRuns = new Set(sourceRunIds);
   const invocations = (input.execution?.modelInvocations ?? []).filter((item) =>
@@ -1274,6 +1402,12 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
   const uniqueRoleSearchSummaries = [...new Map(roleSearchSummaries.map((item) =>
     [item.resultIdentity, item] as const
   )).values()];
+  const experimentEpisodes = input.execution === undefined ? Object.freeze([]) :
+    compileMechanismPrototypeExplorationExperimentEpisodes({
+      inputs: retainedInputs,
+      stepObservations: retainedStepObservations,
+      execution: input.execution,
+    }).slice(0, 32);
   const usage = Object.freeze({
     sourceRunCount: sourceRunIds.length,
     modelInvocationCount: invocations.length,
@@ -1300,12 +1434,17 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
       (item.roleSearchSummaries?.length ?? 0) > 0
     ).length,
     retainedActionObservationCount: retainedActionObservations.length,
+    retainedExperimentStepCount: retainedStepObservations.length,
+    experimentEpisodeCount: experimentEpisodes.length,
+    completeExperimentEpisodeCount: experimentEpisodes.filter((item) =>
+      item.ledgerCompleteness === "COMPLETE_EFFECT_LEDGER"
+    ).length,
     resultRepairInvocationCount: repairInvocations.length,
     resultRepairInputTokens: repairInvocations.reduce((total, item) =>
       total + BigInt(item.inputTokens ?? "0"), 0n).toString(),
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-projection.v1" as const,
+    schemaVersion: "pmh.mechanism-prototype-exploration-projection.v2" as const,
     prototypeCount: prototypes.length,
     lensCount: lenses.length,
     eligibleLensCount: lenses.filter((item) => item.campaignEligible).length,
@@ -1336,6 +1475,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
     usage,
     corpusSnapshotIdentity: corpus.snapshotIdentity,
     corpusSemanticIdentity,
+    experimentEpisodes,
     lenses,
     effects: Object.freeze({
       providerRequests: 0 as const,
@@ -2065,6 +2205,279 @@ export function assertMechanismPrototypeExplorationActionObservation(
     throw new Error("mechanism exploration action observation identity is invalid");
   }
   return value as MechanismPrototypeExplorationActionObservation;
+}
+
+export function buildMechanismPrototypeExplorationStepObservation(input: Readonly<{
+  researchInput: MechanismPrototypeExplorationInputRevision;
+  effect: AgentToolEffect;
+  sourceToolCallId: string;
+  readinessAfter: MechanismPrototypeExplorationStepObservation["readinessAfter"];
+  resultSummary: MechanismPrototypeExplorationStepObservation["resultSummary"];
+}>): MechanismPrototypeExplorationStepObservation {
+  const researchInput = assertMechanismPrototypeExplorationInputRevision(input.researchInput);
+  const effect = input.effect;
+  if (effect.schemaVersion !== "pmh.agent-tool-effect.v3" ||
+      effect.runId.trim() === "" || effect.toolName.trim() === "" ||
+      input.sourceToolCallId.trim() === "") {
+    throw new Error("mechanism exploration step requires an exact V3 effect lineage");
+  }
+  const body = Object.freeze({
+    schemaVersion: "pmh.mechanism-prototype-exploration-step-observation.v1" as const,
+    lensId: researchInput.lensId,
+    inputRevisionId: researchInput.inputRevisionId,
+    semanticInputIdentity: researchInput.semanticInputIdentity,
+    prototypeId: researchInput.prototypeId,
+    axis: researchInput.axis,
+    sourceAgentRunId: effect.runId,
+    sourceInvocationId: effect.sourceInvocationId,
+    sourceEffectId: effect.effectId,
+    sourceToolCallId: input.sourceToolCallId,
+    effectOrdinal: effect.ordinal,
+    toolName: effect.toolName,
+    status: effect.status,
+    resultSummary: input.resultSummary,
+    readinessAfter: input.readinessAfter,
+    observedAt: effect.occurredAt,
+    authority: "DURABLE_EXPLORATION_EXPERIMENT_STEP_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return assertMechanismPrototypeExplorationStepObservation(Object.freeze({
+    ...body, observationId: hashCanonical(body),
+  }));
+}
+
+export function assertMechanismPrototypeExplorationStepObservation(
+  value: unknown,
+): MechanismPrototypeExplorationStepObservation {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("mechanism exploration step observation is malformed");
+  }
+  const item = value as Readonly<Record<string, unknown>>;
+  const { observationId, ...body } = item;
+  const readiness = item.readinessAfter as Readonly<Record<string, unknown>> | undefined;
+  const summary = item.resultSummary as Readonly<Record<string, unknown>> | undefined;
+  const ordinalLists = readiness === undefined ? [] : [
+    readiness.appliedTransferTestOrdinals, readiness.failedTransferTestOrdinals,
+    readiness.activatedCounterScenarioOrdinals,
+  ];
+  if (!HASH_PATTERN.test(String(observationId)) || hashCanonical(body) !== observationId ||
+      item.schemaVersion !== "pmh.mechanism-prototype-exploration-step-observation.v1" ||
+      !HASH_PATTERN.test(String(item.lensId)) ||
+      !HASH_PATTERN.test(String(item.inputRevisionId)) ||
+      !HASH_PATTERN.test(String(item.semanticInputIdentity)) ||
+      !HASH_PATTERN.test(String(item.prototypeId)) ||
+      !HASH_PATTERN.test(String(item.sourceAgentRunId)) ||
+      !HASH_PATTERN.test(String(item.sourceInvocationId)) ||
+      !HASH_PATTERN.test(String(item.sourceEffectId)) ||
+      typeof item.sourceToolCallId !== "string" || item.sourceToolCallId.length < 1 ||
+      !Number.isSafeInteger(item.effectOrdinal) || Number(item.effectOrdinal) < 1 ||
+      typeof item.toolName !== "string" || item.toolName.length < 1 ||
+      !["ACCEPTED", "REJECTED"].includes(String(item.status)) ||
+      summary === undefined || ![
+        "LENS_READ", "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
+        "PROTOTYPE_ACTION", "POSITIVE_TERMINAL", "EXHAUSTION_TERMINAL", "OTHER",
+      ].includes(String(summary.kind)) || [
+        summary.rawHitCount, summary.qualifiedHitCount, summary.pairCount,
+        summary.inspectedListingCount, summary.acceptedActionCount,
+        summary.acceptedTerminalCount,
+      ].some((count) => !Number.isSafeInteger(count) || Number(count) < 0) ||
+      readiness === undefined || typeof readiness.positiveEligible !== "boolean" ||
+      !Array.isArray(readiness.positiveMissingPrerequisites) ||
+      typeof readiness.exhaustionEligible !== "boolean" ||
+      !Array.isArray(readiness.exhaustionMissingPrerequisites) ||
+      [readiness.searchedResultCount, readiness.roleSearchResultCount,
+        readiness.rolePairCount, readiness.inspectedListingCount,
+        readiness.inspectedRolePairCount].some((count) =>
+        !Number.isSafeInteger(count) || Number(count) < 0
+      ) || ordinalLists.some((list) => !Array.isArray(list) || list.some((ordinal) =>
+        !Number.isSafeInteger(ordinal) || Number(ordinal) < 1
+      )) || typeof item.observedAt !== "string" ||
+      !Number.isFinite(Date.parse(item.observedAt)) ||
+      item.authority !== "DURABLE_EXPLORATION_EXPERIMENT_STEP_ONLY" ||
+      item.semanticDecisionAuthority !== false || item.probabilityAuthority !== false ||
+      item.certificateAuthority !== false || item.executionAuthority !== false ||
+      item.externalWriteAuthority !== false || item.valueMovingAuthority !== false) {
+    throw new Error("mechanism exploration step observation identity is invalid");
+  }
+  return value as MechanismPrototypeExplorationStepObservation;
+}
+
+export function compileMechanismPrototypeExplorationExperimentEpisodes(input: Readonly<{
+  inputs: readonly MechanismPrototypeExplorationInputRevision[];
+  stepObservations: readonly MechanismPrototypeExplorationStepObservation[];
+  execution: AgentExecutionSnapshot;
+}>): readonly MechanismPrototypeExplorationExperimentEpisode[] {
+  const inputs = new Map(input.inputs.map((item) => {
+    const validated = assertMechanismPrototypeExplorationInputRevision(item);
+    return [validated.inputRevisionId, validated] as const;
+  }));
+  const steps = input.stepObservations.map(
+    assertMechanismPrototypeExplorationStepObservation,
+  );
+  const effectsByRun = new Map<string, AgentToolEffect[]>();
+  for (const effect of input.execution.toolEffects) {
+    const retained = effectsByRun.get(effect.runId) ?? [];
+    retained.push(effect);
+    effectsByRun.set(effect.runId, retained);
+  }
+  const invocationsById = new Map(input.execution.modelInvocations.map((item) =>
+    [item.invocationId, item] as const
+  ));
+  const invocationsByRun = new Map<string, typeof input.execution.modelInvocations[number][]>();
+  for (const invocation of input.execution.modelInvocations) {
+    const retained = invocationsByRun.get(invocation.runId) ?? [];
+    retained.push(invocation);
+    invocationsByRun.set(invocation.runId, retained);
+  }
+  const stepsByRun = new Map<string, MechanismPrototypeExplorationStepObservation[]>();
+  for (const step of steps) {
+    const retained = stepsByRun.get(step.sourceAgentRunId) ?? [];
+    retained.push(step);
+    stepsByRun.set(step.sourceAgentRunId, retained);
+  }
+  const episodes = input.execution.runs.flatMap((run) => {
+    if (run.status === "PREPARED" || run.completedAt === null) return [];
+    const runSteps = [...(stepsByRun.get(run.runId) ?? [])]
+      .sort((left, right) => left.effectOrdinal - right.effectOrdinal);
+    if (runSteps.length === 0) return [];
+    const first = runSteps[0]!;
+    const researchInput = inputs.get(first.inputRevisionId);
+    if (researchInput === undefined || runSteps.some((step) =>
+      step.inputRevisionId !== first.inputRevisionId ||
+      step.lensId !== first.lensId || step.prototypeId !== first.prototypeId ||
+      step.semanticInputIdentity !== first.semanticInputIdentity || step.axis !== first.axis
+    )) throw new Error("mechanism exploration episode crosses input lineage");
+    const effects = [...(effectsByRun.get(run.runId) ?? [])]
+      .sort((left, right) => left.ordinal - right.ordinal);
+    const effectById = new Map(effects.map((effect) => [effect.effectId, effect] as const));
+    const ordinals = new Set<number>();
+    let priorReadiness: MechanismPrototypeExplorationStepObservation["readinessAfter"] |
+      null = null;
+    const episodeSteps = Object.freeze(runSteps.map((step) => {
+      const effect = effectById.get(step.sourceEffectId);
+      const invocation = invocationsById.get(step.sourceInvocationId);
+      if (effect === undefined || invocation === undefined ||
+          effect.runId !== run.runId || effect.ordinal !== step.effectOrdinal ||
+          effect.toolName !== step.toolName || effect.status !== step.status ||
+          effect.schemaVersion !== "pmh.agent-tool-effect.v3" ||
+          effect.sourceInvocationId !== invocation.invocationId ||
+          invocation.runId !== run.runId || ordinals.has(step.effectOrdinal)) {
+        throw new Error("mechanism exploration episode step lineage is inconsistent");
+      }
+      ordinals.add(step.effectOrdinal);
+      const before = priorReadiness;
+      const after = step.readinessAfter;
+      const compiled = Object.freeze({
+        effectOrdinal: step.effectOrdinal,
+        sourceEffectId: step.sourceEffectId,
+        sourceInvocationId: step.sourceInvocationId,
+        invocationOrdinal: invocation.ordinal,
+        invocationPurpose: invocation.schemaVersion === "pmh.model-invocation.v3" ||
+            invocation.schemaVersion === "pmh.model-invocation.v4"
+          ? invocation.purpose : "HISTORICAL_UNCLASSIFIED" as const,
+        invocationStatus: invocation.status,
+        inputTokens: invocation.inputTokens,
+        outputTokens: invocation.outputTokens,
+        reasoningTokens: invocation.reasoningTokens,
+        toolName: step.toolName,
+        effectStatus: step.status,
+        resultSummary: step.resultSummary,
+        readinessBefore: before,
+        readinessAfter: after,
+        positiveBecameEligible: after.positiveEligible && !(before?.positiveEligible ?? false),
+        exhaustionBecameEligible: after.exhaustionEligible &&
+          !(before?.exhaustionEligible ?? false),
+      });
+      priorReadiness = after;
+      return compiled;
+    }));
+    const runInvocations = [...(invocationsByRun.get(run.runId) ?? [])]
+      .sort((left, right) => left.ordinal - right.ordinal);
+    const tokenSum = (key: "inputTokens" | "outputTokens" | "reasoningTokens") =>
+      runInvocations.reduce((total, item) => total + BigInt(item[key] ?? "0"), 0n)
+        .toString();
+    const exactEffectLedger = effects.length === episodeSteps.length && effects.every(
+      (effect, index) => effect.effectId === episodeSteps[index]?.sourceEffectId,
+    );
+    const positiveTerminal = episodeSteps.some((step) =>
+      step.effectStatus === "ACCEPTED" && step.resultSummary.kind === "POSITIVE_TERMINAL"
+    );
+    const exhaustionTerminal = episodeSteps.some((step) =>
+      step.effectStatus === "ACCEPTED" && step.resultSummary.kind === "EXHAUSTION_TERMINAL"
+    );
+    if (positiveTerminal && exhaustionTerminal) {
+      throw new Error("mechanism exploration episode has competing accepted terminals");
+    }
+    const body = Object.freeze({
+      schemaVersion: "pmh.mechanism-prototype-exploration-experiment-episode.v1" as const,
+      lensId: first.lensId,
+      inputRevisionId: first.inputRevisionId,
+      semanticInputIdentity: first.semanticInputIdentity,
+      prototypeId: first.prototypeId,
+      axis: first.axis,
+      sourceAgentRunId: run.runId,
+      taskId: run.taskId,
+      runStatus: run.status,
+      completedAt: run.completedAt,
+      ledgerCompleteness: exactEffectLedger
+        ? "COMPLETE_EFFECT_LEDGER" as const : "PARTIAL_EFFECT_LEDGER" as const,
+      terminalOutcome: positiveTerminal ? "TRAILHEAD" as const
+        : exhaustionTerminal ? "EXHAUSTION" as const : "NO_ACCEPTED_TERMINAL" as const,
+      firstPositiveEligibleEffectOrdinal: episodeSteps.find((step) =>
+        step.positiveBecameEligible
+      )?.effectOrdinal ?? null,
+      firstExhaustionEligibleEffectOrdinal: episodeSteps.find((step) =>
+        step.exhaustionBecameEligible
+      )?.effectOrdinal ?? null,
+      steps: episodeSteps,
+      yield: Object.freeze({
+        effectCount: episodeSteps.length,
+        acceptedEffectCount: episodeSteps.filter((step) =>
+          step.effectStatus === "ACCEPTED").length,
+        rejectedEffectCount: episodeSteps.filter((step) =>
+          step.effectStatus === "REJECTED").length,
+        searchEffectCount: episodeSteps.filter((step) =>
+          step.resultSummary.kind === "FLAT_SEARCH" ||
+          step.resultSummary.kind === "ROLE_SEARCH").length,
+        rawHitCount: episodeSteps.reduce((total, step) =>
+          total + step.resultSummary.rawHitCount, 0),
+        qualifiedHitCount: episodeSteps.reduce((total, step) =>
+          total + step.resultSummary.qualifiedHitCount, 0),
+        rolePairCount: episodeSteps.reduce((total, step) =>
+          total + step.resultSummary.pairCount, 0),
+        inspectedListingCount: episodeSteps.reduce((total, step) =>
+          total + step.resultSummary.inspectedListingCount, 0),
+        acceptedActionCount: episodeSteps.reduce((total, step) =>
+          total + step.resultSummary.acceptedActionCount, 0),
+      }),
+      usage: Object.freeze({
+        invocationCount: runInvocations.length,
+        knownInputTokens: tokenSum("inputTokens"),
+        knownOutputTokens: tokenSum("outputTokens"),
+        knownReasoningTokens: tokenSum("reasoningTokens"),
+        unknownUsageInvocationCount: runInvocations.filter((item) =>
+          item.inputTokens === null || item.outputTokens === null || item.reasoningTokens === null
+        ).length,
+      }),
+      authority: "PROVIDER_FREE_EXPLORATION_EXPERIMENT_MEMORY_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      executionAuthority: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    return [Object.freeze({ ...body, episodeId: hashCanonical(body) })];
+  });
+  return Object.freeze(episodes.sort((left, right) =>
+    right.completedAt.localeCompare(left.completedAt) ||
+    left.episodeId.localeCompare(right.episodeId)
+  ));
 }
 
 export function mechanismPrototypeExplorationUsage(input: Readonly<{

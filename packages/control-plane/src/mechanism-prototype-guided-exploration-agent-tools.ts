@@ -7,6 +7,7 @@ import type {
 import {
   buildMechanismPrototypeExplorationActionObservation,
   buildMechanismPrototypeExplorationRoleSearchObservation,
+  buildMechanismPrototypeExplorationStepObservation,
   buildMechanismPrototypeExplorationExhaustion,
   buildMechanismPrototypeExplorationTrailhead,
   MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL,
@@ -395,6 +396,83 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       diagnostic,
       readiness: this.readiness(),
     }) });
+  }
+
+  public observeEffect(input: Parameters<NonNullable<AgentToolHost["observeEffect"]>>[0]): void {
+    if (input.effect.runId !== input.context.run.runId ||
+        input.effect.toolName !== input.context.toolName ||
+        input.effect.status !== input.result.status) {
+      throw new Error("mechanism exploration effect observation lineage is invalid");
+    }
+    const readiness = this.readiness();
+    const output: Readonly<Record<string, unknown>> = input.result.output !== null &&
+        typeof input.result.output === "object" && !Array.isArray(input.result.output)
+      ? input.result.output as Readonly<Record<string, unknown>>
+      : Object.freeze({}) as Readonly<Record<string, unknown>>;
+    const accepted = input.result.status === "ACCEPTED";
+    const resultSummary = (() => {
+      const zero = {
+        rawHitCount: 0, qualifiedHitCount: 0, pairCount: 0,
+        inspectedListingCount: 0, acceptedActionCount: 0, acceptedTerminalCount: 0,
+      };
+      if (input.context.toolName === "read_mechanism_exploration_lens") {
+        return Object.freeze({ kind: "LENS_READ" as const, ...zero });
+      }
+      if (input.context.toolName === "search_mechanism_exploration_corpus") {
+        const hits = Array.isArray(output.hits) ? output.hits.length : 0;
+        return Object.freeze({ kind: "FLAT_SEARCH" as const, ...zero,
+          rawHitCount: Number(output.matchCount ?? hits), qualifiedHitCount: hits });
+      }
+      if (input.context.toolName === "search_mechanism_exploration_roles") {
+        const componentHits = Array.isArray(output.componentHits) ? output.componentHits.length : 0;
+        const aggregateHits = Array.isArray(output.aggregateHits) ? output.aggregateHits.length : 0;
+        return Object.freeze({ kind: "ROLE_SEARCH" as const, ...zero,
+          rawHitCount: Number(output.rawComponentHitCount ?? 0) +
+            Number(output.rawAggregateHitCount ?? 0),
+          qualifiedHitCount: componentHits + aggregateHits,
+          pairCount: Number(output.pairCount ?? 0) });
+      }
+      if (input.context.toolName === "inspect_mechanism_exploration_listings") {
+        return Object.freeze({ kind: "INSPECTION" as const, ...zero,
+          inspectedListingCount: Array.isArray(output.listings) ? output.listings.length : 0 });
+      }
+      if (/^(?:mark_transfer_test_[1-9][0-9]*_(?:applied|failed)|activate_counter_scenario_[1-9][0-9]*)$/u
+          .test(input.context.toolName)) {
+        return Object.freeze({ kind: "PROTOTYPE_ACTION" as const, ...zero,
+          acceptedActionCount: accepted ? 1 : 0 });
+      }
+      if (input.context.toolName === "submit_mechanism_exploration_trailhead") {
+        return Object.freeze({ kind: "POSITIVE_TERMINAL" as const, ...zero,
+          acceptedTerminalCount: accepted ? 1 : 0 });
+      }
+      if (input.context.toolName === "record_mechanism_exploration_exhaustion") {
+        return Object.freeze({ kind: "EXHAUSTION_TERMINAL" as const, ...zero,
+          acceptedTerminalCount: accepted ? 1 : 0 });
+      }
+      return Object.freeze({ kind: "OTHER" as const, ...zero });
+    })();
+    this.store?.saveMechanismPrototypeExplorationStepObservations([
+      buildMechanismPrototypeExplorationStepObservation({
+        researchInput: this.researchInput,
+        effect: input.effect,
+        sourceToolCallId: input.context.callId,
+        resultSummary,
+        readinessAfter: Object.freeze({
+          positiveEligible: readiness.positive.eligible,
+          positiveMissingPrerequisites: readiness.positive.missingPrerequisites,
+          exhaustionEligible: readiness.exhaustion.eligible,
+          exhaustionMissingPrerequisites: readiness.exhaustion.missingPrerequisites,
+          searchedResultCount: readiness.searchedResultCount,
+          roleSearchResultCount: readiness.roleSearchResultCount,
+          rolePairCount: readiness.rolePairCount,
+          inspectedListingCount: readiness.inspectedListingCount,
+          inspectedRolePairCount: readiness.inspectedRolePairCount,
+          appliedTransferTestOrdinals: readiness.appliedTransferTestOrdinals,
+          failedTransferTestOrdinals: readiness.failedTransferTestOrdinals,
+          activatedCounterScenarioOrdinals: readiness.activatedCounterScenarioOrdinals,
+        }),
+      }),
+    ]);
   }
 
   public async execute(context: AgentToolHostContext): Promise<Readonly<{

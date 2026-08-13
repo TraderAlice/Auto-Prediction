@@ -608,6 +608,31 @@ describe("Agent runtime adapters", () => {
     expect(result.modelInvocations[2]?.repairContext).toBeNull();
   });
 
+  it("observes an immutable effect only after first-party effect construction", async () => {
+    const observed: unknown[] = [];
+    const adapter = new InProcessAgentRuntimeAdapter(async () => twoTurnSession(() => undefined));
+    const input = execution({ kind: "HARNESS_IN_PROCESS", credential: codexCredential(),
+      model: codexModel(), adapter });
+    const result = await executePreparedAgentRun({
+      ...input,
+      toolHost: {
+        manifest,
+        execute: async () => ({ status: "ACCEPTED", output: { retained: true } }),
+        observeEffect: (observation) => { observed.push(observation); },
+      },
+      now: () => Date.parse(LATER),
+    });
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({
+      context: { callId: "call:submit:1", toolName: "submit_rule_evidence_claim" },
+      result: { status: "ACCEPTED", output: { retained: true } },
+      effect: { ordinal: 1, status: "ACCEPTED", toolName: "submit_rule_evidence_claim",
+        sourceInvocationId: result.modelInvocations[0]?.invocationId },
+    });
+    expect(Object.isFrozen((observed[0] as { effect: unknown }).effect)).toBe(true);
+  });
+
   it("does not stage or start completion recovery past the invocation budget", async () => {
     const cancel = vi.fn(async () => undefined);
     const prepareCompletionRecovery = vi.fn(async () => undefined);
