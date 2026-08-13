@@ -3442,6 +3442,8 @@ export function createControlPlane(options?: {
                 .loadMechanismPrototypeExplorationInputs(2_048),
               stepObservations: mechanismPrototypeExplorationStore
                 .loadMechanismPrototypeExplorationStepObservations(8_192),
+              roleSearchObservations: mechanismPrototypeExplorationStore
+                .loadMechanismPrototypeExplorationRoleSearchObservations(2_048),
               execution: agentExecutionRegistry.snapshot(),
             }).hypothesisFamilies,
           );
@@ -4415,6 +4417,8 @@ export function createControlPlane(options?: {
       buildMechanismPrototypeExplorationMemoryProjection({
         inputs: explorationInputs,
         stepObservations: explorationSteps,
+        roleSearchObservations: mechanismPrototypeExplorationStore
+          ?.loadMechanismPrototypeExplorationRoleSearchObservations(2_048) ?? [],
         execution,
       });
     const corpus = catalogObservationDesk.corpus();
@@ -4462,7 +4466,7 @@ export function createControlPlane(options?: {
       left.observationId.localeCompare(right.observationId)
     )) latestObservationByFamily.set(observation.routeFamilyId, observation);
     const body = Object.freeze({
-      schemaVersion: "pmh.world-state-mechanism-projection.v7" as const,
+      schemaVersion: "pmh.world-state-mechanism-projection.v8" as const,
       proposalCount: proposals.length,
       counterexampleCount: counterexamples.length,
       abstentionCount: abstentions.length,

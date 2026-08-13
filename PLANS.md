@@ -1,6 +1,25 @@
 # Plans
 
 The active execution continuation is
+[`plans/hypothesis-intent-realization.md`](plans/hypothesis-intent-realization.md).
+Issue #233 measures whether V11's declared `EXTEND / REPLICATE /
+DIFFERENT_TEST` intent actually changed the exact evidence frontier or produced
+an independent replication. The comparison is provider-free and based on
+durable role-search listing/pair coordinates, semantic inputs, runs, yield and
+token span—not prose similarity. It remains descriptive with zero scheduling
+or semantic authority.
+
+Issue #233 is selected `ADOPT`. The first causal comparison marks the selected
+revision-15 `DIFFERENT_TEST` as realized: five hypothesis-span calls / 120,661
+input reached two exact refs, one new and one overlapping, against one earlier
+sibling family. The earlier revision-14 declaration remains `UNMEASURABLE`, not
+retroactively judged by a future family, despite spending 335,843 input across
+11 calls. Report IDs and counts survive restart even when newly reconciled
+inputs correctly change the parent projection. The next continuation can use
+these descriptive measurements to propose—not silently enact—an attention
+portfolio that balances new frontier, replication and cost.
+
+The active execution continuation is
 [`plans/hypothesis-family-intent.md`](plans/hypothesis-family-intent.md).
 Issue #231 returns compact exact family history to the V11 Agent and requires a
 checked `EXTEND / REPLICATE / DIFFERENT_TEST` declaration. This creates explicit
