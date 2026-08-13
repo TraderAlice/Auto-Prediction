@@ -15,6 +15,7 @@ import {
   buildMechanismPrototypeExplorationStepObservation,
   compileMechanismPrototypeExplorationExperimentEpisodes,
   buildMechanismPrototypeExplorationMemoryProjection,
+  buildMechanismPrototypeExplorationHypothesisIntentAttentionPortfolio,
   classifyMechanismPrototypeExplorationHypothesisIntentRealization,
   buildPausedAgentCampaign,
   buildDefaultAgentRuntimePortfolio,
@@ -600,6 +601,58 @@ describe("mechanism-prototype-guided exploration substrate", () => {
 });
 
 describe("mechanism-prototype exploration Agent tools", () => {
+  it("prioritizes an unobserved intent without collapsing portfolio roles to a score", () => {
+    const report = (declaredIntent: "REPLICATE" | "DIFFERENT_TEST",
+      classification: "REALIZED_REPLICATION" | "REALIZED_DIFFERENT_TEST") => Object.freeze({
+      schemaVersion:
+        "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v1" as const,
+      reportId: hash(`report:${declaredIntent}`), hypothesisId: hash(`hypothesis:${declaredIntent}`),
+      episodeId: hash(`episode:${declaredIntent}`), episodeCompletedAt: NOW,
+      runStatus: "SUCCEEDED" as const, terminalOutcome: "EXHAUSTION" as const,
+      prototypeId: hash("prototype"), axis: "SURFACE_DOMAIN" as const,
+      declaredIntent, declaredPriorFamilyId: hash("family"),
+      realizedClassification: classification,
+      comparisonBasis: "DECLARED_PRIOR_FAMILY" as const, referenceFamilyCount: 1,
+      current: Object.freeze({ semanticInputIdentity: hash(`input:${declaredIntent}`),
+        sourceAgentRunId: hash(`run:${declaredIntent}`), roleSearchObservationCount: 1,
+        listingRefCount: 1, pairRefCount: 0, listingSetHash: hash("listings"),
+        pairSetHash: hash("pairs") }),
+      comparison: Object.freeze({ referenceHypothesisCount: 1,
+        referenceSemanticInputCount: 1, referenceRunCount: 1,
+        referenceListingRefCount: 1, referencePairRefCount: 0,
+        overlappingListingRefCount: 0, newListingRefCount: 1,
+        overlappingPairRefCount: 0, newPairRefCount: 0,
+        independentSemanticInput: true, independentRun: true }),
+      yield: Object.freeze({ effectCount: 5, searchEffectCount: 1, rawHitCount: 10,
+        qualifiedHitCount: 1, rolePairCount: 0, inspectedListingCount: 1 }),
+      usage: Object.freeze({ invocationCount: 5, knownInputTokens: "1000",
+        knownOutputTokens: "100", knownReasoningTokens: "50",
+        unknownUsageInvocationCount: 0 }),
+      identityBasis: "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_SEARCH_COORDINATES" as const,
+      proseSimilarityUsed: false as const, schedulingAuthority: false as const,
+      semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
+      executionAuthority: false as const, externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    const portfolio = buildMechanismPrototypeExplorationHypothesisIntentAttentionPortfolio({
+      reports: [report("REPLICATE", "REALIZED_REPLICATION"),
+        report("DIFFERENT_TEST", "REALIZED_DIFFERENT_TEST")],
+      episodes: [],
+    });
+    expect(portfolio).toMatchObject({
+      firstObservationCandidateIntent: "EXTEND", scalarUtilityScoreUsed: false,
+      schedulingAuthority: false, semanticDecisionAuthority: false,
+      cohorts: [
+        { declaredIntent: "EXTEND", posture: "COVERAGE_GAP", observationCount: 0,
+          evidenceDebt: "NO_OBSERVATION", priorityOrdinal: 1 },
+        { declaredIntent: "DIFFERENT_TEST", posture: "FRONTIER_EXPANSION",
+          evidenceDebt: "NONE", priorityOrdinal: 2 },
+        { declaredIntent: "REPLICATE", posture: "REPLICATION_CONTROL",
+          evidenceDebt: "NONE", priorityOrdinal: 3 },
+      ],
+    });
+  });
+
   it("distinguishes independent replication from a zero-frontier extension", () => {
     expect(classifyMechanismPrototypeExplorationHypothesisIntentRealization({
       declaredIntent: "REPLICATE", comparable: true, independentSemanticInput: true,

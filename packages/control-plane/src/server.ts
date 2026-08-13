@@ -4466,7 +4466,7 @@ export function createControlPlane(options?: {
       left.observationId.localeCompare(right.observationId)
     )) latestObservationByFamily.set(observation.routeFamilyId, observation);
     const body = Object.freeze({
-      schemaVersion: "pmh.world-state-mechanism-projection.v8" as const,
+      schemaVersion: "pmh.world-state-mechanism-projection.v9" as const,
       proposalCount: proposals.length,
       counterexampleCount: counterexamples.length,
       abstentionCount: abstentions.length,

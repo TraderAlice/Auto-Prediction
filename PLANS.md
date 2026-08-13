@@ -1,6 +1,15 @@
 # Plans
 
 The active execution continuation is
+[`plans/hypothesis-intent-attention-portfolio.md`](plans/hypothesis-intent-attention-portfolio.md).
+Issue #237 turns exact intent realization into a descriptive portfolio rather
+than an opaque score. Live evidence retains `DIFFERENT_TEST` as measured frontier
+expansion, `REPLICATE` as an independent control, and identifies the absent
+`EXTEND` cohort as the highest-value observation debt. The portfolio cannot
+schedule or dispatch; its first selected use is a separately authorized live
+extension specimen.
+
+The active execution continuation is
 [`plans/state-aware-agent-completion-recovery.md`](plans/state-aware-agent-completion-recovery.md).
 Issue #235 separates dynamic long-loop continuation routing from terminal result
 authority. A failed post-V12 Terra/high specimen spent all 16 invocations and

@@ -672,7 +672,7 @@ type SemanticNoveltyProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 type WorldStateMechanismProjection = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-projection.v8";
+  schemaVersion: "pmh.world-state-mechanism-projection.v9";
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
@@ -782,7 +782,7 @@ type WorldStateMechanismProjection = Readonly<{
     }>>;
   }>;
   mechanismPrototypeExplorationMemory: Readonly<{
-    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v3";
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v4";
     projectionIdentity: string;
     retainedInputCount: number;
     retainedStepCount: number;
@@ -895,6 +895,29 @@ type WorldStateMechanismProjection = Readonly<{
       schedulingAuthority: false;
       semanticDecisionAuthority: false;
     }>>;
+    hypothesisIntentAttentionPortfolio: Readonly<{
+      schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-intent-attention-portfolio.v1";
+      portfolioIdentity: string;
+      observationCount: number;
+      evidenceThrough: string | null;
+      firstObservationCandidateIntent: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+      cohorts: ReadonlyArray<Readonly<{
+        declaredIntent: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+        posture: "COVERAGE_GAP" | "FRONTIER_EXPANSION" | "REPLICATION_CONTROL" |
+          "STALLED_FRONTIER" | "COST_UNCERTAINTY";
+        observationCount: number; comparableObservationCount: number;
+        realizedObservationCount: number; unmeasurableObservationCount: number;
+        independentObservationCount: number; succeededTerminalCount: number;
+        rejectedEffectCount: number; reportedNewListingRefCount: number;
+        reportedNewPairRefCount: number; evidenceDebt: "NO_OBSERVATION" |
+          "NO_COMPARABLE_OBSERVATION" | "NO_REALIZED_OBSERVATION" | "NONE";
+        selectionReason: string; priorityOrdinal: number;
+        usage: Readonly<{ invocationCount: number; knownInputTokens: string }>;
+      }>>;
+      scalarUtilityScoreUsed: false;
+      schedulingAuthority: false;
+      semanticDecisionAuthority: false;
+    }>;
     currentCorpusAuthority: false;
     currentEligibilityAuthority: false;
     automaticDispatch: false;
@@ -4212,7 +4235,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
-      "pmh.world-state-mechanism-projection.v8" ||
+      "pmh.world-state-mechanism-projection.v9" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness.schemaVersion !==
       "pmh.world-state-subject-binding-promotion-readiness.v1" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
@@ -4224,13 +4247,17 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.worldStateMechanisms.retainedMechanismMemory.schemaVersion !==
       "pmh.retained-world-state-mechanism-memory.v1" ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory.schemaVersion !==
-      "pmh.mechanism-prototype-exploration-memory-projection.v3" ||
+      "pmh.mechanism-prototype-exploration-memory-projection.v4" ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
       .currentCorpusAuthority !== false ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
       .currentEligibilityAuthority !== false ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
       .automaticDispatch !== false ||
+    result.worldStateMechanisms.mechanismPrototypeExplorationMemory
+      .hypothesisIntentAttentionPortfolio.scalarUtilityScoreUsed !== false ||
+    result.worldStateMechanisms.mechanismPrototypeExplorationMemory
+      .hypothesisIntentAttentionPortfolio.schedulingAuthority !== false ||
     (result.worldStateMechanisms.mechanismPrototypeExploration !== null &&
       result.worldStateMechanisms.mechanismPrototypeExploration.schemaVersion !==
         "pmh.mechanism-prototype-exploration-projection.v2") ||
@@ -4817,6 +4844,30 @@ function AgentOperationsView() {
                   ))}
                 </div>
               )}
+              <div className="hypothesis-family-memory">
+                <div className="mechanism-experiment-memory-head">
+                  <div>
+                    <span className="eyebrow">Intent attention portfolio</span>
+                    <strong>Next observation: {worldStateMechanisms.mechanismPrototypeExplorationMemory.hypothesisIntentAttentionPortfolio.firstObservationCandidateIntent.replaceAll("_", " ")}</strong>
+                    <small>Observation debt first; no scalar utility, scheduling, or semantic authority.</small>
+                  </div>
+                  <Badge variant="shadow">DESCRIPTIVE ONLY</Badge>
+                </div>
+                {worldStateMechanisms.mechanismPrototypeExplorationMemory.hypothesisIntentAttentionPortfolio.cohorts.map((cohort) => (
+                  <article key={cohort.declaredIntent} className="hypothesis-family-row">
+                    <div>
+                      <Badge variant={cohort.priorityOrdinal === 1 ? "verified" : cohort.evidenceDebt === "NONE" ? "muted" : "warning"}>
+                        #{cohort.priorityOrdinal} {cohort.declaredIntent.replaceAll("_", " ")}
+                      </Badge>
+                      <Badge variant="shadow">{cohort.posture.replaceAll("_", " ")}</Badge>
+                    </div>
+                    <strong>{cohort.observationCount} observations · {cohort.realizedObservationCount} realized · {cohort.comparableObservationCount} comparable</strong>
+                    <span>{cohort.reportedNewListingRefCount} reported new refs + {cohort.reportedNewPairRefCount} new pairs · {cohort.independentObservationCount} independent · {cohort.succeededTerminalCount} terminal</span>
+                    <span>{cohort.rejectedEffectCount} rejected effects · {cohort.unmeasurableObservationCount} unmeasurable · debt {cohort.evidenceDebt.replaceAll("_", " ").toLowerCase()}</span>
+                    <small>{cohort.usage.invocationCount} hypothesis-span calls · {formatTokenCount(cohort.usage.knownInputTokens)} input · {cohort.selectionReason}</small>
+                  </article>
+                ))}
+              </div>
             </section>
             {worldStateMechanisms.mechanismPrototypeExploration === null && (
               <section className="mechanism-exploration-unavailable">

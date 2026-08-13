@@ -518,7 +518,7 @@ export type MechanismPrototypeExplorationExperimentEpisode = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v3";
+  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v4";
   projectionIdentity: Hash;
   retainedInputCount: number;
   retainedStepCount: number;
@@ -542,6 +542,7 @@ export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
   hypothesisFamilies: readonly MechanismPrototypeExplorationHypothesisFamily[];
   hypothesisIntentRealizationCount: number;
   hypothesisIntentRealizations: readonly MechanismPrototypeExplorationHypothesisIntentRealization[];
+  hypothesisIntentAttentionPortfolio: MechanismPrototypeExplorationHypothesisIntentAttentionPortfolio;
   currentCorpusAuthority: false;
   currentEligibilityAuthority: false;
   campaignAuthority: false;
@@ -559,6 +560,49 @@ export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
   semanticDecisionAuthority: false;
   probabilityAuthority: false;
   certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type MechanismPrototypeExplorationHypothesisIntentAttentionPortfolio = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-intent-attention-portfolio.v1";
+  portfolioIdentity: Hash;
+  evidenceThrough: string | null;
+  observationCount: number;
+  cohorts: readonly Readonly<{
+    declaredIntent: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+    posture: "COVERAGE_GAP" | "FRONTIER_EXPANSION" | "REPLICATION_CONTROL" |
+      "STALLED_FRONTIER" | "COST_UNCERTAINTY";
+    observationCount: number;
+    comparableObservationCount: number;
+    realizedObservationCount: number;
+    stalledObservationCount: number;
+    unmeasurableObservationCount: number;
+    independentObservationCount: number;
+    succeededTerminalCount: number;
+    rejectedEffectCount: number;
+    reportedNewListingRefCount: number;
+    reportedNewPairRefCount: number;
+    usage: Readonly<{
+      invocationCount: number;
+      knownInputTokens: string;
+      knownOutputTokens: string;
+      knownReasoningTokens: string;
+      unknownUsageInvocationCount: number;
+    }>;
+    evidenceDebt: "NO_OBSERVATION" | "NO_COMPARABLE_OBSERVATION" |
+      "NO_REALIZED_OBSERVATION" | "NONE";
+    selectionReason: string;
+    priorityOrdinal: number;
+  }>[];
+  firstObservationCandidateIntent: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+  orderingPolicy: "OBSERVATION_DEBT_THEN_DISTINCT_PORTFOLIO_ROLE";
+  scalarUtilityScoreUsed: false;
+  proseSimilarityUsed: false;
+  schedulingAuthority: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
   executionAuthority: false;
   externalWriteAuthority: false;
   valueMovingAuthority: false;
@@ -638,6 +682,104 @@ export function classifyMechanismPrototypeExplorationHypothesisIntentRealization
   }
   if (input.declaredIntent === "DIFFERENT_TEST") return "REALIZED_DIFFERENT_TEST";
   return "NO_EVIDENCE_FRONTIER_CHANGE";
+}
+
+export function buildMechanismPrototypeExplorationHypothesisIntentAttentionPortfolio(
+  input: Readonly<{
+    reports: readonly MechanismPrototypeExplorationHypothesisIntentRealization[];
+    episodes: readonly MechanismPrototypeExplorationExperimentEpisode[];
+  }>,
+): MechanismPrototypeExplorationHypothesisIntentAttentionPortfolio {
+  const intents = ["EXTEND", "REPLICATE", "DIFFERENT_TEST"] as const;
+  const episodesById = new Map(input.episodes.map((episode) =>
+    [episode.episodeId, episode] as const
+  ));
+  const sumTokens = (
+    reports: readonly MechanismPrototypeExplorationHypothesisIntentRealization[],
+    key: "knownInputTokens" | "knownOutputTokens" | "knownReasoningTokens",
+  ) => reports.reduce((total, report) => total + BigInt(report.usage[key]), 0n).toString();
+  const unsorted = intents.map((declaredIntent) => {
+    const reports = input.reports.filter((report) => report.declaredIntent === declaredIntent);
+    const comparable = reports.filter((report) => report.referenceFamilyCount > 0 &&
+      report.current.roleSearchObservationCount > 0);
+    const realized = reports.filter((report) =>
+      report.realizedClassification.startsWith("REALIZED_")
+    );
+    const stalled = reports.filter((report) =>
+      report.realizedClassification === "NO_EVIDENCE_FRONTIER_CHANGE"
+    );
+    const unmeasurable = reports.filter((report) =>
+      report.realizedClassification === "UNMEASURABLE"
+    );
+    const independent = reports.filter((report) =>
+      report.comparison.independentSemanticInput && report.comparison.independentRun
+    );
+    const evidenceDebt = reports.length === 0 ? "NO_OBSERVATION" as const
+      : comparable.length === 0 ? "NO_COMPARABLE_OBSERVATION" as const
+        : realized.length === 0 ? "NO_REALIZED_OBSERVATION" as const : "NONE" as const;
+    const posture = evidenceDebt === "NO_OBSERVATION" ? "COVERAGE_GAP" as const
+      : evidenceDebt === "NO_COMPARABLE_OBSERVATION" ? "COST_UNCERTAINTY" as const
+        : evidenceDebt === "NO_REALIZED_OBSERVATION" ? "STALLED_FRONTIER" as const
+          : declaredIntent === "REPLICATE" ? "REPLICATION_CONTROL" as const
+            : "FRONTIER_EXPANSION" as const;
+    const selectionReason = evidenceDebt === "NO_OBSERVATION"
+      ? "No exact retained observation exists for this intent."
+      : evidenceDebt === "NO_COMPARABLE_OBSERVATION"
+        ? "Retained observations lack an exact causal comparison baseline."
+        : evidenceDebt === "NO_REALIZED_OBSERVATION"
+          ? "Comparable observations have not yet realized their declared intent."
+          : declaredIntent === "REPLICATE"
+            ? "Retain as an independent control against one-off frontier discoveries."
+            : "Retain as measured evidence-frontier expansion.";
+    return Object.freeze({ declaredIntent, posture, observationCount: reports.length,
+      comparableObservationCount: comparable.length, realizedObservationCount: realized.length,
+      stalledObservationCount: stalled.length, unmeasurableObservationCount: unmeasurable.length,
+      independentObservationCount: independent.length,
+      succeededTerminalCount: reports.filter((report) => report.runStatus === "SUCCEEDED" &&
+        report.terminalOutcome !== "NO_ACCEPTED_TERMINAL").length,
+      rejectedEffectCount: reports.reduce((sum, report) => sum +
+        (episodesById.get(report.episodeId)?.yield.rejectedEffectCount ?? 0), 0),
+      reportedNewListingRefCount: comparable.reduce((sum, report) =>
+        sum + report.comparison.newListingRefCount, 0),
+      reportedNewPairRefCount: comparable.reduce((sum, report) =>
+        sum + report.comparison.newPairRefCount, 0),
+      usage: Object.freeze({ invocationCount: reports.reduce((sum, report) =>
+        sum + report.usage.invocationCount, 0),
+      knownInputTokens: sumTokens(reports, "knownInputTokens"),
+      knownOutputTokens: sumTokens(reports, "knownOutputTokens"),
+      knownReasoningTokens: sumTokens(reports, "knownReasoningTokens"),
+      unknownUsageInvocationCount: reports.reduce((sum, report) =>
+        sum + report.usage.unknownUsageInvocationCount, 0) }),
+      evidenceDebt, selectionReason,
+      debtRank: evidenceDebt === "NO_OBSERVATION" ? 0
+        : evidenceDebt === "NO_COMPARABLE_OBSERVATION" ? 1
+          : evidenceDebt === "NO_REALIZED_OBSERVATION" ? 2
+            : declaredIntent === "DIFFERENT_TEST" ? 3
+              : declaredIntent === "REPLICATE" ? 4 : 5,
+    });
+  });
+  const cohorts = Object.freeze([...unsorted]
+    .sort((left, right) => left.debtRank - right.debtRank ||
+      left.declaredIntent.localeCompare(right.declaredIntent))
+    .map(({ debtRank: _debtRank, ...cohort }, index) =>
+      Object.freeze({ ...cohort, priorityOrdinal: index + 1 })
+    ));
+  const body = Object.freeze({
+    schemaVersion:
+      "pmh.mechanism-prototype-exploration-hypothesis-intent-attention-portfolio.v1" as const,
+    evidenceThrough: input.reports.reduce<string | null>((latest, report) =>
+      latest === null || report.episodeCompletedAt > latest ? report.episodeCompletedAt : latest,
+    null),
+    observationCount: input.reports.length,
+    cohorts,
+    firstObservationCandidateIntent: cohorts[0]!.declaredIntent,
+    orderingPolicy: "OBSERVATION_DEBT_THEN_DISTINCT_PORTFOLIO_ROLE" as const,
+    scalarUtilityScoreUsed: false as const, proseSimilarityUsed: false as const,
+    schedulingAuthority: false as const, semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const, executionAuthority: false as const,
+    externalWriteAuthority: false as const, valueMovingAuthority: false as const,
+  });
+  return Object.freeze({ ...body, portfolioIdentity: hashCanonical(body) });
 }
 
 export type MechanismPrototypeExplorationHypothesisFamily = Readonly<{
@@ -3083,12 +3225,17 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
     return [Object.freeze({ ...body, reportId: hashCanonical(body) })];
   }).sort((left, right) => right.episodeCompletedAt.localeCompare(left.episodeCompletedAt) ||
     left.reportId.localeCompare(right.reportId)));
+  const hypothesisIntentAttentionPortfolio =
+    buildMechanismPrototypeExplorationHypothesisIntentAttentionPortfolio({
+      reports: hypothesisIntentRealizations,
+      episodes,
+    });
   const sum = (key: "knownInputTokens" | "knownOutputTokens" |
     "knownReasoningTokens") => episodes.reduce((total, episode) =>
       total + BigInt(episode.usage[key]), 0n
     ).toString();
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v3" as const,
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v4" as const,
     retainedInputCount: retainedInputs.length,
     retainedStepCount: retainedSteps.length,
     episodeCount: episodes.length,
@@ -3119,6 +3266,7 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
     hypothesisFamilies,
     hypothesisIntentRealizationCount: hypothesisIntentRealizations.length,
     hypothesisIntentRealizations,
+    hypothesisIntentAttentionPortfolio,
     currentCorpusAuthority: false as const,
     currentEligibilityAuthority: false as const,
     campaignAuthority: false as const,
