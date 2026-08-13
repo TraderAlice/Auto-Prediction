@@ -6,6 +6,12 @@ the project no longer needs it; do not record secrets in this file.
 
 ## Open
 
+- [ ] Who should be allowed to approve subject labels and aliases for automatic
+  world-state mechanism observation: the local operator only, an independent
+  Agent plus operator confirmation, or another review policy? Routes can be
+  authored and displayed now, but remain deliberately unwakeable until this
+  routing-only identity authority is explicit.
+
 - [ ] In the long-term ontology, should human attention itself be a first-class
   object (for example media salience, participant access, and narrative demand),
   or should it remain an observed property of traded markets until we have a

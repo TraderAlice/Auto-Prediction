@@ -22,6 +22,7 @@ import {
 } from "./market-ontology.js";
 import {
   assertOntologyRelationWorkItem,
+  extendOntologyRelationWorkProjection,
   type OntologyRelationWorkItem,
   type OntologyRelationWorkProjection,
 } from "./ontology-relation-work.js";
@@ -1184,34 +1185,10 @@ export function extendOntologyRelationWorkWithStandingRouteFollowups(input: Read
   base: OntologyRelationWorkProjection;
   followups: readonly StandingOntologyRouteFollowup[];
 }>): OntologyRelationWorkProjection {
-  if (input.followups.length === 0) return input.base;
-  const itemsById = new Map(input.base.items.map((item) => [item.workItemId, item] as const));
-  for (const followup of input.followups) {
-    const retained = itemsById.get(followup.workItem.workItemId);
-    if (retained !== undefined && retained.artifactHash !== followup.workItem.artifactHash) {
-      throw new Error("standing route follow-up work identity collides with ontology work");
-    }
-    itemsById.set(followup.workItem.workItemId, followup.workItem);
-  }
-  const items = Object.freeze([...itemsById.values()].sort((left, right) =>
-    right.priority - left.priority || left.workItemId.localeCompare(right.workItemId)
-  ));
-  const { projectionIdentity: _identity, ...base } = input.base;
-  const body = Object.freeze({
-    ...base,
-    workItemCount: items.length,
-    runnableResearchCount: items.filter((item) =>
-      item.disposition === "RUNNABLE_RESEARCH"
-    ).length,
-    negativeMemoryCount: items.filter((item) =>
-      item.disposition === "NEGATIVE_EVIDENCE_ONLY"
-    ).length,
-    blockedMissingLineageCount: items.filter((item) =>
-      item.disposition === "BLOCKED_MISSING_ISSUE_LINEAGE"
-    ).length,
-    items,
+  return extendOntologyRelationWorkProjection({
+    base: input.base,
+    additionalItems: input.followups.map((item) => item.workItem),
   });
-  return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });
 }
 
 function usageForRuns(

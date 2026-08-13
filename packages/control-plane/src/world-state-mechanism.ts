@@ -189,6 +189,11 @@ export type ConsolidatedWorldStateMechanismRoute = Readonly<{
   canonicalRoute: StandingWorldStateMechanismRoute;
   sourceProposalIds: readonly Hash[];
   sourceAgentRunIds: readonly Hash[];
+  sourceIssueRevisionIds: readonly Hash[];
+  sourceOntologyIdentities: readonly Hash[];
+  sourceSnapshotIdentities: readonly Hash[];
+  sourceTrailheadIds: readonly Hash[];
+  sourceRelationPatternIds: readonly Hash[];
   triggerEvidenceBindings: readonly WorldStateMechanismEvidenceBinding[];
   dependentEvidenceBindings: readonly WorldStateMechanismEvidenceBinding[];
   counterScenarios: readonly string[];
@@ -654,6 +659,16 @@ export function compileConsolidatedWorldStateMechanismRoutes(
       sourceProposalIds: Object.freeze(ordered.map((item) => item.proposalId).sort()),
       sourceAgentRunIds: Object.freeze([...new Set(ordered
         .map((item) => item.sourceAgentRunId))].sort()),
+      sourceIssueRevisionIds: Object.freeze([...new Set(ordered
+        .map((item) => item.sourceIssueRevisionId))].sort()),
+      sourceOntologyIdentities: Object.freeze([...new Set(ordered
+        .map((item) => item.ontologyIdentity))].sort()),
+      sourceSnapshotIdentities: Object.freeze([...new Set(ordered
+        .map((item) => item.sourceSnapshotIdentity))].sort()),
+      sourceTrailheadIds: Object.freeze([...new Set(ordered
+        .flatMap((item) => item.sourceTrailheadIds))].sort()),
+      sourceRelationPatternIds: Object.freeze([...new Set(ordered
+        .flatMap((item) => item.sourceRelationPatternIds))].sort()),
       triggerEvidenceBindings: uniqueBindings(ordered.flatMap((item) =>
         item.trigger.evidenceBindings
       )),

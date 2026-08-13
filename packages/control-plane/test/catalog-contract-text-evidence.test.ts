@@ -109,7 +109,7 @@ describe("catalog contract-text evidence", () => {
     expect(restored.catalogContractTextEvidenceStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 50,
+      schemaVersion: 51,
       idempotencyKey: "artifactId",
     });
     expect(restored.loadCatalogContractTextEvidence(10)).toEqual([artifact]);
@@ -226,7 +226,7 @@ describe("catalog contract-text evidence", () => {
     expect(restored.contractSemanticContinuityStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 50,
+      schemaVersion: 51,
       idempotencyKey: "continuityId",
     });
     expect(restored.loadContractSemanticContinuities(10)).toEqual([continuity]);

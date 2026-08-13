@@ -652,10 +652,19 @@ type SemanticNoveltyProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 type WorldStateMechanismProjection = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-projection.v1";
+  schemaVersion: "pmh.world-state-mechanism-projection.v2";
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
+  subjectBindingReviewCount: number;
+  observationCount: number;
+  wakeCount: number;
+  routeStatusCounts: Readonly<{
+    unreviewed: number;
+    blocked: number;
+    quiet: number;
+    observed: number;
+  }>;
   routeCount: number;
   routes: ReadonlyArray<Readonly<{
     routeId: string;
@@ -674,6 +683,14 @@ type WorldStateMechanismProjection = Readonly<{
     dependentEvidenceCount: number;
     counterScenarioCount: number;
     counterexampleCount: number;
+    subjectBindingStatus: "APPROVED" | "REJECTED" | "NEEDS_EVIDENCE" | "UNREVIEWED";
+    observationStatus: "OBSERVED" | "BLOCKED_SUBJECT_BINDING" |
+      "BROAD_ROLE_MEMBERSHIP" | "NO_TIME_COMPATIBLE_PAIR" | "UNOBSERVED";
+    triggerMemberCount: number;
+    dependentMemberCount: number;
+    compatiblePairCount: number;
+    wakeCount: number;
+    lastObservedAt: string | null;
   }>>;
   providerRequestsStartedByRead: 0;
   modelInvocationsStartedByRead: 0;
@@ -3687,7 +3704,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
-      "pmh.world-state-mechanism-projection.v1" ||
+      "pmh.world-state-mechanism-projection.v2" ||
     result.worldStateMechanisms.providerRequestsStartedByRead !== 0 ||
     result.worldStateMechanisms.modelInvocationsStartedByRead !== 0 ||
     result.worldStateMechanisms.writesStartedByRead !== 0 ||
@@ -4038,8 +4055,8 @@ function AgentOperationsView() {
             <div className="research-attention-summary">
               <div><strong>{worldStateMechanisms.proposalCount}</strong><span>admitted proposals</span></div>
               <div><strong>{worldStateMechanisms.routeCount}</strong><span>mechanism families</span></div>
-              <div><strong>{worldStateMechanisms.counterexampleCount}</strong><span>falsifiers</span></div>
-              <div><strong>0</strong><span>provider calls by read</span></div>
+              <div><strong>{worldStateMechanisms.routeStatusCounts.observed}</strong><span>actively observed</span></div>
+              <div><strong>{worldStateMechanisms.wakeCount}</strong><span>bounded wakes</span></div>
             </div>
             <div className="research-attention-actions">
               {worldStateMechanisms.routes.length === 0 ? (
@@ -4051,6 +4068,9 @@ function AgentOperationsView() {
                   <div className="research-attention-action-head">
                     <div>
                       <Badge variant="verified">{route.stateDimension.replaceAll("_", " ")}</Badge>
+                      <Badge variant={route.subjectBindingStatus === "APPROVED" ? "verified" : "warning"}>
+                        {route.subjectBindingStatus.replaceAll("_", " ")}
+                      </Badge>
                       <Badge variant={route.counterexampleCount > 0 ? "warning" : "muted"}>
                         {route.counterexampleCount} FALSIFIERS
                       </Badge>
@@ -4065,6 +4085,10 @@ function AgentOperationsView() {
                     <span>{route.temporalPosture.replaceAll("_", " ")}</span>
                     <span>{route.counterScenarioCount} counter-scenarios</span>
                     <span>{route.sourceRunCount} source runs</span>
+                    <span>{route.observationStatus.replaceAll("_", " ")}</span>
+                    <span>{route.triggerMemberCount} trigger · {route.dependentMemberCount} dependent</span>
+                    <span>{route.compatiblePairCount} compatible pairs</span>
+                    <span>{route.wakeCount} wakes</span>
                   </div>
                 </article>
               ))}

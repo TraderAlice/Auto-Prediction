@@ -129,6 +129,12 @@ import {
   type WorldStateMechanismProposalStore,
 } from "./world-state-mechanism.js";
 import {
+  observeWorldStateMechanismRoutes,
+  type WorldStateMechanismObservationStore,
+  type WorldStateMechanismSubjectBindingReviewStore,
+  type WorldStateMechanismWakeStore,
+} from "./world-state-mechanism-observer.js";
+import {
   buildOntologySearchYieldProjection,
   reconcileOntologySearchIssueRevisions,
   type OntologySearchIssueRevision,
@@ -142,6 +148,7 @@ import { buildOntologyAllocationOutcomeProjection } from "./ontology-allocation-
 import { buildOntologyAttentionAllocation } from "./ontology-attention-allocation.js";
 import {
   buildOntologyRelationWorkProjection,
+  extendOntologyRelationWorkProjection,
   type OntologyRelationWorkProjection,
 } from "./ontology-relation-work.js";
 import {
@@ -1057,6 +1064,36 @@ function supportsWorldStateMechanismCounterexamples(
     typeof candidate.saveWorldStateMechanismCounterexamples === "function";
 }
 
+function supportsWorldStateMechanismSubjectBindingReviews(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & WorldStateMechanismSubjectBindingReviewStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<WorldStateMechanismSubjectBindingReviewStore>;
+  return candidate.worldStateMechanismSubjectBindingReviewStorage !== undefined &&
+    typeof candidate.loadWorldStateMechanismSubjectBindingReviews === "function" &&
+    typeof candidate.saveWorldStateMechanismSubjectBindingReviews === "function";
+}
+
+function supportsWorldStateMechanismObservations(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & WorldStateMechanismObservationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<WorldStateMechanismObservationStore>;
+  return candidate.worldStateMechanismObservationStorage !== undefined &&
+    typeof candidate.loadWorldStateMechanismObservations === "function" &&
+    typeof candidate.saveWorldStateMechanismObservations === "function";
+}
+
+function supportsWorldStateMechanismWakes(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & WorldStateMechanismWakeStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<WorldStateMechanismWakeStore>;
+  return candidate.worldStateMechanismWakeStorage !== undefined &&
+    typeof candidate.loadWorldStateMechanismWakes === "function" &&
+    typeof candidate.saveWorldStateMechanismWakes === "function";
+}
+
 function supportsOntologySearchIssueRevisions(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & OntologySearchIssueRevisionStore {
@@ -1315,6 +1352,18 @@ export function createControlPlane(options?: {
       : null;
   const worldStateMechanismCounterexampleStore =
     supportsWorldStateMechanismCounterexamples(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
+  const worldStateMechanismSubjectBindingReviewStore =
+    supportsWorldStateMechanismSubjectBindingReviews(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
+  const worldStateMechanismObservationStore =
+    supportsWorldStateMechanismObservations(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
+  const worldStateMechanismWakeStore =
+    supportsWorldStateMechanismWakes(options?.discoveryStore)
       ? options.discoveryStore
       : null;
   const ontologySearchIssueRevisionStore =
@@ -1970,15 +2019,27 @@ export function createControlPlane(options?: {
       revisions: input.ontologyRevisions,
       execution: input.execution,
     });
-    if (relationDiscoveryStore === null) return base;
     const corpus = input.corpus ?? catalogObservationDesk.corpus();
-    const routeProjection = standingRouteProjection(corpus);
-    if (routeProjection === null) return base;
-    const followups = materializeStandingOntologyRouteFollowups({
-      projection: routeProjection,
-      ontology: buildMarketOntologySnapshot(corpus),
-    });
-    return extendOntologyRelationWorkWithStandingRouteFollowups({ base, followups });
+    const routeProjection = relationDiscoveryStore === null
+      ? null
+      : standingRouteProjection(corpus);
+    const withStandingRoutes = routeProjection === null
+      ? base
+      : extendOntologyRelationWorkWithStandingRouteFollowups({
+          base,
+          followups: materializeStandingOntologyRouteFollowups({
+            projection: routeProjection,
+            ontology: buildMarketOntologySnapshot(corpus),
+          }),
+        });
+    const mechanismWakes = worldStateMechanismWakeStore
+      ?.loadWorldStateMechanismWakes(512) ?? [];
+    return mechanismWakes.length === 0
+      ? withStandingRoutes
+      : extendOntologyRelationWorkProjection({
+          base: withStandingRoutes,
+          additionalItems: mechanismWakes.map((wake) => wake.workItem),
+        });
   };
   let researchDerivationRevision = 0n;
   let researchActionStateCache: Readonly<{
@@ -3318,6 +3379,57 @@ export function createControlPlane(options?: {
     ontologySearchIssueRevisions = reconciliation.currentRevisions;
     invalidateAgentTaskReadiness();
   };
+  const reconcileWorldStateMechanismObservations = (): void => {
+    if (worldStateMechanismProposalStore === null ||
+        worldStateMechanismSubjectBindingReviewStore === null ||
+        worldStateMechanismObservationStore === null ||
+        worldStateMechanismWakeStore === null) return;
+    const corpus = catalogObservationDesk.corpus();
+    // An empty refresh is transport absence, not a world-state observation.
+    // Retaining the prior observation also prevents false disappearance wakes.
+    if (corpus.listingCount === 0) return;
+    const observedAt = corpus.listings.map((listing) => listing.sourceReceivedAt)
+      .sort().at(-1);
+    if (observedAt === undefined) return;
+    const routes = compileConsolidatedWorldStateMechanismRoutes(
+      worldStateMechanismProposalStore.loadWorldStateMechanismProposals(512),
+    );
+    if (routes.length === 0) return;
+    const retainedObservations = worldStateMechanismObservationStore
+      .loadWorldStateMechanismObservations(2_048);
+    const retainedWakes = worldStateMechanismWakeStore
+      .loadWorldStateMechanismWakes(2_048);
+    const observed = observeWorldStateMechanismRoutes({
+      routes,
+      ontology: buildMarketOntologySnapshot(corpus),
+      listingTitles: new Map(corpus.listings.map((listing) =>
+        [listing.listingRef, listing.title] as const
+      )),
+      subjectBindingReviews: worldStateMechanismSubjectBindingReviewStore
+        .loadWorldStateMechanismSubjectBindingReviews(512),
+      priorObservations: retainedObservations,
+      issueRevisions: ontologySearchIssueRevisionStore
+        ?.loadOntologySearchIssueRevisions(512) ?? ontologySearchIssueRevisions,
+      observedAt,
+    });
+    const knownObservationIds = new Set(retainedObservations.map((item) =>
+      item.observationId
+    ));
+    const newObservations = observed.observations.filter((item) =>
+      !knownObservationIds.has(item.observationId)
+    );
+    if (newObservations.length > 0) {
+      worldStateMechanismObservationStore.saveWorldStateMechanismObservations(
+        newObservations,
+      );
+    }
+    const knownWakeIds = new Set(retainedWakes.map((item) => item.wakeId));
+    const newWakes = observed.wakes.filter((item) => !knownWakeIds.has(item.wakeId));
+    if (newWakes.length > 0) {
+      worldStateMechanismWakeStore.saveWorldStateMechanismWakes(newWakes);
+      invalidateAgentTaskReadiness();
+    }
+  };
   const reconcileRelationDiscoveryTasks = (): void => {
     if (relationDiscoveryStore === null) return;
     const corpus = catalogObservationDesk.corpus();
@@ -3511,6 +3623,10 @@ export function createControlPlane(options?: {
     await runStartupReconciliationStep(
       "RECONCILE_ONTOLOGY_SEARCH_ISSUES",
       reconcileOntologySearchIssues,
+    );
+    await runStartupReconciliationStep(
+      "RECONCILE_WORLD_STATE_MECHANISM_OBSERVATIONS",
+      reconcileWorldStateMechanismObservations,
     );
     await runStartupReconciliationStep(
       "RECONCILE_RELATION_DISCOVERY_TASKS",
@@ -3778,32 +3894,80 @@ export function createControlPlane(options?: {
       ?.loadWorldStateMechanismProposals(512) ?? [];
     const counterexamples = worldStateMechanismCounterexampleStore
       ?.loadWorldStateMechanismCounterexamples(512) ?? [];
+    const reviews = worldStateMechanismSubjectBindingReviewStore
+      ?.loadWorldStateMechanismSubjectBindingReviews(512) ?? [];
+    const observations = worldStateMechanismObservationStore
+      ?.loadWorldStateMechanismObservations(2_048) ?? [];
+    const wakes = worldStateMechanismWakeStore
+      ?.loadWorldStateMechanismWakes(2_048) ?? [];
     const routes = compileConsolidatedWorldStateMechanismRoutes(proposals);
+    const latestReviewByFamily = new Map<Hash, (typeof reviews)[number]>();
+    for (const review of [...reviews].sort((left, right) =>
+      left.reviewedAt.localeCompare(right.reviewedAt) ||
+      left.reviewId.localeCompare(right.reviewId)
+    )) latestReviewByFamily.set(review.routeFamilyId, review);
+    const latestObservationByFamily = new Map<Hash, (typeof observations)[number]>();
+    for (const observation of [...observations].sort((left, right) =>
+      left.observedAt.localeCompare(right.observedAt) ||
+      left.observationId.localeCompare(right.observationId)
+    )) latestObservationByFamily.set(observation.routeFamilyId, observation);
     const body = Object.freeze({
-      schemaVersion: "pmh.world-state-mechanism-projection.v1" as const,
+      schemaVersion: "pmh.world-state-mechanism-projection.v2" as const,
       proposalCount: proposals.length,
       counterexampleCount: counterexamples.length,
-      routeCount: routes.length,
-      routes: Object.freeze(routes.slice(0, 128).map((route) => Object.freeze({
-        routeId: route.routeId,
-        routeFamilyId: route.routeFamilyId,
-        canonicalSubjectLabels: route.canonicalRoute.canonicalSubjectLabels,
-        triggerPredicate: route.canonicalRoute.triggerPredicate,
-        triggerInfluence: route.canonicalRoute.triggerInfluence,
-        stateDimension: route.canonicalRoute.stateDimension,
-        stateLabel: route.canonicalRoute.stateLabel,
-        dependentPredicate: route.canonicalRoute.dependentPredicate,
-        dependentRequirement: route.canonicalRoute.dependentRequirement,
-        temporalPosture: route.canonicalRoute.temporalPosture,
-        proposalCount: route.sourceProposalIds.length,
-        sourceRunCount: route.sourceAgentRunIds.length,
-        triggerEvidenceCount: route.triggerEvidenceBindings.length,
-        dependentEvidenceCount: route.dependentEvidenceBindings.length,
-        counterScenarioCount: route.counterScenarios.length,
-        counterexampleCount: counterexamples.filter((item) =>
-          item.targetRouteFamilyId === route.routeFamilyId
+      subjectBindingReviewCount: reviews.length,
+      observationCount: observations.length,
+      wakeCount: wakes.length,
+      routeStatusCounts: Object.freeze({
+        unreviewed: routes.filter((route) => !latestReviewByFamily.has(route.routeFamilyId))
+          .length,
+        blocked: routes.filter((route) => {
+          const status = latestObservationByFamily.get(route.routeFamilyId)?.status;
+          return status === "BLOCKED_SUBJECT_BINDING" ||
+            status === "BROAD_ROLE_MEMBERSHIP";
+        }).length,
+        quiet: routes.filter((route) => {
+          const status = latestObservationByFamily.get(route.routeFamilyId)?.status;
+          return status === "NO_TIME_COMPATIBLE_PAIR";
+        }).length,
+        observed: routes.filter((route) =>
+          latestObservationByFamily.get(route.routeFamilyId)?.status === "OBSERVED"
         ).length,
-      }))),
+      }),
+      routeCount: routes.length,
+      routes: Object.freeze(routes.slice(0, 128).map((route) => {
+        const review = latestReviewByFamily.get(route.routeFamilyId);
+        const observation = latestObservationByFamily.get(route.routeFamilyId);
+        return Object.freeze({
+          routeId: route.routeId,
+          routeFamilyId: route.routeFamilyId,
+          canonicalSubjectLabels: route.canonicalRoute.canonicalSubjectLabels,
+          triggerPredicate: route.canonicalRoute.triggerPredicate,
+          triggerInfluence: route.canonicalRoute.triggerInfluence,
+          stateDimension: route.canonicalRoute.stateDimension,
+          stateLabel: route.canonicalRoute.stateLabel,
+          dependentPredicate: route.canonicalRoute.dependentPredicate,
+          dependentRequirement: route.canonicalRoute.dependentRequirement,
+          temporalPosture: route.canonicalRoute.temporalPosture,
+          proposalCount: route.sourceProposalIds.length,
+          sourceRunCount: route.sourceAgentRunIds.length,
+          triggerEvidenceCount: route.triggerEvidenceBindings.length,
+          dependentEvidenceCount: route.dependentEvidenceBindings.length,
+          counterScenarioCount: route.counterScenarios.length,
+          counterexampleCount: counterexamples.filter((item) =>
+            item.targetRouteFamilyId === route.routeFamilyId
+          ).length,
+          subjectBindingStatus: review?.decision ?? "UNREVIEWED",
+          observationStatus: observation?.status ?? "UNOBSERVED",
+          triggerMemberCount: observation?.triggerMembers.length ?? 0,
+          dependentMemberCount: observation?.dependentMembers.length ?? 0,
+          compatiblePairCount: observation?.compatiblePairs.length ?? 0,
+          wakeCount: wakes.filter((wake) =>
+            wake.routeFamilyId === route.routeFamilyId
+          ).length,
+          lastObservedAt: observation?.observedAt ?? null,
+        });
+      })),
       providerRequestsStartedByRead: 0 as const,
       modelInvocationsStartedByRead: 0 as const,
       writesStartedByRead: 0 as const,
@@ -4897,8 +5061,9 @@ export function createControlPlane(options?: {
   };
   const reconcileAfterAgentTaskCompletion = async (taskId: Hash): Promise<void> => {
     const task = agentExecutionRegistry.snapshot().tasks.find((item) => item.taskId === taskId);
-    if (task?.kind === "RELATION_DISCOVERY") {
+    if (task?.kind === "ONTOLOGY_NORMALIZATION" || task?.kind === "RELATION_DISCOVERY") {
       try {
+        reconcileWorldStateMechanismObservations();
         reconcileRelationDiscoveryTasks();
         migrateStandingRouteSeedCampaigns();
         reconcileResearchAttentionRelationCampaign();
@@ -7055,6 +7220,7 @@ export function createControlPlane(options?: {
       const pending = catalogRefreshScheduler.runNow("OPERATOR").promise;
       await broadcastProjection();
       const result = await pending;
+      reconcileWorldStateMechanismObservations();
       reconcileRelationDiscoveryTasks();
       migrateStandingRouteSeedCampaigns();
       reconcileResearchAttentionRelationCampaign();
@@ -8093,6 +8259,7 @@ export function createControlPlane(options?: {
         void invocation.promise.then(
           () => {
             try {
+              reconcileWorldStateMechanismObservations();
               reconcileRelationDiscoveryTasks();
               migrateStandingRouteSeedCampaigns();
               reconcileResearchAttentionRelationCampaign();

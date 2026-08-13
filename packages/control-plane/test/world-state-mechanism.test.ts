@@ -12,10 +12,12 @@ import {
   buildMarketOntologySnapshot,
   buildWorldStateMechanismProposal,
   buildWorldStateMechanismCounterexample,
+  buildWorldStateMechanismSubjectBindingReview,
   compileConsolidatedWorldStateMechanismRoutes,
   compileStandingWorldStateMechanismRoute,
   defaultAiRuntimeConfiguration,
   materializeOntologySearchIssueRevisions,
+  observeWorldStateMechanismRoutes,
   SqliteOperationalStore,
   worldStateMechanismRouteFamilyIdentity,
   type DiscoveryCatalogListing,
@@ -24,6 +26,7 @@ import {
 } from "../src/index.js";
 
 const NOW = "2026-08-13T02:00:00.000Z";
+const AFTER = "2026-08-13T02:00:01.000Z";
 
 function hash(label: string): Hash {
   return hashCanonical({ label });
@@ -422,6 +425,50 @@ describe("world-state mechanism routes", () => {
       searchSignals: ["livestream"],
       proposedAt: NOW,
     });
+    const consolidated = compileConsolidatedWorldStateMechanismRoutes([proposal])[0]!;
+    const subjectReview = buildWorldStateMechanismSubjectBindingReview({
+      route: consolidated,
+      decision: "APPROVED",
+      approvedLabels: ["Donald Trump", "Trump"],
+      rejectedLabels: [],
+      rationale: "Both exact title labels refer to the same named individual in this fixture.",
+      reviewerRef: "operator:world-state-mechanism-test",
+      reviewedAt: NOW,
+    });
+    const observation = observeWorldStateMechanismRoutes({
+      routes: [consolidated],
+      ontology,
+      listingTitles: new Map(corpus.listings.map((item) => [item.listingRef, item.title])),
+      subjectBindingReviews: [subjectReview],
+      priorObservations: [],
+      issueRevisions: revisions,
+      observedAt: NOW,
+    }).observations[0]!;
+    const laterCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hash("source:world-state-mechanism:later"),
+      eligibleSourceCount: 3,
+      excludedSourceCount: 0,
+      listings: [
+        ...corpus.listings,
+        listing(
+          "venue-c:trump-appearance-october",
+          "Will Donald Trump appear in person at an event during October?",
+        ),
+      ],
+    });
+    const laterOntology = buildMarketOntologySnapshot(laterCorpus);
+    const laterObservation = observeWorldStateMechanismRoutes({
+      routes: [consolidated],
+      ontology: laterOntology,
+      listingTitles: new Map(laterCorpus.listings
+        .map((item) => [item.listingRef, item.title])),
+      subjectBindingReviews: [subjectReview],
+      priorObservations: [observation],
+      issueRevisions: revisions,
+      observedAt: AFTER,
+    });
+    expect(laterObservation.wakes).toHaveLength(1);
+    const wake = laterObservation.wakes[0]!;
     const directory = mkdtempSync(join(tmpdir(), "pmh-world-state-mechanism-"));
     const databasePath = join(directory, "operational.sqlite");
     try {
@@ -440,11 +487,21 @@ describe("world-state mechanism routes", () => {
       expect(store.saveWorldStateMechanismProposals([proposal])).toEqual([proposal]);
       expect(store.saveWorldStateMechanismCounterexamples([counterexample]))
         .toEqual([counterexample]);
+      expect(store.saveWorldStateMechanismSubjectBindingReviews([subjectReview]))
+        .toEqual([subjectReview]);
+      expect(store.saveWorldStateMechanismSubjectBindingReviews([subjectReview]))
+        .toEqual([subjectReview]);
+      expect(store.saveWorldStateMechanismObservations([
+        observation,
+        laterObservation.observations[0]!,
+      ])).toEqual([observation, laterObservation.observations[0]!]);
+      expect(store.saveWorldStateMechanismWakes([wake])).toEqual([wake]);
+      expect(store.saveWorldStateMechanismWakes([wake])).toEqual([wake]);
       expect(store.saveWorldStateMechanismCounterexamples([counterexample]))
         .toEqual([counterexample]);
       expect(store.worldStateMechanismProposalStorage).toMatchObject({
         durable: true,
-        schemaVersion: 50,
+        schemaVersion: 51,
         idempotencyKey: "proposalId",
       });
       store.close();
@@ -453,6 +510,13 @@ describe("world-state mechanism routes", () => {
       expect(reopened.loadWorldStateMechanismProposals(10)).toEqual([proposal]);
       expect(reopened.loadWorldStateMechanismCounterexamples(10))
         .toEqual([counterexample]);
+      expect(reopened.loadWorldStateMechanismSubjectBindingReviews(10))
+        .toEqual([subjectReview]);
+      expect(reopened.loadWorldStateMechanismObservations(10)).toEqual([
+        laterObservation.observations[0]!,
+        observation,
+      ]);
+      expect(reopened.loadWorldStateMechanismWakes(10)).toEqual([wake]);
       expect(() => reopened.saveWorldStateMechanismProposals([mechanism()]))
         .toThrow("unavailable run");
       reopened.close();

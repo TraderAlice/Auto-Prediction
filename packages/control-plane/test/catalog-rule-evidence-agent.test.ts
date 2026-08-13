@@ -107,7 +107,7 @@ describe("catalog contract text as provider-neutral Agent work", () => {
       agentExecutionStorage: {
         mode: "MEMORY",
         durable: false,
-        schemaVersion: 50,
+        schemaVersion: 51,
         idempotencyKey: "recordId",
       },
       loadAgentExecutionSnapshot: () => emptySnapshot,

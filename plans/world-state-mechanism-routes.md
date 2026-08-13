@@ -2,9 +2,10 @@
 
 Status: active mainline construction
 
-Issue: [#158](https://github.com/luokerenx4/my-little-pony/issues/158)
+Issues: [#158](https://github.com/luokerenx4/my-little-pony/issues/158),
+[#160](https://github.com/luokerenx4/my-little-pony/issues/160)
 
-Branch: `codex/world-state-mechanism-routes`
+Branch: `codex/world-state-mechanism-wakes`
 
 ## North-star role
 
@@ -77,9 +78,9 @@ boundaries.
   temporal posture.
 - [x] Consolidate corroborating sources without deleting their distinct
   evidence, Agent cost, counter-scenarios, or disagreements.
-- [ ] Treat entity alias proposals as candidate bindings rather than truth;
+- [x] Treat entity alias proposals as candidate bindings rather than truth;
   ambiguous aliases must block automatic cross-title expansion.
-- [ ] Persist lifecycle observations so quiet intervals and later wake states
+- [x] Persist lifecycle observations so quiet intervals and later wake states
   survive restart.
 
 The completed authoring slice uses schema 50 for exact proposal and
@@ -91,19 +92,31 @@ persistence. Startup now proactively materializes the first fresh Studio
 projection after durable recovery, removing the readiness/projection request
 deadlock observed during visual qualification.
 
+PR #159 merged that slice. Issue #160 owns the next serial phase: durable,
+provider-free observation and bounded wake materialization over the retained
+mechanism memory.
+
 ## Phase 4 — observe and create bounded work
 
-- [ ] Match new ontology/world-proposition evidence separately to trigger and
+- [x] Match new ontology/world-proposition evidence separately to trigger and
   dependent roles; never wake on subject-name membership alone.
-- [ ] Require time-compatible cross-role pairs, cap membership/fanout, and
+- [x] Require time-compatible cross-role pairs, cap membership/fanout, and
   report broad/ambiguous routes without model spend.
-- [ ] Materialize one non-recursive relation-discovery work item per canonical
+- [x] Materialize one non-recursive relation-discovery work item per canonical
   mechanism family × material role-membership identity.
-- [ ] Seed `CONDITIONAL`, `CONFLICTING`, `IMPLIES`, and
+- [x] Seed `CONDITIONAL`, `CONFLICTING`, `IMPLIES`, and
   `MUTUALLY_EXCLUSIVE` only as candidate relation kinds; the route itself does
   not choose the semantic conclusion.
-- [ ] Reuse ordinary campaign authority, novelty admission, semantic review,
+- [x] Reuse ordinary campaign authority, novelty admission, semantic review,
   probability estimation, calibration, economics, and opportunity gates.
+
+The observation slice uses schema 51 and a provider-free role matcher over
+reviewed subject labels, bounded ontology predicate families, and temporal
+posture. Startup and catalog-refresh reconciliation persist exact observations
+before wakes; retained wakes enter the ordinary relation-work projection but
+cannot activate a campaign. First observation and first subject approval form a
+baseline, unchanged replay stays quiet, and empty catalog refreshes are treated
+as transport absence rather than evidence that a world state disappeared.
 
 ## Phase 5 — value attribution and operator surface
 
@@ -118,19 +131,20 @@ deadlock observed during visual qualification.
 
 ## Qualification gates
 
-- [ ] A shooting/public-livestream fixture retains a directional physical-
+- [x] A shooting/public-livestream fixture retains a directional physical-
   capability mechanism plus a non-fatal-recovery counter-scenario.
-- [ ] A later public-appearance listing wakes the mechanism without a predefined
+- [x] A later public-appearance listing wakes the mechanism without a predefined
   claim or exact shared phrase beyond the reviewed subject binding.
-- [ ] Reversing trigger/dependent roles, changing the state dimension, or
+- [x] Reversing trigger/dependent roles, changing the state dimension, or
   changing time posture rotates identity.
-- [ ] A proxy/recorded-appearance case remains an adverse counter-scenario and
+- [x] A proxy/recorded-appearance case remains an adverse counter-scenario and
   prevents the route from becoming a hard relation.
-- [ ] An ambiguous same-name subject, broad celebrity cluster, or title-only
+- [x] An ambiguous same-name subject, broad celebrity cluster, or title-only
   lexical match cannot create relation work.
-- [ ] Replay and SQLite restart add zero provider requests, model invocations,
+- [x] Replay and SQLite restart add zero provider requests, model invocations,
   campaigns, runs, or writes on read.
-- [ ] Full checks, tests, build, and desktop/390 px Studio qualification pass.
+- [x] Full checks, 668 control-plane tests, 30 Studio tests, production builds,
+  and desktop/390 px Studio qualification pass.
 
 ## Non-goals
 

@@ -246,6 +246,17 @@ import {
   type WorldStateMechanismProposalStore,
 } from "./world-state-mechanism.js";
 import {
+  assertWorldStateMechanismObservation,
+  assertWorldStateMechanismSubjectBindingReview,
+  assertWorldStateMechanismWake,
+  type WorldStateMechanismObservation,
+  type WorldStateMechanismObservationStore,
+  type WorldStateMechanismSubjectBindingReview,
+  type WorldStateMechanismSubjectBindingReviewStore,
+  type WorldStateMechanismWake,
+  type WorldStateMechanismWakeStore,
+} from "./world-state-mechanism-observer.js";
+import {
   assertOntologySearchIssueRevision,
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
@@ -288,7 +299,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 50;
+const SCHEMA_VERSION = 51;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1914,6 +1925,78 @@ function parseWorldStateMechanismCounterexample(
   return counterexample;
 }
 
+function parseWorldStateMechanismSubjectBindingReview(
+  value: unknown,
+): WorldStateMechanismSubjectBindingReview {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world-state mechanism subject review row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.review_id !== "string" || typeof row.route_family_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world-state mechanism subject review row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world-state mechanism subject review contains invalid JSON");
+  }
+  const review = assertWorldStateMechanismSubjectBindingReview(decoded);
+  if (review.reviewId !== row.review_id || review.routeFamilyId !== row.route_family_id ||
+      hashCanonical(review) !== row.record_hash) {
+    throw new Error("SQLite world-state mechanism subject review identity mismatch");
+  }
+  return review;
+}
+
+function parseWorldStateMechanismObservation(
+  value: unknown,
+): WorldStateMechanismObservation {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world-state mechanism observation row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.observation_id !== "string" ||
+      typeof row.route_family_id !== "string" ||
+      typeof row.membership_identity !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world-state mechanism observation row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world-state mechanism observation contains invalid JSON");
+  }
+  const observation = assertWorldStateMechanismObservation(decoded);
+  if (observation.observationId !== row.observation_id ||
+      observation.routeFamilyId !== row.route_family_id ||
+      observation.membershipIdentity !== row.membership_identity ||
+      hashCanonical(observation) !== row.record_hash) {
+    throw new Error("SQLite world-state mechanism observation identity mismatch");
+  }
+  return observation;
+}
+
+function parseWorldStateMechanismWake(value: unknown): WorldStateMechanismWake {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world-state mechanism wake row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.wake_id !== "string" || typeof row.route_family_id !== "string" ||
+      typeof row.work_item_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite world-state mechanism wake row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world-state mechanism wake contains invalid JSON");
+  }
+  const wake = assertWorldStateMechanismWake(decoded);
+  if (wake.wakeId !== row.wake_id || wake.routeFamilyId !== row.route_family_id ||
+      wake.workItem.workItemId !== row.work_item_id || hashCanonical(wake) !== row.record_hash) {
+    throw new Error("SQLite world-state mechanism wake identity mismatch");
+  }
+  return wake;
+}
+
 function parseOntologySearchIssueRevision(value: unknown): OntologySearchIssueRevision {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite ontology search issue revision row is malformed");
@@ -2140,6 +2223,9 @@ export class SqliteOperationalStore
     MarketOntologyAgentProposalStore,
     WorldStateMechanismProposalStore,
     WorldStateMechanismCounterexampleStore,
+    WorldStateMechanismSubjectBindingReviewStore,
+    WorldStateMechanismObservationStore,
+    WorldStateMechanismWakeStore,
     OntologySearchIssueRevisionStore,
     RelationDiscoveryTaskRevisionStore,
     RelationDiscoveryFindingStore,
@@ -2214,6 +2300,12 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"proposalId">;
   public readonly worldStateMechanismCounterexampleStorage:
     OperationalStorageProjection<"counterexampleId">;
+  public readonly worldStateMechanismSubjectBindingReviewStorage:
+    OperationalStorageProjection<"reviewId">;
+  public readonly worldStateMechanismObservationStorage:
+    OperationalStorageProjection<"observationId">;
+  public readonly worldStateMechanismWakeStorage:
+    OperationalStorageProjection<"wakeId">;
   public readonly ontologySearchIssueRevisionStorage:
     OperationalStorageProjection<"revisionId">;
   public readonly relationDiscoveryTaskRevisionStorage:
@@ -2463,6 +2555,24 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "counterexampleId",
+    });
+    this.worldStateMechanismSubjectBindingReviewStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "reviewId",
+    });
+    this.worldStateMechanismObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
+    });
+    this.worldStateMechanismWakeStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "wakeId",
     });
     this.ontologySearchIssueRevisionStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2869,6 +2979,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'world_state_mechanism_counterexamples'`,
       )
       .get() !== undefined;
+    const worldStateMechanismSubjectReviewTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_subject_reviews'`,
+      )
+      .get() !== undefined;
+    const worldStateMechanismObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_observations'`,
+      )
+      .get() !== undefined;
+    const worldStateMechanismWakeTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_wakes'`,
+      )
+      .get() !== undefined;
     const ontologySearchIssueRevisionTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2975,6 +3103,9 @@ export class SqliteOperationalStore
       && marketOntologyAgentProposalTableExists
       && worldStateMechanismProposalTableExists
       && worldStateMechanismCounterexampleTableExists
+      && worldStateMechanismSubjectReviewTableExists
+      && worldStateMechanismObservationTableExists
+      && worldStateMechanismWakeTableExists
       && ontologySearchIssueRevisionTableExists
       && relationDiscoveryTaskRevisionTableExists
       && relationDiscoveryCorpusTableExists
@@ -4578,6 +4709,102 @@ export class SqliteOperationalStore
             ON world_state_mechanism_counterexamples (
               source_agent_run_id, proposed_at, counterexample_id
             );
+        `);
+      }
+      if (current < 51 || !worldStateMechanismSubjectReviewTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_subject_reviews (
+            review_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(review_id) = 71 AND review_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            route_family_id TEXT NOT NULL CHECK (
+              length(route_family_id) = 71 AND route_family_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            decision TEXT NOT NULL CHECK (
+              decision IN ('APPROVED', 'REJECTED', 'NEEDS_EVIDENCE')
+            ),
+            reviewed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_subject_reviews_family
+            ON world_state_mechanism_subject_reviews (
+              route_family_id, reviewed_at DESC, review_id DESC
+            );
+        `);
+      }
+      if (current < 51 || !worldStateMechanismObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            route_family_id TEXT NOT NULL CHECK (
+              length(route_family_id) = 71 AND route_family_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            membership_identity TEXT NOT NULL CHECK (
+              length(membership_identity) = 71 AND
+              membership_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_snapshot_identity) = 71 AND
+              source_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            subject_binding_review_id TEXT,
+            status TEXT NOT NULL CHECK (status IN (
+              'OBSERVED', 'BLOCKED_SUBJECT_BINDING',
+              'BROAD_ROLE_MEMBERSHIP', 'NO_TIME_COMPATIBLE_PAIR'
+            )),
+            observed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (subject_binding_review_id)
+              REFERENCES world_state_mechanism_subject_reviews(review_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_observations_family_time
+            ON world_state_mechanism_observations (
+              route_family_id, observed_at DESC, observation_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_observations_snapshot
+            ON world_state_mechanism_observations (
+              source_snapshot_identity, observation_id
+            );
+        `);
+      }
+      if (current < 51 || !worldStateMechanismWakeTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_wakes (
+            wake_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(wake_id) = 71 AND wake_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            route_family_id TEXT NOT NULL CHECK (
+              length(route_family_id) = 71 AND route_family_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            previous_observation_id TEXT NOT NULL,
+            current_observation_id TEXT NOT NULL,
+            work_item_id TEXT NOT NULL CHECK (
+              length(work_item_id) = 71 AND work_item_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            observed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (previous_observation_id)
+              REFERENCES world_state_mechanism_observations(observation_id),
+            FOREIGN KEY (current_observation_id)
+              REFERENCES world_state_mechanism_observations(observation_id)
+          ) STRICT;
+          CREATE UNIQUE INDEX IF NOT EXISTS world_state_mechanism_wakes_transition
+            ON world_state_mechanism_wakes (
+              route_family_id, previous_observation_id, current_observation_id
+            );
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_wakes_work
+            ON world_state_mechanism_wakes (work_item_id, observed_at DESC);
         `);
       }
       if (current < 40 || !relationDiscoveryCorpusTableExists ||
@@ -8147,6 +8374,226 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return counterexamples;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismSubjectBindingReviews(
+    limit: number,
+  ): readonly WorldStateMechanismSubjectBindingReview[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT review_id, route_family_id, record_json, record_hash
+       FROM world_state_mechanism_subject_reviews
+       ORDER BY reviewed_at DESC, review_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldStateMechanismSubjectBindingReview));
+  }
+
+  public saveWorldStateMechanismSubjectBindingReviews(
+    reviewsInput: readonly WorldStateMechanismSubjectBindingReview[],
+  ): readonly WorldStateMechanismSubjectBindingReview[] {
+    this.#assertOpen();
+    const reviews = Object.freeze(reviewsInput
+      .map(assertWorldStateMechanismSubjectBindingReview));
+    if (new Set(reviews.map((item) => item.reviewId)).size !== reviews.length) {
+      throw new Error("world-state mechanism subject review batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const review of reviews) {
+        for (const proposalId of review.sourceProposalIds) {
+          const proposalRow = this.#database.prepare(
+            `SELECT proposal_id, route_family_id, record_json, record_hash
+             FROM world_state_mechanism_proposals WHERE proposal_id = ?`,
+          ).get(proposalId);
+          if (proposalRow === undefined ||
+              worldStateMechanismRouteFamilyIdentity(
+                parseWorldStateMechanismProposal(proposalRow),
+              ) !== review.routeFamilyId) {
+            throw new Error(
+              "world-state mechanism subject review target is unavailable or inconsistent",
+            );
+          }
+        }
+        const recordJson = canonicalJson(review);
+        const recordHash = hashCanonical(review);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_subject_reviews (
+             review_id, route_family_id, decision, reviewed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(review_id) DO NOTHING`,
+        ).run(
+          review.reviewId,
+          review.routeFamilyId,
+          review.decision,
+          review.reviewedAt,
+          recordJson,
+          recordHash,
+        );
+        const stored = parseWorldStateMechanismSubjectBindingReview(this.#database.prepare(
+          `SELECT review_id, route_family_id, record_json, record_hash
+           FROM world_state_mechanism_subject_reviews WHERE review_id = ?`,
+        ).get(review.reviewId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("reviewId is already bound to another subject binding review");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return reviews;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismObservations(
+    limit: number,
+  ): readonly WorldStateMechanismObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT observation_id, route_family_id, membership_identity,
+              record_json, record_hash
+       FROM world_state_mechanism_observations
+       ORDER BY observed_at DESC, observation_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldStateMechanismObservation));
+  }
+
+  public saveWorldStateMechanismObservations(
+    observationsInput: readonly WorldStateMechanismObservation[],
+  ): readonly WorldStateMechanismObservation[] {
+    this.#assertOpen();
+    const observations = Object.freeze(observationsInput
+      .map(assertWorldStateMechanismObservation));
+    if (new Set(observations.map((item) => item.observationId)).size !==
+        observations.length) {
+      throw new Error("world-state mechanism observation batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const observation of observations) {
+        if (this.#database.prepare(
+          `SELECT proposal_id FROM world_state_mechanism_proposals
+           WHERE route_family_id = ? LIMIT 1`,
+        ).get(observation.routeFamilyId) === undefined) {
+          throw new Error("world-state mechanism observation route is unavailable");
+        }
+        if (observation.subjectBindingReviewId !== null && this.#database.prepare(
+          `SELECT review_id FROM world_state_mechanism_subject_reviews
+           WHERE review_id = ? AND route_family_id = ?`,
+        ).get(observation.subjectBindingReviewId, observation.routeFamilyId) === undefined) {
+          throw new Error("world-state mechanism observation subject review is unavailable");
+        }
+        const recordJson = canonicalJson(observation);
+        const recordHash = hashCanonical(observation);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_observations (
+             observation_id, route_family_id, membership_identity,
+             source_snapshot_identity, subject_binding_review_id,
+             status, observed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+        ).run(
+          observation.observationId,
+          observation.routeFamilyId,
+          observation.membershipIdentity,
+          observation.sourceSnapshotIdentity,
+          observation.subjectBindingReviewId,
+          observation.status,
+          observation.observedAt,
+          recordJson,
+          recordHash,
+        );
+        const stored = parseWorldStateMechanismObservation(this.#database.prepare(
+          `SELECT observation_id, route_family_id, membership_identity,
+                  record_json, record_hash
+           FROM world_state_mechanism_observations WHERE observation_id = ?`,
+        ).get(observation.observationId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("observationId is already bound to another mechanism observation");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return observations;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismWakes(
+    limit: number,
+  ): readonly WorldStateMechanismWake[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT wake_id, route_family_id, work_item_id, record_json, record_hash
+       FROM world_state_mechanism_wakes
+       ORDER BY observed_at DESC, wake_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldStateMechanismWake));
+  }
+
+  public saveWorldStateMechanismWakes(
+    wakesInput: readonly WorldStateMechanismWake[],
+  ): readonly WorldStateMechanismWake[] {
+    this.#assertOpen();
+    const wakes = Object.freeze(wakesInput.map(assertWorldStateMechanismWake));
+    if (new Set(wakes.map((item) => item.wakeId)).size !== wakes.length) {
+      throw new Error("world-state mechanism wake batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const wake of wakes) {
+        for (const observationId of [
+          wake.previousObservationId,
+          wake.currentObservationId,
+        ]) {
+          if (this.#database.prepare(
+            `SELECT observation_id FROM world_state_mechanism_observations
+             WHERE observation_id = ? AND route_family_id = ?`,
+          ).get(observationId, wake.routeFamilyId) === undefined) {
+            throw new Error("world-state mechanism wake observation is unavailable");
+          }
+        }
+        const recordJson = canonicalJson(wake);
+        const recordHash = hashCanonical(wake);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_wakes (
+             wake_id, route_family_id, previous_observation_id,
+             current_observation_id, work_item_id, observed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(wake_id) DO NOTHING`,
+        ).run(
+          wake.wakeId,
+          wake.routeFamilyId,
+          wake.previousObservationId,
+          wake.currentObservationId,
+          wake.workItem.workItemId,
+          wake.observedAt,
+          recordJson,
+          recordHash,
+        );
+        const stored = parseWorldStateMechanismWake(this.#database.prepare(
+          `SELECT wake_id, route_family_id, work_item_id, record_json, record_hash
+           FROM world_state_mechanism_wakes WHERE wake_id = ?`,
+        ).get(wake.wakeId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("wakeId is already bound to another mechanism wake");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return wakes;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

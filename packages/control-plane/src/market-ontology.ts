@@ -250,12 +250,18 @@ function matchedSignals(value: string, pattern: RegExp, maximum: number): readon
     .map((match) => match[0]!.trim().toLowerCase()))].sort().slice(0, maximum));
 }
 
-function predicateFamilies(listing: DiscoveryCatalogListing): readonly MarketOntologyPredicateFamily[] {
-  const text = listing.title.normalize("NFKC");
+export function marketOntologyPredicateFamiliesForText(
+  value: string,
+): readonly MarketOntologyPredicateFamily[] {
+  const text = value.normalize("NFKC");
   const matches = PREDICATE_PATTERNS.flatMap(([family, pattern]) =>
     pattern.test(text) ? [family] : []
   ).slice(0, MAX_PREDICATE_FAMILIES);
   return Object.freeze(matches.length === 0 ? ["UNCLASSIFIED"] : matches);
+}
+
+function predicateFamilies(listing: DiscoveryCatalogListing): readonly MarketOntologyPredicateFamily[] {
+  return marketOntologyPredicateFamiliesForText(listing.title);
 }
 
 function outcomeShape(listing: DiscoveryCatalogListing): MarketOntologySettlementFacet["outcomeShape"] {

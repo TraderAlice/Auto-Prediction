@@ -89,6 +89,41 @@ export type OntologyRelationWorkProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export function extendOntologyRelationWorkProjection(input: Readonly<{
+  base: OntologyRelationWorkProjection;
+  additionalItems: readonly OntologyRelationWorkItem[];
+}>): OntologyRelationWorkProjection {
+  if (input.additionalItems.length === 0) return input.base;
+  const itemsById = new Map(input.base.items.map((item) => [item.workItemId, item] as const));
+  for (const itemInput of input.additionalItems) {
+    const item = assertOntologyRelationWorkItem(itemInput);
+    const retained = itemsById.get(item.workItemId);
+    if (retained !== undefined && retained.artifactHash !== item.artifactHash) {
+      throw new Error("additional relation work identity collides with retained work");
+    }
+    itemsById.set(item.workItemId, item);
+  }
+  const items = Object.freeze([...itemsById.values()].sort((left, right) =>
+    right.priority - left.priority || left.workItemId.localeCompare(right.workItemId)
+  ));
+  const { projectionIdentity: _identity, ...base } = input.base;
+  const body = Object.freeze({
+    ...base,
+    workItemCount: items.length,
+    runnableResearchCount: items.filter((item) =>
+      item.disposition === "RUNNABLE_RESEARCH"
+    ).length,
+    negativeMemoryCount: items.filter((item) =>
+      item.disposition === "NEGATIVE_EVIDENCE_ONLY"
+    ).length,
+    blockedMissingLineageCount: items.filter((item) =>
+      item.disposition === "BLOCKED_MISSING_ISSUE_LINEAGE"
+    ).length,
+    items,
+  });
+  return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });
+}
+
 const RELATION_ORDER = Object.freeze([
   "EQUIVALENT",
   "IMPLIES",
