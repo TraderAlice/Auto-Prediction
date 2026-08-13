@@ -15,10 +15,12 @@ import {
   executePreparedAgentRun,
   InProcessAgentRuntimeAdapter,
   MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL,
+  MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2,
   MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL,
   MarketOntologyAgentToolHost,
   materializeOntologySearchIssueRevisions,
   SqliteOperationalStore,
+  worldStateMechanismRouteFamilyIdentity,
   type AgentRuntimeSession,
   type DiscoveryCatalogListing,
 } from "../src/index.js";
@@ -246,12 +248,22 @@ describe("market ontology Agent tools", () => {
       ontology: work.ontology,
       proposals: [],
     }).find((item) => item.trailheadIds.includes(work.trailhead.trailheadId))!;
-    if (revision.schemaVersion !== "pmh.ontology-search-issue-revision.v2") {
+    if (revision.schemaVersion !== "pmh.ontology-search-issue-revision.v3") {
       throw new Error("test requires the successor issue revision");
     }
+    const profile = buildExecutionProfile({
+      profileKey: "ontology-successor-test-execution",
+      revision: 1,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      toolProtocol: MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2,
+      runBudget: work.profile.runBudget,
+      createdAt: NOW,
+    });
     const run = buildAgentRun({
       task: revision.task,
-      executionProfile: work.profile,
+      executionProfile: profile,
       runOrdinal: 1,
       authorization: {
         kind: "MANUAL",
@@ -263,12 +275,16 @@ describe("market ontology Agent tools", () => {
     const host = MarketOntologyAgentToolHost.fromIssueRevision(
       revision.taskContract,
       revision.taskPayload,
+      undefined,
+      undefined,
+      undefined,
+      revision.revisionId,
     );
 
     await expect(host.execute({
       run,
       task: revision.task,
-      executionProfile: work.profile,
+      executionProfile: profile,
       callId: "call:issue-revision:1",
       toolName: "propose_world_proposition",
       input: {
@@ -293,7 +309,7 @@ describe("market ontology Agent tools", () => {
     await expect(legacyBoundHost.execute({
       run,
       task: revision.task,
-      executionProfile: work.profile,
+      executionProfile: profile,
       callId: "call:wrong-payload-binding",
       toolName: "propose_world_proposition",
       input: {
@@ -424,9 +440,170 @@ describe("market ontology Agent tools", () => {
     expect(store.loadMarketOntologyAgentProposals(10)).toEqual([proposal]);
     expect(store.marketOntologyAgentProposalStorage).toMatchObject({
       durable: false,
-      schemaVersion: 49,
+      schemaVersion: 50,
       idempotencyKey: "proposalId",
     });
     store.close();
+  });
+
+  it("authors, admits, inspects, and falsifies world-state mechanism memory through v2 tools", async () => {
+    const work = fixture();
+    const revision = materializeOntologySearchIssueRevisions({
+      corpus: work.corpus,
+      ontology: work.ontology,
+      proposals: [],
+    }).find((item) => {
+      const refs = new Set(item.taskPayload.listingEvidence
+        .map((evidence) => evidence.listingRef));
+      return refs.has("venue-a:kelly-crime") && refs.has("venue-b:kelly-nominee");
+    })!;
+    expect(revision.schemaVersion).toBe("pmh.ontology-search-issue-revision.v3");
+    if (revision.schemaVersion !== "pmh.ontology-search-issue-revision.v3") {
+      throw new Error("test requires the world-state mechanism issue protocol");
+    }
+    const profile = buildExecutionProfile({
+      profileKey: "ontology-mechanism-test-execution",
+      revision: 1,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      toolProtocol: MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2,
+      runBudget: {
+        maximumModelInvocations: 4,
+        maximumToolCalls: 12,
+        maximumWallClockMs: 300_000,
+        maximumInputTokens: "10000",
+        maximumOutputTokens: "4000",
+      },
+      createdAt: NOW,
+    });
+    const run = buildAgentRun({
+      task: revision.task,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:world-state-mechanism-tool-test",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const host = MarketOntologyAgentToolHost.fromIssueRevision(
+      revision.taskContract,
+      revision.taskPayload,
+      undefined,
+      undefined,
+      undefined,
+      revision.revisionId,
+    );
+    const context = {
+      run,
+      task: revision.task,
+      executionProfile: profile,
+    } as const;
+    await expect(host.execute({
+      ...context,
+      callId: "call:mechanism:1",
+      toolName: "propose_world_state_mechanism",
+      input: {
+        subjectLabel: "Mark Kelly",
+        subjectAliases: ["Mark Kelly"],
+        subjectAmbiguityNotes: ["The evidence must refer to the Arizona senator."],
+        trigger: {
+          predicateLabel: "is charged with a federal crime in 2026",
+          searchSignals: ["charged"],
+          influence: "MAY_DEGRADE_STATE",
+          listingRefs: ["venue-a:kelly-crime"],
+        },
+        state: {
+          dimension: "LEGAL_ELIGIBILITY",
+          label: "eligible and viable for a party presidential nomination",
+        },
+        dependent: {
+          predicateLabel: "wins the 2028 Democratic presidential nomination",
+          searchSignals: ["nomination"],
+          requirement: "STATE_INFLUENCES_LIKELIHOOD",
+          listingRefs: ["venue-b:kelly-nominee"],
+        },
+        temporalPosture: "TRIGGER_PRECEDES_DEPENDENT",
+        counterScenarios: [
+          "A charge may be dismissed or may not make the candidate legally ineligible.",
+        ],
+        rationale: "The legal event may alter later candidacy viability without logically deciding it.",
+      },
+    })).resolves.toMatchObject({
+      status: "ACCEPTED",
+      output: {
+        classification: "NOVEL_MECHANISM_FAMILY",
+        authority: "WORLD_STATE_SEARCH_ROUTING_PROPOSAL_ONLY",
+      },
+    });
+    const proposal = host.mechanismProposals()[0]!;
+    await expect(host.execute({
+      ...context,
+      callId: "call:mechanism:duplicate",
+      toolName: "propose_world_state_mechanism",
+      input: {
+        subjectLabel: proposal.subjectLabel,
+        subjectAliases: proposal.subjectAliases,
+        subjectAmbiguityNotes: proposal.subjectAmbiguityNotes,
+        trigger: {
+          predicateLabel: proposal.trigger.predicateLabel,
+          searchSignals: proposal.trigger.searchSignals,
+          influence: proposal.trigger.influence,
+          listingRefs: proposal.trigger.evidenceBindings.map((item) => item.listingRef),
+        },
+        state: proposal.state,
+        dependent: {
+          predicateLabel: proposal.dependent.predicateLabel,
+          searchSignals: proposal.dependent.searchSignals,
+          requirement: proposal.dependent.requirement,
+          listingRefs: proposal.dependent.evidenceBindings.map((item) => item.listingRef),
+        },
+        temporalPosture: proposal.temporalPosture,
+        counterScenarios: proposal.counterScenarios,
+        rationale: "Changing prose alone must not buy another memory slot.",
+      },
+    })).resolves.toMatchObject({
+      status: "REJECTED",
+      output: {
+        classification: "REDUNDANT_MECHANISM_MEMORY",
+        overlappingProposalIds: [proposal.proposalId],
+      },
+    });
+    await expect(host.execute({
+      ...context,
+      callId: "call:mechanism:coverage",
+      toolName: "list_world_state_mechanism_coverage",
+      input: {},
+    })).resolves.toMatchObject({
+      status: "ACCEPTED",
+      output: {
+        routeCount: 1,
+        routes: [{ routeFamilyId: worldStateMechanismRouteFamilyIdentity(proposal) }],
+        providerRequests: 0,
+        modelInvocations: 0,
+      },
+    });
+    await expect(host.execute({
+      ...context,
+      callId: "call:mechanism:counterexample",
+      toolName: "record_world_state_mechanism_counterexample",
+      input: {
+        targetRouteFamilyId: worldStateMechanismRouteFamilyIdentity(proposal),
+        targetProposalIds: [proposal.proposalId],
+        scenario: "A charged candidate remains legally eligible and wins the nomination.",
+        reason: "The state is influential rather than a hard prerequisite.",
+        searchSignals: ["charged"],
+        listingRefs: ["venue-a:kelly-crime"],
+      },
+    })).resolves.toMatchObject({
+      status: "ACCEPTED",
+      output: {
+        targetRouteFamilyId: worldStateMechanismRouteFamilyIdentity(proposal),
+        authority: "WORLD_STATE_MECHANISM_FALSIFICATION_PROPOSAL_ONLY",
+      },
+    });
+    expect(host.mechanismCounterexamples()).toHaveLength(1);
   });
 });

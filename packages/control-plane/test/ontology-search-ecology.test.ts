@@ -172,7 +172,7 @@ describe("ontology search ecology", () => {
       ontology,
       proposals: [],
     })[0]!;
-    if (current.schemaVersion !== "pmh.ontology-search-issue-revision.v2") {
+    if (current.schemaVersion !== "pmh.ontology-search-issue-revision.v3") {
       throw new Error("test requires the successor issue revision");
     }
     const legacyTask = buildAgentTask({
@@ -184,7 +184,7 @@ describe("ontology search ecology", () => {
         artifactHash: current.ontologyIdentity,
       }],
       taskPayload: current.taskPayload,
-      requestedEffectProtocol: current.task.requestedEffectProtocol,
+      requestedEffectProtocol: "MARKET_ONTOLOGY_AGENT_TOOLS_V1",
       provenanceRef: current.task.provenanceRef,
       priority: current.task.priority,
       createdAt: current.materializedAt,
@@ -496,7 +496,7 @@ describe("ontology search ecology", () => {
       .toBeNull();
     expect(store.ontologySearchIssueRevisionStorage).toMatchObject({
       durable: false,
-      schemaVersion: 49,
+      schemaVersion: 50,
       idempotencyKey: "revisionId",
     });
     store.close();

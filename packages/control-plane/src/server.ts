@@ -124,6 +124,11 @@ import {
   type MarketOntologyNormalizationTaskPayload,
 } from "./market-ontology-agent-tools.js";
 import {
+  compileConsolidatedWorldStateMechanismRoutes,
+  type WorldStateMechanismCounterexampleStore,
+  type WorldStateMechanismProposalStore,
+} from "./world-state-mechanism.js";
+import {
   buildOntologySearchYieldProjection,
   reconcileOntologySearchIssueRevisions,
   type OntologySearchIssueRevision,
@@ -1032,6 +1037,26 @@ function supportsMarketOntologyAgentProposals(
     typeof candidate.saveMarketOntologyAgentProposals === "function";
 }
 
+function supportsWorldStateMechanismProposals(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & WorldStateMechanismProposalStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<WorldStateMechanismProposalStore>;
+  return candidate.worldStateMechanismProposalStorage !== undefined &&
+    typeof candidate.loadWorldStateMechanismProposals === "function" &&
+    typeof candidate.saveWorldStateMechanismProposals === "function";
+}
+
+function supportsWorldStateMechanismCounterexamples(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & WorldStateMechanismCounterexampleStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<WorldStateMechanismCounterexampleStore>;
+  return candidate.worldStateMechanismCounterexampleStorage !== undefined &&
+    typeof candidate.loadWorldStateMechanismCounterexamples === "function" &&
+    typeof candidate.saveWorldStateMechanismCounterexamples === "function";
+}
+
 function supportsOntologySearchIssueRevisions(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & OntologySearchIssueRevisionStore {
@@ -1282,6 +1307,14 @@ export function createControlPlane(options?: {
     );
   const marketOntologyAgentProposalStore =
     supportsMarketOntologyAgentProposals(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
+  const worldStateMechanismProposalStore =
+    supportsWorldStateMechanismProposals(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
+  const worldStateMechanismCounterexampleStore =
+    supportsWorldStateMechanismCounterexamples(options?.discoveryStore)
       ? options.discoveryStore
       : null;
   const ontologySearchIssueRevisionStore =
@@ -3049,11 +3082,15 @@ export function createControlPlane(options?: {
         }
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
           const revision = ontologyAgentTaskRevision(task.taskId, run);
-          return revision.schemaVersion === "pmh.ontology-search-issue-revision.v2"
+          return revision.schemaVersion === "pmh.ontology-search-issue-revision.v2" ||
+              revision.schemaVersion === "pmh.ontology-search-issue-revision.v3"
             ? MarketOntologyAgentToolHost.fromIssueRevision(
                 revision.taskContract,
                 revision.taskPayload,
                 marketOntologyAgentProposalStore ?? undefined,
+                worldStateMechanismProposalStore ?? undefined,
+                worldStateMechanismCounterexampleStore ?? undefined,
+                revision.revisionId,
               )
             : MarketOntologyAgentToolHost.fromTaskPayload(
                 revision.taskPayload,
@@ -3087,7 +3124,8 @@ export function createControlPlane(options?: {
         }
         if (task.kind === "ONTOLOGY_NORMALIZATION") {
           const revision = ontologyAgentTaskRevision(task.taskId, run);
-          return revision.schemaVersion === "pmh.ontology-search-issue-revision.v2"
+          return revision.schemaVersion === "pmh.ontology-search-issue-revision.v2" ||
+              revision.schemaVersion === "pmh.ontology-search-issue-revision.v3"
             ? revision.taskContract
             : revision.taskPayload;
         }
@@ -3734,6 +3772,49 @@ export function createControlPlane(options?: {
       findings,
       execution: snapshot,
     });
+  };
+  const worldStateMechanismProjection = () => {
+    const proposals = worldStateMechanismProposalStore
+      ?.loadWorldStateMechanismProposals(512) ?? [];
+    const counterexamples = worldStateMechanismCounterexampleStore
+      ?.loadWorldStateMechanismCounterexamples(512) ?? [];
+    const routes = compileConsolidatedWorldStateMechanismRoutes(proposals);
+    const body = Object.freeze({
+      schemaVersion: "pmh.world-state-mechanism-projection.v1" as const,
+      proposalCount: proposals.length,
+      counterexampleCount: counterexamples.length,
+      routeCount: routes.length,
+      routes: Object.freeze(routes.slice(0, 128).map((route) => Object.freeze({
+        routeId: route.routeId,
+        routeFamilyId: route.routeFamilyId,
+        canonicalSubjectLabels: route.canonicalRoute.canonicalSubjectLabels,
+        triggerPredicate: route.canonicalRoute.triggerPredicate,
+        triggerInfluence: route.canonicalRoute.triggerInfluence,
+        stateDimension: route.canonicalRoute.stateDimension,
+        stateLabel: route.canonicalRoute.stateLabel,
+        dependentPredicate: route.canonicalRoute.dependentPredicate,
+        dependentRequirement: route.canonicalRoute.dependentRequirement,
+        temporalPosture: route.canonicalRoute.temporalPosture,
+        proposalCount: route.sourceProposalIds.length,
+        sourceRunCount: route.sourceAgentRunIds.length,
+        triggerEvidenceCount: route.triggerEvidenceBindings.length,
+        dependentEvidenceCount: route.dependentEvidenceBindings.length,
+        counterScenarioCount: route.counterScenarios.length,
+        counterexampleCount: counterexamples.filter((item) =>
+          item.targetRouteFamilyId === route.routeFamilyId
+        ).length,
+      }))),
+      providerRequestsStartedByRead: 0 as const,
+      modelInvocationsStartedByRead: 0 as const,
+      writesStartedByRead: 0 as const,
+      semanticDecisionAuthority: false as const,
+      probabilityAuthority: false as const,
+      certificateAuthority: false as const,
+      automaticDispatch: false as const,
+      externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });
   };
   const ontologyAgentCampaignPreview = async () => {
     const snapshot = agentExecutionRegistry.snapshot();
@@ -4580,6 +4661,12 @@ export function createControlPlane(options?: {
       // present, remains presentation-only and explicitly stale.
     });
   };
+  // Readiness is completed by the first fresh projection. Start that work as
+  // soon as durable recovery finishes so a client that waits on readiness
+  // cannot deadlock with a server that waits for a projection request.
+  void ready.then(startLiveProjectionRevalidation, () => {
+    // The startup readiness projection already retains the recovery failure.
+  });
   const proposalHandoff = async (proposalIds: readonly Hash[]) => {
     await ready;
     const archaeologist = marketArchaeologistDesk.projection();
@@ -4961,6 +5048,7 @@ export function createControlPlane(options?: {
         discoveryYield: currentDiscoveryYieldProjection(),
         resultRepairs: agentResultRepairProjection(agentSnapshot),
         semanticNovelty: semanticNoveltyProjection(agentSnapshot),
+        worldStateMechanisms: worldStateMechanismProjection(),
         ontologyOutcomes: ontologyAllocationOutcomes(),
         discoveryCycle: discoveryCycleState,
         providerRequestsStartedByRead: 0 as const,
@@ -5653,6 +5741,14 @@ export function createControlPlane(options?: {
     ) {
       await ready;
       writeJson(response, 200, semanticNoveltyProjection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/world-state-mechanisms"
+    ) {
+      await ready;
+      writeJson(response, 200, worldStateMechanismProjection());
       return;
     }
     const discoverySignalAcknowledgement = url.pathname.match(

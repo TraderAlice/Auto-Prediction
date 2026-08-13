@@ -100,6 +100,7 @@ export * from "./agent-runtime-adapter.js";
 export * from "./agent-result-repair-observability.js";
 export * from "./relation-discovery-semantic-novelty.js";
 export * from "./relation-discovery-semantic-novelty-observability.js";
+export * from "./world-state-mechanism.js";
 export * from "./agent-campaign-dispatcher.js";
 export * from "./agent-input-revision-binding.js";
 export * from "./agent-runtime-portfolio.js";

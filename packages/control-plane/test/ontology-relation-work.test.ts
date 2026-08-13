@@ -1210,7 +1210,7 @@ describe("ontology proposal relation work", () => {
 
     const revision = revisions[0]!;
     const ontologyProfile = work.execution.executionProfiles.find((item) =>
-      item.toolPolicy.protocol === "MARKET_ONTOLOGY_AGENT_TOOLS_V1"
+      item.toolPolicy.protocol === "MARKET_ONTOLOGY_AGENT_TOOLS_V2"
     )!;
     const runtime = work.portfolio.runtimeDefinitions.find((item) =>
       item.runtimeDefinitionId === ontologyProfile.runtimeDefinitionId

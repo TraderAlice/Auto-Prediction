@@ -10,6 +10,7 @@ import type { AiRuntimeConfiguration } from "./ai-runtime-configuration.js";
 
 const RELATION_DISCOVERY_EXECUTION_PROTOCOL_REVISION = 2;
 const RULE_EVIDENCE_APP_SERVER_RESULT_PROTOCOL_REVISION = 6;
+const ONTOLOGY_MECHANISM_EXECUTION_PROTOCOL_REVISION = 2;
 
 export function buildDefaultAgentRuntimePortfolio(
   configuration: AiRuntimeConfiguration,
@@ -122,8 +123,9 @@ export function buildDefaultAgentRuntimePortfolio(
     updatedAt: createdAt,
   });
   const ontologyCommon = {
-    revision: configuration.revision,
-    toolProtocol: "MARKET_ONTOLOGY_AGENT_TOOLS_V1",
+    revision: configuration.revision * 1_000 +
+      ONTOLOGY_MECHANISM_EXECUTION_PROTOCOL_REVISION,
+    toolProtocol: "MARKET_ONTOLOGY_AGENT_TOOLS_V2",
     runBudget: {
       maximumModelInvocations: 8,
       maximumToolCalls: 24,
@@ -149,7 +151,8 @@ export function buildDefaultAgentRuntimePortfolio(
   });
   const ontologyRoute = buildWorkloadRoute({
     routeKey: "ontology-normalization-default",
-    revision: configuration.revision,
+    revision: configuration.revision * 1_000 +
+      ONTOLOGY_MECHANISM_EXECUTION_PROTOCOL_REVISION,
     taskKind: "ONTOLOGY_NORMALIZATION",
     executionProfileId: ontologyCodexAppServer.executionProfileId,
     updatedAt: createdAt,

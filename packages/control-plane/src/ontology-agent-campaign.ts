@@ -192,7 +192,8 @@ export function buildOntologyAgentCampaignPreview(input: Readonly<{
   if (executionProfile === undefined) {
     throw new Error("ontology workload execution profile is unavailable");
   }
-  if (executionProfile.toolPolicy.protocol !== "MARKET_ONTOLOGY_AGENT_TOOLS_V1") {
+  if (!["MARKET_ONTOLOGY_AGENT_TOOLS_V1", "MARKET_ONTOLOGY_AGENT_TOOLS_V2"]
+    .includes(executionProfile.toolPolicy.protocol)) {
     throw new Error("ontology workload route has the wrong tool protocol");
   }
   if (input.capability.executionProfileId !== executionProfile.executionProfileId) {

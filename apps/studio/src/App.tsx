@@ -651,6 +651,40 @@ type SemanticNoveltyProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type WorldStateMechanismProjection = Readonly<{
+  schemaVersion: "pmh.world-state-mechanism-projection.v1";
+  projectionIdentity: string;
+  proposalCount: number;
+  counterexampleCount: number;
+  routeCount: number;
+  routes: ReadonlyArray<Readonly<{
+    routeId: string;
+    routeFamilyId: string;
+    canonicalSubjectLabels: readonly string[];
+    triggerPredicate: string;
+    triggerInfluence: string;
+    stateDimension: string;
+    stateLabel: string;
+    dependentPredicate: string;
+    dependentRequirement: string;
+    temporalPosture: string;
+    proposalCount: number;
+    sourceRunCount: number;
+    triggerEvidenceCount: number;
+    dependentEvidenceCount: number;
+    counterScenarioCount: number;
+    counterexampleCount: number;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  writesStartedByRead: 0;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  automaticDispatch: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type OntologyAllocationOutcomeProjection = Readonly<{
   schemaVersion: "pmh.ontology-allocation-outcome-projection.v1";
   projectionIdentity: string;
@@ -730,6 +764,7 @@ type AgentWorkspace = Readonly<{
   discoveryYield: DiscoveryYieldProjection;
   resultRepairs: AgentResultRepairProjection;
   semanticNovelty: SemanticNoveltyProjection;
+  worldStateMechanisms: WorldStateMechanismProjection;
   ontologyOutcomes: OntologyAllocationOutcomeProjection;
   discoveryCycle: Readonly<{
     schemaVersion: "pmh.discovery-cycle.v1";
@@ -3651,6 +3686,15 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.automaticDispatch !== false ||
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
+    result.worldStateMechanisms.schemaVersion !==
+      "pmh.world-state-mechanism-projection.v1" ||
+    result.worldStateMechanisms.providerRequestsStartedByRead !== 0 ||
+    result.worldStateMechanisms.modelInvocationsStartedByRead !== 0 ||
+    result.worldStateMechanisms.writesStartedByRead !== 0 ||
+    result.worldStateMechanisms.automaticDispatch !== false ||
+    result.worldStateMechanisms.semanticDecisionAuthority !== false ||
+    result.worldStateMechanisms.probabilityAuthority !== false ||
+    result.worldStateMechanisms.certificateAuthority !== false ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
     result.discoveryCycle.schemaVersion !== "pmh.discovery-cycle.v1" ||
@@ -3682,6 +3726,8 @@ function AgentOperationsView() {
     useState<AgentResultRepairProjection | null>(null);
   const [semanticNovelty, setSemanticNovelty] =
     useState<SemanticNoveltyProjection | null>(null);
+  const [worldStateMechanisms, setWorldStateMechanisms] =
+    useState<WorldStateMechanismProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
     useState<OntologyAllocationOutcomeProjection | null>(null);
   const [discoveryCycle, setDiscoveryCycle] =
@@ -3712,6 +3758,7 @@ function AgentOperationsView() {
     setDiscoveryYield(workspace.discoveryYield);
     setResultRepairs(workspace.resultRepairs);
     setSemanticNovelty(workspace.semanticNovelty);
+    setWorldStateMechanisms(workspace.worldStateMechanisms);
     setOntologyOutcomeData(ontologyOutcomes);
     setDiscoveryCycle(workspace.discoveryCycle);
     setTaskId((current) => next.tasks.some((task) =>
@@ -3970,6 +4017,62 @@ function AgentOperationsView() {
               <CircleOff size={14} />
               <span>Provider-free exact coverage · no semantic, dispatch, or trading authority</span>
               <code>{semanticNovelty.projectionIdentity.slice(7, 19)}</code>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {worldStateMechanisms !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">World-state mechanism memory</span>
+              <h2>Search through what can change in the world</h2>
+              <p>Agents connect a trigger to a latent state and a dependent event. These are reusable search routes with explicit counter-scenarios, never causal facts or probability estimates.</p>
+            </div>
+            <Badge variant={worldStateMechanisms.routeCount > 0 ? "verified" : "shadow"}>
+              {worldStateMechanisms.routeCount} ROUTES
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-summary">
+              <div><strong>{worldStateMechanisms.proposalCount}</strong><span>admitted proposals</span></div>
+              <div><strong>{worldStateMechanisms.routeCount}</strong><span>mechanism families</span></div>
+              <div><strong>{worldStateMechanisms.counterexampleCount}</strong><span>falsifiers</span></div>
+              <div><strong>0</strong><span>provider calls by read</span></div>
+            </div>
+            <div className="research-attention-actions">
+              {worldStateMechanisms.routes.length === 0 ? (
+                <div className="empty-state">
+                  No mechanism memory has been admitted yet. V3 ontology issues can now author the first route.
+                </div>
+              ) : worldStateMechanisms.routes.slice(0, 8).map((route) => (
+                <article key={route.routeId}>
+                  <div className="research-attention-action-head">
+                    <div>
+                      <Badge variant="verified">{route.stateDimension.replaceAll("_", " ")}</Badge>
+                      <Badge variant={route.counterexampleCount > 0 ? "warning" : "muted"}>
+                        {route.counterexampleCount} FALSIFIERS
+                      </Badge>
+                    </div>
+                    <code>{route.routeFamilyId.slice(7, 19)}</code>
+                  </div>
+                  <strong>{route.canonicalSubjectLabels.join(" · ")}</strong>
+                  <p>{route.triggerPredicate} → {route.stateLabel} → {route.dependentPredicate}</p>
+                  <div className="research-attention-facts">
+                    <span>{route.triggerInfluence.replaceAll("_", " ")}</span>
+                    <span>{route.dependentRequirement.replaceAll("_", " ")}</span>
+                    <span>{route.temporalPosture.replaceAll("_", " ")}</span>
+                    <span>{route.counterScenarioCount} counter-scenarios</span>
+                    <span>{route.sourceRunCount} source runs</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="research-attention-lock">
+              <Waypoints size={14} />
+              <span>Routing-only ontology · no probability, certificate, dispatch, or trading authority</span>
+              <code>{worldStateMechanisms.projectionIdentity.slice(7, 19)}</code>
             </div>
           </CardContent>
         </Card>
