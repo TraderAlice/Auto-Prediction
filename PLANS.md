@@ -1998,10 +1998,17 @@ observation—rather than one confidence badge. Exact run lineage attributes
 148,341 / 2,749 / 648 tokens over seven authoring invocations and 55,659 / 649 /
 147 over three assessment invocations; unknown usage remains separately
 counted. Live desktop and 390 px browser qualification show no horizontal
-overflow or console warning. Issue #188 records the next honest accounting
-problem: the current-assignment yield summary still reports zero beside one
-retained consolidated route, so experiment yield and retained mechanism memory
-must be reconciled or explicitly named as different scopes.
+overflow or console warning. Issue #188 now splits mechanism accounting into a
+current-assignment experiment window and retained cross-revision mechanism
+memory. Durable result records bind to de-duplicated source Agent runs and exact
+invocation usage; missing runs and incomplete usage remain explicit. Studio
+names both scopes, so a current-window zero no longer contradicts an existing
+retained route or imply zero historical AI cost. Live schema-53 qualification
+shows `64 / 0 / 0` eligible, attempted and input-token current-window values
+beside one retained proposal and route sourced from one run, seven invocations
+and 148,341 known input tokens. Desktop browser inspection shows both scopes
+without horizontal overflow; the new accounting strip has an explicit 720 px
+single-column breakpoint.
 
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained

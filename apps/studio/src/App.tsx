@@ -652,7 +652,7 @@ type SemanticNoveltyProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 type WorldStateMechanismProjection = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-projection.v3";
+  schemaVersion: "pmh.world-state-mechanism-projection.v4";
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
@@ -676,7 +676,7 @@ type WorldStateMechanismProjection = Readonly<{
     executionAuthority: false;
     valueMovingAuthority: false;
   }>;
-  researchYield: Readonly<{
+  currentAssignmentYield: Readonly<{
     schemaVersion: "pmh.world-state-mechanism-research-yield.v1";
     projectionIdentity: string;
     eligibleCount: number;
@@ -703,6 +703,25 @@ type WorldStateMechanismProjection = Readonly<{
       unknownUsageInvocationCount: number;
     }>>;
     authority: "DERIVED_MECHANISM_RESEARCH_EVIDENCE_ONLY";
+  }>;
+  retainedMechanismMemory: Readonly<{
+    schemaVersion: "pmh.retained-world-state-mechanism-memory.v1";
+    projectionIdentity: string;
+    proposalCount: number;
+    routeCount: number;
+    counterexampleCount: number;
+    abstentionCount: number;
+    sourceRunCount: number;
+    retainedSourceRunCount: number;
+    missingSourceRunCount: number;
+    modelInvocationCount: number;
+    usage: Readonly<{
+      knownInputTokens: string;
+      knownOutputTokens: string;
+      knownReasoningTokens: string;
+      unknownUsageInvocationCount: number;
+    }>;
+    authority: "DERIVED_RETAINED_MECHANISM_MEMORY_ONLY";
   }>;
   subjectBindingReviewCount: number;
   subjectBindingResearch: Readonly<{
@@ -3860,15 +3879,17 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
-      "pmh.world-state-mechanism-projection.v3" ||
+      "pmh.world-state-mechanism-projection.v4" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness.schemaVersion !==
       "pmh.world-state-subject-binding-promotion-readiness.v1" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
       .promotionAuthority !== false ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
       .automaticPromotion !== false ||
-    result.worldStateMechanisms.researchYield.schemaVersion !==
+    result.worldStateMechanisms.currentAssignmentYield.schemaVersion !==
       "pmh.world-state-mechanism-research-yield.v1" ||
+    result.worldStateMechanisms.retainedMechanismMemory.schemaVersion !==
+      "pmh.retained-world-state-mechanism-memory.v1" ||
     result.worldStateMechanisms.allocation.schemaVersion !==
       "pmh.world-state-mechanism-allocation.v1" ||
     result.worldStateMechanisms.allocation.providerRequestsStartedByRead !== 0 ||
@@ -4240,13 +4261,29 @@ function AgentOperationsView() {
             </Badge>
           </CardHeader>
           <CardContent>
+            <div className="mechanism-accounting-scope">
+              <div>
+                <span className="eyebrow">Retained mechanism memory</span>
+                <strong>{worldStateMechanisms.retainedMechanismMemory.routeCount} routes from {worldStateMechanisms.retainedMechanismMemory.proposalCount} proposals</strong>
+                <small>
+                  {worldStateMechanisms.retainedMechanismMemory.sourceRunCount} source runs · {worldStateMechanisms.retainedMechanismMemory.modelInvocationCount} invocations · {formatTokenCount(worldStateMechanisms.retainedMechanismMemory.usage.knownInputTokens)} known input tokens
+                  {worldStateMechanisms.retainedMechanismMemory.usage.unknownUsageInvocationCount > 0 ? ` · ${worldStateMechanisms.retainedMechanismMemory.usage.unknownUsageInvocationCount} incomplete invocations` : ""}
+                  {worldStateMechanisms.retainedMechanismMemory.missingSourceRunCount > 0 ? ` · ${worldStateMechanisms.retainedMechanismMemory.missingSourceRunCount} source runs missing from execution retention` : ""}
+                </small>
+              </div>
+              <div>
+                <span className="eyebrow">Current assignment window</span>
+                <strong>{worldStateMechanisms.currentAssignmentYield.attemptedCount}/{worldStateMechanisms.currentAssignmentYield.eligibleCount} exact inputs attempted</strong>
+                <small>{worldStateMechanisms.currentAssignmentYield.proposedCount} proposals · {worldStateMechanisms.currentAssignmentYield.falsifiedCount} falsifiers · {worldStateMechanisms.currentAssignmentYield.abstainedCount} abstentions</small>
+              </div>
+            </div>
             <div className="research-attention-summary">
-              <div><strong>{worldStateMechanisms.researchYield.eligibleCount}</strong><span>eligible exact inputs</span></div>
+              <div><strong>{worldStateMechanisms.currentAssignmentYield.eligibleCount}</strong><span>current eligible inputs</span></div>
               <div><strong>{worldStateMechanisms.allocation.structurallySuitableCount}</strong><span>structurally suitable</span></div>
               <div><strong>{worldStateMechanisms.allocation.selectedCount}</strong><span>selected for next campaign</span></div>
-              <div><strong>{worldStateMechanisms.researchYield.attemptedCount}</strong><span>attempted issues</span></div>
-              <div><strong>{worldStateMechanisms.researchYield.proposedCount}</strong><span>proposed routes</span></div>
-              <div><strong>{worldStateMechanisms.researchYield.abstainedCount}</strong><span>evidence-bound abstentions</span></div>
+              <div><strong>{worldStateMechanisms.currentAssignmentYield.attemptedCount}</strong><span>current attempted inputs</span></div>
+              <div><strong>{worldStateMechanisms.retainedMechanismMemory.routeCount}</strong><span>retained route families</span></div>
+              <div><strong>{worldStateMechanisms.retainedMechanismMemory.abstentionCount}</strong><span>retained abstentions</span></div>
             </div>
             {worldStateMechanisms.allocation.holdReasonCounts.length > 0 && (
               <div className="research-attention-facts">
@@ -4255,11 +4292,11 @@ function AgentOperationsView() {
                 ))}
               </div>
             )}
-            {worldStateMechanisms.researchYield.outcomeStrata.some((item) =>
+            {worldStateMechanisms.currentAssignmentYield.outcomeStrata.some((item) =>
               item.runCount > 0
             ) && (
               <div className="research-attention-facts">
-                {worldStateMechanisms.researchYield.outcomeStrata.filter((item) =>
+                {worldStateMechanisms.currentAssignmentYield.outcomeStrata.filter((item) =>
                   item.runCount > 0
                 ).map((item) => (
                   <span key={item.outcome}>
@@ -4346,7 +4383,7 @@ function AgentOperationsView() {
             </div>
             <div className="research-attention-lock">
               <Waypoints size={14} />
-              <span>{worldStateMechanisms.researchYield.modelInvocationCount} invocations · {formatTokenCount(worldStateMechanisms.researchYield.usage.inputTokens)} input tokens · manual campaign only</span>
+              <span>current window: {worldStateMechanisms.currentAssignmentYield.modelInvocationCount} invocations · {formatTokenCount(worldStateMechanisms.currentAssignmentYield.usage.inputTokens)} input tokens · manual campaign only</span>
               <code>{worldStateMechanisms.projectionIdentity.slice(7, 19)}</code>
             </div>
           </CardContent>

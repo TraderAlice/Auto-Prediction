@@ -136,6 +136,7 @@ import {
 import {
   buildWorldStateMechanismResearchTaskContract,
   buildWorldStateMechanismResearchYield,
+  buildRetainedWorldStateMechanismMemory,
   materializeWorldStateMechanismResearchAssignments,
   type WorldStateMechanismResearchAssignment,
 } from "./world-state-mechanism-research.js";
@@ -4163,7 +4164,7 @@ export function createControlPlane(options?: {
       left.observationId.localeCompare(right.observationId)
     )) latestObservationByFamily.set(observation.routeFamilyId, observation);
     const body = Object.freeze({
-      schemaVersion: "pmh.world-state-mechanism-projection.v3" as const,
+      schemaVersion: "pmh.world-state-mechanism-projection.v4" as const,
       proposalCount: proposals.length,
       counterexampleCount: counterexamples.length,
       abstentionCount: abstentions.length,
@@ -4171,8 +4172,15 @@ export function createControlPlane(options?: {
         assignments: worldStateMechanismResearchAssignments,
         revisions: ontologySearchIssueRevisions,
       }),
-      researchYield: buildWorldStateMechanismResearchYield({
+      currentAssignmentYield: buildWorldStateMechanismResearchYield({
         assignments: worldStateMechanismResearchAssignments,
+        execution: agentExecutionRegistry.snapshot(),
+      }),
+      retainedMechanismMemory: buildRetainedWorldStateMechanismMemory({
+        proposals,
+        routes,
+        counterexamples,
+        abstentions,
         execution: agentExecutionRegistry.snapshot(),
       }),
       subjectBindingReviewCount: reviews.length,

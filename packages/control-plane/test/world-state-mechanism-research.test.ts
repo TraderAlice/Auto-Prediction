@@ -4,6 +4,8 @@ import {
   activateAgentCampaign,
   buildAgentRun,
   buildAgentToolEffect,
+  buildModelInvocation,
+  buildRetainedWorldStateMechanismMemory,
   buildDefaultAgentRuntimePortfolio,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
@@ -13,6 +15,7 @@ import {
   buildWorldStateMechanismProposal,
   defaultAiRuntimeConfiguration,
   completeAgentRun,
+  compileConsolidatedWorldStateMechanismRoutes,
   materializeOntologySearchIssueRevisions,
   materializeWorldStateMechanismResearchAssignments,
   MarketOntologyAgentToolHost,
@@ -59,6 +62,101 @@ function fixture(receivedAt = NOW) {
 }
 
 describe("world-state mechanism research role", () => {
+  it("accounts for retained mechanism memory across assignment windows", () => {
+    const work = fixture();
+    const assignment = work.assignments[0]!;
+    const revision = work.revisions.find((item) =>
+      item.revisionId === assignment.sourceRevisionId
+    )!;
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
+    const route = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "WORLD_STATE_MECHANISM_RESEARCH"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    )!;
+    const model = portfolio.modelProfiles.find((item) =>
+      item.modelProfileId === profile.modelProfileId
+    )!;
+    const sourceRun = buildAgentRun({
+      task: assignment.task, executionProfile: profile, runOrdinal: 1,
+      authorization: { kind: "MANUAL", authorizationRef: "operator:memory-test",
+        authorizedAt: NOW },
+      createdAt: NOW,
+    });
+    const proposal = buildWorldStateMechanismProposal({
+      ontologyIdentity: revision.ontologyIdentity,
+      sourceSnapshotIdentity: revision.sourceSnapshotIdentity,
+      sourceIssueRevisionId: revision.revisionId,
+      sourceAgentRunId: sourceRun.runId,
+      sourceTrailheadIds: [revision.trailheadIds[0]!],
+      sourceRelationPatternIds: [revision.relationPatternId],
+      subjectLabel: "Trump", subjectAliases: ["Trump"],
+      subjectAmbiguityNotes: ["The exact role listings must bind the same person."],
+      trigger: {
+        predicateLabel: "is shot during August", searchSignals: ["shot", "August"],
+        influence: "MAY_DEGRADE_STATE",
+        evidenceBindings: [{
+          listingRef: "a:trump-shot", title: "Will Trump be shot during August?",
+          nodeId: hashCanonical({ node: "shot" }), worldFacetId: hashCanonical({ facet: "shot" }),
+          sourceRawHash: hashCanonical({ raw: "shot" }), protocolIdentity: "protocol:a:v1",
+        }],
+      },
+      state: { dimension: "PHYSICAL_CAPABILITY", label: "Trump can appear publicly" },
+      dependent: {
+        predicateLabel: "livestreams drinking cola during September",
+        searchSignals: ["livestream", "cola", "September"],
+        requirement: "STATE_INFLUENCES_LIKELIHOOD",
+        evidenceBindings: [{
+          listingRef: "b:trump-cola", title: "Will Trump livestream drinking cola during September?",
+          nodeId: hashCanonical({ node: "cola" }), worldFacetId: hashCanonical({ facet: "cola" }),
+          sourceRawHash: hashCanonical({ raw: "cola" }), protocolIdentity: "protocol:b:v1",
+        }],
+      },
+      temporalPosture: "TRIGGER_PRECEDES_DEPENDENT",
+      counterScenarios: ["A non-fatal injury does not prevent the later appearance."],
+      rationale: "A world-state mechanism worth falsifying.", proposedAt: NOW,
+    });
+    const routes = compileConsolidatedWorldStateMechanismRoutes([proposal]);
+    const known = buildModelInvocation({
+      run: sourceRun, modelProfile: model, ordinal: 1, status: "SUCCEEDED",
+      startedAt: NOW, completedAt: NOW, inputTokens: "1200", outputTokens: "80",
+      reasoningTokens: "30", purpose: "PRIMARY_REASONING",
+    });
+    const unknown = buildModelInvocation({
+      run: sourceRun, modelProfile: model, ordinal: 2, status: "FAILED",
+      startedAt: NOW, completedAt: NOW, purpose: "TOOL_CONTINUATION",
+      failureCategory: "PROVIDER_FAILURE",
+    });
+    const memory = buildRetainedWorldStateMechanismMemory({
+      proposals: [proposal], routes, counterexamples: [], abstentions: [],
+      execution: {
+        runtimeDefinitions: portfolio.runtimeDefinitions,
+        credentialBindings: portfolio.credentialBindings,
+        modelProfiles: portfolio.modelProfiles,
+        executionProfiles: portfolio.executionProfiles,
+        capabilityObservations: [], workloadRoutes: portfolio.workloadRoutes,
+        campaigns: [], tasks: [assignment.task], runs: [sourceRun],
+        modelInvocations: [known, unknown], toolEffects: [], runArtifacts: [],
+        runAnnotations: [], resultSelections: [],
+      },
+    });
+    expect(memory).toMatchObject({
+      proposalCount: 1, routeCount: 1, sourceRunCount: 1,
+      retainedSourceRunCount: 1, missingSourceRunCount: 0, modelInvocationCount: 2,
+      usage: {
+        knownInputTokens: "1200", knownOutputTokens: "80", knownReasoningTokens: "30",
+        unknownUsageInvocationCount: 1,
+      },
+    });
+    expect(buildRetainedWorldStateMechanismMemory({
+      proposals: [proposal], routes, counterexamples: [], abstentions: [],
+      execution: { ...portfolio, capabilityObservations: [], campaigns: [], tasks: [], runs: [],
+        modelInvocations: [], toolEffects: [], runArtifacts: [], runAnnotations: [],
+        resultSelections: [] },
+    })).toMatchObject({ sourceRunCount: 1, retainedSourceRunCount: 0, missingSourceRunCount: 1 });
+  });
+
   it("materializes stable role tasks from exact ontology inputs", () => {
     const first = fixture();
     const second = materializeWorldStateMechanismResearchAssignments({

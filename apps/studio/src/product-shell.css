@@ -2962,6 +2962,39 @@ footer {
   margin-bottom: 10px;
 }
 
+.mechanism-accounting-scope {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mechanism-accounting-scope > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--card) 88%, var(--muted));
+}
+
+.mechanism-accounting-scope strong {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.mechanism-accounting-scope small {
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .mechanism-accounting-scope {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .subject-binding-costs > span {
   border: 1px solid var(--border);
   border-radius: 999px;

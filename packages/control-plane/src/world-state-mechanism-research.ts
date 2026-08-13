@@ -6,6 +6,7 @@ import {
   WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL,
 } from "./market-ontology-agent-tools.js";
 import type {
+  ConsolidatedWorldStateMechanismRoute,
   WorldStateMechanismAbstention,
   WorldStateMechanismCounterexample,
   WorldStateMechanismProposal,
@@ -290,6 +291,78 @@ export function buildWorldStateMechanismResearchYield(input: Readonly<{
     }),
     outcomeStrata,
     authority: "DERIVED_MECHANISM_RESEARCH_EVIDENCE_ONLY" as const,
+  });
+  return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });
+}
+
+export type RetainedWorldStateMechanismMemory = Readonly<{
+  schemaVersion: "pmh.retained-world-state-mechanism-memory.v1";
+  projectionIdentity: Hash;
+  proposalCount: number;
+  routeCount: number;
+  counterexampleCount: number;
+  abstentionCount: number;
+  sourceRunCount: number;
+  retainedSourceRunCount: number;
+  missingSourceRunCount: number;
+  modelInvocationCount: number;
+  usage: Readonly<{
+    knownInputTokens: string;
+    knownOutputTokens: string;
+    knownReasoningTokens: string;
+    unknownUsageInvocationCount: number;
+  }>;
+  authority: "DERIVED_RETAINED_MECHANISM_MEMORY_ONLY";
+}>;
+
+/**
+ * Accounts for durable mechanism memory across ontology revisions. A source run
+ * is counted once even when it emitted several proposal, falsifier, or
+ * abstention effects. Missing run or usage lineage remains explicit and is
+ * never inferred from timestamps or current assignment membership.
+ */
+export function buildRetainedWorldStateMechanismMemory(input: Readonly<{
+  proposals: readonly WorldStateMechanismProposal[];
+  routes: readonly ConsolidatedWorldStateMechanismRoute[];
+  counterexamples: readonly WorldStateMechanismCounterexample[];
+  abstentions: readonly WorldStateMechanismAbstention[];
+  execution: AgentExecutionSnapshot;
+}>): RetainedWorldStateMechanismMemory {
+  const sourceRunIds = new Set([
+    ...input.proposals.map((item) => item.sourceAgentRunId),
+    ...input.counterexamples.map((item) => item.sourceAgentRunId),
+    ...input.abstentions.map((item) => item.sourceAgentRunId),
+  ]);
+  const retainedSourceRunIds = new Set(input.execution.runs
+    .filter((item) => sourceRunIds.has(item.runId))
+    .map((item) => item.runId));
+  const invocations = input.execution.modelInvocations.filter((item) =>
+    retainedSourceRunIds.has(item.runId)
+  );
+  const body = Object.freeze({
+    schemaVersion: "pmh.retained-world-state-mechanism-memory.v1" as const,
+    proposalCount: input.proposals.length,
+    routeCount: input.routes.length,
+    counterexampleCount: input.counterexamples.length,
+    abstentionCount: input.abstentions.length,
+    sourceRunCount: sourceRunIds.size,
+    retainedSourceRunCount: retainedSourceRunIds.size,
+    missingSourceRunCount: [...sourceRunIds]
+      .filter((runId) => !retainedSourceRunIds.has(runId)).length,
+    modelInvocationCount: invocations.length,
+    usage: Object.freeze({
+      knownInputTokens: invocations.reduce((sum, item) =>
+        sum + BigInt(item.inputTokens ?? "0"), 0n).toString(),
+      knownOutputTokens: invocations.reduce((sum, item) =>
+        sum + BigInt(item.outputTokens ?? "0"), 0n).toString(),
+      knownReasoningTokens: invocations.reduce((sum, item) =>
+        sum + BigInt(item.reasoningTokens ?? "0"), 0n).toString(),
+      unknownUsageInvocationCount: invocations.filter((item) =>
+        item.inputTokens === null || item.outputTokens === null ||
+        item.reasoningTokens === null
+      ).length,
+    }),
+    authority: "DERIVED_RETAINED_MECHANISM_MEMORY_ONLY" as const,
   });
   return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });
 }

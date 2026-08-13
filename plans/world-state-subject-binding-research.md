@@ -128,10 +128,21 @@ at 55,659 / 649 / 147 input/output/reasoning tokens, with incomplete usage
 counted separately instead of guessed. Studio accepts the v3 projection and
 renders case → assessment → readiness → review → observation as five distinct
 states. Desktop and 390 px qualification have no horizontal overflow or
-application console warnings. Issue #188 retains the next accounting gap: the
-current-assignment mechanism-yield summary still reads zero beside one retained
-consolidated route, so those scopes must be named or reconciled rather than
-silently summed.
+application console warnings. Issue #188 resolves the adjacent accounting gap
+with two explicit ledgers. `currentAssignmentYield` measures only the current
+ontology-assignment task window and is allowed to report zero attempts after a
+revision changes. `retainedMechanismMemory` follows durable proposal,
+counterexample and abstention records across revisions to de-duplicated source
+Agent runs and exact invocations. It reports missing retained runs and incomplete
+usage separately instead of interpreting either as zero cost. Studio names both
+windows, so a current-window zero no longer contradicts the retained route.
+Live schema-53 qualification reports `64 eligible / 0 attempted / 0 input` for
+the current window beside `1 proposal / 1 route / 1 source run / 7 invocations /
+148,341 input` for retained memory, with no missing run and no incomplete usage.
+Desktop browser inspection at 1280 px shows the two scopes, the existing five
+stage lifecycle and no horizontal overflow; the added 720 px breakpoint reduces
+the two-column accounting strip to one column, while the prior 390 px lifecycle
+qualification remains unchanged.
 
 Issue [#185](https://github.com/luokerenx4/my-little-pony/issues/185) now
 materializes provider-free promotion readiness without choosing the promotion

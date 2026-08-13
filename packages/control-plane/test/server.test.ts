@@ -454,7 +454,7 @@ describe("control-plane HTTP surface", () => {
         semanticDecisionAuthority: false,
       },
       worldStateMechanisms: {
-        schemaVersion: "pmh.world-state-mechanism-projection.v3",
+        schemaVersion: "pmh.world-state-mechanism-projection.v4",
         routeCount: 0,
         providerRequestsStartedByRead: 0,
         modelInvocationsStartedByRead: 0,
@@ -474,7 +474,7 @@ describe("control-plane HTTP surface", () => {
       .toBe(workspace.attention.projectionIdentity);
     await expect(fetch(`${baseUrl}/api/v1/world-state-mechanisms`)
       .then((result) => result.json())).resolves.toMatchObject({
-        schemaVersion: "pmh.world-state-mechanism-projection.v3",
+        schemaVersion: "pmh.world-state-mechanism-projection.v4",
         routeCount: 0,
         providerRequestsStartedByRead: 0,
         modelInvocationsStartedByRead: 0,
