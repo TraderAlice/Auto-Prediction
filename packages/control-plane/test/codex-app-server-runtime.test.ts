@@ -25,6 +25,7 @@ class FakeConnection implements CodexAppServerConnection {
     result: unknown;
   }>> = [];
   public closed = false;
+  public requestFailure: Error | null = null;
   readonly #events: CodexAppServerInbound[];
   #turnOrdinal = 0;
 
@@ -33,6 +34,7 @@ class FakeConnection implements CodexAppServerConnection {
   }
 
   public async request(method: string, params: unknown): Promise<unknown> {
+    if (this.requestFailure !== null) throw this.requestFailure;
     this.requests.push(Object.freeze({ method, params }));
     if (method === "thread/start") return {
       thread: { id: "thread:test" },
@@ -162,6 +164,32 @@ function fixture(events: readonly CodexAppServerInbound[]) {
 }
 
 describe("Codex app-server Agent runtime", () => {
+  it("preserves bounded app-server protocol detail in failed invocation evidence", async () => {
+    const work = fixture([]);
+    work.connection.requestFailure = new Error(
+      "Codex app-server request returned an error: code=-32602; message=unsupported schema keyword uniqueItems",
+    );
+
+    const result = await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: work.adapter,
+      credentialBroker: work.broker,
+      toolHost: work.toolHost,
+    });
+
+    expect(result.modelInvocations[0]).toMatchObject({
+      status: "FAILED",
+      failureCategory: "CODEX_APP_SERVER_PROTOCOL",
+      diagnostic: expect.stringContaining("unsupported schema keyword uniqueItems"),
+    });
+  });
+
   it("executes native dynamic tools and retains usage through the generic long loop", async () => {
     const work = fixture([
       {

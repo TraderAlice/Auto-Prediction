@@ -52,6 +52,8 @@ const MAX_PARAMETERS = 12;
 const MAX_FALSIFIERS = 12;
 const MAX_SEARCH_SIGNALS = 16;
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const ASSIGNED_LISTING_REF_DESCRIPTION =
+  "Use only exact listingRef values returned by the assigned trailhead evidence tools.";
 
 export type MarketOntologyNormalizationTaskPayload = Readonly<{
   schemaVersion: "pmh.market-ontology-normalization-task.v1";
@@ -170,7 +172,9 @@ function text(value: unknown, name: string, maximum: number): string {
   if (typeof value !== "string") throw new Error(`${name} must be text`);
   const compact = value.trim().replace(/\s+/gu, " ");
   if (compact === "" || compact.length > maximum) {
-    throw new Error(`${name} must be non-empty and at most ${maximum} characters`);
+    throw new Error(
+      `${name} must contain 1..${maximum} characters; received ${compact.length}`,
+    );
   }
   return compact;
 }
@@ -187,13 +191,95 @@ function texts(
   minimumItems = 0,
 ): readonly string[] {
   if (!Array.isArray(value) || value.length < minimumItems || value.length > maximumItems) {
-    throw new Error(`${name} has an invalid item count`);
+    const received = Array.isArray(value) ? value.length : "non-array";
+    throw new Error(
+      `${name} must contain ${minimumItems}..${maximumItems} items; received ${received}`,
+    );
   }
   const normalized = value.map((item) => text(item, name, maximumCharacters));
   if (new Set(normalized).size !== normalized.length) {
-    throw new Error(`${name} must not contain duplicates`);
+    throw new Error(
+      `${name} must contain unique items; received ${normalized.length} items and ${
+        new Set(normalized).size
+      } unique items`,
+    );
   }
   return Object.freeze(normalized);
+}
+
+function textSchema(maxLength: number, description?: string): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    type: "string",
+    minLength: 1,
+    maxLength,
+    ...(description === undefined ? {} : { description }),
+  });
+}
+
+function nullableTextSchema(maxLength: number): Readonly<Record<string, unknown>> {
+  return Object.freeze({ type: ["string", "null"], minLength: 1, maxLength });
+}
+
+function textArraySchema(
+  minimumItems: number,
+  maximumItems: number,
+  maximumCharacters: number,
+  description?: string,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    type: "array",
+    minItems: minimumItems,
+    maxItems: maximumItems,
+    uniqueItems: true,
+    items: textSchema(maximumCharacters),
+    ...(description === undefined ? {} : { description }),
+  });
+}
+
+function listingRefsSchema(
+  minimumItems = 1,
+  maximumItems = MAX_LISTING_REFS,
+): Readonly<Record<string, unknown>> {
+  return textArraySchema(
+    minimumItems,
+    maximumItems,
+    500,
+    ASSIGNED_LISTING_REF_DESCRIPTION,
+  );
+}
+
+function hashSchema(description?: string): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    ...textSchema(71, description),
+    minLength: 71,
+    pattern: "^sha256:[0-9a-f]{64}$",
+  });
+}
+
+function bindAssignedListingRefs(
+  value: unknown,
+  assignedListingRefs: readonly string[],
+): unknown {
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((item) =>
+      bindAssignedListingRefs(item, assignedListingRefs)
+    ));
+  }
+  if (value === null || typeof value !== "object") return value;
+  const record = value as Readonly<Record<string, unknown>>;
+  const bound = Object.fromEntries(Object.entries(record).map(([key, item]) => [
+    key,
+    bindAssignedListingRefs(item, assignedListingRefs),
+  ]));
+  if (record.description === ASSIGNED_LISTING_REF_DESCRIPTION &&
+      record.type === "array" && bound.items !== null &&
+      typeof bound.items === "object" && !Array.isArray(bound.items)) {
+    bound.items = Object.freeze({
+      ...(bound.items as Readonly<Record<string, unknown>>),
+      enum: assignedListingRefs,
+    });
+  }
+  return Object.freeze(bound);
 }
 
 function exactKeys(value: Readonly<Record<string, unknown>>, expected: readonly string[]): void {
@@ -201,7 +287,14 @@ function exactKeys(value: Readonly<Record<string, unknown>>, expected: readonly 
   const canonical = [...expected].sort();
   if (actual.length !== canonical.length ||
       actual.some((key, index) => key !== canonical[index])) {
-    throw new Error("ontology tool input contains unknown or missing fields");
+    const expectedSet = new Set(canonical);
+    const actualSet = new Set(actual);
+    const missing = canonical.filter((key) => !actualSet.has(key));
+    const unknown = actual.filter((key) => !expectedSet.has(key));
+    throw new Error(
+      `ontology tool input fields mismatch; missing=${JSON.stringify(missing)}; ` +
+      `unknown=${JSON.stringify(unknown)}`,
+    );
   }
 }
 
@@ -407,7 +500,7 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
     description: "Read exact retained listing and facet evidence for one assigned ontology trailhead before proposing a normalization.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false, required: ["trailheadId"],
-      properties: { trailheadId: { type: "string" } },
+      properties: { trailheadId: hashSchema("Use one assigned trailheadId exactly.") },
     }),
   }),
   Object.freeze({
@@ -417,9 +510,11 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
       type: "object", additionalProperties: false,
       required: ["canonicalLabel", "aliases", "ambiguityNotes", "listingRefs", "rationale"],
       properties: {
-        canonicalLabel: { type: "string" }, aliases: { type: "array", items: { type: "string" } },
-        ambiguityNotes: { type: "array", items: { type: "string" } },
-        listingRefs: { type: "array", items: { type: "string" } }, rationale: { type: "string" },
+        canonicalLabel: textSchema(160),
+        aliases: textArraySchema(1, MAX_ALIASES, 100),
+        ambiguityNotes: textArraySchema(0, 12, 500),
+        listingRefs: listingRefsSchema(),
+        rationale: textSchema(2_000),
       },
     }),
   }),
@@ -430,12 +525,15 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
       type: "object", additionalProperties: false,
       required: ["label", "subjectLabels", "predicate", "timeScope", "parameters", "ambiguityNotes", "falsifiers", "listingRefs", "rationale"],
       properties: {
-        label: { type: "string" }, subjectLabels: { type: "array", items: { type: "string" } },
-        predicate: { type: "string" }, timeScope: { type: ["string", "null"] },
-        parameters: { type: "array", items: { type: "string" } },
-        ambiguityNotes: { type: "array", items: { type: "string" } },
-        falsifiers: { type: "array", items: { type: "string" } },
-        listingRefs: { type: "array", items: { type: "string" } }, rationale: { type: "string" },
+        label: textSchema(500),
+        subjectLabels: textArraySchema(1, MAX_SUBJECT_LABELS, 160),
+        predicate: textSchema(500),
+        timeScope: nullableTextSchema(500),
+        parameters: textArraySchema(0, MAX_PARAMETERS, 300),
+        ambiguityNotes: textArraySchema(0, 12, 500),
+        falsifiers: textArraySchema(0, MAX_FALSIFIERS, 500),
+        listingRefs: listingRefsSchema(),
+        rationale: textSchema(2_000),
       },
     }),
   }),
@@ -446,9 +544,11 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
       type: "object", additionalProperties: false,
       required: ["rejectedClaim", "reason", "searchSignals", "listingRefs", "rationale"],
       properties: {
-        rejectedClaim: { type: "string" }, reason: { type: "string" },
-        searchSignals: { type: "array", items: { type: "string" } },
-        listingRefs: { type: "array", items: { type: "string" } }, rationale: { type: "string" },
+        rejectedClaim: textSchema(800),
+        reason: textSchema(2_000),
+        searchSignals: textArraySchema(0, MAX_SEARCH_SIGNALS, 160),
+        listingRefs: listingRefsSchema(2),
+        rationale: textSchema(2_000),
       },
     }),
   }),
@@ -472,17 +572,17 @@ const WORLD_STATE_MECHANISM_MANIFEST: readonly AgentRuntimeToolDefinition[] = Ob
         "state", "dependent", "temporalPosture", "counterScenarios", "rationale",
       ],
       properties: {
-        subjectLabel: { type: "string" },
-        subjectAliases: { type: "array", items: { type: "string" } },
-        subjectAmbiguityNotes: { type: "array", items: { type: "string" } },
+        subjectLabel: textSchema(160),
+        subjectAliases: textArraySchema(1, 8, 160),
+        subjectAmbiguityNotes: textArraySchema(0, 8, 500),
         trigger: {
           type: "object", additionalProperties: false,
           required: ["predicateLabel", "searchSignals", "influence", "listingRefs"],
           properties: {
-            predicateLabel: { type: "string" },
-            searchSignals: { type: "array", items: { type: "string" } },
+            predicateLabel: textSchema(500),
+            searchSignals: textArraySchema(1, 6, 160),
             influence: { type: "string", enum: WORLD_STATE_TRIGGER_INFLUENCES },
-            listingRefs: { type: "array", items: { type: "string" } },
+            listingRefs: listingRefsSchema(1, 4),
           },
         },
         state: {
@@ -490,22 +590,22 @@ const WORLD_STATE_MECHANISM_MANIFEST: readonly AgentRuntimeToolDefinition[] = Ob
           required: ["dimension", "label"],
           properties: {
             dimension: { type: "string", enum: WORLD_STATE_DIMENSIONS },
-            label: { type: "string" },
+            label: textSchema(160),
           },
         },
         dependent: {
           type: "object", additionalProperties: false,
           required: ["predicateLabel", "searchSignals", "requirement", "listingRefs"],
           properties: {
-            predicateLabel: { type: "string" },
-            searchSignals: { type: "array", items: { type: "string" } },
+            predicateLabel: textSchema(500),
+            searchSignals: textArraySchema(1, 6, 160),
             requirement: { type: "string", enum: WORLD_STATE_DEPENDENT_REQUIREMENTS },
-            listingRefs: { type: "array", items: { type: "string" } },
+            listingRefs: listingRefsSchema(1, 4),
           },
         },
         temporalPosture: { type: "string", enum: WORLD_STATE_TEMPORAL_POSTURES },
-        counterScenarios: { type: "array", items: { type: "string" } },
-        rationale: { type: "string" },
+        counterScenarios: textArraySchema(1, 12, 500),
+        rationale: textSchema(2_000),
       },
     }),
   }),
@@ -519,11 +619,17 @@ const WORLD_STATE_MECHANISM_MANIFEST: readonly AgentRuntimeToolDefinition[] = Ob
         "searchSignals", "listingRefs",
       ],
       properties: {
-        targetRouteFamilyId: { type: "string" },
-        targetProposalIds: { type: "array", items: { type: "string" } },
-        scenario: { type: "string" }, reason: { type: "string" },
-        searchSignals: { type: "array", items: { type: "string" } },
-        listingRefs: { type: "array", items: { type: "string" } },
+        targetRouteFamilyId: hashSchema(
+          "Use one exact routeFamilyId from mechanism coverage.",
+        ),
+        targetProposalIds: Object.freeze({
+          type: "array", minItems: 1, maxItems: 32, uniqueItems: true,
+          items: hashSchema("Use exact proposal IDs from the selected mechanism family."),
+        }),
+        scenario: textSchema(800),
+        reason: textSchema(2_000),
+        searchSignals: textArraySchema(1, 6, 160),
+        listingRefs: listingRefsSchema(1, 4),
       },
     }),
   }),
@@ -646,7 +752,17 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
         toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2) {
       throw new Error("ontology Agent tool protocol is unsupported");
     }
-    return toolProtocol === MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2 ? MANIFEST_V2 : MANIFEST;
+    const manifest = toolProtocol === MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2
+      ? MANIFEST_V2
+      : MANIFEST;
+    const assignedListingRefs = Object.freeze([...this.#allowedRefs].sort());
+    return Object.freeze(manifest.map((definition) => Object.freeze({
+      ...definition,
+      inputSchema: bindAssignedListingRefs(
+        definition.inputSchema,
+        assignedListingRefs,
+      ),
+    })));
   }
 
   public proposals(): readonly MarketOntologyAgentProposal[] {
@@ -663,8 +779,12 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
 
   #listingBindings(value: unknown, minimum = 1): readonly MarketOntologyListingBinding[] {
     const refs = texts(value, "listingRefs", MAX_LISTING_REFS, 500, minimum);
-    if (refs.some((ref) => !this.#allowedRefs.has(ref))) {
-      throw new Error("ontology proposal listingRefs exceed the assigned evidence scope");
+    const outsideAssignment = refs.filter((ref) => !this.#allowedRefs.has(ref));
+    if (outsideAssignment.length > 0) {
+      throw new Error(
+        `listingRefs must use assigned evidence only; received ${outsideAssignment.length} ` +
+        `outside assignment: ${JSON.stringify(outsideAssignment.slice(0, 4))}`,
+      );
     }
     return Object.freeze(refs.map((ref) => binding(this.#nodesByRef.get(ref)!)));
   }
@@ -725,9 +845,13 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
   }
 
   #mechanismEvidenceBindings(value: unknown): readonly WorldStateMechanismEvidenceBinding[] {
-    const refs = texts(value, "listingRefs", MAX_LISTING_REFS, 500, 1);
-    if (refs.some((ref) => !this.#allowedRefs.has(ref))) {
-      throw new Error("world-state mechanism listingRefs exceed the assigned evidence scope");
+    const refs = texts(value, "listingRefs", 4, 500, 1);
+    const outsideAssignment = refs.filter((ref) => !this.#allowedRefs.has(ref));
+    if (outsideAssignment.length > 0) {
+      throw new Error(
+        `listingRefs must use assigned evidence only; received ${outsideAssignment.length} ` +
+        `outside assignment: ${JSON.stringify(outsideAssignment.slice(0, 4))}`,
+      );
     }
     return Object.freeze(refs.map((ref) => {
       const listing = this.#listingsByRef.get(ref)!;

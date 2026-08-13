@@ -68,6 +68,20 @@ function messageObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function boundedProtocolError(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "unknown app-server error";
+  }
+  const error = value as Readonly<Record<string, unknown>>;
+  const code = typeof error.code === "number" || typeof error.code === "string"
+    ? String(error.code).slice(0, 80)
+    : "unknown";
+  const message = typeof error.message === "string"
+    ? error.message.replace(/\s+/gu, " ").slice(0, 700)
+    : "no diagnostic message";
+  return `code=${code}; message=${message}`;
+}
+
 class ProcessCodexAppServerConnection implements CodexAppServerConnection {
   readonly #child: ChildProcessWithoutNullStreams;
   readonly #pending = new Map<CodexAppServerRequestId, PendingRequest>();
@@ -146,7 +160,9 @@ class ProcessCodexAppServerConnection implements CodexAppServerConnection {
       clearTimeout(pending.timeout);
       this.#pending.delete(id);
       if (message.error !== undefined) {
-        pending.reject(new Error("Codex app-server request returned an error"));
+        pending.reject(new Error(
+          `Codex app-server request returned an error: ${boundedProtocolError(message.error)}`,
+        ));
       } else {
         pending.resolve(message.result);
       }
