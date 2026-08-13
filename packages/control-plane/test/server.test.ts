@@ -8,6 +8,7 @@ import { hashCanonical } from "@pmh/domain";
 import {
   AiRuntimeConfigurationDesk,
   AgentExecutionRegistry,
+  activateAgentCampaign,
   AnonymousSimulationMaterializerDesk,
   CandidateWatchDesk,
   candidateWatchSources,
@@ -16,6 +17,8 @@ import {
   buildStudioProjection,
   buildStudioProjectionSnapshot,
   buildAgentTask,
+  buildAgentRun,
+  buildPausedAgentCampaign,
   CatalogObservationDesk,
   CatalogRefreshScheduler,
   catalogObservationSources,
@@ -43,6 +46,8 @@ import {
   type AiRuntimeConfiguration,
   type StudioProjection,
   codexCredentialForTest,
+  completeAgentRun,
+  pauseAgentCampaign,
 } from "../src/index.js";
 import { SqliteOperationalStore } from "../src/operational-store.js";
 
@@ -233,6 +238,103 @@ describe("control-plane HTTP surface", () => {
     });
     expect(registry.snapshot()).toMatchObject({ runs: [], modelInvocations: [] });
     expect(registry.projection().activeCampaignCount).toBe(0);
+  });
+
+  it("upgrades a legacy mechanism specimen before activation and skips its interrupted task", async () => {
+    const registry = new AgentExecutionRegistry();
+    const tasks = [1, 2].map((index) => buildAgentTask({
+      kind: "WORLD_STATE_MECHANISM_RESEARCH",
+      protocol: "WORLD_STATE_MECHANISM_RESEARCH_TASK_V1",
+      inputArtifacts: [],
+      taskPayload: { fixture: "mechanism-policy-upgrade", index },
+      requestedEffectProtocol: "WORLD_STATE_MECHANISM_RESEARCH_TOOLS_V1",
+      provenanceRef: `fixture:mechanism-policy-upgrade:${index}`,
+      priority: index,
+      createdAt: "2026-08-13T05:00:00.000Z",
+    }));
+    registry.saveBatch({ tasks });
+    const { baseUrl } = await listenControlPlane({ agentExecutionRegistry: registry });
+    const profile = registry.snapshot().executionProfiles.find((item) =>
+      item.profileKey === "world-state-mechanism-codex-app-server"
+    )!;
+    const selectionBinding = {
+      schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
+      selectionProtocol: "WORLD_STATE_MECHANISM_RESEARCH_SELECTION_V1",
+      selectionIdentity: hashCanonical({ fixture: "mechanism-selection" }),
+      selectionPolicyIdentity: hashCanonical({ fixture: "mechanism-policy" }),
+      taskBindings: tasks.map((task) => ({
+        taskId: task.taskId,
+        workFamilyRef: `world-state-mechanism-issue:${task.taskId}`,
+        selectionActionRef: task.taskId,
+        selectionActionKind: "RESEARCH_WORLD_STATE_MECHANISM",
+        inputRevisionKind: "ONTOLOGY_SEARCH_ISSUE",
+        inputRevisionId: task.taskPayloadHash,
+        exactInputHash: task.taskPayloadHash,
+        semanticInputIdentity: task.taskPayloadHash,
+      })).sort((left, right) => left.taskId.localeCompare(right.taskId)),
+    };
+    const paused = buildPausedAgentCampaign({
+      campaignKey: "mechanism-policy-upgrade-fixture",
+      revision: 1,
+      executionProfileId: profile.executionProfileId,
+      taskIds: tasks.map((task) => task.taskId),
+      schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+      budget: {
+        maximumConcurrentRuns: 1,
+        maximumModelInvocations: 8,
+        maximumInputTokens: "200000",
+        maximumOutputTokens: "20000",
+        maximumWallClockMs: 900_000,
+      },
+      selectionBinding,
+      createdAt: "2026-08-13T05:00:00.000Z",
+    });
+    const active = activateAgentCampaign(
+      paused, "experiment:initial", "2026-08-13T05:01:00.000Z",
+    );
+    const prepared = buildAgentRun({
+      task: tasks[0]!, executionProfile: profile, runOrdinal: 1,
+      authorization: {
+        kind: "CAMPAIGN", campaign: active, authorizedAt: "2026-08-13T05:01:00.000Z",
+      },
+      createdAt: "2026-08-13T05:01:00.000Z",
+    });
+    const interrupted = completeAgentRun(
+      prepared, "INTERRUPTED", "2026-08-13T05:02:00.000Z", "model invocation timed_out",
+    );
+    const pausedAgain = pauseAgentCampaign(active);
+    registry.saveBatch({ campaigns: [paused, active, pausedAgain], runs: [interrupted] });
+
+    const response = await fetch(
+      `${baseUrl}/api/v1/agent-campaigns/${pausedAgain.campaignId}/activate`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ activationRef: "experiment:policy-retest" }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      campaign: {
+        schemaVersion: "pmh.agent-campaign.v3",
+        revision: 5,
+        status: "ACTIVE",
+        taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      },
+      preview: {
+        configuredTaskCount: 2,
+        dispatchableTaskCount: 0,
+        blockedTaskCount: 1,
+        maximumImmediateFanout: 0,
+      },
+      providerRequestsStarted: 0,
+    });
+    expect(registry.snapshot().campaigns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ schemaVersion: "pmh.agent-campaign.v3", revision: 4, status: "PAUSED" }),
+      expect.objectContaining({ schemaVersion: "pmh.agent-campaign.v3", revision: 5, status: "ACTIVE" }),
+    ]));
+    expect(registry.snapshot().runs).toHaveLength(1);
+    expect(registry.snapshot().modelInvocations).toHaveLength(0);
   });
 
   it("serves one authority-free Agent workspace read model", async () => {

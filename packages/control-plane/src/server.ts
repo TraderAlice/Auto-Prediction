@@ -141,6 +141,7 @@ import {
 import { buildWorldStateMechanismAllocation } from "./world-state-mechanism-allocation.js";
 import {
   buildWorldStateMechanismCampaignPreview,
+  ensureWorldStateMechanismCampaignRunPolicy,
   resolveWorldStateMechanismTaskRevision,
 } from "./world-state-mechanism-campaign.js";
 import {
@@ -6672,6 +6673,7 @@ export function createControlPlane(options?: {
           schedule: preview.schedule,
           budget: preview.budget,
           selectionBinding: preview.selectionBinding,
+          taskRunPolicy: preview.taskRunPolicy,
           createdAt: new Date().toISOString(),
         });
         agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
@@ -6764,10 +6766,15 @@ export function createControlPlane(options?: {
             Object.keys(body).length !== 1 || typeof body.activationRef !== "string") {
           throw new Error("campaign activation requires exactly one activationRef");
         }
-        const paused = effectiveAgentCampaigns(agentExecutionRegistry.snapshot().campaigns).find((item) =>
+        let paused = effectiveAgentCampaigns(agentExecutionRegistry.snapshot().campaigns).find((item) =>
           item.campaignId === campaignActivationMatch[1]
         );
         if (paused === undefined) throw new Error("campaign is unavailable");
+        const policyBound = ensureWorldStateMechanismCampaignRunPolicy(paused);
+        if (policyBound.campaignId !== paused.campaignId) {
+          agentExecutionRegistry.saveBatch({ campaigns: [policyBound] });
+          paused = policyBound;
+        }
         const active = activateAgentCampaign(paused, body.activationRef, new Date().toISOString());
         agentExecutionRegistry.saveBatch({ campaigns: [active] });
         await broadcastProjection();

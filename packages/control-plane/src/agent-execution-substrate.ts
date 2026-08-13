@@ -1545,6 +1545,33 @@ export function migrateAgentCampaignToEvolvingMembership(
   })) as Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v4" }>;
 }
 
+export function migrateAgentCampaignToOncePerTaskLineage(
+  campaignInput: AgentSelectionBoundCampaign,
+): Extract<AgentCampaign, {
+  schemaVersion: "pmh.agent-campaign.v3" | "pmh.agent-campaign.v4";
+}> {
+  const campaign = assertAgentCampaign(campaignInput) as AgentSelectionBoundCampaign;
+  if (campaign.schemaVersion === "pmh.agent-campaign.v3" ||
+      campaign.schemaVersion === "pmh.agent-campaign.v4") {
+    if (campaign.taskRunPolicy !== "ONCE_PER_TASK_PER_LINEAGE") {
+      throw new Error("Campaign already has an incompatible task run policy");
+    }
+    return campaign;
+  }
+  const body = Object.freeze({
+    ...campaign,
+    campaignId: undefined,
+    schemaVersion: "pmh.agent-campaign.v3" as const,
+    revision: campaign.revision + 1,
+    taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE" as const,
+  });
+  const { campaignId: _ignored, ...withoutUndefined } = body;
+  return assertAgentCampaign(Object.freeze({
+    ...withoutUndefined,
+    campaignId: hashCanonical(withoutUndefined),
+  })) as Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v3" }>;
+}
+
 export function reviseAgentCampaignMembership(
   campaignInput: Extract<AgentCampaign, { schemaVersion: "pmh.agent-campaign.v4" }>,
   selectionInput: AgentCampaignSelectionBinding,

@@ -1,5 +1,5 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
-import { assertAgentCampaignSelectionBinding, type AgentCampaign, type AgentCampaignSelectionBinding, type AgentExecutionSnapshot, type AgentRun, type ExecutionProfile, type WorkloadRoute } from "./agent-execution-substrate.js";
+import { assertAgentCampaignSelectionBinding, migrateAgentCampaignToOncePerTaskLineage, type AgentCampaign, type AgentCampaignSelectionBinding, type AgentExecutionSnapshot, type AgentRun, type ExecutionProfile, type WorkloadRoute } from "./agent-execution-substrate.js";
 import type { ExecutionCapabilityProjection } from "./agent-runtime-adapter.js";
 import type { OntologySearchIssueRevision } from "./ontology-search-ecology.js";
 import {
@@ -24,6 +24,7 @@ export type WorldStateMechanismCampaignPreview = Readonly<{
   mechanismIssueIds: readonly Hash[];
   omittedEligibleIssueCount: number;
   schedule: Readonly<{ kind: "MANUAL_ONLY"; intervalMs: null }>;
+  taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE";
   budget: Readonly<{
     maximumConcurrentRuns: 1;
     maximumModelInvocations: 8;
@@ -38,6 +39,16 @@ export type WorldStateMechanismCampaignPreview = Readonly<{
   modelInvocationsStarted: 0;
   authority: "CAMPAIGN_PROPOSAL_ONLY";
 }>;
+
+export function ensureWorldStateMechanismCampaignRunPolicy(
+  campaign: AgentCampaign,
+): AgentCampaign {
+  if (campaign.schemaVersion === "pmh.agent-campaign.v1" ||
+      campaign.selectionBinding.selectionProtocol !== WORLD_STATE_MECHANISM_SELECTION_PROTOCOL) {
+    return campaign;
+  }
+  return migrateAgentCampaignToOncePerTaskLineage(campaign);
+}
 
 export function buildWorldStateMechanismCampaignSelectionBinding(input: Readonly<{
   assignments: readonly WorldStateMechanismResearchAssignment[];
@@ -158,6 +169,7 @@ export function buildWorldStateMechanismCampaignPreview(input: Readonly<{
     mechanismIssueIds: Object.freeze(selected.map((item) => item.mechanismIssueId)),
     omittedEligibleIssueCount: Math.max(0, allocation.eligibleCount - selected.length),
     schedule: Object.freeze({ kind: "MANUAL_ONLY" as const, intervalMs: null }),
+    taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE" as const,
     budget: Object.freeze({
       maximumConcurrentRuns: 1 as const,
       maximumModelInvocations: 8 as const,

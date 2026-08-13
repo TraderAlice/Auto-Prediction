@@ -16,6 +16,7 @@ import {
   buildWorkloadRoute,
   importLegacyAiRuntimeConfiguration,
   migrateAgentCampaignToEvolvingMembership,
+  migrateAgentCampaignToOncePerTaskLineage,
   reviseAgentCampaignMembership,
   type AiRuntimeConfiguration,
   type CodexModelConfiguration,
@@ -438,6 +439,57 @@ describe("Agent execution substrate", () => {
       ...selection(successor, hashCanonical({ selection: 3 })),
       selectionPolicyIdentity: hashCanonical({ policy: "expanded" }),
     })).toThrow(/cannot change research policy/);
+  });
+
+  it("upgrades a selection-bound campaign to once-per-lineage without changing authority", () => {
+    const work = task(11, "mechanism:one");
+    const profile = executionProfile();
+    const selectionBinding = {
+      schemaVersion: "pmh.agent-campaign-selection-binding.v1" as const,
+      selectionProtocol: "WORLD_STATE_MECHANISM_RESEARCH_SELECTION_V1",
+      selectionIdentity: hashCanonical({ selection: "mechanism" }),
+      selectionPolicyIdentity: hashCanonical({ policy: "mechanism-v1" }),
+      taskBindings: [{
+        taskId: work.taskId,
+        workFamilyRef: "world-state-mechanism-issue:fixture",
+        selectionActionRef: hashCanonical({ action: work.taskId }),
+        selectionActionKind: "RESEARCH_WORLD_STATE_MECHANISM",
+        inputRevisionKind: "ONTOLOGY_SEARCH_ISSUE",
+        inputRevisionId: work.taskPayloadHash,
+        exactInputHash: work.taskPayloadHash,
+        semanticInputIdentity: work.taskPayloadHash,
+      }],
+    };
+    const legacy = buildPausedAgentCampaign({
+      campaignKey: "mechanism-frozen-specimen",
+      revision: 5,
+      executionProfileId: profile.executionProfileId,
+      taskIds: [work.taskId],
+      schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+      budget: {
+        maximumConcurrentRuns: 1,
+        maximumModelInvocations: 8,
+        maximumInputTokens: "200000",
+        maximumOutputTokens: "20000",
+        maximumWallClockMs: 900_000,
+      },
+      selectionBinding,
+      createdAt: NOW,
+    });
+
+    const upgraded = migrateAgentCampaignToOncePerTaskLineage(legacy);
+    expect(upgraded).toMatchObject({
+      schemaVersion: "pmh.agent-campaign.v3",
+      revision: 6,
+      status: "PAUSED",
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      selectionBinding,
+      budget: legacy.budget,
+      schedule: legacy.schedule,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(migrateAgentCampaignToOncePerTaskLineage(upgraded)).toBe(upgraded);
   });
 
   it("records only first-party bounded tool effects", () => {
