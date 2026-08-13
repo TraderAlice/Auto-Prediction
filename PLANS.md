@@ -1,5 +1,15 @@
 # Plans
 
+The active mutation is
+[`plans/world-history-settlement-ontology.md`](plans/world-history-settlement-ontology.md).
+Issue #249 treats a market as a venue-defined contingent claim whose settlement
+function projects evidence-observable world histories into outcomes; quotes are
+traded valuations, not certified world probabilities. The candidate will join
+the currently separate market-facet, world-mechanism, semantic-truth-table and
+probabilistic-bound layers through reusable typed world predicates, exact
+settlement projections and state-refreshed relation experiments. It must
+represent state-mediated soft inhibition without manufacturing hard exclusion.
+
 The selected execution continuation is
 [`plans/state-refreshed-agent-boundary.md`](plans/state-refreshed-agent-boundary.md).
 Issue #247 follows abandoned mutation PR #246. Codex app-server binds dynamic
