@@ -420,6 +420,45 @@ describe("Agent runtime adapters", () => {
     });
   }
 
+  it("preserves non-secret content hashes in rejected diagnostics while scrubbing secrets", async () => {
+    const findingId = hashCanonical({ finding: "retained-overlap" });
+    const secretLike = "s".repeat(64);
+    let observedToolResults: unknown = null;
+    const adapter = new CodexAgentRuntimeAdapter(async () =>
+      twoTurnSession((value) => { observedToolResults = value; })
+    );
+    const input = execution({
+      kind: "CODEX",
+      credential: codexCredential(),
+      model: codexModel(),
+      adapter,
+    });
+    const result = await executePreparedAgentRun({
+      ...input,
+      toolHost: {
+        manifest,
+        execute: async () => {
+          throw new Error(
+            `semantic novelty admission rejected; overlap finding id: ${findingId}; ` +
+            `opaque=${secretLike}`,
+          );
+        },
+      },
+      now: () => Date.parse(LATER),
+    });
+
+    expect(observedToolResults).toEqual([{
+      callId: "call:submit:1",
+      status: "REJECTED",
+      output: {
+        diagnostic: `semantic novelty admission rejected; overlap finding id: ${findingId}; ` +
+          "[opaque]",
+      },
+    }]);
+    expect(result.toolEffects[0]!.diagnostic).toContain(findingId);
+    expect(JSON.stringify(result)).not.toContain(secretLike);
+  });
+
   it("stops a long loop before the next model call when the invocation budget is exhausted", async () => {
     const cancel = vi.fn(async () => undefined);
     let advances = 0;

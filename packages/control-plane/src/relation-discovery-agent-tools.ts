@@ -17,6 +17,11 @@ import {
 } from "./ontology-relation-work.js";
 import type { MarketRelationKind } from "./market-archaeologist.js";
 import type { DiscoveryCatalogListing, OperationalStorageProjection } from "./types.js";
+import {
+  buildRelationDiscoverySemanticCoverageSummary,
+  classifyRelationDiscoverySemanticNovelty,
+  type RelationDiscoverySemanticNoveltyDecision,
+} from "./relation-discovery-semantic-novelty.js";
 
 export const RELATION_DISCOVERY_AGENT_TOOL_PROTOCOL =
   "RELATION_DISCOVERY_AGENT_TOOLS_V1" as const;
@@ -238,6 +243,7 @@ export interface RelationDiscoveryFindingStore {
   readonly relationDiscoveryFindingStorage:
     OperationalStorageProjection<"findingId">;
   loadRelationDiscoveryFindings(limit: number): readonly RelationDiscoveryFinding[];
+  loadRelationDiscoveryFindingsForAdmission(): readonly RelationDiscoveryFinding[];
   loadStandingOntologyRouteSourceFindings(): readonly RelationDiscoveryFinding[];
   saveRelationDiscoveryFindings(
     findings: readonly RelationDiscoveryFinding[],
@@ -754,6 +760,11 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
   readonly #listingByRef: ReadonlyMap<string, DiscoveryCatalogListing>;
   readonly #inspectedRefs = new Set<string>();
   readonly #findings: RelationDiscoveryFinding[] = [];
+  readonly #semanticNoveltyByFindingId = new Map<
+    Hash,
+    RelationDiscoverySemanticNoveltyDecision
+  >();
+  readonly #retainedSemanticMemory: readonly RelationDiscoveryFinding[];
   public readonly taskPayload: RelationDiscoveryTaskPayload;
   public readonly workItem: OntologyRelationWorkItem;
 
@@ -783,6 +794,9 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
     }
     this.corpus = validatedCorpus;
     this.#listingByRef = new Map(validatedCorpus.listings.map((item) => [item.listingRef, item]));
+    this.#retainedSemanticMemory = Object.freeze(
+      findingStore?.loadRelationDiscoveryFindingsForAdmission() ?? [],
+    );
   }
 
   public manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[] {
@@ -796,6 +810,36 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
 
   public findings(): readonly RelationDiscoveryFinding[] {
     return Object.freeze([...this.#findings]);
+  }
+
+  public semanticNoveltyDecisions(): readonly RelationDiscoverySemanticNoveltyDecision[] {
+    return Object.freeze([...this.#semanticNoveltyByFindingId.values()]);
+  }
+
+  #admitSemanticNovelty(
+    finding: RelationDiscoveryFinding,
+  ): RelationDiscoverySemanticNoveltyDecision {
+    const replay = this.#semanticNoveltyByFindingId.get(finding.findingId);
+    if (replay !== undefined) return replay;
+    const retainedFindings = Object.freeze([
+      ...this.#retainedSemanticMemory,
+      ...this.#findings,
+    ].filter((item) => item.findingId !== finding.findingId));
+    const admission = classifyRelationDiscoverySemanticNovelty({
+      candidate: finding,
+      retainedFindings,
+    });
+    if (!admission.admitted) {
+      const overlaps = admission.overlapFindingIds.length === 0
+        ? "none"
+        : admission.overlapFindingIds.join(",");
+      throw new Error(
+        `semantic novelty admission rejected ${admission.classification}; ` +
+        `overlap finding ids: ${overlaps}`,
+      );
+    }
+    this.#semanticNoveltyByFindingId.set(finding.findingId, admission);
+    return admission;
   }
 
   #assertContext(context: AgentToolHostContext): void {
@@ -869,6 +913,7 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
       findingId: hashCanonical(body),
     }));
     if (!this.#findings.some((item) => item.findingId === finding.findingId)) {
+      this.#admitSemanticNovelty(finding);
       this.#findings.push(finding);
       this.findingStore?.saveRelationDiscoveryFindings([finding]);
     }
@@ -977,6 +1022,7 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
       findingId: hashCanonical(body),
     })) as RelationDiscoveryRouteObservation;
     if (!this.#findings.some((item) => item.findingId === finding.findingId)) {
+      this.#admitSemanticNovelty(finding);
       this.#findings.push(finding);
       this.findingStore?.saveRelationDiscoveryFindings([finding]);
     }
@@ -995,7 +1041,17 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
         status: "ACCEPTED" as const,
         output: this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v3" ||
             this.taskPayload.schemaVersion === "pmh.relation-discovery-task.v4"
-          ? Object.freeze({ task: this.taskPayload, workItem: this.workItem })
+          ? Object.freeze({
+              task: this.taskPayload,
+              workItem: this.workItem,
+              semanticCoverage: buildRelationDiscoverySemanticCoverageSummary({
+                retainedFindings: this.#retainedSemanticMemory,
+                seedListingRefs: this.workItem.seedListingBindings.map((item) =>
+                  item.listingRef
+                ),
+                searchSignals: this.workItem.searchSignals,
+              }),
+            })
           : this.taskPayload,
       });
     }
@@ -1048,21 +1104,27 @@ export class RelationDiscoveryAgentToolHost implements AgentToolHost {
         throw new Error("route-seed intent cannot publish a payoff relation hypothesis");
       }
       exactKeys(input, ["relationKind", "listingRefs", "statement", "rationale", "falsifiers"]);
-      return Object.freeze({ status: "ACCEPTED" as const, output: this.#record(
-        context, input, "RELATION_HYPOTHESIS",
-      ) });
+      const finding = this.#record(context, input, "RELATION_HYPOTHESIS");
+      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+        ...finding,
+        semanticNovelty: this.#semanticNoveltyByFindingId.get(finding.findingId),
+      }) });
     }
     if (context.toolName === "record_ontology_route") {
       exactKeys(input, ["routeLayer", "searchSignals", "listingRefs", "statement", "rationale", "falsifiers"]);
-      return Object.freeze({ status: "ACCEPTED" as const, output: this.#recordRoute(
-        context, input,
-      ) });
+      const finding = this.#recordRoute(context, input);
+      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+        ...finding,
+        semanticNovelty: this.#semanticNoveltyByFindingId.get(finding.findingId),
+      }) });
     }
     if (context.toolName === "record_relation_counterexample") {
       exactKeys(input, ["rejectedRelationKind", "listingRefs", "statement", "rationale", "falsifiers"]);
-      return Object.freeze({ status: "ACCEPTED" as const, output: this.#record(
-        context, input, "COUNTEREXAMPLE",
-      ) });
+      const finding = this.#record(context, input, "COUNTEREXAMPLE");
+      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+        ...finding,
+        semanticNovelty: this.#semanticNoveltyByFindingId.get(finding.findingId),
+      }) });
     }
     throw new Error("relation discovery Agent tool is unsupported");
   }

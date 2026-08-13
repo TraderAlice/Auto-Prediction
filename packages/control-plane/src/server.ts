@@ -176,6 +176,10 @@ import {
   type RelationDiscoveryProposalCompilation,
 } from "./relation-discovery-semantic-bridge.js";
 import {
+  buildRelationDiscoverySemanticNoveltyProjection,
+  type RelationDiscoverySemanticNoveltyProjection,
+} from "./relation-discovery-semantic-novelty-observability.js";
+import {
   buildStandingOntologyRouteValueProjection,
   buildStandingOntologyRouteProjection,
   extendOntologyRelationWorkWithStandingRouteFollowups,
@@ -1054,6 +1058,7 @@ function supportsRelationDiscoveryRecords(
     typeof candidate.loadRelationDiscoveryCorpus === "function" &&
     typeof candidate.saveRelationDiscoveryCorpus === "function" &&
     typeof candidate.loadRelationDiscoveryFindings === "function" &&
+    typeof candidate.loadRelationDiscoveryFindingsForAdmission === "function" &&
     typeof candidate.loadStandingOntologyRouteSourceFindings === "function" &&
     typeof candidate.loadRelationDiscoveryTaskRevisionsForTaskIds === "function" &&
     typeof candidate.saveRelationDiscoveryFindings === "function";
@@ -3715,6 +3720,21 @@ export function createControlPlane(options?: {
       execution: snapshot,
     });
   };
+  const semanticNoveltyProjection = (
+    snapshot = agentExecutionRegistry.snapshot(),
+  ): RelationDiscoverySemanticNoveltyProjection => {
+    const findings = relationDiscoveryStore
+      ?.loadRelationDiscoveryFindingsForAdmission() ?? [];
+    const timestamps = [
+      ...findings.map((finding) => finding.recordedAt),
+      ...snapshot.toolEffects.map((effect) => effect.occurredAt),
+    ];
+    return buildRelationDiscoverySemanticNoveltyProjection({
+      observedAt: timestamps.sort().at(-1) ?? "1970-01-01T00:00:00.000Z",
+      findings,
+      execution: snapshot,
+    });
+  };
   const ontologyAgentCampaignPreview = async () => {
     const snapshot = agentExecutionRegistry.snapshot();
     const route = [...snapshot.workloadRoutes]
@@ -4940,6 +4960,7 @@ export function createControlPlane(options?: {
         discoverySignals: currentDiscoverySignalProjection(),
         discoveryYield: currentDiscoveryYieldProjection(),
         resultRepairs: agentResultRepairProjection(agentSnapshot),
+        semanticNovelty: semanticNoveltyProjection(agentSnapshot),
         ontologyOutcomes: ontologyAllocationOutcomes(),
         discoveryCycle: discoveryCycleState,
         providerRequestsStartedByRead: 0 as const,
@@ -5624,6 +5645,14 @@ export function createControlPlane(options?: {
     ) {
       await ready;
       writeJson(response, 200, agentResultRepairProjection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/semantic-novelty-admission"
+    ) {
+      await ready;
+      writeJson(response, 200, semanticNoveltyProjection());
       return;
     }
     const discoverySignalAcknowledgement = url.pathname.match(
