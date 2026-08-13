@@ -547,6 +547,11 @@ export interface AgentRuntimeSession {
     budget?: Readonly<{ maximumWaitMs: number }>,
   ): Promise<AgentRuntimeTurn>;
   settleAcceptedResult?(toolResults: readonly AgentRuntimeToolResult[]): Promise<void>;
+  refreshToolManifest?(input: Readonly<{
+    toolResults: readonly AgentRuntimeToolResult[];
+    toolManifest: readonly AgentRuntimeToolDefinition[];
+    stateCheckpoint: unknown;
+  }>): Promise<void>;
   prepareCompletionRecovery?(input: Readonly<{
     attemptOrdinal: number;
     recommendedToolNames: readonly string[];
@@ -598,6 +603,8 @@ export type AgentToolHostContext = Readonly<{
 
 export interface AgentToolHost {
   manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[];
+  manifestRefreshPolicy?(toolProtocol: string): "AFTER_ACCEPTED_EFFECT";
+  manifestRefreshCheckpoint?(toolProtocol: string): unknown;
   resultToolNames?(toolProtocol: string): readonly string[];
   completionRecoveryToolNames?(toolProtocol: string): readonly string[];
   execute(context: AgentToolHostContext): Promise<Readonly<{
@@ -726,9 +733,8 @@ export async function executePreparedAgentRun(
 
   try {
     const credential = await input.credentialBroker.resolve(valid.credential);
-    const toolManifest = Object.freeze(input.toolHost
-      .manifest(valid.profile.toolPolicy.protocol)
-      .map((definition) => Object.freeze({
+    const normalizeManifest = (manifest: readonly AgentRuntimeToolDefinition[]) =>
+      Object.freeze(manifest.map((definition) => Object.freeze({
         name: identifier(definition.name, "Agent tool manifest name"),
         description: boundedText(
           definition.description,
@@ -736,6 +742,11 @@ export async function executePreparedAgentRun(
         ),
         inputSchema: definition.inputSchema,
       })));
+    let toolManifest = normalizeManifest(input.toolHost
+      .manifest(valid.profile.toolPolicy.protocol));
+    const refreshPolicy = input.toolHost.manifestRefreshPolicy?.(
+      valid.profile.toolPolicy.protocol,
+    ) ?? null;
     const explicitResultToolPolicy = input.toolHost.resultToolNames !== undefined;
     const resultToolNames = Object.freeze((input.toolHost.resultToolNames?.(
       valid.profile.toolPolicy.protocol,
@@ -746,7 +757,8 @@ export async function executePreparedAgentRun(
     }
     if (
       new Set(resultToolNames).size !== resultToolNames.length ||
-      resultToolNames.some((name) => !toolManifest.some((tool) => tool.name === name))
+      (refreshPolicy === null &&
+        resultToolNames.some((name) => !toolManifest.some((tool) => tool.name === name)))
     ) throw new Error("Agent result tool policy is missing or outside the manifest");
     const completionRecoveryToolNames = () => {
       const names = Object.freeze((input.toolHost.completionRecoveryToolNames?.(
@@ -1064,6 +1076,36 @@ export async function executePreparedAgentRun(
         }));
       }
       toolResults = Object.freeze(nextResults);
+      const acceptedEffect = effects.slice(-turn.toolCalls.length).some((effect) =>
+        effect.status === "ACCEPTED"
+      );
+      if (refreshPolicy === "AFTER_ACCEPTED_EFFECT" && acceptedEffect) {
+        if (session.refreshToolManifest === undefined) {
+          await session.cancel?.();
+          return finish("FAILED", "runtime cannot refresh a state-scoped tool manifest", null);
+        }
+        const nextManifest = normalizeManifest(input.toolHost
+          .manifest(valid.profile.toolPolicy.protocol));
+        if (nextManifest.length === 0 ||
+            new Set(nextManifest.map((definition) => definition.name)).size !==
+              nextManifest.length) {
+          throw new Error("refreshed Agent tool manifest is empty or repeats a tool name");
+        }
+        if (hashCanonical(nextManifest) !== hashCanonical(toolManifest)) {
+          await session.refreshToolManifest(Object.freeze({
+            toolResults,
+            toolManifest: nextManifest,
+            stateCheckpoint: input.toolHost.manifestRefreshCheckpoint?.(
+              valid.profile.toolPolicy.protocol,
+            ) ?? Object.freeze({
+              latestResults: toolResults,
+              authority: "GENERIC_LATEST_TOOL_RESULT_CHECKPOINT_ONLY",
+            }),
+          }));
+          toolManifest = nextManifest;
+          toolResults = Object.freeze([]);
+        }
+      }
       const rejectedDeclaredResult = effects.slice(-turn.toolCalls.length).some((effect) =>
         effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
       );

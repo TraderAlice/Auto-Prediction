@@ -1,5 +1,44 @@
 # Plans
 
+The selected execution continuation is
+[`plans/state-refreshed-agent-boundary.md`](plans/state-refreshed-agent-boundary.md).
+Issue #247 follows abandoned mutation PR #246. Codex app-server binds dynamic
+tools at thread start, and live Terra evidence shows prompt recommendations
+plus composed schema do not make that surface state-safe. The next candidate
+will add an opt-in runtime manifest-refresh contract: settle the current
+effect, rotate to a fresh ephemeral thread with only currently legal tools,
+and carry a bounded exact transcript across the boundary.
+
+Issue #247 is selected `ADOPT`. Terra/high run `d972000e…` completed a full
+context → hypothesis → two role searches → inspection → two host-bound
+prototype outcomes → closures → bounded exhaustion episode with 11 accepted
+effects and zero rejections. The logical run remained intact across physical
+app-server thread rotations, and the host checkpoint held each later
+invocation near 18–23k input tokens instead of replaying an ever-growing free-form
+history. Total input was 237,918 tokens, so this is an authority/correctness
+adoption rather than a token-efficiency win. The next continuation should use
+the now-reliable long-loop substrate to improve what the system can conjecture
+about markets as world-state predicates and probabilistic constraints.
+
+The completed negative selection is recorded in
+[`plans/state-scoped-exploration-tools.md`](plans/state-scoped-exploration-tools.md).
+Issue #245 follows Terra/high run `f3889b15…`: representation feedback found a
+grounded Senate frontier, but a static capability surface allowed three
+structurally impossible effects and exhausted 537,506 input tokens. Codex
+app-server currently declares dynamic tools at thread start, so this generation
+will make the static surface state-safe through one context read, exact legal
+hypothesis schema branches, and active-binding outcome tools.
+
+Issue #245 is selected `ABANDON` as an architecture. Two Terra/high specimens
+showed that the static thread-start manifest remained callable out of state and
+that Codex sampled only the three fields inside a composed `allOf/oneOf`
+branch, omitting six root-required hypothesis fields. One run spent eight
+invocations and 173,562 input tokens on two repeated reads and five rejected
+hypotheses. The useful host-bound, symmetric prototype-outcome semantics should
+be extracted into a clean successor; the next continuation will physically
+narrow capability per state transition with fresh bounded Agent threads rather
+than treating prompt recommendations or composed schema as access control.
+
 The active execution continuation is
 [`plans/representation-role-coverage-feedback.md`](plans/representation-role-coverage-feedback.md).
 Issue #243 follows the adopted dialect atlas. Exact live evidence distinguishes

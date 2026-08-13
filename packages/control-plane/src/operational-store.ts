@@ -6239,7 +6239,8 @@ export class SqliteOperationalStore
         task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V8" ||
         ["MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V9",
           "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V10",
-          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V11"]
+          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V11",
+          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12"]
           .includes(task.requestedEffectProtocol)) &&
       task.provenanceRef === `mechanism-prototype-exploration:${input.lensId}`;
   }

@@ -72,6 +72,28 @@ class FakeConnection implements CodexAppServerConnection {
   }
 }
 
+class NamedFakeConnection extends FakeConnection {
+  public constructor(
+    events: readonly CodexAppServerInbound[],
+    private readonly threadName: string,
+  ) {
+    super(events);
+  }
+
+  public override async request(
+    method: string,
+    params: unknown,
+    timeoutMs?: number,
+  ): Promise<unknown> {
+    if (method === "thread/start") {
+      this.requests.push(Object.freeze({ method, params, timeoutMs }));
+      return { thread: { id: this.threadName }, model: "gpt-5.6-terra",
+        modelProvider: "openai" };
+    }
+    return super.request(method, params, timeoutMs);
+  }
+}
+
 function fixture(events: readonly CodexAppServerInbound[], maximumWallClockMs = 300_000) {
   const payload = Object.freeze({
     schemaVersion: "test.ontology-task.v1",
@@ -170,6 +192,84 @@ function fixture(events: readonly CodexAppServerInbound[], maximumWallClockMs = 
 }
 
 describe("Codex app-server Agent runtime", () => {
+  it("settles an accepted effect before rotating to a fresh state-scoped thread", async () => {
+    const first = new NamedFakeConnection([{
+      method: "item/tool/call", id: 501, params: {
+        threadId: "thread:first", turnId: "turn:test", callId: "call:read",
+        tool: "read_context", arguments: {},
+      },
+    }, {
+      method: "thread/tokenUsage/updated", params: {
+        threadId: "thread:first", turnId: "turn:test",
+        tokenUsage: { last: { inputTokens: 20, outputTokens: 4,
+          reasoningOutputTokens: 1 } },
+      },
+    }], "thread:first");
+    const second = new NamedFakeConnection([{
+      method: "item/tool/call", id: 502, params: {
+        threadId: "thread:second", turnId: "turn:test", callId: "call:finish",
+        tool: "submit_result", arguments: { result: "bounded" },
+      },
+    }, {
+      method: "thread/tokenUsage/updated", params: {
+        threadId: "thread:second", turnId: "turn:test",
+        tokenUsage: { last: { inputTokens: 30, outputTokens: 5,
+          reasoningOutputTokens: 2 } },
+      },
+    }], "thread:second");
+    const work = fixture([]);
+    const connections = [first, second];
+    let state: "CONTEXT" | "TERMINAL" = "CONTEXT";
+    const contextTool = Object.freeze({ name: "read_context",
+      description: "Read bounded context.", inputSchema: { type: "object",
+        additionalProperties: false, properties: {} } });
+    const terminalTool = Object.freeze({ name: "submit_result",
+      description: "Submit bounded result.", inputSchema: { type: "object",
+        additionalProperties: false, required: ["result"],
+        properties: { result: { type: "string" } } } });
+    const adapter = createCodexAppServerAgentRuntimeAdapter({
+      connectionFactory: async () => {
+        const next = connections.shift();
+        if (next === undefined) throw new Error("unexpected connection");
+        return next;
+      },
+    });
+    const result = await executePreparedAgentRun({
+      run: work.run, task: work.task, taskPayload: work.payload,
+      runtimeDefinition: work.runtime, credentialBinding: work.credential,
+      modelProfile: work.model, executionProfile: work.profile,
+      adapter, credentialBroker: work.broker,
+      toolHost: {
+        manifest: () => state === "CONTEXT" ? [contextTool] : [terminalTool],
+        manifestRefreshPolicy: () => "AFTER_ACCEPTED_EFFECT",
+        manifestRefreshCheckpoint: () => ({ phase: state }),
+        resultToolNames: () => ["submit_result"],
+        completionRecoveryToolNames: () => state === "CONTEXT"
+          ? ["read_context"] : ["submit_result"],
+        execute: async (context) => {
+          if (context.toolName === "read_context") state = "TERMINAL";
+          return { status: "ACCEPTED", output: { state } };
+        },
+      },
+    });
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.toolEffects.map((effect) => effect.toolName))
+      .toEqual(["read_context", "submit_result"]);
+    expect(first.responses).toHaveLength(1);
+    expect(first.closed).toBe(true);
+    expect((first.requests.find((item) => item.method === "thread/start")?.params as {
+      dynamicTools: readonly { name: string }[] }).dynamicTools.map((tool) => tool.name))
+      .toEqual(["read_context"]);
+    expect((second.requests.find((item) => item.method === "thread/start")?.params as {
+      dynamicTools: readonly { name: string }[] }).dynamicTools.map((tool) => tool.name))
+      .toEqual(["submit_result"]);
+    expect(second.requests.find((item) => item.method === "turn/start"))
+      .toMatchObject({ params: { input: [{ text: expect.stringContaining(
+        '"phase":"TERMINAL"',
+      ) }] } });
+  });
+
   it("preserves bounded app-server protocol detail in failed invocation evidence", async () => {
     const work = fixture([]);
     work.connection.requestFailure = new Error(

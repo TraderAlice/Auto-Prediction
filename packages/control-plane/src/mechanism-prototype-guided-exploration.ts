@@ -39,7 +39,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V11" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -293,7 +293,8 @@ export type MechanismPrototypeExplorationFlatSearchObservation = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationActionObservation = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-action-observation.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-action-observation.v1" |
+    "pmh.mechanism-prototype-exploration-action-observation.v2";
   observationId: Hash;
   lensId: Hash;
   inputRevisionId: Hash;
@@ -304,7 +305,7 @@ export type MechanismPrototypeExplorationActionObservation = Readonly<{
   sourceToolCallId: string;
   capturedAt: string;
   action: "TRANSFER_TEST_APPLIED" | "TRANSFER_TEST_FAILED" |
-    "COUNTER_SCENARIO_ACTIVATED";
+    "COUNTER_SCENARIO_ACTIVATED" | "COUNTER_SCENARIO_FAILED";
   ordinal: number;
   exactText: string;
   authority: "DURABLE_PROTOTYPE_EXPLORATION_ACTION_ONLY";
@@ -450,6 +451,7 @@ export type MechanismPrototypeExplorationStepObservation = Readonly<{
     appliedTransferTestOrdinals: readonly number[];
     failedTransferTestOrdinals: readonly number[];
     activatedCounterScenarioOrdinals: readonly number[];
+    failedCounterScenarioOrdinals?: readonly number[];
     activeHypothesis?: boolean;
     activeHypothesisTestBinding?: Readonly<{
       kind: "TRANSFER_TEST" | "COUNTER_SCENARIO";
@@ -909,7 +911,8 @@ export type MechanismPrototypeExplorationTrailhead = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationExhaustion = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v1" |
+    "pmh.mechanism-prototype-exploration-exhaustion.v2";
   exhaustionId: Hash;
   lensId: Hash;
   inputRevisionId: Hash;
@@ -923,6 +926,7 @@ export type MechanismPrototypeExplorationExhaustion = Readonly<{
   roleSearchSummaries?: readonly MechanismPrototypeExplorationRoleSearchSummary[];
   searchedNeighborhoods: readonly string[];
   failedTransferTests: readonly string[];
+  failedCounterScenarios?: readonly string[];
   activatedCounterScenarios: readonly string[];
   reason: string;
   proposedAt: string;
@@ -2118,7 +2122,8 @@ export function buildMechanismPrototypeExplorationTrailhead(input: Readonly<{
     researchInput, corpus: input.corpus, listingRefs: input.listingRefs,
     inspectedListingRefs: input.inspectedListingRefs, minimum: 2,
   });
-  const appliedTransferTests = boundedTexts(input.appliedTransferTests, 1, 12);
+  const appliedTransferTests = input.appliedTransferTests.length === 0
+    ? Object.freeze([]) : boundedTexts(input.appliedTransferTests, 1, 12);
   if (appliedTransferTests.some((test) => !prototype.transferTests.includes(test))) {
     throw new Error("mechanism exploration trailhead uses an unknown transfer test");
   }
@@ -2127,6 +2132,9 @@ export function buildMechanismPrototypeExplorationTrailhead(input: Readonly<{
     : boundedTexts(input.activatedCounterScenarios, 1, 12);
   if (activatedCounterScenarios.some((item) => !prototype.counterScenarios.includes(item))) {
     throw new Error("mechanism exploration trailhead uses an unknown counter-scenario");
+  }
+  if (appliedTransferTests.length + activatedCounterScenarios.length === 0) {
+    throw new Error("mechanism exploration trailhead requires a supported prototype test");
   }
   if (researchInput.axisContract === undefined) {
     throw new Error("mechanism exploration axis contract is unavailable");
@@ -2183,6 +2191,7 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
   inspectedListingRefsForResult: readonly string[];
   searchedNeighborhoods: readonly string[];
   failedTransferTests: readonly string[];
+  failedCounterScenarios?: readonly string[];
   activatedCounterScenarios: readonly string[];
   reason: string;
   proposedAt: string;
@@ -2193,7 +2202,8 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
       !HASH_PATTERN.test(input.sourceAgentRunId) || !bounded(input.reason, 2_000)) {
     throw new Error("mechanism exploration exhaustion lineage or reason is invalid");
   }
-  const failedTransferTests = boundedTexts(input.failedTransferTests, 1, 12);
+  const failedTransferTests = input.failedTransferTests.length === 0
+    ? Object.freeze([]) : boundedTexts(input.failedTransferTests, 1, 12);
   if (failedTransferTests.some((test) => !prototype.transferTests.includes(test))) {
     throw new Error("mechanism exploration exhaustion uses an unknown transfer test");
   }
@@ -2203,12 +2213,18 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
   if (activatedCounterScenarios.some((item) => !prototype.counterScenarios.includes(item))) {
     throw new Error("mechanism exploration exhaustion uses an unknown counter-scenario");
   }
+  const failedCounterScenarios = (input.failedCounterScenarios ?? []).length === 0
+    ? Object.freeze([]) : boundedTexts(input.failedCounterScenarios ?? [], 1, 12);
+  if (failedCounterScenarios.some((item) => !prototype.counterScenarios.includes(item)) ||
+      failedTransferTests.length + failedCounterScenarios.length === 0) {
+    throw new Error("mechanism exploration exhaustion requires a failed prototype test");
+  }
   const searchedResultIds = exactHashes(input.searchedResultIds);
   if (searchedResultIds.length === 0) {
     throw new Error("mechanism exploration exhaustion requires at least one exact search");
   }
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v1" as const,
+    schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v2" as const,
     lensId: researchInput.lensId,
     inputRevisionId: researchInput.inputRevisionId,
     semanticInputIdentity: researchInput.semanticInputIdentity,
@@ -2230,6 +2246,7 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
     }),
     searchedNeighborhoods: boundedTexts(input.searchedNeighborhoods, 1, 12),
     failedTransferTests,
+    failedCounterScenarios,
     activatedCounterScenarios,
     reason: input.reason,
     proposedAt: exactTime(input.proposedAt),
@@ -2322,8 +2339,10 @@ export function assertMechanismPrototypeExplorationTrailhead(
     !bounded(item.structuralAnalogy, 2_000) ||
     boundedTexts(item.surfaceDifferences, 1, 12).join("\n") !==
       item.surfaceDifferences.join("\n") ||
-    boundedTexts(item.appliedTransferTests, 1, 12).join("\n") !==
-      item.appliedTransferTests.join("\n") ||
+    (item.appliedTransferTests.length > 0 &&
+      boundedTexts(item.appliedTransferTests, 1, 12).join("\n") !==
+        item.appliedTransferTests.join("\n")) ||
+    item.appliedTransferTests.length + item.activatedCounterScenarios.length === 0 ||
     (item.activatedCounterScenarios.length > 0 &&
       boundedTexts(item.activatedCounterScenarios, 1, 12).join("\n") !==
         item.activatedCounterScenarios.join("\n")) ||
@@ -2354,7 +2373,9 @@ export function assertMechanismPrototypeExplorationExhaustion(
   const item = value as MechanismPrototypeExplorationExhaustion;
   const { exhaustionId, ...body } = item;
   if (
-    item.schemaVersion !== "pmh.mechanism-prototype-exploration-exhaustion.v1" ||
+    !["pmh.mechanism-prototype-exploration-exhaustion.v1",
+      "pmh.mechanism-prototype-exploration-exhaustion.v2"]
+      .includes(String(item.schemaVersion)) ||
     !HASH_PATTERN.test(String(exhaustionId)) || exhaustionId !== hashCanonical(body) ||
     ![item.lensId, item.inputRevisionId, item.semanticInputIdentity, item.prototypeId,
       item.sourceAgentRunId].every((field) => HASH_PATTERN.test(String(field))) ||
@@ -2380,8 +2401,15 @@ export function assertMechanismPrototypeExplorationExhaustion(
     item.searchedResultIds.length < 1 ||
     boundedTexts(item.searchedNeighborhoods, 1, 12).join("\n") !==
       item.searchedNeighborhoods.join("\n") ||
-    boundedTexts(item.failedTransferTests, 1, 12).join("\n") !==
-      item.failedTransferTests.join("\n") ||
+    (item.failedTransferTests.length > 0 &&
+      boundedTexts(item.failedTransferTests, 1, 12).join("\n") !==
+        item.failedTransferTests.join("\n")) ||
+    (item.schemaVersion === "pmh.mechanism-prototype-exploration-exhaustion.v2" &&
+      (!Array.isArray(item.failedCounterScenarios) ||
+       item.failedTransferTests.length + item.failedCounterScenarios.length === 0 ||
+       (item.failedCounterScenarios.length > 0 &&
+        boundedTexts(item.failedCounterScenarios, 1, 12).join("\n") !==
+          item.failedCounterScenarios.join("\n")))) ||
     (item.activatedCounterScenarios.length > 0 &&
       boundedTexts(item.activatedCounterScenarios, 1, 12).join("\n") !==
         item.activatedCounterScenarios.join("\n")) ||
@@ -2686,7 +2714,7 @@ export function buildMechanismPrototypeExplorationActionObservation(input: Reado
     throw new Error("mechanism exploration action observation lineage is invalid");
   }
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-action-observation.v1" as const,
+    schemaVersion: "pmh.mechanism-prototype-exploration-action-observation.v2" as const,
     lensId: researchInput.lensId,
     inputRevisionId: researchInput.inputRevisionId,
     semanticInputIdentity: researchInput.semanticInputIdentity,
@@ -2718,7 +2746,9 @@ export function assertMechanismPrototypeExplorationActionObservation(
   const item = value as Record<string, unknown>;
   const { observationId, ...body } = item;
   if (!HASH_PATTERN.test(String(observationId)) || hashCanonical(body) !== observationId ||
-      item.schemaVersion !== "pmh.mechanism-prototype-exploration-action-observation.v1" ||
+      !["pmh.mechanism-prototype-exploration-action-observation.v1",
+        "pmh.mechanism-prototype-exploration-action-observation.v2"]
+        .includes(String(item.schemaVersion)) ||
       !HASH_PATTERN.test(String(item.lensId)) || !HASH_PATTERN.test(String(item.inputRevisionId)) ||
       !HASH_PATTERN.test(String(item.semanticInputIdentity)) ||
       !HASH_PATTERN.test(String(item.prototypeId)) ||
@@ -2726,8 +2756,11 @@ export function assertMechanismPrototypeExplorationActionObservation(
       typeof item.sourceToolCallId !== "string" || item.sourceToolCallId.length < 1 ||
       item.sourceToolCallId.length > 500 || typeof item.capturedAt !== "string" ||
       !Number.isFinite(Date.parse(item.capturedAt)) ||
-      !["TRANSFER_TEST_APPLIED", "TRANSFER_TEST_FAILED", "COUNTER_SCENARIO_ACTIVATED"]
+      !["TRANSFER_TEST_APPLIED", "TRANSFER_TEST_FAILED", "COUNTER_SCENARIO_ACTIVATED",
+        "COUNTER_SCENARIO_FAILED"]
         .includes(String(item.action)) || !Number.isSafeInteger(item.ordinal) ||
+      (item.action === "COUNTER_SCENARIO_FAILED" && item.schemaVersion !==
+        "pmh.mechanism-prototype-exploration-action-observation.v2") ||
       Number(item.ordinal) < 1 || typeof item.exactText !== "string" ||
       item.exactText.length < 1 || item.exactText.length > 2_000 ||
       item.authority !== "DURABLE_PROTOTYPE_EXPLORATION_ACTION_ONLY" ||
@@ -2775,6 +2808,8 @@ export function buildMechanismPrototypeExplorationStepObservation(input: Readonl
       activeHypothesis: input.readinessAfter.activeHypothesis ?? false,
       activeHypothesisTestBinding: input.readinessAfter.activeHypothesisTestBinding ?? null,
       closedHypothesisCount: input.readinessAfter.closedHypothesisCount ?? 0,
+      failedCounterScenarioOrdinals:
+        input.readinessAfter.failedCounterScenarioOrdinals ?? Object.freeze([]),
     }),
     ...(input.hypothesisEvent === undefined ? {} : {
       hypothesisEvent: input.hypothesisEvent,
@@ -2807,6 +2842,8 @@ export function assertMechanismPrototypeExplorationStepObservation(
   const ordinalLists = readiness === undefined ? [] : [
     readiness.appliedTransferTestOrdinals, readiness.failedTransferTestOrdinals,
     readiness.activatedCounterScenarioOrdinals,
+    ...(readiness.failedCounterScenarioOrdinals === undefined
+      ? [] : [readiness.failedCounterScenarioOrdinals]),
   ];
   if (!HASH_PATTERN.test(String(observationId)) || hashCanonical(body) !== observationId ||
       !["pmh.mechanism-prototype-exploration-step-observation.v1",

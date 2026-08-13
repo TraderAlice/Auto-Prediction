@@ -14,7 +14,7 @@ const ONTOLOGY_MECHANISM_EXECUTION_PROTOCOL_REVISION = 2;
 const WORLD_STATE_MECHANISM_RESEARCH_EXECUTION_REVISION = 1;
 const SUBJECT_BINDING_RESEARCH_EXECUTION_REVISION = 1;
 const MECHANISM_PROTOTYPE_RESEARCH_EXECUTION_REVISION = 1;
-const MECHANISM_PROTOTYPE_EXPLORATION_EXECUTION_REVISION = 15;
+const MECHANISM_PROTOTYPE_EXPLORATION_EXECUTION_REVISION = 17;
 
 export function buildDefaultAgentRuntimePortfolio(
   configuration: AiRuntimeConfiguration,
@@ -243,7 +243,7 @@ export function buildDefaultAgentRuntimePortfolio(
     runtimeDefinition: codex,
     credentialBinding: codexCredential,
     modelProfile: codexModel,
-    toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V11",
+    toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12",
     runBudget: {
       maximumModelInvocations: 16,
       maximumToolCalls: 32,
