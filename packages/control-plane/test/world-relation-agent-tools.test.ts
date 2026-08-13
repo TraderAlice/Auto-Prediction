@@ -47,7 +47,7 @@ function predicate(verbPhrase: string, kind: "OCCURRENCE" | "STATE_PRESENCE" | "
   });
 }
 
-function fixture() {
+function fixture(sharedRawEvidence = false) {
   const shot = predicate("is shot in August", "OCCURRENCE");
   const capacity = predicate("is physically able to appear personally", "STATE_PRESENCE");
   const cola = predicate("drinks cola on a September livestream", "PUBLIC_ACTION");
@@ -83,7 +83,8 @@ function fixture() {
         { venueOutcomeId: "no", label: "No", indicativePrice: "900000" }],
       priceScale: "1000000", quantityScale: "1000000", minPriceTick: "1000",
       sourceKind: "VERIFIED_FIXTURE" as const, sourceReceivedAt: at,
-      sourceRawHash: hash(`${listingRef}:raw`), protocolIdentity: "fixture:v1",
+      sourceRawHash: hash(sharedRawEvidence ? "shared-catalog-response" : `${listingRef}:raw`),
+      protocolIdentity: "fixture:v1",
     };
   };
   const corpus = buildMarketCorpusSnapshot({ sourceSetIdentity: hash("source-set"),
@@ -242,5 +243,53 @@ describe("world relation Agent tools", () => {
     expect(experiment.adverseAssignments[0]?.truthByPredicateId[work.cola.predicateId])
       .toBe(false);
     expect(experiment.counterworlds[0]?.result).toBe("INCONCLUSIVE");
+  });
+
+  it("deduplicates shared raw catalog evidence across inspected listings", async () => {
+    const work = fixture(true);
+    await work.call("read_world_relation_context", {});
+    await work.call("open_world_relation_hypothesis", {
+      predictedConstraint: "A state-mediated inhibition may exist.",
+      supportingObservation: "Shared subject and ordered intervals.",
+      falsifyingObservation: "The later act occurs despite the inhibiting state.",
+      rationale: "Retain a bounded relation experiment.",
+    });
+    await work.call("search_world_relation_corpus", { patterns: ["Trump"], syntax: "LITERAL",
+      mode: "ANY", fields: ["title"], venueIds: [], limit: 10 });
+    await work.call("close_world_relation_search", {});
+    await work.call("inspect_world_relation_listings", {
+      listingRefs: ["fixture:shot", "fixture:cola"],
+    });
+    await work.call("select_active_counterworld", {
+      truePredicateIds: [work.shot.predicateId, work.capacity.predicateId],
+      falsePredicateIds: [work.cola.predicateId],
+      description: "Shooting and incapacity occur while the later action does not.",
+    });
+    await work.call("record_active_counterworld_outcome", {
+      outcome: "INCONCLUSIVE", description: "The retained rules do not establish direction.",
+    });
+    await work.call("submit_world_relation_terminal", {
+      disposition: "UNRESOLVED", rationale: "Keep the bounded negative memory.",
+    });
+    const invocation = buildModelInvocation({ run: work.run, modelProfile: work.model, ordinal: 1,
+      status: "SUCCEEDED", startedAt: at, completedAt: "2026-08-14T00:00:01.000Z",
+      inputTokens: "100", outputTokens: "20", reasoningTokens: "5",
+      purpose: "PRIMARY_REASONING" });
+    const effect = buildAgentToolEffect({ run: work.run, ordinal: 1,
+      toolProtocol: WORLD_RELATION_EXPERIMENT_TOOL_PROTOCOL,
+      toolName: "submit_world_relation_terminal", status: "ACCEPTED",
+      canonicalInput: {}, canonicalOutput: { accepted: true }, diagnostic: null,
+      sourceInvocation: invocation, occurredAt: invocation.completedAt });
+    const completed = completeAgentRun(work.run, "SUCCEEDED",
+      "2026-08-14T00:00:02.000Z", null);
+    const experiment = compileWorldRelationExperimentFromRun({
+      host: work.host,
+      execution: { run: completed, modelInvocations: [invocation], toolEffects: [effect],
+        runArtifacts: [], finalArtifactHash: hash("final-shared"), runtimeKind: "CODEX",
+        credentialBindingId: work.credential.credentialBindingId,
+        secretMaterialRetained: false },
+    });
+    expect(experiment.counterworlds[0]?.evidenceBindingHashes)
+      .toEqual([hash("shared-catalog-response")]);
   });
 });

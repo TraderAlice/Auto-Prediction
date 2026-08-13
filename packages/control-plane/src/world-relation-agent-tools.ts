@@ -472,15 +472,19 @@ export function compileWorldRelationExperimentFromRun(input: Readonly<{
       truthByPredicateId: counterworld.truthByPredicateId,
       rationale: counterworld.description,
     }],
-    searchNeighborhoods: input.host.searches().map((item) => item.query.patterns.join(" ")),
+    searchNeighborhoods: [...new Set(input.host.searches()
+      .map((item) => item.query.patterns.join(" ")))],
     inspectedProjectionIds,
     counterworlds: counterworld === null ? [] : [{
       description: `${counterworld.description} Test outcome: ${counterworld.outcomeDescription}`,
       truthByPredicateId: counterworld.truthByPredicateId,
       result: counterworld.outcome!,
-      evidenceBindingHashes: input.host.inspectedListingRefs().map((listingRef) =>
+      // A catalog response may be the one immutable raw source for many
+      // listings. Bind that shared evidence once rather than treating repeated
+      // listing-level references as malformed duplicate evidence.
+      evidenceBindingHashes: [...new Set(input.host.inspectedListingRefs().map((listingRef) =>
         input.host.corpus.listings.find((item) => item.listingRef === listingRef)!.sourceRawHash as Hash
-      ),
+      ))],
     }],
     terminalDisposition: terminal.disposition,
     rationale: terminal.rationale,

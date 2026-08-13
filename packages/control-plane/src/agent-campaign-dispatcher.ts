@@ -516,12 +516,13 @@ export class AgentCampaignDispatcher {
       try {
         await this.#onExecutionResult({ task, taskPayload, toolHost, execution: result });
       } catch (error) {
+        const diagnostic = compactDiagnostic(error);
         this.#registry.saveBatch({ runAnnotations: [buildAgentRunAnnotation({
           run: result.run,
           category: "POST_RUN_MATERIALIZATION_FAILURE",
           sourceRecordRef: `agent-run:${result.run.runId}`,
-          observedFacts: { diagnostic: compactDiagnostic(error) },
-          note: "The model run is durable, but its first-party post-run artifact materializer failed.",
+          observedFacts: { diagnostic },
+          note: `The model run is durable, but its first-party post-run artifact materializer failed: ${diagnostic}`,
           createdAt: result.run.completedAt!,
         })] });
       }

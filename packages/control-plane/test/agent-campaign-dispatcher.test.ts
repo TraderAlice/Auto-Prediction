@@ -208,7 +208,9 @@ describe("Agent campaign dispatcher", () => {
     expect(item.registry.snapshot().runAnnotations).toContainEqual(expect.objectContaining({
       runId: dispatched.run.runId,
       category: "POST_RUN_MATERIALIZATION_FAILURE",
-      note: expect.stringContaining("first-party post-run artifact materializer failed"),
+      note: expect.stringContaining(
+        "first-party post-run artifact materializer failed: fixture materializer failed",
+      ),
     }));
     item.store.close();
   });
