@@ -15,6 +15,7 @@ import {
   searchMechanismPrototypeExplorationRoles,
   type MechanismPrototypeExplorationExhaustion,
   type MechanismPrototypeExplorationHypothesis,
+  type MechanismPrototypeExplorationHypothesisFamily,
   type MechanismPrototypeExplorationInputRevision,
   type MechanismPrototypeExplorationStore,
   type MechanismPrototypeExplorationTrailhead,
@@ -59,7 +60,7 @@ export const MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES = Object.f
 ] as const);
 
 export type MechanismPrototypeExplorationActionReadiness = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v2";
+  schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v3";
   searchedResultCount: number;
   roleSearchResultCount: number;
   rolePairCount: number;
@@ -69,6 +70,10 @@ export type MechanismPrototypeExplorationActionReadiness = Readonly<{
   failedTransferTestOrdinals: readonly number[];
   activatedCounterScenarioOrdinals: readonly number[];
   activeHypothesis: boolean;
+  activeHypothesisTestBinding: Readonly<{
+    kind: "TRANSFER_TEST" | "COUNTER_SCENARIO";
+    handle: string;
+  }> | null;
   closedHypothesisCount: number;
   positive: Readonly<{
     eligible: boolean;
@@ -96,7 +101,8 @@ export function assertMechanismPrototypeExplorationActionReadiness(
     "schemaVersion", "searchedResultCount", "roleSearchResultCount", "rolePairCount",
     "inspectedListingCount", "inspectedRolePairCount", "appliedTransferTestOrdinals",
     "failedTransferTestOrdinals", "activatedCounterScenarioOrdinals", "positive",
-    "activeHypothesis", "closedHypothesisCount", "exhaustion", "authority",
+    "activeHypothesis", "activeHypothesisTestBinding", "closedHypothesisCount",
+    "exhaustion", "authority",
     "prescriptiveSearchAuthority", "semanticDecisionAuthority",
     "probabilityAuthority", "certificateAuthority", "executionAuthority",
     "externalWriteAuthority", "valueMovingAuthority",
@@ -111,12 +117,19 @@ export function assertMechanismPrototypeExplorationActionReadiness(
     item.activatedCounterScenarioOrdinals];
   const positiveMissing = positive.missingPrerequisites;
   const exhaustionMissing = exhaustion.missingPrerequisites;
-  if (item.schemaVersion !== "pmh.mechanism-prototype-exploration-action-readiness.v2" ||
+  const activeBinding = item.activeHypothesisTestBinding === null
+    ? null : object(item.activeHypothesisTestBinding);
+  if (activeBinding !== null) exactKeys(activeBinding, ["kind", "handle"]);
+  if (item.schemaVersion !== "pmh.mechanism-prototype-exploration-action-readiness.v3" ||
       counts.some((count) => !Number.isSafeInteger(count) || Number(count) < 0) ||
       ordinalLists.some((list) => !Array.isArray(list) || list.some((ordinal) =>
         !Number.isSafeInteger(ordinal) || Number(ordinal) < 1
       ) || new Set(list).size !== list.length) ||
       typeof item.activeHypothesis !== "boolean" ||
+      (item.activeHypothesis !== (activeBinding !== null)) ||
+      (activeBinding !== null &&
+        (!['TRANSFER_TEST', 'COUNTER_SCENARIO'].includes(String(activeBinding.kind)) ||
+         typeof activeBinding.handle !== "string" || activeBinding.handle.length < 1)) ||
       !Number.isSafeInteger(item.closedHypothesisCount) || Number(item.closedHypothesisCount) < 0 ||
       typeof positive.eligible !== "boolean" || !Array.isArray(positiveMissing) ||
       positiveMissing.some((name) =>
@@ -242,13 +255,17 @@ const BASE_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: "open_exploration_hypothesis",
-    description: "Open one falsifiable ontological conjecture after or before reconnaissance. Bind an exact prototype test, name the material variation and predicted role structure, and state in advance what would support or falsify it. This routes research only and does not assert a semantic relation.",
+    description: "Open one falsifiable ontological conjecture before any prototype action. Bind an exact prototype test, name the material variation and predicted role structure, and state in advance what would support or falsify it. If priorHypothesisFamilies is empty, use DIFFERENT_TEST with priorFamilyId null. This routes research only and does not assert a semantic relation.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
-      required: ["prototypeTestHandle", "materialVariation", "predictedRoleStructure",
+      required: ["prototypeTestHandle", "familyIntent", "priorFamilyId",
+        "intentRationale", "materialVariation", "predictedRoleStructure",
         "supportingObservation", "falsifyingObservation", "searchNeighborhoods"],
       properties: {
-        prototypeTestHandle: text(80), materialVariation: text(2_000),
+        prototypeTestHandle: text(80),
+        familyIntent: Object.freeze({ enum: ["EXTEND", "REPLICATE", "DIFFERENT_TEST"] }),
+        priorFamilyId: Object.freeze({ type: ["string", "null"], maxLength: 80 }),
+        intentRationale: text(2_000), materialVariation: text(2_000),
         predictedRoleStructure: text(2_000), supportingObservation: text(2_000),
         falsifyingObservation: text(2_000), searchNeighborhoods: texts(1, 12),
       },
@@ -338,6 +355,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     public readonly prototype: WorldStateMechanismPrototypeProposal,
     public readonly corpus: MarketCorpusSnapshot,
     private readonly store?: MechanismPrototypeExplorationStore,
+    private readonly hypothesisFamilies: readonly MechanismPrototypeExplorationHypothesisFamily[] = [],
   ) {}
 
   public manifest(protocol: string): readonly AgentRuntimeToolDefinition[] {
@@ -423,7 +441,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         : this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null,
     );
     return assertMechanismPrototypeExplorationActionReadiness(Object.freeze({
-      schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v2" as const,
+      schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v3" as const,
       searchedResultCount: this.#searchedResultIds.size,
       roleSearchResultCount: this.#roleSearchResults.size,
       rolePairCount: rolePairs.length,
@@ -436,6 +454,10 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       activatedCounterScenarioOrdinals: ordinalSet(this.#activatedCounterScenarios,
         references.counterScenarios),
       activeHypothesis: this.#activeHypothesis !== null,
+      activeHypothesisTestBinding: this.#activeHypothesis === null ? null : Object.freeze({
+        kind: this.#activeHypothesis.testBinding.kind,
+        handle: this.#activeHypothesis.testBinding.handle,
+      }),
       closedHypothesisCount: this.#closedHypotheses.length,
       positive: Object.freeze({ eligible: positiveMissing.length === 0,
         missingPrerequisites: positiveMissing }),
@@ -548,6 +570,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           failedTransferTestOrdinals: readiness.failedTransferTestOrdinals,
           activatedCounterScenarioOrdinals: readiness.activatedCounterScenarioOrdinals,
           activeHypothesis: readiness.activeHypothesis,
+          activeHypothesisTestBinding: readiness.activeHypothesisTestBinding,
           closedHypothesisCount: readiness.closedHypothesisCount,
         }),
         ...(hypothesisEvent === undefined ? {} : {
@@ -596,6 +619,21 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           memberCount: this.researchInput.coverageMembers?.length ?? 0,
           membersOmittedFromReasoningView: true as const,
         }),
+        priorHypothesisFamilies: Object.freeze(this.hypothesisFamilies
+          .filter((family) => family.prototypeId === this.researchInput.prototypeId &&
+            family.axis === this.researchInput.axis)
+          .slice(0, 8).map((family) => Object.freeze({
+            familyId: family.familyId, testHandle: family.testBinding.handle,
+            selectionSignal: family.selectionSignal,
+            hypothesisCount: family.hypothesisCount,
+            distinctSemanticInputCount: family.distinctSemanticInputCount,
+            dispositionCounts: family.dispositionCounts,
+            yield: family.yield, usage: Object.freeze({
+              invocationCount: family.usage.invocationCount,
+              knownInputTokens: family.usage.knownInputTokens,
+            }),
+            authority: "EXACT_PRIOR_HYPOTHESIS_FAMILY_CONTEXT_ONLY",
+          }))),
         excludedListingRefs: this.researchInput.excludedListingRefs,
         seedTrailheads: this.researchInput.seedTrailheads,
         prototype: Object.freeze({
@@ -611,12 +649,15 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
             activationTool: `activate_counter_scenario_${ordinal + 1}`, text,
           })),
         }),
+        hypothesisActionPolicy: "OPEN_BEFORE_ACTION_MATCH_EXACT_BINDING_CLOSE_AFTER_ACTION",
+        familyIntentPolicy: "EMPTY_PRIOR_FAMILIES_REQUIRES_DIFFERENT_TEST_AND_NULL_PRIOR_FAMILY",
         terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
         authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_ONLY",
       }));
     }
     if (context.toolName === "open_exploration_hypothesis") {
-      exactKeys(input, ["prototypeTestHandle", "materialVariation", "predictedRoleStructure",
+      exactKeys(input, ["prototypeTestHandle", "familyIntent", "priorFamilyId",
+        "intentRationale", "materialVariation", "predictedRoleStructure",
         "supportingObservation", "falsifyingObservation", "searchNeighborhoods"]);
       if (this.#activeHypothesis !== null) {
         return this.#rejected("close or revise the active exploration hypothesis first");
@@ -630,6 +671,27 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       if (binding === undefined) {
         return this.#rejected("hypothesis requires an exact prototype test handle from the lens");
       }
+      const matchingFamilies = this.hypothesisFamilies.filter((family) =>
+        family.prototypeId === this.researchInput.prototypeId &&
+        family.axis === this.researchInput.axis &&
+        family.testBinding.handle === binding.item.handle &&
+        family.testBinding.exactText === binding.item.text
+      );
+      const familyIntent = input.familyIntent as "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+      const priorFamilyId = input.priorFamilyId as Hash | null;
+      if (familyIntent === "DIFFERENT_TEST" &&
+          (matchingFamilies.length > 0 || priorFamilyId !== null)) {
+        return this.#rejected(
+          "DIFFERENT_TEST requires a selected exact test with no prior family",
+        );
+      }
+      if (familyIntent !== "DIFFERENT_TEST" &&
+          (priorFamilyId === null || !matchingFamilies.some((family) =>
+            family.familyId === priorFamilyId))) {
+        return this.#rejected(
+          "EXTEND or REPLICATE requires the exact prior family for the selected test",
+        );
+      }
       const hypothesisId = hashCanonical(Object.freeze({
         schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-identity.v1",
         inputRevisionId: this.researchInput.inputRevisionId,
@@ -637,7 +699,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         openingToolCallId: context.callId,
       }));
       const hypothesis = Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v1" as const,
+        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v2" as const,
         hypothesisId, revision: 1, status: "ACTIVE" as const,
         testBinding: Object.freeze({ kind: binding.kind, ordinal: binding.index + 1,
           handle: binding.item.handle, exactText: binding.item.text }),
@@ -648,6 +710,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         searchNeighborhoods: Object.freeze([...(input.searchNeighborhoods as readonly string[])]),
         revisionReason: null, disposition: null,
         observedSupport: Object.freeze([]), observedFalsifiers: Object.freeze([]), rationale: null,
+        familyIntent, priorFamilyId, intentRationale: input.intentRationale as string,
         authority: "AGENT_RESEARCH_HYPOTHESIS_ONLY" as const,
         semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
         certificateAuthority: false as const, executionAuthority: false as const,
@@ -719,6 +782,15 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       const reference = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype)
         .transferTests[Number(transferAction[1]) - 1];
       if (reference === undefined) throw new Error("mechanism exploration transfer action is unknown");
+      if (this.#activeHypothesis === null) {
+        return this.#rejected("prototype action requires an active falsifiable hypothesis");
+      }
+      if (this.#activeHypothesis.testBinding.kind !== "TRANSFER_TEST" ||
+          this.#activeHypothesis.testBinding.handle !== reference.handle) {
+        return this.#rejected(
+          "prototype action must match the active hypothesis exact test binding",
+        );
+      }
       if (transferAction[2] === "applied") {
         if (this.#failedTransferTests.has(reference.text)) {
           throw new Error("mechanism exploration transfer test already marked failed");
@@ -754,6 +826,15 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         .counterScenarios[Number(counterAction[1]) - 1];
       if (reference === undefined) {
         throw new Error("mechanism exploration counter-scenario action is unknown");
+      }
+      if (this.#activeHypothesis === null) {
+        return this.#rejected("counter-scenario action requires an active falsifiable hypothesis");
+      }
+      if (this.#activeHypothesis.testBinding.kind !== "COUNTER_SCENARIO" ||
+          this.#activeHypothesis.testBinding.handle !== reference.handle) {
+        return this.#rejected(
+          "counter-scenario action must match the active hypothesis exact test binding",
+        );
       }
       this.#activatedCounterScenarios.add(reference.text);
       this.store?.saveMechanismPrototypeExplorationActionObservations([

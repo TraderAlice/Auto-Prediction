@@ -1,6 +1,23 @@
 # Plans
 
 The active execution continuation is
+[`plans/hypothesis-family-intent.md`](plans/hypothesis-family-intent.md).
+Issue #231 returns compact exact family history to the V11 Agent and requires a
+checked `EXTEND / REPLICATE / DIFFERENT_TEST` declaration. This creates explicit
+mutation pressure without turning prior falsification into an automatic block.
+
+Issue #231 is selected `ADOPT`. The selected V11 Terra/high episode completed a
+strict lens → hypothesis → search → inspection → exact test → closure → terminal
+sequence in seven accepted calls, using 166,824 input tokens. The hypothesis
+declared `DIFFERENT_TEST`, retained its exact no-prior-family intent, and opened
+a first-observation family on `transfer-test:1`. Earlier 12/14-call interrupted
+specimens exposed incompatible budgets and action-before-hypothesis behavior;
+the adopted host now carries the active exact binding in readiness and rejects
+every prototype action outside its falsification window. The next continuation
+will measure whether declared family intent produces realized search novelty
+and useful yield across exact inputs rather than trusting the declaration.
+
+The active execution continuation is
 [`plans/hypothesis-family-memory.md`](plans/hypothesis-family-memory.md).
 Issue #229 compiles exact prototype/test coordinates across V10 episodes so
 already falsified conjectures become reusable selection evidence rather than a

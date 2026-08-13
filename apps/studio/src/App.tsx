@@ -833,6 +833,9 @@ type WorldStateMechanismProjection = Readonly<{
           materialVariation: string;
           predictedRoleStructure: string;
           falsifyingObservation: string;
+          familyIntent?: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+          priorFamilyId?: string | null;
+          intentRationale?: string;
           status: "ACTIVE" | "CLOSED";
           disposition: "SUPPORTED" | "WEAKENED" | "FALSIFIED" | "UNRESOLVED" | null;
           observedSupport: readonly string[];
@@ -4710,11 +4713,19 @@ function AgentOperationsView() {
                             <Badge variant={hypothesis.final.disposition === "SUPPORTED" ? "verified" : hypothesis.final.disposition === "FALSIFIED" ? "warning" : "shadow"}>
                               {hypothesis.final.disposition ?? "ACTIVE"}
                             </Badge>
+                            {hypothesis.final.familyIntent && (
+                              <Badge variant="muted">
+                                {hypothesis.final.familyIntent.replaceAll("_", " ")}
+                              </Badge>
+                            )}
                             <strong>{hypothesis.final.materialVariation}</strong>
                           </div>
                           <span>Predicted: {hypothesis.final.predictedRoleStructure}</span>
+                          {hypothesis.final.intentRationale && (
+                            <small>Intent: {hypothesis.final.intentRationale}</small>
+                          )}
                           <small>Would falsify: {hypothesis.final.falsifyingObservation}</small>
-                          <small>{hypothesis.revisions.length} revisions · effects {hypothesis.openedEffectOrdinal}→{hypothesis.closedEffectOrdinal ?? "open"} · research hypothesis only</small>
+                          <small>{hypothesis.revisions.length} revisions · effects {hypothesis.openedEffectOrdinal}→{hypothesis.closedEffectOrdinal ?? "open"} · {hypothesis.final.priorFamilyId ? `prior ${hypothesis.final.priorFamilyId.slice(7, 19)}` : "no prior family"} · research hypothesis only</small>
                         </div>
                       ))}
                     </div>
