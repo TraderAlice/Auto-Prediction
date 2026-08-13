@@ -37,6 +37,17 @@ rotated to Roy Cooper. Issue #203 now drains only exact, no-request accounting
 tails from known completed turns; delayed tools or effect-bearing items still
 fail closed. This is event-stream ordering, not adapter retry authority.
 
+Before dispatching the third specimen, a successor catalog exposed a more
+fundamental ontology-admission defect. A vague Fear/Greed metric pair with no
+distinct role evidence and a Stephen A. Smith/Will Smith surname collision both
+entered the four-action mechanism portfolio. Issue #205 makes shared strings
+retrieval evidence rather than subject identity: mechanism spend now requires
+distinct world-role language, and conflicting proper-name neighbors around a
+single shared token hold the pair as explicit ambiguity. The live portfolio
+fell to two local-seat-versus-national-control specimens with zero provider or
+model calls. Historical attempted-task memory remains durable even though
+those tasks are absent from the current portfolio projection.
+
 Issue #190 repairs a restart-continuity defect discovered against the live
 SQLite volume. Semantic-review startup loaded findings and task revisions from
 two independent 512-row recent windows, so a valid older exact revision could

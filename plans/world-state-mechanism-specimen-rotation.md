@@ -114,6 +114,25 @@ unknown turn or changed thread still fails closed. Completion now verifies the
 nested `turn.id` exactly. This preserves async stream ordering without creating
 a retry or weakening built-in-effect rejection.
 
+A catalog successor observed at `2026-08-13T10:16:49.088Z` then changed the
+current attention portfolio rather than simply advancing its prior cursor.
+The current window contained four selected tasks but zero current selected
+attempts because the Antonelli and Peltola task lineages were no longer in that
+allocation projection. Their retained run and cost evidence remains durable;
+the current portfolio count is intentionally not a lifetime counter.
+
+Provider-free inspection stopped a third Agent spend and exposed an ontology
+admission defect. The allocator selected a metric-word collision with no
+distinct role evidence (`Fear and Greed Index ...` versus `Fear or Greed?`) and
+a one-token surname collision between Stephen A. Smith and Will Smith. Issue
+[#205](https://github.com/luokerenx4/my-little-pony/issues/205) now requires at
+least one distinct-role trailhead and treats different bounded proper-name
+neighbors around a single shared token as subject ambiguity. The two pairs are
+retained as explicit `NO_DISTINCT_ROLE_LANGUAGE` and
+`SINGLE_SIGNAL_SUBJECT_AMBIGUITY` holds. The live selected portfolio shrank from
+four to two local-Senate-versus-national-control specimens; no model call was
+used for the correction.
+
 ## Construction qualification
 
 Workspace type checks, 105 control-plane files / 706 tests, five Studio files /

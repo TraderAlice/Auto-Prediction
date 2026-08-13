@@ -21,6 +21,7 @@ export type WorldStateMechanismSuitabilitySignal =
 
 export type WorldStateMechanismSuitabilityHazard =
   | "NO_WORLD_PREDICATE_DIVERGENCE"
+  | "NO_DISTINCT_ROLE_LANGUAGE"
   | "SETTLEMENT_OR_TRADING_DIVERGENCE_ONLY"
   | "SAME_EVENT_INTERVAL_PATTERN"
   | "SHARED_SIGNALS_ARE_CONTRACT_ROLE_LANGUAGE"
@@ -168,14 +169,25 @@ function adjacentProperNameToken(title: string, sharedSignal: string): string | 
     token.toLocaleLowerCase("en-US") === sharedSignal.toLocaleLowerCase("en-US")
   );
   if (index < 0) return null;
-  const candidates = [titleTokens[index - 1], titleTokens[index + 1]].filter(
-    (token): token is string => token !== undefined,
-  );
-  return candidates.find((token) =>
-    /^\p{Lu}[\p{L}\p{N}]*$/u.test(token) &&
-    !ROLE_STOP_WORDS.has(token.toLocaleLowerCase("en-US")) &&
-    token.toLocaleLowerCase("en-US") !== sharedSignal.toLocaleLowerCase("en-US")
-  )?.toLocaleLowerCase("en-US") ?? null;
+  const candidates = [
+    ...[index - 1, index - 2, index - 3].map((candidateIndex) => Object.freeze({
+      token: titleTokens[candidateIndex], index: candidateIndex,
+    })),
+    ...[index + 1, index + 2].map((candidateIndex) => Object.freeze({
+      token: titleTokens[candidateIndex], index: candidateIndex,
+    })),
+  ];
+  for (const candidate of candidates) {
+    if (candidate.token === undefined || !/^\p{Lu}[\p{L}\p{N}]*$/u.test(candidate.token) ||
+        candidate.token.toLocaleLowerCase("en-US") === sharedSignal.toLocaleLowerCase("en-US")) {
+      continue;
+    }
+    const normalized = candidate.token.toLocaleLowerCase("en-US");
+    if (candidate.token.length === 1) continue;
+    if (normalized === "will" && candidate.index > 0) return normalized;
+    if (!ROLE_STOP_WORDS.has(normalized)) return normalized;
+  }
+  return null;
 }
 
 function outcomeTemplate(title: string): string | null {
@@ -195,12 +207,9 @@ function trailheadFacts(
   if (left === undefined || right === undefined) {
     throw new Error("mechanism suitability trailhead evidence is incomplete");
   }
-  const shared = new Set(trailhead.sharedSubjectSignals);
   const onlyContractRoleSignals = trailhead.sharedSubjectSignals.every((item) =>
     CONTRACT_ROLE_SIGNALS.has(item.toLocaleLowerCase("en-US"))
   );
-  const leftExclusive = left.node.worldFacet.subjectSignals.filter((item) => !shared.has(item));
-  const rightExclusive = right.node.worldFacet.subjectSignals.filter((item) => !shared.has(item));
   const leftRole = worldRoleSignature(
     left.title,
     trailhead.sharedSubjectSignals,
@@ -236,7 +245,6 @@ function trailheadFacts(
     multiVenue: left.node.settlementFacet.venueId !== right.node.settlementFacet.venueId,
     multiSignal: trailhead.sharedSubjectSignals.length > 1,
     singleSignalAmbiguity: trailhead.sharedSubjectSignals.length === 1 &&
-      leftExclusive.length > 0 && rightExclusive.length > 0 &&
       leftProperNeighbor !== null && rightProperNeighbor !== null &&
       leftProperNeighbor !== rightProperNeighbor,
     aggregate: trailhead.listingTitleExcerpts.some(aggregateTitle),
@@ -309,6 +317,8 @@ function candidate(
   const hazards = unique<WorldStateMechanismSuitabilityHazard>([
     ...(vector.predicateDivergentTrailheadCount === 0 ?
       ["NO_WORLD_PREDICATE_DIVERGENCE" as const] : []),
+    ...(vector.distinctRoleLanguageTrailheadCount === 0 ?
+      ["NO_DISTINCT_ROLE_LANGUAGE" as const] : []),
     ...(assessed.every((item) => item.facts.settlementOrTradingOnly) ?
       ["SETTLEMENT_OR_TRADING_DIVERGENCE_ONLY" as const] : []),
     ...(assessed.some((item) => item.facts.sameEventInterval) ?
@@ -332,6 +342,7 @@ function candidate(
     hazards,
     suitable: assignment.campaignEligible && vector.coherentTrailheadCount > 0 &&
       vector.predicateDivergentTrailheadCount > 0 &&
+      vector.distinctRoleLanguageTrailheadCount > 0 &&
       vector.singleSignalAmbiguityCount === 0 && vector.aggregateTitleCount === 0 &&
       vector.contractRoleOnlyTrailheadCount === 0 &&
       !assessed.some((item) => item.facts.parallelOutcomeAlternatives),
@@ -362,6 +373,9 @@ function diagnostic(candidate: Candidate, disposition: WorldStateMechanismAlloca
   }
   if (candidate.vector.predicateDivergentTrailheadCount === 0) {
     return "No retained trailhead distinguishes the world predicates; interval or contract variation is insufficient";
+  }
+  if (candidate.vector.distinctRoleLanguageTrailheadCount === 0) {
+    return "Shared lexical signals do not establish two distinct world roles";
   }
   return "The retained exact input is too structurally ambiguous for this bounded mechanism campaign";
 }

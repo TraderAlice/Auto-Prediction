@@ -40,6 +40,10 @@ function fixture() {
       listing("b:bitcoin-september", "Will Bitcoin exceed 100000 in September?"),
       listing("a:jon-jones", "Will Jon Jones win a UFC fight?"),
       listing("b:jon-ossoff", "Will Jon Ossoff win an election?"),
+      listing("a:fear-index", "Fear and Greed Index at 29 or higher on August 14?"),
+      listing("b:fear-choice", "Fear or Greed?"),
+      listing("a:stephen-smith", "Will Stephen A. Smith win the 2028 Democratic presidential nomination?"),
+      listing("b:will-smith", "National League MVP — Will Smith"),
     ],
   });
   const ontology = buildMarketOntologySnapshot(corpus);
@@ -76,11 +80,19 @@ describe("world-state mechanism suitability allocation", () => {
       disposition: "HELD_LOW_STRUCTURAL_SUITABILITY",
       hazards: expect.arrayContaining(["SINGLE_SIGNAL_SUBJECT_AMBIGUITY"]),
     });
+    expect(byTitle("Fear and Greed")).toMatchObject({
+      disposition: "HELD_LOW_STRUCTURAL_SUITABILITY",
+      hazards: expect.arrayContaining(["NO_DISTINCT_ROLE_LANGUAGE"]),
+    });
+    expect(byTitle("Stephen A. Smith")).toMatchObject({
+      disposition: "HELD_LOW_STRUCTURAL_SUITABILITY",
+      hazards: expect.arrayContaining(["SINGLE_SIGNAL_SUBJECT_AMBIGUITY"]),
+    });
     expect(allocation).toMatchObject({
-      eligibleCount: 3,
+      eligibleCount: 6,
       structurallySuitableCount: 1,
       selectedCount: 1,
-      heldLowSuitabilityCount: 2,
+      heldLowSuitabilityCount: 5,
       providerRequestsStartedByRead: 0,
       modelInvocationsStartedByRead: 0,
       campaignsCreatedByRead: 0,
