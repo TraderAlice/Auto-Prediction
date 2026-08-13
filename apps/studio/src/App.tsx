@@ -814,6 +814,13 @@ type WorldStateMechanismProjection = Readonly<{
       currentInputRevision: Readonly<{
         inputRevisionId: string;
         semanticInputIdentity: string;
+        axisContract?: Readonly<{
+          contractId: string;
+          admissionRule: string;
+          sourcePredicateFamilies: readonly string[];
+          sourceInstitutionFamilies: readonly string[];
+          representationChangeAloneInsufficient: true;
+        }>;
         coverageScopeIdentity?: string;
         coverageMembers?: readonly Readonly<{
           listingRef: string;
@@ -830,6 +837,15 @@ type WorldStateMechanismProjection = Readonly<{
       exhaustionIds: readonly string[];
       retainedTrailheadIds: readonly string[];
       retainedExhaustionIds: readonly string[];
+      retainedAssessedTrailheadCount: number;
+      retainedPreGateTrailheadCount: number;
+      latestRetainedAxisAssessment: null | Readonly<{
+        requestedAxis: string;
+        candidatePredicateFamilies: readonly string[];
+        groundedAxisEvidenceSignals: readonly string[];
+        observedNoveltyDimensions: readonly string[];
+        diagnostic: string;
+      }>;
       retainedSemanticInputCount: number;
       uncoveredCoverageMemberCount: number;
       state: "UNEXPLORED" | "TRAILHEAD_RECORDED" | "EXHAUSTED" | "MIXED_RESULTS";
@@ -4579,6 +4595,12 @@ function AgentOperationsView() {
                       </div>
                       <strong>{lens.axis.replaceAll("_", " ")}</strong>
                       <p>{lens.variationQuestion}</p>
+                      {lens.currentInputRevision.axisContract !== undefined && (
+                        <div className="mechanism-seed-pair">
+                          <span>Gate · {lens.currentInputRevision.axisContract.admissionRule.replaceAll("_", " ")}</span>
+                          <span>Source domains · {lens.currentInputRevision.axisContract.sourcePredicateFamilies.join(" · ")}</span>
+                        </div>
+                      )}
                       {lens.currentInputRevision.seedTrailheads[0] !== undefined && (
                         <div className="mechanism-seed-pair">
                           <span>{lens.currentInputRevision.seedTrailheads[0].listingTitleExcerpts[0]}</span>
@@ -4587,6 +4609,12 @@ function AgentOperationsView() {
                       )}
                       <div className="research-attention-facts">
                         <span>{lens.retainedTrailheadIds.length} historical positives</span>
+                        {lens.retainedPreGateTrailheadCount > 0 && (
+                          <span>{lens.retainedPreGateTrailheadCount} pre-gate, not relabelled</span>
+                        )}
+                        {lens.latestRetainedAxisAssessment !== null && (
+                          <span>admitted by {lens.latestRetainedAxisAssessment.groundedAxisEvidenceSignals.join(" · ")}</span>
+                        )}
                         <span>{lens.retainedExhaustionIds.length} historical negatives</span>
                         <span>{lens.campaignEligible
                           ? lens.retainedSemanticInputCount > 0

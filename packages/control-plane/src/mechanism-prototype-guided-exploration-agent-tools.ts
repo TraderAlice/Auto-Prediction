@@ -214,12 +214,13 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       exactKeys(input, []);
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
       return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v2",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v3",
         inputRevisionId: this.researchInput.inputRevisionId,
         semanticInputIdentity: this.researchInput.semanticInputIdentity,
         lensId: this.researchInput.lensId,
         prototypeId: this.researchInput.prototypeId,
         axis: this.researchInput.axis,
+        axisContract: this.researchInput.axisContract ?? null,
         corpusSnapshotIdentity: this.researchInput.corpusSnapshotIdentity,
         coverage: Object.freeze({
           scopeIdentity: this.researchInput.coverageScopeIdentity ?? null,

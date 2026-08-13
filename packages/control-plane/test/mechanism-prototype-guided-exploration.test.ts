@@ -359,6 +359,63 @@ describe("mechanism-prototype-guided exploration substrate", () => {
     });
   });
 
+  it("retains pre-gate trailheads without letting them close a successor axis contract", () => {
+    const { sourceInput, prototype } = acceptedPrototype();
+    const snapshot = corpus();
+    const current = materializeMechanismPrototypeExplorationProjection({
+      prototypes: [prototype], prototypeInputs: [sourceInput], corpus: snapshot,
+      ontology: buildMarketOntologySnapshot(snapshot),
+    });
+    const lens = current.lenses.find((item) => item.axis === "SURFACE_DOMAIN")!;
+    const { axisContract: _removedContract, ...preGateBody } = lens.currentInputRevision;
+    const { inputRevisionId: _oldInputId, ...preGateWithoutIdentity } = preGateBody;
+    const preGateInput = Object.freeze({
+      ...preGateWithoutIdentity,
+      inputRevisionId: hashCanonical(preGateWithoutIdentity),
+    });
+    const preGateTrailheadBody = Object.freeze({
+      schemaVersion: "pmh.mechanism-prototype-exploration-trailhead.v1" as const,
+      lensId: lens.lensId,
+      inputRevisionId: preGateInput.inputRevisionId,
+      semanticInputIdentity: preGateInput.semanticInputIdentity,
+      prototypeId: prototype.prototypeId,
+      axis: lens.axis,
+      sourceAgentRunId: hash("pre-gate-run"),
+      evidenceBindings: Object.freeze(snapshot.listings.slice(2, 4).map((item) => Object.freeze({
+        listingRef: item.listingRef, title: item.title, venueId: item.venueId,
+        sourceRawHash: item.sourceRawHash, protocolIdentity: item.protocolIdentity,
+        semanticListingIdentity: hashCanonical({ listing: item.listingRef }),
+      }))),
+      structuralAnalogy: "Historical pre-gate analogy.",
+      surfaceDifferences: Object.freeze(["historical representation difference"]),
+      appliedTransferTests: Object.freeze([prototype.transferTests[0]!]),
+      activatedCounterScenarios: Object.freeze([]),
+      searchSignals: Object.freeze(["historical"]),
+      noveltyAxisExplanation: "Retained before axis admission existed.",
+      rationale: "Historical evidence must remain visible but cannot close the new contract.",
+      searchedResultIds: Object.freeze([hash("pre-gate-search")]),
+      proposedAt: NOW,
+      authority: "PROTOTYPE_GUIDED_TRAILHEAD_ROUTING_ONLY" as const,
+      semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
+      certificateAuthority: false as const, executionAuthority: false as const,
+      externalWriteAuthority: false as const, valueMovingAuthority: false as const,
+    });
+    const preGateTrailhead = Object.freeze({
+      ...preGateTrailheadBody, trailheadId: hashCanonical(preGateTrailheadBody),
+    });
+    const replayed = materializeMechanismPrototypeExplorationProjection({
+      prototypes: [prototype], prototypeInputs: [sourceInput], corpus: snapshot,
+      ontology: buildMarketOntologySnapshot(snapshot),
+      explorationInputs: [preGateInput], trailheads: [preGateTrailhead],
+    });
+    expect(replayed.lenses.find((item) => item.lensId === lens.lensId)).toMatchObject({
+      state: "UNEXPLORED", campaignEligible: true,
+      retainedTrailheadIds: [preGateTrailhead.trailheadId],
+      retainedPreGateTrailheadCount: 1, retainedAssessedTrailheadCount: 0,
+      latestRetainedAxisAssessment: null,
+    });
+  });
+
   it("fails closed when prototype source input lineage is unavailable", () => {
     const { prototype } = acceptedPrototype();
     const snapshot = corpus();
@@ -530,13 +587,13 @@ describe("mechanism-prototype-guided exploration substrate", () => {
 });
 
 describe("mechanism-prototype exploration Agent tools", () => {
-  function runtimeFixture() {
+  function runtimeFixture(axis: "SURFACE_DOMAIN" | "SUBJECT_AND_GEOGRAPHY" = "SURFACE_DOMAIN") {
     const { sourceInput, prototype } = acceptedPrototype();
     const snapshot = corpus();
     const lens = materializeMechanismPrototypeExplorationProjection({
       prototypes: [prototype], prototypeInputs: [sourceInput], corpus: snapshot,
       ontology: buildMarketOntologySnapshot(snapshot),
-    }).lenses.find((item) => item.axis === "SURFACE_DOMAIN")!;
+    }).lenses.find((item) => item.axis === axis)!;
     const runtime = buildAgentRuntimeDefinition({ kind: "CODEX", version: "test" });
     const credential = buildCredentialBinding({
       kind: "CODEX_OAUTH", logicalAccountRef: "test", resolverKind: "CODEX_AUTH_CACHE",
@@ -611,6 +668,109 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(host.trailheads()[0]).toMatchObject({
       appliedTransferTests: [prototype.transferTests[0]],
       activatedCounterScenarios: [],
+      axisAssessment: {
+        requestedAxis: "SURFACE_DOMAIN",
+        candidatePredicateFamilies: expect.arrayContaining(["SPORTS_RESULT"]),
+        groundedAxisEvidenceSignals: ["SPORTS_RESULT"],
+        observedNoveltyDimensions: expect.arrayContaining(["WORLD_DOMAIN"]),
+        admissible: true,
+        authority: "EXPLORATION_AXIS_ADMISSION_ONLY",
+      },
+    });
+  });
+
+  it("rejects cross-venue election parameter novelty from the world-domain lane", async () => {
+    const { lens, prototype, profile, run } = runtimeFixture();
+    const electionSnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hash("cross-venue-election-source-set"),
+      eligibleSourceCount: 2, excludedSourceCount: 0,
+      listings: [
+        listing({ ref: "venue-a:iowa-republican", venue: "venue-a",
+          title: "Iowa Senate Election Winner — Republican Party" }),
+        listing({ ref: "venue-b:senate-control-republican", venue: "venue-b",
+          title: "Which party will control the U.S. Senate? — Republican Party" }),
+      ],
+    });
+    const host = new MechanismPrototypeExplorationAgentToolHost(
+      lens.currentInputRevision, prototype, electionSnapshot,
+    );
+    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "search_mechanism_exploration_corpus", input: {
+        patterns: ["Republican Party"], syntax: "LITERAL", mode: "ANY",
+        fields: ["title"], venueIds: [], limit: 10,
+      } });
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "inspect_mechanism_exploration_listings", input: {
+        listingRefs: ["venue-a:iowa-republican", "venue-b:senate-control-republican"],
+      } });
+    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "submit_mechanism_exploration_trailhead", input: {
+        listingRefs: ["venue-a:iowa-republican", "venue-b:senate-control-republican"],
+        structuralAnalogy: "One state seat contributes to national chamber control.",
+        surfaceDifferences: ["venues and state-party parameters differ"],
+        appliedTransferTestRefs: [references.transferTests[0]!.ref],
+        activatedCounterScenarioRefs: [], searchSignals: ["republican", "senate"],
+        noveltyAxisExplanation: "Cross-venue election pair.",
+        rationale: "Candidate remains in the election domain.",
+      } })).rejects.toThrow(
+        /does not satisfy SURFACE_DOMAIN.*CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE.*ELECTION_OR_OFFICE/u,
+      );
+    expect(host.trailheads()).toEqual([]);
+  });
+
+  it("admits new geography as parameter novelty and rejects a known source geography", async () => {
+    const { lens, prototype, profile, run } = runtimeFixture("SUBJECT_AND_GEOGRAPHY");
+    const geographySnapshot = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hash("geography-axis-source-set"),
+      eligibleSourceCount: 3, excludedSourceCount: 0,
+      listings: [
+        listing({ ref: "geo:georgia-seat", venue: "geo",
+          title: "Georgia Senate Election Winner — Republican Party" }),
+        listing({ ref: "geo:iowa-seat", venue: "geo",
+          title: "Iowa Senate Election Winner — Republican Party" }),
+        listing({ ref: "geo:senate-control", venue: "geo",
+          title: "Which party will control the U.S. Senate? — Republican Party" }),
+      ],
+    });
+    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
+    const terminal = (listingRefs: readonly string[], host:
+      MechanismPrototypeExplorationAgentToolHost) => host.execute({
+        task: lens.task, run, executionProfile: profile,
+        toolName: "submit_mechanism_exploration_trailhead", input: {
+          listingRefs, structuralAnalogy: "One state seat contributes to chamber control.",
+          surfaceDifferences: ["state parameter differs"],
+          appliedTransferTestRefs: [references.transferTests[0]!.ref],
+          activatedCounterScenarioRefs: [], searchSignals: ["state", "senate"],
+          noveltyAxisExplanation: "Geography parameter changes.",
+          rationale: "The role structure remains in the election domain.",
+        },
+      });
+    const inspectPair = async (seatRef: string) => {
+      const host = new MechanismPrototypeExplorationAgentToolHost(
+        lens.currentInputRevision, prototype, geographySnapshot,
+      );
+      await host.execute({ task: lens.task, run, executionProfile: profile,
+        toolName: "search_mechanism_exploration_corpus", input: {
+          patterns: ["Senate"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10,
+        } });
+      await host.execute({ task: lens.task, run, executionProfile: profile,
+        toolName: "inspect_mechanism_exploration_listings", input: {
+          listingRefs: [seatRef, "geo:senate-control"],
+        } });
+      return host;
+    };
+    const knownHost = await inspectPair("geo:iowa-seat");
+    await expect(terminal(["geo:iowa-seat", "geo:senate-control"], knownHost))
+      .rejects.toThrow(/does not satisfy SUBJECT_AND_GEOGRAPHY/u);
+    const novelHost = await inspectPair("geo:georgia-seat");
+    await expect(terminal(["geo:georgia-seat", "geo:senate-control"], novelHost))
+      .resolves.toMatchObject({ status: "ACCEPTED" });
+    expect(novelHost.trailheads()[0]?.axisAssessment).toMatchObject({
+      requestedAxis: "SUBJECT_AND_GEOGRAPHY",
+      groundedAxisEvidenceSignals: ["georgia"],
+      observedNoveltyDimensions: expect.arrayContaining(["SUBJECT_OR_GEOGRAPHY_PARAMETER"]),
     });
   });
 
@@ -635,7 +795,12 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(read).toMatchObject({
       status: "ACCEPTED",
       output: {
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v2",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v3",
+        axisContract: {
+          admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
+          sourcePredicateFamilies: expect.arrayContaining(["ELECTION_OR_OFFICE"]),
+          representationChangeAloneInsufficient: true,
+        },
         coverage: { memberCount: 202, membersOmittedFromReasoningView: true },
         prototype: {
           transferTests: [{ ref: expect.stringMatching(/^sha256:/u), text: prototype.transferTests[0] }],

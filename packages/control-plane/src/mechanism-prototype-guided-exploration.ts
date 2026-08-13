@@ -36,7 +36,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V2" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V3" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -47,6 +47,50 @@ export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
 
 export type MechanismPrototypeExplorationAxis =
   (typeof MECHANISM_PROTOTYPE_EXPLORATION_AXES)[number];
+
+export type MechanismPrototypeExplorationNoveltyDimension =
+  | "REPRESENTATION_SURFACE"
+  | "SUBJECT_OR_GEOGRAPHY_PARAMETER"
+  | "WORLD_DOMAIN"
+  | "AGGREGATE_INSTITUTION"
+  | "COUNTEREXAMPLE_PRESSURE";
+
+export type MechanismPrototypeExplorationAxisContract = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-axis-contract.v1";
+  contractId: Hash;
+  axis: MechanismPrototypeExplorationAxis;
+  admissionRule:
+    | "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE"
+    | "GROUNDED_NON_SOURCE_PARAMETER_SIGNAL"
+    | "CANDIDATE_INSTITUTION_OUTSIDE_SOURCE"
+    | "COUNTER_SCENARIO_ACTIVATED";
+  sourcePredicateFamilies: readonly MarketOntologyPredicateFamily[];
+  sourceInstitutionFamilies: readonly string[];
+  sourceParameterValues: readonly string[];
+  representationChangeAloneInsufficient: true;
+  unclassifiedWorldDomainInsufficient: true;
+  authority: "EXPLORATION_AXIS_ADMISSIBILITY_ONLY";
+  semanticDecisionAuthority: false;
+}>;
+
+export type MechanismPrototypeExplorationAxisAssessment = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-axis-assessment.v1";
+  assessmentId: Hash;
+  contractId: Hash;
+  requestedAxis: MechanismPrototypeExplorationAxis;
+  candidatePredicateFamilies: readonly MarketOntologyPredicateFamily[];
+  candidateInstitutionFamilies: readonly string[];
+  componentRoleListingRefs: readonly string[];
+  aggregateRoleListingRefs: readonly string[];
+  sharedComponentAggregateInstitutions: readonly string[];
+  groundedAxisEvidenceSignals: readonly string[];
+  observedNoveltyDimensions: readonly MechanismPrototypeExplorationNoveltyDimension[];
+  admissible: true;
+  diagnostic: string;
+  authority: "EXPLORATION_AXIS_ADMISSION_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+}>;
 
 export type MechanismPrototypeExplorationSeed = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-seed.v1";
@@ -89,6 +133,7 @@ export type MechanismPrototypeExplorationInputRevision = Readonly<{
   sourcePrototypeInputRevisionId: Hash;
   axis: MechanismPrototypeExplorationAxis;
   semanticInputIdentity: Hash;
+  axisContract?: MechanismPrototypeExplorationAxisContract;
   coverageScopeIdentity?: Hash;
   coverageMembers?: readonly MechanismPrototypeExplorationCoverageMember[];
   corpusSnapshotIdentity: Hash;
@@ -140,6 +185,9 @@ export type MechanismPrototypeExplorationLens = Readonly<{
   exhaustionIds: readonly Hash[];
   retainedTrailheadIds: readonly Hash[];
   retainedExhaustionIds: readonly Hash[];
+  retainedAssessedTrailheadCount: number;
+  retainedPreGateTrailheadCount: number;
+  latestRetainedAxisAssessment: MechanismPrototypeExplorationAxisAssessment | null;
   retainedSemanticInputCount: number;
   uncoveredCoverageMemberCount: number;
   state: "UNEXPLORED" | "TRAILHEAD_RECORDED" | "EXHAUSTED" | "MIXED_RESULTS";
@@ -180,6 +228,7 @@ export type MechanismPrototypeExplorationTrailhead = Readonly<{
   searchSignals: readonly string[];
   noveltyAxisExplanation: string;
   rationale: string;
+  axisAssessment?: MechanismPrototypeExplorationAxisAssessment;
   searchedResultIds: readonly Hash[];
   proposedAt: string;
   authority: "PROTOTYPE_GUIDED_TRAILHEAD_ROUTING_ONLY";
@@ -302,6 +351,16 @@ function exactHashes(values: readonly Hash[]): readonly Hash[] {
     throw new Error("mechanism exploration lineage contains an invalid hash");
   }
   return result as readonly Hash[];
+}
+
+function exactPredicateFamilies(
+  values: readonly MarketOntologyPredicateFamily[],
+): boolean {
+  return exactStrings(values).join("\n") === values.join("\n") && values.every((value) =>
+    ["ELECTION_OR_OFFICE", "APPOINTMENT_OR_DEPARTURE", "DEATH_OR_INCAPACITY",
+      "PUBLIC_ACTION", "SPORTS_RESULT", "PRICE_OR_METRIC", "POLICY_OR_LEGAL",
+      "CONFLICT_OR_DISRUPTION", "WEATHER_OR_NATURAL", "UNCLASSIFIED"].includes(value)
+  );
 }
 
 const COVERAGE_STOP_WORDS = new Set([
@@ -467,6 +526,163 @@ function variationQuestion(axis: MechanismPrototypeExplorationAxis): string {
   return "Search first for exact markets that defeat one transfer test or activate a retained counter-scenario. A grounded negative result is preferable to forcing an analogy.";
 }
 
+function buildExplorationAxisContract(input: Readonly<{
+  axis: MechanismPrototypeExplorationAxis;
+  sourceInput: WorldStateMechanismPrototypeInputRevision;
+}>): MechanismPrototypeExplorationAxisContract {
+  const sourcePredicateFamilyValues = exactStrings([
+    ...sourcePredicateFamilies(input.sourceInput),
+  ]) as readonly MarketOntologyPredicateFamily[];
+  const sourceInstitutionFamilies = exactStrings(input.sourceInput.memberRoutes.flatMap((route) => [
+    ...institutionFamilies(route.canonicalRoute.triggerPredicate),
+    ...institutionFamilies(route.canonicalRoute.dependentPredicate),
+  ]));
+  const body = Object.freeze({
+    schemaVersion: "pmh.mechanism-prototype-exploration-axis-contract.v1" as const,
+    axis: input.axis,
+    admissionRule: input.axis === "SURFACE_DOMAIN"
+      ? "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE" as const
+      : input.axis === "SUBJECT_AND_GEOGRAPHY"
+      ? "GROUNDED_NON_SOURCE_PARAMETER_SIGNAL" as const
+      : input.axis === "AGGREGATE_INSTITUTION"
+      ? "CANDIDATE_INSTITUTION_OUTSIDE_SOURCE" as const
+      : "COUNTER_SCENARIO_ACTIVATED" as const,
+    sourcePredicateFamilies: sourcePredicateFamilyValues,
+    sourceInstitutionFamilies,
+    sourceParameterValues: exactStrings(inputSourceParameterValues(input.sourceInput)),
+    representationChangeAloneInsufficient: true as const,
+    unclassifiedWorldDomainInsufficient: true as const,
+    authority: "EXPLORATION_AXIS_ADMISSIBILITY_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+  });
+  return Object.freeze({ ...body, contractId: hashCanonical(body) });
+}
+
+const AXIS_PARAMETER_STOP_WORDS = new Set([
+  "after", "before", "control", "election", "house", "national", "party",
+  "republican", "democratic", "senate", "state", "the", "united", "which",
+  "will", "win", "winner",
+]);
+
+function candidateParameterSignals(
+  bindings: readonly MechanismPrototypeExplorationEvidenceBinding[],
+  sourceParameterValues: readonly string[],
+): readonly string[] {
+  const candidateTokens = exactStrings(bindings.flatMap((binding) =>
+    canonicalText(binding.title).split(/[^\p{L}\p{N}]+/gu).filter((token) =>
+      token.length >= 3 && !AXIS_PARAMETER_STOP_WORDS.has(token)
+    )
+  ));
+  const sourceTokens = new Set(sourceParameterValues.flatMap((value) =>
+    canonicalText(value).split(/[^\p{L}\p{N}]+/gu)
+  ));
+  return exactStrings(candidateTokens.filter((token) => !sourceTokens.has(token)));
+}
+
+function inputSourceParameterValues(
+  sourceInput: WorldStateMechanismPrototypeInputRevision,
+): readonly string[] {
+  return sourceInput.memberRoutes.flatMap((route) => [
+    ...route.canonicalRoute.canonicalSubjectLabels,
+    ...route.canonicalRoute.canonicalTriggerSearchSignals,
+    ...route.canonicalRoute.canonicalDependentSearchSignals,
+    route.canonicalRoute.triggerPredicate,
+    route.canonicalRoute.stateLabel,
+    route.canonicalRoute.dependentPredicate,
+  ]);
+}
+
+function assessExplorationAxis(input: Readonly<{
+  contract: MechanismPrototypeExplorationAxisContract;
+  bindings: readonly MechanismPrototypeExplorationEvidenceBinding[];
+  activatedCounterScenarios: readonly string[];
+}>): MechanismPrototypeExplorationAxisAssessment {
+  const candidatePredicateFamilies = exactStrings(input.bindings.flatMap((binding) =>
+    marketOntologyPredicateFamiliesForText(binding.title)
+  )) as readonly MarketOntologyPredicateFamily[];
+  const candidateInstitutionFamilies = exactStrings(input.bindings.flatMap((binding) =>
+    [...institutionFamilies(binding.title)]
+  ));
+  const componentBindings = input.bindings.filter((binding) => componentCue(binding.title));
+  const aggregateBindings = input.bindings.filter((binding) => aggregateCue(binding.title));
+  const componentRoleListingRefs = exactStrings(componentBindings.map((item) => item.listingRef));
+  const aggregateRoleListingRefs = exactStrings(aggregateBindings.map((item) => item.listingRef));
+  const distinctComponentAggregateRoles = componentBindings.some((component) =>
+    aggregateBindings.some((aggregate) => aggregate.listingRef !== component.listingRef)
+  );
+  const componentInstitutions = new Set(componentBindings.flatMap((binding) =>
+    [...institutionFamilies(binding.title)]
+  ));
+  const aggregateInstitutions = new Set(aggregateBindings.flatMap((binding) =>
+    [...institutionFamilies(binding.title)]
+  ));
+  const sharedComponentAggregateInstitutions = exactStrings(
+    [...componentInstitutions].filter((family) => aggregateInstitutions.has(family)),
+  );
+  const novelWorldFamilies = candidatePredicateFamilies.filter((family) =>
+    family !== "UNCLASSIFIED" && !input.contract.sourcePredicateFamilies.includes(family)
+  );
+  const novelInstitutions = sharedComponentAggregateInstitutions.filter((family) =>
+    !input.contract.sourceInstitutionFamilies.includes(family)
+  );
+  const parameterSignals = candidateParameterSignals(
+    input.bindings, input.contract.sourceParameterValues,
+  );
+  const representationChanged = new Set(input.bindings.map((binding) =>
+    `${binding.venueId}:${binding.protocolIdentity}`
+  )).size > 1;
+  const groundedAxisEvidenceSignals = input.contract.axis === "SURFACE_DOMAIN"
+    ? distinctComponentAggregateRoles ? novelWorldFamilies : []
+    : input.contract.axis === "AGGREGATE_INSTITUTION"
+    ? novelInstitutions
+    : input.contract.axis === "SUBJECT_AND_GEOGRAPHY"
+    ? distinctComponentAggregateRoles ? parameterSignals : []
+    : input.activatedCounterScenarios;
+  const admissible = groundedAxisEvidenceSignals.length > 0;
+  if (!admissible) {
+    const observed = exactStrings([
+      ...(representationChanged ? ["representation surface changed"] : []),
+      ...(parameterSignals.length > 0
+        ? [`non-source shared parameter signals: ${parameterSignals.join(", ")}`] : []),
+      ...(candidatePredicateFamilies.length > 0
+        ? [`candidate predicate families: ${candidatePredicateFamilies.join(", ")}`] : []),
+      ...(candidateInstitutionFamilies.length > 0
+        ? [`candidate institution families: ${candidateInstitutionFamilies.join(", ")}`] : []),
+      ...(!distinctComponentAggregateRoles
+        ? ["distinct component and aggregate listing roles were not grounded"] : []),
+    ]);
+    throw new Error(
+      `mechanism exploration candidate does not satisfy ${input.contract.axis}: ${
+        input.contract.admissionRule}; observed ${observed.join("; ") || "no grounded axis evidence"}`,
+    );
+  }
+  const observedNoveltyDimensions = exactStrings([
+    ...(representationChanged ? ["REPRESENTATION_SURFACE"] : []),
+    ...(parameterSignals.length > 0 ? ["SUBJECT_OR_GEOGRAPHY_PARAMETER"] : []),
+    ...(novelWorldFamilies.length > 0 ? ["WORLD_DOMAIN"] : []),
+    ...(novelInstitutions.length > 0 ? ["AGGREGATE_INSTITUTION"] : []),
+    ...(input.activatedCounterScenarios.length > 0 ? ["COUNTEREXAMPLE_PRESSURE"] : []),
+  ]) as readonly MechanismPrototypeExplorationNoveltyDimension[];
+  const body = Object.freeze({
+    schemaVersion: "pmh.mechanism-prototype-exploration-axis-assessment.v1" as const,
+    contractId: input.contract.contractId,
+    requestedAxis: input.contract.axis,
+    candidatePredicateFamilies,
+    candidateInstitutionFamilies,
+    componentRoleListingRefs,
+    aggregateRoleListingRefs,
+    sharedComponentAggregateInstitutions,
+    groundedAxisEvidenceSignals,
+    observedNoveltyDimensions,
+    admissible: true as const,
+    diagnostic: `${input.contract.axis} admitted by ${groundedAxisEvidenceSignals.join(", ")}`,
+    authority: "EXPLORATION_AXIS_ADMISSION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+  });
+  return Object.freeze({ ...body, assessmentId: hashCanonical(body) });
+}
+
 function taskContract(input: Readonly<{
   lensId: Hash;
   prototypeId: Hash;
@@ -496,7 +712,7 @@ function componentCue(title: string): boolean {
 }
 
 function aggregateCue(title: string): boolean {
-  return /\b(?:control (?:the )?(?:house|senate)|u\.?s\.? (?:house|senate) midterm winner|majority|constructors championship|overall championship|league champion|tournament champion|national champion)\b/iu
+  return /\b(?:control(?:s|led)?\b.{0,40}\b(?:house|senate)|(?:house|senate)\b.{0,40}\bcontrol|u\.?s\.? (?:house|senate) midterm winner|majority|constructors championship|overall championship|league champion|tournament champion|national champion)\b/iu
     .test(title);
 }
 
@@ -688,6 +904,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
     verifyPrototypeLineage({ prototype, sourceInput });
     return MECHANISM_PROTOTYPE_EXPLORATION_AXES.map((axis) => {
       const lensId = lensIdentity(prototype, axis);
+      const axisContract = buildExplorationAxisContract({ axis, sourceInput });
       const seedTrailheads = Object.freeze(ontology.trailheads
         .flatMap((trailhead) => {
           const seed = buildSeed({ trailhead, ontology, prototype, sourceInput, axis });
@@ -711,6 +928,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         lensId,
         prototypeId: prototype.prototypeId,
         sourcePrototypeInputRevisionId: sourceInput.revisionId,
+        axisContractId: axisContract.contractId,
         coverageScopeIdentity,
         knownMemberRouteFamilyIds: sourceInput.memberRouteFamilyIds,
         excludedListingRefs,
@@ -723,6 +941,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         sourcePrototypeInputRevisionId: sourceInput.revisionId,
         axis,
         semanticInputIdentity,
+        axisContract,
         coverageScopeIdentity,
         coverageMembers,
         corpusSnapshotIdentity: corpus.snapshotIdentity,
@@ -787,20 +1006,26 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         ...retainedLensTrailheads.map((item) => item.semanticInputIdentity),
         ...retainedLensExhaustions.map((item) => item.semanticInputIdentity),
       ]).size;
+      const retainedAssessedTrailheads = retainedLensTrailheads.filter((item) =>
+        item.axisAssessment !== undefined
+      );
+      const latestRetainedAxisAssessment = [...retainedAssessedTrailheads]
+        .sort((left, right) => right.proposedAt.localeCompare(left.proposedAt) ||
+          right.trailheadId.localeCompare(left.trailheadId))[0]?.axisAssessment ?? null;
       const coveredSemanticListings = new Set([
         ...retainedLensTrailheads.flatMap((item) => {
           const retainedInput = retainedInputById.get(item.inputRevisionId);
+          if (retainedInput?.axisContract?.contractId !== axisContract.contractId) return [];
           return retainedInput?.coverageMembers?.map((member) =>
             member.semanticListingIdentity
-          ) ?? item.evidenceBindings.map((binding) => binding.semanticListingIdentity);
+          ) ?? [];
         }),
         ...retainedLensExhaustions.flatMap((item) => {
           const retainedInput = retainedInputById.get(item.inputRevisionId);
+          if (retainedInput?.axisContract?.contractId !== axisContract.contractId) return [];
           return retainedInput?.coverageMembers?.map((member) =>
             member.semanticListingIdentity
-          ) ?? item.inspectedEvidenceBindings.map((binding) =>
-            binding.semanticListingIdentity
-          );
+          ) ?? [];
         }),
       ]);
       const uncoveredCoverageMemberCount = coverageMembers.filter((member) =>
@@ -829,6 +1054,10 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         exhaustionIds: matchedExhaustionIds,
         retainedTrailheadIds,
         retainedExhaustionIds,
+        retainedAssessedTrailheadCount: retainedAssessedTrailheads.length,
+        retainedPreGateTrailheadCount:
+          retainedLensTrailheads.length - retainedAssessedTrailheads.length,
+        latestRetainedAxisAssessment,
         retainedSemanticInputCount,
         uncoveredCoverageMemberCount,
         state,
@@ -932,6 +1161,23 @@ export function assertMechanismPrototypeExplorationInputRevision(
       revision.ontologyIdentity].every((item) => HASH_PATTERN.test(String(item))) ||
     (revision.coverageScopeIdentity !== undefined &&
       !HASH_PATTERN.test(String(revision.coverageScopeIdentity))) ||
+    (revision.axisContract !== undefined && (
+      revision.axisContract.axis !== revision.axis ||
+      revision.axisContract.contractId !== hashCanonical((({ contractId: _ignored, ...rest }) =>
+        rest)(revision.axisContract)) ||
+      !["CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
+        "GROUNDED_NON_SOURCE_PARAMETER_SIGNAL", "CANDIDATE_INSTITUTION_OUTSIDE_SOURCE",
+        "COUNTER_SCENARIO_ACTIVATED"].includes(revision.axisContract.admissionRule) ||
+      !exactPredicateFamilies(revision.axisContract.sourcePredicateFamilies) ||
+      exactStrings(revision.axisContract.sourceInstitutionFamilies).join("\n") !==
+        revision.axisContract.sourceInstitutionFamilies.join("\n") ||
+      exactStrings(revision.axisContract.sourceParameterValues).join("\n") !==
+        revision.axisContract.sourceParameterValues.join("\n") ||
+      revision.axisContract.representationChangeAloneInsufficient !== true ||
+      revision.axisContract.unclassifiedWorldDomainInsufficient !== true ||
+      revision.axisContract.authority !== "EXPLORATION_AXIS_ADMISSIBILITY_ONLY" ||
+      revision.axisContract.semanticDecisionAuthority !== false
+    )) ||
     (revision.coverageMembers !== undefined && (
       !Array.isArray(revision.coverageMembers) || revision.coverageMembers.some((member) =>
         !bounded(member.listingRef, 1_000) ||
@@ -1074,6 +1320,14 @@ export function buildMechanismPrototypeExplorationTrailhead(input: Readonly<{
   if (activatedCounterScenarios.some((item) => !prototype.counterScenarios.includes(item))) {
     throw new Error("mechanism exploration trailhead uses an unknown counter-scenario");
   }
+  if (researchInput.axisContract === undefined) {
+    throw new Error("mechanism exploration axis contract is unavailable");
+  }
+  const axisAssessment = assessExplorationAxis({
+    contract: researchInput.axisContract,
+    bindings,
+    activatedCounterScenarios,
+  });
   const body = Object.freeze({
     schemaVersion: "pmh.mechanism-prototype-exploration-trailhead.v1" as const,
     lensId: researchInput.lensId,
@@ -1090,6 +1344,7 @@ export function buildMechanismPrototypeExplorationTrailhead(input: Readonly<{
     searchSignals: boundedTexts(input.searchSignals, 1, 12),
     noveltyAxisExplanation: input.noveltyAxisExplanation,
     rationale: input.rationale,
+    axisAssessment,
     searchedResultIds: exactHashes(input.searchedResultIds),
     proposedAt: exactTime(input.proposedAt),
     authority: "PROTOTYPE_GUIDED_TRAILHEAD_ROUTING_ONLY" as const,
@@ -1179,6 +1434,36 @@ export function assertMechanismPrototypeExplorationTrailhead(
   }
   const item = value as MechanismPrototypeExplorationTrailhead;
   const { trailheadId, ...body } = item;
+  const validAxisAssessment = item.axisAssessment === undefined || (() => {
+    const { assessmentId, ...assessmentBody } = item.axisAssessment;
+    return assessmentId === hashCanonical(assessmentBody) &&
+      HASH_PATTERN.test(assessmentId) &&
+      item.axisAssessment.requestedAxis === item.axis &&
+      HASH_PATTERN.test(item.axisAssessment.contractId) &&
+      item.axisAssessment.admissible === true &&
+      exactPredicateFamilies(item.axisAssessment.candidatePredicateFamilies) &&
+      exactStrings(item.axisAssessment.candidateInstitutionFamilies).join("\n") ===
+        item.axisAssessment.candidateInstitutionFamilies.join("\n") &&
+      exactStrings(item.axisAssessment.componentRoleListingRefs).join("\n") ===
+        item.axisAssessment.componentRoleListingRefs.join("\n") &&
+      exactStrings(item.axisAssessment.aggregateRoleListingRefs).join("\n") ===
+        item.axisAssessment.aggregateRoleListingRefs.join("\n") &&
+      exactStrings(item.axisAssessment.sharedComponentAggregateInstitutions).join("\n") ===
+        item.axisAssessment.sharedComponentAggregateInstitutions.join("\n") &&
+      exactStrings(item.axisAssessment.groundedAxisEvidenceSignals).join("\n") ===
+        item.axisAssessment.groundedAxisEvidenceSignals.join("\n") &&
+      exactStrings(item.axisAssessment.observedNoveltyDimensions).join("\n") ===
+        item.axisAssessment.observedNoveltyDimensions.join("\n") &&
+      item.axisAssessment.observedNoveltyDimensions.every((dimension) =>
+        ["REPRESENTATION_SURFACE", "SUBJECT_OR_GEOGRAPHY_PARAMETER", "WORLD_DOMAIN",
+          "AGGREGATE_INSTITUTION", "COUNTEREXAMPLE_PRESSURE"].includes(dimension)
+      ) &&
+      item.axisAssessment.groundedAxisEvidenceSignals.length > 0 &&
+      bounded(item.axisAssessment.diagnostic, 2_000) &&
+      item.axisAssessment.authority === "EXPLORATION_AXIS_ADMISSION_ONLY" &&
+      item.axisAssessment.semanticDecisionAuthority === false &&
+      item.axisAssessment.probabilityAuthority === false;
+  })();
   if (
     item.schemaVersion !== "pmh.mechanism-prototype-exploration-trailhead.v1" ||
     !HASH_PATTERN.test(String(trailheadId)) || trailheadId !== hashCanonical(body) ||
@@ -1186,6 +1471,7 @@ export function assertMechanismPrototypeExplorationTrailhead(
       item.sourceAgentRunId].every((field) => HASH_PATTERN.test(String(field))) ||
     !MECHANISM_PROTOTYPE_EXPLORATION_AXES.includes(item.axis) ||
     !validEvidenceBindings(item.evidenceBindings, 2) ||
+    !validAxisAssessment ||
     !bounded(item.structuralAnalogy, 2_000) ||
     boundedTexts(item.surfaceDifferences, 1, 12).join("\n") !==
       item.surfaceDifferences.join("\n") ||

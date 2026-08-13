@@ -1,6 +1,28 @@
 # Plans
 
 The active execution continuation is
+[`plans/falsifiable-exploration-axes.md`](plans/falsifiable-exploration-axes.md).
+Issue #217 follows the first successful V2 live trailhead. The Agent called an
+Iowa Republican Senate-seat / national Republican Senate-control pair a
+`SURFACE_DOMAIN` mutation because venue, rules expression, party and state
+changed. Both contracts remain inside the source election/office predicate
+family and the known component-seat / chamber-control topology. Variation axes
+must therefore become exact first-party admissibility contracts that separate
+representation, parameter, world-domain, aggregate-institution and
+falsification novelty. Agent prose may propose a classification; only the
+provider-free gate decides whether the requested axis is evidenced.
+
+Issue #217 is selected `ADOPT`. The first V3 Terra/high qualification spent
+171,542 total tokens across seven invocations and retained a bounded exhaustion
+instead of forcing a false positive: Baltimore and Buffalo AFC Championship
+winner markets are parallel alternatives, not component/aggregate roles for
+the known mechanism. A refreshed 4,313-listing qualified corpus correctly
+reopened semantic coverage while retaining that exhaustion as historical
+memory. The next frontier is role-aware paired retrieval: generic OR-pattern
+search currently finds same-level alternatives more readily than a component
+outcome and its aggregate dependent.
+
+The completed predecessor is
 [`plans/compact-exploration-agent-protocol.md`](plans/compact-exploration-agent-protocol.md).
 Issue #215 turns the second live prototype-guided specimen's failure into a
 protocol correction. A zero-seed surface-domain run spent 231,850 known input

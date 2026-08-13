@@ -5957,10 +5957,11 @@ export class SqliteOperationalStore
     const task = assertAgentTask(decoded);
     return task.kind === "MECHANISM_PROTOTYPE_EXPLORATION" &&
       task.protocol === "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" &&
-      // V2 is the only dispatchable protocol. V1 tasks remain recognizable
+      // V3 is the only dispatchable protocol. V1/V2 tasks remain recognizable
       // here solely so their immutable input/result lineage survives restart.
       (task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V1" ||
-        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V2") &&
+        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V2" ||
+        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V3") &&
       task.provenanceRef === `mechanism-prototype-exploration:${input.lensId}`;
   }
 

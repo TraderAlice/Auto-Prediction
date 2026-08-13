@@ -1,6 +1,6 @@
 # Compact prototype-exploration Agent protocol
 
-Status: active mainline construction
+Status: completed mainline predecessor
 
 Issue: [#215](https://github.com/luokerenx4/my-little-pony/issues/215)
 
