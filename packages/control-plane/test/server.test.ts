@@ -1745,8 +1745,8 @@ describe("control-plane HTTP surface", () => {
         runtimeDefinitionCount: 3,
         credentialBindingCount: 2,
         modelProfileCount: 6,
-        executionProfileCount: 26,
-        workloadRouteCount: 16,
+        executionProfileCount: 28,
+        workloadRouteCount: 18,
         taskCount: 0,
         runCount: 0,
         modelInvocationCount: 0,
@@ -1770,8 +1770,8 @@ describe("control-plane HTTP surface", () => {
     });
     expect(projection.ai.agentExecution).toMatchObject({
       modelProfileCount: 6,
-      executionProfileCount: 26,
-      workloadRouteCount: 16,
+      executionProfileCount: 28,
+      workloadRouteCount: 18,
       taskCount: 0,
       runCount: 0,
       modelInvocationCount: 0,
@@ -3569,7 +3569,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-            schemaVersion: 60,
+            schemaVersion: 61,
         },
         records: [{ investigationId: created.investigationId }],
       });

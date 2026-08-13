@@ -15,6 +15,7 @@ const WORLD_STATE_MECHANISM_RESEARCH_EXECUTION_REVISION = 1;
 const SUBJECT_BINDING_RESEARCH_EXECUTION_REVISION = 1;
 const MECHANISM_PROTOTYPE_RESEARCH_EXECUTION_REVISION = 1;
 const MECHANISM_PROTOTYPE_EXPLORATION_EXECUTION_REVISION = 17;
+const WORLD_RELATION_EXPERIMENT_EXECUTION_REVISION = 1;
 
 export function buildDefaultAgentRuntimePortfolio(
   configuration: AiRuntimeConfiguration,
@@ -291,6 +292,31 @@ export function buildDefaultAgentRuntimePortfolio(
     executionProfileId: relationDiscoveryCodexAppServer.executionProfileId,
     updatedAt: createdAt,
   });
+  const worldRelationExperiment = buildExecutionProfile({
+    revision: configuration.revision * 1_000 +
+      WORLD_RELATION_EXPERIMENT_EXECUTION_REVISION,
+    profileKey: "world-relation-experiment-codex-app-server",
+    runtimeDefinition: codex,
+    credentialBinding: codexCredential,
+    modelProfile: codexModel,
+    toolProtocol: "WORLD_RELATION_EXPERIMENT_TOOLS_V1",
+    runBudget: {
+      maximumModelInvocations: 12,
+      maximumToolCalls: 32,
+      maximumWallClockMs: 600_000,
+      maximumInputTokens: "300000",
+      maximumOutputTokens: "30000",
+    },
+    createdAt,
+  });
+  const worldRelationExperimentRoute = buildWorkloadRoute({
+    routeKey: "world-relation-experiment-default",
+    revision: configuration.revision * 1_000 +
+      WORLD_RELATION_EXPERIMENT_EXECUTION_REVISION,
+    taskKind: "WORLD_RELATION_EXPERIMENT",
+    executionProfileId: worldRelationExperiment.executionProfileId,
+    updatedAt: createdAt,
+  });
   return Object.freeze({
     runtimeDefinitions: Object.freeze([pi, codex, inProcess]),
     credentialBindings: Object.freeze([codexCredential, deepSeekCredential]),
@@ -308,6 +334,7 @@ export function buildDefaultAgentRuntimePortfolio(
       mechanismPrototypeResearch,
       mechanismPrototypeExploration,
       relationDiscoveryCodexAppServer,
+      worldRelationExperiment,
     ]),
     workloadRoutes: Object.freeze([
       route,
@@ -317,6 +344,7 @@ export function buildDefaultAgentRuntimePortfolio(
       mechanismPrototypeRoute,
       mechanismPrototypeExplorationRoute,
       relationDiscoveryRoute,
+      worldRelationExperimentRoute,
     ]),
   });
 }

@@ -586,7 +586,7 @@ describe("market ontology Agent tools", () => {
     expect(store.loadMarketOntologyAgentProposals(10)).toEqual([proposal]);
     expect(store.marketOntologyAgentProposalStorage).toMatchObject({
       durable: false,
-      schemaVersion: 60,
+      schemaVersion: 61,
       idempotencyKey: "proposalId",
     });
     store.close();

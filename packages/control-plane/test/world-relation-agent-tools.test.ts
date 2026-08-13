@@ -104,7 +104,7 @@ function fixture() {
     runBudget: { maximumModelInvocations: 12, maximumToolCalls: 24,
       maximumWallClockMs: 300_000, maximumInputTokens: "1000000",
       maximumOutputTokens: "100000" }, createdAt: at });
-  const task = buildAgentTask({ kind: "RELATION_DISCOVERY",
+  const task = buildAgentTask({ kind: "WORLD_RELATION_EXPERIMENT",
     protocol: "WORLD_RELATION_EXPERIMENT_TASK_V1", inputArtifacts: [{
       kind: "WORLD_RELATION_FRONTIER", artifactId: frontier.frontierId,
       artifactHash: frontier.artifactHash,
@@ -231,7 +231,9 @@ describe("world relation Agent tools", () => {
 
     expect(experiment.terminalDisposition).toBe("UNRESOLVED");
     expect(experiment.sourceAgentRunId).toBe(work.run.runId);
-    expect(experiment.sourceToolEffectIds).toEqual(effects.map((item) => item.effectId));
+    expect(experiment.sourceToolEffectIds).toEqual(
+      effects.map((item) => item.effectId).sort(),
+    );
     expect(experiment.invocationIds).toEqual(
       invocations.map((item) => item.invocationId).sort(),
     );

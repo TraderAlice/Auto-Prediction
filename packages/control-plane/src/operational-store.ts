@@ -347,8 +347,13 @@ import {
   type WorldPredicateArtifact,
   type WorldRelationExperiment,
 } from "./world-history-ontology.js";
+import {
+  assertWorldRelationExperimentInputRevision,
+  type WorldRelationExperimentInputRevision,
+  type WorldRelationExperimentInputStore,
+} from "./world-relation-experiment-work.js";
 
-const SCHEMA_VERSION = 60;
+const SCHEMA_VERSION = 61;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1992,6 +1997,29 @@ function parseWorldRelationExperiment(value: unknown): WorldRelationExperiment {
   return experiment;
 }
 
+function parseWorldRelationExperimentInput(
+  value: unknown,
+): WorldRelationExperimentInputRevision {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world relation experiment input row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.input_revision_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world relation experiment input row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world relation experiment input contains invalid JSON");
+  }
+  const revision = assertWorldRelationExperimentInputRevision(decoded);
+  if (revision.inputRevisionId !== row.input_revision_id ||
+      hashCanonical(revision) !== row.record_hash) {
+    throw new Error("SQLite world relation experiment input identity mismatch");
+  }
+  return revision;
+}
+
 function parseWorldStateMechanismProposal(value: unknown): WorldStateMechanismProposal {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite world-state mechanism proposal row is malformed");
@@ -2655,7 +2683,8 @@ export class SqliteOperationalStore
     ResearchDecisionOutcomeObservationStore,
     DiscoverySignalStore,
     StudioProjectionSnapshotStore,
-    WorldHistoryOntologyStore
+    WorldHistoryOntologyStore,
+    WorldRelationExperimentInputStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -2780,6 +2809,10 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"artifactHash">;
   public readonly worldRelationExperimentStorage:
     OperationalStorageProjection<"artifactHash">;
+  public readonly worldRelationExperimentInputStorage:
+    OperationalStorageProjection<"inputRevisionId">;
+  public readonly worldRelationExperimentCorpusStorage:
+    OperationalStorageProjection<"snapshotIdentity">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -3185,6 +3218,18 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "artifactHash",
+    });
+    this.worldRelationExperimentInputStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "inputRevisionId",
+    });
+    this.worldRelationExperimentCorpusStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "snapshotIdentity",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -3728,6 +3773,18 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'world_relation_experiments'`,
       )
       .get() !== undefined;
+    const worldRelationExperimentInputTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_experiment_inputs'`,
+      )
+      .get() !== undefined;
+    const worldRelationExperimentCorpusTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_experiment_corpora'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -3798,6 +3855,8 @@ export class SqliteOperationalStore
       && worldPredicateArtifactTableExists
       && settlementProjectionTableExists
       && worldRelationExperimentTableExists
+      && worldRelationExperimentInputTableExists
+      && worldRelationExperimentCorpusTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -6340,6 +6399,53 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS world_relation_experiments_run
             ON world_relation_experiments (
               source_agent_run_id, closed_at, artifact_hash
+            );
+        `);
+      }
+      if (current < 61 || !worldRelationExperimentInputTableExists ||
+          !worldRelationExperimentCorpusTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_relation_experiment_corpora (
+            snapshot_identity TEXT PRIMARY KEY NOT NULL CHECK (
+              length(snapshot_identity) = 71 AND snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_set_identity TEXT NOT NULL CHECK (
+              length(source_set_identity) = 71 AND source_set_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_count INTEGER NOT NULL CHECK (listing_count >= 0),
+            retained_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE TABLE IF NOT EXISTS world_relation_experiment_inputs (
+            input_revision_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(input_revision_id) = 71 AND input_revision_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_input_identity TEXT NOT NULL CHECK (
+              length(semantic_input_identity) = 71 AND
+              semantic_input_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            frontier_id TEXT NOT NULL CHECK (
+              length(frontier_id) = 71 AND frontier_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            corpus_snapshot_identity TEXT NOT NULL,
+            materialized_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (corpus_snapshot_identity)
+              REFERENCES world_relation_experiment_corpora(snapshot_identity)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_experiment_inputs_frontier
+            ON world_relation_experiment_inputs (
+              frontier_id, materialized_at DESC, input_revision_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS world_relation_experiment_inputs_semantic
+            ON world_relation_experiment_inputs (
+              semantic_input_identity, materialized_at DESC, input_revision_id DESC
             );
         `);
       }
@@ -13300,6 +13406,124 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return experiments;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationExperimentCorpus(
+    snapshotIdentity: Hash,
+  ): MarketCorpusSnapshot | null {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      `SELECT snapshot_identity, source_set_identity, listing_count,
+              record_json AS corpus_json, record_hash AS corpus_hash
+       FROM world_relation_experiment_corpora WHERE snapshot_identity = ?`,
+    ).get(snapshotIdentity);
+    return row === undefined ? null : parseSearchLeaseCorpus(row);
+  }
+
+  public saveWorldRelationExperimentCorpus(
+    corpusInput: MarketCorpusSnapshot,
+  ): MarketCorpusSnapshot {
+    this.#assertOpen();
+    const corpus = assertMarketCorpusSnapshot(corpusInput);
+    const recordJson = canonicalJson(corpus);
+    const recordHash = hashCanonical(corpus);
+    const retainedAt = [...corpus.listings].map((item) => item.sourceReceivedAt)
+      .sort().at(-1) ?? "1970-01-01T00:00:00.000Z";
+    this.#database.prepare(
+      `INSERT INTO world_relation_experiment_corpora (
+         snapshot_identity, source_set_identity, listing_count, retained_at,
+         record_json, record_hash
+       ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(snapshot_identity) DO NOTHING`,
+    ).run(corpus.snapshotIdentity, corpus.sourceSetIdentity, corpus.listingCount,
+      retainedAt, recordJson, recordHash);
+    const stored = this.loadWorldRelationExperimentCorpus(corpus.snapshotIdentity);
+    if (stored === null || hashCanonical(stored) !== recordHash) {
+      throw new Error("world relation experiment corpus identity collision");
+    }
+    return stored;
+  }
+
+  public loadWorldRelationExperimentInputs(
+    limit: number,
+  ): readonly WorldRelationExperimentInputRevision[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT input_revision_id, record_json, record_hash
+       FROM world_relation_experiment_inputs
+       ORDER BY materialized_at DESC, input_revision_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationExperimentInput));
+  }
+
+  public loadWorldRelationExperimentInput(
+    inputRevisionId: Hash,
+  ): WorldRelationExperimentInputRevision | null {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      `SELECT input_revision_id, record_json, record_hash
+       FROM world_relation_experiment_inputs WHERE input_revision_id = ?`,
+    ).get(inputRevisionId);
+    return row === undefined ? null : parseWorldRelationExperimentInput(row);
+  }
+
+  public saveWorldRelationExperimentInputs(
+    inputsRaw: readonly WorldRelationExperimentInputRevision[],
+  ): readonly WorldRelationExperimentInputRevision[] {
+    this.#assertOpen();
+    const inputs = Object.freeze(inputsRaw.map(assertWorldRelationExperimentInputRevision));
+    if (new Set(inputs.map((item) => item.inputRevisionId)).size !== inputs.length) {
+      throw new Error("world relation experiment input batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const input of inputs) {
+        if (this.loadWorldRelationExperimentCorpus(input.corpusSnapshotIdentity) === null) {
+          throw new Error("world relation experiment input references an unavailable corpus");
+        }
+        for (const predicate of input.frontier.predicates) {
+          if (this.#database.prepare(
+            `SELECT artifact_hash FROM world_predicate_artifacts
+             WHERE artifact_hash = ? AND predicate_id = ?`,
+          ).get(predicate.artifactHash, predicate.predicateId) === undefined) {
+            throw new Error("world relation experiment input references an unavailable predicate");
+          }
+        }
+        for (const artifactHash of input.settlementProjectionArtifactHashes) {
+          if (this.#database.prepare(
+            "SELECT artifact_hash FROM settlement_projections WHERE artifact_hash = ?",
+          ).get(artifactHash) === undefined) {
+            throw new Error("world relation experiment input references an unavailable projection");
+          }
+        }
+        for (const artifactHash of input.priorExperimentArtifactHashes) {
+          if (this.#database.prepare(
+            "SELECT artifact_hash FROM world_relation_experiments WHERE artifact_hash = ?",
+          ).get(artifactHash) === undefined) {
+            throw new Error("world relation experiment input references unavailable prior memory");
+          }
+        }
+        const recordJson = canonicalJson(input);
+        const recordHash = hashCanonical(input);
+        this.#database.prepare(
+          `INSERT INTO world_relation_experiment_inputs (
+             input_revision_id, semantic_input_identity, frontier_id,
+             corpus_snapshot_identity, materialized_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(input_revision_id) DO NOTHING`,
+        ).run(input.inputRevisionId, input.semanticInputIdentity,
+          input.frontier.frontierId, input.corpusSnapshotIdentity,
+          input.materializedAt, recordJson, recordHash);
+        const stored = this.loadWorldRelationExperimentInput(input.inputRevisionId);
+        if (stored === null || hashCanonical(stored) !== recordHash) {
+          throw new Error("world relation experiment input identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return inputs;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

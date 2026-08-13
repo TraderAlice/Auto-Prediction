@@ -165,6 +165,7 @@ export class WorldRelationExperimentAgentToolHost implements AgentToolHost {
     public readonly frontier: WorldRelationFrontierSeed,
     public readonly corpus: MarketCorpusSnapshot,
     public readonly projections: readonly SettlementProjection[] = [],
+    public readonly priorExperiments: readonly WorldRelationExperiment[] = [],
   ) {}
 
   public manifest(protocol: string): readonly AgentRuntimeToolDefinition[] {
@@ -228,6 +229,15 @@ export class WorldRelationExperimentAgentToolHost implements AgentToolHost {
           sourceRawHash: listing.sourceRawHash, protocolIdentity: listing.protocolIdentity };
       }),
       counterworld: this.#counterworld,
+      priorTerminalMemory: this.priorExperiments.slice(0, 8).map((item) => ({
+        experimentId: item.experimentId,
+        artifactHash: item.artifactHash,
+        terminalDisposition: item.terminalDisposition,
+        relationKind: item.relationKind,
+        searchedNeighborhoodCount: item.searchNeighborhoods.length,
+        counterworldResults: item.counterworlds.map((counterworld) => counterworld.result),
+        rationale: item.rationale,
+      })),
       authority: "FIRST_PARTY_STATE_ROUTING_CHECKPOINT_ONLY",
       semanticDecisionAuthority: false,
       probabilityAuthority: false,
@@ -294,7 +304,7 @@ export class WorldRelationExperimentAgentToolHost implements AgentToolHost {
   }
 
   public async execute(context: AgentToolHostContext) {
-    if (context.task.kind !== "RELATION_DISCOVERY" ||
+    if (context.task.kind !== "WORLD_RELATION_EXPERIMENT" ||
         context.task.requestedEffectProtocol !== WORLD_RELATION_EXPERIMENT_TOOL_PROTOCOL ||
         context.executionProfile.toolPolicy.protocol !== WORLD_RELATION_EXPERIMENT_TOOL_PROTOCOL) {
       throw new Error("world relation experiment tool lineage is invalid");
@@ -311,7 +321,18 @@ export class WorldRelationExperimentAgentToolHost implements AgentToolHost {
         schemaVersion: "pmh.world-relation-reasoning-context.v1",
         frontier: this.frontier,
         corpusSnapshotIdentity: this.corpus.snapshotIdentity,
-        priorExperimentsOmitted: true,
+        priorTerminalMemory: this.priorExperiments.slice(0, 8).map((item) => ({
+          experimentId: item.experimentId,
+          artifactHash: item.artifactHash,
+          terminalDisposition: item.terminalDisposition,
+          relationKind: item.relationKind,
+          searchNeighborhoods: item.searchNeighborhoods,
+          counterworlds: item.counterworlds.map((counterworld) => ({
+            description: counterworld.description,
+            result: counterworld.result,
+          })),
+          rationale: item.rationale,
+        })),
         authority: "RELATION_EXPERIMENT_REASONING_INPUT_ONLY",
       }));
     }
