@@ -273,3 +273,24 @@ durable checkpoint → materialized experiment, followed by a process restart
 that leaves the artifact idempotently recoverable. After that evidence, the
 active continuation moves from lifecycle durability to shadow opportunity
 construction from supported probabilistic relations.
+
+Live qualification now satisfies that gate. Terra/high run `1fa6115b…`
+completed the Alaska Republican Senate seat ↔ national Republican Senate
+control frontier with ten accepted effects and zero rejections. It consumed
+199,996 input, 2,147 output and 691 reasoning tokens, retained checkpoint
+`b1230ea5…`, and materialized experiment `2b9b7a0a…` as
+`SUPPORTED_PROBABILISTIC`. The adverse `Alaska Republican seat = true /
+national Republican control = false` world survives because the national
+contract settles from the aggregate qualifying-seat count and tie rules. This
+is useful soft dependence, not manufactured implication or hard exclusion.
+Two inspected listings shared one catalog-response hash; the evidence binding
+was correctly deduplicated to one immutable raw identity. After a real
+control-plane stop and fresh process startup, retained experiment count stayed
+one and the artifact hash, disposition and full token lineage were unchanged.
+
+Lifecycle durability is therefore qualified. The next engineering phase is to
+compile supported probabilistic relation experiments into explicit shadow
+trade hypotheses: map traded outcome legs to the adverse-state probability
+bound, retain quote-time and settlement-policy uncertainty separately, and
+measure whether the implied interval can dominate executable cost without
+calling the result strict arbitrage.
