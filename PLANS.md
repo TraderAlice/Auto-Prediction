@@ -1,6 +1,6 @@
 # Plans
 
-The active execution continuation is
+The selected execution continuation is
 [`plans/state-refreshed-agent-boundary.md`](plans/state-refreshed-agent-boundary.md).
 Issue #247 follows abandoned mutation PR #246. Codex app-server binds dynamic
 tools at thread start, and live Terra evidence shows prompt recommendations
@@ -8,6 +8,17 @@ plus composed schema do not make that surface state-safe. The next candidate
 will add an opt-in runtime manifest-refresh contract: settle the current
 effect, rotate to a fresh ephemeral thread with only currently legal tools,
 and carry a bounded exact transcript across the boundary.
+
+Issue #247 is selected `ADOPT`. Terra/high run `d972000e…` completed a full
+context → hypothesis → two role searches → inspection → two host-bound
+prototype outcomes → closures → bounded exhaustion episode with 11 accepted
+effects and zero rejections. The logical run remained intact across physical
+app-server thread rotations, and the host checkpoint held each later
+invocation near 18–23k input tokens instead of replaying an ever-growing free-form
+history. Total input was 237,918 tokens, so this is an authority/correctness
+adoption rather than a token-efficiency win. The next continuation should use
+the now-reliable long-loop substrate to improve what the system can conjecture
+about markets as world-state predicates and probabilistic constraints.
 
 The completed negative selection is recorded in
 [`plans/state-scoped-exploration-tools.md`](plans/state-scoped-exploration-tools.md).

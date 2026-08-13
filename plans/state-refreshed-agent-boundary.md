@@ -65,4 +65,30 @@ the first-party host changes legal state.
 
 ## Status
 
-Implementation in progress.
+Selected `ADOPT`.
+
+The implementation adds an opt-in manifest-refresh policy to the generic Agent
+host/runtime boundary. After an accepted state-changing effect, Codex
+app-server settles that call, closes its ephemeral connection/workspace, and
+starts the next thread with only the newly legal tools plus a bounded
+provider-neutral host checkpoint. Static hosts retain their prior behavior.
+
+Terra/high run
+`sha256:d972000e325cc5027d39b71b793ca44b33f366b397578ed220d01b950a95851f`
+completed on execution profile revision 17 with 11 successful invocations, 11
+accepted effects and zero rejected effects. It tested and rejected a national
+Senate-control dependent, separately supported the exact state-seat component,
+then retained a source-bound exhaustion over two exact role searches and five
+inspected Polymarket US listings. The run used 237,918 input, 3,648 output and
+1,386 reasoning tokens.
+
+This exceeds the failed static specimen's 173,562 total input because the
+adopted specimen completed 11 useful calls rather than failing after eight.
+Per-invocation input stayed bounded between 17,673 and 23,338 tokens, including
+after two searches and two hypothesis lifecycles. Selection therefore adopts
+the state/authority boundary, not a claim of lower aggregate model cost.
+
+Full qualification passed: 108 control-plane test files / 746 tests, 5 Studio
+test files / 30 tests, and both production builds. The remaining Node 22 versus
+repository Node 24 engine warning and Studio chunk-size warning are unchanged
+environment/build debts rather than failures of this mutation.
