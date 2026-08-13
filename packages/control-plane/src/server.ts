@@ -3432,20 +3432,22 @@ export function createControlPlane(options?: {
           if (corpus === null) {
             throw new Error("mechanism exploration exact corpus is unavailable");
           }
+          const memory = buildMechanismPrototypeExplorationMemoryProjection({
+            inputs: mechanismPrototypeExplorationStore
+              .loadMechanismPrototypeExplorationInputs(2_048),
+            stepObservations: mechanismPrototypeExplorationStore
+              .loadMechanismPrototypeExplorationStepObservations(8_192),
+            roleSearchObservations: mechanismPrototypeExplorationStore
+              .loadMechanismPrototypeExplorationRoleSearchObservations(2_048),
+            execution: agentExecutionRegistry.snapshot(),
+          });
           return new MechanismPrototypeExplorationAgentToolHost(
             input,
             lens.prototype,
             corpus,
             mechanismPrototypeExplorationStore,
-            buildMechanismPrototypeExplorationMemoryProjection({
-              inputs: mechanismPrototypeExplorationStore
-                .loadMechanismPrototypeExplorationInputs(2_048),
-              stepObservations: mechanismPrototypeExplorationStore
-                .loadMechanismPrototypeExplorationStepObservations(8_192),
-              roleSearchObservations: mechanismPrototypeExplorationStore
-                .loadMechanismPrototypeExplorationRoleSearchObservations(2_048),
-              execution: agentExecutionRegistry.snapshot(),
-            }).hypothesisFamilies,
+            memory.hypothesisFamilies,
+            memory.hypothesisIntentAttentionPortfolio,
           );
         }
         if (task.kind === "RELATION_DISCOVERY") {

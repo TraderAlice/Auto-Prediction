@@ -1,6 +1,20 @@
 # Plans
 
 The active execution continuation is
+[`plans/agent-hypothesis-attention-loop.md`](plans/agent-hypothesis-attention-loop.md).
+Issue #239 closes V14's human-only measurement loop by putting compact exact
+portfolio evidence into the Agent's lens. The recommendation remains
+descriptive; the first live selection asks whether Terra independently chooses
+a valid `EXTEND` observation without any enforced intent or automatic dispatch.
+
+Issue #239 is selected `ADOPT`. Terra independently chose a legal exact
+extension and completed an eight-call, zero-rejection episode, but the extension
+realized no evidence-frontier change. The portfolio therefore evolves from
+`EXTEND / COVERAGE_GAP` to `EXTEND / STALLED_FRONTIER`. Its empty rigid role
+query followed by a broad election-contaminated fallback makes query-language
+discovery and durable fallback coordinates the next observed bottleneck.
+
+The active execution continuation is
 [`plans/hypothesis-intent-attention-portfolio.md`](plans/hypothesis-intent-attention-portfolio.md).
 Issue #237 turns exact intent realization into a descriptive portfolio rather
 than an opaque score. Live evidence retains `DIFFERENT_TEST` as measured frontier
