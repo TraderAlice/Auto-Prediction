@@ -344,10 +344,10 @@ const BASE_MANIFEST = Object.freeze([
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
       required: [
-        "inspectedListingRefs", "searchedNeighborhoods", "reason",
+        "searchedNeighborhoods", "reason",
       ],
       properties: {
-        inspectedListingRefs: texts(1, 8), searchedNeighborhoods: texts(1, 12),
+        searchedNeighborhoods: texts(1, 12),
         reason: text(2_000),
       },
     }),
@@ -1191,7 +1191,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     }
     if (context.toolName === "record_mechanism_exploration_exhaustion") {
       exactKeys(input, [
-        "inspectedListingRefs", "searchedNeighborhoods", "reason",
+        "searchedNeighborhoods", "reason",
       ]);
       if (this.#failedTransferTests.size + this.#failedCounterScenarios.size === 0) {
         return this.#rejected(
@@ -1220,7 +1220,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           pairCount: result.pairCount,
           })),
         }),
-        inspectedListingRefsForResult: input.inspectedListingRefs as readonly string[],
+        inspectedListingRefsForResult: [...this.#inspectedListingRefs]
+          .filter((ref) => !this.researchInput.excludedListingRefs.includes(ref))
+          .sort().slice(0, 8),
         searchedNeighborhoods: input.searchedNeighborhoods as readonly string[],
         failedTransferTests: [...this.#failedTransferTests],
         failedCounterScenarios: [...this.#failedCounterScenarios],

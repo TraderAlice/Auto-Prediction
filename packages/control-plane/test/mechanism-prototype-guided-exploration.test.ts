@@ -1643,7 +1643,6 @@ describe("mechanism-prototype exploration Agent tools", () => {
       task: lens.task, run, executionProfile: profile,
       toolName: "record_mechanism_exploration_exhaustion",
       input: {
-        inspectedListingRefs: ["venue-sport:constructors"],
         searchedNeighborhoods: ["motorsport"], reason: "No exact analogy survived.",
       },
     })).rejects.toThrow(/inspected|search/u);
@@ -1683,7 +1682,6 @@ describe("mechanism-prototype exploration Agent tools", () => {
       task: lens.task, run, executionProfile: profile,
       toolName: "record_mechanism_exploration_exhaustion",
       input: {
-        inspectedListingRefs: ["venue-sport:constructors"],
         searchedNeighborhoods: ["motorsport aggregate"],
         reason: "The inspected aggregate does not establish a component pair.",
       },
