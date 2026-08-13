@@ -13,6 +13,7 @@ const RULE_EVIDENCE_APP_SERVER_RESULT_PROTOCOL_REVISION = 6;
 const ONTOLOGY_MECHANISM_EXECUTION_PROTOCOL_REVISION = 2;
 const WORLD_STATE_MECHANISM_RESEARCH_EXECUTION_REVISION = 1;
 const SUBJECT_BINDING_RESEARCH_EXECUTION_REVISION = 1;
+const MECHANISM_PROTOTYPE_RESEARCH_EXECUTION_REVISION = 1;
 
 export function buildDefaultAgentRuntimePortfolio(
   configuration: AiRuntimeConfiguration,
@@ -209,6 +210,31 @@ export function buildDefaultAgentRuntimePortfolio(
     executionProfileId: subjectBindingResearch.executionProfileId,
     updatedAt: createdAt,
   });
+  const mechanismPrototypeResearch = buildExecutionProfile({
+    revision: configuration.revision * 1_000 +
+      MECHANISM_PROTOTYPE_RESEARCH_EXECUTION_REVISION,
+    profileKey: "mechanism-prototype-codex-app-server",
+    runtimeDefinition: codex,
+    credentialBinding: codexCredential,
+    modelProfile: codexModel,
+    toolProtocol: "WORLD_STATE_MECHANISM_PROTOTYPE_TOOLS_V1",
+    runBudget: {
+      maximumModelInvocations: 8,
+      maximumToolCalls: 24,
+      maximumWallClockMs: 300_000,
+      maximumInputTokens: "200000",
+      maximumOutputTokens: "20000",
+    },
+    createdAt,
+  });
+  const mechanismPrototypeRoute = buildWorkloadRoute({
+    routeKey: "mechanism-prototype-research-default",
+    revision: configuration.revision * 1_000 +
+      MECHANISM_PROTOTYPE_RESEARCH_EXECUTION_REVISION,
+    taskKind: "MECHANISM_PROTOTYPE_RESEARCH",
+    executionProfileId: mechanismPrototypeResearch.executionProfileId,
+    updatedAt: createdAt,
+  });
   const relationDiscoveryCodexAppServer = buildExecutionProfile({
     // Relation-discovery policy evolves independently from the operator's
     // provider setting. Preserve the old immutable profile whenever its
@@ -251,6 +277,7 @@ export function buildDefaultAgentRuntimePortfolio(
       ontologyPiCodex,
       worldStateMechanismResearch,
       subjectBindingResearch,
+      mechanismPrototypeResearch,
       relationDiscoveryCodexAppServer,
     ]),
     workloadRoutes: Object.freeze([
@@ -258,6 +285,7 @@ export function buildDefaultAgentRuntimePortfolio(
       ontologyRoute,
       worldStateMechanismRoute,
       subjectBindingRoute,
+      mechanismPrototypeRoute,
       relationDiscoveryRoute,
     ]),
   });

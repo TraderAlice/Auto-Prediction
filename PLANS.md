@@ -1,6 +1,18 @@
 # Plans
 
 The active execution continuation is
+[`plans/world-state-mechanism-prototypes.md`](plans/world-state-mechanism-prototypes.md).
+Issue #207 separates exact world-state route instances from falsifiable,
+parameterized mechanism prototypes. Live Iowa/Democratic and
+Alaska/Republican seat-to-chamber-control routes are concrete independent
+instances of one candidate abstraction, but current route-family identity
+correctly keeps them separate. Provider-free code may now only nominate typed
+compatible comparison sets; an Agent-first tool must bind at least two exact
+route families, state invariants, variable slots and counter-scenarios before a
+prototype can become retained research memory. This preserves evidence lineage
+while letting the system measure cross-instance transfer yield and cost.
+
+The completed predecessor is
 [`plans/world-state-mechanism-specimen-rotation.md`](plans/world-state-mechanism-specimen-rotation.md).
 Issue #199 closes a budget-to-membership defect discovered before the next live
 Terra specimen. The provider-free allocation currently selects eight diverse
@@ -47,6 +59,19 @@ single shared token hold the pair as explicit ambiguity. The live portfolio
 fell to two local-seat-versus-national-control specimens with zero provider or
 model calls. Historical attempted-task memory remains durable even though
 those tasks are absent from the current portfolio projection.
+
+The corrected Alaska Republican-seat versus national Republican-control
+specimen subsequently completed the full Terra/high tool loop. Its first
+proposal was deterministically rejected for an ungrounded trigger signal and
+the Agent repaired it in-session; the accepted result cost five invocations,
+103,837 input tokens, 1,970 output tokens and 709 reasoning tokens over 114
+seconds. Together with the earlier Iowa Democratic-seat route, this supplies
+the first cross-instance replication of one abstract mechanism: a component
+seat outcome influences an aggregate chamber-control outcome. The concrete
+route-family identity correctly keeps the party/state/evidence instances
+separate, but the ontology has no parameterized mechanism-prototype layer to
+accumulate replication yield and cost across them. That instance/prototype
+separation is the next active construction frontier.
 
 Issue #190 repairs a restart-continuity defect discovered against the live
 SQLite volume. Semantic-review startup loaded findings and task revisions from

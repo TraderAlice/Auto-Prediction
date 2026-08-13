@@ -67,11 +67,11 @@ preflight observation had expired.
 
 ## Phase 3 — bounded Agent observation
 
-- [ ] Refresh the configured Terra/high capability without inference.
-- [ ] Create and inspect one paused exact specimen campaign.
-- [ ] Activate and dispatch once under an explicit research reference, then
+- [x] Refresh the configured Terra/high capability without inference.
+- [x] Create and inspect one paused exact specimen campaign.
+- [x] Activate and dispatch once under an explicit research reference, then
   pause the campaign after the terminal observation.
-- [ ] Attribute accepted proposal, falsifier, abstention, no-result and exact
+- [x] Attribute accepted proposal, falsifier, abstention, no-result and exact
   token/runtime cost before selecting the next engineering change.
 
 The first live specimen retained a real negative runtime observation before
@@ -132,6 +132,28 @@ retained as explicit `NO_DISTINCT_ROLE_LANGUAGE` and
 `SINGLE_SIGNAL_SUBJECT_AMBIGUITY` holds. The live selected portfolio shrank from
 four to two local-Senate-versus-national-control specimens; no model call was
 used for the correction.
+
+The first corrected specimen then completed the full Agent/tool loop. Campaign
+run `sha256:433054557c58194d71d51db1e54bd402e7ad1eca06ba321b5abdfe658273f9a2`
+read coverage, enumerated its exact assigned trailhead, read both immutable
+listing-evidence roles, and proposed an Alaska Republican Senate-seat result as
+an influence on national Republican Senate control. The deterministic tool
+rejected its first proposal because one trigger search signal was not grounded
+in the retained title; the same bounded Agent session repaired the call and
+the second proposal was accepted. The run succeeded in 114 seconds with five
+Terra/high invocations and 103,837 / 1,970 / 709 known input/output/reasoning
+tokens. No invocation has unknown usage. The campaign was immediately paused.
+
+This is also a family-replication observation. The previously retained Iowa
+Democratic-seat route and the new Alaska Republican-seat route both instantiate
+the mechanism “a component seat outcome influences an aggregate chamber-control
+outcome.” Their concrete route-family identities differ because those identities
+correctly bind party, state, predicates, and search signals. The current ontology
+has no separate identity for the reusable mechanism prototype, so the scorecard
+cannot yet say that one abstract mechanism has two independent subject/state
+instances. The next construction must separate concrete route instance from
+parameterized mechanism prototype without weakening either route's exact
+evidence lineage.
 
 ## Construction qualification
 

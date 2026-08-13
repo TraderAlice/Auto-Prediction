@@ -148,6 +148,11 @@ import {
   resolveWorldStateMechanismTaskRevision,
 } from "./world-state-mechanism-campaign.js";
 import {
+  materializeWorldStateMechanismPrototypeResearchCases,
+  worldStateMechanismPrototypeCandidateUsage,
+  type WorldStateMechanismPrototypeResearchCase,
+} from "./world-state-mechanism-prototype.js";
+import {
   observeWorldStateMechanismRoutes,
   worldStateMechanismSubjectBindingReviewCoversRoute,
   type WorldStateMechanismObservationStore,
@@ -1428,6 +1433,8 @@ export function createControlPlane(options?: {
       : null;
   let worldStateSubjectBindingResearchCases:
     readonly WorldStateSubjectBindingResearchCase[] = [];
+  let worldStateMechanismPrototypeResearchCases:
+    readonly WorldStateMechanismPrototypeResearchCase[] = [];
   const worldStateMechanismObservationStore =
     supportsWorldStateMechanismObservations(options?.discoveryStore)
       ? options.discoveryStore
@@ -3143,6 +3150,7 @@ export function createControlPlane(options?: {
       ...ontologySearchIssueRevisions.map((revision) => revision.task),
       ...worldStateMechanismResearchAssignments.map((assignment) => assignment.task),
       ...worldStateSubjectBindingResearchCases.map((item) => item.task),
+      ...worldStateMechanismPrototypeResearchCases.map((item) => item.task),
       ...relationDiscoveryTaskRevisions.map((revision) => revision.task),
     ];
     agentTaskReadinessIndex = buildAgentTaskReadinessIndex(currentTasks);
@@ -3562,6 +3570,7 @@ export function createControlPlane(options?: {
       agentExecutionRegistry.saveBatch({ tasks: mechanismTasks });
     }
     reconcileWorldStateSubjectBindingResearch();
+    reconcileWorldStateMechanismPrototypeResearch();
     invalidateAgentTaskReadiness();
   };
   const reconcileWorldStateMechanismObservations = (): void => {
@@ -3644,6 +3653,21 @@ export function createControlPlane(options?: {
     const knownTaskIds = new Set(agentExecutionRegistry.snapshot().tasks
       .map((item) => item.taskId));
     const tasks = worldStateSubjectBindingResearchCases
+      .map((item) => item.task)
+      .filter((item) => !knownTaskIds.has(item.taskId));
+    if (tasks.length > 0) agentExecutionRegistry.saveBatch({ tasks });
+    invalidateAgentTaskReadiness();
+  };
+  const reconcileWorldStateMechanismPrototypeResearch = (): void => {
+    if (worldStateMechanismProposalStore === null) return;
+    const routes = compileConsolidatedWorldStateMechanismRoutes(
+      worldStateMechanismProposalStore.loadWorldStateMechanismProposals(512),
+    );
+    worldStateMechanismPrototypeResearchCases =
+      materializeWorldStateMechanismPrototypeResearchCases(routes);
+    const knownTaskIds = new Set(agentExecutionRegistry.snapshot().tasks
+      .map((item) => item.taskId));
+    const tasks = worldStateMechanismPrototypeResearchCases
       .map((item) => item.task)
       .filter((item) => !knownTaskIds.has(item.taskId));
     if (tasks.length > 0) agentExecutionRegistry.saveBatch({ tasks });
@@ -4191,6 +4215,31 @@ export function createControlPlane(options?: {
         counterexamples,
         abstentions,
         execution: agentExecutionRegistry.snapshot(),
+      }),
+      mechanismPrototypes: Object.freeze({
+        candidateCount: worldStateMechanismPrototypeResearchCases.length,
+        unexploredCount: worldStateMechanismPrototypeResearchCases.filter((item) =>
+          item.state === "UNEXPLORED"
+        ).length,
+        automaticDispatch: false as const,
+        semanticDecisionAuthority: false as const,
+        probabilityAuthority: false as const,
+        cases: Object.freeze(worldStateMechanismPrototypeResearchCases
+          .slice(0, 128).map((item) => Object.freeze({
+            candidateId: item.candidateId,
+            inputRevisionId: item.currentInputRevision.revisionId,
+            signature: item.currentInputRevision.signature,
+            memberRouteFamilyIds: item.currentInputRevision.memberRouteFamilyIds,
+            memberRouteCount: item.currentInputRevision.memberRouteFamilyIds.length,
+            sourceAuthoringRunCount: item.currentInputRevision.sourceAuthoringRunIds.length,
+            sourceProposalCount: item.currentInputRevision.sourceProposalIds.length,
+            sourceAuthoringUsage: worldStateMechanismPrototypeCandidateUsage({
+              researchCase: item,
+              execution: agentExecutionRegistry.snapshot(),
+            }),
+            state: item.state,
+            campaignEligible: item.campaignEligible,
+          }))),
       }),
       familyScorecards: buildWorldStateMechanismFamilyScorecards({
         routes,
@@ -5423,6 +5472,7 @@ export function createControlPlane(options?: {
       try {
         reconcileWorldStateMechanismResearchAssignments();
         reconcileWorldStateSubjectBindingResearch();
+        reconcileWorldStateMechanismPrototypeResearch();
         reconcileWorldStateMechanismObservations();
       } catch {
         // Durable results remain authoritative; startup or catalog refresh retries projection repair.
