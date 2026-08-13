@@ -106,6 +106,7 @@ export * from "./relation-discovery-semantic-novelty-observability.js";
 export * from "./world-state-mechanism.js";
 export * from "./world-history-ontology.js";
 export * from "./world-history-ontology-adapter.js";
+export * from "./world-relation-truth-bridge.js";
 export * from "./world-state-mechanism-observer.js";
 export * from "./world-state-mechanism-research.js";
 export * from "./world-state-mechanism-family-scorecard.js";
