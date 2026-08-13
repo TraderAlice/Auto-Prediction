@@ -1923,6 +1923,66 @@ describe("ontology proposal relation work", () => {
     expect(() => reopened.loadRelationDiscoveryTaskRevisionsForTaskIds([
       "sha256:not-a-task" as never,
     ])).toThrow("invalid task id");
+    const secondRun = buildAgentRun({
+      task: revision.task,
+      executionProfile: profile,
+      runOrdinal: 2,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:semantic-admission-restart-test",
+        authorizedAt: "2026-08-12T09:01:00.000Z",
+      },
+      createdAt: "2026-08-12T09:01:00.000Z",
+    });
+    reopened.saveAgentExecutionBatch({ runs: [secondRun] });
+    const restartedHost = new RelationDiscoveryAgentToolHost(
+      revision.taskPayload,
+      work.corpus,
+      reopened,
+      relationDiscoveryRevisionWorkItem(revision),
+    );
+    const restartedContext = (toolName: string, input: unknown) => ({
+      run: secondRun,
+      task: revision.task,
+      executionProfile: profile,
+      callId: `restart-${toolName}`,
+      toolName,
+      input,
+    });
+    const workRead = await restartedHost.execute(
+      restartedContext("read_relation_work", {}),
+    );
+    expect(workRead.output).toMatchObject({
+      semanticCoverage: {
+        retainedFindingCount: 3,
+        matchingCoverageCount: 3,
+        completeAdmissionCheckStillRequired: true,
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        writesStartedByRead: 0,
+      },
+    });
+    await restartedHost.execute(
+      restartedContext("inspect_market_listings", { listingRefs: refs }),
+    );
+    const findingCountBeforeRedundancy =
+      reopened.loadRelationDiscoveryFindingsForAdmission().length;
+    await expect(restartedHost.execute(restartedContext("record_ontology_route", {
+      routeLayer: "EVENT_REFERENCE",
+      searchSignals: ["Mark Kelly"],
+      listingRefs: refs,
+      statement: "The same exact title query is described as an event route.",
+      rationale: "Changing the route label cannot create new operational search memory.",
+      falsifiers: ["The literal query or permitted fields differ."],
+    }))).rejects.toThrow(
+      `REDUNDANT_SEARCH_MEMORY; overlap finding ids: ${
+        retained.find((item) => item.kind === "ONTOLOGY_ROUTE")!.findingId
+      }`,
+    );
+    expect(restartedHost.findings()).toEqual([]);
+    expect(restartedHost.semanticNoveltyDecisions()).toEqual([]);
+    expect(reopened.loadRelationDiscoveryFindingsForAdmission())
+      .toHaveLength(findingCountBeforeRedundancy);
     reopened.close();
   });
 });

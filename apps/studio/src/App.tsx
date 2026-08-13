@@ -605,6 +605,52 @@ type AgentResultRepairProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type SemanticNoveltyProjection = Readonly<{
+  schemaVersion: "pmh.relation-discovery-semantic-novelty-projection.v1";
+  projectionIdentity: string;
+  observedAt: string;
+  retainedFindingCount: number;
+  retainedDecisionCount: number;
+  acceptedDecisionCount: number;
+  novelSearchRouteCount: number;
+  novelPayoffEvidenceCount: number;
+  incomparablePayoffEvidenceCount: number;
+  historicalRedundantRetainedCount: number;
+  redundantSearchMemoryRejectionCount: number;
+  redundantPayoffEvidenceRejectionCount: number;
+  exactRejectionCount: number;
+  admissionAffectedRunCount: number;
+  knownTotalTokens: string;
+  incompleteUsageInvocationCount: number;
+  acceptedDecisions: ReadonlyArray<Readonly<{
+    decisionId: string;
+    candidateFindingId: string;
+    classification: "NOVEL_SEARCH_ROUTE" | "NOVEL_PAYOFF_EVIDENCE" |
+      "REDUNDANT_SEARCH_MEMORY" | "REDUNDANT_PAYOFF_EVIDENCE" |
+      "INCOMPARABLE_PAYOFF_EVIDENCE";
+    semanticDomain: "SEARCH_MEMORY" | "PAYOFF_RESEARCH";
+    overlapFindingIds: readonly string[];
+    admitted: boolean;
+  }>>;
+  rejections: ReadonlyArray<Readonly<{
+    effectId: string;
+    runId: string;
+    toolName: string;
+    classification: "REDUNDANT_SEARCH_MEMORY" | "REDUNDANT_PAYOFF_EVIDENCE";
+    overlapFindingIds: readonly string[];
+    integrity: "EXACT" | "MALFORMED_DIAGNOSTIC";
+    occurredAt: string;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  writesStartedByRead: 0;
+  automaticDispatch: false;
+  policyMutationAuthority: false;
+  semanticDecisionAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type OntologyAllocationOutcomeProjection = Readonly<{
   schemaVersion: "pmh.ontology-allocation-outcome-projection.v1";
   projectionIdentity: string;
@@ -683,6 +729,7 @@ type AgentWorkspace = Readonly<{
   discoverySignals: DiscoverySignalProjection;
   discoveryYield: DiscoveryYieldProjection;
   resultRepairs: AgentResultRepairProjection;
+  semanticNovelty: SemanticNoveltyProjection;
   ontologyOutcomes: OntologyAllocationOutcomeProjection;
   discoveryCycle: Readonly<{
     schemaVersion: "pmh.discovery-cycle.v1";
@@ -3596,6 +3643,14 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.resultRepairs.writesStartedByRead !== 0 ||
     result.resultRepairs.automaticDispatch !== false ||
     result.resultRepairs.policyMutationAuthority !== false ||
+    result.semanticNovelty.schemaVersion !==
+      "pmh.relation-discovery-semantic-novelty-projection.v1" ||
+    result.semanticNovelty.providerRequestsStartedByRead !== 0 ||
+    result.semanticNovelty.modelInvocationsStartedByRead !== 0 ||
+    result.semanticNovelty.writesStartedByRead !== 0 ||
+    result.semanticNovelty.automaticDispatch !== false ||
+    result.semanticNovelty.policyMutationAuthority !== false ||
+    result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
     result.discoveryCycle.schemaVersion !== "pmh.discovery-cycle.v1" ||
@@ -3625,6 +3680,8 @@ function AgentOperationsView() {
     useState<DiscoveryYieldProjection | null>(null);
   const [resultRepairs, setResultRepairs] =
     useState<AgentResultRepairProjection | null>(null);
+  const [semanticNovelty, setSemanticNovelty] =
+    useState<SemanticNoveltyProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
     useState<OntologyAllocationOutcomeProjection | null>(null);
   const [discoveryCycle, setDiscoveryCycle] =
@@ -3654,6 +3711,7 @@ function AgentOperationsView() {
     setDiscoverySignals(workspace.discoverySignals);
     setDiscoveryYield(workspace.discoveryYield);
     setResultRepairs(workspace.resultRepairs);
+    setSemanticNovelty(workspace.semanticNovelty);
     setOntologyOutcomeData(ontologyOutcomes);
     setDiscoveryCycle(workspace.discoveryCycle);
     setTaskId((current) => next.tasks.some((task) =>
@@ -3849,6 +3907,69 @@ function AgentOperationsView() {
                   ) : <Badge variant="shadow">READ</Badge>}
                 </article>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {semanticNovelty !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Semantic novelty admission</span>
+              <h2>Did Agent spend expand the machine&apos;s ontology?</h2>
+              <p>Exact query coverage and payoff skeletons are compared before retention. Differing payoff prose stays explicitly incomparable; it is never promoted by a similarity score.</p>
+            </div>
+            <Badge variant={(semanticNovelty.redundantSearchMemoryRejectionCount +
+              semanticNovelty.redundantPayoffEvidenceRejectionCount) > 0 ? "verified" : "shadow"}>
+              {semanticNovelty.redundantSearchMemoryRejectionCount +
+                semanticNovelty.redundantPayoffEvidenceRejectionCount} REPEATS STOPPED
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-summary">
+              <div><strong>{semanticNovelty.novelSearchRouteCount}</strong><span>novel routes</span></div>
+              <div><strong>{semanticNovelty.novelPayoffEvidenceCount}</strong><span>novel payoff skeletons</span></div>
+              <div><strong>{semanticNovelty.incomparablePayoffEvidenceCount}</strong><span>incomparable payoff evidence</span></div>
+              <div><strong>{formatTokenCount(semanticNovelty.knownTotalTokens)}</strong><span>affected-run tokens</span></div>
+            </div>
+            <div className="research-attention-lock">
+              <span>
+                {semanticNovelty.retainedFindingCount} retained findings · {semanticNovelty.historicalRedundantRetainedCount} historical repeats · {semanticNovelty.exactRejectionCount}/{semanticNovelty.rejections.length} exact rejections
+              </span>
+              <code>{semanticNovelty.admissionAffectedRunCount} RUNS</code>
+            </div>
+            <div className="research-attention-actions">
+              {semanticNovelty.rejections.length === 0 ? (
+                <div className="empty-state">
+                  No semantic-repeat rejection is retained yet. Admission is active for new relation results.
+                </div>
+              ) : semanticNovelty.rejections.slice(0, 8).map((rejection) => (
+                <article key={rejection.effectId}>
+                  <div className="research-attention-action-head">
+                    <div>
+                      <Badge variant="verified">{rejection.classification.replaceAll("_", " ")}</Badge>
+                      <Badge variant={rejection.integrity === "EXACT" ? "muted" : "warning"}>
+                        {rejection.integrity.replaceAll("_", " ")}
+                      </Badge>
+                    </div>
+                    <code>{rejection.runId.slice(7, 19)}</code>
+                  </div>
+                  <strong>{rejection.toolName.replaceAll("_", " ")}</strong>
+                  <p>{rejection.overlapFindingIds.length} exact retained overlap{rejection.overlapFindingIds.length === 1 ? "" : "s"}; the rejected candidate created no finding.</p>
+                  <div className="research-attention-facts">
+                    {rejection.overlapFindingIds.slice(0, 3).map((id) => (
+                      <span key={id}>finding {id.slice(7, 19)}</span>
+                    ))}
+                    <span>{new Date(rejection.occurredAt).toLocaleString()}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="research-attention-lock">
+              <CircleOff size={14} />
+              <span>Provider-free exact coverage · no semantic, dispatch, or trading authority</span>
+              <code>{semanticNovelty.projectionIdentity.slice(7, 19)}</code>
             </div>
           </CardContent>
         </Card>

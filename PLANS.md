@@ -1713,8 +1713,8 @@ content identity; synthetic tests prove non-overlapping cost/artifact credit and
 downstream isolation. Full checks, 653 control-plane tests, 30 Studio tests and
 the production build pass.
 
-The active continuation is now
-[`plans/agent-result-repair-loop.md`](plans/agent-result-repair-loop.md). The
+The completed result-repair continuation taught the machine to recover from a
+rejected terminal tool call inside the same bounded Agent thread. The
 first live measured relation run spent 91,187 known tokens across five
 Codex/Terra turns and correctly failed without an accepted result. Its terminal
 counterexample tool was rejected for an invalid listing-reference count, after
@@ -1729,8 +1729,32 @@ effect IDs; one Terra repair corrected a rejected ontology-route call in the
 same thread for 27,371 known repair tokens and reached an accepted result. The
 full 140,711-token run is still classified `SPENT_WITHOUT_MOVEMENT`, because
 the accepted subject-reference route did not advance beyond retained Lula
-routing memory. Result repair is selected for serial integration; semantic
-novelty admission before retention is the immediate successor problem.
+routing memory. Result repair is selected and preserved in mainline history.
+
+The active continuation is now
+[`plans/semantic-novelty-admission.md`](plans/semantic-novelty-admission.md).
+Issue #156 makes semantic memory an explicit admission boundary rather than a
+post-hoc yield label. Provider-free code will distinguish novel search routes,
+novel payoff skeletons, proven repeated search/payoff memory, and payoff prose
+whose semantic novelty is genuinely incomparable. Proven redundancy must be
+rejected before retention with exact overlap diagnostics so the existing repair
+loop can redirect the same bounded run. The Agent also needs a bounded view of
+retained coverage before it spends, while the admission decision itself must
+read the complete retained finding ledger and remain independent of models,
+embeddings, run identity, or elapsed time.
+
+That continuation is now qualified for serial integration. The complete live
+finding ledger contains eight findings: two novel search routes, five novel
+payoff skeletons, and one historical repeated Lula query. The provider-free
+classifier links the later subject-labelled route exactly to the earlier
+event-labelled route because both compile to the same normalized title query.
+New result tools read bounded relevant coverage, check the complete validated
+ledger before persistence, reject proven repetition with repair-readable exact
+finding IDs, and admit differing payoff prose only as explicitly incomparable.
+Agent Operations shows memory expansion, stopped repeats, affected-run cost and
+repair outcomes separately. SQLite restart, desktop/390 px visual checks, 660
+control-plane tests, 30 Studio tests, workspace checks and build pass with zero
+read-side provider/model/dispatch/write effects.
 
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.

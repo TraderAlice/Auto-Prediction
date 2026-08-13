@@ -100,11 +100,18 @@ function boundedToolDiagnostic(value: unknown): string {
   const source = typeof value === "string" ? value : value instanceof Error
     ? value.message
     : "tool rejected";
-  const message = source.trim()
+  const contentHashes: string[] = [];
+  const protectedSource = source.replace(/sha256:[0-9a-f]{64}/gu, (hash) => {
+    const index = contentHashes.push(hash) - 1;
+    return `[pmh-content-hash-${index}]`;
+  });
+  const scrubbed = protectedSource.trim()
     .replace(/https?:\/\/\S+/giu, "[url]")
     .replace(/[A-Za-z0-9_+/=-]{48,}/gu, "[opaque]")
-    .replace(/\s+/gu, " ")
-    .slice(0, 900);
+    .replace(/\s+/gu, " ");
+  const message = contentHashes.reduce((current, hash, index) =>
+    current.replaceAll(`[pmh-content-hash-${index}]`, hash), scrubbed
+  ).slice(0, 900);
   return message === "" ? redactedDiagnostic(value, "tool rejected") : message;
 }
 

@@ -9824,6 +9824,30 @@ export class SqliteOperationalStore
     }));
   }
 
+  public loadRelationDiscoveryFindingsForAdmission(): readonly RelationDiscoveryFinding[] {
+    this.#assertOpen();
+    const rows = this.#database.prepare(
+      `SELECT finding_id, record_json, record_hash
+       FROM relation_discovery_findings
+       ORDER BY recorded_at ASC, finding_id ASC`,
+    ).all();
+    const corpusByIdentity = new Map<Hash, MarketCorpusSnapshot>();
+    return Object.freeze(rows.map((row) => {
+      const finding = parseRelationDiscoveryFinding(row);
+      let corpus = corpusByIdentity.get(finding.sourceCorpusSnapshotIdentity) ?? null;
+      if (corpus === null) {
+        corpus = this.loadRelationDiscoveryCorpus(finding.sourceCorpusSnapshotIdentity);
+        if (corpus !== null) {
+          corpusByIdentity.set(finding.sourceCorpusSnapshotIdentity, corpus);
+        }
+      }
+      if (corpus === null) {
+        throw new Error("SQLite semantic admission finding lost its retained corpus");
+      }
+      return verifyRelationDiscoveryFindingEvidenceAgainstVerifiedCorpus(finding, corpus);
+    }));
+  }
+
   public loadStandingOntologyRouteSourceFindings(): readonly RelationDiscoveryFinding[] {
     this.#assertOpen();
     const rows = this.#database.prepare(
