@@ -3011,6 +3011,31 @@ footer {
   background: var(--background);
 }
 
+.mechanism-experiment-memory-standalone {
+  margin: 18px 0;
+}
+
+.mechanism-exploration-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 18px 0;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--warning) 5%, var(--card));
+}
+
+.mechanism-exploration-unavailable > div {
+  display: grid;
+  gap: 4px;
+}
+
+.mechanism-exploration-unavailable small {
+  color: var(--muted-foreground);
+}
+
 .mechanism-experiment-memory-head,
 .mechanism-experiment-row > div {
   display: flex;

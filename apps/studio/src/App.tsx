@@ -672,7 +672,7 @@ type SemanticNoveltyProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 type WorldStateMechanismProjection = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-projection.v5";
+  schemaVersion: "pmh.world-state-mechanism-projection.v6";
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
@@ -780,6 +780,53 @@ type WorldStateMechanismProjection = Readonly<{
       abstentionIds: readonly string[];
       campaignEligible: boolean;
     }>>;
+  }>;
+  mechanismPrototypeExplorationMemory: Readonly<{
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v1";
+    projectionIdentity: string;
+    retainedInputCount: number;
+    retainedStepCount: number;
+    episodeCount: number;
+    completeEpisodeCount: number;
+    interruptedOrFailedEpisodeCount: number;
+    terminalOutcomeCounts: Readonly<{
+      trailhead: number;
+      exhaustion: number;
+      noAcceptedTerminal: number;
+    }>;
+    usage: Readonly<{
+      invocationCount: number;
+      knownInputTokens: string;
+      knownOutputTokens: string;
+      knownReasoningTokens: string;
+      unknownUsageInvocationCount: number;
+    }>;
+    episodes: ReadonlyArray<Readonly<{
+      episodeId: string;
+      runStatus: "INTERRUPTED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+      ledgerCompleteness: "COMPLETE_EFFECT_LEDGER" | "PARTIAL_EFFECT_LEDGER";
+      terminalOutcome: "TRAILHEAD" | "EXHAUSTION" | "NO_ACCEPTED_TERMINAL";
+      completedAt: string;
+      firstPositiveEligibleEffectOrdinal: number | null;
+      firstExhaustionEligibleEffectOrdinal: number | null;
+      yield: Readonly<{
+        effectCount: number;
+        rejectedEffectCount: number;
+        searchEffectCount: number;
+        rawHitCount: number;
+        qualifiedHitCount: number;
+        rolePairCount: number;
+        inspectedListingCount: number;
+        acceptedActionCount: number;
+      }>;
+      usage: Readonly<{
+        invocationCount: number;
+        knownInputTokens: string;
+      }>;
+    }>>;
+    currentCorpusAuthority: false;
+    currentEligibilityAuthority: false;
+    automaticDispatch: false;
   }>;
   mechanismPrototypeExploration: null | Readonly<{
     schemaVersion: "pmh.mechanism-prototype-exploration-projection.v2";
@@ -4094,7 +4141,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
-      "pmh.world-state-mechanism-projection.v5" ||
+      "pmh.world-state-mechanism-projection.v6" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness.schemaVersion !==
       "pmh.world-state-subject-binding-promotion-readiness.v1" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
@@ -4105,6 +4152,14 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
       "pmh.world-state-mechanism-research-yield.v1" ||
     result.worldStateMechanisms.retainedMechanismMemory.schemaVersion !==
       "pmh.retained-world-state-mechanism-memory.v1" ||
+    result.worldStateMechanisms.mechanismPrototypeExplorationMemory.schemaVersion !==
+      "pmh.mechanism-prototype-exploration-memory-projection.v1" ||
+    result.worldStateMechanisms.mechanismPrototypeExplorationMemory
+      .currentCorpusAuthority !== false ||
+    result.worldStateMechanisms.mechanismPrototypeExplorationMemory
+      .currentEligibilityAuthority !== false ||
+    result.worldStateMechanisms.mechanismPrototypeExplorationMemory
+      .automaticDispatch !== false ||
     (result.worldStateMechanisms.mechanismPrototypeExploration !== null &&
       result.worldStateMechanisms.mechanismPrototypeExploration.schemaVersion !==
         "pmh.mechanism-prototype-exploration-projection.v2") ||
@@ -4580,6 +4635,51 @@ function AgentOperationsView() {
                 ))}
               </div>
             </section>
+            <section className="mechanism-experiment-memory mechanism-experiment-memory-standalone">
+              <div className="mechanism-experiment-memory-head">
+                <div>
+                  <span className="eyebrow">Durable experiment memory</span>
+                  <strong>{worldStateMechanisms.mechanismPrototypeExplorationMemory.episodeCount} replayable episodes</strong>
+                  <small>Historical search experience remains exact even when the current market corpus is unavailable.</small>
+                </div>
+                <Badge variant={worldStateMechanisms.mechanismPrototypeExplorationMemory.completeEpisodeCount === worldStateMechanisms.mechanismPrototypeExplorationMemory.episodeCount ? "verified" : "warning"}>
+                  {worldStateMechanisms.mechanismPrototypeExplorationMemory.completeEpisodeCount} COMPLETE
+                </Badge>
+              </div>
+              {worldStateMechanisms.mechanismPrototypeExplorationMemory.episodes.length === 0 ? (
+                <small>No V9 effect ledger has completed yet.</small>
+              ) : (
+                <div className="mechanism-experiment-rows">
+                  {worldStateMechanisms.mechanismPrototypeExplorationMemory.episodes.slice(0, 4).map((episode) => (
+                    <div key={episode.episodeId} className="mechanism-experiment-row">
+                      <div>
+                        <Badge variant={episode.terminalOutcome === "TRAILHEAD" ? "verified" : episode.terminalOutcome === "EXHAUSTION" ? "warning" : "shadow"}>
+                          {episode.terminalOutcome.replaceAll("_", " ")}
+                        </Badge>
+                        <code>{episode.episodeId.slice(7, 19)}</code>
+                      </div>
+                      <span>{episode.yield.searchEffectCount} searches · {episode.yield.rawHitCount} raw → {episode.yield.qualifiedHitCount} qualified → {episode.yield.rolePairCount} pairs · {episode.yield.inspectedListingCount} inspected</span>
+                      <span>{episode.usage.invocationCount} calls · {formatTokenCount(episode.usage.knownInputTokens)} input · {episode.yield.rejectedEffectCount} rejected effects</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="research-attention-lock">
+                <CircleOff size={14} />
+                <span>{worldStateMechanisms.mechanismPrototypeExplorationMemory.retainedStepCount} causal steps · {worldStateMechanisms.mechanismPrototypeExplorationMemory.usage.invocationCount} episode calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExplorationMemory.usage.knownInputTokens)} episode input</span>
+                <code>NO CURRENT-CORPUS AUTHORITY</code>
+              </div>
+            </section>
+            {worldStateMechanisms.mechanismPrototypeExploration === null && (
+              <section className="mechanism-exploration-unavailable">
+                <div>
+                  <span className="eyebrow">Current exploration workspace</span>
+                  <strong>Current market corpus unavailable</strong>
+                  <small>Historical episodes remain visible above. No stale lens, eligibility decision or campaign input is being presented as current.</small>
+                </div>
+                <Badge variant="warning">OBSERVATION GAP</Badge>
+              </section>
+            )}
             {worldStateMechanisms.mechanismPrototypeExploration !== null && (
               <section className="mechanism-exploration-desk">
                 <div className="mechanism-prototype-head">
@@ -4614,35 +4714,6 @@ function AgentOperationsView() {
                   >
                     Create paused campaign
                   </Button>
-                </div>
-                <div className="mechanism-experiment-memory">
-                  <div className="mechanism-experiment-memory-head">
-                    <div>
-                      <span className="eyebrow">Experiment memory</span>
-                      <strong>{worldStateMechanisms.mechanismPrototypeExploration.usage.experimentEpisodeCount} replayable episodes</strong>
-                    </div>
-                    <Badge variant={worldStateMechanisms.mechanismPrototypeExploration.usage.completeExperimentEpisodeCount === worldStateMechanisms.mechanismPrototypeExploration.usage.experimentEpisodeCount ? "verified" : "warning"}>
-                      {worldStateMechanisms.mechanismPrototypeExploration.usage.completeExperimentEpisodeCount} COMPLETE
-                    </Badge>
-                  </div>
-                  {worldStateMechanisms.mechanismPrototypeExploration.experimentEpisodes.length === 0 ? (
-                    <small>The next V9 run will retain effect-by-effect readiness, search yield and token lineage.</small>
-                  ) : (
-                    <div className="mechanism-experiment-rows">
-                      {worldStateMechanisms.mechanismPrototypeExploration.experimentEpisodes.slice(0, 4).map((episode) => (
-                        <div key={episode.episodeId} className="mechanism-experiment-row">
-                          <div>
-                            <Badge variant={episode.terminalOutcome === "TRAILHEAD" ? "verified" : episode.terminalOutcome === "EXHAUSTION" ? "warning" : "shadow"}>
-                              {episode.terminalOutcome.replaceAll("_", " ")}
-                            </Badge>
-                            <code>{episode.episodeId.slice(7, 19)}</code>
-                          </div>
-                          <span>{episode.yield.searchEffectCount} searches · {episode.yield.rawHitCount} raw → {episode.yield.qualifiedHitCount} qualified → {episode.yield.rolePairCount} pairs · {episode.yield.inspectedListingCount} inspected</span>
-                          <span>{episode.usage.invocationCount} calls · {formatTokenCount(episode.usage.knownInputTokens)} input · {episode.yield.rejectedEffectCount} rejected effects</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
                 <div className="mechanism-exploration-grid">
                   {worldStateMechanisms.mechanismPrototypeExploration.lenses.map((lens) => (

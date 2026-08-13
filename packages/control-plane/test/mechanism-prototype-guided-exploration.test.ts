@@ -14,6 +14,7 @@ import {
   buildMechanismPrototypeExplorationExhaustion,
   buildMechanismPrototypeExplorationStepObservation,
   compileMechanismPrototypeExplorationExperimentEpisodes,
+  buildMechanismPrototypeExplorationMemoryProjection,
   buildPausedAgentCampaign,
   buildDefaultAgentRuntimePortfolio,
   defaultAiRuntimeConfiguration,
@@ -718,6 +719,25 @@ describe("mechanism-prototype exploration Agent tools", () => {
       effectOrdinal: 3, invocationPurpose: "PRIMARY_REASONING",
       exhaustionBecameEligible: true,
     });
+    const memory = buildMechanismPrototypeExplorationMemoryProjection({
+      inputs: [lens.currentInputRevision], stepObservations: steps,
+      execution: { runtimeDefinitions: [], credentialBindings: [], modelProfiles: [model],
+        executionProfiles: [profile], capabilityObservations: [], workloadRoutes: [], tasks: [],
+        runs: [completed], modelInvocations: [invocation], toolEffects: effects,
+        runArtifacts: [], runAnnotations: [], campaigns: [], resultSelections: [] },
+    });
+    expect(memory).toMatchObject({
+      retainedInputCount: 1, retainedStepCount: 4, episodeCount: 1,
+      completeEpisodeCount: 1, interruptedOrFailedEpisodeCount: 0,
+      terminalOutcomeCounts: { trailhead: 0, exhaustion: 1, noAcceptedTerminal: 0 },
+      usage: { invocationCount: 1, knownInputTokens: "1200" },
+      currentCorpusAuthority: false, currentEligibilityAuthority: false,
+      campaignAuthority: false, automaticDispatch: false,
+      effects: { providerRequests: 0, modelInvocations: 0, tasks: 0,
+        campaigns: 0, dispatches: 0, writes: 0, externalWrites: 0,
+        valueMovingActions: 0 },
+    });
+    expect(memory.episodes[0]!.episodeId).toBe(episodes[0]!.episodeId);
   });
 
   it("searches and inspects before retaining an exact routing-only trailhead", async () => {

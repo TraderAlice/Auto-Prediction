@@ -1,6 +1,22 @@
 # Plans
 
 The active execution continuation is
+[`plans/durable-exploration-memory.md`](plans/durable-exploration-memory.md).
+Issue #225 follows the first adopted V9 experiment episode. A completed
+experiment is durable research memory, while the market corpus is a current
+observation; a transient empty corpus must not make retained Agent experience
+disappear. The next read-model split keeps historical episode truth visible
+without fabricating a current lens, eligibility decision or stale catalog.
+
+Issue #225 is selected `ADOPT`. World-state projection V6 now carries an
+always-present, provider-free exploration-memory projection beside the nullable
+current-corpus workspace. The live V9 episode keeps the same `05276389…`
+identity, seven steps and 163,898 input-token attribution in both surfaces,
+while memory explicitly has no current-corpus, eligibility, campaign or
+dispatch authority. Studio shows the durable memory independently and labels
+an observation gap instead of presenting stale lenses or epistemic amnesia.
+
+The selected execution continuation is
 [`plans/exploration-experiment-episodes.md`](plans/exploration-experiment-episodes.md).
 Issue #223 follows the V8 readiness adoption. The ledger now retains searches,
 prototype-test actions and terminals, but cannot exactly join a domain

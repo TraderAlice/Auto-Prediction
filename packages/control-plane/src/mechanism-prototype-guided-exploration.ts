@@ -405,6 +405,49 @@ export type MechanismPrototypeExplorationExperimentEpisode = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v1";
+  projectionIdentity: Hash;
+  retainedInputCount: number;
+  retainedStepCount: number;
+  episodeCount: number;
+  completeEpisodeCount: number;
+  interruptedOrFailedEpisodeCount: number;
+  terminalOutcomeCounts: Readonly<{
+    trailhead: number;
+    exhaustion: number;
+    noAcceptedTerminal: number;
+  }>;
+  usage: Readonly<{
+    invocationCount: number;
+    knownInputTokens: string;
+    knownOutputTokens: string;
+    knownReasoningTokens: string;
+    unknownUsageInvocationCount: number;
+  }>;
+  episodes: readonly MechanismPrototypeExplorationExperimentEpisode[];
+  currentCorpusAuthority: false;
+  currentEligibilityAuthority: false;
+  campaignAuthority: false;
+  automaticDispatch: false;
+  effects: Readonly<{
+    providerRequests: 0;
+    modelInvocations: 0;
+    tasks: 0;
+    campaigns: 0;
+    dispatches: 0;
+    writes: 0;
+    externalWrites: 0;
+    valueMovingActions: 0;
+  }>;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type MechanismPrototypeExplorationRoleSearchBinding = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-role-search-binding.v1";
   resultIdentity: Hash;
@@ -2478,6 +2521,83 @@ export function compileMechanismPrototypeExplorationExperimentEpisodes(input: Re
     right.completedAt.localeCompare(left.completedAt) ||
     left.episodeId.localeCompare(right.episodeId)
   ));
+}
+
+export function buildMechanismPrototypeExplorationMemoryProjection(input: Readonly<{
+  inputs: readonly MechanismPrototypeExplorationInputRevision[];
+  stepObservations: readonly MechanismPrototypeExplorationStepObservation[];
+  execution: AgentExecutionSnapshot;
+  episodeLimit?: number;
+}>): MechanismPrototypeExplorationMemoryProjection {
+  const retainedInputs = input.inputs.map(
+    assertMechanismPrototypeExplorationInputRevision,
+  );
+  const retainedSteps = input.stepObservations.map(
+    assertMechanismPrototypeExplorationStepObservation,
+  );
+  const episodeLimit = input.episodeLimit ?? 32;
+  if (!Number.isSafeInteger(episodeLimit) || episodeLimit < 1 || episodeLimit > 512) {
+    throw new Error("mechanism exploration memory episode limit is invalid");
+  }
+  const episodes = compileMechanismPrototypeExplorationExperimentEpisodes({
+    inputs: retainedInputs,
+    stepObservations: retainedSteps,
+    execution: input.execution,
+  }).slice(0, episodeLimit);
+  const sum = (key: "knownInputTokens" | "knownOutputTokens" |
+    "knownReasoningTokens") => episodes.reduce((total, episode) =>
+      total + BigInt(episode.usage[key]), 0n
+    ).toString();
+  const body = Object.freeze({
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v1" as const,
+    retainedInputCount: retainedInputs.length,
+    retainedStepCount: retainedSteps.length,
+    episodeCount: episodes.length,
+    completeEpisodeCount: episodes.filter((episode) =>
+      episode.ledgerCompleteness === "COMPLETE_EFFECT_LEDGER"
+    ).length,
+    interruptedOrFailedEpisodeCount: episodes.filter((episode) =>
+      episode.runStatus !== "SUCCEEDED"
+    ).length,
+    terminalOutcomeCounts: Object.freeze({
+      trailhead: episodes.filter((episode) => episode.terminalOutcome === "TRAILHEAD").length,
+      exhaustion: episodes.filter((episode) => episode.terminalOutcome === "EXHAUSTION").length,
+      noAcceptedTerminal: episodes.filter((episode) =>
+        episode.terminalOutcome === "NO_ACCEPTED_TERMINAL"
+      ).length,
+    }),
+    usage: Object.freeze({
+      invocationCount: episodes.reduce((total, episode) =>
+        total + episode.usage.invocationCount, 0),
+      knownInputTokens: sum("knownInputTokens"),
+      knownOutputTokens: sum("knownOutputTokens"),
+      knownReasoningTokens: sum("knownReasoningTokens"),
+      unknownUsageInvocationCount: episodes.reduce((total, episode) =>
+        total + episode.usage.unknownUsageInvocationCount, 0),
+    }),
+    episodes,
+    currentCorpusAuthority: false as const,
+    currentEligibilityAuthority: false as const,
+    campaignAuthority: false as const,
+    automaticDispatch: false as const,
+    effects: Object.freeze({
+      providerRequests: 0 as const,
+      modelInvocations: 0 as const,
+      tasks: 0 as const,
+      campaigns: 0 as const,
+      dispatches: 0 as const,
+      writes: 0 as const,
+      externalWrites: 0 as const,
+      valueMovingActions: 0 as const,
+    }),
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });
 }
 
 export function mechanismPrototypeExplorationUsage(input: Readonly<{
