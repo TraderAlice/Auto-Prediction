@@ -162,6 +162,11 @@ describe("world-state mechanism research role", () => {
       attemptedCount: 0, proposedCount: 0, abstainedCount: 0, falsifiedCount: 0,
       runCount: 0, modelInvocationCount: 0,
       usage: { inputTokens: "0", outputTokens: "0", reasoningTokens: "0" },
+      outcomeStrata: expect.arrayContaining([{
+        outcome: "NO_ACCEPTED_RESULT", runCount: 0, modelInvocationCount: 0,
+        knownInputTokens: "0", knownOutputTokens: "0", knownReasoningTokens: "0",
+        unknownUsageInvocationCount: 0,
+      }]),
     });
   });
 });

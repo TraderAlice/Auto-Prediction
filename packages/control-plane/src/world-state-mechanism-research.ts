@@ -189,6 +189,16 @@ export type WorldStateMechanismResearchYield = Readonly<{
   modelInvocationCount: number;
   acceptedResultCount: number;
   usage: Readonly<{ inputTokens: string; outputTokens: string; reasoningTokens: string }>;
+  outcomeStrata: readonly Readonly<{
+    outcome: "PROPOSAL" | "FALSIFIER" | "ABSTENTION" |
+      "NO_ACCEPTED_RESULT" | "MIXED_ACCEPTED_RESULT";
+    runCount: number;
+    modelInvocationCount: number;
+    knownInputTokens: string;
+    knownOutputTokens: string;
+    knownReasoningTokens: string;
+    unknownUsageInvocationCount: number;
+  }>[];
   authority: "DERIVED_MECHANISM_RESEARCH_EVIDENCE_ONLY";
 }>;
 
@@ -208,6 +218,37 @@ export function buildWorldStateMechanismResearchYield(input: Readonly<{
     ].includes(item.toolName)
   );
   const attemptedTasks = new Set(runs.map((item) => item.taskId));
+  const outcome = (runId: Hash): WorldStateMechanismResearchYield["outcomeStrata"][number]["outcome"] => {
+    const names = new Set(acceptedResults.filter((item) => item.runId === runId)
+      .map((item) => item.toolName));
+    if (names.size > 1) return "MIXED_ACCEPTED_RESULT";
+    if (names.has("propose_world_state_mechanism")) return "PROPOSAL";
+    if (names.has("record_world_state_mechanism_counterexample")) return "FALSIFIER";
+    if (names.has("record_world_state_mechanism_abstention")) return "ABSTENTION";
+    return "NO_ACCEPTED_RESULT";
+  };
+  const outcomeKinds = [
+    "PROPOSAL", "FALSIFIER", "ABSTENTION", "NO_ACCEPTED_RESULT", "MIXED_ACCEPTED_RESULT",
+  ] as const;
+  const outcomeStrata = Object.freeze(outcomeKinds.map((kind) => {
+    const outcomeRuns = runs.filter((run) => outcome(run.runId) === kind);
+    const outcomeRunIds = new Set(outcomeRuns.map((run) => run.runId));
+    const outcomeInvocations = invocations.filter((item) => outcomeRunIds.has(item.runId));
+    return Object.freeze({
+      outcome: kind,
+      runCount: outcomeRuns.length,
+      modelInvocationCount: outcomeInvocations.length,
+      knownInputTokens: outcomeInvocations.reduce((sum, item) =>
+        sum + BigInt(item.inputTokens ?? "0"), 0n).toString(),
+      knownOutputTokens: outcomeInvocations.reduce((sum, item) =>
+        sum + BigInt(item.outputTokens ?? "0"), 0n).toString(),
+      knownReasoningTokens: outcomeInvocations.reduce((sum, item) =>
+        sum + BigInt(item.reasoningTokens ?? "0"), 0n).toString(),
+      unknownUsageInvocationCount: outcomeInvocations.filter((item) =>
+        item.inputTokens === null || item.outputTokens === null || item.reasoningTokens === null
+      ).length,
+    });
+  }));
   const body = Object.freeze({
     schemaVersion: "pmh.world-state-mechanism-research-yield.v1" as const,
     eligibleCount: input.assignments.filter((item) => item.campaignEligible).length,
@@ -228,6 +269,7 @@ export function buildWorldStateMechanismResearchYield(input: Readonly<{
       reasoningTokens: invocations.reduce((sum, item) =>
         sum + BigInt(item.reasoningTokens ?? "0"), 0n).toString(),
     }),
+    outcomeStrata,
     authority: "DERIVED_MECHANISM_RESEARCH_EVIDENCE_ONLY" as const,
   });
   return Object.freeze({ ...body, projectionIdentity: hashCanonical(body) });

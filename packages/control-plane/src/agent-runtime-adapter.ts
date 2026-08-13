@@ -537,7 +537,10 @@ export type AgentRuntimeToolDefinition = Readonly<{
 }>;
 
 export interface AgentRuntimeSession {
-  advance(toolResults: readonly AgentRuntimeToolResult[]): Promise<AgentRuntimeTurn>;
+  advance(
+    toolResults: readonly AgentRuntimeToolResult[],
+    budget?: Readonly<{ maximumWaitMs: number }>,
+  ): Promise<AgentRuntimeTurn>;
   settleAcceptedResult?(toolResults: readonly AgentRuntimeToolResult[]): Promise<void>;
   prepareCompletionRecovery?(input: Readonly<{
     attemptOrdinal: number;
@@ -671,6 +674,7 @@ export async function executePreparedAgentRun(
   const valid = validateExecutionInput(input);
   const now = input.now ?? Date.now;
   const startedAt = now();
+  const deadlineAtMs = startedAt + valid.profile.runBudget.maximumWallClockMs;
   const invocations: ModelInvocation[] = [];
   const effects: AgentToolEffect[] = [];
   const artifacts: AgentRunArtifact[] = [];
@@ -777,7 +781,9 @@ export async function executePreparedAgentRun(
       }));
 
       const invocationPurpose = nextInvocationPurpose;
-      const turn = await session.advance(toolResults);
+      const turn = await session.advance(toolResults, Object.freeze({
+        maximumWaitMs: Math.max(1, deadlineAtMs - now()),
+      }));
       const ordinal = invocations.length + 1;
       const invocationStartedAt = canonicalIso(
         turn.invocation.startedAt,

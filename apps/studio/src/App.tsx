@@ -692,6 +692,16 @@ type WorldStateMechanismProjection = Readonly<{
       outputTokens: string;
       reasoningTokens: string;
     }>;
+    outcomeStrata: ReadonlyArray<Readonly<{
+      outcome: "PROPOSAL" | "FALSIFIER" | "ABSTENTION" |
+        "NO_ACCEPTED_RESULT" | "MIXED_ACCEPTED_RESULT";
+      runCount: number;
+      modelInvocationCount: number;
+      knownInputTokens: string;
+      knownOutputTokens: string;
+      knownReasoningTokens: string;
+      unknownUsageInvocationCount: number;
+    }>>;
     authority: "DERIVED_MECHANISM_RESEARCH_EVIDENCE_ONLY";
   }>;
   subjectBindingReviewCount: number;
@@ -4171,6 +4181,20 @@ function AgentOperationsView() {
               <div className="research-attention-facts">
                 {worldStateMechanisms.allocation.holdReasonCounts.slice(0, 4).map((item) => (
                   <span key={item.reason}>{item.count} held · {item.reason.replaceAll("_", " ").toLowerCase()}</span>
+                ))}
+              </div>
+            )}
+            {worldStateMechanisms.researchYield.outcomeStrata.some((item) =>
+              item.runCount > 0
+            ) && (
+              <div className="research-attention-facts">
+                {worldStateMechanisms.researchYield.outcomeStrata.filter((item) =>
+                  item.runCount > 0
+                ).map((item) => (
+                  <span key={item.outcome}>
+                    {item.runCount} {item.outcome.replaceAll("_", " ").toLowerCase()} · {formatTokenCount(item.knownInputTokens)} input tokens
+                    {item.unknownUsageInvocationCount > 0 ? ` · ${item.unknownUsageInvocationCount} incomplete` : ""}
+                  </span>
                 ))}
               </div>
             )}
