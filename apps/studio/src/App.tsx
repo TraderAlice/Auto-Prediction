@@ -657,6 +657,25 @@ type WorldStateMechanismProjection = Readonly<{
   proposalCount: number;
   counterexampleCount: number;
   abstentionCount: number;
+  allocation: Readonly<{
+    schemaVersion: "pmh.world-state-mechanism-allocation.v1";
+    projectionIdentity: string;
+    eligibleCount: number;
+    structurallySuitableCount: number;
+    selectedCount: number;
+    heldLowSuitabilityCount: number;
+    heldPortfolioRedundancyCount: number;
+    coveredCount: number;
+    holdReasonCounts: ReadonlyArray<Readonly<{ reason: string; count: number }>>;
+    providerRequestsStartedByRead: 0;
+    modelInvocationsStartedByRead: 0;
+    campaignsCreatedByRead: 0;
+    runsCreatedByRead: 0;
+    automaticDispatch: false;
+    semanticDecisionAuthority: false;
+    executionAuthority: false;
+    valueMovingAuthority: false;
+  }>;
   researchYield: Readonly<{
     schemaVersion: "pmh.world-state-mechanism-research-yield.v1";
     projectionIdentity: string;
@@ -3769,6 +3788,16 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
       "pmh.world-state-mechanism-projection.v2" ||
     result.worldStateMechanisms.researchYield.schemaVersion !==
       "pmh.world-state-mechanism-research-yield.v1" ||
+    result.worldStateMechanisms.allocation.schemaVersion !==
+      "pmh.world-state-mechanism-allocation.v1" ||
+    result.worldStateMechanisms.allocation.providerRequestsStartedByRead !== 0 ||
+    result.worldStateMechanisms.allocation.modelInvocationsStartedByRead !== 0 ||
+    result.worldStateMechanisms.allocation.campaignsCreatedByRead !== 0 ||
+    result.worldStateMechanisms.allocation.runsCreatedByRead !== 0 ||
+    result.worldStateMechanisms.allocation.automaticDispatch !== false ||
+    result.worldStateMechanisms.allocation.semanticDecisionAuthority !== false ||
+    result.worldStateMechanisms.allocation.executionAuthority !== false ||
+    result.worldStateMechanisms.allocation.valueMovingAuthority !== false ||
     result.worldStateMechanisms.providerRequestsStartedByRead !== 0 ||
     result.worldStateMechanisms.modelInvocationsStartedByRead !== 0 ||
     result.worldStateMechanisms.writesStartedByRead !== 0 ||
@@ -4132,10 +4161,19 @@ function AgentOperationsView() {
           <CardContent>
             <div className="research-attention-summary">
               <div><strong>{worldStateMechanisms.researchYield.eligibleCount}</strong><span>eligible exact inputs</span></div>
+              <div><strong>{worldStateMechanisms.allocation.structurallySuitableCount}</strong><span>structurally suitable</span></div>
+              <div><strong>{worldStateMechanisms.allocation.selectedCount}</strong><span>selected for next campaign</span></div>
               <div><strong>{worldStateMechanisms.researchYield.attemptedCount}</strong><span>attempted issues</span></div>
               <div><strong>{worldStateMechanisms.researchYield.proposedCount}</strong><span>proposed routes</span></div>
               <div><strong>{worldStateMechanisms.researchYield.abstainedCount}</strong><span>evidence-bound abstentions</span></div>
             </div>
+            {worldStateMechanisms.allocation.holdReasonCounts.length > 0 && (
+              <div className="research-attention-facts">
+                {worldStateMechanisms.allocation.holdReasonCounts.slice(0, 4).map((item) => (
+                  <span key={item.reason}>{item.count} held · {item.reason.replaceAll("_", " ").toLowerCase()}</span>
+                ))}
+              </div>
+            )}
             <div className="research-attention-actions">
               {worldStateMechanisms.routes.length === 0 ? (
                 <div className="empty-state">

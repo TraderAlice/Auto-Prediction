@@ -1845,6 +1845,35 @@ horizontal overflow or console warnings. The remaining selection observation
 is one explicitly activated bounded live specimen; it is not authorization
 inferred from this read-only construction.
 
+Before that specimen spends tokens, the next selection layer was
+[`plans/world-state-mechanism-suitability-allocation.md`](plans/world-state-mechanism-suitability-allocation.md).
+Issue #168 addresses the new role's first selection defect: all 64 exact inputs
+are eligible and the campaign currently takes eight by priority and identity,
+even though live evidence includes same-event intervals, settlement-only
+pairs, generic first-name collisions, and repeated subject families. A
+provider-free suitability and diversity allocator must explain why each issue
+is selected or held and bind its immutable allocation to campaign membership.
+It has attention-allocation authority only.
+
+That allocator is now implemented and live-qualified. Exact structural
+evidence classifies all 64 unexplored mechanism inputs without a provider
+request: 24 are suitable and a diversity-bounded portfolio selects five. The
+machine deliberately leaves three of eight budget slots empty. The selected
+set contains two event-to-championship sports relations, two local-election-
+to-national-composition relations, and an approval-to-award relation. Same-
+event intervals, contract-role-only matches such as cross-asset `up/down`,
+generic-name collisions, aggregate titles and parallel outcome alternatives
+remain inspectable held evidence. A per-predicate-family cap prevents one
+structural pattern from consuming the campaign. Campaign bindings now name the
+immutable allocation identity, action, and exact ontology issue revision.
+Agent Operations exposes 64 → 24 → 5 → 0 → 0 as the honest mechanism funnel;
+live projection reads and campaign preview created zero provider requests,
+model calls, campaigns, or runs. The next observed product question is no
+longer which input to spend on, but whether a bounded first mechanism campaign
+produces reusable routes, useful falsifiers, or principled abstention at an
+acceptable token cost. Campaign creation and activation remain explicit
+operator actions rather than plan side effects.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external
