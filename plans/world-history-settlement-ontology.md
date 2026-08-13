@@ -315,3 +315,16 @@ retire non-positive indicative margin immediately; route positive-margin but
 non-exact mappings to settlement evidence; and only route positive-margin,
 exact-mapped hypotheses to adverse-probability estimation. Then bind fresh
 book asks and depth before calling any result a bounded shadow candidate.
+
+The deterministic attention router now enforces that ordering. It ranks only
+exact, positive-margin hypotheses for adverse-probability estimation; positive
+margin with settlement debt routes to evidence acquisition; non-positive
+indicative failure budget retires before either expensive path; unsupported
+shapes remain held research memory. Projection reads create no jobs and start
+no provider requests. The live Alaska hypothesis is therefore
+`RETIRE_NON_POSITIVE_MARGIN`, even though it also has settlement and probability
+debt: fixing those cannot rescue a complement portfolio already priced above
+its minimum non-adverse payout. The next search generation should use this
+negative economic memory to favor relation neighborhoods whose complement-leg
+prices leave a positive failure budget, while preserving semantic novelty so
+the system does not collapse back into claim-first popularity search.

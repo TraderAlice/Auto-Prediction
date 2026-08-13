@@ -160,6 +160,8 @@ import type { WorldRelationExperimentCheckpointStore } from
   "./world-relation-experiment-checkpoint.js";
 import { compileWorldRelationShadowTradeHypotheses } from
   "./world-relation-shadow-hypothesis.js";
+import { buildWorldRelationShadowRoutingProjection } from
+  "./world-relation-shadow-routing.js";
 import {
   buildWorldStateMechanismResearchTaskContract,
   buildWorldStateMechanismResearchYield,
@@ -4672,6 +4674,7 @@ export function createControlPlane(options?: {
           "NON_POSITIVE_INDICATIVE_MARGIN", "RESEARCH_ONLY"].map((status) => [status,
           shadowHypotheses.filter((item) => item.status === status).length]),
       )),
+      shadowRouting: buildWorldRelationShadowRoutingProjection(shadowHypotheses),
       settlementObservationCount: currentSettlementProjectionObservations.length,
       retainedSettlementObservationCount: retainedSettlementObservations.length,
       settlementDispositionCounts: Object.freeze({

@@ -383,6 +383,19 @@ type WorldRelationExperimentProjection = Readonly<{
   retainedExperimentCount: number;
   shadowHypothesisCount: number;
   shadowHypothesisStatusCounts: Readonly<Record<string, number>>;
+  shadowRouting: Readonly<{
+    hypothesisCount: number;
+    retiredCount: number;
+    settlementEvidenceCount: number;
+    probabilityEstimationCount: number;
+    heldCount: number;
+    policy: string;
+    actions: ReadonlyArray<Readonly<{
+      hypothesisId: string;
+      action: string;
+      diagnostic: string;
+    }>>;
+  }>;
   settlementObservationCount: number;
   retainedSettlementObservationCount: number;
   settlementDispositionCounts: Readonly<{
@@ -5302,6 +5315,13 @@ function AgentOperationsView() {
                       item.replaceAll("_", " ")).join(" · ")}</p>
                   </article>
                 ))}
+              </div>
+            )}
+            {worldRelationExperiments.shadowRouting.hypothesisCount > 0 && (
+              <div className="research-attention-lock">
+                <Waypoints size={14} />
+                <span>{worldRelationExperiments.shadowRouting.retiredCount} retired on margin · {worldRelationExperiments.shadowRouting.settlementEvidenceCount} settlement evidence · {worldRelationExperiments.shadowRouting.probabilityEstimationCount} probability estimates</span>
+                <code>MARGIN → SETTLEMENT → ε</code>
               </div>
             )}
             <div className="research-attention-lock">
