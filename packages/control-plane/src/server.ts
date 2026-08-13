@@ -2019,7 +2019,9 @@ export function createControlPlane(options?: {
         item.kind === "RELATION_HYPOTHESIS"
       );
     const revisions = input?.taskRevisions ??
-      relationDiscoveryStore.loadRelationDiscoveryTaskRevisions(512);
+      relationDiscoveryStore.loadRelationDiscoveryTaskRevisionsForTaskIds(
+        findings.map((item) => item.sourceTaskId),
+      );
     const corpusByIdentity = new Map<Hash, MarketCorpusSnapshot | null>();
     return compileRelationDiscoveryFindingsForSemanticReview({
       findings,

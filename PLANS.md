@@ -1,5 +1,15 @@
 # Plans
 
+Issue #190 repairs a restart-continuity defect discovered against the live
+SQLite volume. Semantic-review startup loaded findings and task revisions from
+two independent 512-row recent windows, so a valid older exact revision could
+fall outside the revision window while its finding remained selected. Startup
+now derives the required task IDs from the retained findings and loads every
+matching durable revision before applying the unchanged exact-lineage compiler.
+The same schema-53 database restarts successfully without deleting or rewriting
+evidence and without a provider or model call; genuinely missing or ambiguous
+lineage still fails closed.
+
 The north-star product construction now includes a first-class market ontology
 under [`plans/market-ontology.md`](plans/market-ontology.md). Issue #94 treats a
 prediction market as three linked but non-identical objects: a world
