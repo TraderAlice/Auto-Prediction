@@ -426,7 +426,20 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       })
     );
     const legalNames = new Set(this.completionRecoveryToolNames(protocol));
-    return Object.freeze(baseManifest.filter((definition) => legalNames.has(definition.name)));
+    const inspectableListingRefs = [...new Set([
+      ...this.#searchedListingRefs,
+      ...this.researchInput.seedTrailheads.flatMap((item) => item.listingRefs),
+    ])].filter((ref) => !this.#inspectedListingRefs.has(ref)).sort();
+    return Object.freeze(baseManifest.filter((definition) => legalNames.has(definition.name))
+      .map((definition) => definition.name !== "inspect_mechanism_exploration_listings"
+        ? definition : Object.freeze({ ...definition, inputSchema: Object.freeze({
+            type: "object", additionalProperties: false, required: ["listingRefs"],
+            properties: Object.freeze({ listingRefs: Object.freeze({
+              type: "array", minItems: 1, maxItems: Math.min(8, inspectableListingRefs.length),
+              uniqueItems: true,
+              items: Object.freeze({ enum: Object.freeze(inspectableListingRefs) }),
+            }) }),
+          }) })));
   }
 
   public manifestRefreshPolicy(protocol: string): "AFTER_ACCEPTED_EFFECT" {
@@ -434,6 +447,54 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       throw new Error("mechanism exploration tool protocol is unsupported");
     }
     return "AFTER_ACCEPTED_EFFECT";
+  }
+
+  public manifestRefreshCheckpoint(protocol: string): unknown {
+    if (protocol !== MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL) {
+      throw new Error("mechanism exploration tool protocol is unsupported");
+    }
+    const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+    const inspectableListings = [...new Set([
+      ...this.#searchedListingRefs,
+      ...this.researchInput.seedTrailheads.flatMap((item) => item.listingRefs),
+    ])].filter((ref) => !this.#inspectedListingRefs.has(ref)).sort().slice(0, 50)
+      .map((ref) => {
+        const listing = this.corpus.listings.find((item) => item.listingRef === ref);
+        return listing === undefined ? null : Object.freeze({ listingRef: ref,
+          title: listing.title, venueId: listing.venueId });
+      }).filter((item) => item !== null);
+    return Object.freeze({
+      schemaVersion: "pmh.mechanism-prototype-exploration-state-checkpoint.v1",
+      inputRevisionId: this.researchInput.inputRevisionId,
+      axis: this.researchInput.axis,
+      currentTools: this.completionRecoveryToolNames(protocol),
+      prototype: Object.freeze({ label: this.prototype.label,
+        invariantDescription: this.prototype.invariantDescription,
+        searchSignals: this.prototype.searchSignals,
+        transferTests: references.transferTests.map(({ handle, text }) => ({ handle, text })),
+        counterScenarios: references.counterScenarios.map(({ handle, text }) => ({ handle, text })) }),
+      activeHypothesis: this.#activeHypothesis,
+      latestRoleSearches: Object.freeze([...this.#roleSearchResults.values()].slice(-2).map(
+        (result) => Object.freeze({ resultIdentity: result.resultIdentity,
+          componentHits: result.componentHits.slice(0, 25),
+          aggregateHits: result.aggregateHits.slice(0, 25), pairs: result.pairs.slice(0, 25),
+          rawComponentHitCount: result.rawComponentHitCount,
+          rawAggregateHitCount: result.rawAggregateHitCount }),
+      )),
+      inspectableListings: Object.freeze(inspectableListings),
+      inspectedListings: Object.freeze([...this.#inspectedListingRefs].sort().map((ref) => {
+        const listing = this.corpus.listings.find((item) => item.listingRef === ref);
+        return listing === undefined ? null : Object.freeze({ listingRef: ref,
+          title: listing.title, venueId: listing.venueId,
+          description: listing.description, rulesText: listing.rulesText,
+          outcomes: listing.outcomes });
+      }).filter((item) => item !== null)),
+      readiness: this.readiness(),
+      authority: "FIRST_PARTY_STATE_ROUTING_CHECKPOINT_ONLY",
+      semanticDecisionAuthority: false,
+      executionAuthority: false,
+      valueMovingAuthority: false,
+    });
   }
 
   public resultToolNames(protocol: string): readonly string[] {

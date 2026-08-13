@@ -242,6 +242,7 @@ describe("Codex app-server Agent runtime", () => {
       toolHost: {
         manifest: () => state === "CONTEXT" ? [contextTool] : [terminalTool],
         manifestRefreshPolicy: () => "AFTER_ACCEPTED_EFFECT",
+        manifestRefreshCheckpoint: () => ({ phase: state }),
         resultToolNames: () => ["submit_result"],
         completionRecoveryToolNames: () => state === "CONTEXT"
           ? ["read_context"] : ["submit_result"],
@@ -265,7 +266,7 @@ describe("Codex app-server Agent runtime", () => {
       .toEqual(["submit_result"]);
     expect(second.requests.find((item) => item.method === "turn/start"))
       .toMatchObject({ params: { input: [{ text: expect.stringContaining(
-        '"toolName":"read_context"',
+        '"phase":"TERMINAL"',
       ) }] } });
   });
 

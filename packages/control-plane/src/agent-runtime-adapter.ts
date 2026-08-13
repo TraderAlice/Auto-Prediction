@@ -550,6 +550,7 @@ export interface AgentRuntimeSession {
   refreshToolManifest?(input: Readonly<{
     toolResults: readonly AgentRuntimeToolResult[];
     toolManifest: readonly AgentRuntimeToolDefinition[];
+    stateCheckpoint: unknown;
   }>): Promise<void>;
   prepareCompletionRecovery?(input: Readonly<{
     attemptOrdinal: number;
@@ -603,6 +604,7 @@ export type AgentToolHostContext = Readonly<{
 export interface AgentToolHost {
   manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[];
   manifestRefreshPolicy?(toolProtocol: string): "AFTER_ACCEPTED_EFFECT";
+  manifestRefreshCheckpoint?(toolProtocol: string): unknown;
   resultToolNames?(toolProtocol: string): readonly string[];
   completionRecoveryToolNames?(toolProtocol: string): readonly string[];
   execute(context: AgentToolHostContext): Promise<Readonly<{
@@ -1093,6 +1095,12 @@ export async function executePreparedAgentRun(
           await session.refreshToolManifest(Object.freeze({
             toolResults,
             toolManifest: nextManifest,
+            stateCheckpoint: input.toolHost.manifestRefreshCheckpoint?.(
+              valid.profile.toolPolicy.protocol,
+            ) ?? Object.freeze({
+              latestResults: toolResults,
+              authority: "GENERIC_LATEST_TOOL_RESULT_CHECKPOINT_ONLY",
+            }),
           }));
           toolManifest = nextManifest;
           toolResults = Object.freeze([]);
