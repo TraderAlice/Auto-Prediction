@@ -11,6 +11,7 @@ export const AGENT_INPUT_REVISION_ANNOTATION_CATEGORY =
 
 export type AgentInputRevisionKind =
   | "ONTOLOGY_SEARCH_ISSUE"
+  | "WORLD_STATE_SUBJECT_BINDING_INPUT"
   | "RELATION_DISCOVERY";
 
 export function agentInputRevisionSourceRecordRef(
@@ -19,6 +20,8 @@ export function agentInputRevisionSourceRecordRef(
 ): string {
   return kind === "ONTOLOGY_SEARCH_ISSUE"
     ? `ontology-search-issue-revision:${revisionId}`
+    : kind === "WORLD_STATE_SUBJECT_BINDING_INPUT"
+    ? `world-state-subject-binding-input:${revisionId}`
     : `relation-discovery-task-revision:${revisionId}`;
 }
 
@@ -66,6 +69,8 @@ export function buildAgentInputRevisionRunAnnotation(input: Readonly<{
     observedFacts: facts,
     note: input.revisionKind === "ONTOLOGY_SEARCH_ISSUE"
       ? "Prepared ontology run is bound to this exact retained input revision."
+      : input.revisionKind === "WORLD_STATE_SUBJECT_BINDING_INPUT"
+      ? "Prepared subject-binding run is bound to this exact retained input revision."
       : "Prepared relation run is bound to this exact retained input revision.",
     createdAt: input.run.createdAt,
   });

@@ -20,6 +20,7 @@ import {
   compileStandingWorldStateMechanismRoute,
   defaultAiRuntimeConfiguration,
   materializeOntologySearchIssueRevisions,
+  materializeWorldStateSubjectBindingResearchCases,
   observeWorldStateMechanismRoutes,
   SqliteOperationalStore,
   worldStateMechanismRouteFamilyIdentity,
@@ -442,9 +443,30 @@ describe("world-state mechanism routes", () => {
       route: consolidated,
       proposals: [proposal],
     });
+    const subjectBindingCase = materializeWorldStateSubjectBindingResearchCases({
+      routes: [consolidated], proposals: [proposal], assessments: [], abstentions: [],
+      reviews: [],
+    })[0]!;
+    const subjectBindingRoute = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "SUBJECT_BINDING_RESEARCH"
+    )!;
+    const subjectBindingProfile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === subjectBindingRoute.executionProfileId
+    )!;
+    const subjectBindingRun = buildAgentRun({
+      task: subjectBindingCase.task,
+      executionProfile: subjectBindingProfile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:subject-binding-test",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
     const subjectBindingAssessment = buildWorldStateSubjectBindingAssessment({
       researchInput: subjectBindingInput,
-      sourceAgentRunId: run.runId,
+      sourceAgentRunId: subjectBindingRun.runId,
       recommendation: "APPROVE",
       supportedLabels: ["donald trump", "trump"],
       rejectedLabels: [],
@@ -459,7 +481,7 @@ describe("world-state mechanism routes", () => {
     });
     const subjectBindingAbstention = buildWorldStateSubjectBindingAbstention({
       researchInput: subjectBindingInput,
-      sourceAgentRunId: run.runId,
+      sourceAgentRunId: subjectBindingRun.runId,
       evidenceFindings: [{
         role: "CROSS_ROLE",
         listingRefs: [dependentRef, triggerRef].sort(),
@@ -514,8 +536,8 @@ describe("world-state mechanism routes", () => {
         modelProfiles: portfolio.modelProfiles,
         executionProfiles: portfolio.executionProfiles,
         workloadRoutes: portfolio.workloadRoutes,
-        tasks: [assigned.task],
-        runs: [run],
+        tasks: [assigned.task, subjectBindingCase.task],
+        runs: [run, subjectBindingRun],
       });
       store.saveOntologySearchIssueRevisions([assigned]);
       expect(store.saveWorldStateMechanismProposals([proposal])).toEqual([proposal]);

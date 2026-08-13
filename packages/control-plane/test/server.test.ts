@@ -1731,8 +1731,8 @@ describe("control-plane HTTP surface", () => {
         runtimeDefinitionCount: 3,
         credentialBindingCount: 2,
         modelProfileCount: 6,
-        executionProfileCount: 20,
-        workloadRouteCount: 10,
+          executionProfileCount: 22,
+          workloadRouteCount: 12,
         taskCount: 0,
         runCount: 0,
         modelInvocationCount: 0,
@@ -1756,8 +1756,8 @@ describe("control-plane HTTP surface", () => {
     });
     expect(projection.ai.agentExecution).toMatchObject({
       modelProfileCount: 6,
-      executionProfileCount: 20,
-      workloadRouteCount: 10,
+      executionProfileCount: 22,
+      workloadRouteCount: 12,
       taskCount: 0,
       runCount: 0,
       modelInvocationCount: 0,

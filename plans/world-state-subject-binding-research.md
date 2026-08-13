@@ -39,9 +39,9 @@ answers the authority question in `QUESTIONS.md`.
   and listing-evidence inputs.
 - [x] Define accepted assessment and evidence-bound abstention effects with
   explicit supporting facts, ambiguity tests, and counterexamples.
-- [ ] Preserve source Agent run, invocation, tool effect, route family, proposal,
+- [x] Preserve source Agent run, invocation, tool effect, route family, proposal,
   exact listing evidence, model/runtime, and token lineage.
-- [ ] Make free text diagnostic-only and fail closed on missing historical
+- [x] Make free text diagnostic-only and fail closed on missing historical
   evidence.
 
 The provider-free substrate is live on SQLite schema 53. One retained mechanism
@@ -57,14 +57,27 @@ checks pass.
 
 ## Phase 2 — independent Agent execution
 
-- [ ] Add a dedicated provider-neutral task kind, tool manifest, payload and
+- [x] Add a dedicated provider-neutral task kind, tool manifest, payload and
   configurable execution profile.
-- [ ] Exclude the mechanism-authoring run from review authority and surface that
+- [x] Exclude the mechanism-authoring run from review authority and surface that
   independence in projection.
-- [ ] Preview a paused, manual-only, concurrency-one campaign before any model
+- [x] Preview a paused, manual-only, concurrency-one campaign before any model
   spend.
 - [ ] Qualify one bounded Terra/high assessment for the live Democratic Party
   route, then pause immediately.
+
+The execution layer now proves that runtime, credentials and model are reusable
+without making AI roles homogeneous. `SUBJECT_BINDING_RESEARCH` has its own
+stable task contract and first-party tool protocol while using the existing
+Codex/Pi-capable execution substrate and configured Terra model profile. Only a
+typed assessment or evidence-bound abstention can terminate the run; case reads
+are non-terminal and free text is diagnostic. SQLite independently verifies
+that the result's run belongs to the same stable case. Campaign selection binds
+one exact input revision and hash, is manual-only/concurrency-one/once-per-
+lineage, and caps the specimen at six invocations and 100k input tokens. The
+live zero-inference preview selected the one Democratic Party case and correctly
+held dispatch pending capability preflight. All 692 control-plane tests and
+workspace checks pass.
 
 ## Phase 3 — promotion and observation
 

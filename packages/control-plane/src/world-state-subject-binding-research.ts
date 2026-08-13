@@ -1,5 +1,5 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
-import type { AgentTask } from "./agent-execution-substrate.js";
+import { buildAgentTask, type AgentTask } from "./agent-execution-substrate.js";
 import type {
   ConsolidatedWorldStateMechanismRoute,
   WorldStateMechanismEvidenceBinding,
@@ -10,6 +10,27 @@ import type { WorldStateMechanismSubjectBindingReview } from
 import type { OperationalStorageProjection } from "./types.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
+export const WORLD_STATE_SUBJECT_BINDING_TASK_PROTOCOL =
+  "WORLD_STATE_SUBJECT_BINDING_TASK_V1" as const;
+export const WORLD_STATE_SUBJECT_BINDING_TOOL_PROTOCOL =
+  "WORLD_STATE_SUBJECT_BINDING_TOOLS_V1" as const;
+
+export type WorldStateSubjectBindingResearchTaskContract = Readonly<{
+  schemaVersion: "pmh.world-state-subject-binding-research-task.v1";
+  caseId: Hash;
+  routeFamilyId: Hash;
+  objective: "ASSESS_OR_ABSTAIN_FROM_EXACT_CROSS_ROLE_SUBJECT_BINDING";
+  inputBinding: "EXACT_SUBJECT_BINDING_INPUT_BOUND_BY_CAMPAIGN_SELECTION";
+  independentPromotionRequired: true;
+  authority: "SUBJECT_BINDING_ASSESSMENT_EVIDENCE_ONLY";
+  semanticRelationAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 
 export type WorldStateSubjectBindingResearchInputRevision = Readonly<{
   schemaVersion: "pmh.world-state-subject-binding-research-input.v1";
@@ -93,7 +114,8 @@ export type WorldStateSubjectBindingResearchCase = Readonly<{
   caseId: Hash;
   routeFamilyId: Hash;
   currentInputRevision: WorldStateSubjectBindingResearchInputRevision;
-  task: AgentTask | null;
+  task: AgentTask;
+  taskContract: WorldStateSubjectBindingResearchTaskContract;
   assessmentIds: readonly Hash[];
   abstentionIds: readonly Hash[];
   reviewIds: readonly Hash[];
@@ -351,6 +373,26 @@ export function worldStateSubjectBindingResearchCaseIdentity(routeFamilyId: Hash
   });
 }
 
+export function buildWorldStateSubjectBindingResearchTaskContract(
+  routeFamilyId: Hash,
+): WorldStateSubjectBindingResearchTaskContract {
+  return Object.freeze({
+    schemaVersion: "pmh.world-state-subject-binding-research-task.v1" as const,
+    caseId: worldStateSubjectBindingResearchCaseIdentity(routeFamilyId),
+    routeFamilyId,
+    objective: "ASSESS_OR_ABSTAIN_FROM_EXACT_CROSS_ROLE_SUBJECT_BINDING" as const,
+    inputBinding: "EXACT_SUBJECT_BINDING_INPUT_BOUND_BY_CAMPAIGN_SELECTION" as const,
+    independentPromotionRequired: true as const,
+    authority: "SUBJECT_BINDING_ASSESSMENT_EVIDENCE_ONLY" as const,
+    semanticRelationAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+}
+
 export function buildWorldStateSubjectBindingResearchInput(input: Readonly<{
   route: ConsolidatedWorldStateMechanismRoute;
   proposals: readonly WorldStateMechanismProposal[];
@@ -514,20 +556,38 @@ export function materializeWorldStateSubjectBindingResearchCases(input: Readonly
       route, proposals: input.proposals,
     });
     const assessments = input.assessments.filter((item) => item.caseId ===
-      currentInputRevision.caseId);
+      currentInputRevision.caseId && item.inputRevisionId === currentInputRevision.revisionId);
     const abstentions = input.abstentions.filter((item) => item.caseId ===
-      currentInputRevision.caseId);
+      currentInputRevision.caseId && item.inputRevisionId === currentInputRevision.revisionId);
     const reviews = input.reviews.filter((item) => item.routeFamilyId === route.routeFamilyId);
     const state = reviews.length > 0 ? "REVIEWED" as const
       : assessments.length > 0 ? "ASSESSED" as const
       : abstentions.length > 0 ? "ABSTAINED" as const
       : "UNEXPLORED" as const;
+    const taskContract = buildWorldStateSubjectBindingResearchTaskContract(
+      route.routeFamilyId,
+    );
+    const task = buildAgentTask({
+      kind: "SUBJECT_BINDING_RESEARCH",
+      protocol: WORLD_STATE_SUBJECT_BINDING_TASK_PROTOCOL,
+      inputArtifacts: [{
+        kind: "WORLD_STATE_SUBJECT_BINDING_RESEARCH_CASE",
+        artifactId: currentInputRevision.caseId,
+        artifactHash: hashCanonical(taskContract),
+      }],
+      taskPayload: taskContract,
+      requestedEffectProtocol: WORLD_STATE_SUBJECT_BINDING_TOOL_PROTOCOL,
+      provenanceRef: `world-state-subject-binding-case:${currentInputRevision.caseId}`,
+      priority: 500,
+      createdAt: ESTABLISHED_AT,
+    });
     return Object.freeze({
       schemaVersion: "pmh.world-state-subject-binding-research-case.v1" as const,
       caseId: currentInputRevision.caseId,
       routeFamilyId: route.routeFamilyId,
       currentInputRevision,
-      task: null,
+      task,
+      taskContract,
       assessmentIds: sortedHashes(assessments.map((item) => item.assessmentId), 0),
       abstentionIds: sortedHashes(abstentions.map((item) => item.abstentionId), 0),
       reviewIds: sortedHashes(reviews.map((item) => item.reviewId), 0),

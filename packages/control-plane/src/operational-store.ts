@@ -5520,6 +5520,23 @@ export class SqliteOperationalStore
       task.provenanceRef === `world-state-mechanism-issue:${mechanismIssueId}`;
   }
 
+  #worldStateSubjectBindingRunMatchesInput(
+    runTaskId: string,
+    input: WorldStateSubjectBindingResearchInputRevision,
+  ): boolean {
+    const row = this.#database.prepare(
+      "SELECT record_json FROM agent_tasks WHERE task_id = ?",
+    ).get(runTaskId) as Readonly<{ record_json?: unknown }> | undefined;
+    if (typeof row?.record_json !== "string") return false;
+    let decoded: unknown;
+    try { decoded = JSON.parse(row.record_json); } catch { return false; }
+    const task = assertAgentTask(decoded);
+    return task.kind === "SUBJECT_BINDING_RESEARCH" &&
+      task.protocol === "WORLD_STATE_SUBJECT_BINDING_TASK_V1" &&
+      task.requestedEffectProtocol === "WORLD_STATE_SUBJECT_BINDING_TOOLS_V1" &&
+      task.provenanceRef === `world-state-subject-binding-case:${input.caseId}`;
+  }
+
   public loadStudioProjectionSnapshot(): StudioProjectionSnapshot | null {
     this.#assertOpen();
     const row = this.#database.prepare(
@@ -8890,13 +8907,14 @@ export class SqliteOperationalStore
            FROM world_state_subject_binding_research_inputs WHERE revision_id = ?`,
         ).get(assessment.inputRevisionId);
         const runRow = this.#database.prepare(
-          "SELECT run_id FROM agent_runs WHERE run_id = ?",
-        ).get(assessment.sourceAgentRunId);
-        if (inputRow === undefined || runRow === undefined) {
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(assessment.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (inputRow === undefined || typeof runRow?.task_id !== "string") {
           throw new Error("subject-binding assessment references unavailable lineage");
         }
         const researchInput = parseWorldStateSubjectBindingResearchInput(inputRow);
-        if (researchInput.caseId !== assessment.caseId ||
+        if (!this.#worldStateSubjectBindingRunMatchesInput(runRow.task_id, researchInput) ||
+            researchInput.caseId !== assessment.caseId ||
             researchInput.routeFamilyId !== assessment.routeFamilyId ||
             researchInput.sourceProposalIds.join("\n") !==
               assessment.sourceProposalIds.join("\n")) {
@@ -8957,13 +8975,14 @@ export class SqliteOperationalStore
            FROM world_state_subject_binding_research_inputs WHERE revision_id = ?`,
         ).get(abstention.inputRevisionId);
         const runRow = this.#database.prepare(
-          "SELECT run_id FROM agent_runs WHERE run_id = ?",
-        ).get(abstention.sourceAgentRunId);
-        if (inputRow === undefined || runRow === undefined) {
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(abstention.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (inputRow === undefined || typeof runRow?.task_id !== "string") {
           throw new Error("subject-binding abstention references unavailable lineage");
         }
         const researchInput = parseWorldStateSubjectBindingResearchInput(inputRow);
-        if (researchInput.caseId !== abstention.caseId ||
+        if (!this.#worldStateSubjectBindingRunMatchesInput(runRow.task_id, researchInput) ||
+            researchInput.caseId !== abstention.caseId ||
             researchInput.routeFamilyId !== abstention.routeFamilyId ||
             researchInput.sourceProposalIds.join("\n") !== abstention.sourceProposalIds.join("\n")) {
           throw new Error("subject-binding abstention is outside its exact input lineage");

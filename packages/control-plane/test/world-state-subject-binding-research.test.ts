@@ -5,8 +5,11 @@ import {
   buildWorldStateMechanismSubjectBindingReview,
   buildWorldStateSubjectBindingAbstention,
   buildWorldStateSubjectBindingAssessment,
+  buildWorldStateSubjectBindingCampaignPreview,
+  buildDefaultAgentRuntimePortfolio,
   compileConsolidatedWorldStateMechanismRoutes,
   materializeWorldStateSubjectBindingResearchCases,
+  defaultAiRuntimeConfiguration,
 } from "../src/index.js";
 
 const NOW = "2026-08-13T12:00:00.000Z";
@@ -72,7 +75,15 @@ describe("world-state subject-binding research", () => {
       routes: [route], proposals: [first], assessments: [], abstentions: [], reviews: [],
     })[0]!;
     expect(replay).toEqual(a);
-    expect(a).toMatchObject({ state: "UNEXPLORED", campaignEligible: true, task: null });
+    expect(a).toMatchObject({
+      state: "UNEXPLORED",
+      campaignEligible: true,
+      task: {
+        kind: "SUBJECT_BINDING_RESEARCH",
+        protocol: "WORLD_STATE_SUBJECT_BINDING_TASK_V1",
+        requestedEffectProtocol: "WORLD_STATE_SUBJECT_BINDING_TOOLS_V1",
+      },
+    });
 
     const second = proposal("Democrats control the chamber without the Iowa seat.");
     const changedRoute = compileConsolidatedWorldStateMechanismRoutes([first, second])[0]!;
@@ -82,6 +93,24 @@ describe("world-state subject-binding research", () => {
     expect(changed.caseId).toBe(a.caseId);
     expect(changed.currentInputRevision.revisionId)
       .not.toBe(a.currentInputRevision.revisionId);
+
+    const oldAssessment = buildWorldStateSubjectBindingAssessment({
+      researchInput: a.currentInputRevision,
+      sourceAgentRunId: hashCanonical({ run: "old-revision-review" }),
+      recommendation: "APPROVE", supportedLabels: ["democratic party"], rejectedLabels: [],
+      evidenceFindings: [{
+        role: "CROSS_ROLE", listingRefs: ["venue:iowa-dem", "venue:national-dem"],
+        finding: "The prior exact input used one party label across both roles.",
+      }], counterexamples: ["A future proposal may add identity-relevant evidence."],
+      rationale: "This assessment is exact-revision bound.", assessedAt: NOW,
+    });
+    const changedWithOldAssessment = materializeWorldStateSubjectBindingResearchCases({
+      routes: [changedRoute], proposals: [first, second], assessments: [oldAssessment],
+      abstentions: [], reviews: [],
+    })[0]!;
+    expect(changedWithOldAssessment).toMatchObject({
+      state: "UNEXPLORED", campaignEligible: true, assessmentIds: [],
+    });
   });
 
   it("keeps an Agent assessment separate from promoted review authority", () => {
@@ -153,6 +182,59 @@ describe("world-state subject-binding research", () => {
     expect(retained).toMatchObject({
       state: "ABSTAINED", campaignEligible: false,
       abstentionIds: [abstention.abstentionId], reviewIds: [],
+    });
+  });
+
+  it("builds a one-case manual campaign with immutable input binding", () => {
+    const source = proposal();
+    const route = compileConsolidatedWorldStateMechanismRoutes([source])[0]!;
+    const cases = materializeWorldStateSubjectBindingResearchCases({
+      routes: [route], proposals: [source], assessments: [], abstentions: [], reviews: [],
+    });
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
+    const workloadRoute = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "SUBJECT_BINDING_RESEARCH"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === workloadRoute.executionProfileId
+    )!;
+    const preview = buildWorldStateSubjectBindingCampaignPreview({
+      cases,
+      execution: {
+        runtimeDefinitions: portfolio.runtimeDefinitions,
+        credentialBindings: portfolio.credentialBindings,
+        modelProfiles: portfolio.modelProfiles,
+        executionProfiles: portfolio.executionProfiles,
+        workloadRoutes: portfolio.workloadRoutes,
+        capabilityObservations: [], campaigns: [], tasks: cases.map((item) => item.task),
+        runs: [], modelInvocations: [], toolEffects: [], runArtifacts: [],
+        runAnnotations: [], resultSelections: [],
+      },
+      capability: {
+        schemaVersion: "pmh.execution-capability.v1",
+        executionProfileId: profile.executionProfileId,
+        runtimeKind: "CODEX", credentialKind: "CODEX_OAUTH",
+        accessDriver: "CODEX_RESPONSES", model: "gpt-5.6-terra",
+        configured: true, credentialPresent: true, dispatchEligibility: "ELIGIBLE",
+        diagnostic: "ready", observedAt: NOW,
+        authority: "EXECUTION_CAPABILITY_ONLY", secretMaterialRetained: false,
+        externalWriteAuthority: false, valueMovingAuthority: false,
+      },
+    });
+    expect(preview).toMatchObject({
+      taskIds: [cases[0]!.task.taskId], caseIds: [cases[0]!.caseId],
+      schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 6,
+        maximumInputTokens: "100000" },
+      creationEligible: true, dispatchEligible: true,
+      automaticDispatch: false, promotionAuthority: false,
+      providerRequestsStarted: 0, modelInvocationsStarted: 0,
+    });
+    expect(preview.selectionBinding.taskBindings[0]).toMatchObject({
+      inputRevisionKind: "WORLD_STATE_SUBJECT_BINDING_INPUT",
+      inputRevisionId: cases[0]!.currentInputRevision.revisionId,
+      exactInputHash: hashCanonical(cases[0]!.currentInputRevision),
     });
   });
 });

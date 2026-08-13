@@ -152,10 +152,17 @@ import {
   type WorldStateMechanismWakeStore,
 } from "./world-state-mechanism-observer.js";
 import {
+  buildWorldStateSubjectBindingResearchTaskContract,
   materializeWorldStateSubjectBindingResearchCases,
   type WorldStateSubjectBindingResearchCase,
   type WorldStateSubjectBindingResearchStore,
 } from "./world-state-subject-binding-research.js";
+import { WorldStateSubjectBindingAgentToolHost } from
+  "./world-state-subject-binding-agent-tools.js";
+import {
+  buildWorldStateSubjectBindingCampaignPreview,
+  resolveWorldStateSubjectBindingCampaignInput,
+} from "./world-state-subject-binding-campaign.js";
 import {
   buildOntologySearchYieldProjection,
   reconcileOntologySearchIssueRevisions,
@@ -3128,6 +3135,7 @@ export function createControlPlane(options?: {
       ...currentRuleEvidenceAgentTasks.values(),
       ...ontologySearchIssueRevisions.map((revision) => revision.task),
       ...worldStateMechanismResearchAssignments.map((assignment) => assignment.task),
+      ...worldStateSubjectBindingResearchCases.map((item) => item.task),
       ...relationDiscoveryTaskRevisions.map((revision) => revision.task),
     ];
     agentTaskReadinessIndex = buildAgentTaskReadinessIndex(currentTasks);
@@ -3171,6 +3179,18 @@ export function createControlPlane(options?: {
       ...(relationDiscoveryStore === null ? {} : {
         loadRevision: (revisionId: Hash) => relationDiscoveryStore
           .loadRelationDiscoveryTaskRevision(revisionId),
+      }),
+    });
+  const worldStateSubjectBindingInput = (taskId: Hash, run: AgentRun) =>
+    resolveWorldStateSubjectBindingCampaignInput({
+      taskId,
+      run,
+      campaigns: agentExecutionRegistry.snapshot().campaigns,
+      currentCases: worldStateSubjectBindingResearchCases,
+      ...(worldStateSubjectBindingResearchStore === null ? {} : {
+        loadInput: (revisionId: Hash) => worldStateSubjectBindingResearchStore
+          .loadWorldStateSubjectBindingResearchInputs(2_048)
+          .find((item) => item.revisionId === revisionId) ?? null,
       }),
     });
   const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
@@ -3265,6 +3285,15 @@ export function createControlPlane(options?: {
             revision.revisionId,
           );
         }
+        if (task.kind === "SUBJECT_BINDING_RESEARCH") {
+          if (worldStateSubjectBindingResearchStore === null) {
+            throw new Error("subject-binding durable result store is unavailable");
+          }
+          return new WorldStateSubjectBindingAgentToolHost(
+            worldStateSubjectBindingInput(task.taskId, run),
+            worldStateSubjectBindingResearchStore,
+          );
+        }
         if (task.kind === "RELATION_DISCOVERY") {
           const revision = relationDiscoveryTaskRevision(task.taskId, run);
           const corpus = relationDiscoveryStore?.loadRelationDiscoveryCorpus(
@@ -3302,6 +3331,10 @@ export function createControlPlane(options?: {
             worldStateMechanismTaskRevision(task.taskId, run),
           );
         }
+        if (task.kind === "SUBJECT_BINDING_RESEARCH") {
+          const input = worldStateSubjectBindingInput(task.taskId, run);
+          return buildWorldStateSubjectBindingResearchTaskContract(input.routeFamilyId);
+        }
         if (task.kind === "RELATION_DISCOVERY") {
           const revision = relationDiscoveryTaskRevision(task.taskId, run);
           return revision.taskPayload as RelationDiscoveryTaskPayload;
@@ -3328,6 +3361,16 @@ export function createControlPlane(options?: {
             revisionKind: "ONTOLOGY_SEARCH_ISSUE",
             revisionId: revision.revisionId,
             exactInput: revision.taskPayload,
+          })]);
+        }
+        if (task.kind === "SUBJECT_BINDING_RESEARCH") {
+          const input = worldStateSubjectBindingInput(task.taskId, run);
+          return Object.freeze([buildAgentInputRevisionRunAnnotation({
+            task,
+            run,
+            revisionKind: "WORLD_STATE_SUBJECT_BINDING_INPUT",
+            revisionId: input.revisionId,
+            exactInput: input,
           })]);
         }
         if (task.kind === "RELATION_DISCOVERY") {
@@ -3591,6 +3634,13 @@ export function createControlPlane(options?: {
       worldStateSubjectBindingResearchStore
         .saveWorldStateSubjectBindingResearchInputs(fresh);
     }
+    const knownTaskIds = new Set(agentExecutionRegistry.snapshot().tasks
+      .map((item) => item.taskId));
+    const tasks = worldStateSubjectBindingResearchCases
+      .map((item) => item.task)
+      .filter((item) => !knownTaskIds.has(item.taskId));
+    if (tasks.length > 0) agentExecutionRegistry.saveBatch({ tasks });
+    invalidateAgentTaskReadiness();
   };
   const reconcileWorldStateMechanismResearchAssignments = (): void => {
     worldStateMechanismResearchAssignments =
@@ -4264,6 +4314,27 @@ export function createControlPlane(options?: {
     return buildWorldStateMechanismCampaignPreview({
       assignments: worldStateMechanismResearchAssignments,
       revisions: ontologySearchIssueRevisions,
+      execution: snapshot,
+      capability: agentExecutionCapabilityService.project(profile, configuration),
+    });
+  };
+  const worldStateSubjectBindingCampaignPreview = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "SUBJECT_BINDING_RESEARCH")
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (route === undefined) throw new Error("Subject-binding execution route is unavailable");
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) throw new Error("Subject-binding execution profile is unavailable");
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (binding === undefined) throw new Error("Subject-binding credential binding is unavailable");
+    const configuration = await agentCredentialBroker.configuration(binding);
+    return buildWorldStateSubjectBindingCampaignPreview({
+      cases: worldStateSubjectBindingResearchCases,
       execution: snapshot,
       capability: agentExecutionCapabilityService.project(profile, configuration),
     });
@@ -5321,6 +5392,14 @@ export function createControlPlane(options?: {
         reconcileWorldStateMechanismObservations();
       } catch {
         // Durable results remain authoritative; startup or catalog refresh retries projection repair.
+      }
+    }
+    if (task?.kind === "SUBJECT_BINDING_RESEARCH") {
+      try {
+        reconcileWorldStateSubjectBindingResearch();
+        reconcileWorldStateMechanismObservations();
+      } catch {
+        // Durable assessment remains authoritative; startup retries projection repair.
       }
     }
     if (task?.kind === "ONTOLOGY_NORMALIZATION" || task?.kind === "RELATION_DISCOVERY") {
@@ -6578,6 +6657,24 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname === "/api/v1/world-state-mechanisms/subject-bindings/campaign-preview"
+    ) {
+      try {
+        await ready;
+        writeJson(response, 200, await worldStateSubjectBindingCampaignPreview());
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "subject-binding campaign preview is unavailable",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/relation-discovery/campaign-preview"
     ) {
       try {
@@ -6804,6 +6901,55 @@ export function createControlPlane(options?: {
             "mechanism campaign could not be created",
           providerRequestsStarted: 0,
           modelInvocationsStarted: 0,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/world-state-mechanisms/subject-bindings/campaigns"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 0) {
+          throw new Error("subject-binding campaign creation accepts an empty object only");
+        }
+        const preview = await worldStateSubjectBindingCampaignPreview();
+        if (!preview.creationEligible) throw new Error(preview.diagnostic);
+        const latestRevision = agentExecutionRegistry.snapshot().campaigns
+          .filter((item) => item.campaignKey === preview.campaignKey)
+          .reduce((maximum, item) => Math.max(maximum, item.revision), 0);
+        const campaign = buildPausedAgentCampaign({
+          campaignKey: preview.campaignKey,
+          revision: latestRevision + 1,
+          executionProfileId: preview.executionProfile.executionProfileId,
+          taskIds: preview.taskIds,
+          schedule: preview.schedule,
+          budget: preview.budget,
+          selectionBinding: preview.selectionBinding,
+          taskRunPolicy: preview.taskRunPolicy,
+          createdAt: new Date().toISOString(),
+        });
+        agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
+        await broadcastProjection();
+        writeJson(response, 201, {
+          ok: true,
+          campaign,
+          preview,
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          promotionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "subject-binding campaign could not be created",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          promotionAuthority: false,
         });
       }
       return;
