@@ -148,11 +148,19 @@ const UNDECLARED_ITEM_TYPES = new Set([
   "imageGeneration",
 ]);
 
+const COMPLETED_TURN_DRAINABLE_NOTIFICATIONS = new Set([
+  "thread/tokenUsage/updated",
+  "rawResponse/completed",
+  "rawResponseItem/completed",
+  "turn/completed",
+]);
+
 class CodexAppServerSession implements AgentRuntimeSession {
   readonly #directoryPromise = mkdtemp(join(tmpdir(), "pmh-codex-app-server-"));
   readonly #connectionPromise: Promise<CodexAppServerConnection>;
   #threadId: string | null = null;
   #turnId: string | null = null;
+  readonly #completedTurnIds = new Set<string>();
   #pendingCalls: readonly PendingDynamicCall[] = Object.freeze([]);
   #latestUsage: TokenUsage = Object.freeze({
     inputTokens: null,
@@ -319,6 +327,11 @@ class CodexAppServerSession implements AgentRuntimeSession {
           throw new Error("Codex app-server thread identity changed");
         }
         if (eventTurnId !== null && eventTurnId !== this.#turnId) {
+          if (this.#completedTurnIds.has(eventTurnId) && inbound.id === undefined &&
+              COMPLETED_TURN_DRAINABLE_NOTIFICATIONS.has(inbound.method)) continue;
+          if (this.#completedTurnIds.has(eventTurnId)) {
+            throw new Error("Codex app-server emitted non-drainable work for a completed turn");
+          }
           throw new Error("Codex app-server turn identity changed");
         }
         if (inbound.method === "thread/tokenUsage/updated") {
@@ -384,6 +397,12 @@ class CodexAppServerSession implements AgentRuntimeSession {
         }
         if (inbound.method === "turn/completed") {
           const turn = object(params.turn, "Codex app-server completed turn");
+          const completedTurnId = text(turn.id, "Codex app-server completed turn ID");
+          if (completedTurnId !== this.#turnId) {
+            if (this.#completedTurnIds.has(completedTurnId) && inbound.id === undefined &&
+                COMPLETED_TURN_DRAINABLE_NOTIFICATIONS.has(inbound.method)) continue;
+            throw new Error("Codex app-server completed turn identity changed");
+          }
           const status = String(turn.status);
           const items = Array.isArray(turn.items) ? turn.items : [];
           const assistantText = [...items].reverse().flatMap((candidate) => {
@@ -418,6 +437,7 @@ class CodexAppServerSession implements AgentRuntimeSession {
             certificateAuthority: false,
             executionAuthority: false,
           });
+          this.#completedTurnIds.add(completedTurnId);
           if (this.#responseUsageObserved) {
             const invocation = this.#invocation("SUCCEEDED", null);
             return Object.freeze({

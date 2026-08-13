@@ -641,6 +641,148 @@ describe("Codex app-server Agent runtime", () => {
     expect(work.connection.closed).toBe(true);
   });
 
+  it("drains delayed notifications from a completed turn before repair work", async () => {
+    const work = fixture([
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:test", status: "completed",
+            items: [{ type: "agentMessage", text: "No result yet." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test", turnId: "turn:test",
+          tokenUsage: { last: { inputTokens: 40, outputTokens: 10, reasoningOutputTokens: 4 } },
+        },
+      },
+      {
+        method: "rawResponse/completed",
+        params: { threadId: "thread:test", turnId: "turn:test", responseId: "late:old" },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test", turnId: "turn:test",
+          tokenUsage: { last: { inputTokens: 41, outputTokens: 11, reasoningOutputTokens: 4 } },
+        },
+      },
+      {
+        method: "item/tool/call",
+        id: 302,
+        params: {
+          threadId: "thread:test", turnId: "turn:recovery",
+          callId: "call:counterexample:drained", tool: "record_counterexample",
+          arguments: { reason: "The repair turn remained isolated." },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test", turnId: "turn:recovery",
+          tokenUsage: { last: { inputTokens: 50, outputTokens: 12, reasoningOutputTokens: 5 } },
+        },
+      },
+    ]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run, task: work.task, taskPayload: work.payload,
+      runtimeDefinition: work.runtime, credentialBinding: work.credential,
+      modelProfile: work.model, executionProfile: work.profile,
+      adapter: work.adapter, credentialBroker: work.broker, toolHost: work.toolHost,
+    });
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.modelInvocations).toHaveLength(2);
+    expect(result.toolEffects).toEqual([expect.objectContaining({
+      toolName: "record_counterexample", status: "ACCEPTED",
+    })]);
+  });
+
+  it("fails closed when a completed turn sends a delayed tool request", async () => {
+    const work = fixture([
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: { id: "turn:test", status: "completed", items: [] },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test", turnId: "turn:test",
+          tokenUsage: { last: { inputTokens: 40, outputTokens: 10, reasoningOutputTokens: 4 } },
+        },
+      },
+      {
+        method: "item/tool/call",
+        id: 303,
+        params: {
+          threadId: "thread:test", turnId: "turn:test",
+          callId: "call:late:old", tool: "record_counterexample",
+          arguments: { reason: "Must not cross the turn boundary." },
+        },
+      },
+    ]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run, task: work.task, taskPayload: work.payload,
+      runtimeDefinition: work.runtime, credentialBinding: work.credential,
+      modelProfile: work.model, executionProfile: work.profile,
+      adapter: work.adapter, credentialBroker: work.broker, toolHost: work.toolHost,
+    });
+
+    expect(result.run.status).toBe("FAILED");
+    expect(result.modelInvocations[1]).toMatchObject({
+      status: "FAILED",
+      diagnostic: expect.stringContaining("non-drainable work for a completed turn"),
+    });
+    expect(result.toolEffects).toHaveLength(0);
+  });
+
+  it("does not drain effect-bearing item notifications from a completed turn", async () => {
+    const work = fixture([
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: { id: "turn:test", status: "completed", items: [] },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test", turnId: "turn:test",
+          tokenUsage: { last: { inputTokens: 40, outputTokens: 10, reasoningOutputTokens: 4 } },
+        },
+      },
+      {
+        method: "item/started",
+        params: {
+          threadId: "thread:test", turnId: "turn:test",
+          item: { type: "commandExecution", id: "late:command", command: "pwd" },
+        },
+      },
+    ]);
+
+    const result = await executePreparedAgentRun({
+      run: work.run, task: work.task, taskPayload: work.payload,
+      runtimeDefinition: work.runtime, credentialBinding: work.credential,
+      modelProfile: work.model, executionProfile: work.profile,
+      adapter: work.adapter, credentialBroker: work.broker, toolHost: work.toolHost,
+    });
+
+    expect(result.run.status).toBe("FAILED");
+    expect(result.modelInvocations[1]?.diagnostic).toContain(
+      "non-drainable work for a completed turn",
+    );
+  });
+
   it("terminates repeated diagnostic-only completion at the configured invocation budget", async () => {
     const work = fixture([
       {

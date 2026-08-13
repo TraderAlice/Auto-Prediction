@@ -29,6 +29,14 @@ a new model-invocation runtime-recovery field preserves the incident without
 turning a successful call's diagnostic into a failure. A rotated specimen is
 the next live gate; Antonelli will not be silently replayed.
 
+The Mary Peltola rotation passed that gate through three successful Terra calls
+and two evidence reads, then exposed delayed-event handling between a completed
+turn and its result-repair successor. One old-turn notification caused a false
+identity-change failure after 57,999 known input tokens. The campaign paused and
+rotated to Roy Cooper. Issue #203 now drains only exact, no-request accounting
+tails from known completed turns; delayed tools or effect-bearing items still
+fail closed. This is event-stream ordering, not adapter retry authority.
+
 Issue #190 repairs a restart-continuity defect discovered against the live
 SQLite volume. Semantic-review startup loaded findings and task revisions from
 two independent 512-row recent windows, so a valid older exact revision could

@@ -94,9 +94,29 @@ invocation's failure diagnostic. The existing turn and whole-run deadlines
 still bound endless reconnecting; the adapter does not create a new turn,
 model invocation or campaign retry.
 
+The rotated Mary Peltola specimen then passed the transient-error boundary but
+exposed a separate app-server event-ordering defect. Run
+`sha256:76bb270b37c1ec21a41cae37aa73ce0de0a82c3178a8c39a48fe709a9da44856`
+completed three successful Terra invocations with 57,999 / 1,264 / 1,069 known
+input/output/reasoning tokens, accepted coverage and assigned-trailhead reads,
+and entered result repair without a terminal effect. A delayed notification
+from the already completed prior turn arrived after the repair turn started;
+the adapter treated its old turn ID as a mutation of the current turn and
+failed invocation four with unknown usage. The campaign paused and preview
+rotated again: two selected tasks are terminally attempted, Roy Cooper is next,
+and five are deferred.
+
+Issue [#203](https://github.com/luokerenx4/my-little-pony/issues/203) adds a
+strict completed-turn drain. Only no-request token-usage, raw-response and
+duplicate completion tail notifications from an exact completed turn may be
+ignored after its successor starts. A delayed tool request, item/effect event,
+unknown turn or changed thread still fails closed. Completion now verifies the
+nested `turn.id` exactly. This preserves async stream ordering without creating
+a retry or weakening built-in-effect rejection.
+
 ## Construction qualification
 
-Workspace type checks, 105 control-plane files / 703 tests, five Studio files /
+Workspace type checks, 105 control-plane files / 706 tests, five Studio files /
 30 tests and the production Studio build pass on the available Node 22 host.
 The known Node 24 engine expectation and existing Studio chunk-size warning
 remain; neither is introduced by this change.
