@@ -518,7 +518,7 @@ export type MechanismPrototypeExplorationExperimentEpisode = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v2";
+  schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v3";
   projectionIdentity: Hash;
   retainedInputCount: number;
   retainedStepCount: number;
@@ -540,6 +540,8 @@ export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
   episodes: readonly MechanismPrototypeExplorationExperimentEpisode[];
   hypothesisFamilyCount: number;
   hypothesisFamilies: readonly MechanismPrototypeExplorationHypothesisFamily[];
+  hypothesisIntentRealizationCount: number;
+  hypothesisIntentRealizations: readonly MechanismPrototypeExplorationHypothesisIntentRealization[];
   currentCorpusAuthority: false;
   currentEligibilityAuthority: false;
   campaignAuthority: false;
@@ -561,6 +563,82 @@ export type MechanismPrototypeExplorationMemoryProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+
+export type MechanismPrototypeExplorationHypothesisIntentRealization = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v1";
+  reportId: Hash;
+  hypothesisId: Hash;
+  episodeId: Hash;
+  episodeCompletedAt: string;
+  runStatus: MechanismPrototypeExplorationExperimentEpisode["runStatus"];
+  terminalOutcome: MechanismPrototypeExplorationExperimentEpisode["terminalOutcome"];
+  prototypeId: Hash;
+  axis: MechanismPrototypeExplorationAxis;
+  declaredIntent: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+  declaredPriorFamilyId: Hash | null;
+  realizedClassification: "REALIZED_EXTENSION" | "REALIZED_REPLICATION" |
+    "REALIZED_DIFFERENT_TEST" | "NO_EVIDENCE_FRONTIER_CHANGE" | "UNMEASURABLE";
+  comparisonBasis: "DECLARED_PRIOR_FAMILY" | "SIBLING_EXACT_TEST_FAMILIES" | "NONE";
+  referenceFamilyCount: number;
+  current: Readonly<{
+    semanticInputIdentity: Hash;
+    sourceAgentRunId: Hash;
+    roleSearchObservationCount: number;
+    listingRefCount: number;
+    pairRefCount: number;
+    listingSetHash: Hash;
+    pairSetHash: Hash;
+  }>;
+  comparison: Readonly<{
+    referenceHypothesisCount: number;
+    referenceSemanticInputCount: number;
+    referenceRunCount: number;
+    referenceListingRefCount: number;
+    referencePairRefCount: number;
+    overlappingListingRefCount: number;
+    newListingRefCount: number;
+    overlappingPairRefCount: number;
+    newPairRefCount: number;
+    independentSemanticInput: boolean;
+    independentRun: boolean;
+  }>;
+  yield: MechanismPrototypeExplorationHypothesisFamily["yield"];
+  usage: MechanismPrototypeExplorationHypothesisFamily["usage"];
+  identityBasis: "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_SEARCH_COORDINATES";
+  proseSimilarityUsed: false;
+  schedulingAuthority: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export function classifyMechanismPrototypeExplorationHypothesisIntentRealization(
+  input: Readonly<{
+    declaredIntent: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+    comparable: boolean;
+    independentSemanticInput: boolean;
+    independentRun: boolean;
+    newListingRefCount: number;
+    newPairRefCount: number;
+  }>,
+): MechanismPrototypeExplorationHypothesisIntentRealization["realizedClassification"] {
+  if (![input.newListingRefCount, input.newPairRefCount].every((value) =>
+    Number.isSafeInteger(value) && value >= 0
+  )) throw new Error("hypothesis intent realization counts are invalid");
+  if (!input.comparable) return "UNMEASURABLE";
+  if (input.declaredIntent === "REPLICATE" && input.independentSemanticInput &&
+      input.independentRun) return "REALIZED_REPLICATION";
+  if (input.newListingRefCount + input.newPairRefCount === 0) {
+    return "NO_EVIDENCE_FRONTIER_CHANGE";
+  }
+  if (input.declaredIntent === "EXTEND" && input.independentSemanticInput) {
+    return "REALIZED_EXTENSION";
+  }
+  if (input.declaredIntent === "DIFFERENT_TEST") return "REALIZED_DIFFERENT_TEST";
+  return "NO_EVIDENCE_FRONTIER_CHANGE";
+}
 
 export type MechanismPrototypeExplorationHypothesisFamily = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-family.v1";
@@ -2758,6 +2836,7 @@ export function compileMechanismPrototypeExplorationExperimentEpisodes(input: Re
 export function buildMechanismPrototypeExplorationMemoryProjection(input: Readonly<{
   inputs: readonly MechanismPrototypeExplorationInputRevision[];
   stepObservations: readonly MechanismPrototypeExplorationStepObservation[];
+  roleSearchObservations?: readonly MechanismPrototypeExplorationRoleSearchObservation[];
   execution: AgentExecutionSnapshot;
   episodeLimit?: number;
 }>): MechanismPrototypeExplorationMemoryProjection {
@@ -2766,6 +2845,9 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
   );
   const retainedSteps = input.stepObservations.map(
     assertMechanismPrototypeExplorationStepObservation,
+  );
+  const retainedRoleSearchObservations = (input.roleSearchObservations ?? []).map(
+    assertMechanismPrototypeExplorationRoleSearchObservation,
   );
   const episodeLimit = input.episodeLimit ?? 32;
   if (!Number.isSafeInteger(episodeLimit) || episodeLimit < 1 || episodeLimit > 512) {
@@ -2870,12 +2952,143 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
       return body;
     }).sort((left, right) => right.hypothesisCount - left.hypothesisCount ||
       left.familyId.localeCompare(right.familyId)));
+  const familyIdOf = (episode: MechanismPrototypeExplorationExperimentEpisode,
+    hypothesis: NonNullable<MechanismPrototypeExplorationExperimentEpisode["hypotheses"]>[number]) =>
+    hashCanonical(Object.freeze({
+      schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-family-identity.v1",
+      prototypeId: episode.prototypeId, axis: episode.axis,
+      testBinding: hypothesis.final.testBinding,
+    }));
+  const exactCoordinates = (member: typeof familyMembers[number]) => {
+    const end = member.hypothesis.closedEffectOrdinal ?? member.hypothesis.openedEffectOrdinal;
+    const callIds = new Set(retainedSteps.filter((step) =>
+      step.sourceAgentRunId === member.episode.sourceAgentRunId &&
+      step.effectOrdinal >= member.hypothesis.openedEffectOrdinal && step.effectOrdinal <= end
+    ).map((step) => step.sourceToolCallId));
+    const observations = retainedRoleSearchObservations.filter((observation) =>
+      observation.sourceAgentRunId === member.episode.sourceAgentRunId &&
+      callIds.has(observation.sourceToolCallId)
+    );
+    const listingRefs = [...new Set(observations.flatMap((observation) => [
+      ...observation.result.componentHits.map((hit) => hit.listingRef),
+      ...observation.result.aggregateHits.map((hit) => hit.listingRef),
+    ]))].sort();
+    const pairRefs = [...new Set(observations.flatMap((observation) =>
+      observation.result.pairs.map((pair) =>
+        `${pair.componentListingRef}\u0000${pair.aggregateListingRef}`
+      )))].sort();
+    const steps = member.episode.steps.filter((step) =>
+      step.effectOrdinal >= member.hypothesis.openedEffectOrdinal &&
+      step.effectOrdinal <= end
+    );
+    const invocations = [...new Map(steps.map((step) =>
+      [step.sourceInvocationId, step] as const
+    )).values()];
+    const sumTokens = (key: "inputTokens" | "outputTokens" | "reasoningTokens") =>
+      invocations.reduce((total, step) => total + BigInt(step[key] ?? "0"), 0n).toString();
+    return Object.freeze({ observations, listingRefs, pairRefs, steps, invocations,
+      usage: Object.freeze({ invocationCount: invocations.length,
+        knownInputTokens: sumTokens("inputTokens"), knownOutputTokens: sumTokens("outputTokens"),
+        knownReasoningTokens: sumTokens("reasoningTokens"),
+        unknownUsageInvocationCount: invocations.filter((step) => step.inputTokens === null ||
+          step.outputTokens === null || step.reasoningTokens === null).length }),
+      yield: Object.freeze({ effectCount: steps.length,
+        searchEffectCount: steps.filter((step) => step.resultSummary.kind === "FLAT_SEARCH" ||
+          step.resultSummary.kind === "ROLE_SEARCH").length,
+        rawHitCount: steps.reduce((sum, step) => sum + step.resultSummary.rawHitCount, 0),
+        qualifiedHitCount: steps.reduce((sum, step) =>
+          sum + step.resultSummary.qualifiedHitCount, 0),
+        rolePairCount: steps.reduce((sum, step) => sum + step.resultSummary.pairCount, 0),
+        inspectedListingCount: steps.reduce((sum, step) =>
+          sum + step.resultSummary.inspectedListingCount, 0) }),
+    });
+  };
+  const hypothesisIntentRealizations = Object.freeze(familyMembers.flatMap((member) => {
+    const hypothesis = member.hypothesis.final;
+    if (hypothesis.schemaVersion !== "pmh.mechanism-prototype-exploration-hypothesis.v2" ||
+        hypothesis.familyIntent === undefined) return [];
+    const currentFamilyId = familyIdOf(member.episode, member.hypothesis);
+    const referenceMembers = familyMembers.filter((candidate) => {
+      if (candidate.hypothesis.hypothesisId === member.hypothesis.hypothesisId) return false;
+      if (candidate.episode.completedAt >= member.episode.completedAt) return false;
+      const candidateFamilyId = familyIdOf(candidate.episode, candidate.hypothesis);
+      return hypothesis.familyIntent === "DIFFERENT_TEST"
+        ? candidate.episode.prototypeId === member.episode.prototypeId &&
+          candidate.episode.axis === member.episode.axis && candidateFamilyId !== currentFamilyId
+        : candidateFamilyId === hypothesis.priorFamilyId;
+    });
+    const current = exactCoordinates(member);
+    const references = referenceMembers.map(exactCoordinates);
+    const referenceListingRefs = new Set(references.flatMap((item) => item.listingRefs));
+    const referencePairRefs = new Set(references.flatMap((item) => item.pairRefs));
+    const overlappingListingRefCount = current.listingRefs.filter((ref) =>
+      referenceListingRefs.has(ref)).length;
+    const newListingRefCount = current.listingRefs.length - overlappingListingRefCount;
+    const overlappingPairRefCount = current.pairRefs.filter((ref) =>
+      referencePairRefs.has(ref)).length;
+    const newPairRefCount = current.pairRefs.length - overlappingPairRefCount;
+    const independentSemanticInput = referenceMembers.length > 0 && referenceMembers.every(
+      (candidate) => candidate.episode.semanticInputIdentity !==
+        member.episode.semanticInputIdentity,
+    );
+    const independentRun = referenceMembers.length > 0 && referenceMembers.every((candidate) =>
+      candidate.episode.sourceAgentRunId !== member.episode.sourceAgentRunId
+    );
+    const comparable = referenceMembers.length > 0 && current.observations.length > 0 &&
+      references.some((item) => item.observations.length > 0);
+    const realizedClassification =
+      classifyMechanismPrototypeExplorationHypothesisIntentRealization({
+        declaredIntent: hypothesis.familyIntent, comparable,
+        independentSemanticInput, independentRun, newListingRefCount, newPairRefCount,
+      });
+    const referenceFamilyIds = new Set(referenceMembers.map((candidate) =>
+      familyIdOf(candidate.episode, candidate.hypothesis)));
+    const body = Object.freeze({
+      schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-intent-realization.v1" as const,
+      hypothesisId: member.hypothesis.hypothesisId, episodeId: member.episode.episodeId,
+      episodeCompletedAt: member.episode.completedAt, runStatus: member.episode.runStatus,
+      terminalOutcome: member.episode.terminalOutcome,
+      prototypeId: member.episode.prototypeId, axis: member.episode.axis,
+      declaredIntent: hypothesis.familyIntent,
+      declaredPriorFamilyId: hypothesis.priorFamilyId ?? null,
+      realizedClassification,
+      comparisonBasis: hypothesis.familyIntent === "DIFFERENT_TEST"
+        ? "SIBLING_EXACT_TEST_FAMILIES" as const
+        : hypothesis.priorFamilyId === null ? "NONE" as const
+          : "DECLARED_PRIOR_FAMILY" as const,
+      referenceFamilyCount: referenceFamilyIds.size,
+      current: Object.freeze({ semanticInputIdentity: member.episode.semanticInputIdentity,
+        sourceAgentRunId: member.episode.sourceAgentRunId,
+        roleSearchObservationCount: current.observations.length,
+        listingRefCount: current.listingRefs.length, pairRefCount: current.pairRefs.length,
+        listingSetHash: hashCanonical(current.listingRefs),
+        pairSetHash: hashCanonical(current.pairRefs) }),
+      comparison: Object.freeze({ referenceHypothesisCount: referenceMembers.length,
+        referenceSemanticInputCount: new Set(referenceMembers.map((candidate) =>
+          candidate.episode.semanticInputIdentity)).size,
+        referenceRunCount: new Set(referenceMembers.map((candidate) =>
+          candidate.episode.sourceAgentRunId)).size,
+        referenceListingRefCount: referenceListingRefs.size,
+        referencePairRefCount: referencePairRefs.size,
+        overlappingListingRefCount, newListingRefCount,
+        overlappingPairRefCount, newPairRefCount,
+        independentSemanticInput, independentRun }),
+      yield: current.yield, usage: current.usage,
+      identityBasis: "EXACT_EFFECT_WINDOW_AND_DURABLE_ROLE_SEARCH_COORDINATES" as const,
+      proseSimilarityUsed: false as const, schedulingAuthority: false as const,
+      semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
+      executionAuthority: false as const, externalWriteAuthority: false as const,
+      valueMovingAuthority: false as const,
+    });
+    return [Object.freeze({ ...body, reportId: hashCanonical(body) })];
+  }).sort((left, right) => right.episodeCompletedAt.localeCompare(left.episodeCompletedAt) ||
+    left.reportId.localeCompare(right.reportId)));
   const sum = (key: "knownInputTokens" | "knownOutputTokens" |
     "knownReasoningTokens") => episodes.reduce((total, episode) =>
       total + BigInt(episode.usage[key]), 0n
     ).toString();
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v2" as const,
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v3" as const,
     retainedInputCount: retainedInputs.length,
     retainedStepCount: retainedSteps.length,
     episodeCount: episodes.length,
@@ -2904,6 +3117,8 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
     episodes,
     hypothesisFamilyCount: hypothesisFamilies.length,
     hypothesisFamilies,
+    hypothesisIntentRealizationCount: hypothesisIntentRealizations.length,
+    hypothesisIntentRealizations,
     currentCorpusAuthority: false as const,
     currentEligibilityAuthority: false as const,
     campaignAuthority: false as const,

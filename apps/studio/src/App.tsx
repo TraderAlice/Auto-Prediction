@@ -672,7 +672,7 @@ type SemanticNoveltyProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 type WorldStateMechanismProjection = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-projection.v7";
+  schemaVersion: "pmh.world-state-mechanism-projection.v8";
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
@@ -782,7 +782,7 @@ type WorldStateMechanismProjection = Readonly<{
     }>>;
   }>;
   mechanismPrototypeExplorationMemory: Readonly<{
-    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v2";
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v3";
     projectionIdentity: string;
     retainedInputCount: number;
     retainedStepCount: number;
@@ -868,6 +868,30 @@ type WorldStateMechanismProjection = Readonly<{
         inspectedListingCount: number }>;
       usage: Readonly<{ invocationCount: number; knownInputTokens: string }>;
       proseSimilarityUsed: false;
+      schedulingAuthority: false;
+      semanticDecisionAuthority: false;
+    }>>;
+    hypothesisIntentRealizationCount: number;
+    hypothesisIntentRealizations: ReadonlyArray<Readonly<{
+      reportId: string;
+      episodeCompletedAt: string;
+      runStatus: "INTERRUPTED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+      terminalOutcome: "TRAILHEAD" | "EXHAUSTION" | "NO_ACCEPTED_TERMINAL";
+      declaredIntent: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+      realizedClassification: "REALIZED_EXTENSION" | "REALIZED_REPLICATION" |
+        "REALIZED_DIFFERENT_TEST" | "NO_EVIDENCE_FRONTIER_CHANGE" | "UNMEASURABLE";
+      comparisonBasis: "DECLARED_PRIOR_FAMILY" | "SIBLING_EXACT_TEST_FAMILIES" | "NONE";
+      referenceFamilyCount: number;
+      current: Readonly<{ roleSearchObservationCount: number; listingRefCount: number;
+        pairRefCount: number }>;
+      comparison: Readonly<{ referenceHypothesisCount: number;
+        referenceListingRefCount: number; referencePairRefCount: number;
+        overlappingListingRefCount: number; newListingRefCount: number;
+        overlappingPairRefCount: number; newPairRefCount: number;
+        independentSemanticInput: boolean; independentRun: boolean }>;
+      yield: Readonly<{ searchEffectCount: number; rawHitCount: number;
+        qualifiedHitCount: number; rolePairCount: number; inspectedListingCount: number }>;
+      usage: Readonly<{ invocationCount: number; knownInputTokens: string }>;
       schedulingAuthority: false;
       semanticDecisionAuthority: false;
     }>>;
@@ -4188,7 +4212,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
-      "pmh.world-state-mechanism-projection.v7" ||
+      "pmh.world-state-mechanism-projection.v8" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness.schemaVersion !==
       "pmh.world-state-subject-binding-promotion-readiness.v1" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
@@ -4200,7 +4224,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.worldStateMechanisms.retainedMechanismMemory.schemaVersion !==
       "pmh.retained-world-state-mechanism-memory.v1" ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory.schemaVersion !==
-      "pmh.mechanism-prototype-exploration-memory-projection.v2" ||
+      "pmh.mechanism-prototype-exploration-memory-projection.v3" ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
       .currentCorpusAuthority !== false ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
@@ -4759,6 +4783,36 @@ function AgentOperationsView() {
                       <span>{family.hypothesisCount} hypotheses / {family.distinctSemanticInputCount} exact inputs · {family.dispositionCounts.FALSIFIED} falsified · {family.dispositionCounts.SUPPORTED} supported</span>
                       <span>{family.yield.searchEffectCount} searches · {family.yield.rawHitCount} raw → {family.yield.qualifiedHitCount} qualified → {family.yield.rolePairCount} pairs · {family.yield.inspectedListingCount} inspected</span>
                       <small>{family.usage.invocationCount} hypothesis-span calls · {formatTokenCount(family.usage.knownInputTokens)} input · exact coordinates only</small>
+                    </article>
+                  ))}
+                </div>
+              )}
+              {worldStateMechanisms.mechanismPrototypeExplorationMemory.hypothesisIntentRealizations.length > 0 && (
+                <div className="hypothesis-family-memory">
+                  <div className="mechanism-experiment-memory-head">
+                    <div>
+                      <span className="eyebrow">Intent realization</span>
+                      <strong>{worldStateMechanisms.mechanismPrototypeExplorationMemory.hypothesisIntentRealizationCount} measured declarations</strong>
+                      <small>Exact evidence-frontier comparison; replication is measured as independence, not forced novelty.</small>
+                    </div>
+                    <Badge variant="shadow">DESCRIPTIVE ONLY</Badge>
+                  </div>
+                  {worldStateMechanisms.mechanismPrototypeExplorationMemory.hypothesisIntentRealizations.slice(0, 6).map((report) => (
+                    <article key={report.reportId} className="hypothesis-family-row">
+                      <div>
+                        <Badge variant={report.realizedClassification.startsWith("REALIZED") ? "verified" : report.realizedClassification === "NO_EVIDENCE_FRONTIER_CHANGE" ? "warning" : "shadow"}>
+                          {report.realizedClassification.replaceAll("_", " ")}
+                        </Badge>
+                        <Badge variant="muted">{report.declaredIntent.replaceAll("_", " ")}</Badge>
+                        <Badge variant={report.runStatus === "SUCCEEDED" ? "verified" : "warning"}>
+                          {report.runStatus}
+                        </Badge>
+                        <code>{report.reportId.slice(7, 19)}</code>
+                      </div>
+                      <strong>{report.current.listingRefCount} exact refs / {report.current.pairRefCount} pairs against {report.referenceFamilyCount} reference families</strong>
+                      <span>{report.comparison.newListingRefCount} new + {report.comparison.overlappingListingRefCount} overlapping refs · {report.comparison.newPairRefCount} new + {report.comparison.overlappingPairRefCount} overlapping pairs</span>
+                      <span>{report.current.roleSearchObservationCount} role searches · {report.yield.rawHitCount} raw → {report.yield.qualifiedHitCount} qualified · {report.referenceFamilyCount === 0 ? "input/run independence n/a" : `input ${report.comparison.independentSemanticInput ? "independent" : "reused"} · run ${report.comparison.independentRun ? "independent" : "reused"}`}</span>
+                      <small>{report.usage.invocationCount} hypothesis-span calls · {formatTokenCount(report.usage.knownInputTokens)} input · {report.terminalOutcome.replaceAll("_", " ").toLowerCase()} · {report.comparisonBasis.replaceAll("_", " ").toLowerCase()}</small>
                     </article>
                   ))}
                 </div>

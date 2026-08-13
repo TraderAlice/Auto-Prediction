@@ -15,6 +15,7 @@ import {
   buildMechanismPrototypeExplorationStepObservation,
   compileMechanismPrototypeExplorationExperimentEpisodes,
   buildMechanismPrototypeExplorationMemoryProjection,
+  classifyMechanismPrototypeExplorationHypothesisIntentRealization,
   buildPausedAgentCampaign,
   buildDefaultAgentRuntimePortfolio,
   defaultAiRuntimeConfiguration,
@@ -599,6 +600,21 @@ describe("mechanism-prototype-guided exploration substrate", () => {
 });
 
 describe("mechanism-prototype exploration Agent tools", () => {
+  it("distinguishes independent replication from a zero-frontier extension", () => {
+    expect(classifyMechanismPrototypeExplorationHypothesisIntentRealization({
+      declaredIntent: "REPLICATE", comparable: true, independentSemanticInput: true,
+      independentRun: true, newListingRefCount: 0, newPairRefCount: 0,
+    })).toBe("REALIZED_REPLICATION");
+    expect(classifyMechanismPrototypeExplorationHypothesisIntentRealization({
+      declaredIntent: "EXTEND", comparable: true, independentSemanticInput: true,
+      independentRun: true, newListingRefCount: 0, newPairRefCount: 0,
+    })).toBe("NO_EVIDENCE_FRONTIER_CHANGE");
+    expect(classifyMechanismPrototypeExplorationHypothesisIntentRealization({
+      declaredIntent: "DIFFERENT_TEST", comparable: false, independentSemanticInput: true,
+      independentRun: true, newListingRefCount: 2, newPairRefCount: 1,
+    })).toBe("UNMEASURABLE");
+  });
+
   function runtimeFixture(axis: "SURFACE_DOMAIN" | "SUBJECT_AND_GEOGRAPHY" = "SURFACE_DOMAIN") {
     const { sourceInput, prototype } = acceptedPrototype();
     const snapshot = corpus();
