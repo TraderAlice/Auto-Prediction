@@ -4,6 +4,7 @@ import {
   assertMechanismPrototypeExplorationInputRevision,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
+  buildCorpusDialectAtlas,
   buildAgentRun,
   completeAgentRun,
   buildModelInvocation,
@@ -759,6 +760,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
     ]);
     await openHypothesis({ host, lens, run, profile, suffix: "recovery" });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "read_corpus_dialect_atlas",
+    ]);
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "recovery:dialect", toolName: "read_corpus_dialect_atlas", input: {} });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "search_mechanism_exploration_roles", "search_mechanism_exploration_corpus",
     ]);
     await host.execute({ task: lens.task, run, executionProfile: profile,
@@ -1048,6 +1054,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const manifest = host.manifest(lens.task.requestedEffectProtocol);
     expect(manifest.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+      "read_corpus_dialect_atlas",
       "mark_transfer_test_1_applied", "mark_transfer_test_1_failed",
       "activate_counter_scenario_1",
     ]));
@@ -1405,13 +1412,23 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(read).toMatchObject({
       status: "ACCEPTED",
       output: {
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v4",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v5",
         axisContract: {
           admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
           sourcePredicateFamilies: expect.arrayContaining(["ELECTION_OR_OFFICE"]),
           representationChangeAloneInsufficient: true,
         },
         coverage: { memberCount: 202, membersOmittedFromReasoningView: true },
+        corpusDialectAtlas: {
+          atlasIdentity: buildCorpusDialectAtlas(snapshot).atlasIdentity,
+          listingCount: snapshot.listingCount,
+          venueCount: 4,
+          detailTool: "read_corpus_dialect_atlas",
+          detailedExemplarsOmitted: true,
+          semanticDecisionAuthority: false,
+          schedulingAuthority: false,
+          executionAuthority: false,
+        },
         prototype: {
           transferTests: [{ appliedTool: "mark_transfer_test_1_applied",
             failedTool: "mark_transfer_test_1_failed", text: prototype.transferTests[0] }],
@@ -1420,8 +1437,65 @@ describe("mechanism-prototype exploration Agent tools", () => {
       },
     });
     expect(serialized).not.toContain("coverageMembers");
+    expect(serialized).not.toContain("predicateNeighborhoods");
     expect(serialized.length).toBeLessThan(20_000);
     expect(JSON.stringify(expandedInput).length).toBeGreaterThan(serialized.length * 3);
+  });
+
+  it("lets the Agent inspect a bounded exact corpus-dialect atlas on demand", async () => {
+    const { lens, prototype, snapshot, profile, run } = runtimeFixture();
+    const host = new MechanismPrototypeExplorationAgentToolHost(
+      lens.currentInputRevision, prototype, snapshot,
+    );
+    const first = await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "dialect:first", toolName: "read_corpus_dialect_atlas", input: {} });
+    expect(first).toMatchObject({ status: "ACCEPTED", output: {
+      schemaVersion: "pmh.corpus-dialect-atlas.v1",
+      sourceSnapshotIdentity: snapshot.snapshotIdentity,
+      listingCount: snapshot.listingCount,
+      venueCount: 4,
+      predicateNeighborhoods: expect.arrayContaining([
+        expect.objectContaining({ predicateFamily: "SPORTS_RESULT",
+          componentRoleCueCount: 0, aggregateRoleCueCount: 1,
+          exemplars: expect.arrayContaining([
+            expect.objectContaining({ listingRef: "venue-sport:constructors",
+              title: expect.stringContaining("constructors championship") }),
+          ]),
+        }),
+      ]),
+      roleNeighborhoods: {
+        predicateFamilyCounts: expect.arrayContaining([
+          { predicateFamily: "SPORTS_RESULT", componentRoleCueCount: 0,
+            aggregateRoleCueCount: 1 },
+        ]),
+        component: { listingCount: 2, venueCount: 2,
+          exemplars: expect.arrayContaining([
+            expect.objectContaining({ listingRef: "venue-race:italy",
+              title: expect.stringContaining("Grand Prix") }),
+          ]) },
+        aggregate: { listingCount: 2, venueCount: 2,
+          exemplars: expect.arrayContaining([
+            expect.objectContaining({ listingRef: "venue-sport:constructors",
+              title: expect.stringContaining("constructors championship") }),
+          ]) },
+      },
+      ontologicalPosture:
+        "VENUE_TITLE_IS_CONTRACT_SURFACE_LANGUAGE_NOT_CERTIFIED_WORLD_SEMANTICS",
+      authority: "LEXICAL_QUERY_RECONNAISSANCE_ONLY",
+      subjectIdentityAuthority: false, semanticDecisionAuthority: false,
+      probabilityAuthority: false, schedulingAuthority: false,
+      certificateAuthority: false, executionAuthority: false,
+      effects: { providerRequests: false, externalWrites: false,
+        valueMovingActions: false, liveExecutionEnabled: false },
+    } });
+    const repeated = await host.execute({ task: lens.task, run,
+      executionProfile: profile, callId: "dialect:repeat",
+      toolName: "read_corpus_dialect_atlas", input: {} });
+    expect(repeated).toMatchObject({ status: "ACCEPTED", output: {
+      schemaVersion: "pmh.corpus-dialect-atlas-reference.v1",
+      atlasIdentity: buildCorpusDialectAtlas(snapshot).atlasIdentity,
+      authority: "LEXICAL_QUERY_RECONNAISSANCE_REFERENCE_ONLY",
+    } });
   });
 
   it("rejects uninspected positives and empty-search exhaustion", async () => {

@@ -1,6 +1,27 @@
 # Plans
 
 The active execution continuation is
+[`plans/corpus-dialect-atlas.md`](plans/corpus-dialect-atlas.md).
+Issue #241 follows the first portfolio-guided `EXTEND` specimen. The Agent
+selected the intended experiment but guessed a generic sports vocabulary that
+was absent from a six-venue, 600-listing corpus, then drifted into election
+noise through a broad fallback. A provider-free, content-addressed
+corpus-dialect atlas will let the Agent observe venue-local title forms,
+predicate populations, current role-cue coverage and exact exemplars before it
+constructs a query, without granting semantic or scheduling authority.
+
+Issue #241 is selected `ADOPT` as an observation instrument. Two independent
+Terra/high specimens stayed inside the intended sports domain with zero
+rejected effects, unlike the pre-atlas election-contaminated fallback. The
+compressed atlas is 11,597 serialized characters and exposes a decisive
+coverage asymmetry: the current corpus/role classifier has 31 sports aggregate
+listings but zero sports component listings. It did not reduce total token cost
+(257,359 versus the 204,543 baseline), so it is not adopted as an efficiency
+optimization. The next continuation will turn this representation-role gap
+into an acquisition/ontology feedback loop and preserve exact flat-search
+coordinates for measurement without granting lexical hits semantic authority.
+
+The active execution continuation is
 [`plans/agent-hypothesis-attention-loop.md`](plans/agent-hypothesis-attention-loop.md).
 Issue #239 closes V14's human-only measurement loop by putting compact exact
 portfolio evidence into the Agent's lens. The recommendation remains

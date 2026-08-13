@@ -1,4 +1,8 @@
 import { hashCanonical, type Hash } from "@pmh/domain";
+import {
+  buildCorpusDialectAtlas,
+  type CorpusDialectAtlas,
+} from "./corpus-dialect-atlas.js";
 import type {
   AgentRuntimeToolDefinition,
   AgentToolHost,
@@ -184,6 +188,11 @@ const BASE_MANIFEST = Object.freeze([
     inputSchema: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
   Object.freeze({
+    name: "read_corpus_dialect_atlas",
+    description: "Read a provider-free bounded atlas of the exact assigned corpus language: venue-local title forms, lexical predicate populations, current component/aggregate role-cue coverage, and venue-diverse exact exemplars. Use it to construct grounded queries. It cannot assert subject identity, semantic relations, probability, scheduling, certificates, or execution.",
+    inputSchema: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
+  }),
+  Object.freeze({
     name: "search_mechanism_exploration_corpus",
     description: "Fallback flat search over the exact assigned corpus. Prefer role-aware search when testing a component/aggregate transfer. Output has evidence-routing authority only.",
     inputSchema: Object.freeze({
@@ -350,6 +359,8 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
   }>>();
   #activeHypothesis: MechanismPrototypeExplorationHypothesis | null = null;
   #lensReadCount = 0;
+  #dialectAtlasReadCount = 0;
+  readonly #corpusDialectAtlas: CorpusDialectAtlas;
 
   public constructor(
     public readonly researchInput: MechanismPrototypeExplorationInputRevision,
@@ -359,7 +370,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     private readonly hypothesisFamilies: readonly MechanismPrototypeExplorationHypothesisFamily[] = [],
     private readonly hypothesisIntentAttentionPortfolio?:
       MechanismPrototypeExplorationHypothesisIntentAttentionPortfolio,
-  ) {}
+  ) {
+    this.#corpusDialectAtlas = buildCorpusDialectAtlas(corpus);
+  }
 
   public manifest(protocol: string): readonly AgentRuntimeToolDefinition[] {
     if (protocol !== MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL) {
@@ -442,6 +455,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       ? this.#appliedTransferTests.has(selected.text) || this.#failedTransferTests.has(selected.text)
       : this.#activatedCounterScenarios.has(selected.text);
     if (actionRetained) return Object.freeze(["close_exploration_hypothesis"]);
+    if (this.#dialectAtlasReadCount === 0 && this.#searchedResultIds.size === 0) {
+      return Object.freeze(["read_corpus_dialect_atlas"]);
+    }
     const seededListingCount = new Set(this.researchInput.seedTrailheads.flatMap((item) =>
       item.listingRefs
     )).size;
@@ -565,6 +581,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       if (input.context.toolName === "read_mechanism_exploration_lens") {
         return Object.freeze({ kind: "LENS_READ" as const, ...zero });
       }
+      if (input.context.toolName === "read_corpus_dialect_atlas") {
+        return Object.freeze({ kind: "DIALECT_ATLAS_READ" as const, ...zero });
+      }
       if (input.context.toolName === "search_mechanism_exploration_corpus") {
         const hits = Array.isArray(output.hits) ? output.hits.length : 0;
         return Object.freeze({ kind: "FLAT_SEARCH" as const, ...zero,
@@ -661,7 +680,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       }
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
       return this.#accepted(Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v4",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v5",
         inputRevisionId: this.researchInput.inputRevisionId,
         semanticInputIdentity: this.researchInput.semanticInputIdentity,
         lensId: this.researchInput.lensId,
@@ -669,6 +688,22 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         axis: this.researchInput.axis,
         axisContract: this.researchInput.axisContract ?? null,
         corpusSnapshotIdentity: this.researchInput.corpusSnapshotIdentity,
+        corpusDialectAtlas: Object.freeze({
+          atlasIdentity: this.#corpusDialectAtlas.atlasIdentity,
+          algorithmVersion: this.#corpusDialectAtlas.algorithmVersion,
+          listingCount: this.#corpusDialectAtlas.listingCount,
+          venueCount: this.#corpusDialectAtlas.venueCount,
+          predicateFamilyCount: this.#corpusDialectAtlas.predicateFamilyCount,
+          titleFormCount: this.#corpusDialectAtlas.titleFormCount,
+          componentRoleCueCount: this.#corpusDialectAtlas.componentRoleCueCount,
+          aggregateRoleCueCount: this.#corpusDialectAtlas.aggregateRoleCueCount,
+          detailTool: "read_corpus_dialect_atlas" as const,
+          detailedExemplarsOmitted: true as const,
+          authority: this.#corpusDialectAtlas.authority,
+          semanticDecisionAuthority: false as const,
+          schedulingAuthority: false as const,
+          executionAuthority: false as const,
+        }),
         coverage: Object.freeze({
           scopeIdentity: this.researchInput.coverageScopeIdentity ?? null,
           memberCount: this.researchInput.coverageMembers?.length ?? 0,
@@ -730,6 +765,20 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
         authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_ONLY",
       }));
+    }
+    if (context.toolName === "read_corpus_dialect_atlas") {
+      exactKeys(input, []);
+      this.#dialectAtlasReadCount += 1;
+      if (this.#dialectAtlasReadCount > 1) {
+        return this.#accepted(Object.freeze({
+          schemaVersion: "pmh.corpus-dialect-atlas-reference.v1",
+          atlasIdentity: this.#corpusDialectAtlas.atlasIdentity,
+          sourceSnapshotIdentity: this.#corpusDialectAtlas.sourceSnapshotIdentity,
+          diagnostic: "corpus-dialect atlas already supplied in this run; continue from retained context",
+          authority: "LEXICAL_QUERY_RECONNAISSANCE_REFERENCE_ONLY",
+        }));
+      }
+      return this.#accepted(this.#corpusDialectAtlas);
     }
     if (context.toolName === "open_exploration_hypothesis") {
       exactKeys(input, ["prototypeTestHandle", "familyIntent", "priorFamilyId",
