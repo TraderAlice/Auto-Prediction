@@ -234,3 +234,14 @@ extraction and observation lineage. Finally, a successful evidence acquisition
 now reconciles world relations immediately rather than waiting for restart, and
 the projection API separates four current mappings from twenty-four retained
 historical artifacts.
+
+The first Terra/high relation specimen (`b89e2974…`) consumed 12 invocations,
+276,021 input tokens and 4,710 output tokens. It produced ten accepted effects
+with zero structural rejection: context, a bounded common-cause hypothesis,
+three independent searches, search closure, two listing inspections, one
+complete counterworld selection and its host-bound outcome. It then hit the
+12-invocation ceiling immediately before terminal experiment memory, so it is
+an orchestration-budget interruption rather than negative semantic yield. The
+immutable execution profile advances to revision 2 with 16 invocations and a
+400,000-input-token ceiling; the next specimen must prove that this margin
+closes the lifecycle instead of merely expanding exploration.

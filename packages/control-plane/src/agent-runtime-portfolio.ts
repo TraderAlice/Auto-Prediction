@@ -15,7 +15,7 @@ const WORLD_STATE_MECHANISM_RESEARCH_EXECUTION_REVISION = 1;
 const SUBJECT_BINDING_RESEARCH_EXECUTION_REVISION = 1;
 const MECHANISM_PROTOTYPE_RESEARCH_EXECUTION_REVISION = 1;
 const MECHANISM_PROTOTYPE_EXPLORATION_EXECUTION_REVISION = 17;
-const WORLD_RELATION_EXPERIMENT_EXECUTION_REVISION = 1;
+const WORLD_RELATION_EXPERIMENT_EXECUTION_REVISION = 2;
 
 export function buildDefaultAgentRuntimePortfolio(
   configuration: AiRuntimeConfiguration,
@@ -301,10 +301,13 @@ export function buildDefaultAgentRuntimePortfolio(
     modelProfile: codexModel,
     toolProtocol: "WORLD_RELATION_EXPERIMENT_TOOLS_V1",
     runBudget: {
-      maximumModelInvocations: 12,
+      // The first live Terra specimen reached a host-accepted counterworld
+      // outcome at effect 10, then exhausted the 12-call budget before it
+      // could write terminal memory. Preserve the full lifecycle margin.
+      maximumModelInvocations: 16,
       maximumToolCalls: 32,
       maximumWallClockMs: 600_000,
-      maximumInputTokens: "300000",
+      maximumInputTokens: "400000",
       maximumOutputTokens: "30000",
     },
     createdAt,

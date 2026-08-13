@@ -138,7 +138,8 @@ describe("world relation experiment work", () => {
     });
     expect(preview).toMatchObject({ creationEligible: true, dispatchEligible: true,
       taskIds: [work.task.taskId], taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
-      budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 12 },
+      budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 16,
+        maximumInputTokens: "400000" },
       automaticDispatch: false, providerRequestsStarted: 0 });
 
     const prepared = {

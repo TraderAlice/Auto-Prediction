@@ -86,8 +86,8 @@ export type WorldRelationExperimentCampaignPreview = Readonly<{
   taskIds: readonly Hash[];
   schedule: Readonly<{ kind: "MANUAL_ONLY"; intervalMs: null }>;
   taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE";
-  budget: Readonly<{ maximumConcurrentRuns: 1; maximumModelInvocations: 12;
-    maximumInputTokens: "300000"; maximumOutputTokens: "30000";
+  budget: Readonly<{ maximumConcurrentRuns: 1; maximumModelInvocations: 16;
+    maximumInputTokens: "400000"; maximumOutputTokens: "30000";
     maximumWallClockMs: 600000 }>;
   creationEligible: boolean;
   dispatchEligible: boolean;
@@ -337,7 +337,7 @@ export function buildWorldRelationExperimentCampaignPreview(input: Readonly<{
     schedule: Object.freeze({ kind: "MANUAL_ONLY" as const, intervalMs: null }),
     taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE" as const,
     budget: Object.freeze({ maximumConcurrentRuns: 1 as const,
-      maximumModelInvocations: 12 as const, maximumInputTokens: "300000" as const,
+      maximumModelInvocations: 16 as const, maximumInputTokens: "400000" as const,
       maximumOutputTokens: "30000" as const, maximumWallClockMs: 600000 as const }),
     creationEligible: selected.length > 0,
     dispatchEligible: selected.length > 0 &&
