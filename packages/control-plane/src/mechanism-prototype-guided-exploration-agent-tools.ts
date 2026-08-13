@@ -16,6 +16,7 @@ import {
   type MechanismPrototypeExplorationExhaustion,
   type MechanismPrototypeExplorationHypothesis,
   type MechanismPrototypeExplorationHypothesisFamily,
+  type MechanismPrototypeExplorationHypothesisIntentAttentionPortfolio,
   type MechanismPrototypeExplorationInputRevision,
   type MechanismPrototypeExplorationStore,
   type MechanismPrototypeExplorationTrailhead,
@@ -356,6 +357,8 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     public readonly corpus: MarketCorpusSnapshot,
     private readonly store?: MechanismPrototypeExplorationStore,
     private readonly hypothesisFamilies: readonly MechanismPrototypeExplorationHypothesisFamily[] = [],
+    private readonly hypothesisIntentAttentionPortfolio?:
+      MechanismPrototypeExplorationHypothesisIntentAttentionPortfolio,
   ) {}
 
   public manifest(protocol: string): readonly AgentRuntimeToolDefinition[] {
@@ -686,6 +689,27 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
             }),
             authority: "EXACT_PRIOR_HYPOTHESIS_FAMILY_CONTEXT_ONLY",
           }))),
+        hypothesisIntentAttention: this.hypothesisIntentAttentionPortfolio === undefined
+          ? null
+          : Object.freeze({
+              portfolioIdentity: this.hypothesisIntentAttentionPortfolio.portfolioIdentity,
+              firstObservationCandidateIntent:
+                this.hypothesisIntentAttentionPortfolio.firstObservationCandidateIntent,
+              cohorts: Object.freeze(this.hypothesisIntentAttentionPortfolio.cohorts.map(
+                (cohort) => Object.freeze({ declaredIntent: cohort.declaredIntent,
+                  posture: cohort.posture, observationCount: cohort.observationCount,
+                  comparableObservationCount: cohort.comparableObservationCount,
+                  realizedObservationCount: cohort.realizedObservationCount,
+                  evidenceDebt: cohort.evidenceDebt,
+                  knownInputTokens: cohort.usage.knownInputTokens,
+                  selectionReason: cohort.selectionReason }),
+              )),
+              recommendationPolicy:
+                "DESCRIPTIVE_OBSERVATION_DEBT_NOT_REQUIRED_INTENT",
+              schedulingAuthority: false as const,
+              semanticDecisionAuthority: false as const,
+              executionAuthority: false as const,
+            }),
         excludedListingRefs: this.researchInput.excludedListingRefs,
         seedTrailheads: this.researchInput.seedTrailheads,
         prototype: Object.freeze({

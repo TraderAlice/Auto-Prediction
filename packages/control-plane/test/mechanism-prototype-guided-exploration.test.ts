@@ -997,6 +997,25 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const family = memory.hypothesisFamilies[0]!;
     const nextHost = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot, undefined, [family],
+      memory.hypothesisIntentAttentionPortfolio,
+    );
+    const lensRead = await nextHost.execute({ task: lens.task, run,
+      executionProfile: profile, callId: "lens:attention",
+      toolName: "read_mechanism_exploration_lens", input: {} });
+    expect(lensRead).toMatchObject({ status: "ACCEPTED", output: {
+      hypothesisIntentAttention: {
+        portfolioIdentity: memory.hypothesisIntentAttentionPortfolio.portfolioIdentity,
+        firstObservationCandidateIntent: "EXTEND",
+        recommendationPolicy: "DESCRIPTIVE_OBSERVATION_DEBT_NOT_REQUIRED_INTENT",
+        schedulingAuthority: false, semanticDecisionAuthority: false,
+        executionAuthority: false,
+      },
+    } });
+    expect((lensRead.output as { hypothesisIntentAttention: {
+      cohorts: readonly unknown[] } }).hypothesisIntentAttention.cohorts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ declaredIntent: "EXTEND",
+        posture: "COVERAGE_GAP", observationCount: 0,
+        evidenceDebt: "NO_OBSERVATION", knownInputTokens: "0" })]),
     );
     await expect(nextHost.execute({ task: lens.task, run, executionProfile: profile,
       callId: "hypothesis:duplicate", toolName: "open_exploration_hypothesis", input: {
