@@ -709,6 +709,15 @@ export function observeWorldStateMechanismRoutes(input: Readonly<{
       ...body,
       observationId: hashCanonical(body),
     }));
+    // A catalog refresh is not itself a new mechanism observation. Retain the
+    // first baseline and later semantic transitions, while leaving unchanged
+    // route/review/status/membership state bound to its original evidence
+    // snapshot. Historical duplicates remain valid evidence and need no rewrite.
+    if (previous !== undefined &&
+        previous.routeId === observation.routeId &&
+        previous.subjectBindingReviewId === observation.subjectBindingReviewId &&
+        previous.status === observation.status &&
+        previous.membershipIdentity === observation.membershipIdentity) continue;
     observations.push(observation);
     if (previous === undefined || previous.status !== "OBSERVED" ||
         previous.membershipIdentity === membershipIdentity ||

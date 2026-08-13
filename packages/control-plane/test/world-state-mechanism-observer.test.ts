@@ -330,7 +330,7 @@ describe("world-state mechanism observation", () => {
     });
   });
 
-  it("stays quiet without reviewed identity, on name-only matches, and on exact replay", () => {
+  it("retains semantic baselines and stays quiet on unchanged refreshes", () => {
     const fixture = mechanismFixture();
     const blocked = observeWorldStateMechanismRoutes({
       routes: [fixture.route],
@@ -346,6 +346,18 @@ describe("world-state mechanism observation", () => {
       triggerMembers: [],
       dependentMembers: [],
     });
+    const refreshedBlockedCorpus = corpus(fixture.baselineCorpus.listings, OCTOBER);
+    const refreshedBlocked = observeWorldStateMechanismRoutes({
+      routes: [fixture.route],
+      ontology: buildMarketOntologySnapshot(refreshedBlockedCorpus),
+      listingTitles: fixture.titles(refreshedBlockedCorpus),
+      subjectBindingReviews: [],
+      priorObservations: blocked.observations,
+      issueRevisions: fixture.revisions,
+      observedAt: OCTOBER,
+    });
+    expect(refreshedBlocked.observations).toEqual([]);
+    expect(refreshedBlocked.wakes).toEqual([]);
     const approvedBaseline = observeWorldStateMechanismRoutes({
       routes: [fixture.route],
       ontology: fixture.baselineOntology,
@@ -393,21 +405,18 @@ describe("world-state mechanism observation", () => {
       observedAt: OCTOBER,
     });
     expect(nameOnly.wakes).toEqual([]);
-    expect(nameOnly.observations[0]!.dependentMembers.map((item) => item.listingRef))
-      .not.toContain(priceRef);
-    expect(nameOnly.observations[0]!.dependentMembers.map((item) => item.listingRef))
-      .not.toContain(unrelatedRef);
+    expect(nameOnly.observations).toEqual([]);
 
     const replay = observeWorldStateMechanismRoutes({
       routes: [fixture.route],
       ontology: nameOnlyOntology,
       listingTitles: fixture.titles(nameOnlyCorpus),
       subjectBindingReviews: [fixture.review],
-      priorObservations: nameOnly.observations,
+      priorObservations: baseline.observations,
       issueRevisions: fixture.revisions,
       observedAt: OCTOBER,
     });
-    expect(replay.observations).toEqual(nameOnly.observations);
+    expect(replay.observations).toEqual([]);
     expect(replay.wakes).toEqual([]);
   });
 });

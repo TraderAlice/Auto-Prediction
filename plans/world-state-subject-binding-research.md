@@ -159,6 +159,18 @@ The 62 blocked observations reveal a separate write-amplification question:
 provider-free reconciliation may be retaining unchanged blocked state on every
 cycle instead of one baseline plus meaningful transitions.
 
+Issue [#195](https://github.com/luokerenx4/my-little-pony/issues/195) resolves
+that amplification without rewriting history. An observation is now a semantic
+baseline or transition over route revision, exact subject-review binding,
+status and membership identity—not a catalog-refresh heartbeat. The first
+blocked state remains retained; a new review, route revision, status or
+membership produces a new baseline/transition; an unchanged refresh produces
+no observation. The live database had reached 64 historical blocked rows over
+64 distinct corpus snapshots but one membership identity. Two subsequent READY
+anonymous refreshes over 4,267 listings left the row count exactly 64. Existing
+rows were not deleted, and the original changed-membership wake tests still
+pass with zero model or provider calls from observation.
+
 Issue [#185](https://github.com/luokerenx4/my-little-pony/issues/185) now
 materializes provider-free promotion readiness without choosing the promotion
 authority. Exact current-input coverage, independent authoring and assessment

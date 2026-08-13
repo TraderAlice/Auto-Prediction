@@ -2020,6 +2020,15 @@ runs, with no overlap, missing run or incomplete invocation usage. Its 62
 retained `BLOCKED_SUBJECT_BINDING` observations are now visible as a separate
 potential write-amplification defect rather than productive evidence movement.
 
+Issue #195 makes world-state mechanism observations semantic episodes rather
+than refresh heartbeats. Route revision, exact review binding, status and
+membership identity define whether a new baseline or transition exists; a
+source snapshot change alone no longer appends. The live database preserves its
+64 historical blocked rows (64 snapshots, one unchanged membership identity),
+while two subsequent READY refreshes over 4,267 listings left the count at 64.
+New review bindings and changed membership still establish baselines or wakes;
+no historical evidence was deleted and observation remains provider-free.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a
