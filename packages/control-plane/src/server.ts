@@ -4189,6 +4189,7 @@ export function createControlPlane(options?: {
           assessments: bindingAssessments,
           abstentions: bindingAbstentions,
           reviews,
+          execution: agentExecutionRegistry.snapshot(),
         }),
         cases: Object.freeze(bindingCases.slice(0, 128).map((item) => Object.freeze({
           caseId: item.caseId,

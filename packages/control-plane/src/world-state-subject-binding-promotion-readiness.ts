@@ -8,6 +8,17 @@ import type {
   WorldStateSubjectBindingAssessment,
   WorldStateSubjectBindingResearchCase,
 } from "./world-state-subject-binding-research.js";
+import type { AgentExecutionSnapshot } from "./agent-execution-substrate.js";
+
+type ExactAgentUsage = Readonly<{
+  runIds: readonly Hash[];
+  runCount: number;
+  invocationCount: number;
+  inputTokens: string;
+  outputTokens: string;
+  reasoningTokens: string;
+  unknownUsageInvocationCount: number;
+}>;
 
 export type WorldStateSubjectBindingPromotionReadinessItem = Readonly<{
   schemaVersion: "pmh.world-state-subject-binding-promotion-readiness-item.v1";
@@ -28,6 +39,9 @@ export type WorldStateSubjectBindingPromotionReadinessItem = Readonly<{
   abstentionIds: readonly Hash[];
   exactReviewIds: readonly Hash[];
   approvingAssessmentId: Hash | null;
+  recommendation: "APPROVE" | "REJECT" | "ABSTAIN" | "NONE";
+  authoringUsage: ExactAgentUsage;
+  assessmentUsage: ExactAgentUsage;
   checks: Readonly<{
     exactInputBound: boolean;
     independentFromAuthoring: boolean;
@@ -94,11 +108,39 @@ function orderedResults<T extends { assessedAt: string }>(
   ));
 }
 
+function exactAgentUsage(
+  execution: AgentExecutionSnapshot,
+  runIds: readonly Hash[],
+): ExactAgentUsage {
+  const exactRunIds = Object.freeze([...new Set(runIds)].sort());
+  const allowed = new Set(exactRunIds);
+  const invocations = execution.modelInvocations.filter((invocation) =>
+    allowed.has(invocation.runId)
+  );
+  const sum = (field: "inputTokens" | "outputTokens" | "reasoningTokens") =>
+    invocations.reduce((total, invocation) =>
+      total + (invocation[field] === null ? 0n : BigInt(invocation[field])), 0n
+    ).toString();
+  return Object.freeze({
+    runIds: exactRunIds,
+    runCount: exactRunIds.length,
+    invocationCount: invocations.length,
+    inputTokens: sum("inputTokens"),
+    outputTokens: sum("outputTokens"),
+    reasoningTokens: sum("reasoningTokens"),
+    unknownUsageInvocationCount: invocations.filter((invocation) =>
+      invocation.inputTokens === null || invocation.outputTokens === null ||
+      invocation.reasoningTokens === null
+    ).length,
+  });
+}
+
 export function buildWorldStateSubjectBindingPromotionReadiness(input: Readonly<{
   cases: readonly WorldStateSubjectBindingResearchCase[];
   assessments: readonly WorldStateSubjectBindingAssessment[];
   abstentions: readonly WorldStateSubjectBindingAbstention[];
   reviews: readonly WorldStateMechanismSubjectBindingReview[];
+  execution: AgentExecutionSnapshot;
 }>): WorldStateSubjectBindingPromotionReadinessProjection {
   const items = Object.freeze(input.cases.map((item) => {
     const assessments = orderedResults(input.assessments.filter((assessment) =>
@@ -192,6 +234,18 @@ export function buildWorldStateSubjectBindingPromotionReadiness(input: Readonly<
       abstentionIds: Object.freeze(abstentions.map((abstention) => abstention.abstentionId).sort()),
       exactReviewIds: Object.freeze(exactReviews.map((review) => review.reviewId).sort()),
       approvingAssessmentId: approval?.assessmentId ?? null,
+      recommendation: approval?.recommendation ??
+        (assessments.some((assessment) => assessment.recommendation === "REJECT")
+          ? "REJECT" as const
+          : abstentions.length > 0 ? "ABSTAIN" as const : "NONE" as const),
+      authoringUsage: exactAgentUsage(
+        input.execution,
+        item.currentInputRevision.sourceAuthoringRunIds,
+      ),
+      assessmentUsage: exactAgentUsage(
+        input.execution,
+        assessments.map((assessment) => assessment.sourceAgentRunId),
+      ),
       checks,
       diagnostic,
       promotionRequired: true as const,

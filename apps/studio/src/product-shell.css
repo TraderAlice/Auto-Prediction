@@ -2892,6 +2892,91 @@ footer {
   line-height: 1.5;
 }
 
+.mechanism-route-card {
+  grid-column: 1 / -1;
+}
+
+.subject-binding-lifecycle {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  margin: 12px 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--border);
+}
+
+.subject-binding-lifecycle > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 7px;
+  min-width: 0;
+  padding: 10px;
+  background: var(--card);
+}
+
+.subject-binding-lifecycle > div > span {
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font: 600 11px/1 var(--font-mono);
+}
+
+.subject-binding-lifecycle strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.subject-binding-lifecycle small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.subject-binding-lifecycle [data-state="complete"] > span,
+.subject-binding-lifecycle [data-state="ready"] > span {
+  background: color-mix(in srgb, var(--accent) 20%, var(--card));
+  color: var(--accent);
+}
+
+.subject-binding-lifecycle [data-state="ready"] {
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+}
+
+.subject-binding-lifecycle [data-state="blocked"] {
+  opacity: 0.72;
+}
+
+.subject-binding-costs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.subject-binding-costs > span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.subject-binding-costs > span:last-child {
+  flex: 1 1 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 2px 0;
+}
+
 .research-action-resolution {
   display: grid;
   gap: 3px;
@@ -3220,6 +3305,10 @@ footer {
 
   .research-attention-summary > div:nth-child(n + 3) {
     border-top: 1px solid var(--border);
+  }
+
+  .subject-binding-lifecycle {
+    grid-template-columns: 1fr;
   }
 
   .research-attention-card [data-slot="card-header"] {

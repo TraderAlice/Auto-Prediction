@@ -3,11 +3,13 @@ import { hashCanonical } from "@pmh/domain";
 import {
   buildWorldStateMechanismProposal,
   buildWorldStateMechanismSubjectBindingReview,
+  buildAgentRun,
   buildWorldStateSubjectBindingAbstention,
   buildWorldStateSubjectBindingAssessment,
   buildWorldStateSubjectBindingCampaignPreview,
   buildWorldStateSubjectBindingPromotionReadiness,
   buildDefaultAgentRuntimePortfolio,
+  buildModelInvocation,
   compileConsolidatedWorldStateMechanismRoutes,
   materializeWorldStateSubjectBindingResearchCases,
   defaultAiRuntimeConfiguration,
@@ -182,11 +184,53 @@ describe("world-state subject-binding research", () => {
       rationale: "This supports routing-only party identity, not the mechanism relation.",
       assessedAt: NOW,
     });
-    const assessed = materializeWorldStateSubjectBindingResearchCases({
-      routes: [route], proposals: [source], assessments: [assessment], abstentions: [], reviews: [],
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
+    const executionProfile = portfolio.executionProfiles.find((item) =>
+      item.profileKey === "subject-binding-codex-app-server"
+    )!;
+    const modelProfile = portfolio.modelProfiles.find((item) =>
+      item.modelProfileId === executionProfile.modelProfileId
+    )!;
+    const assessmentRun = buildAgentRun({
+      task: unexplored.task,
+      executionProfile,
+      runOrdinal: 1,
+      authorization: { kind: "MANUAL", authorizationRef: "operator:readiness-cost-test",
+        authorizedAt: NOW },
+      createdAt: NOW,
+    });
+    const invocation = buildModelInvocation({
+      run: assessmentRun, modelProfile, ordinal: 1, status: "SUCCEEDED",
+      startedAt: NOW, completedAt: NOW, inputTokens: "1200", outputTokens: "80",
+      reasoningTokens: "30", purpose: "PRIMARY_REASONING",
+    });
+    const assessmentWithExactRun = buildWorldStateSubjectBindingAssessment({
+      researchInput: unexplored.currentInputRevision,
+      sourceAgentRunId: assessmentRun.runId,
+      recommendation: assessment.recommendation,
+      supportedLabels: assessment.supportedLabels,
+      rejectedLabels: assessment.rejectedLabels,
+      evidenceFindings: assessment.evidenceFindings,
+      counterexamples: assessment.counterexamples,
+      rationale: assessment.rationale,
+      assessedAt: assessment.assessedAt,
+    });
+    const exactAssessed = materializeWorldStateSubjectBindingResearchCases({
+      routes: [route], proposals: [source], assessments: [assessmentWithExactRun],
+      abstentions: [], reviews: [],
     });
     const readiness = buildWorldStateSubjectBindingPromotionReadiness({
-      cases: assessed, assessments: [assessment], abstentions: [], reviews: [],
+      cases: exactAssessed, assessments: [assessmentWithExactRun], abstentions: [], reviews: [],
+      execution: {
+        runtimeDefinitions: portfolio.runtimeDefinitions,
+        credentialBindings: portfolio.credentialBindings,
+        modelProfiles: portfolio.modelProfiles,
+        executionProfiles: portfolio.executionProfiles,
+        capabilityObservations: [], workloadRoutes: portfolio.workloadRoutes,
+        tasks: [unexplored.task], runs: [assessmentRun], modelInvocations: [invocation],
+        toolEffects: [], runArtifacts: [],
+        runAnnotations: [], campaigns: [], resultSelections: [],
+      },
     });
 
     expect(readiness).toMatchObject({
@@ -199,7 +243,13 @@ describe("world-state subject-binding research", () => {
       promotionAuthority: false,
       items: [{
         status: "READY_FOR_INDEPENDENT_PROMOTION",
-        approvingAssessmentId: assessment.assessmentId,
+        approvingAssessmentId: assessmentWithExactRun.assessmentId,
+        recommendation: "APPROVE",
+        assessmentUsage: {
+          runIds: [assessmentRun.runId], runCount: 1, invocationCount: 1,
+          inputTokens: "1200", outputTokens: "80", reasoningTokens: "30",
+          unknownUsageInvocationCount: 0,
+        },
         checks: {
           exactInputBound: true,
           independentFromAuthoring: true,
@@ -239,6 +289,12 @@ describe("world-state subject-binding research", () => {
     });
     expect(buildWorldStateSubjectBindingPromotionReadiness({
       cases: current, assessments: [sameAuthor], abstentions: [], reviews: [],
+      execution: {
+        runtimeDefinitions: [], credentialBindings: [], modelProfiles: [],
+        executionProfiles: [], capabilityObservations: [], workloadRoutes: [],
+        tasks: [], runs: [], modelInvocations: [], toolEffects: [], runArtifacts: [],
+        runAnnotations: [], campaigns: [], resultSelections: [],
+      },
     }).items[0]?.status).toBe("HOLD_NONINDEPENDENT_ASSESSMENT");
 
     const oldReview = buildWorldStateMechanismSubjectBindingReview({

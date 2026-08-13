@@ -652,7 +652,7 @@ type SemanticNoveltyProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 type WorldStateMechanismProjection = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-projection.v2";
+  schemaVersion: "pmh.world-state-mechanism-projection.v3";
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
@@ -705,6 +705,71 @@ type WorldStateMechanismProjection = Readonly<{
     authority: "DERIVED_MECHANISM_RESEARCH_EVIDENCE_ONLY";
   }>;
   subjectBindingReviewCount: number;
+  subjectBindingResearch: Readonly<{
+    caseCount: number;
+    unexploredCount: number;
+    assessedCount: number;
+    abstainedCount: number;
+    reviewedCount: number;
+    assessmentCount: number;
+    abstentionCount: number;
+    automaticDispatch: false;
+    promotionAuthority: false;
+    promotionReadiness: Readonly<{
+      schemaVersion: "pmh.world-state-subject-binding-promotion-readiness.v1";
+      projectionIdentity: string;
+      caseCount: number;
+      readyCount: number;
+      heldCount: number;
+      unassessedCount: number;
+      alreadyReviewedCount: number;
+      reviewerPolicyConfigured: false;
+      automaticPromotion: false;
+      promotionAuthority: false;
+      items: ReadonlyArray<Readonly<{
+        readinessId: string;
+        caseId: string;
+        routeFamilyId: string;
+        inputRevisionId: string;
+        status: "UNASSESSED" | "READY_FOR_INDEPENDENT_PROMOTION" |
+          "HOLD_REJECTED" | "HOLD_EVIDENCE_GAP" |
+          "HOLD_CONFLICTING_ASSESSMENTS" | "HOLD_NONINDEPENDENT_ASSESSMENT" |
+          "HOLD_INCOMPLETE_LABEL_COVERAGE" | "ALREADY_REVIEWED";
+        recommendation: "APPROVE" | "REJECT" | "ABSTAIN" | "NONE";
+        diagnostic: string;
+        promotionRequired: true;
+        promotionAuthority: false;
+        automaticPromotion: false;
+        authoringUsage: Readonly<{
+          runIds: readonly string[]; runCount: number; invocationCount: number;
+          inputTokens: string; outputTokens: string; reasoningTokens: string;
+          unknownUsageInvocationCount: number;
+        }>;
+        assessmentUsage: Readonly<{
+          runIds: readonly string[]; runCount: number; invocationCount: number;
+          inputTokens: string; outputTokens: string; reasoningTokens: string;
+          unknownUsageInvocationCount: number;
+        }>;
+      }>>;
+    }>;
+    cases: ReadonlyArray<Readonly<{
+      caseId: string;
+      routeFamilyId: string;
+      inputRevisionId: string;
+      candidateLabels: readonly string[];
+      sourceProposalCount: number;
+      sourceAuthoringRunCount: number;
+      triggerEvidenceCount: number;
+      dependentEvidenceCount: number;
+      ambiguityNoteCount: number;
+      counterScenarioCount: number;
+      state: "UNEXPLORED" | "ASSESSED" | "ABSTAINED" | "REVIEWED";
+      campaignEligible: boolean;
+      assessmentCount: number;
+      abstentionCount: number;
+      reviewCount: number;
+    }>>;
+  }>;
   observationCount: number;
   wakeCount: number;
   routeStatusCounts: Readonly<{
@@ -3795,7 +3860,13 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
-      "pmh.world-state-mechanism-projection.v2" ||
+      "pmh.world-state-mechanism-projection.v3" ||
+    result.worldStateMechanisms.subjectBindingResearch.promotionReadiness.schemaVersion !==
+      "pmh.world-state-subject-binding-promotion-readiness.v1" ||
+    result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
+      .promotionAuthority !== false ||
+    result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
+      .automaticPromotion !== false ||
     result.worldStateMechanisms.researchYield.schemaVersion !==
       "pmh.world-state-mechanism-research-yield.v1" ||
     result.worldStateMechanisms.allocation.schemaVersion !==
@@ -4203,8 +4274,18 @@ function AgentOperationsView() {
                 <div className="empty-state">
                   No dedicated mechanism result has been retained yet. The queue is real and provider-free; a separately authorized campaign will create the first proposal, falsifier, or abstention.
                 </div>
-              ) : worldStateMechanisms.routes.slice(0, 8).map((route) => (
-                <article key={route.routeId}>
+              ) : worldStateMechanisms.routes.slice(0, 8).map((route) => {
+                const bindingCase = worldStateMechanisms.subjectBindingResearch.cases
+                  .find((item) => item.routeFamilyId === route.routeFamilyId);
+                const readiness = worldStateMechanisms.subjectBindingResearch
+                  .promotionReadiness.items.find((item) =>
+                    item.routeFamilyId === route.routeFamilyId
+                  );
+                const reviewed = route.subjectBindingStatus !== "UNREVIEWED";
+                const observed = route.observationStatus !== "UNOBSERVED" &&
+                  route.observationStatus !== "BLOCKED_SUBJECT_BINDING";
+                return (
+                <article key={route.routeId} className="mechanism-route-card">
                   <div className="research-attention-action-head">
                     <div>
                       <Badge variant="verified">{route.stateDimension.replaceAll("_", " ")}</Badge>
@@ -4219,6 +4300,35 @@ function AgentOperationsView() {
                   </div>
                   <strong>{route.canonicalSubjectLabels.join(" · ")}</strong>
                   <p>{route.triggerPredicate} → {route.stateLabel} → {route.dependentPredicate}</p>
+                  <div className="subject-binding-lifecycle" aria-label="Subject-binding lifecycle">
+                    <div data-state="complete">
+                      <span>1</span><strong>Case</strong>
+                      <small>{bindingCase?.triggerEvidenceCount ?? 0}+{bindingCase?.dependentEvidenceCount ?? 0} exact listings</small>
+                    </div>
+                    <div data-state={bindingCase?.state === "UNEXPLORED" ? "waiting" : "complete"}>
+                      <span>2</span><strong>Assessment</strong>
+                      <small>{readiness?.recommendation ?? "NONE"} · {formatTokenCount(readiness?.assessmentUsage.inputTokens ?? "0")} input</small>
+                    </div>
+                    <div data-state={readiness?.status === "READY_FOR_INDEPENDENT_PROMOTION" ? "ready" : "waiting"}>
+                      <span>3</span><strong>Readiness</strong>
+                      <small>{readiness?.status.replaceAll("_", " ").toLowerCase() ?? "unassessed"}</small>
+                    </div>
+                    <div data-state={reviewed ? "complete" : "blocked"}>
+                      <span>4</span><strong>Review</strong>
+                      <small>{reviewed ? route.subjectBindingStatus.toLowerCase() : "reviewer policy pending"}</small>
+                    </div>
+                    <div data-state={observed ? "complete" : "blocked"}>
+                      <span>5</span><strong>Observation</strong>
+                      <small>{route.observationStatus.replaceAll("_", " ").toLowerCase()}</small>
+                    </div>
+                  </div>
+                  {readiness !== undefined && (
+                    <div className="subject-binding-costs">
+                      <span><strong>{formatTokenCount(readiness.authoringUsage.inputTokens)}</strong> authoring input · {readiness.authoringUsage.invocationCount} calls</span>
+                      <span><strong>{formatTokenCount(readiness.assessmentUsage.inputTokens)}</strong> independent assessment input · {readiness.assessmentUsage.invocationCount} calls</span>
+                      <span>{readiness.diagnostic}</span>
+                    </div>
+                  )}
                   <div className="research-attention-facts">
                     <span>{route.triggerInfluence.replaceAll("_", " ")}</span>
                     <span>{route.dependentRequirement.replaceAll("_", " ")}</span>
@@ -4231,7 +4341,8 @@ function AgentOperationsView() {
                     <span>{route.wakeCount} wakes</span>
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </div>
             <div className="research-attention-lock">
               <Waypoints size={14} />

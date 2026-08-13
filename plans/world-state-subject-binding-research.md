@@ -114,12 +114,24 @@ created.
 
 ## Phase 4 — value and cost
 
-- [ ] Attribute authoring and binding-review tokens separately.
+- [x] Attribute authoring and binding-review tokens separately.
 - [ ] Compare approved, rejected, abstained and no-result yield by stable route
   family.
 - [ ] Bound repeated context and tool output before adding more review cases.
-- [ ] Expose the case, assessment, review and observation states in Studio as
+- [x] Expose the case, assessment, review and observation states in Studio as
   distinct stages rather than one confidence score.
+
+Issue [#187](https://github.com/luokerenx4/my-little-pony/issues/187) now binds
+AI cost to exact authoring and assessment run IDs. The live route projects seven
+authoring invocations at 148,341 / 2,749 / 648 and three assessment invocations
+at 55,659 / 649 / 147 input/output/reasoning tokens, with incomplete usage
+counted separately instead of guessed. Studio accepts the v3 projection and
+renders case → assessment → readiness → review → observation as five distinct
+states. Desktop and 390 px qualification have no horizontal overflow or
+application console warnings. Issue #188 retains the next accounting gap: the
+current-assignment mechanism-yield summary still reads zero beside one retained
+consolidated route, so those scopes must be named or reconciled rather than
+silently summed.
 
 Issue [#185](https://github.com/luokerenx4/my-little-pony/issues/185) now
 materializes provider-free promotion readiness without choosing the promotion

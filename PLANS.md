@@ -1981,6 +1981,18 @@ still unreviewed and blocked. Subject reviews now cover an exact proposal set,
 so a stable route family cannot silently inherit approval after its evidence
 changes.
 
+Issue #187 makes that lifecycle legible in Studio and exact in cost. The v3
+workspace no longer fails the old v2 client guard. One route now renders five
+separate stages—case, independent assessment, promotion readiness, review and
+observation—rather than one confidence badge. Exact run lineage attributes
+148,341 / 2,749 / 648 tokens over seven authoring invocations and 55,659 / 649 /
+147 over three assessment invocations; unknown usage remains separately
+counted. Live desktop and 390 px browser qualification show no horizontal
+overflow or console warning. Issue #188 records the next honest accounting
+problem: the current-assignment yield summary still reports zero beside one
+retained consolidated route, so experiment yield and retained mechanism memory
+must be reconciled or explicitly named as different scopes.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a
