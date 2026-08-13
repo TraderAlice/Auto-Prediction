@@ -565,6 +565,49 @@ describe("Agent runtime adapters", () => {
     expect(result.finalArtifactHash).toBe(hashCanonical({ result: "first" }));
   });
 
+  it("ends a result-repair episode after an accepted non-result state change", async () => {
+    let turn = 0;
+    const times = [NOW, NEXT, LATER, "2026-08-10T12:00:03.000Z"];
+    const adapter = new CodexAgentRuntimeAdapter(async () => ({
+      advance: async () => {
+        const ordinal = turn++;
+        const calls = ordinal === 0
+          ? [{ callId: "call:premature", toolName: "submit_rule_evidence_claim", input: {} }]
+          : ordinal === 1
+            ? [{ callId: "call:inspect", toolName: "inspect_evidence", input: {} }]
+            : [{ callId: "call:accepted", toolName: "submit_rule_evidence_claim", input: {} }];
+        return {
+          invocation: { status: "SUCCEEDED" as const, startedAt: times[ordinal]!,
+            completedAt: times[ordinal + 1]!, inputTokens: "10", outputTokens: "2",
+            reasoningTokens: "1", failureCategory: null },
+          toolCalls: calls, completed: false, finalArtifact: null,
+        };
+      },
+    }));
+    const input = execution({ kind: "CODEX", credential: codexCredential(),
+      model: codexModel(), adapter });
+    let resultAttempts = 0;
+    const result = await executePreparedAgentRun({
+      ...input,
+      toolHost: {
+        manifest,
+        resultToolNames: () => ["submit_rule_evidence_claim"],
+        execute: async (context) => context.toolName === "inspect_evidence"
+          ? { status: "ACCEPTED" as const, output: { advanced: true } }
+          : ++resultAttempts === 1
+            ? { status: "REJECTED" as const, output: { diagnostic: "inspect first" } }
+            : { status: "ACCEPTED" as const, output: { retained: true } },
+      },
+      now: () => Date.parse("2026-08-10T12:00:03.000Z"),
+    });
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.modelInvocations.map((item) => item.purpose)).toEqual([
+      "PRIMARY_REASONING", "RESULT_REPAIR", "TOOL_CONTINUATION",
+    ]);
+    expect(result.modelInvocations[1]?.repairContext).toMatchObject({ attemptOrdinal: 1 });
+    expect(result.modelInvocations[2]?.repairContext).toBeNull();
+  });
+
   it("does not stage or start completion recovery past the invocation budget", async () => {
     const cancel = vi.fn(async () => undefined);
     const prepareCompletionRecovery = vi.fn(async () => undefined);

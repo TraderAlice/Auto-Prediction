@@ -1025,9 +1025,17 @@ export async function executePreparedAgentRun(
       const rejectedDeclaredResult = effects.slice(-turn.toolCalls.length).some((effect) =>
         effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
       );
+      const acceptedNonResult = effects.slice(-turn.toolCalls.length).some((effect) =>
+        effect.status === "ACCEPTED" && !resultToolNames.includes(effect.toolName)
+      );
       if (rejectedDeclaredResult) {
         completionRecoveryAttemptCount += 1;
         activeRepairAttemptOrdinal = completionRecoveryAttemptCount;
+      } else if (acceptedNonResult) {
+        // Repair describes the immediate response to a rejected result, not
+        // every later turn in the run. A productive first-party state change
+        // closes that episode; a future rejected result opens a new one.
+        activeRepairAttemptOrdinal = null;
       }
       nextInvocationPurpose = activeRepairAttemptOrdinal === null
         ? "TOOL_CONTINUATION"

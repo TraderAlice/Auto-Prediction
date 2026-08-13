@@ -37,7 +37,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V7" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V8" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -430,6 +430,8 @@ export type MechanismPrototypeExplorationUsage = Readonly<{
   roleBoundTrailheadCount: number;
   roleAwareExhaustionCount: number;
   retainedActionObservationCount: number;
+  resultRepairInvocationCount: number;
+  resultRepairInputTokens: string;
 }>;
 
 export type MechanismPrototypeExplorationProjection = Readonly<{
@@ -463,6 +465,8 @@ export type MechanismPrototypeExplorationProjection = Readonly<{
     roleBoundTrailheadCount: number;
     roleAwareExhaustionCount: number;
     retainedActionObservationCount: number;
+    resultRepairInvocationCount: number;
+    resultRepairInputTokens: string;
   }>;
   corpusSnapshotIdentity: Hash;
   corpusSemanticIdentity: Hash;
@@ -1241,6 +1245,11 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
   const invocations = (input.execution?.modelInvocations ?? []).filter((item) =>
     sourceRuns.has(item.runId)
   );
+  const repairInvocations = invocations.filter((item) =>
+    (item.schemaVersion === "pmh.model-invocation.v3" ||
+      item.schemaVersion === "pmh.model-invocation.v4") &&
+    item.purpose === "RESULT_REPAIR"
+  );
   const tokenSum = (key: "inputTokens" | "outputTokens" | "reasoningTokens") =>
     invocations.reduce((total, item) => total + BigInt(item[key] ?? "0"), 0n).toString();
   const roleSearchSummaries = [
@@ -1291,6 +1300,9 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
       (item.roleSearchSummaries?.length ?? 0) > 0
     ).length,
     retainedActionObservationCount: retainedActionObservations.length,
+    resultRepairInvocationCount: repairInvocations.length,
+    resultRepairInputTokens: repairInvocations.reduce((total, item) =>
+      total + BigInt(item.inputTokens ?? "0"), 0n).toString(),
   });
   const body = Object.freeze({
     schemaVersion: "pmh.mechanism-prototype-exploration-projection.v1" as const,
@@ -2081,6 +2093,11 @@ export function mechanismPrototypeExplorationUsage(input: Readonly<{
   const invocations = input.execution.modelInvocations.filter((item) =>
     runIds.has(item.runId)
   );
+  const repairInvocations = invocations.filter((item) =>
+    (item.schemaVersion === "pmh.model-invocation.v3" ||
+      item.schemaVersion === "pmh.model-invocation.v4") &&
+    item.purpose === "RESULT_REPAIR"
+  );
   const sum = (key: "inputTokens" | "outputTokens" | "reasoningTokens") =>
     invocations.reduce((total, item) => total + BigInt(item[key] ?? "0"), 0n).toString();
   const trailheads = input.trailheads.filter((item) => item.lensId === input.lensId);
@@ -2132,5 +2149,8 @@ export function mechanismPrototypeExplorationUsage(input: Readonly<{
       (item.roleSearchSummaries?.length ?? 0) > 0
     ).length,
     retainedActionObservationCount: actionObservations.length,
+    resultRepairInvocationCount: repairInvocations.length,
+    resultRepairInputTokens: repairInvocations.reduce((total, item) =>
+      total + BigInt(item.inputTokens ?? "0"), 0n).toString(),
   });
 }
