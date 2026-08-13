@@ -1258,7 +1258,7 @@ describe("persistent semantic review scheduler", () => {
       expect(firstScheduler.tick([item], snapshot)).toHaveLength(1);
       expect(firstScheduler.projection()).toMatchObject({
         leasedCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 53 } },
+        storage: { jobs: { durable: true, schemaVersion: 54 } },
       });
       firstStore.close();
 
@@ -1310,8 +1310,8 @@ describe("persistent semantic review scheduler", () => {
           },
         }],
         storage: {
-          jobs: { durable: true, schemaVersion: 53 },
-          notifications: { durable: true, schemaVersion: 53 },
+          jobs: { durable: true, schemaVersion: 54 },
+          notifications: { durable: true, schemaVersion: 54 },
         },
       });
       thirdStore.close();
@@ -1430,7 +1430,7 @@ describe("persistent semantic review scheduler", () => {
       expect(first.projection()).toMatchObject({
         researchOnlyCount: 1,
         dueCount: 0,
-        storage: { jobs: { durable: true, schemaVersion: 53 } },
+        storage: { jobs: { durable: true, schemaVersion: 54 } },
       });
       firstStore.close();
 
@@ -1491,7 +1491,7 @@ describe("persistent semantic review scheduler", () => {
         passedCount: 1,
         duplicateScopeCount: 1,
         uniqueReviewScopeCount: 1,
-        storage: { jobs: { durable: true, schemaVersion: 53 } },
+        storage: { jobs: { durable: true, schemaVersion: 54 } },
       });
       firstStore.close();
 

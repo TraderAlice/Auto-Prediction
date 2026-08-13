@@ -270,6 +270,16 @@ import {
   type WorldStateSubjectBindingResearchStore,
 } from "./world-state-subject-binding-research.js";
 import {
+  assertWorldStateMechanismPrototypeAbstention,
+  assertWorldStateMechanismPrototypeInput,
+  assertWorldStateMechanismPrototypeProposal,
+  buildWorldStateMechanismPrototypeProposal,
+  type WorldStateMechanismPrototypeAbstention,
+  type WorldStateMechanismPrototypeInputRevision,
+  type WorldStateMechanismPrototypeProposal,
+  type WorldStateMechanismPrototypeStore,
+} from "./world-state-mechanism-prototype.js";
+import {
   assertOntologySearchIssueRevision,
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
@@ -312,7 +322,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 53;
+const SCHEMA_VERSION = 54;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -2053,6 +2063,70 @@ function parseWorldStateSubjectBindingAbstention(
   return abstention;
 }
 
+function parseWorldStateMechanismPrototypeInput(
+  value: unknown,
+): WorldStateMechanismPrototypeInputRevision {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" || typeof row.revision_id !== "string" ||
+      typeof row.candidate_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism prototype input row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism prototype input contains invalid JSON");
+  }
+  const input = assertWorldStateMechanismPrototypeInput(decoded);
+  if (input.revisionId !== row.revision_id || input.candidateId !== row.candidate_id ||
+      hashCanonical(input) !== row.record_hash) {
+    throw new Error("SQLite mechanism prototype input identity mismatch");
+  }
+  return input;
+}
+
+function parseWorldStateMechanismPrototypeProposal(
+  value: unknown,
+): WorldStateMechanismPrototypeProposal {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" || typeof row.prototype_id !== "string" ||
+      typeof row.candidate_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism prototype proposal row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism prototype proposal contains invalid JSON");
+  }
+  const proposal = assertWorldStateMechanismPrototypeProposal(decoded);
+  if (proposal.prototypeId !== row.prototype_id || proposal.candidateId !== row.candidate_id ||
+      hashCanonical(proposal) !== row.record_hash) {
+    throw new Error("SQLite mechanism prototype proposal identity mismatch");
+  }
+  return proposal;
+}
+
+function parseWorldStateMechanismPrototypeAbstention(
+  value: unknown,
+): WorldStateMechanismPrototypeAbstention {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" || typeof row.abstention_id !== "string" ||
+      typeof row.candidate_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism prototype abstention row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism prototype abstention contains invalid JSON");
+  }
+  const abstention = assertWorldStateMechanismPrototypeAbstention(decoded);
+  if (abstention.abstentionId !== row.abstention_id ||
+      abstention.candidateId !== row.candidate_id ||
+      hashCanonical(abstention) !== row.record_hash) {
+    throw new Error("SQLite mechanism prototype abstention identity mismatch");
+  }
+  return abstention;
+}
+
 function parseWorldStateMechanismObservation(
   value: unknown,
 ): WorldStateMechanismObservation {
@@ -2331,6 +2405,7 @@ export class SqliteOperationalStore
     WorldStateMechanismAbstentionStore,
     WorldStateMechanismSubjectBindingReviewStore,
     WorldStateSubjectBindingResearchStore,
+    WorldStateMechanismPrototypeStore,
     WorldStateMechanismObservationStore,
     WorldStateMechanismWakeStore,
     OntologySearchIssueRevisionStore,
@@ -2416,6 +2491,12 @@ export class SqliteOperationalStore
   public readonly worldStateSubjectBindingAssessmentStorage:
     OperationalStorageProjection<"assessmentId">;
   public readonly worldStateSubjectBindingAbstentionStorage:
+    OperationalStorageProjection<"abstentionId">;
+  public readonly worldStateMechanismPrototypeInputStorage:
+    OperationalStorageProjection<"revisionId">;
+  public readonly worldStateMechanismPrototypeProposalStorage:
+    OperationalStorageProjection<"prototypeId">;
+  public readonly worldStateMechanismPrototypeAbstentionStorage:
     OperationalStorageProjection<"abstentionId">;
   public readonly worldStateMechanismObservationStorage:
     OperationalStorageProjection<"observationId">;
@@ -2696,6 +2777,24 @@ export class SqliteOperationalStore
       idempotencyKey: "assessmentId",
     });
     this.worldStateSubjectBindingAbstentionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "abstentionId",
+    });
+    this.worldStateMechanismPrototypeInputStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "revisionId",
+    });
+    this.worldStateMechanismPrototypeProposalStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "prototypeId",
+    });
+    this.worldStateMechanismPrototypeAbstentionStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
@@ -3148,6 +3247,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'world_state_subject_binding_abstentions'`,
       )
       .get() !== undefined;
+    const worldStateMechanismPrototypeInputTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_prototype_inputs'`,
+      )
+      .get() !== undefined;
+    const worldStateMechanismPrototypeProposalTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_prototypes'`,
+      )
+      .get() !== undefined;
+    const worldStateMechanismPrototypeAbstentionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_prototype_abstentions'`,
+      )
+      .get() !== undefined;
     const worldStateMechanismObservationTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -3271,6 +3388,9 @@ export class SqliteOperationalStore
       && worldStateSubjectBindingResearchInputTableExists
       && worldStateSubjectBindingAssessmentTableExists
       && worldStateSubjectBindingAbstentionTableExists
+      && worldStateMechanismPrototypeInputTableExists
+      && worldStateMechanismPrototypeProposalTableExists
+      && worldStateMechanismPrototypeAbstentionTableExists
       && worldStateMechanismObservationTableExists
       && worldStateMechanismWakeTableExists
       && ontologySearchIssueRevisionTableExists
@@ -5013,6 +5133,79 @@ export class SqliteOperationalStore
             );
         `);
       }
+      if (current < 54 || !worldStateMechanismPrototypeInputTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_prototype_inputs (
+            revision_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(revision_id) = 71 AND revision_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            candidate_id TEXT NOT NULL CHECK (
+              length(candidate_id) = 71 AND candidate_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            materialized_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_prototype_inputs_candidate
+            ON world_state_mechanism_prototype_inputs (
+              candidate_id, materialized_at DESC, revision_id DESC
+            );
+        `);
+      }
+      if (current < 54 || !worldStateMechanismPrototypeProposalTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_prototypes (
+            prototype_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(prototype_id) = 71 AND prototype_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            candidate_id TEXT NOT NULL CHECK (
+              length(candidate_id) = 71 AND candidate_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES world_state_mechanism_prototype_inputs(revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_prototypes_candidate
+            ON world_state_mechanism_prototypes (
+              candidate_id, proposed_at DESC, prototype_id DESC
+            );
+        `);
+      }
+      if (current < 54 || !worldStateMechanismPrototypeAbstentionTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_prototype_abstentions (
+            abstention_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(abstention_id) = 71 AND abstention_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            candidate_id TEXT NOT NULL CHECK (
+              length(candidate_id) = 71 AND candidate_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES world_state_mechanism_prototype_inputs(revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_prototype_abstentions_candidate
+            ON world_state_mechanism_prototype_abstentions (
+              candidate_id, proposed_at DESC, abstention_id DESC
+            );
+        `);
+      }
       if (current < 51 || !worldStateMechanismObservationTableExists) {
         this.#database.exec(`
           CREATE TABLE IF NOT EXISTS world_state_mechanism_observations (
@@ -5535,6 +5728,24 @@ export class SqliteOperationalStore
       task.protocol === "WORLD_STATE_SUBJECT_BINDING_TASK_V1" &&
       task.requestedEffectProtocol === "WORLD_STATE_SUBJECT_BINDING_TOOLS_V1" &&
       task.provenanceRef === `world-state-subject-binding-case:${input.caseId}`;
+  }
+
+  #worldStateMechanismPrototypeRunMatchesInput(
+    runTaskId: string,
+    input: WorldStateMechanismPrototypeInputRevision,
+  ): boolean {
+    const row = this.#database.prepare(
+      "SELECT record_json FROM agent_tasks WHERE task_id = ?",
+    ).get(runTaskId) as Readonly<{ record_json?: unknown }> | undefined;
+    if (typeof row?.record_json !== "string") return false;
+    let decoded: unknown;
+    try { decoded = JSON.parse(row.record_json); } catch { return false; }
+    const task = assertAgentTask(decoded);
+    return task.kind === "MECHANISM_PROTOTYPE_RESEARCH" &&
+      task.protocol === "WORLD_STATE_MECHANISM_PROTOTYPE_TASK_V1" &&
+      task.requestedEffectProtocol === "WORLD_STATE_MECHANISM_PROTOTYPE_TOOLS_V1" &&
+      task.provenanceRef ===
+        `world-state-mechanism-prototype-candidate:${input.candidateId}`;
   }
 
   public loadStudioProjectionSnapshot(): StudioProjectionSnapshot | null {
@@ -9003,6 +9214,212 @@ export class SqliteOperationalStore
         ).get(abstention.abstentionId));
         if (hashCanonical(stored) !== recordHash) {
           throw new Error("abstentionId is already bound to another subject-binding abstention");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return abstentions;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismPrototypeInputs(
+    limit: number,
+  ): readonly WorldStateMechanismPrototypeInputRevision[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT revision_id, candidate_id, record_json, record_hash
+       FROM world_state_mechanism_prototype_inputs
+       ORDER BY materialized_at DESC, revision_id DESC LIMIT ?`,
+    ).all(limit).map(parseWorldStateMechanismPrototypeInput));
+  }
+
+  public saveWorldStateMechanismPrototypeInputs(
+    values: readonly WorldStateMechanismPrototypeInputRevision[],
+  ): readonly WorldStateMechanismPrototypeInputRevision[] {
+    this.#assertOpen();
+    const inputs = Object.freeze(values.map(assertWorldStateMechanismPrototypeInput));
+    if (new Set(inputs.map((item) => item.revisionId)).size !== inputs.length) {
+      throw new Error("mechanism prototype input batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const input of inputs) {
+        for (const route of input.memberRoutes) {
+          for (const proposalId of route.sourceProposalIds) {
+            const row = this.#database.prepare(
+              `SELECT proposal_id, route_family_id, record_json, record_hash
+               FROM world_state_mechanism_proposals WHERE proposal_id = ?`,
+            ).get(proposalId);
+            if (row === undefined || worldStateMechanismRouteFamilyIdentity(
+              parseWorldStateMechanismProposal(row),
+            ) !== route.routeFamilyId) {
+              throw new Error("mechanism prototype input references inconsistent route proposal");
+            }
+          }
+        }
+        const recordJson = canonicalJson(input);
+        const recordHash = hashCanonical(input);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_prototype_inputs (
+             revision_id, candidate_id, materialized_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(revision_id) DO NOTHING`,
+        ).run(input.revisionId, input.candidateId, input.materializedAt,
+          recordJson, recordHash);
+        const stored = parseWorldStateMechanismPrototypeInput(this.#database.prepare(
+          `SELECT revision_id, candidate_id, record_json, record_hash
+           FROM world_state_mechanism_prototype_inputs WHERE revision_id = ?`,
+        ).get(input.revisionId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("revisionId is already bound to another mechanism prototype input");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return inputs;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismPrototypeProposals(
+    limit: number,
+  ): readonly WorldStateMechanismPrototypeProposal[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT prototype_id, candidate_id, record_json, record_hash
+       FROM world_state_mechanism_prototypes
+       ORDER BY proposed_at DESC, prototype_id DESC LIMIT ?`,
+    ).all(limit).map(parseWorldStateMechanismPrototypeProposal));
+  }
+
+  public saveWorldStateMechanismPrototypeProposals(
+    values: readonly WorldStateMechanismPrototypeProposal[],
+  ): readonly WorldStateMechanismPrototypeProposal[] {
+    this.#assertOpen();
+    const proposals = Object.freeze(values.map(assertWorldStateMechanismPrototypeProposal));
+    if (new Set(proposals.map((item) => item.prototypeId)).size !== proposals.length) {
+      throw new Error("mechanism prototype proposal batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const proposal of proposals) {
+        const inputRow = this.#database.prepare(
+          `SELECT revision_id, candidate_id, record_json, record_hash
+           FROM world_state_mechanism_prototype_inputs WHERE revision_id = ?`,
+        ).get(proposal.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(proposal.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (inputRow === undefined || typeof runRow?.task_id !== "string") {
+          throw new Error("mechanism prototype proposal references unavailable lineage");
+        }
+        const input = parseWorldStateMechanismPrototypeInput(inputRow);
+        if (!this.#worldStateMechanismPrototypeRunMatchesInput(runRow.task_id, input) ||
+            input.candidateId !== proposal.candidateId ||
+            input.memberRouteFamilyIds.join("\n") !==
+              proposal.memberRouteFamilyIds.join("\n") ||
+            hashCanonical(input.signature) !== hashCanonical(proposal.invariantSignature)) {
+          throw new Error("mechanism prototype proposal is outside its exact input lineage");
+        }
+        // Rebuild against the exact input so stored variable values cannot evade route grounding.
+        const rebuilt = buildWorldStateMechanismPrototypeProposal({
+          researchInput: input, sourceAgentRunId: proposal.sourceAgentRunId,
+          label: proposal.label, invariantDescription: proposal.invariantDescription,
+          variableSlots: proposal.variableSlots, searchSignals: proposal.searchSignals,
+          transferTests: proposal.transferTests, counterScenarios: proposal.counterScenarios,
+          rationale: proposal.rationale, proposedAt: proposal.proposedAt,
+        });
+        if (rebuilt.prototypeId !== proposal.prototypeId) {
+          throw new Error("mechanism prototype proposal grounding is inconsistent");
+        }
+        const recordJson = canonicalJson(proposal);
+        const recordHash = hashCanonical(proposal);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_prototypes (
+             prototype_id, candidate_id, input_revision_id, source_agent_run_id,
+             proposed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(prototype_id) DO NOTHING`,
+        ).run(proposal.prototypeId, proposal.candidateId, proposal.inputRevisionId,
+          proposal.sourceAgentRunId, proposal.proposedAt, recordJson, recordHash);
+        const stored = parseWorldStateMechanismPrototypeProposal(this.#database.prepare(
+          `SELECT prototype_id, candidate_id, record_json, record_hash
+           FROM world_state_mechanism_prototypes WHERE prototype_id = ?`,
+        ).get(proposal.prototypeId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("prototypeId is already bound to another proposal");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return proposals;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismPrototypeAbstentions(
+    limit: number,
+  ): readonly WorldStateMechanismPrototypeAbstention[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT abstention_id, candidate_id, record_json, record_hash
+       FROM world_state_mechanism_prototype_abstentions
+       ORDER BY proposed_at DESC, abstention_id DESC LIMIT ?`,
+    ).all(limit).map(parseWorldStateMechanismPrototypeAbstention));
+  }
+
+  public saveWorldStateMechanismPrototypeAbstentions(
+    values: readonly WorldStateMechanismPrototypeAbstention[],
+  ): readonly WorldStateMechanismPrototypeAbstention[] {
+    this.#assertOpen();
+    const abstentions = Object.freeze(values.map(assertWorldStateMechanismPrototypeAbstention));
+    if (new Set(abstentions.map((item) => item.abstentionId)).size !== abstentions.length) {
+      throw new Error("mechanism prototype abstention batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const abstention of abstentions) {
+        const inputRow = this.#database.prepare(
+          `SELECT revision_id, candidate_id, record_json, record_hash
+           FROM world_state_mechanism_prototype_inputs WHERE revision_id = ?`,
+        ).get(abstention.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(abstention.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (inputRow === undefined || typeof runRow?.task_id !== "string") {
+          throw new Error("mechanism prototype abstention references unavailable lineage");
+        }
+        const input = parseWorldStateMechanismPrototypeInput(inputRow);
+        if (!this.#worldStateMechanismPrototypeRunMatchesInput(runRow.task_id, input) ||
+            input.candidateId !== abstention.candidateId ||
+            input.memberRouteFamilyIds.join("\n") !==
+              abstention.memberRouteFamilyIds.join("\n")) {
+          throw new Error("mechanism prototype abstention is outside its exact input lineage");
+        }
+        const recordJson = canonicalJson(abstention);
+        const recordHash = hashCanonical(abstention);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_prototype_abstentions (
+             abstention_id, candidate_id, input_revision_id, source_agent_run_id,
+             proposed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(abstention_id) DO NOTHING`,
+        ).run(abstention.abstentionId, abstention.candidateId,
+          abstention.inputRevisionId, abstention.sourceAgentRunId,
+          abstention.proposedAt, recordJson, recordHash);
+        const stored = parseWorldStateMechanismPrototypeAbstention(this.#database.prepare(
+          `SELECT abstention_id, candidate_id, record_json, record_hash
+           FROM world_state_mechanism_prototype_abstentions WHERE abstention_id = ?`,
+        ).get(abstention.abstentionId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("abstentionId is already bound to another mechanism prototype abstention");
         }
       }
       this.#database.exec("COMMIT");

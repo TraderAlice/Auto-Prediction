@@ -108,6 +108,8 @@ export * from "./world-state-mechanism-family-scorecard.js";
 export * from "./world-state-mechanism-allocation.js";
 export * from "./world-state-mechanism-campaign.js";
 export * from "./world-state-mechanism-prototype.js";
+export * from "./world-state-mechanism-prototype-agent-tools.js";
+export * from "./world-state-mechanism-prototype-campaign.js";
 export * from "./world-state-subject-binding-research.js";
 export * from "./world-state-subject-binding-promotion-readiness.js";
 export * from "./world-state-subject-binding-agent-tools.js";

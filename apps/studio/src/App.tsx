@@ -728,6 +728,44 @@ type WorldStateMechanismProjection = Readonly<{
     }>;
     authority: "DERIVED_RETAINED_MECHANISM_MEMORY_ONLY";
   }>;
+  mechanismPrototypes: Readonly<{
+    candidateCount: number;
+    unexploredCount: number;
+    proposedCount: number;
+    abstainedCount: number;
+    retainedProposalCount: number;
+    retainedAbstentionCount: number;
+    automaticDispatch: false;
+    semanticDecisionAuthority: false;
+    probabilityAuthority: false;
+    cases: ReadonlyArray<Readonly<{
+      candidateId: string;
+      inputRevisionId: string;
+      signature: Readonly<{
+        triggerInfluence: string;
+        stateDimension: string;
+        dependentRequirement: string;
+        temporalPosture: string;
+      }>;
+      memberRouteFamilyIds: readonly string[];
+      memberRouteCount: number;
+      sourceAuthoringRunCount: number;
+      sourceProposalCount: number;
+      sourceAuthoringUsage: Readonly<{
+        retainedSourceRunCount: number;
+        missingSourceRunCount: number;
+        modelInvocationCount: number;
+        knownInputTokens: string;
+        knownOutputTokens: string;
+        knownReasoningTokens: string;
+        unknownUsageInvocationCount: number;
+      }>;
+      state: "UNEXPLORED" | "PROPOSED" | "ABSTAINED";
+      proposalIds: readonly string[];
+      abstentionIds: readonly string[];
+      campaignEligible: boolean;
+    }>>;
+  }>;
   familyScorecards: Readonly<{
     schemaVersion: "pmh.world-state-mechanism-family-scorecards.v1";
     projectionIdentity: string;
@@ -4363,6 +4401,50 @@ function AgentOperationsView() {
                 ))}
               </div>
             )}
+            <section className="mechanism-prototype-desk">
+              <div className="mechanism-prototype-head">
+                <div>
+                  <span className="eyebrow">Reusable mechanism prototypes</span>
+                  <strong>Concrete routes stay exact; Agent abstractions become separate search memory</strong>
+                  <small>Every candidate needs two route families and two authoring runs. Proposal variables must resolve back to exact route text; abstention is retained as negative memory.</small>
+                </div>
+                <Badge variant={worldStateMechanisms.mechanismPrototypes.proposedCount > 0 ? "verified" : "shadow"}>
+                  {worldStateMechanisms.mechanismPrototypes.proposedCount} PROPOSED
+                </Badge>
+              </div>
+              <div className="mechanism-prototype-summary">
+                <div><strong>{worldStateMechanisms.mechanismPrototypes.candidateCount}</strong><span>typed candidates</span></div>
+                <div><strong>{worldStateMechanisms.mechanismPrototypes.unexploredCount}</strong><span>awaiting Agent</span></div>
+                <div><strong>{worldStateMechanisms.mechanismPrototypes.proposedCount}</strong><span>parameterized</span></div>
+                <div><strong>{worldStateMechanisms.mechanismPrototypes.abstainedCount}</strong><span>negative memory</span></div>
+              </div>
+              <div className="mechanism-prototype-list">
+                {worldStateMechanisms.mechanismPrototypes.cases.length === 0 ? (
+                  <div className="empty-state">No independent route families share a typed mechanism posture yet.</div>
+                ) : worldStateMechanisms.mechanismPrototypes.cases.map((item) => (
+                  <article key={item.candidateId} className="mechanism-prototype-card">
+                    <div className="research-attention-action-head">
+                      <div>
+                        <Badge variant={item.state === "PROPOSED" ? "verified" : item.state === "ABSTAINED" ? "warning" : "shadow"}>
+                          {item.state}
+                        </Badge>
+                        <Badge variant="muted">{item.memberRouteCount} ROUTE FAMILIES</Badge>
+                      </div>
+                      <code>{item.candidateId.slice(7, 19)}</code>
+                    </div>
+                    <strong>{item.signature.triggerInfluence.replaceAll("_", " ")} → {item.signature.stateDimension.replaceAll("_", " ")}</strong>
+                    <p>{item.signature.dependentRequirement.replaceAll("_", " ")} · {item.signature.temporalPosture.replaceAll("_", " ")}</p>
+                    <div className="research-attention-facts">
+                      <span>{item.sourceAuthoringRunCount} independent runs</span>
+                      <span>{item.sourceProposalCount} source proposals</span>
+                      <span>{item.sourceAuthoringUsage.modelInvocationCount} authoring calls</span>
+                      <span>{formatTokenCount(item.sourceAuthoringUsage.knownInputTokens)} authoring input</span>
+                      <span>{item.campaignEligible ? "manual campaign eligible" : "terminal for exact input"}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
             <div className="research-attention-actions">
               {worldStateMechanisms.routes.length === 0 ? (
                 <div className="empty-state">

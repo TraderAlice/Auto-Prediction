@@ -6,12 +6,18 @@ import {
   type WorldStateMechanismProposal,
 } from "../src/world-state-mechanism.js";
 import {
+  assertWorldStateMechanismPrototypeProposal,
+  buildWorldStateMechanismPrototypeAbstention,
+  buildWorldStateMechanismPrototypeProposal,
   materializeWorldStateMechanismPrototypeResearchCases,
   worldStateMechanismPrototypeCandidateUsage,
 } from "../src/world-state-mechanism-prototype.js";
+import { buildWorldStateMechanismPrototypeCampaignPreview } from
+  "../src/world-state-mechanism-prototype-campaign.js";
 import { buildAgentRun, buildModelInvocation } from
   "../src/agent-execution-substrate.js";
 import { buildDefaultAgentRuntimePortfolio } from "../src/agent-runtime-portfolio.js";
+import { defaultAiRuntimeConfiguration } from "../src/ai-runtime-configuration.js";
 
 const NOW = "2026-08-13T10:28:18.396Z";
 const hash = (value: string): Hash => hashCanonical({ value });
@@ -73,7 +79,7 @@ describe("world-state mechanism prototype candidate substrate", () => {
     expect(cases).toHaveLength(1);
     expect(cases[0]).toMatchObject({
       state: "UNEXPLORED",
-      campaignEligible: false,
+      campaignEligible: true,
       automaticDispatch: false,
       semanticDecisionAuthority: false,
       probabilityAuthority: false,
@@ -81,6 +87,81 @@ describe("world-state mechanism prototype candidate substrate", () => {
     expect(cases[0]!.currentInputRevision.memberRouteFamilyIds).toHaveLength(2);
     expect(cases[0]!.currentInputRevision.sourceAuthoringRunIds).toHaveLength(2);
     expect(cases[0]!.task.kind).toBe("MECHANISM_PROTOTYPE_RESEARCH");
+  });
+
+  it("retains a grounded parameterized proposal and closes only its exact input", () => {
+    const researchCase = materializeWorldStateMechanismPrototypeResearchCases(
+      compileConsolidatedWorldStateMechanismRoutes([
+        proposal({ party: "Democratic Party", state: "Iowa", run: "iowa" }),
+        proposal({ party: "Republican Party", state: "Alaska", run: "alaska" }),
+      ]),
+    )[0]!;
+    const values = researchCase.currentInputRevision.memberRoutes.map((route) => ({
+      routeFamilyId: route.routeFamilyId,
+      value: route.canonicalRoute.canonicalSubjectLabels[0]!,
+    }));
+    const prototype = buildWorldStateMechanismPrototypeProposal({
+      researchInput: researchCase.currentInputRevision,
+      sourceAgentRunId: hash("prototype-run"),
+      label: "Component outcome contributes to aggregate control",
+      invariantDescription: "A component election changes one office-holding state that influences an aggregate control market.",
+      variableSlots: [{
+        name: "party",
+        role: "SUBJECT",
+        description: "The political party whose component and aggregate outcomes are compared.",
+        values,
+      }],
+      searchSignals: ["component election", "aggregate control"],
+      transferTests: ["Both markets resolve over the same aggregate membership count."],
+      counterScenarios: ["Other component outcomes overwhelm this component result."],
+      rationale: "The two concrete routes share a typed causal mechanism while preserving distinct subjects and states.",
+      proposedAt: NOW,
+    });
+    expect(assertWorldStateMechanismPrototypeProposal(prototype)).toEqual(prototype);
+    const closed = materializeWorldStateMechanismPrototypeResearchCases(
+      researchCase.currentInputRevision.memberRoutes, [prototype], [],
+    )[0]!;
+    expect(closed).toMatchObject({
+      state: "PROPOSED", campaignEligible: false, proposalIds: [prototype.prototypeId],
+    });
+  });
+
+  it("rejects invented variable values and retains explicit negative memory", () => {
+    const researchCase = materializeWorldStateMechanismPrototypeResearchCases(
+      compileConsolidatedWorldStateMechanismRoutes([
+        proposal({ party: "Democratic Party", state: "Iowa", run: "iowa" }),
+        proposal({ party: "Republican Party", state: "Alaska", run: "alaska" }),
+      ]),
+    )[0]!;
+    expect(() => buildWorldStateMechanismPrototypeProposal({
+      researchInput: researchCase.currentInputRevision,
+      sourceAgentRunId: hash("prototype-run"), label: "Invented abstraction",
+      invariantDescription: "An invalid abstraction with values absent from evidence.",
+      variableSlots: [{
+        name: "party", role: "SUBJECT", description: "Invented values.",
+        values: researchCase.currentInputRevision.memberRouteFamilyIds.map(
+          (routeFamilyId, index) => ({ routeFamilyId, value: `Invented ${index}` }),
+        ),
+      }],
+      searchSignals: ["invented"], transferTests: ["invented test"],
+      counterScenarios: ["invented counter"], rationale: "Should fail grounding.",
+      proposedAt: NOW,
+    })).toThrow(/not grounded/u);
+    const abstention = buildWorldStateMechanismPrototypeAbstention({
+      researchInput: researchCase.currentInputRevision,
+      sourceAgentRunId: hash("abstention-run"),
+      reason: "Typed similarity does not yet prove one transferable semantic mechanism.",
+      missingEvidence: ["A third independent route family"],
+      incompatibleDimensions: ["The aggregate resolution units may differ"],
+      counterScenarios: ["The apparent similarity is specific to party control markets"],
+      proposedAt: NOW,
+    });
+    expect(materializeWorldStateMechanismPrototypeResearchCases(
+      researchCase.currentInputRevision.memberRoutes, [], [abstention],
+    )[0]).toMatchObject({
+      state: "ABSTAINED", campaignEligible: false,
+      abstentionIds: [abstention.abstentionId],
+    });
   });
 
   it("does not create a candidate from one family or one authoring run", () => {
@@ -184,6 +265,60 @@ describe("world-state mechanism prototype candidate substrate", () => {
       missingSourceRunCount: 2,
       modelInvocationCount: 0,
       knownInputTokens: "0",
+    });
+  });
+
+  it("builds one paused exact-input campaign proposal without dispatch", () => {
+    const cases = materializeWorldStateMechanismPrototypeResearchCases(
+      compileConsolidatedWorldStateMechanismRoutes([
+        proposal({ party: "Democratic Party", state: "Iowa", run: "iowa" }),
+        proposal({ party: "Republican Party", state: "Alaska", run: "alaska" }),
+      ]),
+    );
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(NOW));
+    const workloadRoute = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "MECHANISM_PROTOTYPE_RESEARCH"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === workloadRoute.executionProfileId
+    )!;
+    const preview = buildWorldStateMechanismPrototypeCampaignPreview({
+      cases,
+      execution: {
+        runtimeDefinitions: portfolio.runtimeDefinitions,
+        credentialBindings: portfolio.credentialBindings,
+        modelProfiles: portfolio.modelProfiles,
+        executionProfiles: portfolio.executionProfiles,
+        workloadRoutes: portfolio.workloadRoutes,
+        capabilityObservations: [], campaigns: [], tasks: cases.map((item) => item.task),
+        runs: [], modelInvocations: [], toolEffects: [], runArtifacts: [],
+        runAnnotations: [], resultSelections: [],
+      },
+      capability: {
+        schemaVersion: "pmh.execution-capability.v1",
+        executionProfileId: profile.executionProfileId,
+        runtimeKind: "CODEX", credentialKind: "CODEX_OAUTH",
+        accessDriver: "CODEX_RESPONSES", model: "gpt-5.6-terra",
+        configured: true, credentialPresent: true, dispatchEligibility: "ELIGIBLE",
+        diagnostic: "ready", observedAt: NOW,
+        authority: "EXECUTION_CAPABILITY_ONLY", secretMaterialRetained: false,
+        externalWriteAuthority: false, valueMovingAuthority: false,
+      },
+    });
+    expect(preview).toMatchObject({
+      taskIds: [cases[0]!.task.taskId], candidateIds: [cases[0]!.candidateId],
+      schedule: { kind: "MANUAL_ONLY", intervalMs: null },
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
+      budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 8,
+        maximumInputTokens: "200000" },
+      creationEligible: true, dispatchEligible: true,
+      automaticDispatch: false, semanticDecisionAuthority: false,
+      providerRequestsStarted: 0, modelInvocationsStarted: 0,
+    });
+    expect(preview.selectionBinding.taskBindings[0]).toMatchObject({
+      inputRevisionKind: "WORLD_STATE_MECHANISM_PROTOTYPE_INPUT",
+      inputRevisionId: cases[0]!.currentInputRevision.revisionId,
+      exactInputHash: hashCanonical(cases[0]!.currentInputRevision),
     });
   });
 });

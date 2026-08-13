@@ -52,35 +52,52 @@ Live qualification materializes one candidate from the two retained routes. It
 binds two route families, two authoring runs and two proposals under typed
 signature `MAY_ENABLE_STATE / OFFICE_HOLDING /
 STATE_INFLUENCES_LIKELIHOOD / TRIGGER_OVERLAPS_DEPENDENT`. Its stable task is
-registered under a dedicated Terra/high execution profile but remains
-campaign-ineligible until the result tools and durable input store exist. The
-read projection starts no provider or model request and attributes 252,178 /
+registered under a dedicated Terra/high execution profile. At that phase it
+remained campaign-ineligible; schema 54 and the Agent tools now make the exact
+unexplored input eligible only for a manually created paused campaign. The read
+projection starts no provider or model request and attributes 252,178 /
 4,719 / 1,357 known input/output/reasoning tokens across twelve historical
 authoring invocations, with zero unknown-usage invocations. Concrete route
 families and their prior projections are unchanged.
 
 ## Phase 2 — Agent-first prototype proposal
 
-- [ ] Add an isolated tool protocol to list the assigned candidate, read exact
+- [x] Add an isolated tool protocol to list the assigned candidate, read exact
   member routes, propose a parameterized prototype, or abstain.
-- [ ] Require every invariant and variable slot to be grounded in the assigned
+- [x] Require every invariant and variable slot to be grounded in the assigned
   member routes; reject unbound route IDs and one-instance abstractions.
-- [ ] Persist full proposal/abstention bodies, source input revision, run ID and
+- [x] Persist full proposal/abstention bodies, source input revision, run ID and
   immutable member-route identities in SQLite.
-- [ ] Preserve result repair as a same-run tool loop; free text has no result
+- [x] Preserve result repair as a same-run tool loop; free text has no result
   authority.
+
+The result protocol now exposes exactly three tools: read the exact comparison,
+submit one parameterized prototype, or retain an abstention. Variable slots
+must cover every route family, vary across at least two values, and match the
+corresponding subject, trigger, state, or dependent route text. SQLite schema
+54 retains exact inputs, proposals and abstentions independently, checks their
+task/run lineage, and rebuilds proposals against the exact input before
+admission. Content-hash validation is repeated after restart.
 
 ## Phase 3 — bounded operation and product surface
 
-- [ ] Add a paused, manual-only, once-per-task campaign preview that freezes one
+- [x] Add a paused, manual-only, once-per-task campaign preview that freezes one
   exact unattempted candidate and never auto-dispatches.
-- [ ] Add route-instance versus prototype projections and usage/yield
+- [x] Add route-instance versus prototype projections and usage/yield
   scorecards to the control-plane API and Studio.
 - [ ] Qualify the first prototype decision against the Iowa/Alaska candidate
   using Terra/high and pause immediately after the terminal observation.
 - [ ] Use accepted prototype, abstention, repair friction and exact token/runtime
   cost to decide whether prototype-driven search should enter attention
   allocation.
+
+The current preview freezes candidate `sha256:83b564…` and input revision
+`sha256:b86969…` under one paused manual campaign. It permits one concurrent
+run, eight model invocations, 200,000 input tokens, 20,000 output tokens and
+600 seconds total wall time. Preview reads remain zero-call. Studio now shows
+concrete routes and prototype candidates as distinct layers with exact inherited
+authoring cost; visual inspection found no console errors and the new panel
+uses the existing product typography and spacing system.
 
 ## Selection gates
 

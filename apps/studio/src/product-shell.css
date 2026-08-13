@@ -2896,6 +2896,81 @@ footer {
   grid-column: 1 / -1;
 }
 
+.mechanism-prototype-desk {
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--muted) 24%, transparent);
+}
+
+.mechanism-prototype-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.mechanism-prototype-head > div {
+  display: grid;
+  gap: 5px;
+}
+
+.mechanism-prototype-head small,
+.mechanism-prototype-card p {
+  color: var(--muted-foreground);
+}
+
+.mechanism-prototype-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mechanism-prototype-summary > div {
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+
+.mechanism-prototype-summary strong {
+  font-size: 20px;
+}
+
+.mechanism-prototype-summary span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.mechanism-prototype-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mechanism-prototype-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.mechanism-prototype-card p {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .mechanism-prototype-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .subject-binding-lifecycle {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

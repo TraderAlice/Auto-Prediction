@@ -11,6 +11,7 @@ import {
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
   buildWorldStateMechanismProposal,
+  buildWorldStateMechanismPrototypeAbstention,
   buildWorldStateMechanismCounterexample,
   buildWorldStateMechanismSubjectBindingReview,
   buildWorldStateSubjectBindingAbstention,
@@ -21,6 +22,7 @@ import {
   defaultAiRuntimeConfiguration,
   materializeOntologySearchIssueRevisions,
   materializeWorldStateSubjectBindingResearchCases,
+  materializeWorldStateMechanismPrototypeResearchCases,
   observeWorldStateMechanismRoutes,
   SqliteOperationalStore,
   worldStateMechanismRouteFamilyIdentity,
@@ -429,7 +431,64 @@ describe("world-state mechanism routes", () => {
       searchSignals: ["livestream"],
       proposedAt: NOW,
     });
+    const secondMechanismRun = buildAgentRun({
+      task: assigned.task,
+      executionProfile: profile,
+      runOrdinal: 2,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:world-state-mechanism-test-second-route",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const {
+      schemaVersion: _proposalSchema, proposalId: _proposalId,
+      authority: _proposalAuthority,
+      semanticDecisionAuthority: _semanticAuthority,
+      probabilityAuthority: _probabilityAuthority,
+      certificateAuthority: _certificateAuthority,
+      executionAuthority: _executionAuthority,
+      externalWriteAuthority: _externalWriteAuthority,
+      valueMovingAuthority: _valueMovingAuthority,
+      ...proposalInput
+    } = proposal;
+    const secondProposal = buildWorldStateMechanismProposal({
+      ...proposalInput,
+      sourceAgentRunId: secondMechanismRun.runId,
+      state: {
+        dimension: proposal.state.dimension,
+        label: "physically capable of a personal public performance",
+      },
+    });
     const consolidated = compileConsolidatedWorldStateMechanismRoutes([proposal])[0]!;
+    const prototypeCase = materializeWorldStateMechanismPrototypeResearchCases(
+      compileConsolidatedWorldStateMechanismRoutes([proposal, secondProposal]),
+    )[0]!;
+    const prototypeRoute = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "MECHANISM_PROTOTYPE_RESEARCH"
+    )!;
+    const prototypeProfile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === prototypeRoute.executionProfileId
+    )!;
+    const prototypeRun = buildAgentRun({
+      task: prototypeCase.task,
+      executionProfile: prototypeProfile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL", authorizationRef: "operator:prototype-test", authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const prototypeAbstention = buildWorldStateMechanismPrototypeAbstention({
+      researchInput: prototypeCase.currentInputRevision,
+      sourceAgentRunId: prototypeRun.runId,
+      reason: "Two differently worded state labels from one evidence pair do not prove transferability.",
+      missingEvidence: ["A route from a distinct market pair"],
+      incompatibleDimensions: ["The two routes share the same underlying evidence"],
+      counterScenarios: ["The apparent prototype is only a wording variant"],
+      proposedAt: NOW,
+    });
     const subjectReview = buildWorldStateMechanismSubjectBindingReview({
       route: consolidated,
       decision: "APPROVED",
@@ -536,12 +595,18 @@ describe("world-state mechanism routes", () => {
         modelProfiles: portfolio.modelProfiles,
         executionProfiles: portfolio.executionProfiles,
         workloadRoutes: portfolio.workloadRoutes,
-        tasks: [assigned.task, subjectBindingCase.task],
-        runs: [run, subjectBindingRun],
+        tasks: [assigned.task, subjectBindingCase.task, prototypeCase.task],
+        runs: [run, secondMechanismRun, subjectBindingRun, prototypeRun],
       });
       store.saveOntologySearchIssueRevisions([assigned]);
+      expect(store.saveWorldStateMechanismProposals([proposal, secondProposal]))
+        .toEqual([proposal, secondProposal]);
       expect(store.saveWorldStateMechanismProposals([proposal])).toEqual([proposal]);
-      expect(store.saveWorldStateMechanismProposals([proposal])).toEqual([proposal]);
+      expect(store.saveWorldStateMechanismPrototypeInputs([
+        prototypeCase.currentInputRevision,
+      ])).toEqual([prototypeCase.currentInputRevision]);
+      expect(store.saveWorldStateMechanismPrototypeAbstentions([prototypeAbstention]))
+        .toEqual([prototypeAbstention]);
       expect(store.saveWorldStateMechanismCounterexamples([counterexample]))
         .toEqual([counterexample]);
       expect(store.saveWorldStateMechanismSubjectBindingReviews([subjectReview]))
@@ -566,18 +631,25 @@ describe("world-state mechanism routes", () => {
         .toEqual([counterexample]);
       expect(store.worldStateMechanismProposalStorage).toMatchObject({
         durable: true,
-        schemaVersion: 53,
+        schemaVersion: 54,
         idempotencyKey: "proposalId",
       });
       expect(store.worldStateSubjectBindingResearchInputStorage).toMatchObject({
         durable: true,
-        schemaVersion: 53,
+        schemaVersion: 54,
         idempotencyKey: "revisionId",
       });
       store.close();
 
       const reopened = new SqliteOperationalStore(databasePath);
-      expect(reopened.loadWorldStateMechanismProposals(10)).toEqual([proposal]);
+      expect(reopened.loadWorldStateMechanismProposals(10)
+        .map((item) => item.proposalId).sort()).toEqual([
+          secondProposal.proposalId, proposal.proposalId,
+        ].sort());
+      expect(reopened.loadWorldStateMechanismPrototypeInputs(10))
+        .toEqual([prototypeCase.currentInputRevision]);
+      expect(reopened.loadWorldStateMechanismPrototypeAbstentions(10))
+        .toEqual([prototypeAbstention]);
       expect(reopened.loadWorldStateMechanismCounterexamples(10))
         .toEqual([counterexample]);
       expect(reopened.loadWorldStateMechanismSubjectBindingReviews(10))

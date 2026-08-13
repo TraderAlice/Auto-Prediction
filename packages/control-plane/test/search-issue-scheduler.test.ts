@@ -738,12 +738,12 @@ describe("issue-driven concurrent search scheduler", () => {
       candidateSelection: "MODEL_HYPOTHESIS",
       requireDistinctVenues: true,
     });
-    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 53 });
+    expect(completed.storage.issues).toMatchObject({ durable: false, schemaVersion: 54 });
     expect(leases.projection()).toMatchObject({
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      corpusStorage: { durable: false, schemaVersion: 53 },
+      corpusStorage: { durable: false, schemaVersion: 54 },
     });
 
     const restored = new SearchIssueScheduler({
@@ -1309,7 +1309,7 @@ describe("issue-driven concurrent search scheduler", () => {
       expect(restored.projection()).toMatchObject({
         issueCount: 11,
         enabledIssueCount: 10,
-        storage: { issues: { durable: true, schemaVersion: 53 } },
+        storage: { issues: { durable: true, schemaVersion: 54 } },
       });
       expect(restored.projection().issues.find((issue) => issue.issueId === created.issueId))
         .toMatchObject({ enabled: false, title: created.title });
@@ -1675,7 +1675,7 @@ describe("issue-driven concurrent search scheduler", () => {
       ).get() as { record_hash: string }).record_hash).toBe(retainedLeaseHash);
       expect((migrated.prepare("PRAGMA user_version").get() as {
         user_version: number;
-      }).user_version).toBe(53);
+      }).user_version).toBe(54);
       migrated.close();
       const secondLeases = new SearchLeaseScheduler({
         context,
