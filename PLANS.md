@@ -1,6 +1,24 @@
 # Plans
 
-The active execution continuation is
+The selected execution continuation is
+[`plans/role-aware-exploration-retrieval.md`](plans/role-aware-exploration-retrieval.md).
+Issue #219 follows the first V3 live negative result. A flat OR query over
+`winner`, `control`, and `seat` returned Baltimore and Buffalo AFC Championship
+winner markets: parallel alternatives rather than a component outcome and its
+aggregate dependent. Prototype-guided search therefore needs separate
+component and aggregate probes plus a bounded, exact bridge-grounded pair
+frontier. The role search is heuristic evidence routing only; shared strings
+and role cues cannot assert subject identity or semantic truth.
+
+Issue #219 is selected `ADOPT`. The V7 zero-argument action topology removed
+malformed reference selection, schema 57 made each accepted test action durable
+before terminal completion, and a final Terra/high specimen retained a bounded
+negative result after 10 invocations and 264,109 total tokens. The next active
+plan will reduce result-repair cost by exposing first-party action readiness
+instead of making the Agent discover terminal preconditions through rejected
+calls.
+
+The completed predecessor is
 [`plans/falsifiable-exploration-axes.md`](plans/falsifiable-exploration-axes.md).
 Issue #217 follows the first successful V2 live trailhead. The Agent called an
 Iowa Republican Senate-seat / national Republican Senate-control pair a

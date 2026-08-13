@@ -1181,12 +1181,18 @@ function supportsMechanismPrototypeExploration(
   return candidate.mechanismPrototypeExplorationInputStorage !== undefined &&
     candidate.mechanismPrototypeExplorationTrailheadStorage !== undefined &&
     candidate.mechanismPrototypeExplorationExhaustionStorage !== undefined &&
+    candidate.mechanismPrototypeExplorationRoleSearchObservationStorage !== undefined &&
+    candidate.mechanismPrototypeExplorationActionObservationStorage !== undefined &&
     typeof candidate.loadMechanismPrototypeExplorationInputs === "function" &&
     typeof candidate.saveMechanismPrototypeExplorationInputs === "function" &&
     typeof candidate.loadMechanismPrototypeExplorationTrailheads === "function" &&
     typeof candidate.saveMechanismPrototypeExplorationTrailheads === "function" &&
     typeof candidate.loadMechanismPrototypeExplorationExhaustions === "function" &&
-    typeof candidate.saveMechanismPrototypeExplorationExhaustions === "function";
+    typeof candidate.saveMechanismPrototypeExplorationExhaustions === "function" &&
+    typeof candidate.loadMechanismPrototypeExplorationRoleSearchObservations === "function" &&
+    typeof candidate.saveMechanismPrototypeExplorationRoleSearchObservations === "function" &&
+    typeof candidate.loadMechanismPrototypeExplorationActionObservations === "function" &&
+    typeof candidate.saveMechanismPrototypeExplorationActionObservations === "function";
 }
 
 function supportsWorldStateMechanismObservations(
@@ -3857,6 +3863,10 @@ export function createControlPlane(options?: {
         .loadMechanismPrototypeExplorationTrailheads(512),
       exhaustions: mechanismPrototypeExplorationStore
         .loadMechanismPrototypeExplorationExhaustions(512),
+      roleSearchObservations: mechanismPrototypeExplorationStore
+        .loadMechanismPrototypeExplorationRoleSearchObservations(2_048),
+      actionObservations: mechanismPrototypeExplorationStore
+        .loadMechanismPrototypeExplorationActionObservations(2_048),
       execution: agentExecutionRegistry.snapshot(),
       corpus,
       ontology: buildMarketOntologySnapshot(corpus),
@@ -4395,6 +4405,10 @@ export function createControlPlane(options?: {
             ?.loadMechanismPrototypeExplorationTrailheads(512) ?? [],
           exhaustions: mechanismPrototypeExplorationStore
             ?.loadMechanismPrototypeExplorationExhaustions(512) ?? [],
+          roleSearchObservations: mechanismPrototypeExplorationStore
+            ?.loadMechanismPrototypeExplorationRoleSearchObservations(2_048) ?? [],
+          actionObservations: mechanismPrototypeExplorationStore
+            ?.loadMechanismPrototypeExplorationActionObservations(2_048) ?? [],
           execution: agentExecutionRegistry.snapshot(),
           corpus,
           ontology: buildMarketOntologySnapshot(corpus),

@@ -14,7 +14,7 @@ const ONTOLOGY_MECHANISM_EXECUTION_PROTOCOL_REVISION = 2;
 const WORLD_STATE_MECHANISM_RESEARCH_EXECUTION_REVISION = 1;
 const SUBJECT_BINDING_RESEARCH_EXECUTION_REVISION = 1;
 const MECHANISM_PROTOTYPE_RESEARCH_EXECUTION_REVISION = 1;
-const MECHANISM_PROTOTYPE_EXPLORATION_EXECUTION_REVISION = 3;
+const MECHANISM_PROTOTYPE_EXPLORATION_EXECUTION_REVISION = 9;
 
 export function buildDefaultAgentRuntimePortfolio(
   configuration: AiRuntimeConfiguration,
@@ -243,12 +243,14 @@ export function buildDefaultAgentRuntimePortfolio(
     runtimeDefinition: codex,
     credentialBinding: codexCredential,
     modelProfile: codexModel,
-    toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V3",
+    toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V7",
     runBudget: {
-      maximumModelInvocations: 8,
+      maximumModelInvocations: 12,
       maximumToolCalls: 32,
-      maximumWallClockMs: 300_000,
-      maximumInputTokens: "200000",
+      // The exploration loop may span several independently bounded model
+      // turns. Codex app-server still caps each turn at five minutes.
+      maximumWallClockMs: 600_000,
+      maximumInputTokens: "300000",
       maximumOutputTokens: "20000",
     },
     createdAt,

@@ -803,6 +803,14 @@ type WorldStateMechanismProjection = Readonly<{
       knownOutputTokens: string;
       knownReasoningTokens: string;
       unknownUsageInvocationCount: number;
+      roleSearchResultCount: number;
+      roleSearchRawHitCount: number;
+      roleSearchQualifiedHitCount: number;
+      roleSearchPairCount: number;
+      inspectedEvidenceBindingCount: number;
+      roleBoundTrailheadCount: number;
+      roleAwareExhaustionCount: number;
+      retainedActionObservationCount: number;
     }>;
     corpusSnapshotIdentity: string;
     corpusSemanticIdentity: string;
@@ -4627,7 +4635,7 @@ function AgentOperationsView() {
                 </div>
                 <div className="research-attention-lock">
                   <CircleOff size={14} />
-                  <span>{worldStateMechanisms.mechanismPrototypeExploration.usage.modelInvocationCount} model calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.knownInputTokens)} input tokens · exact corpus binding</span>
+                  <span>{worldStateMechanisms.mechanismPrototypeExploration.usage.modelInvocationCount} model calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.knownInputTokens)} input tokens · {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchRawHitCount} raw hits → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchQualifiedHitCount} role-qualified → {worldStateMechanisms.mechanismPrototypeExploration.usage.roleSearchPairCount} pairs → {worldStateMechanisms.mechanismPrototypeExploration.usage.inspectedEvidenceBindingCount} inspected · {worldStateMechanisms.mechanismPrototypeExploration.usage.retainedActionObservationCount} durable test actions</span>
                   <code>HEURISTIC ROUTING ONLY</code>
                 </div>
               </section>

@@ -143,7 +143,7 @@ describe("Agent execution substrate", () => {
       agentExecutionStorage: {
         mode: "MEMORY",
         durable: false,
-        schemaVersion: 55,
+        schemaVersion: 57,
         idempotencyKey: "recordId",
       },
       loadAgentExecutionSnapshot: () => snapshot,
@@ -169,7 +169,7 @@ describe("Agent execution substrate", () => {
     let additiveWrites = 0;
     const store: AgentExecutionStore = {
       agentExecutionStorage: {
-        mode: "MEMORY", durable: false, schemaVersion: 55, idempotencyKey: "recordId",
+        mode: "MEMORY", durable: false, schemaVersion: 57, idempotencyKey: "recordId",
       },
       loadAgentExecutionSnapshot: () => snapshot,
       saveAgentExecutionBatch: () => { fullWrites += 1; },
@@ -200,7 +200,7 @@ describe("Agent execution substrate", () => {
     const updatedSnapshot = { ...snapshot, tasks: Object.freeze([changedTask]) };
     const store: AgentExecutionStore = {
       agentExecutionStorage: {
-        mode: "MEMORY", durable: false, schemaVersion: 55, idempotencyKey: "recordId",
+        mode: "MEMORY", durable: false, schemaVersion: 57, idempotencyKey: "recordId",
       },
       loadAgentExecutionSnapshot: () => fullWrites === 0 ? snapshot : updatedSnapshot,
       saveAgentExecutionBatch: (batch) => {

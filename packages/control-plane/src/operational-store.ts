@@ -280,11 +280,15 @@ import {
   type WorldStateMechanismPrototypeStore,
 } from "./world-state-mechanism-prototype.js";
 import {
+  assertMechanismPrototypeExplorationActionObservation,
+  assertMechanismPrototypeExplorationRoleSearchObservation,
   assertMechanismPrototypeExplorationExhaustion,
   assertMechanismPrototypeExplorationInputRevision,
   assertMechanismPrototypeExplorationTrailhead,
   type MechanismPrototypeExplorationExhaustion,
+  type MechanismPrototypeExplorationActionObservation,
   type MechanismPrototypeExplorationInputRevision,
+  type MechanismPrototypeExplorationRoleSearchObservation,
   type MechanismPrototypeExplorationStore,
   type MechanismPrototypeExplorationTrailhead,
 } from "./mechanism-prototype-guided-exploration.js";
@@ -331,7 +335,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 55;
+const SCHEMA_VERSION = 57;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -2199,6 +2203,48 @@ function parseMechanismPrototypeExplorationExhaustion(
   return exhaustion;
 }
 
+function parseMechanismPrototypeExplorationRoleSearchObservation(
+  value: unknown,
+): MechanismPrototypeExplorationRoleSearchObservation {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" || typeof row.observation_id !== "string" ||
+      typeof row.lens_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism exploration role-search observation row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism exploration role-search observation contains invalid JSON");
+  }
+  const observation = assertMechanismPrototypeExplorationRoleSearchObservation(decoded);
+  if (observation.observationId !== row.observation_id ||
+      observation.lensId !== row.lens_id || hashCanonical(observation) !== row.record_hash) {
+    throw new Error("SQLite mechanism exploration role-search observation identity mismatch");
+  }
+  return observation;
+}
+
+function parseMechanismPrototypeExplorationActionObservation(
+  value: unknown,
+): MechanismPrototypeExplorationActionObservation {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" || typeof row.observation_id !== "string" ||
+      typeof row.lens_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism exploration action observation row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism exploration action observation contains invalid JSON");
+  }
+  const observation = assertMechanismPrototypeExplorationActionObservation(decoded);
+  if (observation.observationId !== row.observation_id ||
+      observation.lensId !== row.lens_id || hashCanonical(observation) !== row.record_hash) {
+    throw new Error("SQLite mechanism exploration action observation identity mismatch");
+  }
+  return observation;
+}
+
 function parseWorldStateMechanismObservation(
   value: unknown,
 ): WorldStateMechanismObservation {
@@ -2577,6 +2623,10 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"trailheadId">;
   public readonly mechanismPrototypeExplorationExhaustionStorage:
     OperationalStorageProjection<"exhaustionId">;
+  public readonly mechanismPrototypeExplorationRoleSearchObservationStorage:
+    OperationalStorageProjection<"observationId">;
+  public readonly mechanismPrototypeExplorationActionObservationStorage:
+    OperationalStorageProjection<"observationId">;
   public readonly worldStateMechanismObservationStorage:
     OperationalStorageProjection<"observationId">;
   public readonly worldStateMechanismWakeStorage:
@@ -2896,6 +2946,18 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "exhaustionId",
+    });
+    this.mechanismPrototypeExplorationRoleSearchObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
+    });
+    this.mechanismPrototypeExplorationActionObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "observationId",
     });
     this.worldStateMechanismObservationStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -3380,6 +3442,20 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'mechanism_prototype_exploration_exhaustions'`,
       )
       .get() !== undefined;
+    const mechanismPrototypeExplorationRoleSearchObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND
+           name = 'mechanism_prototype_exploration_role_search_observations'`,
+      )
+      .get() !== undefined;
+    const mechanismPrototypeExplorationActionObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND
+           name = 'mechanism_prototype_exploration_action_observations'`,
+      )
+      .get() !== undefined;
     const worldStateMechanismObservationTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -3509,6 +3585,8 @@ export class SqliteOperationalStore
       && mechanismPrototypeExplorationInputTableExists
       && mechanismPrototypeExplorationTrailheadTableExists
       && mechanismPrototypeExplorationExhaustionTableExists
+      && mechanismPrototypeExplorationRoleSearchObservationTableExists
+      && mechanismPrototypeExplorationActionObservationTableExists
       && worldStateMechanismObservationTableExists
       && worldStateMechanismWakeTableExists
       && ontologySearchIssueRevisionTableExists
@@ -5402,6 +5480,62 @@ export class SqliteOperationalStore
             );
         `);
       }
+      if (current < 56 || !mechanismPrototypeExplorationRoleSearchObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS mechanism_prototype_exploration_role_search_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            lens_id TEXT NOT NULL,
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES mechanism_prototype_exploration_inputs(input_revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS mechanism_prototype_exploration_role_search_lens
+            ON mechanism_prototype_exploration_role_search_observations (
+              lens_id, captured_at DESC, observation_id DESC
+            );
+          CREATE UNIQUE INDEX IF NOT EXISTS mechanism_prototype_exploration_role_search_call
+            ON mechanism_prototype_exploration_role_search_observations (
+              source_agent_run_id, json_extract(record_json, '$.sourceToolCallId')
+            );
+        `);
+      }
+      if (current < 57 || !mechanismPrototypeExplorationActionObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS mechanism_prototype_exploration_action_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            lens_id TEXT NOT NULL,
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES mechanism_prototype_exploration_inputs(input_revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS mechanism_prototype_exploration_action_lens
+            ON mechanism_prototype_exploration_action_observations (
+              lens_id, captured_at DESC, observation_id DESC
+            );
+          CREATE UNIQUE INDEX IF NOT EXISTS mechanism_prototype_exploration_action_call
+            ON mechanism_prototype_exploration_action_observations (
+              source_agent_run_id, json_extract(record_json, '$.sourceToolCallId')
+            );
+        `);
+      }
       if (current < 51 || !worldStateMechanismObservationTableExists) {
         this.#database.exec(`
           CREATE TABLE IF NOT EXISTS world_state_mechanism_observations (
@@ -5957,11 +6091,15 @@ export class SqliteOperationalStore
     const task = assertAgentTask(decoded);
     return task.kind === "MECHANISM_PROTOTYPE_EXPLORATION" &&
       task.protocol === "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" &&
-      // V3 is the only dispatchable protocol. V1/V2 tasks remain recognizable
+      // V7 is the only dispatchable protocol. V1-V6 tasks remain recognizable
       // here solely so their immutable input/result lineage survives restart.
       (task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V1" ||
         task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V2" ||
-        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V3") &&
+        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V3" ||
+        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V4" ||
+        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V5" ||
+        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V6" ||
+        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V7") &&
       task.provenanceRef === `mechanism-prototype-exploration:${input.lensId}`;
   }
 
@@ -9829,6 +9967,160 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return exhaustions;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadMechanismPrototypeExplorationRoleSearchObservations(
+    limit: number,
+  ): readonly MechanismPrototypeExplorationRoleSearchObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT observation_id, lens_id, record_json, record_hash
+       FROM mechanism_prototype_exploration_role_search_observations
+       ORDER BY captured_at DESC, observation_id DESC LIMIT ?`,
+    ).all(limit).map(parseMechanismPrototypeExplorationRoleSearchObservation));
+  }
+
+  public saveMechanismPrototypeExplorationRoleSearchObservations(
+    values: readonly MechanismPrototypeExplorationRoleSearchObservation[],
+  ): readonly MechanismPrototypeExplorationRoleSearchObservation[] {
+    this.#assertOpen();
+    const observations = Object.freeze(values
+      .map(assertMechanismPrototypeExplorationRoleSearchObservation));
+    if (new Set(observations.map((item) => item.observationId)).size !==
+        observations.length) {
+      throw new Error("mechanism exploration role-search batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const observation of observations) {
+        const inputRow = this.#database.prepare(
+          `SELECT input_revision_id, lens_id, record_json, record_hash
+           FROM mechanism_prototype_exploration_inputs WHERE input_revision_id = ?`,
+        ).get(observation.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(observation.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (inputRow === undefined || typeof runRow?.task_id !== "string") {
+          throw new Error("mechanism exploration role-search references unavailable lineage");
+        }
+        const input = parseMechanismPrototypeExplorationInput(inputRow);
+        if (!this.#mechanismPrototypeExplorationRunMatchesInput(runRow.task_id, input) ||
+            input.lensId !== observation.lensId ||
+            input.prototypeId !== observation.prototypeId ||
+            input.semanticInputIdentity !== observation.semanticInputIdentity ||
+            input.axis !== observation.axis ||
+            input.corpusSnapshotIdentity !== observation.result.snapshotIdentity) {
+          throw new Error("mechanism exploration role-search is outside its exact input lineage");
+        }
+        const recordJson = canonicalJson(observation);
+        const recordHash = hashCanonical(observation);
+        this.#database.prepare(
+          `INSERT INTO mechanism_prototype_exploration_role_search_observations (
+             observation_id, lens_id, input_revision_id, source_agent_run_id,
+             captured_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+        ).run(observation.observationId, observation.lensId, observation.inputRevisionId,
+          observation.sourceAgentRunId, observation.capturedAt, recordJson, recordHash);
+        const stored = parseMechanismPrototypeExplorationRoleSearchObservation(
+          this.#database.prepare(
+            `SELECT observation_id, lens_id, record_json, record_hash
+             FROM mechanism_prototype_exploration_role_search_observations
+             WHERE observation_id = ?`,
+          ).get(observation.observationId),
+        );
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("observationId is already bound to another role-search observation");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return observations;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadMechanismPrototypeExplorationActionObservations(
+    limit: number,
+  ): readonly MechanismPrototypeExplorationActionObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT observation_id, lens_id, record_json, record_hash
+       FROM mechanism_prototype_exploration_action_observations
+       ORDER BY captured_at DESC, observation_id DESC LIMIT ?`,
+    ).all(limit).map(parseMechanismPrototypeExplorationActionObservation));
+  }
+
+  public saveMechanismPrototypeExplorationActionObservations(
+    values: readonly MechanismPrototypeExplorationActionObservation[],
+  ): readonly MechanismPrototypeExplorationActionObservation[] {
+    this.#assertOpen();
+    const observations = Object.freeze(values
+      .map(assertMechanismPrototypeExplorationActionObservation));
+    if (new Set(observations.map((item) => item.observationId)).size !==
+        observations.length) {
+      throw new Error("mechanism exploration action batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const observation of observations) {
+        const inputRow = this.#database.prepare(
+          `SELECT input_revision_id, lens_id, record_json, record_hash
+           FROM mechanism_prototype_exploration_inputs WHERE input_revision_id = ?`,
+        ).get(observation.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(observation.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        const prototypeRow = this.#database.prepare(
+          `SELECT prototype_id, candidate_id, record_json, record_hash
+           FROM world_state_mechanism_prototypes WHERE prototype_id = ?`,
+        ).get(observation.prototypeId);
+        if (inputRow === undefined || typeof runRow?.task_id !== "string" ||
+            prototypeRow === undefined) {
+          throw new Error("mechanism exploration action references unavailable lineage");
+        }
+        const input = parseMechanismPrototypeExplorationInput(inputRow);
+        const prototype = parseWorldStateMechanismPrototypeProposal(prototypeRow);
+        const expectedText = observation.action === "COUNTER_SCENARIO_ACTIVATED"
+          ? prototype.counterScenarios[observation.ordinal - 1]
+          : prototype.transferTests[observation.ordinal - 1];
+        if (!this.#mechanismPrototypeExplorationRunMatchesInput(runRow.task_id, input) ||
+            input.lensId !== observation.lensId ||
+            input.prototypeId !== observation.prototypeId ||
+            input.semanticInputIdentity !== observation.semanticInputIdentity ||
+            input.axis !== observation.axis || expectedText !== observation.exactText) {
+          throw new Error("mechanism exploration action is outside its exact input lineage");
+        }
+        const recordJson = canonicalJson(observation);
+        const recordHash = hashCanonical(observation);
+        this.#database.prepare(
+          `INSERT INTO mechanism_prototype_exploration_action_observations (
+             observation_id, lens_id, input_revision_id, source_agent_run_id,
+             captured_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(observation_id) DO NOTHING`,
+        ).run(observation.observationId, observation.lensId, observation.inputRevisionId,
+          observation.sourceAgentRunId, observation.capturedAt, recordJson, recordHash);
+        const stored = parseMechanismPrototypeExplorationActionObservation(
+          this.#database.prepare(
+            `SELECT observation_id, lens_id, record_json, record_hash
+             FROM mechanism_prototype_exploration_action_observations
+             WHERE observation_id = ?`,
+          ).get(observation.observationId),
+        );
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("observationId is already bound to another exploration action");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return observations;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

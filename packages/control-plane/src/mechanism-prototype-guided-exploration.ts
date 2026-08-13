@@ -2,6 +2,7 @@ import { hashCanonical, type Hash } from "@pmh/domain";
 import {
   assertMarketCorpusSnapshot,
   searchMarketCorpus,
+  type MarketCorpusSearchHit,
   type MarketCorpusSearchQuery,
   type MarketCorpusSearchResult,
   type MarketCorpusSnapshot,
@@ -36,7 +37,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V3" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V7" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -211,6 +212,105 @@ export type MechanismPrototypeExplorationEvidenceBinding = Readonly<{
   semanticListingIdentity: Hash;
 }>;
 
+export type MechanismPrototypeExplorationRoleSearchPair = Readonly<{
+  componentListingRef: string;
+  aggregateListingRef: string;
+  groundedBridgeSignals: readonly string[];
+  authority: "ROLE_QUALIFIED_PAIR_RETRIEVAL_ONLY";
+  semanticDecisionAuthority: false;
+}>;
+
+export type MechanismPrototypeExplorationRoleSearchResult = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-role-search.v1";
+  resultIdentity: Hash;
+  snapshotIdentity: Hash;
+  componentSearchResultIdentity: Hash;
+  aggregateSearchResultIdentity: Hash;
+  componentQuery: MarketCorpusSearchResult["query"];
+  aggregateQuery: MarketCorpusSearchResult["query"];
+  requestedBridgeSignals: readonly string[];
+  rawComponentHitCount: number;
+  rawAggregateHitCount: number;
+  componentHits: readonly MarketCorpusSearchHit[];
+  aggregateHits: readonly MarketCorpusSearchHit[];
+  unclassifiedComponentListingRefs: readonly string[];
+  unclassifiedAggregateListingRefs: readonly string[];
+  pairCount: number;
+  pairFrontierTruncated: boolean;
+  pairs: readonly MechanismPrototypeExplorationRoleSearchPair[];
+  authority: "ROLE_AWARE_SEARCH_EVIDENCE_ONLY";
+  roleCueSemanticAuthority: false;
+  bridgeSignalSubjectIdentityAuthority: false;
+  semanticDecisionAuthority: false;
+  executionAuthority: false;
+}>;
+
+export type MechanismPrototypeExplorationRoleSearchObservation = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-role-search-observation.v1";
+  observationId: Hash;
+  lensId: Hash;
+  inputRevisionId: Hash;
+  semanticInputIdentity: Hash;
+  prototypeId: Hash;
+  axis: MechanismPrototypeExplorationAxis;
+  sourceAgentRunId: Hash;
+  sourceToolCallId: string;
+  capturedAt: string;
+  result: MechanismPrototypeExplorationRoleSearchResult;
+  authority: "DURABLE_ROLE_SEARCH_EVIDENCE_ONLY";
+  roleCueSemanticAuthority: false;
+  bridgeSignalSubjectIdentityAuthority: false;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type MechanismPrototypeExplorationActionObservation = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-action-observation.v1";
+  observationId: Hash;
+  lensId: Hash;
+  inputRevisionId: Hash;
+  semanticInputIdentity: Hash;
+  prototypeId: Hash;
+  axis: MechanismPrototypeExplorationAxis;
+  sourceAgentRunId: Hash;
+  sourceToolCallId: string;
+  capturedAt: string;
+  action: "TRANSFER_TEST_APPLIED" | "TRANSFER_TEST_FAILED" |
+    "COUNTER_SCENARIO_ACTIVATED";
+  ordinal: number;
+  exactText: string;
+  authority: "DURABLE_PROTOTYPE_EXPLORATION_ACTION_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export type MechanismPrototypeExplorationRoleSearchBinding = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-role-search-binding.v1";
+  resultIdentity: Hash;
+  snapshotIdentity: Hash;
+  componentQuery: MarketCorpusSearchResult["query"];
+  aggregateQuery: MarketCorpusSearchResult["query"];
+  requestedBridgeSignals: readonly string[];
+  componentListingRef: string;
+  aggregateListingRef: string;
+  groundedBridgeSignals: readonly string[];
+  rawComponentHitCount: number;
+  rawAggregateHitCount: number;
+  qualifiedComponentHitCount: number;
+  qualifiedAggregateHitCount: number;
+  pairCount: number;
+  authority: "ROLE_SEARCH_LINEAGE_ONLY";
+  semanticDecisionAuthority: false;
+}>;
+
 export type MechanismPrototypeExplorationTrailhead = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-trailhead.v1";
   trailheadId: Hash;
@@ -229,6 +329,7 @@ export type MechanismPrototypeExplorationTrailhead = Readonly<{
   noveltyAxisExplanation: string;
   rationale: string;
   axisAssessment?: MechanismPrototypeExplorationAxisAssessment;
+  roleSearchBinding?: MechanismPrototypeExplorationRoleSearchBinding;
   searchedResultIds: readonly Hash[];
   proposedAt: string;
   authority: "PROTOTYPE_GUIDED_TRAILHEAD_ROUTING_ONLY";
@@ -251,6 +352,8 @@ export type MechanismPrototypeExplorationExhaustion = Readonly<{
   sourceAgentRunId: Hash;
   inspectedEvidenceBindings: readonly MechanismPrototypeExplorationEvidenceBinding[];
   searchedResultIds: readonly Hash[];
+  roleSearchResultIds?: readonly Hash[];
+  roleSearchSummaries?: readonly MechanismPrototypeExplorationRoleSearchSummary[];
   searchedNeighborhoods: readonly string[];
   failedTransferTests: readonly string[];
   activatedCounterScenarios: readonly string[];
@@ -265,6 +368,15 @@ export type MechanismPrototypeExplorationExhaustion = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type MechanismPrototypeExplorationRoleSearchSummary = Readonly<{
+  resultIdentity: Hash;
+  rawComponentHitCount: number;
+  rawAggregateHitCount: number;
+  qualifiedComponentHitCount: number;
+  qualifiedAggregateHitCount: number;
+  pairCount: number;
+}>;
+
 export interface MechanismPrototypeExplorationStore {
   readonly mechanismPrototypeExplorationInputStorage:
     OperationalStorageProjection<"inputRevisionId">;
@@ -272,6 +384,10 @@ export interface MechanismPrototypeExplorationStore {
     OperationalStorageProjection<"trailheadId">;
   readonly mechanismPrototypeExplorationExhaustionStorage:
     OperationalStorageProjection<"exhaustionId">;
+  readonly mechanismPrototypeExplorationRoleSearchObservationStorage:
+    OperationalStorageProjection<"observationId">;
+  readonly mechanismPrototypeExplorationActionObservationStorage:
+    OperationalStorageProjection<"observationId">;
   loadMechanismPrototypeExplorationInputs(limit: number):
     readonly MechanismPrototypeExplorationInputRevision[];
   saveMechanismPrototypeExplorationInputs(inputs:
@@ -287,6 +403,16 @@ export interface MechanismPrototypeExplorationStore {
   saveMechanismPrototypeExplorationExhaustions(exhaustions:
     readonly MechanismPrototypeExplorationExhaustion[]):
     readonly MechanismPrototypeExplorationExhaustion[];
+  loadMechanismPrototypeExplorationRoleSearchObservations(limit: number):
+    readonly MechanismPrototypeExplorationRoleSearchObservation[];
+  saveMechanismPrototypeExplorationRoleSearchObservations(observations:
+    readonly MechanismPrototypeExplorationRoleSearchObservation[]):
+    readonly MechanismPrototypeExplorationRoleSearchObservation[];
+  loadMechanismPrototypeExplorationActionObservations(limit: number):
+    readonly MechanismPrototypeExplorationActionObservation[];
+  saveMechanismPrototypeExplorationActionObservations(observations:
+    readonly MechanismPrototypeExplorationActionObservation[]):
+    readonly MechanismPrototypeExplorationActionObservation[];
 }
 
 export type MechanismPrototypeExplorationUsage = Readonly<{
@@ -296,6 +422,14 @@ export type MechanismPrototypeExplorationUsage = Readonly<{
   knownOutputTokens: string;
   knownReasoningTokens: string;
   unknownUsageInvocationCount: number;
+  roleSearchResultCount: number;
+  roleSearchRawHitCount: number;
+  roleSearchQualifiedHitCount: number;
+  roleSearchPairCount: number;
+  inspectedEvidenceBindingCount: number;
+  roleBoundTrailheadCount: number;
+  roleAwareExhaustionCount: number;
+  retainedActionObservationCount: number;
 }>;
 
 export type MechanismPrototypeExplorationProjection = Readonly<{
@@ -321,6 +455,14 @@ export type MechanismPrototypeExplorationProjection = Readonly<{
     knownOutputTokens: string;
     knownReasoningTokens: string;
     unknownUsageInvocationCount: number;
+    roleSearchResultCount: number;
+    roleSearchRawHitCount: number;
+    roleSearchQualifiedHitCount: number;
+    roleSearchPairCount: number;
+    inspectedEvidenceBindingCount: number;
+    roleBoundTrailheadCount: number;
+    roleAwareExhaustionCount: number;
+    retainedActionObservationCount: number;
   }>;
   corpusSnapshotIdentity: Hash;
   corpusSemanticIdentity: Hash;
@@ -408,7 +550,8 @@ function materializeCoverageMembers(input: Readonly<{
       ...listing.outcomes.map((outcome) => outcome.label),
     ].join(" "));
     const signalMatches = signalTokens.filter((token) => text.includes(token));
-    const roleCue = componentCue(listing.title) || aggregateCue(listing.title);
+    const roleCue = mechanismPrototypeExplorationComponentCue(listing.title) ||
+      mechanismPrototypeExplorationAggregateCue(listing.title);
     const institutions = institutionFamilies(listing.title);
     const institutionFrontier = roleCue && (
       institutions.size === 0 || [...institutions].some((item) => !sourceInstitutions.has(item))
@@ -603,8 +746,12 @@ function assessExplorationAxis(input: Readonly<{
   const candidateInstitutionFamilies = exactStrings(input.bindings.flatMap((binding) =>
     [...institutionFamilies(binding.title)]
   ));
-  const componentBindings = input.bindings.filter((binding) => componentCue(binding.title));
-  const aggregateBindings = input.bindings.filter((binding) => aggregateCue(binding.title));
+  const componentBindings = input.bindings.filter((binding) =>
+    mechanismPrototypeExplorationComponentCue(binding.title)
+  );
+  const aggregateBindings = input.bindings.filter((binding) =>
+    mechanismPrototypeExplorationAggregateCue(binding.title)
+  );
   const componentRoleListingRefs = exactStrings(componentBindings.map((item) => item.listingRef));
   const aggregateRoleListingRefs = exactStrings(aggregateBindings.map((item) => item.listingRef));
   const distinctComponentAggregateRoles = componentBindings.some((component) =>
@@ -706,12 +853,12 @@ function taskContract(input: Readonly<{
   });
 }
 
-function componentCue(title: string): boolean {
+export function mechanismPrototypeExplorationComponentCue(title: string): boolean {
   return /\b(?:district|state (?:senate|house|election)|senate election|house district|primary|grand prix|race|match|game|round|heat|fixture)\b/iu
     .test(title);
 }
 
-function aggregateCue(title: string): boolean {
+export function mechanismPrototypeExplorationAggregateCue(title: string): boolean {
   return /\b(?:control(?:s|led)?\b.{0,40}\b(?:house|senate)|(?:house|senate)\b.{0,40}\bcontrol|u\.?s\.? (?:house|senate) midterm winner|majority|constructors championship|overall championship|league champion|tournament champion|national champion)\b/iu
     .test(title);
 }
@@ -779,10 +926,10 @@ function buildSeed(input: Readonly<{
     /\b(?:control|majority|champion|championship|winner|qualif|aggregate|overall)\b/iu.test(title)
   );
   const componentIndexes = input.trailhead.listingTitleExcerpts.flatMap((title, index) =>
-    componentCue(title) ? [index] : []
+    mechanismPrototypeExplorationComponentCue(title) ? [index] : []
   );
   const aggregateIndexes = input.trailhead.listingTitleExcerpts.flatMap((title, index) =>
-    aggregateCue(title) ? [index] : []
+    mechanismPrototypeExplorationAggregateCue(title) ? [index] : []
   );
   const distinctComponentAggregateRoles = componentIndexes.some((componentIndex) =>
     aggregateIndexes.some((aggregateIndex) => aggregateIndex !== componentIndex)
@@ -873,6 +1020,8 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
   explorationInputs?: readonly MechanismPrototypeExplorationInputRevision[];
   trailheads?: readonly MechanismPrototypeExplorationTrailhead[];
   exhaustions?: readonly MechanismPrototypeExplorationExhaustion[];
+  roleSearchObservations?: readonly MechanismPrototypeExplorationRoleSearchObservation[];
+  actionObservations?: readonly MechanismPrototypeExplorationActionObservation[];
   execution?: AgentExecutionSnapshot;
   corpus: MarketCorpusSnapshot;
   ontology: MarketOntologySnapshot;
@@ -889,6 +1038,10 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
     .map(assertMechanismPrototypeExplorationTrailhead);
   const retainedExhaustions = (input.exhaustions ?? [])
     .map(assertMechanismPrototypeExplorationExhaustion);
+  const retainedRoleSearchObservations = (input.roleSearchObservations ?? [])
+    .map(assertMechanismPrototypeExplorationRoleSearchObservation);
+  const retainedActionObservations = (input.actionObservations ?? [])
+    .map(assertMechanismPrototypeExplorationActionObservation);
   const retainedInputs = (input.explorationInputs ?? [])
     .map(assertMechanismPrototypeExplorationInputRevision);
   const retainedInputById = new Map(retainedInputs.map((item) =>
@@ -1081,6 +1234,8 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
   const sourceRunIds = exactHashes([
     ...retainedTrailheads.map((item) => item.sourceAgentRunId),
     ...retainedExhaustions.map((item) => item.sourceAgentRunId),
+    ...retainedRoleSearchObservations.map((item) => item.sourceAgentRunId),
+    ...retainedActionObservations.map((item) => item.sourceAgentRunId),
   ]);
   const sourceRuns = new Set(sourceRunIds);
   const invocations = (input.execution?.modelInvocations ?? []).filter((item) =>
@@ -1088,6 +1243,28 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
   );
   const tokenSum = (key: "inputTokens" | "outputTokens" | "reasoningTokens") =>
     invocations.reduce((total, item) => total + BigInt(item[key] ?? "0"), 0n).toString();
+  const roleSearchSummaries = [
+    ...retainedRoleSearchObservations.map((item) => ({
+      resultIdentity: item.result.resultIdentity,
+      rawComponentHitCount: item.result.rawComponentHitCount,
+      rawAggregateHitCount: item.result.rawAggregateHitCount,
+      qualifiedComponentHitCount: item.result.componentHits.length,
+      qualifiedAggregateHitCount: item.result.aggregateHits.length,
+      pairCount: item.result.pairCount,
+    })),
+    ...retainedTrailheads.flatMap((item) => item.roleSearchBinding === undefined ? [] : [{
+      resultIdentity: item.roleSearchBinding.resultIdentity,
+      rawComponentHitCount: item.roleSearchBinding.rawComponentHitCount,
+      rawAggregateHitCount: item.roleSearchBinding.rawAggregateHitCount,
+      qualifiedComponentHitCount: item.roleSearchBinding.qualifiedComponentHitCount,
+      qualifiedAggregateHitCount: item.roleSearchBinding.qualifiedAggregateHitCount,
+      pairCount: item.roleSearchBinding.pairCount,
+    }]),
+    ...retainedExhaustions.flatMap((item) => item.roleSearchSummaries ?? []),
+  ];
+  const uniqueRoleSearchSummaries = [...new Map(roleSearchSummaries.map((item) =>
+    [item.resultIdentity, item] as const
+  )).values()];
   const usage = Object.freeze({
     sourceRunCount: sourceRunIds.length,
     modelInvocationCount: invocations.length,
@@ -1097,6 +1274,23 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
     unknownUsageInvocationCount: invocations.filter((item) =>
       item.inputTokens === null || item.outputTokens === null || item.reasoningTokens === null
     ).length,
+    roleSearchResultCount: uniqueRoleSearchSummaries.length,
+    roleSearchRawHitCount: uniqueRoleSearchSummaries.reduce((total, item) => total +
+      item.rawComponentHitCount + item.rawAggregateHitCount, 0),
+    roleSearchQualifiedHitCount: uniqueRoleSearchSummaries.reduce((total, item) => total +
+      item.qualifiedComponentHitCount + item.qualifiedAggregateHitCount, 0),
+    roleSearchPairCount: uniqueRoleSearchSummaries.reduce((total, item) =>
+      total + item.pairCount, 0),
+    inspectedEvidenceBindingCount: retainedTrailheads.reduce((total, item) =>
+      total + item.evidenceBindings.length, 0) + retainedExhaustions.reduce((total, item) =>
+      total + item.inspectedEvidenceBindings.length, 0),
+    roleBoundTrailheadCount: retainedTrailheads.filter((item) =>
+      item.roleSearchBinding !== undefined
+    ).length,
+    roleAwareExhaustionCount: retainedExhaustions.filter((item) =>
+      (item.roleSearchSummaries?.length ?? 0) > 0
+    ).length,
+    retainedActionObservationCount: retainedActionObservations.length,
   });
   const body = Object.freeze({
     schemaVersion: "pmh.mechanism-prototype-exploration-projection.v1" as const,
@@ -1296,6 +1490,7 @@ export function buildMechanismPrototypeExplorationTrailhead(input: Readonly<{
   searchSignals: readonly string[];
   noveltyAxisExplanation: string;
   rationale: string;
+  roleSearchBinding?: MechanismPrototypeExplorationRoleSearchBinding;
   proposedAt: string;
 }>): MechanismPrototypeExplorationTrailhead {
   const researchInput = assertMechanismPrototypeExplorationInputRevision(input.researchInput);
@@ -1344,6 +1539,9 @@ export function buildMechanismPrototypeExplorationTrailhead(input: Readonly<{
     searchSignals: boundedTexts(input.searchSignals, 1, 12),
     noveltyAxisExplanation: input.noveltyAxisExplanation,
     rationale: input.rationale,
+    ...(input.roleSearchBinding === undefined ? {} : {
+      roleSearchBinding: Object.freeze(input.roleSearchBinding),
+    }),
     axisAssessment,
     searchedResultIds: exactHashes(input.searchedResultIds),
     proposedAt: exactTime(input.proposedAt),
@@ -1367,6 +1565,8 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
   sourceAgentRunId: Hash;
   inspectedListingRefs: ReadonlySet<string>;
   searchedResultIds: readonly Hash[];
+  roleSearchResultIds?: readonly Hash[];
+  roleSearchSummaries?: readonly MechanismPrototypeExplorationRoleSearchSummary[];
   inspectedListingRefsForResult: readonly string[];
   searchedNeighborhoods: readonly string[];
   failedTransferTests: readonly string[];
@@ -1408,6 +1608,13 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
       inspectedListingRefs: input.inspectedListingRefs, minimum: 1,
     }),
     searchedResultIds,
+    ...(input.roleSearchResultIds === undefined ? {} : {
+      roleSearchResultIds: exactHashes(input.roleSearchResultIds),
+    }),
+    ...(input.roleSearchSummaries === undefined ? {} : {
+      roleSearchSummaries: Object.freeze([...input.roleSearchSummaries]
+        .sort((left, right) => left.resultIdentity.localeCompare(right.resultIdentity))),
+    }),
     searchedNeighborhoods: boundedTexts(input.searchedNeighborhoods, 1, 12),
     failedTransferTests,
     activatedCounterScenarios,
@@ -1464,6 +1671,33 @@ export function assertMechanismPrototypeExplorationTrailhead(
       item.axisAssessment.semanticDecisionAuthority === false &&
       item.axisAssessment.probabilityAuthority === false;
   })();
+  const validRoleSearchBinding = item.roleSearchBinding === undefined || (
+    item.roleSearchBinding.schemaVersion ===
+      "pmh.mechanism-prototype-exploration-role-search-binding.v1" &&
+    HASH_PATTERN.test(item.roleSearchBinding.resultIdentity) &&
+    HASH_PATTERN.test(item.roleSearchBinding.snapshotIdentity) &&
+    Array.isArray(item.roleSearchBinding.componentQuery.patterns) &&
+    item.roleSearchBinding.componentQuery.patterns.length > 0 &&
+    Array.isArray(item.roleSearchBinding.aggregateQuery.patterns) &&
+    item.roleSearchBinding.aggregateQuery.patterns.length > 0 &&
+    exactStrings(item.roleSearchBinding.requestedBridgeSignals).join("\n") ===
+      item.roleSearchBinding.requestedBridgeSignals.join("\n") &&
+    bounded(item.roleSearchBinding.componentListingRef, 500) &&
+    bounded(item.roleSearchBinding.aggregateListingRef, 500) &&
+    item.roleSearchBinding.componentListingRef !== item.roleSearchBinding.aggregateListingRef &&
+    exactStrings(item.roleSearchBinding.groundedBridgeSignals).join("\n") ===
+      item.roleSearchBinding.groundedBridgeSignals.join("\n") &&
+    item.roleSearchBinding.groundedBridgeSignals.length > 0 &&
+    [item.roleSearchBinding.rawComponentHitCount,
+      item.roleSearchBinding.rawAggregateHitCount,
+      item.roleSearchBinding.qualifiedComponentHitCount,
+      item.roleSearchBinding.qualifiedAggregateHitCount,
+      item.roleSearchBinding.pairCount].every((count) =>
+      Number.isSafeInteger(count) && count >= 0
+    ) && item.roleSearchBinding.pairCount > 0 &&
+    item.roleSearchBinding.authority === "ROLE_SEARCH_LINEAGE_ONLY" &&
+    item.roleSearchBinding.semanticDecisionAuthority === false
+  );
   if (
     item.schemaVersion !== "pmh.mechanism-prototype-exploration-trailhead.v1" ||
     !HASH_PATTERN.test(String(trailheadId)) || trailheadId !== hashCanonical(body) ||
@@ -1471,7 +1705,7 @@ export function assertMechanismPrototypeExplorationTrailhead(
       item.sourceAgentRunId].every((field) => HASH_PATTERN.test(String(field))) ||
     !MECHANISM_PROTOTYPE_EXPLORATION_AXES.includes(item.axis) ||
     !validEvidenceBindings(item.evidenceBindings, 2) ||
-    !validAxisAssessment ||
+    !validAxisAssessment || !validRoleSearchBinding ||
     !bounded(item.structuralAnalogy, 2_000) ||
     boundedTexts(item.surfaceDifferences, 1, 12).join("\n") !==
       item.surfaceDifferences.join("\n") ||
@@ -1483,6 +1717,12 @@ export function assertMechanismPrototypeExplorationTrailhead(
     boundedTexts(item.searchSignals, 1, 12).join("\n") !== item.searchSignals.join("\n") ||
     !bounded(item.noveltyAxisExplanation, 2_000) || !bounded(item.rationale, 2_000) ||
     exactHashes(item.searchedResultIds).join("\n") !== item.searchedResultIds.join("\n") ||
+    (item.roleSearchBinding !== undefined && (
+      !item.searchedResultIds.includes(item.roleSearchBinding.resultIdentity) ||
+      item.evidenceBindings.map((binding) => binding.listingRef).sort().join("\n") !==
+        [item.roleSearchBinding.componentListingRef,
+          item.roleSearchBinding.aggregateListingRef].sort().join("\n")
+    )) ||
     exactTime(item.proposedAt) !== item.proposedAt ||
     item.authority !== "PROTOTYPE_GUIDED_TRAILHEAD_ROUTING_ONLY" ||
     item.semanticDecisionAuthority !== false || item.probabilityAuthority !== false ||
@@ -1508,6 +1748,22 @@ export function assertMechanismPrototypeExplorationExhaustion(
     !MECHANISM_PROTOTYPE_EXPLORATION_AXES.includes(item.axis) ||
     !validEvidenceBindings(item.inspectedEvidenceBindings, 1) ||
     exactHashes(item.searchedResultIds).join("\n") !== item.searchedResultIds.join("\n") ||
+    (item.roleSearchResultIds !== undefined &&
+      exactHashes(item.roleSearchResultIds).join("\n") !==
+        item.roleSearchResultIds.join("\n")) ||
+    (item.roleSearchSummaries !== undefined && (
+      item.roleSearchSummaries.length === 0 ||
+      item.roleSearchSummaries.map((summary) => summary.resultIdentity).join("\n") !==
+        [...item.roleSearchSummaries].sort((left, right) =>
+          left.resultIdentity.localeCompare(right.resultIdentity)
+        ).map((summary) => summary.resultIdentity).join("\n") ||
+      item.roleSearchSummaries.some((summary) =>
+        !HASH_PATTERN.test(summary.resultIdentity) ||
+        ![summary.rawComponentHitCount, summary.rawAggregateHitCount,
+          summary.qualifiedComponentHitCount, summary.qualifiedAggregateHitCount,
+          summary.pairCount].every((count) => Number.isSafeInteger(count) && count >= 0)
+      )
+    )) ||
     item.searchedResultIds.length < 1 ||
     boundedTexts(item.searchedNeighborhoods, 1, 12).join("\n") !==
       item.searchedNeighborhoods.join("\n") ||
@@ -1532,17 +1788,294 @@ export function searchMechanismPrototypeExplorationCorpus(input: Readonly<{
   return searchMarketCorpus(input.corpus, input.query);
 }
 
+const ROLE_BRIDGE_STOP_WORDS = new Set([
+  "after", "aggregate", "before", "champion", "championship", "component",
+  "control", "district", "election", "final", "game", "grand", "house",
+  "league", "market", "match", "national", "outcome", "party", "prix",
+  "race", "round", "senate", "state", "team", "the", "tournament",
+  "which", "will", "win", "winner", "wins", "yes",
+]);
+
+function roleBridgeTokens(title: string): readonly string[] {
+  return exactStrings(canonicalText(title).split(/[^\p{L}\p{N}]+/gu).filter((token) =>
+    token.length >= 3 && !ROLE_BRIDGE_STOP_WORDS.has(token) && !/^\d+$/u.test(token)
+  ));
+}
+
+function literalSignalGrounded(title: string, signal: string): boolean {
+  return canonicalText(title).includes(canonicalText(signal));
+}
+
+export function searchMechanismPrototypeExplorationRoles(input: Readonly<{
+  corpus: MarketCorpusSnapshot;
+  componentQuery: MarketCorpusSearchQuery;
+  aggregateQuery: MarketCorpusSearchQuery;
+  bridgeSignals?: readonly string[];
+  pairLimit?: number;
+}>): MechanismPrototypeExplorationRoleSearchResult {
+  const corpus = assertMarketCorpusSnapshot(input.corpus);
+  const componentSearch = searchMarketCorpus(corpus, input.componentQuery);
+  const aggregateSearch = searchMarketCorpus(corpus, input.aggregateQuery);
+  const requestedBridgeSignals = exactStrings((input.bridgeSignals ?? []).map(canonicalText));
+  if (requestedBridgeSignals.length > 12 || requestedBridgeSignals.some((signal) =>
+    signal.length < 2 || signal.length > 160
+  )) throw new Error("mechanism exploration bridge signals are invalid");
+  const pairLimit = input.pairLimit ?? 24;
+  if (!Number.isSafeInteger(pairLimit) || pairLimit < 1 || pairLimit > 50) {
+    throw new Error("mechanism exploration pair limit is invalid");
+  }
+  const componentHits = Object.freeze(componentSearch.hits.filter((hit) =>
+    mechanismPrototypeExplorationComponentCue(hit.title)
+  ));
+  const aggregateHits = Object.freeze(aggregateSearch.hits.filter((hit) =>
+    mechanismPrototypeExplorationAggregateCue(hit.title)
+  ));
+  const unclassifiedComponentListingRefs = exactStrings(componentSearch.hits
+    .filter((hit) => !mechanismPrototypeExplorationComponentCue(hit.title))
+    .map((hit) => hit.listingRef));
+  const unclassifiedAggregateListingRefs = exactStrings(aggregateSearch.hits
+    .filter((hit) => !mechanismPrototypeExplorationAggregateCue(hit.title))
+    .map((hit) => hit.listingRef));
+  const candidates = componentHits.flatMap((component) => aggregateHits.flatMap((aggregate) => {
+    if (component.listingRef === aggregate.listingRef) return [];
+    const componentTokens = new Set(roleBridgeTokens(component.title));
+    const aggregateTokens = new Set(roleBridgeTokens(aggregate.title));
+    const implicitSignals = [...componentTokens].filter((signal) => aggregateTokens.has(signal));
+    const explicitSignals = requestedBridgeSignals.filter((signal) =>
+      literalSignalGrounded(component.title, signal) && literalSignalGrounded(aggregate.title, signal)
+    );
+    const groundedBridgeSignals = exactStrings([...explicitSignals, ...implicitSignals]);
+    if (groundedBridgeSignals.length === 0) return [];
+    return [Object.freeze({
+      componentListingRef: component.listingRef,
+      aggregateListingRef: aggregate.listingRef,
+      groundedBridgeSignals,
+      authority: "ROLE_QUALIFIED_PAIR_RETRIEVAL_ONLY" as const,
+      semanticDecisionAuthority: false as const,
+    })];
+  })).sort((left, right) =>
+    right.groundedBridgeSignals.length - left.groundedBridgeSignals.length ||
+    left.componentListingRef.localeCompare(right.componentListingRef) ||
+    left.aggregateListingRef.localeCompare(right.aggregateListingRef)
+  );
+  const pairs = Object.freeze(candidates.slice(0, pairLimit));
+  const body = Object.freeze({
+    schemaVersion: "pmh.mechanism-prototype-exploration-role-search.v1" as const,
+    snapshotIdentity: corpus.snapshotIdentity,
+    componentSearchResultIdentity: componentSearch.resultIdentity,
+    aggregateSearchResultIdentity: aggregateSearch.resultIdentity,
+    componentQuery: componentSearch.query,
+    aggregateQuery: aggregateSearch.query,
+    requestedBridgeSignals,
+    rawComponentHitCount: componentSearch.matchCount,
+    rawAggregateHitCount: aggregateSearch.matchCount,
+    componentHits,
+    aggregateHits,
+    unclassifiedComponentListingRefs,
+    unclassifiedAggregateListingRefs,
+    pairCount: pairs.length,
+    pairFrontierTruncated: candidates.length > pairs.length,
+    pairs,
+    authority: "ROLE_AWARE_SEARCH_EVIDENCE_ONLY" as const,
+    roleCueSemanticAuthority: false as const,
+    bridgeSignalSubjectIdentityAuthority: false as const,
+    semanticDecisionAuthority: false as const,
+    executionAuthority: false as const,
+  });
+  return Object.freeze({ ...body, resultIdentity: hashCanonical(body) });
+}
+
+export function assertMechanismPrototypeExplorationRoleSearchResult(
+  value: unknown,
+): MechanismPrototypeExplorationRoleSearchResult {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("mechanism exploration role-search result is malformed");
+  }
+  const item = value as Record<string, unknown>;
+  const { resultIdentity, ...body } = item;
+  if (!HASH_PATTERN.test(String(resultIdentity)) || hashCanonical(body) !== resultIdentity ||
+      item.schemaVersion !== "pmh.mechanism-prototype-exploration-role-search.v1" ||
+      !HASH_PATTERN.test(String(item.snapshotIdentity)) ||
+      !HASH_PATTERN.test(String(item.componentSearchResultIdentity)) ||
+      !HASH_PATTERN.test(String(item.aggregateSearchResultIdentity)) ||
+      !Array.isArray(item.componentHits) || !Array.isArray(item.aggregateHits) ||
+      !Array.isArray(item.unclassifiedComponentListingRefs) ||
+      !Array.isArray(item.unclassifiedAggregateListingRefs) || !Array.isArray(item.pairs) ||
+      !Number.isSafeInteger(item.rawComponentHitCount) ||
+      !Number.isSafeInteger(item.rawAggregateHitCount) ||
+      !Number.isSafeInteger(item.pairCount) || item.pairCount !== item.pairs.length ||
+      item.authority !== "ROLE_AWARE_SEARCH_EVIDENCE_ONLY" ||
+      item.roleCueSemanticAuthority !== false ||
+      item.bridgeSignalSubjectIdentityAuthority !== false ||
+      item.semanticDecisionAuthority !== false || item.executionAuthority !== false) {
+    throw new Error("mechanism exploration role-search result identity is invalid");
+  }
+  return value as MechanismPrototypeExplorationRoleSearchResult;
+}
+
+export function buildMechanismPrototypeExplorationRoleSearchObservation(input: Readonly<{
+  researchInput: MechanismPrototypeExplorationInputRevision;
+  sourceAgentRunId: Hash;
+  sourceToolCallId: string;
+  capturedAt: string;
+  result: MechanismPrototypeExplorationRoleSearchResult;
+}>): MechanismPrototypeExplorationRoleSearchObservation {
+  const researchInput = assertMechanismPrototypeExplorationInputRevision(input.researchInput);
+  const result = assertMechanismPrototypeExplorationRoleSearchResult(input.result);
+  if (!HASH_PATTERN.test(input.sourceAgentRunId) ||
+      input.sourceToolCallId.trim().length < 1 || input.sourceToolCallId.length > 500 ||
+      !Number.isFinite(Date.parse(input.capturedAt)) ||
+      result.snapshotIdentity !== researchInput.corpusSnapshotIdentity) {
+    throw new Error("mechanism exploration role-search observation lineage is invalid");
+  }
+  const body = Object.freeze({
+    schemaVersion: "pmh.mechanism-prototype-exploration-role-search-observation.v1" as const,
+    lensId: researchInput.lensId,
+    inputRevisionId: researchInput.inputRevisionId,
+    semanticInputIdentity: researchInput.semanticInputIdentity,
+    prototypeId: researchInput.prototypeId,
+    axis: researchInput.axis,
+    sourceAgentRunId: input.sourceAgentRunId,
+    sourceToolCallId: input.sourceToolCallId,
+    capturedAt: input.capturedAt,
+    result,
+    authority: "DURABLE_ROLE_SEARCH_EVIDENCE_ONLY" as const,
+    roleCueSemanticAuthority: false as const,
+    bridgeSignalSubjectIdentityAuthority: false as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return Object.freeze({ ...body, observationId: hashCanonical(body) });
+}
+
+export function assertMechanismPrototypeExplorationRoleSearchObservation(
+  value: unknown,
+): MechanismPrototypeExplorationRoleSearchObservation {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("mechanism exploration role-search observation is malformed");
+  }
+  const item = value as Record<string, unknown>;
+  const { observationId, ...body } = item;
+  const result = assertMechanismPrototypeExplorationRoleSearchResult(item.result);
+  if (!HASH_PATTERN.test(String(observationId)) || hashCanonical(body) !== observationId ||
+      item.schemaVersion !==
+        "pmh.mechanism-prototype-exploration-role-search-observation.v1" ||
+      !HASH_PATTERN.test(String(item.lensId)) ||
+      !HASH_PATTERN.test(String(item.inputRevisionId)) ||
+      !HASH_PATTERN.test(String(item.semanticInputIdentity)) ||
+      !HASH_PATTERN.test(String(item.prototypeId)) ||
+      !HASH_PATTERN.test(String(item.sourceAgentRunId)) ||
+      typeof item.sourceToolCallId !== "string" || item.sourceToolCallId.length < 1 ||
+      item.sourceToolCallId.length > 500 || typeof item.capturedAt !== "string" ||
+      !Number.isFinite(Date.parse(item.capturedAt)) ||
+      result.snapshotIdentity === undefined ||
+      item.authority !== "DURABLE_ROLE_SEARCH_EVIDENCE_ONLY" ||
+      item.roleCueSemanticAuthority !== false ||
+      item.bridgeSignalSubjectIdentityAuthority !== false ||
+      item.semanticDecisionAuthority !== false || item.probabilityAuthority !== false ||
+      item.certificateAuthority !== false || item.executionAuthority !== false ||
+      item.externalWriteAuthority !== false || item.valueMovingAuthority !== false) {
+    throw new Error("mechanism exploration role-search observation identity is invalid");
+  }
+  return value as MechanismPrototypeExplorationRoleSearchObservation;
+}
+
+export function buildMechanismPrototypeExplorationActionObservation(input: Readonly<{
+  researchInput: MechanismPrototypeExplorationInputRevision;
+  sourceAgentRunId: Hash;
+  sourceToolCallId: string;
+  capturedAt: string;
+  action: MechanismPrototypeExplorationActionObservation["action"];
+  ordinal: number;
+  exactText: string;
+}>): MechanismPrototypeExplorationActionObservation {
+  const researchInput = assertMechanismPrototypeExplorationInputRevision(input.researchInput);
+  if (!HASH_PATTERN.test(input.sourceAgentRunId) ||
+      input.sourceToolCallId.trim().length < 1 || input.sourceToolCallId.length > 500 ||
+      !Number.isFinite(Date.parse(input.capturedAt)) ||
+      !Number.isSafeInteger(input.ordinal) || input.ordinal < 1 || input.ordinal > 100 ||
+      input.exactText.trim().length < 1 || input.exactText.length > 2_000) {
+    throw new Error("mechanism exploration action observation lineage is invalid");
+  }
+  const body = Object.freeze({
+    schemaVersion: "pmh.mechanism-prototype-exploration-action-observation.v1" as const,
+    lensId: researchInput.lensId,
+    inputRevisionId: researchInput.inputRevisionId,
+    semanticInputIdentity: researchInput.semanticInputIdentity,
+    prototypeId: researchInput.prototypeId,
+    axis: researchInput.axis,
+    sourceAgentRunId: input.sourceAgentRunId,
+    sourceToolCallId: input.sourceToolCallId,
+    capturedAt: input.capturedAt,
+    action: input.action,
+    ordinal: input.ordinal,
+    exactText: input.exactText,
+    authority: "DURABLE_PROTOTYPE_EXPLORATION_ACTION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return Object.freeze({ ...body, observationId: hashCanonical(body) });
+}
+
+export function assertMechanismPrototypeExplorationActionObservation(
+  value: unknown,
+): MechanismPrototypeExplorationActionObservation {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("mechanism exploration action observation is malformed");
+  }
+  const item = value as Record<string, unknown>;
+  const { observationId, ...body } = item;
+  if (!HASH_PATTERN.test(String(observationId)) || hashCanonical(body) !== observationId ||
+      item.schemaVersion !== "pmh.mechanism-prototype-exploration-action-observation.v1" ||
+      !HASH_PATTERN.test(String(item.lensId)) || !HASH_PATTERN.test(String(item.inputRevisionId)) ||
+      !HASH_PATTERN.test(String(item.semanticInputIdentity)) ||
+      !HASH_PATTERN.test(String(item.prototypeId)) ||
+      !HASH_PATTERN.test(String(item.sourceAgentRunId)) ||
+      typeof item.sourceToolCallId !== "string" || item.sourceToolCallId.length < 1 ||
+      item.sourceToolCallId.length > 500 || typeof item.capturedAt !== "string" ||
+      !Number.isFinite(Date.parse(item.capturedAt)) ||
+      !["TRANSFER_TEST_APPLIED", "TRANSFER_TEST_FAILED", "COUNTER_SCENARIO_ACTIVATED"]
+        .includes(String(item.action)) || !Number.isSafeInteger(item.ordinal) ||
+      Number(item.ordinal) < 1 || typeof item.exactText !== "string" ||
+      item.exactText.length < 1 || item.exactText.length > 2_000 ||
+      item.authority !== "DURABLE_PROTOTYPE_EXPLORATION_ACTION_ONLY" ||
+      item.semanticDecisionAuthority !== false || item.probabilityAuthority !== false ||
+      item.certificateAuthority !== false || item.executionAuthority !== false ||
+      item.externalWriteAuthority !== false || item.valueMovingAuthority !== false) {
+    throw new Error("mechanism exploration action observation identity is invalid");
+  }
+  return value as MechanismPrototypeExplorationActionObservation;
+}
+
 export function mechanismPrototypeExplorationUsage(input: Readonly<{
   lensId: Hash;
   trailheads: readonly MechanismPrototypeExplorationTrailhead[];
   exhaustions: readonly MechanismPrototypeExplorationExhaustion[];
+  roleSearchObservations?: readonly MechanismPrototypeExplorationRoleSearchObservation[];
+  actionObservations?: readonly MechanismPrototypeExplorationActionObservation[];
   execution: AgentExecutionSnapshot;
 }>): MechanismPrototypeExplorationUsage {
+  const observations = (input.roleSearchObservations ?? [])
+    .map(assertMechanismPrototypeExplorationRoleSearchObservation)
+    .filter((item) => item.lensId === input.lensId);
+  const actionObservations = (input.actionObservations ?? [])
+    .map(assertMechanismPrototypeExplorationActionObservation)
+    .filter((item) => item.lensId === input.lensId);
   const sourceRunIds = exactHashes([
     ...input.trailheads.filter((item) => item.lensId === input.lensId)
       .map((item) => item.sourceAgentRunId),
     ...input.exhaustions.filter((item) => item.lensId === input.lensId)
       .map((item) => item.sourceAgentRunId),
+    ...observations.map((item) => item.sourceAgentRunId),
+    ...actionObservations.map((item) => item.sourceAgentRunId),
   ]);
   const runIds = new Set(sourceRunIds);
   const invocations = input.execution.modelInvocations.filter((item) =>
@@ -1550,6 +2083,30 @@ export function mechanismPrototypeExplorationUsage(input: Readonly<{
   );
   const sum = (key: "inputTokens" | "outputTokens" | "reasoningTokens") =>
     invocations.reduce((total, item) => total + BigInt(item[key] ?? "0"), 0n).toString();
+  const trailheads = input.trailheads.filter((item) => item.lensId === input.lensId);
+  const exhaustions = input.exhaustions.filter((item) => item.lensId === input.lensId);
+  const summaries = [
+    ...observations.map((item) => ({
+      resultIdentity: item.result.resultIdentity,
+      rawComponentHitCount: item.result.rawComponentHitCount,
+      rawAggregateHitCount: item.result.rawAggregateHitCount,
+      qualifiedComponentHitCount: item.result.componentHits.length,
+      qualifiedAggregateHitCount: item.result.aggregateHits.length,
+      pairCount: item.result.pairCount,
+    })),
+    ...trailheads.flatMap((item) => item.roleSearchBinding === undefined ? [] : [{
+      resultIdentity: item.roleSearchBinding.resultIdentity,
+      rawComponentHitCount: item.roleSearchBinding.rawComponentHitCount,
+      rawAggregateHitCount: item.roleSearchBinding.rawAggregateHitCount,
+      qualifiedComponentHitCount: item.roleSearchBinding.qualifiedComponentHitCount,
+      qualifiedAggregateHitCount: item.roleSearchBinding.qualifiedAggregateHitCount,
+      pairCount: item.roleSearchBinding.pairCount,
+    }]),
+    ...exhaustions.flatMap((item) => item.roleSearchSummaries ?? []),
+  ];
+  const uniqueSummaries = [...new Map(summaries.map((item) =>
+    [item.resultIdentity, item] as const
+  )).values()];
   return Object.freeze({
     sourceRunIds,
     modelInvocationCount: invocations.length,
@@ -1559,5 +2116,21 @@ export function mechanismPrototypeExplorationUsage(input: Readonly<{
     unknownUsageInvocationCount: invocations.filter((item) =>
       item.inputTokens === null || item.outputTokens === null || item.reasoningTokens === null
     ).length,
+    roleSearchResultCount: uniqueSummaries.length,
+    roleSearchRawHitCount: uniqueSummaries.reduce((total, item) => total +
+      item.rawComponentHitCount + item.rawAggregateHitCount, 0),
+    roleSearchQualifiedHitCount: uniqueSummaries.reduce((total, item) => total +
+      item.qualifiedComponentHitCount + item.qualifiedAggregateHitCount, 0),
+    roleSearchPairCount: uniqueSummaries.reduce((total, item) => total + item.pairCount, 0),
+    inspectedEvidenceBindingCount: trailheads.reduce((total, item) =>
+      total + item.evidenceBindings.length, 0) + exhaustions.reduce((total, item) =>
+      total + item.inspectedEvidenceBindings.length, 0),
+    roleBoundTrailheadCount: trailheads.filter((item) =>
+      item.roleSearchBinding !== undefined
+    ).length,
+    roleAwareExhaustionCount: exhaustions.filter((item) =>
+      (item.roleSearchSummaries?.length ?? 0) > 0
+    ).length,
+    retainedActionObservationCount: actionObservations.length,
   });
 }
