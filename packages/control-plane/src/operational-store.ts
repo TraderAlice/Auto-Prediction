@@ -237,6 +237,15 @@ import {
   type MarketOntologyAgentProposalStore,
 } from "./market-ontology-agent-tools.js";
 import {
+  assertWorldStateMechanismCounterexample,
+  assertWorldStateMechanismProposal,
+  worldStateMechanismRouteFamilyIdentity,
+  type WorldStateMechanismCounterexample,
+  type WorldStateMechanismCounterexampleStore,
+  type WorldStateMechanismProposal,
+  type WorldStateMechanismProposalStore,
+} from "./world-state-mechanism.js";
+import {
   assertOntologySearchIssueRevision,
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
@@ -279,7 +288,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 49;
+const SCHEMA_VERSION = 50;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1858,6 +1867,53 @@ function parseMarketOntologyAgentProposal(value: unknown): MarketOntologyAgentPr
   return proposal;
 }
 
+function parseWorldStateMechanismProposal(value: unknown): WorldStateMechanismProposal {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world-state mechanism proposal row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.proposal_id !== "string" || typeof row.route_family_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world-state mechanism proposal row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world-state mechanism proposal contains invalid JSON");
+  }
+  const proposal = assertWorldStateMechanismProposal(decoded);
+  if (proposal.proposalId !== row.proposal_id ||
+      worldStateMechanismRouteFamilyIdentity(proposal) !== row.route_family_id ||
+      hashCanonical(proposal) !== row.record_hash) {
+    throw new Error("SQLite world-state mechanism proposal identity mismatch");
+  }
+  return proposal;
+}
+
+function parseWorldStateMechanismCounterexample(
+  value: unknown,
+): WorldStateMechanismCounterexample {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world-state mechanism counterexample row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.counterexample_id !== "string" ||
+      typeof row.target_route_family_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world-state mechanism counterexample row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world-state mechanism counterexample contains invalid JSON");
+  }
+  const counterexample = assertWorldStateMechanismCounterexample(decoded);
+  if (counterexample.counterexampleId !== row.counterexample_id ||
+      counterexample.targetRouteFamilyId !== row.target_route_family_id ||
+      hashCanonical(counterexample) !== row.record_hash) {
+    throw new Error("SQLite world-state mechanism counterexample identity mismatch");
+  }
+  return counterexample;
+}
+
 function parseOntologySearchIssueRevision(value: unknown): OntologySearchIssueRevision {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite ontology search issue revision row is malformed");
@@ -2082,6 +2138,8 @@ export class SqliteOperationalStore
     ProbabilityCalibrationStore,
     ProbabilityResolutionCaptureStore,
     MarketOntologyAgentProposalStore,
+    WorldStateMechanismProposalStore,
+    WorldStateMechanismCounterexampleStore,
     OntologySearchIssueRevisionStore,
     RelationDiscoveryTaskRevisionStore,
     RelationDiscoveryFindingStore,
@@ -2152,6 +2210,10 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"recordId">;
   public readonly marketOntologyAgentProposalStorage:
     OperationalStorageProjection<"proposalId">;
+  public readonly worldStateMechanismProposalStorage:
+    OperationalStorageProjection<"proposalId">;
+  public readonly worldStateMechanismCounterexampleStorage:
+    OperationalStorageProjection<"counterexampleId">;
   public readonly ontologySearchIssueRevisionStorage:
     OperationalStorageProjection<"revisionId">;
   public readonly relationDiscoveryTaskRevisionStorage:
@@ -2389,6 +2451,18 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "proposalId",
+    });
+    this.worldStateMechanismProposalStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "proposalId",
+    });
+    this.worldStateMechanismCounterexampleStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "counterexampleId",
     });
     this.ontologySearchIssueRevisionStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2783,6 +2857,18 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'market_ontology_agent_proposals'`,
       )
       .get() !== undefined;
+    const worldStateMechanismProposalTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_proposals'`,
+      )
+      .get() !== undefined;
+    const worldStateMechanismCounterexampleTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_counterexamples'`,
+      )
+      .get() !== undefined;
     const ontologySearchIssueRevisionTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -2887,6 +2973,8 @@ export class SqliteOperationalStore
       && agentRunAnnotationTableExists
       && executionCapabilityObservationTableExists
       && marketOntologyAgentProposalTableExists
+      && worldStateMechanismProposalTableExists
+      && worldStateMechanismCounterexampleTableExists
       && ontologySearchIssueRevisionTableExists
       && relationDiscoveryTaskRevisionTableExists
       && relationDiscoveryCorpusTableExists
@@ -4413,6 +4501,82 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS ontology_search_issue_revisions_campaign
             ON ontology_search_issue_revisions (
               campaign_eligible, materialized_at DESC, revision_id DESC
+            );
+        `);
+      }
+      if (current < 50 || !worldStateMechanismProposalTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_proposals (
+            proposal_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(proposal_id) = 71 AND proposal_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            route_family_id TEXT NOT NULL CHECK (
+              length(route_family_id) = 71 AND route_family_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            ontology_identity TEXT NOT NULL CHECK (
+              length(ontology_identity) = 71 AND ontology_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_snapshot_identity) = 71 AND
+              source_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_issue_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (source_issue_revision_id)
+              REFERENCES ontology_search_issue_revisions(revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_proposals_family
+            ON world_state_mechanism_proposals (
+              route_family_id, proposed_at DESC, proposal_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_proposals_run
+            ON world_state_mechanism_proposals (
+              source_agent_run_id, proposed_at, proposal_id
+            );
+        `);
+      }
+      if (current < 50 || !worldStateMechanismCounterexampleTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_counterexamples (
+            counterexample_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(counterexample_id) = 71 AND
+              counterexample_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            target_route_family_id TEXT NOT NULL CHECK (
+              length(target_route_family_id) = 71 AND
+              target_route_family_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            ontology_identity TEXT NOT NULL CHECK (
+              length(ontology_identity) = 71 AND ontology_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_snapshot_identity) = 71 AND
+              source_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_issue_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (source_issue_revision_id)
+              REFERENCES ontology_search_issue_revisions(revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_counterexamples_family
+            ON world_state_mechanism_counterexamples (
+              target_route_family_id, proposed_at DESC, counterexample_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_counterexamples_run
+            ON world_state_mechanism_counterexamples (
+              source_agent_run_id, proposed_at, counterexample_id
             );
         `);
       }
@@ -7764,6 +7928,225 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return proposals;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismProposals(
+    limit: number,
+  ): readonly WorldStateMechanismProposal[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT proposal_id, route_family_id, record_json, record_hash
+       FROM world_state_mechanism_proposals
+       ORDER BY proposed_at DESC, proposal_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldStateMechanismProposal));
+  }
+
+  public saveWorldStateMechanismProposals(
+    proposalsInput: readonly WorldStateMechanismProposal[],
+  ): readonly WorldStateMechanismProposal[] {
+    this.#assertOpen();
+    const proposals = Object.freeze(proposalsInput.map(assertWorldStateMechanismProposal));
+    if (new Set(proposals.map((item) => item.proposalId)).size !== proposals.length) {
+      throw new Error("world-state mechanism proposal batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const proposal of proposals) {
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(proposal.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (typeof runRow?.task_id !== "string") {
+          throw new Error("world-state mechanism proposal references an unavailable run");
+        }
+        const revisionRow = this.#database.prepare(
+          `SELECT revision_id, record_json, record_hash
+           FROM ontology_search_issue_revisions WHERE revision_id = ?`,
+        ).get(proposal.sourceIssueRevisionId);
+        if (revisionRow === undefined) {
+          throw new Error(
+            "world-state mechanism proposal references an unavailable issue revision",
+          );
+        }
+        const revision = parseOntologySearchIssueRevision(revisionRow);
+        const assignedEvidence = new Map(revision.taskPayload.listingEvidence
+          .map((item) => [item.node.listingRef, item]));
+        const proposalBindings = [
+          ...proposal.trigger.evidenceBindings,
+          ...proposal.dependent.evidenceBindings,
+        ];
+        if (runRow.task_id !== revision.task.taskId ||
+            proposal.ontologyIdentity !== revision.ontologyIdentity ||
+            proposal.sourceSnapshotIdentity !== revision.sourceSnapshotIdentity ||
+            !proposal.sourceRelationPatternIds.includes(revision.relationPatternId) ||
+            !proposal.sourceTrailheadIds.some((item) => revision.trailheadIds.includes(item)) ||
+            proposalBindings.some((binding) => {
+              const evidence = assignedEvidence.get(binding.listingRef);
+              return evidence === undefined || binding.title !== evidence.title ||
+                binding.nodeId !== evidence.node.nodeId ||
+                binding.worldFacetId !== evidence.node.worldFacet.facetId ||
+                binding.sourceRawHash !== evidence.sourceRawHash ||
+                binding.protocolIdentity !== evidence.protocolIdentity;
+            })) {
+          throw new Error(
+            "world-state mechanism proposal is outside its assigned issue lineage",
+          );
+        }
+        const routeFamilyId = worldStateMechanismRouteFamilyIdentity(proposal);
+        const recordJson = canonicalJson(proposal);
+        const recordHash = hashCanonical(proposal);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_proposals (
+             proposal_id, route_family_id, ontology_identity,
+             source_snapshot_identity, source_issue_revision_id,
+             source_agent_run_id, proposed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(proposal_id) DO NOTHING`,
+        ).run(
+          proposal.proposalId,
+          routeFamilyId,
+          proposal.ontologyIdentity,
+          proposal.sourceSnapshotIdentity,
+          proposal.sourceIssueRevisionId,
+          proposal.sourceAgentRunId,
+          proposal.proposedAt,
+          recordJson,
+          recordHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT proposal_id, route_family_id, record_json, record_hash
+           FROM world_state_mechanism_proposals WHERE proposal_id = ?`,
+        ).get(proposal.proposalId);
+        const stored = parseWorldStateMechanismProposal(row);
+        if (stored.proposalId !== proposal.proposalId ||
+            hashCanonical(stored) !== recordHash) {
+          throw new Error(
+            "proposalId is already bound to another world-state mechanism proposal",
+          );
+        }
+      }
+      this.#database.exec("COMMIT");
+      return proposals;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismCounterexamples(
+    limit: number,
+  ): readonly WorldStateMechanismCounterexample[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT counterexample_id, target_route_family_id, record_json, record_hash
+       FROM world_state_mechanism_counterexamples
+       ORDER BY proposed_at DESC, counterexample_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldStateMechanismCounterexample));
+  }
+
+  public saveWorldStateMechanismCounterexamples(
+    counterexamplesInput: readonly WorldStateMechanismCounterexample[],
+  ): readonly WorldStateMechanismCounterexample[] {
+    this.#assertOpen();
+    const counterexamples = Object.freeze(counterexamplesInput
+      .map(assertWorldStateMechanismCounterexample));
+    if (new Set(counterexamples.map((item) => item.counterexampleId)).size !==
+        counterexamples.length) {
+      throw new Error("world-state mechanism counterexample batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const counterexample of counterexamples) {
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(counterexample.sourceAgentRunId) as
+          Readonly<{ task_id?: unknown }> | undefined;
+        const revisionRow = this.#database.prepare(
+          `SELECT revision_id, record_json, record_hash
+           FROM ontology_search_issue_revisions WHERE revision_id = ?`,
+        ).get(counterexample.sourceIssueRevisionId);
+        if (typeof runRow?.task_id !== "string" || revisionRow === undefined) {
+          throw new Error(
+            "world-state mechanism counterexample references unavailable run lineage",
+          );
+        }
+        const revision = parseOntologySearchIssueRevision(revisionRow);
+        const assignedEvidence = new Map(revision.taskPayload.listingEvidence
+          .map((item) => [item.node.listingRef, item]));
+        const lineageInvalid = runRow.task_id !== revision.task.taskId ||
+          counterexample.ontologyIdentity !== revision.ontologyIdentity ||
+          counterexample.sourceSnapshotIdentity !== revision.sourceSnapshotIdentity ||
+          !counterexample.sourceRelationPatternIds.includes(revision.relationPatternId) ||
+          !counterexample.sourceTrailheadIds.some((item) =>
+            revision.trailheadIds.includes(item)
+          ) || counterexample.evidenceBindings.some((binding) => {
+            const evidence = assignedEvidence.get(binding.listingRef);
+            return evidence === undefined || binding.title !== evidence.title ||
+              binding.nodeId !== evidence.node.nodeId ||
+              binding.worldFacetId !== evidence.node.worldFacet.facetId ||
+              binding.sourceRawHash !== evidence.sourceRawHash ||
+              binding.protocolIdentity !== evidence.protocolIdentity;
+          });
+        if (lineageInvalid) {
+          throw new Error(
+            "world-state mechanism counterexample is outside its assigned issue lineage",
+          );
+        }
+        for (const proposalId of counterexample.targetProposalIds) {
+          const targetRow = this.#database.prepare(
+            `SELECT proposal_id, route_family_id, record_json, record_hash
+             FROM world_state_mechanism_proposals WHERE proposal_id = ?`,
+          ).get(proposalId);
+          if (targetRow === undefined ||
+              worldStateMechanismRouteFamilyIdentity(
+                parseWorldStateMechanismProposal(targetRow),
+              ) !== counterexample.targetRouteFamilyId) {
+            throw new Error(
+              "world-state mechanism counterexample target is unavailable or inconsistent",
+            );
+          }
+        }
+        const recordJson = canonicalJson(counterexample);
+        const recordHash = hashCanonical(counterexample);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_counterexamples (
+             counterexample_id, target_route_family_id, ontology_identity,
+             source_snapshot_identity, source_issue_revision_id,
+             source_agent_run_id, proposed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(counterexample_id) DO NOTHING`,
+        ).run(
+          counterexample.counterexampleId,
+          counterexample.targetRouteFamilyId,
+          counterexample.ontologyIdentity,
+          counterexample.sourceSnapshotIdentity,
+          counterexample.sourceIssueRevisionId,
+          counterexample.sourceAgentRunId,
+          counterexample.proposedAt,
+          recordJson,
+          recordHash,
+        );
+        const stored = parseWorldStateMechanismCounterexample(this.#database.prepare(
+          `SELECT counterexample_id, target_route_family_id, record_json, record_hash
+           FROM world_state_mechanism_counterexamples WHERE counterexample_id = ?`,
+        ).get(counterexample.counterexampleId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error(
+            "counterexampleId is already bound to another world-state mechanism record",
+          );
+        }
+      }
+      this.#database.exec("COMMIT");
+      return counterexamples;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

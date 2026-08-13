@@ -1,0 +1,463 @@
+import { hashCanonical, type Hash } from "@pmh/domain";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  assertWorldStateMechanismProposal,
+  assessWorldStateMechanismAdmission,
+  buildAgentRun,
+  buildDefaultAgentRuntimePortfolio,
+  buildMarketCorpusSnapshot,
+  buildMarketOntologySnapshot,
+  buildWorldStateMechanismProposal,
+  buildWorldStateMechanismCounterexample,
+  compileConsolidatedWorldStateMechanismRoutes,
+  compileStandingWorldStateMechanismRoute,
+  defaultAiRuntimeConfiguration,
+  materializeOntologySearchIssueRevisions,
+  SqliteOperationalStore,
+  worldStateMechanismRouteFamilyIdentity,
+  type DiscoveryCatalogListing,
+  type WorldStateMechanismEvidenceBinding,
+  type WorldStateMechanismProposal,
+} from "../src/index.js";
+
+const NOW = "2026-08-13T02:00:00.000Z";
+
+function hash(label: string): Hash {
+  return hashCanonical({ label });
+}
+
+function binding(listingRef: string, title: string): WorldStateMechanismEvidenceBinding {
+  return Object.freeze({
+    listingRef,
+    title,
+    nodeId: hash(`node:${listingRef}`),
+    worldFacetId: hash(`world:${listingRef}`),
+    sourceRawHash: hash(`raw:${listingRef}`),
+    protocolIdentity: `protocol:${listingRef.split(":")[0]}:v1`,
+  });
+}
+
+function listing(listingRef: string, title: string): DiscoveryCatalogListing {
+  const [venueId, venueInstrumentId] = listingRef.split(":") as [string, string];
+  return Object.freeze({
+    listingRef,
+    venueId,
+    venueInstrumentId,
+    title,
+    description: title,
+    status: "OPEN",
+    mechanism: "CENTRALIZED_ORDER_BOOK",
+    closesAt: "2026-10-01T00:00:00.000Z",
+    rulesText: "Resolves from the named official source.",
+    outcomes: Object.freeze([
+      Object.freeze({
+        venueOutcomeId: "yes",
+        label: "Yes",
+        indicativePrice: "400000000000000000",
+      }),
+      Object.freeze({
+        venueOutcomeId: "no",
+        label: "No",
+        indicativePrice: "600000000000000000",
+      }),
+    ]),
+    priceScale: "1000000000000000000",
+    quantityScale: "1000000000000000000",
+    minPriceTick: "1",
+    sourceKind: "LIVE_OBSERVATION",
+    sourceReceivedAt: NOW,
+    sourceRawHash: hash(`raw:${listingRef}`),
+    protocolIdentity: `protocol:${venueId}:v1`,
+  });
+}
+
+function mechanism(
+  overrides: Partial<Parameters<typeof buildWorldStateMechanismProposal>[0]> = {},
+): WorldStateMechanismProposal {
+  return buildWorldStateMechanismProposal({
+    ontologyIdentity: hash("ontology:trump"),
+    sourceSnapshotIdentity: hash("snapshot:trump"),
+    sourceIssueRevisionId: hash("issue-revision:trump"),
+    sourceAgentRunId: hash("run:trump"),
+    sourceTrailheadIds: [hash("trailhead:trump")],
+    sourceRelationPatternIds: [hash("pattern:trump")],
+    subjectLabel: "Donald Trump",
+    subjectAliases: ["Donald Trump", "Trump"],
+    subjectAmbiguityNotes: ["The title must refer to the same individual, not a brand."],
+    trigger: {
+      predicateLabel: "is shot during August",
+      searchSignals: ["shot"],
+      influence: "MAY_DEGRADE_STATE",
+      evidenceBindings: [binding(
+        "venue-a:trump-shot-august",
+        "Will Donald Trump be shot during August?",
+      )],
+    },
+    state: {
+      dimension: "PHYSICAL_CAPABILITY",
+      label: "able to appear personally in public",
+    },
+    dependent: {
+      predicateLabel: "personally livestreams drinking cola during September",
+      searchSignals: ["livestream", "drinking cola"],
+      requirement: "REQUIRES_STATE_PRESENT",
+      evidenceBindings: [binding(
+        "venue-b:trump-cola-september",
+        "Will Trump personally livestream drinking cola during September?",
+      )],
+    },
+    temporalPosture: "TRIGGER_PRECEDES_DEPENDENT",
+    counterScenarios: [
+      "A non-fatal shooting allows recovery before the September livestream.",
+      "A prerecorded or proxy appearance may satisfy one venue but not personal performance.",
+    ],
+    rationale: "The later act may depend on physical capability after the earlier event.",
+    proposedAt: NOW,
+    ...overrides,
+  });
+}
+
+describe("world-state mechanism routes", () => {
+  it("retains the shooting/public-appearance mechanism as routing-only memory", () => {
+    const proposal = mechanism();
+    const route = compileStandingWorldStateMechanismRoute(proposal);
+    expect(proposal).toMatchObject({
+      schemaVersion: "pmh.world-state-mechanism-proposal.v1",
+      state: { dimension: "PHYSICAL_CAPABILITY" },
+      trigger: { influence: "MAY_DEGRADE_STATE" },
+      dependent: { requirement: "REQUIRES_STATE_PRESENT" },
+      temporalPosture: "TRIGGER_PRECEDES_DEPENDENT",
+      authority: "WORLD_STATE_SEARCH_ROUTING_PROPOSAL_ONLY",
+      semanticDecisionAuthority: false,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    expect(route).toMatchObject({
+      schemaVersion: "pmh.standing-world-state-mechanism-route.v1",
+      sourceProposalId: proposal.proposalId,
+      canonicalSubjectLabels: ["donald trump", "trump"],
+      triggerPredicate: "is shot during august",
+      canonicalTriggerSearchSignals: ["shot"],
+      dependentPredicate: "personally livestreams drinking cola during september",
+      canonicalDependentSearchSignals: ["drinking cola", "livestream"],
+      baselineTriggerListingRefs: ["venue-a:trump-shot-august"],
+      baselineDependentListingRefs: ["venue-b:trump-cola-september"],
+      counterScenarios: expect.arrayContaining([
+        expect.stringContaining("non-fatal shooting"),
+        expect.stringContaining("prerecorded or proxy"),
+      ]),
+      authority: "WORLD_STATE_SEARCH_ROUTING_ONLY",
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(route.routeFamilyId).toBe(worldStateMechanismRouteFamilyIdentity(proposal));
+    expect(JSON.stringify(route)).not.toContain("epsilon");
+    expect(JSON.stringify(route)).not.toContain("price");
+  });
+
+  it("consolidates corroborating evidence but rotates directional ontology changes", () => {
+    const original = mechanism();
+    const corroborating = mechanism({
+      sourceAgentRunId: hash("run:corroborating"),
+      trigger: {
+        ...original.trigger,
+        evidenceBindings: [binding(
+          "venue-c:trump-shot-august",
+          "Will Trump be shot during August?",
+        )],
+      },
+      dependent: {
+        ...original.dependent,
+        evidenceBindings: [binding(
+          "venue-d:trump-cola-september",
+          "Will Donald Trump personally livestream drinking cola during September?",
+        )],
+      },
+      counterScenarios: ["Recovery remains possible."],
+      rationale: "Independent venue evidence proposes the same search mechanism.",
+    });
+    expect(corroborating.proposalId).not.toBe(original.proposalId);
+    expect(worldStateMechanismRouteFamilyIdentity(corroborating))
+      .toBe(worldStateMechanismRouteFamilyIdentity(original));
+
+    const reversed = mechanism({
+      trigger: {
+        predicateLabel: original.dependent.predicateLabel,
+        searchSignals: original.dependent.searchSignals,
+        influence: "MAY_ENABLE_STATE",
+        evidenceBindings: original.dependent.evidenceBindings,
+      },
+      dependent: {
+        predicateLabel: original.trigger.predicateLabel,
+        searchSignals: original.trigger.searchSignals,
+        requirement: "STATE_INFLUENCES_LIKELIHOOD",
+        evidenceBindings: original.trigger.evidenceBindings,
+      },
+    });
+    const otherDimension = mechanism({
+      state: { dimension: "EXISTENCE", label: "alive" },
+    });
+    const uncertainOrder = mechanism({ temporalPosture: "ORDER_UNCERTAIN" });
+    for (const changed of [reversed, otherDimension, uncertainOrder]) {
+      expect(worldStateMechanismRouteFamilyIdentity(changed))
+        .not.toBe(worldStateMechanismRouteFamilyIdentity(original));
+    }
+
+    expect(assessWorldStateMechanismAdmission({
+      candidate: original,
+      retained: [],
+    })).toMatchObject({
+      classification: "NOVEL_MECHANISM_FAMILY",
+      admitted: true,
+      providerRequests: 0,
+      modelInvocations: 0,
+    });
+    expect(assessWorldStateMechanismAdmission({
+      candidate: corroborating,
+      retained: [original],
+    })).toMatchObject({
+      classification: "CORROBORATING_MECHANISM_EVIDENCE",
+      admitted: true,
+      newEvidenceBindingCount: 2,
+    });
+    const redundant = mechanism({
+      sourceAgentRunId: hash("run:redundant"),
+      rationale: "Different prose cannot buy another identical mechanism memory slot.",
+    });
+    expect(assessWorldStateMechanismAdmission({
+      candidate: redundant,
+      retained: [original],
+    })).toMatchObject({
+      classification: "REDUNDANT_MECHANISM_MEMORY",
+      admitted: false,
+      overlappingProposalIds: [original.proposalId],
+      newEvidenceBindingCount: 0,
+      newCounterScenarioCount: 0,
+    });
+    const newCounter = mechanism({
+      sourceAgentRunId: hash("run:new-counter"),
+      counterScenarios: [
+        ...original.counterScenarios,
+        "The trigger contract could resolve yes for an incident after the dependent act.",
+      ],
+    });
+    expect(assessWorldStateMechanismAdmission({
+      candidate: newCounter,
+      retained: [original],
+    })).toMatchObject({
+      classification: "CORROBORATING_COUNTER_SCENARIO",
+      admitted: true,
+      newCounterScenarioCount: 1,
+    });
+
+    const consolidated = compileConsolidatedWorldStateMechanismRoutes([
+      corroborating,
+      original,
+      newCounter,
+    ]);
+    expect(consolidated).toHaveLength(1);
+    expect(consolidated[0]).toMatchObject({
+      routeFamilyId: worldStateMechanismRouteFamilyIdentity(original),
+      sourceProposalIds: expect.arrayContaining([
+        original.proposalId,
+        corroborating.proposalId,
+        newCounter.proposalId,
+      ]),
+      authority: "CONSOLIDATED_WORLD_STATE_SEARCH_ROUTING_ONLY",
+      providerRequests: 0,
+      modelInvocations: 0,
+      probabilityAuthority: false,
+      certificateAuthority: false,
+      executionAuthority: false,
+    });
+    expect(consolidated[0]!.triggerEvidenceBindings).toHaveLength(2);
+    expect(consolidated[0]!.dependentEvidenceBindings).toHaveLength(2);
+    expect(consolidated[0]!.counterScenarios).toHaveLength(4);
+  });
+
+  it("rejects ungrounded, overlapping, ambiguous, and authority-expanding inputs", () => {
+    const original = mechanism();
+    expect(() => mechanism({
+      trigger: { ...original.trigger, searchSignals: ["hospitalized"] },
+    })).toThrow("trigger signal is not title-grounded");
+    expect(() => mechanism({
+      dependent: {
+        ...original.dependent,
+        predicateLabel: original.trigger.predicateLabel,
+        searchSignals: original.trigger.searchSignals,
+        evidenceBindings: original.trigger.evidenceBindings,
+      },
+    })).toThrow("roles must bind distinct listings");
+    expect(() => mechanism({
+      subjectLabel: "Another Person",
+      subjectAliases: ["Someone Else"],
+    })).toThrow("subject is not grounded");
+    expect(() => mechanism({ counterScenarios: [] })).toThrow("bounded contract");
+
+    const { proposalId: _proposalId, ...body } = original;
+    const expandedBody = { ...body, probabilityPpm: "900000" };
+    expect(() => assertWorldStateMechanismProposal({
+      ...expandedBody,
+      proposalId: hashCanonical(expandedBody),
+    })).toThrow("bounded contract");
+  });
+
+  it("rejects tampering with exact evidence and canonical identity", () => {
+    const original = mechanism();
+    expect(() => assertWorldStateMechanismProposal({
+      ...original,
+      subjectLabel: "Donald J. Trump",
+    })).toThrow("identity is inconsistent");
+    const { proposalId: _proposalId, ...body } = original;
+    const tamperedTrigger = {
+      ...body.trigger,
+      evidenceBindings: [{
+        ...body.trigger.evidenceBindings[0]!,
+        title: "Will an unrelated person be shot during August?",
+      }],
+    };
+    const tamperedBody = { ...body, trigger: tamperedTrigger };
+    expect(() => assertWorldStateMechanismProposal({
+      ...tamperedBody,
+      proposalId: hashCanonical(tamperedBody),
+    })).toThrow("subject is not grounded");
+  });
+
+  it("persists exact assigned mechanism evidence across SQLite restart", () => {
+    const triggerRef = "venue-a:trump-shot-august";
+    const dependentRef = "venue-b:trump-cola-september";
+    const corpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hash("source:world-state-mechanism"),
+      eligibleSourceCount: 2,
+      excludedSourceCount: 0,
+      listings: [
+        listing(triggerRef, "Will Donald Trump be shot during August?"),
+        listing(
+          dependentRef,
+          "Will Trump personally livestream drinking cola during September?",
+        ),
+      ],
+    });
+    const ontology = buildMarketOntologySnapshot(corpus);
+    const revisions = materializeOntologySearchIssueRevisions({
+      ontology,
+      corpus,
+      proposals: [],
+    });
+    const revision = revisions.find((item) => {
+      const refs = new Set(item.taskPayload.listingEvidence.map((entry) => entry.listingRef));
+      return refs.has(triggerRef) && refs.has(dependentRef);
+    });
+    expect(revision).toBeDefined();
+    const assigned = revision!;
+    const portfolio = buildDefaultAgentRuntimePortfolio(defaultAiRuntimeConfiguration(
+      { PMH_DISCOVERY_PROVIDER: "codex" },
+      () => Date.parse(NOW),
+    ));
+    const route = portfolio.workloadRoutes.find((item) =>
+      item.taskKind === "ONTOLOGY_NORMALIZATION"
+    )!;
+    const profile = portfolio.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    )!;
+    const run = buildAgentRun({
+      task: assigned.task,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:world-state-mechanism-test",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const evidenceByRef = new Map(assigned.taskPayload.listingEvidence
+      .map((entry) => [entry.listingRef, entry]));
+    const exactBinding = (listingRef: string): WorldStateMechanismEvidenceBinding => {
+      const evidence = evidenceByRef.get(listingRef)!;
+      return Object.freeze({
+        listingRef,
+        title: evidence.title,
+        nodeId: evidence.node.nodeId,
+        worldFacetId: evidence.node.worldFacet.facetId,
+        sourceRawHash: evidence.sourceRawHash as Hash,
+        protocolIdentity: evidence.protocolIdentity,
+      });
+    };
+    const proposal = mechanism({
+      ontologyIdentity: assigned.ontologyIdentity,
+      sourceSnapshotIdentity: assigned.sourceSnapshotIdentity,
+      sourceIssueRevisionId: assigned.revisionId,
+      sourceAgentRunId: run.runId,
+      sourceTrailheadIds: [assigned.trailheadIds[0]!],
+      sourceRelationPatternIds: [assigned.relationPatternId],
+      trigger: {
+        ...mechanism().trigger,
+        evidenceBindings: [exactBinding(triggerRef)],
+      },
+      dependent: {
+        ...mechanism().dependent,
+        evidenceBindings: [exactBinding(dependentRef)],
+      },
+    });
+    const counterexample = buildWorldStateMechanismCounterexample({
+      targetRouteFamilyId: worldStateMechanismRouteFamilyIdentity(proposal),
+      targetProposalIds: [proposal.proposalId],
+      ontologyIdentity: assigned.ontologyIdentity,
+      sourceSnapshotIdentity: assigned.sourceSnapshotIdentity,
+      sourceIssueRevisionId: assigned.revisionId,
+      sourceAgentRunId: run.runId,
+      sourceTrailheadIds: [assigned.trailheadIds[0]!],
+      sourceRelationPatternIds: [assigned.relationPatternId],
+      evidenceBindings: [exactBinding(dependentRef)],
+      scenario: "A prerecorded stream could satisfy venue wording without a live appearance.",
+      reason: "The proposed physical-capability dependency may not bind prerecorded media.",
+      searchSignals: ["livestream"],
+      proposedAt: NOW,
+    });
+    const directory = mkdtempSync(join(tmpdir(), "pmh-world-state-mechanism-"));
+    const databasePath = join(directory, "operational.sqlite");
+    try {
+      const store = new SqliteOperationalStore(databasePath);
+      store.saveAgentExecutionBatch({
+        runtimeDefinitions: portfolio.runtimeDefinitions,
+        credentialBindings: portfolio.credentialBindings,
+        modelProfiles: portfolio.modelProfiles,
+        executionProfiles: portfolio.executionProfiles,
+        workloadRoutes: portfolio.workloadRoutes,
+        tasks: [assigned.task],
+        runs: [run],
+      });
+      store.saveOntologySearchIssueRevisions([assigned]);
+      expect(store.saveWorldStateMechanismProposals([proposal])).toEqual([proposal]);
+      expect(store.saveWorldStateMechanismProposals([proposal])).toEqual([proposal]);
+      expect(store.saveWorldStateMechanismCounterexamples([counterexample]))
+        .toEqual([counterexample]);
+      expect(store.saveWorldStateMechanismCounterexamples([counterexample]))
+        .toEqual([counterexample]);
+      expect(store.worldStateMechanismProposalStorage).toMatchObject({
+        durable: true,
+        schemaVersion: 50,
+        idempotencyKey: "proposalId",
+      });
+      store.close();
+
+      const reopened = new SqliteOperationalStore(databasePath);
+      expect(reopened.loadWorldStateMechanismProposals(10)).toEqual([proposal]);
+      expect(reopened.loadWorldStateMechanismCounterexamples(10))
+        .toEqual([counterexample]);
+      expect(() => reopened.saveWorldStateMechanismProposals([mechanism()]))
+        .toThrow("unavailable run");
+      reopened.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});

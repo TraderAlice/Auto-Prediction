@@ -15,13 +15,33 @@ import {
   type MarketOntologyTrailhead,
 } from "./market-ontology.js";
 import type { OperationalStorageProjection } from "./types.js";
+import {
+  assessWorldStateMechanismAdmission,
+  buildWorldStateMechanismCounterexample,
+  buildWorldStateMechanismProposal,
+  compileConsolidatedWorldStateMechanismRoutes,
+  WORLD_STATE_DEPENDENT_REQUIREMENTS,
+  WORLD_STATE_DIMENSIONS,
+  WORLD_STATE_TEMPORAL_POSTURES,
+  WORLD_STATE_TRIGGER_INFLUENCES,
+  worldStateMechanismRouteFamilyIdentity,
+  type WorldStateMechanismCounterexample,
+  type WorldStateMechanismCounterexampleStore,
+  type WorldStateMechanismEvidenceBinding,
+  type WorldStateMechanismProposal,
+  type WorldStateMechanismProposalStore,
+} from "./world-state-mechanism.js";
 
 export const MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL =
   "MARKET_ONTOLOGY_AGENT_TOOLS_V1" as const;
+export const MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2 =
+  "MARKET_ONTOLOGY_AGENT_TOOLS_V2" as const;
 export const MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL =
   "MARKET_ONTOLOGY_NORMALIZATION_TASK_V1" as const;
 export const MARKET_ONTOLOGY_ISSUE_TASK_PROTOCOL =
   "MARKET_ONTOLOGY_NORMALIZATION_TASK_V2" as const;
+export const MARKET_ONTOLOGY_MECHANISM_ISSUE_TASK_PROTOCOL =
+  "MARKET_ONTOLOGY_NORMALIZATION_TASK_V3" as const;
 
 const MAX_ASSIGNED_TRAILHEADS = 16;
 const MAX_LISTING_REFS = 16;
@@ -434,15 +454,102 @@ const MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
   }),
 ]);
 
+const WORLD_STATE_MECHANISM_MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
+  Object.freeze({
+    name: "list_world_state_mechanism_coverage",
+    description: "Read bounded standing mechanism-search memory before proposing another route. This is provider-free research memory, not causal truth.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false, properties: {},
+    }),
+  }),
+  Object.freeze({
+    name: "propose_world_state_mechanism",
+    description: "Propose a directional subject -> trigger -> latent state -> dependent-event search route from exact assigned evidence. Counter-scenarios are mandatory; probability, price, and trading fields are forbidden.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: [
+        "subjectLabel", "subjectAliases", "subjectAmbiguityNotes", "trigger",
+        "state", "dependent", "temporalPosture", "counterScenarios", "rationale",
+      ],
+      properties: {
+        subjectLabel: { type: "string" },
+        subjectAliases: { type: "array", items: { type: "string" } },
+        subjectAmbiguityNotes: { type: "array", items: { type: "string" } },
+        trigger: {
+          type: "object", additionalProperties: false,
+          required: ["predicateLabel", "searchSignals", "influence", "listingRefs"],
+          properties: {
+            predicateLabel: { type: "string" },
+            searchSignals: { type: "array", items: { type: "string" } },
+            influence: { type: "string", enum: WORLD_STATE_TRIGGER_INFLUENCES },
+            listingRefs: { type: "array", items: { type: "string" } },
+          },
+        },
+        state: {
+          type: "object", additionalProperties: false,
+          required: ["dimension", "label"],
+          properties: {
+            dimension: { type: "string", enum: WORLD_STATE_DIMENSIONS },
+            label: { type: "string" },
+          },
+        },
+        dependent: {
+          type: "object", additionalProperties: false,
+          required: ["predicateLabel", "searchSignals", "requirement", "listingRefs"],
+          properties: {
+            predicateLabel: { type: "string" },
+            searchSignals: { type: "array", items: { type: "string" } },
+            requirement: { type: "string", enum: WORLD_STATE_DEPENDENT_REQUIREMENTS },
+            listingRefs: { type: "array", items: { type: "string" } },
+          },
+        },
+        temporalPosture: { type: "string", enum: WORLD_STATE_TEMPORAL_POSTURES },
+        counterScenarios: { type: "array", items: { type: "string" } },
+        rationale: { type: "string" },
+      },
+    }),
+  }),
+  Object.freeze({
+    name: "record_world_state_mechanism_counterexample",
+    description: "Retain exact assigned evidence that challenges one known mechanism family. This proposes falsification memory and does not decide causality or probability.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: [
+        "targetRouteFamilyId", "targetProposalIds", "scenario", "reason",
+        "searchSignals", "listingRefs",
+      ],
+      properties: {
+        targetRouteFamilyId: { type: "string" },
+        targetProposalIds: { type: "array", items: { type: "string" } },
+        scenario: { type: "string" }, reason: { type: "string" },
+        searchSignals: { type: "array", items: { type: "string" } },
+        listingRefs: { type: "array", items: { type: "string" } },
+      },
+    }),
+  }),
+]);
+
+const MANIFEST_V2: readonly AgentRuntimeToolDefinition[] = Object.freeze([
+  ...MANIFEST,
+  ...WORLD_STATE_MECHANISM_MANIFEST,
+]);
+
 export class MarketOntologyAgentToolHost implements AgentToolHost {
   public resultToolNames(toolProtocol: string): readonly string[] {
-    if (toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL) {
+    if (toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL &&
+        toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2) {
       throw new Error("market ontology tool protocol is unsupported");
     }
     return Object.freeze([
       "propose_entity_alias",
       "propose_world_proposition",
       "record_ontology_counterexample",
+      ...(toolProtocol === MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2
+        ? [
+          "propose_world_state_mechanism",
+          "record_world_state_mechanism_counterexample",
+        ]
+        : []),
     ]);
   }
 
@@ -454,6 +561,8 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
   >;
   readonly #allowedRefs: ReadonlySet<string>;
   readonly #proposals: MarketOntologyAgentProposal[] = [];
+  readonly #mechanismProposals: WorldStateMechanismProposal[] = [];
+  readonly #mechanismCounterexamples: WorldStateMechanismCounterexample[] = [];
   readonly #ontologyIdentity: Hash;
   readonly #sourceSnapshotIdentity: Hash;
   readonly #taskIdentityPayloadHash: Hash;
@@ -465,6 +574,9 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     taskPayload?: MarketOntologyNormalizationTaskPayload,
     private readonly proposalStore?: MarketOntologyAgentProposalStore,
     taskIdentityPayload?: unknown,
+    private readonly mechanismProposalStore?: WorldStateMechanismProposalStore,
+    private readonly mechanismCounterexampleStore?: WorldStateMechanismCounterexampleStore,
+    private readonly sourceIssueRevisionId?: Hash,
   ) {
     if (ontologyOrPayload.schemaVersion === "pmh.market-ontology.v1") {
       const ontology = assertMarketOntologySnapshot(ontologyOrPayload);
@@ -513,6 +625,9 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     taskIdentityPayload: unknown,
     inputPayload: MarketOntologyNormalizationTaskPayload,
     proposalStore?: MarketOntologyAgentProposalStore,
+    mechanismProposalStore?: WorldStateMechanismProposalStore,
+    mechanismCounterexampleStore?: WorldStateMechanismCounterexampleStore,
+    sourceIssueRevisionId?: Hash,
   ): MarketOntologyAgentToolHost {
     return new MarketOntologyAgentToolHost(
       inputPayload,
@@ -520,18 +635,30 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
       undefined,
       proposalStore,
       taskIdentityPayload,
+      mechanismProposalStore,
+      mechanismCounterexampleStore,
+      sourceIssueRevisionId,
     );
   }
 
   public manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[] {
-    if (toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL) {
+    if (toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL &&
+        toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2) {
       throw new Error("ontology Agent tool protocol is unsupported");
     }
-    return MANIFEST;
+    return toolProtocol === MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2 ? MANIFEST_V2 : MANIFEST;
   }
 
   public proposals(): readonly MarketOntologyAgentProposal[] {
     return Object.freeze([...this.#proposals]);
+  }
+
+  public mechanismProposals(): readonly WorldStateMechanismProposal[] {
+    return Object.freeze([...this.#mechanismProposals]);
+  }
+
+  public mechanismCounterexamples(): readonly WorldStateMechanismCounterexample[] {
+    return Object.freeze([...this.#mechanismCounterexamples]);
   }
 
   #listingBindings(value: unknown, minimum = 1): readonly MarketOntologyListingBinding[] {
@@ -562,7 +689,8 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     body: MarketOntologyAgentProposalDraft,
   ): MarketOntologyAgentProposal {
     if (context.task.kind !== "ONTOLOGY_NORMALIZATION" ||
-        context.task.requestedEffectProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL ||
+        ![MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL, MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2]
+          .includes(context.task.requestedEffectProtocol as never) ||
         context.task.taskPayloadHash !== this.#taskIdentityPayloadHash) {
       throw new Error("ontology tool call task lineage is invalid");
     }
@@ -596,14 +724,89 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     return proposal;
   }
 
+  #mechanismEvidenceBindings(value: unknown): readonly WorldStateMechanismEvidenceBinding[] {
+    const refs = texts(value, "listingRefs", MAX_LISTING_REFS, 500, 1);
+    if (refs.some((ref) => !this.#allowedRefs.has(ref))) {
+      throw new Error("world-state mechanism listingRefs exceed the assigned evidence scope");
+    }
+    return Object.freeze(refs.map((ref) => {
+      const listing = this.#listingsByRef.get(ref)!;
+      const node = this.#nodesByRef.get(ref)!;
+      return Object.freeze({
+        listingRef: ref,
+        title: listing.title,
+        nodeId: node.nodeId,
+        worldFacetId: node.worldFacet.facetId,
+        sourceRawHash: listing.sourceRawHash as Hash,
+        protocolIdentity: listing.protocolIdentity,
+      });
+    }));
+  }
+
+  #retainedMechanismProposals(): readonly WorldStateMechanismProposal[] {
+    return Object.freeze([...new Map([
+      ...(this.mechanismProposalStore?.loadWorldStateMechanismProposals(512) ?? []),
+      ...this.#mechanismProposals,
+    ].map((proposal) => [proposal.proposalId, proposal])).values()]);
+  }
+
+  #requireMechanismProtocol(context: AgentToolHostContext): Hash {
+    if (context.task.requestedEffectProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2 ||
+        this.sourceIssueRevisionId === undefined) {
+      throw new Error("world-state mechanism tool requires an exact v2 issue revision");
+    }
+    return this.sourceIssueRevisionId;
+  }
+
   public async execute(context: AgentToolHostContext): Promise<Readonly<{
     status: "ACCEPTED" | "REJECTED";
     output: unknown;
   }>> {
-    if (context.executionProfile.toolPolicy.protocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL) {
+    if (context.executionProfile.toolPolicy.protocol !==
+        context.task.requestedEffectProtocol ||
+        ![MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL, MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2]
+          .includes(context.task.requestedEffectProtocol as never)) {
       throw new Error("ontology tool call execution profile is out of scope");
     }
     const input = object(context.input, "ontology tool input");
+    if (context.toolName === "list_world_state_mechanism_coverage") {
+      this.#requireMechanismProtocol(context);
+      exactKeys(input, []);
+      const proposals = this.#retainedMechanismProposals();
+      const routes = compileConsolidatedWorldStateMechanismRoutes(proposals).slice(0, 64);
+      const counterexamples = [
+        ...(this.mechanismCounterexampleStore
+          ?.loadWorldStateMechanismCounterexamples(256) ?? []),
+        ...this.#mechanismCounterexamples,
+      ];
+      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+        schemaVersion: "pmh.world-state-mechanism-coverage.v1",
+        routeCount: routes.length,
+        routes: routes.map((route) => Object.freeze({
+          routeFamilyId: route.routeFamilyId,
+          canonicalSubjectLabels: route.canonicalRoute.canonicalSubjectLabels,
+          triggerPredicate: route.canonicalRoute.triggerPredicate,
+          triggerInfluence: route.canonicalRoute.triggerInfluence,
+          stateDimension: route.canonicalRoute.stateDimension,
+          stateLabel: route.canonicalRoute.stateLabel,
+          dependentPredicate: route.canonicalRoute.dependentPredicate,
+          dependentRequirement: route.canonicalRoute.dependentRequirement,
+          temporalPosture: route.canonicalRoute.temporalPosture,
+          proposalCount: route.sourceProposalIds.length,
+          counterScenarioCount: route.counterScenarios.length,
+          counterexampleCount: counterexamples.filter((item) =>
+            item.targetRouteFamilyId === route.routeFamilyId
+          ).length,
+        })),
+        authority: "SEMANTIC_MEMORY_INSPECTION_ONLY",
+        providerRequests: 0,
+        modelInvocations: 0,
+        semanticDecisionAuthority: false,
+        probabilityAuthority: false,
+        certificateAuthority: false,
+        executionAuthority: false,
+      }) });
+    }
     if (context.toolName === "list_assigned_ontology_trailheads") {
       exactKeys(input, []);
       return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
@@ -698,6 +901,165 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
       });
       return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
         proposalId: proposal.proposalId, reviewStatus: proposal.reviewStatus,
+      }) });
+    }
+    if (context.toolName === "propose_world_state_mechanism") {
+      const sourceIssueRevisionId = this.#requireMechanismProtocol(context);
+      exactKeys(input, [
+        "subjectLabel", "subjectAliases", "subjectAmbiguityNotes", "trigger",
+        "state", "dependent", "temporalPosture", "counterScenarios", "rationale",
+      ]);
+      const triggerInput = object(input.trigger, "world-state trigger");
+      const stateInput = object(input.state, "world-state state");
+      const dependentInput = object(input.dependent, "world-state dependent");
+      exactKeys(triggerInput, [
+        "predicateLabel", "searchSignals", "influence", "listingRefs",
+      ]);
+      exactKeys(stateInput, ["dimension", "label"]);
+      exactKeys(dependentInput, [
+        "predicateLabel", "searchSignals", "requirement", "listingRefs",
+      ]);
+      const triggerEvidenceBindings = this.#mechanismEvidenceBindings(
+        triggerInput.listingRefs,
+      );
+      const dependentEvidenceBindings = this.#mechanismEvidenceBindings(
+        dependentInput.listingRefs,
+      );
+      const allListingBindings = this.#listingBindings([
+        ...triggerEvidenceBindings.map((item) => item.listingRef),
+        ...dependentEvidenceBindings.map((item) => item.listingRef),
+      ]);
+      const proposal = buildWorldStateMechanismProposal({
+        ontologyIdentity: this.#ontologyIdentity,
+        sourceSnapshotIdentity: this.#sourceSnapshotIdentity,
+        sourceIssueRevisionId,
+        sourceAgentRunId: context.run.runId,
+        sourceTrailheadIds: this.#sourceTrailheadIds(allListingBindings),
+        sourceRelationPatternIds: this.#sourceRelationPatternIds(allListingBindings),
+        subjectLabel: text(input.subjectLabel, "subjectLabel", 160),
+        subjectAliases: texts(input.subjectAliases, "subjectAliases", 8, 160, 1),
+        subjectAmbiguityNotes: texts(
+          input.subjectAmbiguityNotes,
+          "subjectAmbiguityNotes",
+          8,
+          500,
+        ),
+        trigger: Object.freeze({
+          predicateLabel: text(triggerInput.predicateLabel, "predicateLabel", 500),
+          searchSignals: texts(
+            triggerInput.searchSignals,
+            "trigger searchSignals",
+            6,
+            160,
+            1,
+          ),
+          influence: text(triggerInput.influence, "influence", 80) as
+            WorldStateMechanismProposal["trigger"]["influence"],
+          evidenceBindings: triggerEvidenceBindings,
+        }),
+        state: Object.freeze({
+          dimension: text(stateInput.dimension, "dimension", 80) as
+            WorldStateMechanismProposal["state"]["dimension"],
+          label: text(stateInput.label, "state label", 160),
+        }),
+        dependent: Object.freeze({
+          predicateLabel: text(dependentInput.predicateLabel, "predicateLabel", 500),
+          searchSignals: texts(
+            dependentInput.searchSignals,
+            "dependent searchSignals",
+            6,
+            160,
+            1,
+          ),
+          requirement: text(dependentInput.requirement, "requirement", 80) as
+            WorldStateMechanismProposal["dependent"]["requirement"],
+          evidenceBindings: dependentEvidenceBindings,
+        }),
+        temporalPosture: text(input.temporalPosture, "temporalPosture", 80) as
+          WorldStateMechanismProposal["temporalPosture"],
+        counterScenarios: texts(
+          input.counterScenarios,
+          "counterScenarios",
+          12,
+          500,
+          1,
+        ),
+        rationale: text(input.rationale, "rationale", 2_000),
+        proposedAt: context.run.createdAt,
+      });
+      const admission = assessWorldStateMechanismAdmission({
+        candidate: proposal,
+        retained: this.#retainedMechanismProposals(),
+      });
+      if (!admission.admitted) {
+        return Object.freeze({ status: "REJECTED" as const, output: admission });
+      }
+      this.mechanismProposalStore?.saveWorldStateMechanismProposals([proposal]);
+      this.#mechanismProposals.push(proposal);
+      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+        proposalId: proposal.proposalId,
+        routeFamilyId: admission.routeFamilyId,
+        classification: admission.classification,
+        newEvidenceBindingCount: admission.newEvidenceBindingCount,
+        newCounterScenarioCount: admission.newCounterScenarioCount,
+        authority: proposal.authority,
+      }) });
+    }
+    if (context.toolName === "record_world_state_mechanism_counterexample") {
+      const sourceIssueRevisionId = this.#requireMechanismProtocol(context);
+      exactKeys(input, [
+        "targetRouteFamilyId", "targetProposalIds", "scenario", "reason",
+        "searchSignals", "listingRefs",
+      ]);
+      const targetRouteFamilyId = text(
+        input.targetRouteFamilyId,
+        "targetRouteFamilyId",
+        100,
+      ) as Hash;
+      const targetProposalIds = texts(
+        input.targetProposalIds,
+        "targetProposalIds",
+        32,
+        100,
+        1,
+      ) as readonly Hash[];
+      const knownById = new Map(this.#retainedMechanismProposals()
+        .map((proposal) => [proposal.proposalId, proposal]));
+      if (targetProposalIds.some((proposalId) => {
+        const proposal = knownById.get(proposalId);
+        return proposal === undefined ||
+          worldStateMechanismRouteFamilyIdentity(proposal) !== targetRouteFamilyId;
+      })) {
+        throw new Error("world-state mechanism counterexample targets unknown memory");
+      }
+      const evidenceBindings = this.#mechanismEvidenceBindings(input.listingRefs);
+      const listingBindings = this.#listingBindings(
+        evidenceBindings.map((item) => item.listingRef),
+      );
+      const counterexample = buildWorldStateMechanismCounterexample({
+        targetRouteFamilyId,
+        targetProposalIds: Object.freeze([...targetProposalIds].sort()),
+        ontologyIdentity: this.#ontologyIdentity,
+        sourceSnapshotIdentity: this.#sourceSnapshotIdentity,
+        sourceIssueRevisionId,
+        sourceAgentRunId: context.run.runId,
+        sourceTrailheadIds: this.#sourceTrailheadIds(listingBindings),
+        sourceRelationPatternIds: this.#sourceRelationPatternIds(listingBindings),
+        evidenceBindings,
+        scenario: text(input.scenario, "scenario", 800),
+        reason: text(input.reason, "reason", 2_000),
+        searchSignals: texts(input.searchSignals, "searchSignals", 6, 160, 1),
+        proposedAt: context.run.createdAt,
+      });
+      this.mechanismCounterexampleStore
+        ?.saveWorldStateMechanismCounterexamples([counterexample]);
+      if (!this.#mechanismCounterexamples.some((item) =>
+        item.counterexampleId === counterexample.counterexampleId
+      )) this.#mechanismCounterexamples.push(counterexample);
+      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+        counterexampleId: counterexample.counterexampleId,
+        targetRouteFamilyId: counterexample.targetRouteFamilyId,
+        authority: counterexample.authority,
       }) });
     }
     throw new Error("ontology Agent requested an unknown tool");

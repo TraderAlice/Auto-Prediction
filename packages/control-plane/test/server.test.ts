@@ -285,6 +285,17 @@ describe("control-plane HTTP surface", () => {
         policyMutationAuthority: boolean;
         semanticDecisionAuthority: boolean;
       };
+      worldStateMechanisms: {
+        schemaVersion: string;
+        routeCount: number;
+        providerRequestsStartedByRead: number;
+        modelInvocationsStartedByRead: number;
+        writesStartedByRead: number;
+        automaticDispatch: boolean;
+        semanticDecisionAuthority: boolean;
+        probabilityAuthority: boolean;
+        certificateAuthority: boolean;
+      };
       providerRequestsStartedByRead: number;
       modelInvocationsStartedByRead: number;
       writesStartedByRead: number;
@@ -340,6 +351,17 @@ describe("control-plane HTTP surface", () => {
         policyMutationAuthority: false,
         semanticDecisionAuthority: false,
       },
+      worldStateMechanisms: {
+        schemaVersion: "pmh.world-state-mechanism-projection.v1",
+        routeCount: 0,
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        writesStartedByRead: 0,
+        automaticDispatch: false,
+        semanticDecisionAuthority: false,
+        probabilityAuthority: false,
+        certificateAuthority: false,
+      },
       providerRequestsStartedByRead: 0,
       modelInvocationsStartedByRead: 0,
       writesStartedByRead: 0,
@@ -348,6 +370,14 @@ describe("control-plane HTTP surface", () => {
     });
     expect(workspace.targets.allocationProjectionIdentity)
       .toBe(workspace.attention.projectionIdentity);
+    await expect(fetch(`${baseUrl}/api/v1/world-state-mechanisms`)
+      .then((result) => result.json())).resolves.toMatchObject({
+        schemaVersion: "pmh.world-state-mechanism-projection.v1",
+        routeCount: 0,
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        writesStartedByRead: 0,
+      });
   });
 
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
@@ -524,6 +554,9 @@ describe("control-plane HTTP surface", () => {
   it("contains an unhandled asynchronous route failure without terminating the server", async () => {
     const { baseUrl, controlPlane } = await listenControlPlane();
     await controlPlane.ready;
+    await vi.waitFor(async () => {
+      expect((await fetch(`${baseUrl}/api/v1/readiness`)).status).toBe(200);
+    });
     vi.spyOn(controlPlane.catalogObservationDesk, "corpus")
       .mockImplementationOnce(() => {
         throw new Error("fixture projection failed");
@@ -3420,7 +3453,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 49,
+        schemaVersion: 50,
         },
         records: [{ investigationId: created.investigationId }],
       });

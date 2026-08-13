@@ -1756,6 +1756,18 @@ repair outcomes separately. SQLite restart, desktop/390 px visual checks, 660
 control-plane tests, 30 Studio tests, workspace checks and build pass with zero
 read-side provider/model/dispatch/write effects.
 
+The next active continuation is
+[`plans/world-state-mechanism-routes.md`](plans/world-state-mechanism-routes.md).
+Issue #158 inverts the remaining claim-first dependency: instead of selecting a
+market pair before discovering its causal premises, Agents may author and
+falsify a reusable, evidence-bound route from trigger event through a named
+subject-state dimension to a dependent event. First-party code owns bounded
+state/temporal vocabulary, exact lineage, canonical identity, wake fanout and
+counter-scenario retention. Mechanisms have search-routing authority only;
+semantic review and the existing adverse-state estimation/calibration path
+still decide whether any supplied pair is meaningful, estimable, and
+economically interesting.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external
