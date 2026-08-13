@@ -403,7 +403,7 @@ export type MechanismPrototypeExplorationStepObservation = Readonly<{
   toolName: string;
   status: "ACCEPTED" | "REJECTED";
   resultSummary: Readonly<{
-    kind: "LENS_READ" | "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
+    kind: "LENS_READ" | "DIALECT_ATLAS_READ" | "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
       "PROTOTYPE_ACTION" | "POSITIVE_TERMINAL" | "EXHAUSTION_TERMINAL" |
       "HYPOTHESIS_ACTION" | "OTHER";
     rawHitCount: number;
@@ -2715,7 +2715,7 @@ export function assertMechanismPrototypeExplorationStepObservation(
       typeof item.toolName !== "string" || item.toolName.length < 1 ||
       !["ACCEPTED", "REJECTED"].includes(String(item.status)) ||
       summary === undefined || ![
-        "LENS_READ", "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
+        "LENS_READ", "DIALECT_ATLAS_READ", "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
         "PROTOTYPE_ACTION", "POSITIVE_TERMINAL", "EXHAUSTION_TERMINAL",
         "HYPOTHESIS_ACTION", "OTHER",
       ].includes(String(summary.kind)) || [
