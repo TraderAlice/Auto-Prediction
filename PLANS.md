@@ -1,6 +1,22 @@
 # Plans
 
 The active execution continuation is
+[`plans/falsifiable-exploration-hypotheses.md`](plans/falsifiable-exploration-hypotheses.md).
+Issue #227 turns durable V9 search episodes into hypothesis-bearing experiments.
+Reconnaissance remains open-ended, but a terminal result must close an explicit,
+revisable and falsifiable ontological conjecture whose lifecycle is bound to
+exact effects and token lineage. This is research routing, not claim-first
+admission or semantic truth.
+
+Issue #227 is selected `ADOPT`. The first live V10 Terra/high episode retained
+one falsified hypothesis across exact effects 3→9, then admitted bounded
+exhaustion at effect 10. Its complete ledger used 217,978 input tokens across
+10 calls and reduced 38 raw hits to 16 qualified hits, zero role pairs and one
+inspection without a repair turn or false opportunity. The next frontier is
+cross-episode hypothesis selection memory: avoid repurchasing an already
+falsified conjecture merely because the Agent paraphrases it.
+
+The active execution continuation is
 [`plans/durable-exploration-memory.md`](plans/durable-exploration-memory.md).
 Issue #225 follows the first adopted V9 experiment episode. A completed
 experiment is durable research memory, while the market corpus is a current

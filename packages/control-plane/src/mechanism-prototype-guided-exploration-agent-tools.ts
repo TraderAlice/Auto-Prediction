@@ -14,6 +14,7 @@ import {
   searchMechanismPrototypeExplorationCorpus,
   searchMechanismPrototypeExplorationRoles,
   type MechanismPrototypeExplorationExhaustion,
+  type MechanismPrototypeExplorationHypothesis,
   type MechanismPrototypeExplorationInputRevision,
   type MechanismPrototypeExplorationStore,
   type MechanismPrototypeExplorationTrailhead,
@@ -51,14 +52,14 @@ export type MechanismPrototypeExplorationPrototypeReference = Readonly<{
 }>;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_POSITIVE_PREREQUISITES = Object.freeze([
-  "ROLE_SEARCH_PAIR", "INSPECTED_ROLE_PAIR", "APPLIED_TRANSFER_TEST",
+  "ROLE_SEARCH_PAIR", "INSPECTED_ROLE_PAIR", "APPLIED_TRANSFER_TEST", "CLOSED_HYPOTHESIS",
 ] as const);
 export const MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES = Object.freeze([
-  "EXACT_SEARCH", "INSPECTED_LISTING", "FAILED_TRANSFER_TEST",
+  "EXACT_SEARCH", "INSPECTED_LISTING", "FAILED_TRANSFER_TEST", "CLOSED_HYPOTHESIS",
 ] as const);
 
 export type MechanismPrototypeExplorationActionReadiness = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v2";
   searchedResultCount: number;
   roleSearchResultCount: number;
   rolePairCount: number;
@@ -67,6 +68,8 @@ export type MechanismPrototypeExplorationActionReadiness = Readonly<{
   appliedTransferTestOrdinals: readonly number[];
   failedTransferTestOrdinals: readonly number[];
   activatedCounterScenarioOrdinals: readonly number[];
+  activeHypothesis: boolean;
+  closedHypothesisCount: number;
   positive: Readonly<{
     eligible: boolean;
     missingPrerequisites: readonly (typeof MECHANISM_PROTOTYPE_EXPLORATION_POSITIVE_PREREQUISITES)[number][];
@@ -93,7 +96,8 @@ export function assertMechanismPrototypeExplorationActionReadiness(
     "schemaVersion", "searchedResultCount", "roleSearchResultCount", "rolePairCount",
     "inspectedListingCount", "inspectedRolePairCount", "appliedTransferTestOrdinals",
     "failedTransferTestOrdinals", "activatedCounterScenarioOrdinals", "positive",
-    "exhaustion", "authority", "prescriptiveSearchAuthority", "semanticDecisionAuthority",
+    "activeHypothesis", "closedHypothesisCount", "exhaustion", "authority",
+    "prescriptiveSearchAuthority", "semanticDecisionAuthority",
     "probabilityAuthority", "certificateAuthority", "executionAuthority",
     "externalWriteAuthority", "valueMovingAuthority",
   ]);
@@ -107,11 +111,13 @@ export function assertMechanismPrototypeExplorationActionReadiness(
     item.activatedCounterScenarioOrdinals];
   const positiveMissing = positive.missingPrerequisites;
   const exhaustionMissing = exhaustion.missingPrerequisites;
-  if (item.schemaVersion !== "pmh.mechanism-prototype-exploration-action-readiness.v1" ||
+  if (item.schemaVersion !== "pmh.mechanism-prototype-exploration-action-readiness.v2" ||
       counts.some((count) => !Number.isSafeInteger(count) || Number(count) < 0) ||
       ordinalLists.some((list) => !Array.isArray(list) || list.some((ordinal) =>
         !Number.isSafeInteger(ordinal) || Number(ordinal) < 1
       ) || new Set(list).size !== list.length) ||
+      typeof item.activeHypothesis !== "boolean" ||
+      !Number.isSafeInteger(item.closedHypothesisCount) || Number(item.closedHypothesisCount) < 0 ||
       typeof positive.eligible !== "boolean" || !Array.isArray(positiveMissing) ||
       positiveMissing.some((name) =>
         !MECHANISM_PROTOTYPE_EXPLORATION_POSITIVE_PREREQUISITES.includes(name as never)
@@ -235,6 +241,47 @@ const BASE_MANIFEST = Object.freeze([
     }),
   }),
   Object.freeze({
+    name: "open_exploration_hypothesis",
+    description: "Open one falsifiable ontological conjecture after or before reconnaissance. Bind an exact prototype test, name the material variation and predicted role structure, and state in advance what would support or falsify it. This routes research only and does not assert a semantic relation.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: ["prototypeTestHandle", "materialVariation", "predictedRoleStructure",
+        "supportingObservation", "falsifyingObservation", "searchNeighborhoods"],
+      properties: {
+        prototypeTestHandle: text(80), materialVariation: text(2_000),
+        predictedRoleStructure: text(2_000), supportingObservation: text(2_000),
+        falsifyingObservation: text(2_000), searchNeighborhoods: texts(1, 12),
+      },
+    }),
+  }),
+  Object.freeze({
+    name: "revise_exploration_hypothesis",
+    description: "Revise the one active hypothesis when evidence changes the useful conjecture. Replace its prospective fields and explain why; do not rewrite prior revisions.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: ["materialVariation", "predictedRoleStructure", "supportingObservation",
+        "falsifyingObservation", "searchNeighborhoods", "revisionReason"],
+      properties: {
+        materialVariation: text(2_000), predictedRoleStructure: text(2_000),
+        supportingObservation: text(2_000), falsifyingObservation: text(2_000),
+        searchNeighborhoods: texts(1, 12), revisionReason: text(2_000),
+      },
+    }),
+  }),
+  Object.freeze({
+    name: "close_exploration_hypothesis",
+    description: "Close the active hypothesis with a bounded disposition and observed support/falsifiers. UNRESOLVED is valid; closure is research memory, never semantic admission.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: ["disposition", "observedSupport", "observedFalsifiers", "rationale"],
+      properties: {
+        disposition: Object.freeze({ enum: ["SUPPORTED", "WEAKENED", "FALSIFIED", "UNRESOLVED"] }),
+        observedSupport: texts(0, 12), observedFalsifiers: texts(0, 12),
+        rationale: text(2_000),
+      },
+    }),
+  }),
+  Object.freeze({
     name: "submit_mechanism_exploration_trailhead",
     description: "Retain one exact inspected candidate pair as search-routing memory after calling at least one mark_transfer_test_*_applied tool. Explain the structural analogy and surface difference; this does not admit the prototype or any semantic relation.",
     inputSchema: Object.freeze({
@@ -278,6 +325,12 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
   readonly #appliedTransferTests = new Set<string>();
   readonly #failedTransferTests = new Set<string>();
   readonly #activatedCounterScenarios = new Set<string>();
+  readonly #closedHypotheses: MechanismPrototypeExplorationHypothesis[] = [];
+  readonly #pendingHypothesisEvents = new Map<string, Readonly<{
+    event: "OPENED" | "REVISED" | "CLOSED";
+    hypothesis: MechanismPrototypeExplorationHypothesis;
+  }>>();
+  #activeHypothesis: MechanismPrototypeExplorationHypothesis | null = null;
   #lensReadCount = 0;
 
   public constructor(
@@ -292,6 +345,19 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       throw new Error("mechanism exploration tool protocol is unsupported");
     }
     const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+    const testHandles = [...references.transferTests, ...references.counterScenarios]
+      .map((item) => item.handle);
+    const baseManifest = BASE_MANIFEST.map((definition) =>
+      definition.name !== "open_exploration_hypothesis" ? definition : Object.freeze({
+        ...definition,
+        inputSchema: Object.freeze({ ...definition.inputSchema,
+          properties: Object.freeze({
+            ...(definition.inputSchema.properties as Readonly<Record<string, unknown>>),
+            prototypeTestHandle: Object.freeze({ enum: testHandles }),
+          }),
+        }),
+      })
+    );
     const actionSchema = Object.freeze({
       type: "object", additionalProperties: false, properties: Object.freeze({}),
     });
@@ -312,7 +378,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       description: `Mark this exact counter-scenario as activated: ${item.text}`,
       inputSchema: actionSchema,
     }));
-    return Object.freeze([...BASE_MANIFEST, ...transferTools, ...counterScenarioTools]);
+    return Object.freeze([...baseManifest, ...transferTools, ...counterScenarioTools]);
   }
 
   public resultToolNames(protocol: string): readonly string[] {
@@ -347,15 +413,17 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     const positiveMissing = MECHANISM_PROTOTYPE_EXPLORATION_POSITIVE_PREREQUISITES.filter(
       (prerequisite) => prerequisite === "ROLE_SEARCH_PAIR" ? rolePairs.length === 0
         : prerequisite === "INSPECTED_ROLE_PAIR" ? inspectedRolePairCount === 0
-        : this.#appliedTransferTests.size === 0,
+        : prerequisite === "APPLIED_TRANSFER_TEST" ? this.#appliedTransferTests.size === 0
+        : this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null,
     );
     const exhaustionMissing = MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES.filter(
       (prerequisite) => prerequisite === "EXACT_SEARCH" ? this.#searchedResultIds.size === 0
         : prerequisite === "INSPECTED_LISTING" ? this.#inspectedListingRefs.size === 0
-        : this.#failedTransferTests.size === 0,
+        : prerequisite === "FAILED_TRANSFER_TEST" ? this.#failedTransferTests.size === 0
+        : this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null,
     );
     return assertMechanismPrototypeExplorationActionReadiness(Object.freeze({
-      schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v1" as const,
+      schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v2" as const,
       searchedResultCount: this.#searchedResultIds.size,
       roleSearchResultCount: this.#roleSearchResults.size,
       rolePairCount: rolePairs.length,
@@ -367,6 +435,8 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         references.transferTests),
       activatedCounterScenarioOrdinals: ordinalSet(this.#activatedCounterScenarios,
         references.counterScenarios),
+      activeHypothesis: this.#activeHypothesis !== null,
+      closedHypothesisCount: this.#closedHypotheses.length,
       positive: Object.freeze({ eligible: positiveMissing.length === 0,
         missingPrerequisites: positiveMissing }),
       exhaustion: Object.freeze({ eligible: exhaustionMissing.length === 0,
@@ -441,6 +511,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         return Object.freeze({ kind: "PROTOTYPE_ACTION" as const, ...zero,
           acceptedActionCount: accepted ? 1 : 0 });
       }
+      if (["open_exploration_hypothesis", "revise_exploration_hypothesis",
+        "close_exploration_hypothesis"].includes(input.context.toolName)) {
+        return Object.freeze({ kind: "HYPOTHESIS_ACTION" as const, ...zero,
+          acceptedActionCount: accepted ? 1 : 0 });
+      }
       if (input.context.toolName === "submit_mechanism_exploration_trailhead") {
         return Object.freeze({ kind: "POSITIVE_TERMINAL" as const, ...zero,
           acceptedTerminalCount: accepted ? 1 : 0 });
@@ -451,6 +526,8 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       }
       return Object.freeze({ kind: "OTHER" as const, ...zero });
     })();
+    const hypothesisEvent = this.#pendingHypothesisEvents.get(input.context.callId);
+    this.#pendingHypothesisEvents.delete(input.context.callId);
     this.store?.saveMechanismPrototypeExplorationStepObservations([
       buildMechanismPrototypeExplorationStepObservation({
         researchInput: this.researchInput,
@@ -470,6 +547,12 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           appliedTransferTestOrdinals: readiness.appliedTransferTestOrdinals,
           failedTransferTestOrdinals: readiness.failedTransferTestOrdinals,
           activatedCounterScenarioOrdinals: readiness.activatedCounterScenarioOrdinals,
+          activeHypothesis: readiness.activeHypothesis,
+          closedHypothesisCount: readiness.closedHypothesisCount,
+        }),
+        ...(hypothesisEvent === undefined ? {} : {
+          hypothesisEvent: hypothesisEvent.event,
+          hypothesisAfter: hypothesisEvent.hypothesis,
         }),
       }),
     ]);
@@ -531,6 +614,102 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
         authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_ONLY",
       }));
+    }
+    if (context.toolName === "open_exploration_hypothesis") {
+      exactKeys(input, ["prototypeTestHandle", "materialVariation", "predictedRoleStructure",
+        "supportingObservation", "falsifyingObservation", "searchNeighborhoods"]);
+      if (this.#activeHypothesis !== null) {
+        return this.#rejected("close or revise the active exploration hypothesis first");
+      }
+      const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+      const binding = [...references.transferTests.map((item, index) => ({ item, index,
+        kind: "TRANSFER_TEST" as const })),
+      ...references.counterScenarios.map((item, index) => ({ item, index,
+        kind: "COUNTER_SCENARIO" as const }))]
+        .find(({ item }) => item.handle === input.prototypeTestHandle);
+      if (binding === undefined) {
+        return this.#rejected("hypothesis requires an exact prototype test handle from the lens");
+      }
+      const hypothesisId = hashCanonical(Object.freeze({
+        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis-identity.v1",
+        inputRevisionId: this.researchInput.inputRevisionId,
+        sourceAgentRunId: context.run.runId,
+        openingToolCallId: context.callId,
+      }));
+      const hypothesis = Object.freeze({
+        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v1" as const,
+        hypothesisId, revision: 1, status: "ACTIVE" as const,
+        testBinding: Object.freeze({ kind: binding.kind, ordinal: binding.index + 1,
+          handle: binding.item.handle, exactText: binding.item.text }),
+        materialVariation: input.materialVariation as string,
+        predictedRoleStructure: input.predictedRoleStructure as string,
+        supportingObservation: input.supportingObservation as string,
+        falsifyingObservation: input.falsifyingObservation as string,
+        searchNeighborhoods: Object.freeze([...(input.searchNeighborhoods as readonly string[])]),
+        revisionReason: null, disposition: null,
+        observedSupport: Object.freeze([]), observedFalsifiers: Object.freeze([]), rationale: null,
+        authority: "AGENT_RESEARCH_HYPOTHESIS_ONLY" as const,
+        semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
+        certificateAuthority: false as const, executionAuthority: false as const,
+        externalWriteAuthority: false as const, valueMovingAuthority: false as const,
+      });
+      this.#activeHypothesis = hypothesis;
+      this.#pendingHypothesisEvents.set(context.callId, Object.freeze({
+        event: "OPENED", hypothesis,
+      }));
+      return this.#accepted(Object.freeze({ hypothesisId, revision: 1,
+        status: "ACTIVE", authority: hypothesis.authority }));
+    }
+    if (context.toolName === "revise_exploration_hypothesis") {
+      exactKeys(input, ["materialVariation", "predictedRoleStructure",
+        "supportingObservation", "falsifyingObservation", "searchNeighborhoods",
+        "revisionReason"]);
+      const active = this.#activeHypothesis;
+      if (active === null) return this.#rejected("no active exploration hypothesis to revise");
+      const hypothesis = Object.freeze({ ...active, revision: active.revision + 1,
+        materialVariation: input.materialVariation as string,
+        predictedRoleStructure: input.predictedRoleStructure as string,
+        supportingObservation: input.supportingObservation as string,
+        falsifyingObservation: input.falsifyingObservation as string,
+        searchNeighborhoods: Object.freeze([...(input.searchNeighborhoods as readonly string[])]),
+        revisionReason: input.revisionReason as string,
+      });
+      this.#activeHypothesis = hypothesis;
+      this.#pendingHypothesisEvents.set(context.callId, Object.freeze({
+        event: "REVISED", hypothesis,
+      }));
+      return this.#accepted(Object.freeze({ hypothesisId: hypothesis.hypothesisId,
+        revision: hypothesis.revision, status: "ACTIVE", authority: hypothesis.authority }));
+    }
+    if (context.toolName === "close_exploration_hypothesis") {
+      exactKeys(input, ["disposition", "observedSupport", "observedFalsifiers", "rationale"]);
+      const active = this.#activeHypothesis;
+      if (active === null) return this.#rejected("no active exploration hypothesis to close");
+      const disposition = input.disposition as "SUPPORTED" | "WEAKENED" |
+        "FALSIFIED" | "UNRESOLVED";
+      const observedSupport = input.observedSupport as readonly string[];
+      const observedFalsifiers = input.observedFalsifiers as readonly string[];
+      if (disposition === "SUPPORTED" && observedSupport.length === 0) {
+        return this.#rejected("SUPPORTED hypothesis closure requires observed support");
+      }
+      if (disposition === "FALSIFIED" && observedFalsifiers.length === 0) {
+        return this.#rejected("FALSIFIED hypothesis closure requires an observed falsifier");
+      }
+      const hypothesis = Object.freeze({ ...active, revision: active.revision + 1,
+        status: "CLOSED" as const,
+        disposition,
+        observedSupport: Object.freeze([...observedSupport]),
+        observedFalsifiers: Object.freeze([...observedFalsifiers]),
+        rationale: input.rationale as string,
+      });
+      this.#closedHypotheses.push(hypothesis);
+      this.#activeHypothesis = null;
+      this.#pendingHypothesisEvents.set(context.callId, Object.freeze({
+        event: "CLOSED", hypothesis,
+      }));
+      return this.#accepted(Object.freeze({ hypothesisId: hypothesis.hypothesisId,
+        revision: hypothesis.revision, status: "CLOSED",
+        disposition: hypothesis.disposition, authority: hypothesis.authority }));
     }
     const transferAction = context.toolName.match(
       /^mark_transfer_test_([1-9][0-9]*)_(applied|failed)$/u,
@@ -682,6 +861,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           "mechanism exploration positive requires an applied transfer-test action",
         );
       }
+      if (this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null) {
+        return this.#rejected(
+          "mechanism exploration positive requires one closed falsifiable hypothesis",
+        );
+      }
       const trailhead = buildMechanismPrototypeExplorationTrailhead({
         researchInput: this.researchInput, prototype: this.prototype, corpus: this.corpus,
         sourceAgentRunId: context.run.runId,
@@ -732,6 +916,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       if (this.#failedTransferTests.size === 0) {
         return this.#rejected(
           "mechanism exploration exhaustion requires a failed transfer-test action",
+        );
+      }
+      if (this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null) {
+        return this.#rejected(
+          "mechanism exploration exhaustion requires one closed falsifiable hypothesis",
         );
       }
       const roleSearchResults = [...this.#roleSearchResults.values()];

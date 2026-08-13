@@ -823,6 +823,26 @@ type WorldStateMechanismProjection = Readonly<{
         invocationCount: number;
         knownInputTokens: string;
       }>;
+      hypotheses?: ReadonlyArray<Readonly<{
+        hypothesisId: string;
+        revisions: ReadonlyArray<Readonly<{
+          revision: number;
+          status: "ACTIVE" | "CLOSED";
+        }>>;
+        final: Readonly<{
+          materialVariation: string;
+          predictedRoleStructure: string;
+          falsifyingObservation: string;
+          status: "ACTIVE" | "CLOSED";
+          disposition: "SUPPORTED" | "WEAKENED" | "FALSIFIED" | "UNRESOLVED" | null;
+          observedSupport: readonly string[];
+          observedFalsifiers: readonly string[];
+          rationale: string | null;
+          semanticDecisionAuthority: false;
+        }>;
+        openedEffectOrdinal: number;
+        closedEffectOrdinal: number | null;
+      }>>;
     }>>;
     currentCorpusAuthority: false;
     currentEligibilityAuthority: false;
@@ -4647,7 +4667,7 @@ function AgentOperationsView() {
                 </Badge>
               </div>
               {worldStateMechanisms.mechanismPrototypeExplorationMemory.episodes.length === 0 ? (
-                <small>No V9 effect ledger has completed yet.</small>
+                <small>No exploration effect ledger has completed yet.</small>
               ) : (
                 <div className="mechanism-experiment-rows">
                   {worldStateMechanisms.mechanismPrototypeExplorationMemory.episodes.slice(0, 4).map((episode) => (
@@ -4660,6 +4680,19 @@ function AgentOperationsView() {
                       </div>
                       <span>{episode.yield.searchEffectCount} searches · {episode.yield.rawHitCount} raw → {episode.yield.qualifiedHitCount} qualified → {episode.yield.rolePairCount} pairs · {episode.yield.inspectedListingCount} inspected</span>
                       <span>{episode.usage.invocationCount} calls · {formatTokenCount(episode.usage.knownInputTokens)} input · {episode.yield.rejectedEffectCount} rejected effects</span>
+                      {episode.hypotheses?.map((hypothesis) => (
+                        <div key={hypothesis.hypothesisId} className="mechanism-hypothesis-summary">
+                          <div>
+                            <Badge variant={hypothesis.final.disposition === "SUPPORTED" ? "verified" : hypothesis.final.disposition === "FALSIFIED" ? "warning" : "shadow"}>
+                              {hypothesis.final.disposition ?? "ACTIVE"}
+                            </Badge>
+                            <strong>{hypothesis.final.materialVariation}</strong>
+                          </div>
+                          <span>Predicted: {hypothesis.final.predictedRoleStructure}</span>
+                          <small>Would falsify: {hypothesis.final.falsifyingObservation}</small>
+                          <small>{hypothesis.revisions.length} revisions · effects {hypothesis.openedEffectOrdinal}→{hypothesis.closedEffectOrdinal ?? "open"} · research hypothesis only</small>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>

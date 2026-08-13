@@ -6170,7 +6170,9 @@ export class SqliteOperationalStore
         task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V6" ||
         task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V7" ||
         task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V8" ||
-        task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V9") &&
+        ["MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V9",
+          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V10"]
+          .includes(task.requestedEffectProtocol)) &&
       task.provenanceRef === `mechanism-prototype-exploration:${input.lensId}`;
   }
 

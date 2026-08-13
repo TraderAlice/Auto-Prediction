@@ -3069,6 +3069,29 @@ footer {
   font-size: 12px;
 }
 
+.mechanism-hypothesis-summary {
+  display: grid !important;
+  align-items: initial !important;
+  justify-content: initial !important;
+  gap: 5px !important;
+  margin-top: 3px;
+  padding: 9px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--primary) 65%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 5%, var(--muted));
+}
+
+.mechanism-hypothesis-summary > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.mechanism-hypothesis-summary strong {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .mechanism-seed-pair {
   display: grid;
   gap: 5px;

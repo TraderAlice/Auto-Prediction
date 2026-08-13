@@ -38,7 +38,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V9" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V10" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -293,8 +293,80 @@ export type MechanismPrototypeExplorationActionObservation = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export const MECHANISM_PROTOTYPE_EXPLORATION_HYPOTHESIS_DISPOSITIONS = Object.freeze([
+  "SUPPORTED", "WEAKENED", "FALSIFIED", "UNRESOLVED",
+] as const);
+
+export type MechanismPrototypeExplorationHypothesis = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v1";
+  hypothesisId: Hash;
+  revision: number;
+  status: "ACTIVE" | "CLOSED";
+  testBinding: Readonly<{
+    kind: "TRANSFER_TEST" | "COUNTER_SCENARIO";
+    ordinal: number;
+    handle: string;
+    exactText: string;
+  }>;
+  materialVariation: string;
+  predictedRoleStructure: string;
+  supportingObservation: string;
+  falsifyingObservation: string;
+  searchNeighborhoods: readonly string[];
+  revisionReason: string | null;
+  disposition: (typeof MECHANISM_PROTOTYPE_EXPLORATION_HYPOTHESIS_DISPOSITIONS)[number] | null;
+  observedSupport: readonly string[];
+  observedFalsifiers: readonly string[];
+  rationale: string | null;
+  authority: "AGENT_RESEARCH_HYPOTHESIS_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
+export function assertMechanismPrototypeExplorationHypothesis(
+  value: unknown,
+): MechanismPrototypeExplorationHypothesis {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("mechanism exploration hypothesis is malformed");
+  }
+  const item = value as Readonly<Record<string, unknown>>;
+  const binding = item.testBinding as Readonly<Record<string, unknown>> | undefined;
+  const strings = [item.materialVariation, item.predictedRoleStructure,
+    item.supportingObservation, item.falsifyingObservation];
+  const arrays = [item.searchNeighborhoods, item.observedSupport, item.observedFalsifiers];
+  if (item.schemaVersion !== "pmh.mechanism-prototype-exploration-hypothesis.v1" ||
+      !HASH_PATTERN.test(String(item.hypothesisId)) ||
+      !Number.isSafeInteger(item.revision) || Number(item.revision) < 1 ||
+      !["ACTIVE", "CLOSED"].includes(String(item.status)) || binding === undefined ||
+      !["TRANSFER_TEST", "COUNTER_SCENARIO"].includes(String(binding.kind)) ||
+      !Number.isSafeInteger(binding.ordinal) || Number(binding.ordinal) < 1 ||
+      typeof binding.handle !== "string" || binding.handle.length < 1 ||
+      typeof binding.exactText !== "string" || binding.exactText.length < 1 ||
+      strings.some((text) => typeof text !== "string" || text.length < 1 || text.length > 2_000) ||
+      arrays.some((values) => !Array.isArray(values) || values.length > 12 ||
+        values.some((text) => typeof text !== "string" || text.length < 1 || text.length > 500)) ||
+      (item.revisionReason !== null && (typeof item.revisionReason !== "string" ||
+        item.revisionReason.length < 1 || item.revisionReason.length > 2_000)) ||
+      (item.status === "ACTIVE" ? item.disposition !== null || item.rationale !== null
+        : !MECHANISM_PROTOTYPE_EXPLORATION_HYPOTHESIS_DISPOSITIONS
+          .includes(item.disposition as never) || typeof item.rationale !== "string" ||
+          item.rationale.length < 1 || item.rationale.length > 2_000) ||
+      item.authority !== "AGENT_RESEARCH_HYPOTHESIS_ONLY" ||
+      item.semanticDecisionAuthority !== false || item.probabilityAuthority !== false ||
+      item.certificateAuthority !== false || item.executionAuthority !== false ||
+      item.externalWriteAuthority !== false || item.valueMovingAuthority !== false) {
+    throw new Error("mechanism exploration hypothesis is invalid");
+  }
+  return value as MechanismPrototypeExplorationHypothesis;
+}
+
 export type MechanismPrototypeExplorationStepObservation = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-step-observation.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-step-observation.v1" |
+    "pmh.mechanism-prototype-exploration-step-observation.v2";
   observationId: Hash;
   lensId: Hash;
   inputRevisionId: Hash;
@@ -311,7 +383,7 @@ export type MechanismPrototypeExplorationStepObservation = Readonly<{
   resultSummary: Readonly<{
     kind: "LENS_READ" | "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
       "PROTOTYPE_ACTION" | "POSITIVE_TERMINAL" | "EXHAUSTION_TERMINAL" |
-      "OTHER";
+      "HYPOTHESIS_ACTION" | "OTHER";
     rawHitCount: number;
     qualifiedHitCount: number;
     pairCount: number;
@@ -332,7 +404,11 @@ export type MechanismPrototypeExplorationStepObservation = Readonly<{
     appliedTransferTestOrdinals: readonly number[];
     failedTransferTestOrdinals: readonly number[];
     activatedCounterScenarioOrdinals: readonly number[];
+    activeHypothesis?: boolean;
+    closedHypothesisCount?: number;
   }>;
+  hypothesisEvent?: "OPENED" | "REVISED" | "CLOSED";
+  hypothesisAfter?: MechanismPrototypeExplorationHypothesis;
   observedAt: string;
   authority: "DURABLE_EXPLORATION_EXPERIMENT_STEP_ONLY";
   semanticDecisionAuthority: false;
@@ -344,7 +420,8 @@ export type MechanismPrototypeExplorationStepObservation = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationExperimentEpisode = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-experiment-episode.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-experiment-episode.v1" |
+    "pmh.mechanism-prototype-exploration-experiment-episode.v2";
   episodeId: Hash;
   lensId: Hash;
   inputRevisionId: Hash;
@@ -377,6 +454,15 @@ export type MechanismPrototypeExplorationExperimentEpisode = Readonly<{
     readinessAfter: MechanismPrototypeExplorationStepObservation["readinessAfter"];
     positiveBecameEligible: boolean;
     exhaustionBecameEligible: boolean;
+    hypothesisEvent?: "OPENED" | "REVISED" | "CLOSED";
+    hypothesisAfter?: MechanismPrototypeExplorationHypothesis;
+  }>[];
+  hypotheses?: readonly Readonly<{
+    hypothesisId: Hash;
+    revisions: readonly MechanismPrototypeExplorationHypothesis[];
+    final: MechanismPrototypeExplorationHypothesis;
+    openedEffectOrdinal: number;
+    closedEffectOrdinal: number | null;
   }>[];
   yield: Readonly<{
     effectCount: number;
@@ -2256,6 +2342,8 @@ export function buildMechanismPrototypeExplorationStepObservation(input: Readonl
   sourceToolCallId: string;
   readinessAfter: MechanismPrototypeExplorationStepObservation["readinessAfter"];
   resultSummary: MechanismPrototypeExplorationStepObservation["resultSummary"];
+  hypothesisEvent?: MechanismPrototypeExplorationStepObservation["hypothesisEvent"];
+  hypothesisAfter?: MechanismPrototypeExplorationHypothesis;
 }>): MechanismPrototypeExplorationStepObservation {
   const researchInput = assertMechanismPrototypeExplorationInputRevision(input.researchInput);
   const effect = input.effect;
@@ -2265,7 +2353,7 @@ export function buildMechanismPrototypeExplorationStepObservation(input: Readonl
     throw new Error("mechanism exploration step requires an exact V3 effect lineage");
   }
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-step-observation.v1" as const,
+    schemaVersion: "pmh.mechanism-prototype-exploration-step-observation.v2" as const,
     lensId: researchInput.lensId,
     inputRevisionId: researchInput.inputRevisionId,
     semanticInputIdentity: researchInput.semanticInputIdentity,
@@ -2279,7 +2367,15 @@ export function buildMechanismPrototypeExplorationStepObservation(input: Readonl
     toolName: effect.toolName,
     status: effect.status,
     resultSummary: input.resultSummary,
-    readinessAfter: input.readinessAfter,
+    readinessAfter: Object.freeze({
+      ...input.readinessAfter,
+      activeHypothesis: input.readinessAfter.activeHypothesis ?? false,
+      closedHypothesisCount: input.readinessAfter.closedHypothesisCount ?? 0,
+    }),
+    ...(input.hypothesisEvent === undefined ? {} : {
+      hypothesisEvent: input.hypothesisEvent,
+      hypothesisAfter: input.hypothesisAfter,
+    }),
     observedAt: effect.occurredAt,
     authority: "DURABLE_EXPLORATION_EXPERIMENT_STEP_ONLY" as const,
     semanticDecisionAuthority: false as const,
@@ -2309,7 +2405,9 @@ export function assertMechanismPrototypeExplorationStepObservation(
     readiness.activatedCounterScenarioOrdinals,
   ];
   if (!HASH_PATTERN.test(String(observationId)) || hashCanonical(body) !== observationId ||
-      item.schemaVersion !== "pmh.mechanism-prototype-exploration-step-observation.v1" ||
+      !["pmh.mechanism-prototype-exploration-step-observation.v1",
+        "pmh.mechanism-prototype-exploration-step-observation.v2"]
+        .includes(String(item.schemaVersion)) ||
       !HASH_PATTERN.test(String(item.lensId)) ||
       !HASH_PATTERN.test(String(item.inputRevisionId)) ||
       !HASH_PATTERN.test(String(item.semanticInputIdentity)) ||
@@ -2323,7 +2421,8 @@ export function assertMechanismPrototypeExplorationStepObservation(
       !["ACCEPTED", "REJECTED"].includes(String(item.status)) ||
       summary === undefined || ![
         "LENS_READ", "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
-        "PROTOTYPE_ACTION", "POSITIVE_TERMINAL", "EXHAUSTION_TERMINAL", "OTHER",
+        "PROTOTYPE_ACTION", "POSITIVE_TERMINAL", "EXHAUSTION_TERMINAL",
+        "HYPOTHESIS_ACTION", "OTHER",
       ].includes(String(summary.kind)) || [
         summary.rawHitCount, summary.qualifiedHitCount, summary.pairCount,
         summary.inspectedListingCount, summary.acceptedActionCount,
@@ -2346,6 +2445,18 @@ export function assertMechanismPrototypeExplorationStepObservation(
       item.certificateAuthority !== false || item.executionAuthority !== false ||
       item.externalWriteAuthority !== false || item.valueMovingAuthority !== false) {
     throw new Error("mechanism exploration step observation identity is invalid");
+  }
+  if (item.schemaVersion === "pmh.mechanism-prototype-exploration-step-observation.v2" &&
+      (typeof readiness?.activeHypothesis !== "boolean" ||
+       !Number.isSafeInteger(readiness.closedHypothesisCount) ||
+       Number(readiness.closedHypothesisCount) < 0 ||
+       (item.hypothesisEvent === undefined) !== (item.hypothesisAfter === undefined) ||
+       (item.hypothesisEvent !== undefined &&
+        !["OPENED", "REVISED", "CLOSED"].includes(String(item.hypothesisEvent))))) {
+    throw new Error("mechanism exploration V2 hypothesis step is invalid");
+  }
+  if (item.hypothesisAfter !== undefined) {
+    assertMechanismPrototypeExplorationHypothesis(item.hypothesisAfter);
   }
   return value as MechanismPrototypeExplorationStepObservation;
 }
@@ -2435,6 +2546,10 @@ export function compileMechanismPrototypeExplorationExperimentEpisodes(input: Re
         positiveBecameEligible: after.positiveEligible && !(before?.positiveEligible ?? false),
         exhaustionBecameEligible: after.exhaustionEligible &&
           !(before?.exhaustionEligible ?? false),
+        ...(step.hypothesisEvent === undefined ? {} : {
+          hypothesisEvent: step.hypothesisEvent,
+          hypothesisAfter: step.hypothesisAfter,
+        }),
       });
       priorReadiness = after;
       return compiled;
@@ -2456,8 +2571,34 @@ export function compileMechanismPrototypeExplorationExperimentEpisodes(input: Re
     if (positiveTerminal && exhaustionTerminal) {
       throw new Error("mechanism exploration episode has competing accepted terminals");
     }
+    const hypothesisRevisions = episodeSteps.flatMap((step) =>
+      step.hypothesisAfter === undefined ? [] : [Object.freeze({
+        effectOrdinal: step.effectOrdinal, hypothesis: step.hypothesisAfter,
+      })]
+    );
+    const hypotheses = Object.freeze([...new Set(hypothesisRevisions.map((item) =>
+      item.hypothesis.hypothesisId
+    ))].map((hypothesisId) => {
+      const history = hypothesisRevisions.filter((item) =>
+        item.hypothesis.hypothesisId === hypothesisId
+      );
+      const revisions = Object.freeze(history.map((item) => item.hypothesis));
+      const final = revisions.at(-1)!;
+      if (history.some((item, index) => item.hypothesis.revision !== index + 1) ||
+          history[0]?.hypothesis.status !== "ACTIVE" ||
+          (final.status === "CLOSED" && final.disposition === null)) {
+        throw new Error("mechanism exploration hypothesis lifecycle is inconsistent");
+      }
+      return Object.freeze({ hypothesisId, revisions, final,
+        openedEffectOrdinal: history[0]!.effectOrdinal,
+        closedEffectOrdinal: final.status === "CLOSED"
+          ? history.at(-1)!.effectOrdinal : null });
+    }));
+    const episodeSchemaVersion = hypotheses.length === 0
+      ? "pmh.mechanism-prototype-exploration-experiment-episode.v1" as const
+      : "pmh.mechanism-prototype-exploration-experiment-episode.v2" as const;
     const body = Object.freeze({
-      schemaVersion: "pmh.mechanism-prototype-exploration-experiment-episode.v1" as const,
+      schemaVersion: episodeSchemaVersion,
       lensId: first.lensId,
       inputRevisionId: first.inputRevisionId,
       semanticInputIdentity: first.semanticInputIdentity,
@@ -2478,6 +2619,7 @@ export function compileMechanismPrototypeExplorationExperimentEpisodes(input: Re
         step.exhaustionBecameEligible
       )?.effectOrdinal ?? null,
       steps: episodeSteps,
+      ...(hypotheses.length === 0 ? {} : { hypotheses }),
       yield: Object.freeze({
         effectCount: episodeSteps.length,
         acceptedEffectCount: episodeSteps.filter((step) =>
