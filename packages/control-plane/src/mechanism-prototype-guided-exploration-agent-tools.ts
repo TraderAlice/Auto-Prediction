@@ -272,16 +272,13 @@ const BASE_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: "open_exploration_hypothesis",
-    description: "Open one falsifiable ontological conjecture before any prototype action. The test handle, family intent, and prior family combination is constrained to an exact legal branch. This routes research only and does not assert a semantic relation.",
+    description: "Open one falsifiable ontological conjecture before any prototype action. Select one host-enumerated exact test/family choice and state in advance what would support or falsify it. This routes research only and does not assert a semantic relation.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
-      required: ["prototypeTestHandle", "familyIntent", "priorFamilyId",
-        "intentRationale", "materialVariation", "predictedRoleStructure",
+      required: ["hypothesisChoice", "intentRationale", "materialVariation", "predictedRoleStructure",
         "supportingObservation", "falsifyingObservation", "searchNeighborhoods"],
       properties: {
-        prototypeTestHandle: text(80),
-        familyIntent: Object.freeze({ enum: ["EXTEND", "REPLICATE", "DIFFERENT_TEST"] }),
-        priorFamilyId: Object.freeze({ type: ["string", "null"], maxLength: 80 }),
+        hypothesisChoice: text(250),
         intentRationale: text(2_000), materialVariation: text(2_000),
         predictedRoleStructure: text(2_000), supportingObservation: text(2_000),
         falsifyingObservation: text(2_000), searchNeighborhoods: texts(1, 12),
@@ -405,23 +402,15 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         family.prototypeId === this.researchInput.prototypeId &&
         family.axis === this.researchInput.axis && family.testBinding.handle === item.handle &&
         family.testBinding.exactText === item.text) }))];
-    const legalHypothesisBranches: Readonly<Record<string, unknown>>[] = [];
+    const legalHypothesisChoices: string[] = [];
     for (const { item, families } of legalBindings) {
       if (families.length === 0) {
-        legalHypothesisBranches.push(Object.freeze({
-          prototypeTestHandle: Object.freeze({ const: item.handle }),
-          familyIntent: Object.freeze({ const: "DIFFERENT_TEST" }),
-          priorFamilyId: Object.freeze({ type: "null" }),
-        }));
+        legalHypothesisChoices.push(`${item.handle}|DIFFERENT_TEST|NEW`);
         continue;
       }
       for (const family of families) {
         for (const familyIntent of ["EXTEND", "REPLICATE"] as const) {
-          legalHypothesisBranches.push(Object.freeze({
-            prototypeTestHandle: Object.freeze({ const: item.handle }),
-            familyIntent: Object.freeze({ const: familyIntent }),
-            priorFamilyId: Object.freeze({ const: family.familyId }),
-          }));
+          legalHypothesisChoices.push(`${item.handle}|${familyIntent}|${family.familyId}`);
         }
       }
     }
@@ -431,14 +420,20 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         inputSchema: Object.freeze({ ...definition.inputSchema,
           properties: Object.freeze({
             ...(definition.inputSchema.properties as Readonly<Record<string, unknown>>),
-            prototypeTestHandle: Object.freeze({ type: "string" }),
+            hypothesisChoice: Object.freeze({ enum: Object.freeze(legalHypothesisChoices) }),
           }),
-          allOf: Object.freeze([{ oneOf: Object.freeze(legalHypothesisBranches.map((branch) =>
-            Object.freeze({ properties: branch })))}]),
         }),
       })
     );
-    return Object.freeze(baseManifest);
+    const legalNames = new Set(this.completionRecoveryToolNames(protocol));
+    return Object.freeze(baseManifest.filter((definition) => legalNames.has(definition.name)));
+  }
+
+  public manifestRefreshPolicy(protocol: string): "AFTER_ACCEPTED_EFFECT" {
+    if (protocol !== MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL) {
+      throw new Error("mechanism exploration tool protocol is unsupported");
+    }
+    return "AFTER_ACCEPTED_EFFECT";
   }
 
   public resultToolNames(protocol: string): readonly string[] {
@@ -805,18 +800,26 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       }));
     }
     if (context.toolName === "open_exploration_hypothesis") {
-      exactKeys(input, ["prototypeTestHandle", "familyIntent", "priorFamilyId",
-        "intentRationale", "materialVariation", "predictedRoleStructure",
+      exactKeys(input, ["hypothesisChoice", "intentRationale", "materialVariation", "predictedRoleStructure",
         "supportingObservation", "falsifyingObservation", "searchNeighborhoods"]);
       if (this.#activeHypothesis !== null) {
         return this.#rejected("close or revise the active exploration hypothesis first");
       }
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+      const choice = input.hypothesisChoice;
+      if (typeof choice !== "string") {
+        throw new Error("hypothesis choice is invalid");
+      }
+      const [prototypeTestHandle, rawIntent, rawPrior, ...extra] = choice.split("|");
+      if (extra.length > 0 || prototypeTestHandle === undefined || rawIntent === undefined ||
+          rawPrior === undefined) {
+        throw new Error("hypothesis choice is malformed");
+      }
       const binding = [...references.transferTests.map((item, index) => ({ item, index,
         kind: "TRANSFER_TEST" as const })),
       ...references.counterScenarios.map((item, index) => ({ item, index,
         kind: "COUNTER_SCENARIO" as const }))]
-        .find(({ item }) => item.handle === input.prototypeTestHandle);
+        .find(({ item }) => item.handle === prototypeTestHandle);
       if (binding === undefined) {
         return this.#rejected("hypothesis requires an exact prototype test handle from the lens");
       }
@@ -826,8 +829,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         family.testBinding.handle === binding.item.handle &&
         family.testBinding.exactText === binding.item.text
       );
-      const familyIntent = input.familyIntent as "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
-      const priorFamilyId = input.priorFamilyId as Hash | null;
+      if (!["EXTEND", "REPLICATE", "DIFFERENT_TEST"].includes(rawIntent)) {
+        throw new Error("hypothesis family intent is invalid");
+      }
+      const familyIntent = rawIntent as "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
+      const priorFamilyId = rawPrior === "NEW" ? null : rawPrior as Hash;
       if (familyIntent === "DIFFERENT_TEST" &&
           (matchingFamilies.length > 0 || priorFamilyId !== null)) {
         return this.#rejected(

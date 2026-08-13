@@ -787,8 +787,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     return input.host.execute({ task: input.lens.task, run: input.run,
       executionProfile: input.profile, callId: `hypothesis:${input.suffix}:open`,
       toolName: "open_exploration_hypothesis", input: {
-        prototypeTestHandle: input.prototypeTestHandle ?? "transfer-test:1",
-        familyIntent: "DIFFERENT_TEST", priorFamilyId: null,
+        hypothesisChoice: `${input.prototypeTestHandle ?? "transfer-test:1"}|DIFFERENT_TEST|NEW`,
         intentRationale: "No exact prior family exists for this bounded fixture test.",
         materialVariation: "Move the component/aggregate mechanism into the searched neighborhood.",
         predictedRoleStructure: "A bounded component outcome and a distinct aggregate dependent coexist.",
@@ -994,8 +993,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const calls = [
       { callId: "hypothesis:open", toolName: "open_exploration_hypothesis", input: {
-        prototypeTestHandle: "transfer-test:1", familyIntent: "DIFFERENT_TEST",
-        priorFamilyId: null,
+        hypothesisChoice: "transfer-test:1|DIFFERENT_TEST|NEW",
         intentRationale: "No exact prior family exists for this fixture.",
         materialVariation: "Transfer into sports.",
         predictedRoleStructure: "Race component and championship aggregate.",
@@ -1093,8 +1091,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     await expect(nextHost.execute({ task: lens.task, run, executionProfile: profile,
       callId: "hypothesis:duplicate", toolName: "open_exploration_hypothesis", input: {
-        prototypeTestHandle: "transfer-test:1", familyIntent: "DIFFERENT_TEST",
-        priorFamilyId: null, intentRationale: "Pretend this exact test is new.",
+        hypothesisChoice: "transfer-test:1|DIFFERENT_TEST|NEW",
+        intentRationale: "Pretend this exact test is new.",
         materialVariation: "Paraphrase the same transfer.",
         predictedRoleStructure: "Same component and aggregate.",
         supportingObservation: "Same support.", falsifyingObservation: "Same falsifier.",
@@ -1104,8 +1102,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       } });
     await expect(nextHost.execute({ task: lens.task, run, executionProfile: profile,
       callId: "hypothesis:extend", toolName: "open_exploration_hypothesis", input: {
-        prototypeTestHandle: "transfer-test:1", familyIntent: "EXTEND",
-        priorFamilyId: family.familyId,
+        hypothesisChoice: `transfer-test:1|EXTEND|${family.familyId}`,
         intentRationale: "Extend the exact family into a new settlement-time neighborhood.",
         materialVariation: "Change temporal scope while retaining the exact test.",
         predictedRoleStructure: "Component resolves earlier than aggregate.",
@@ -1121,10 +1118,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
       lens.currentInputRevision, prototype, snapshot,
     );
     const manifest = host.manifest(lens.task.requestedEffectProtocol);
-    expect(manifest.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+    expect(manifest.map((tool) => tool.name)).toEqual([
       "read_mechanism_exploration_context",
-      "record_active_prototype_test_outcome",
-    ]));
+    ]);
+    expect(host.manifestRefreshPolicy(lens.task.requestedEffectProtocol))
+      .toBe("AFTER_ACCEPTED_EFFECT");
     expect(manifest.map((tool) => tool.name)).not.toEqual(expect.arrayContaining([
       "read_corpus_dialect_atlas", "mark_transfer_test_1_applied",
       "mark_transfer_test_1_failed", "activate_counter_scenario_1",
