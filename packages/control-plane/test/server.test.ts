@@ -457,7 +457,7 @@ describe("control-plane HTTP surface", () => {
         schemaVersion: "pmh.world-state-mechanism-projection.v9",
         routeCount: 0,
         mechanismPrototypeExplorationMemory: {
-          schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v4",
+          schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v5",
           episodeCount: 0,
           currentCorpusAuthority: false,
           currentEligibilityAuthority: false,
@@ -486,7 +486,7 @@ describe("control-plane HTTP surface", () => {
         schemaVersion: "pmh.world-state-mechanism-projection.v9",
         routeCount: 0,
         mechanismPrototypeExplorationMemory: {
-          schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v4",
+          schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v5",
           currentCorpusAuthority: false,
           currentEligibilityAuthority: false,
         },
@@ -3569,7 +3569,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-            schemaVersion: 58,
+            schemaVersion: 59,
         },
         records: [{ investigationId: created.investigationId }],
       });

@@ -1,6 +1,16 @@
 # Plans
 
 The active execution continuation is
+[`plans/representation-role-coverage-feedback.md`](plans/representation-role-coverage-feedback.md).
+Issue #243 follows the adopted dialect atlas. Exact live evidence distinguishes
+a real source absence from an ontology blind spot: nine Opinion `A vs B`
+component candidates existed but the current first-party role classifier
+rejected all nine. The next generation will compile this representation-role
+gap into descriptive acquisition/ontology/bridge feedback and retain exact
+flat-search coordinates, without treating lexical retrieval as semantic
+realization or automatically changing the classifier.
+
+The active execution continuation is
 [`plans/corpus-dialect-atlas.md`](plans/corpus-dialect-atlas.md).
 Issue #241 follows the first portfolio-guided `EXTEND` specimen. The Agent
 selected the intended experiment but guessed a generic sports vocabulary that

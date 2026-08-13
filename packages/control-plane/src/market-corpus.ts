@@ -309,6 +309,30 @@ export function searchMarketCorpus(
   return Object.freeze({ ...body, resultIdentity: hashCanonical(body) });
 }
 
+export function assertMarketCorpusSearchResult(value: unknown): MarketCorpusSearchResult {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("market corpus search result is malformed");
+  }
+  const result = value as MarketCorpusSearchResult;
+  const { resultIdentity, ...body } = result;
+  if (result.schemaVersion !== "pmh.market-corpus-search.v1" ||
+      !HASH_PATTERN.test(String(result.snapshotIdentity)) ||
+      !HASH_PATTERN.test(String(resultIdentity)) || resultIdentity !== hashCanonical(body) ||
+      !Number.isSafeInteger(result.matchCount) || result.matchCount < result.hits.length ||
+      result.hits.length > MAX_RESULTS || result.truncated !== (result.matchCount > result.hits.length) ||
+      !Array.isArray(result.hits) || result.hits.some((hit) =>
+        typeof hit.listingRef !== "string" || hit.listingRef.trim() === "" ||
+        typeof hit.venueId !== "string" || hit.venueId.trim() === "" ||
+        typeof hit.title !== "string" || !Array.isArray(hit.matchedFields) ||
+        typeof hit.sourceRawHash !== "string" || typeof hit.protocolIdentity !== "string"
+      ) || result.authority !== "SEARCH_EVIDENCE_ONLY" ||
+      result.executionAuthority !== false) {
+    throw new Error("market corpus search result violates its bounded contract");
+  }
+  normalizedSearchQuery(result.query);
+  return Object.freeze(result);
+}
+
 function marketFileName(listing: DiscoveryCatalogListing): string {
   const suffix = hashCanonical({ listingRef: listing.listingRef }).slice(7, 19);
   return `${suffix}.json`;

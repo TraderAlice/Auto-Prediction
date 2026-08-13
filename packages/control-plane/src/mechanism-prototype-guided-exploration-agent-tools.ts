@@ -3,6 +3,8 @@ import {
   buildCorpusDialectAtlas,
   type CorpusDialectAtlas,
 } from "./corpus-dialect-atlas.js";
+import type { RepresentationRoleCoverageFeedback } from
+  "./representation-role-coverage-feedback.js";
 import type {
   AgentRuntimeToolDefinition,
   AgentToolHost,
@@ -10,6 +12,7 @@ import type {
 } from "./agent-runtime-adapter.js";
 import {
   buildMechanismPrototypeExplorationActionObservation,
+  buildMechanismPrototypeExplorationFlatSearchObservation,
   buildMechanismPrototypeExplorationRoleSearchObservation,
   buildMechanismPrototypeExplorationStepObservation,
   buildMechanismPrototypeExplorationExhaustion,
@@ -193,6 +196,11 @@ const BASE_MANIFEST = Object.freeze([
     inputSchema: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
   Object.freeze({
+    name: "read_representation_role_feedback",
+    description: "Read provider-free retained evidence that causally types prior role-search failures as exact-query source absence, a first-party role-ontology blind spot, or a bridge gap. Recommendations are descriptive only and cannot mutate classifiers, acquire sources, schedule work, or assert semantics.",
+    inputSchema: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
+  }),
+  Object.freeze({
     name: "search_mechanism_exploration_corpus",
     description: "Fallback flat search over the exact assigned corpus. Prefer role-aware search when testing a component/aggregate transfer. Output has evidence-routing authority only.",
     inputSchema: Object.freeze({
@@ -360,6 +368,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
   #activeHypothesis: MechanismPrototypeExplorationHypothesis | null = null;
   #lensReadCount = 0;
   #dialectAtlasReadCount = 0;
+  #representationRoleFeedbackReadCount = 0;
   readonly #corpusDialectAtlas: CorpusDialectAtlas;
 
   public constructor(
@@ -370,6 +379,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     private readonly hypothesisFamilies: readonly MechanismPrototypeExplorationHypothesisFamily[] = [],
     private readonly hypothesisIntentAttentionPortfolio?:
       MechanismPrototypeExplorationHypothesisIntentAttentionPortfolio,
+    private readonly representationRoleFeedback?: RepresentationRoleCoverageFeedback,
   ) {
     this.#corpusDialectAtlas = buildCorpusDialectAtlas(corpus);
   }
@@ -457,6 +467,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     if (actionRetained) return Object.freeze(["close_exploration_hypothesis"]);
     if (this.#dialectAtlasReadCount === 0 && this.#searchedResultIds.size === 0) {
       return Object.freeze(["read_corpus_dialect_atlas"]);
+    }
+    if (this.representationRoleFeedback !== undefined &&
+        this.representationRoleFeedback.gapCount > 0 &&
+        this.#representationRoleFeedbackReadCount === 0 && this.#searchedResultIds.size === 0) {
+      return Object.freeze(["read_representation_role_feedback"]);
     }
     const seededListingCount = new Set(this.researchInput.seedTrailheads.flatMap((item) =>
       item.listingRefs
@@ -584,6 +599,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       if (input.context.toolName === "read_corpus_dialect_atlas") {
         return Object.freeze({ kind: "DIALECT_ATLAS_READ" as const, ...zero });
       }
+      if (input.context.toolName === "read_representation_role_feedback") {
+        return Object.freeze({ kind: "REPRESENTATION_ROLE_FEEDBACK_READ" as const, ...zero });
+      }
       if (input.context.toolName === "search_mechanism_exploration_corpus") {
         const hits = Array.isArray(output.hits) ? output.hits.length : 0;
         return Object.freeze({ kind: "FLAT_SEARCH" as const, ...zero,
@@ -680,7 +698,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       }
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
       return this.#accepted(Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v5",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v6",
         inputRevisionId: this.researchInput.inputRevisionId,
         semanticInputIdentity: this.researchInput.semanticInputIdentity,
         lensId: this.researchInput.lensId,
@@ -704,6 +722,29 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           schedulingAuthority: false as const,
           executionAuthority: false as const,
         }),
+        representationRoleFeedback: this.representationRoleFeedback === undefined
+          ? null
+          : Object.freeze({
+              feedbackIdentity: this.representationRoleFeedback.feedbackIdentity,
+              retainedObservationCount:
+                this.representationRoleFeedback.retainedObservationCount,
+              gapCount: this.representationRoleFeedback.gapCount,
+              classificationCounts: this.representationRoleFeedback.classificationCounts,
+              priorityGaps: Object.freeze(this.representationRoleFeedback.gaps.slice(0, 4)
+                .map((gap) => Object.freeze({ gapId: gap.gapId,
+                  classification: gap.classification, role: gap.role,
+                  recommendedAction: gap.recommendedAction,
+                  rawHitCount: gap.rawHitCount,
+                  classifiedHitCount: gap.classifiedHitCount,
+                  observedPredicateFamilies: gap.observedPredicateFamilies,
+                  observedTitleForms: gap.observedTitleForms,
+                  evidenceScope: gap.evidenceScope }))),
+              detailTool: "read_representation_role_feedback" as const,
+              descriptiveOnly: true as const,
+              semanticDecisionAuthority: false as const,
+              schedulingAuthority: false as const,
+              executionAuthority: false as const,
+            }),
         coverage: Object.freeze({
           scopeIdentity: this.researchInput.coverageScopeIdentity ?? null,
           memberCount: this.researchInput.coverageMembers?.length ?? 0,
@@ -779,6 +820,26 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         }));
       }
       return this.#accepted(this.#corpusDialectAtlas);
+    }
+    if (context.toolName === "read_representation_role_feedback") {
+      exactKeys(input, []);
+      this.#representationRoleFeedbackReadCount += 1;
+      if (this.representationRoleFeedback === undefined) {
+        return this.#accepted(Object.freeze({
+          schemaVersion: "pmh.representation-role-coverage-feedback-reference.v1",
+          diagnostic: "no retained representation-role feedback is available",
+          authority: "REPRESENTATION_FEEDBACK_ABSENCE_ONLY",
+        }));
+      }
+      if (this.#representationRoleFeedbackReadCount > 1) {
+        return this.#accepted(Object.freeze({
+          schemaVersion: "pmh.representation-role-coverage-feedback-reference.v1",
+          feedbackIdentity: this.representationRoleFeedback.feedbackIdentity,
+          diagnostic: "representation-role feedback already supplied in this run; continue from retained context",
+          authority: "REPRESENTATION_FEEDBACK_REFERENCE_ONLY",
+        }));
+      }
+      return this.#accepted(this.representationRoleFeedback);
     }
     if (context.toolName === "open_exploration_hypothesis") {
       exactKeys(input, ["prototypeTestHandle", "familyIntent", "priorFamilyId",
@@ -992,6 +1053,15 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         },
       });
       this.#searchedResultIds.add(result.resultIdentity);
+      this.store?.saveMechanismPrototypeExplorationFlatSearchObservations([
+        buildMechanismPrototypeExplorationFlatSearchObservation({
+          researchInput: this.researchInput,
+          sourceAgentRunId: context.run.runId,
+          sourceToolCallId: context.callId,
+          capturedAt: context.run.createdAt,
+          result,
+        }),
+      ]);
       for (const hit of result.hits) this.#searchedListingRefs.add(hit.listingRef);
       return this.#accepted(result);
     }
