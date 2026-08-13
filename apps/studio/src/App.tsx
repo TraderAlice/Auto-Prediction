@@ -360,6 +360,60 @@ type MechanismExplorationCampaignPreview = Readonly<{
   automaticDispatch: false;
   semanticDecisionAuthority: false;
 }>;
+type WorldRelationExperimentCampaignPreview = Readonly<{
+  schemaVersion: "pmh.world-relation-experiment-campaign-preview.v1";
+  campaignKey: string;
+  inputRevisionIds: readonly string[];
+  frontierIds: readonly string[];
+  taskIds: readonly string[];
+  creationEligible: boolean;
+  dispatchEligible: boolean;
+  diagnostic: string;
+  providerRequestsStarted: 0;
+  modelInvocationsStarted: 0;
+  automaticDispatch: false;
+}>;
+type WorldRelationExperimentProjection = Readonly<{
+  schemaVersion: "pmh.world-relation-experiment-projection.v1";
+  projectionIdentity: string;
+  predicateArtifactCount: number;
+  settlementProjectionCount: number;
+  retainedInputRevisionCount: number;
+  retainedExperimentCount: number;
+  currentFrontiers: ReadonlyArray<Readonly<{
+    frontierId: string;
+    frontierArtifactHash: string;
+    relationKind: string;
+    predicateLabels: readonly string[];
+    inputRevisionId: string;
+    semanticInputIdentity: string;
+    taskId: string;
+    settlementProjectionCount: number;
+    priorExperimentCount: number;
+    attempted: boolean;
+  }>>;
+  experiments: ReadonlyArray<Readonly<{
+    experimentId: string;
+    artifactHash: string;
+    relationKind: string;
+    predicateIds: readonly string[];
+    terminalDisposition: string;
+    compilerBridge: string;
+    counterworldCount: number;
+    searchNeighborhoodCount: number;
+    inspectedProjectionCount: number;
+    usage: Readonly<{ inputTokens: string; outputTokens: string; reasoningTokens: string }>;
+    sourceAgentRunId: string;
+    closedAt: string;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  writesStartedByRead: 0;
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  automaticDispatch: false;
+}>;
 type ResearchActionTargetProjection = Readonly<{
   schemaVersion: "pmh.research-action-target-projection.v1";
   projectionIdentity: string;
@@ -782,7 +836,7 @@ type WorldStateMechanismProjection = Readonly<{
     }>>;
   }>;
   mechanismPrototypeExplorationMemory: Readonly<{
-    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v4";
+    schemaVersion: "pmh.mechanism-prototype-exploration-memory-projection.v5";
     projectionIdentity: string;
     retainedInputCount: number;
     retainedStepCount: number;
@@ -1305,6 +1359,8 @@ type AgentWorkspace = Readonly<{
   attention: ResearchAttentionAllocation;
   relationCampaign: RelationDiscoveryCampaignPreview;
   mechanismExplorationCampaign: MechanismExplorationCampaignPreview;
+  worldRelationCampaign: WorldRelationExperimentCampaignPreview;
+  worldRelationExperiments: WorldRelationExperimentProjection;
   targets: ResearchActionTargetProjection;
   decisions: ResearchDecisionOutcomeProjection;
   discoverySignals: DiscoverySignalProjection;
@@ -4247,7 +4303,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.worldStateMechanisms.retainedMechanismMemory.schemaVersion !==
       "pmh.retained-world-state-mechanism-memory.v1" ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory.schemaVersion !==
-      "pmh.mechanism-prototype-exploration-memory-projection.v4" ||
+      "pmh.mechanism-prototype-exploration-memory-projection.v5" ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
       .currentCorpusAuthority !== false ||
     result.worldStateMechanisms.mechanismPrototypeExplorationMemory
@@ -4294,6 +4350,20 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.ontologyAgentIntentCost.executionAuthority !== false ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
+    result.worldRelationCampaign.schemaVersion !==
+      "pmh.world-relation-experiment-campaign-preview.v1" ||
+    result.worldRelationCampaign.providerRequestsStarted !== 0 ||
+    result.worldRelationCampaign.modelInvocationsStarted !== 0 ||
+    result.worldRelationCampaign.automaticDispatch !== false ||
+    result.worldRelationExperiments.schemaVersion !==
+      "pmh.world-relation-experiment-projection.v1" ||
+    result.worldRelationExperiments.providerRequestsStartedByRead !== 0 ||
+    result.worldRelationExperiments.modelInvocationsStartedByRead !== 0 ||
+    result.worldRelationExperiments.writesStartedByRead !== 0 ||
+    result.worldRelationExperiments.semanticDecisionAuthority !== false ||
+    result.worldRelationExperiments.probabilityAuthority !== false ||
+    result.worldRelationExperiments.certificateAuthority !== false ||
+    result.worldRelationExperiments.automaticDispatch !== false ||
     result.mechanismExplorationCampaign.schemaVersion !==
       "pmh.mechanism-prototype-exploration-campaign-preview.v1" ||
     result.mechanismExplorationCampaign.providerRequestsStarted !== 0 ||
@@ -4333,6 +4403,10 @@ function AgentOperationsView() {
     useState<WorldStateMechanismProjection | null>(null);
   const [mechanismExplorationCampaign, setMechanismExplorationCampaign] =
     useState<MechanismExplorationCampaignPreview | null>(null);
+  const [worldRelationCampaign, setWorldRelationCampaign] =
+    useState<WorldRelationExperimentCampaignPreview | null>(null);
+  const [worldRelationExperiments, setWorldRelationExperiments] =
+    useState<WorldRelationExperimentProjection | null>(null);
   const [ontologyAgentIntentCost, setOntologyAgentIntentCost] =
     useState<OntologyAgentIntentCostProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
@@ -4367,6 +4441,8 @@ function AgentOperationsView() {
     setSemanticNovelty(workspace.semanticNovelty);
     setWorldStateMechanisms(workspace.worldStateMechanisms);
     setMechanismExplorationCampaign(workspace.mechanismExplorationCampaign);
+    setWorldRelationCampaign(workspace.worldRelationCampaign);
+    setWorldRelationExperiments(workspace.worldRelationExperiments);
     setOntologyAgentIntentCost(workspace.ontologyAgentIntentCost);
     setOntologyOutcomeData(ontologyOutcomes);
     setDiscoveryCycle(workspace.discoveryCycle);
@@ -5084,6 +5160,92 @@ function AgentOperationsView() {
               <Waypoints size={14} />
               <span>current window: {worldStateMechanisms.currentAssignmentYield.modelInvocationCount} invocations · {formatTokenCount(worldStateMechanisms.currentAssignmentYield.usage.inputTokens)} input tokens · manual campaign only</span>
               <code>{worldStateMechanisms.projectionIdentity.slice(7, 19)}</code>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {worldRelationExperiments !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">World relation laboratory</span>
+              <h2>Can this semantic relation survive counterworlds?</h2>
+              <p>A frontier is a testable statement about the world, not a market keyword. The Agent searches several neighborhoods, inspects exact settlement projections and must close with falsification, exhaustion or bounded support.</p>
+            </div>
+            <Badge variant={worldRelationExperiments.retainedExperimentCount > 0 ? "verified" : "shadow"}>
+              {worldRelationExperiments.retainedExperimentCount} EXPERIMENTS
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-summary">
+              <div><strong>{worldRelationExperiments.currentFrontiers.length}</strong><span>current frontiers</span></div>
+              <div><strong>{worldRelationExperiments.predicateArtifactCount}</strong><span>world predicates</span></div>
+              <div><strong>{worldRelationExperiments.settlementProjectionCount}</strong><span>settlement mappings</span></div>
+              <div><strong>{worldRelationExperiments.retainedInputRevisionCount}</strong><span>exact input revisions</span></div>
+            </div>
+            <div className="mechanism-exploration-campaign">
+              <div>
+                <span className="eyebrow">Next bounded ontology experiment</span>
+                <strong>{worldRelationExperiments.currentFrontiers.find((item) =>
+                  worldRelationCampaign?.frontierIds.includes(item.frontierId)
+                )?.predicateLabels.join(" ↔ ") ?? "No unattempted frontier"}</strong>
+                <small>{worldRelationCampaign?.diagnostic ?? "Campaign preview unavailable"}</small>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy !== null || worldRelationCampaign?.creationEligible !== true}
+                onClick={() => void perform("world-relation-campaign", () => post(
+                  "/api/v1/world-relations/campaigns",
+                ))}
+              >
+                Create paused campaign
+              </Button>
+            </div>
+            <div className="research-attention-actions">
+              {worldRelationExperiments.currentFrontiers.length === 0 ? (
+                <div className="empty-state">No relation frontier is materialized yet. Mechanism research must first propose a falsifiable dependency rather than a popular claim.</div>
+              ) : worldRelationExperiments.currentFrontiers.slice(0, 8).map((frontier) => (
+                <article key={frontier.inputRevisionId}>
+                  <div className="research-attention-action-head">
+                    <div>
+                      <Badge variant={frontier.attempted ? "muted" : "verified"}>
+                        {frontier.attempted ? "ATTEMPTED" : "UNTESTED"}
+                      </Badge>
+                      <Badge variant="shadow">{frontier.relationKind.replaceAll("_", " ")}</Badge>
+                    </div>
+                    <code>{frontier.frontierId.slice(7, 19)}</code>
+                  </div>
+                  <strong>{frontier.predicateLabels.join(" ↔ ")}</strong>
+                  <p>{frontier.settlementProjectionCount} exact settlement mappings · {frontier.priorExperimentCount} prior terminal memories</p>
+                </article>
+              ))}
+            </div>
+            {worldRelationExperiments.experiments.length > 0 && (
+              <div className="research-attention-actions">
+                {worldRelationExperiments.experiments.slice(0, 8).map((experiment) => (
+                  <article key={experiment.artifactHash}>
+                    <div className="research-attention-action-head">
+                      <div>
+                        <Badge variant={experiment.terminalDisposition === "FALSIFIED" ? "warning" :
+                          experiment.compilerBridge === "RESEARCH_ONLY" ? "shadow" : "verified"}>
+                          {experiment.terminalDisposition.replaceAll("_", " ")}
+                        </Badge>
+                        <Badge variant="muted">{experiment.compilerBridge.replaceAll("_", " ")}</Badge>
+                      </div>
+                      <code>{new Date(experiment.closedAt).toLocaleString()}</code>
+                    </div>
+                    <strong>{experiment.relationKind.replaceAll("_", " ")}</strong>
+                    <p>{experiment.counterworldCount} counterworlds · {experiment.searchNeighborhoodCount} searches · {experiment.inspectedProjectionCount} settlement inspections · {formatTokenCount(experiment.usage.inputTokens)} input tokens</p>
+                  </article>
+                ))}
+              </div>
+            )}
+            <div className="research-attention-lock">
+              <CircleOff size={14} />
+              <span>Agent results remain research memory until an exact first-party compiler admits them.</span>
+              <code>MANUAL · TERRA · NO TRADING</code>
             </div>
           </CardContent>
         </Card>

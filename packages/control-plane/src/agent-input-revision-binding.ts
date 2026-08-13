@@ -14,7 +14,8 @@ export type AgentInputRevisionKind =
   | "WORLD_STATE_SUBJECT_BINDING_INPUT"
   | "WORLD_STATE_MECHANISM_PROTOTYPE_INPUT"
   | "MECHANISM_PROTOTYPE_EXPLORATION_INPUT"
-  | "RELATION_DISCOVERY";
+  | "RELATION_DISCOVERY"
+  | "WORLD_RELATION_EXPERIMENT_INPUT";
 
 export function agentInputRevisionSourceRecordRef(
   kind: AgentInputRevisionKind,
@@ -28,6 +29,8 @@ export function agentInputRevisionSourceRecordRef(
     ? `world-state-mechanism-prototype-input:${revisionId}`
     : kind === "MECHANISM_PROTOTYPE_EXPLORATION_INPUT"
     ? `mechanism-prototype-exploration-input:${revisionId}`
+    : kind === "WORLD_RELATION_EXPERIMENT_INPUT"
+    ? `world-relation-experiment-input:${revisionId}`
     : `relation-discovery-task-revision:${revisionId}`;
 }
 
@@ -81,6 +84,8 @@ export function buildAgentInputRevisionRunAnnotation(input: Readonly<{
       ? "Prepared mechanism-prototype run is bound to this exact retained multi-route input."
       : input.revisionKind === "MECHANISM_PROTOTYPE_EXPLORATION_INPUT"
       ? "Prepared prototype-exploration run is bound to this exact retained corpus input."
+      : input.revisionKind === "WORLD_RELATION_EXPERIMENT_INPUT"
+      ? "Prepared world-relation run is bound to this exact retained frontier and corpus input."
       : "Prepared relation run is bound to this exact retained input revision.",
     createdAt: input.run.createdAt,
   });

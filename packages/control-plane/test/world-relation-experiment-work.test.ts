@@ -64,6 +64,47 @@ function assignment() {
 }
 
 describe("world relation experiment work", () => {
+  it("rotates semantic input when frontier evidence changes but ignores price-only corpus revisions", () => {
+    const base = assignment();
+    const refreshedCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: base.corpus.sourceSetIdentity,
+      eligibleSourceCount: base.corpus.eligibleSourceCount,
+      excludedSourceCount: base.corpus.excludedSourceCount,
+      listings: base.corpus.listings.map((listing) => ({
+        ...listing,
+        sourceReceivedAt: "2026-08-14T00:01:00.000Z",
+        outcomes: listing.outcomes.map((outcome, index) => ({
+          ...outcome,
+          indicativePrice: index === 0 ? "0.7" : "0.3",
+        })),
+      })),
+    });
+    const priceOnly = buildWorldRelationExperimentAssignment({
+      frontier: base.inputRevision.frontier,
+      corpus: refreshedCorpus,
+      projections: base.projections,
+      priorExperiments: [],
+    });
+    expect(priceOnly.inputRevision.semanticInputIdentity)
+      .toBe(base.inputRevision.semanticInputIdentity);
+    const revisedFrontier = Object.freeze({
+      ...base.inputRevision.frontier,
+      artifactHash: hashCanonical({
+        prior: base.inputRevision.frontier.artifactHash,
+        evidenceRevision: 2,
+      }),
+    });
+    const evidenceChanged = buildWorldRelationExperimentAssignment({
+      frontier: revisedFrontier,
+      corpus: base.corpus,
+      projections: base.projections,
+      priorExperiments: [],
+    });
+    expect(evidenceChanged.inputRevision.frontier.frontierId)
+      .toBe(base.inputRevision.frontier.frontierId);
+    expect(evidenceChanged.inputRevision.semanticInputIdentity)
+      .not.toBe(base.inputRevision.semanticInputIdentity);
+  });
   it("binds exact frontier and corpus while keeping price-only refreshes semantically stable", () => {
     const first = assignment();
     expect(assertWorldRelationExperimentInputRevision(first.inputRevision))

@@ -152,6 +152,11 @@ export function buildWorldRelationExperimentAssignment(input: Readonly<{
   const semanticInputIdentity = hashCanonical({
     schemaVersion: "pmh.world-relation-experiment-semantic-input.v1",
     frontierId: input.frontier.frontierId,
+    // Preserve semantic de-duplication across price-only corpus refreshes while
+    // allowing changed rule/evidence lineage for the same proposition to earn
+    // a new experiment. frontierId names the proposition; artifactHash names
+    // the evidence revision from which the proposition was reconstructed.
+    frontierEvidenceRevision: input.frontier.artifactHash,
     corpusSemanticIdentity,
     settlementProjectionIds: exactHashes(projections.map((item) => item.projectionId)),
     priorTerminalMemory: priorExperiments.map((item) => ({

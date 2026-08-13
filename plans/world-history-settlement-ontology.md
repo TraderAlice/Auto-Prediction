@@ -184,5 +184,30 @@ Agent-selected complete true/false counterworld assignment, host-bound outcome
 recording, bounded terminal dispositions, and post-run injection of exact
 run/effect/invocation/token lineage. Focused protocol tests reject stale tools,
 incomplete counterworlds and unsupported hard conclusions. Campaign selection,
-runtime routing, durable input revisions and the compact Studio projection are
-the active implementation frontier.
+runtime routing, durable exact input/corpus revisions, post-run materialization,
+manual campaign creation and a compact Studio projection are implemented.
+Price-only corpus refreshes preserve the semantic input identity, while a new
+frontier evidence revision or terminal experiment memory produces a new bounded
+experiment input. The live Studio projection currently exposes two untested
+common-cause frontiers, six retained predicate artifacts, ten exact input
+revisions and zero settlement projections; the latter is now the dominant
+compiler-value bottleneck.
+
+## Active continuation
+
+1. Compile settlement projections from exact market-ontology settlement facets
+   and retained rule evidence, with ambiguity/void postures explicit and only
+   first-party exact mappings admitted to compiler use.
+2. Add an observation ledger that explains why a listing failed to become a
+   settlement projection, so missing mappings become actionable evidence debt
+   rather than a silent zero.
+3. Run a Terra/high world-relation specimen only after at least two real
+   listings have durable projections; compare terminal yield, counterworld
+   coverage, structural rejection and token cost with mechanism exploration.
+4. Feed admitted hard/probabilistic bridges into shadow opportunity construction
+   and measure whether they produce new payoff-state candidates rather than only
+   ontology artifacts.
+
+No user decision blocks this continuation. Subject/alias promotion authority
+remains a separate queued policy question; current artifacts retain research
+authority only.

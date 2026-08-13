@@ -348,6 +348,14 @@ describe("control-plane HTTP surface", () => {
       targets: { schemaVersion: string; allocationProjectionIdentity: string };
       decisions: { schemaVersion: string };
       relationCampaign: { schemaVersion: string };
+      worldRelationCampaign: { schemaVersion: string };
+      worldRelationExperiments: {
+        schemaVersion: string;
+        retainedExperimentCount: number;
+        providerRequestsStartedByRead: number;
+        modelInvocationsStartedByRead: number;
+        writesStartedByRead: number;
+      };
       ontologyOutcomes: { schemaVersion: string };
       discoveryCycle: {
         schemaVersion: string;
@@ -414,6 +422,16 @@ describe("control-plane HTTP surface", () => {
       targets: { schemaVersion: "pmh.research-action-target-projection.v1" },
       decisions: { schemaVersion: "pmh.research-decision-outcome-projection.v1" },
       relationCampaign: { schemaVersion: "pmh.relation-discovery-campaign-preview.v1" },
+      worldRelationCampaign: {
+        schemaVersion: "pmh.world-relation-experiment-campaign-preview.v1",
+      },
+      worldRelationExperiments: {
+        schemaVersion: "pmh.world-relation-experiment-projection.v1",
+        retainedExperimentCount: 0,
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        writesStartedByRead: 0,
+      },
       ontologyOutcomes: { schemaVersion: "pmh.ontology-allocation-outcome-projection.v1" },
       discoveryCycle: {
         schemaVersion: "pmh.discovery-cycle.v1",
@@ -494,6 +512,44 @@ describe("control-plane HTTP surface", () => {
         modelInvocationsStartedByRead: 0,
         writesStartedByRead: 0,
       });
+    await expect(fetch(`${baseUrl}/api/v1/world-relations`)
+      .then((result) => result.json())).resolves.toMatchObject({
+        schemaVersion: "pmh.world-relation-experiment-projection.v1",
+        predicateArtifactCount: 0,
+        settlementProjectionCount: 0,
+        retainedInputRevisionCount: 0,
+        retainedExperimentCount: 0,
+        currentFrontiers: [],
+        experiments: [],
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        writesStartedByRead: 0,
+        semanticDecisionAuthority: false,
+        probabilityAuthority: false,
+        certificateAuthority: false,
+        automaticDispatch: false,
+      });
+    await expect(fetch(`${baseUrl}/api/v1/world-relations/campaign-preview`)
+      .then((result) => result.json())).resolves.toMatchObject({
+        schemaVersion: "pmh.world-relation-experiment-campaign-preview.v1",
+        taskIds: [],
+        creationEligible: false,
+        dispatchEligible: false,
+        providerRequestsStarted: 0,
+        modelInvocationsStarted: 0,
+        automaticDispatch: false,
+      });
+    const emptyWorldRelationCampaign = await fetch(
+      `${baseUrl}/api/v1/world-relations/campaigns`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(emptyWorldRelationCampaign.status).toBe(409);
+    await expect(emptyWorldRelationCampaign.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "No unattempted world-relation semantic input is eligible",
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+    });
   });
 
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {
