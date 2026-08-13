@@ -656,6 +656,25 @@ type WorldStateMechanismProjection = Readonly<{
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
+  abstentionCount: number;
+  researchYield: Readonly<{
+    schemaVersion: "pmh.world-state-mechanism-research-yield.v1";
+    projectionIdentity: string;
+    eligibleCount: number;
+    attemptedCount: number;
+    proposedCount: number;
+    abstainedCount: number;
+    falsifiedCount: number;
+    runCount: number;
+    modelInvocationCount: number;
+    acceptedResultCount: number;
+    usage: Readonly<{
+      inputTokens: string;
+      outputTokens: string;
+      reasoningTokens: string;
+    }>;
+    authority: "DERIVED_MECHANISM_RESEARCH_EVIDENCE_ONLY";
+  }>;
   subjectBindingReviewCount: number;
   observationCount: number;
   wakeCount: number;
@@ -3748,6 +3767,8 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
       "pmh.world-state-mechanism-projection.v2" ||
+    result.worldStateMechanisms.researchYield.schemaVersion !==
+      "pmh.world-state-mechanism-research-yield.v1" ||
     result.worldStateMechanisms.providerRequestsStartedByRead !== 0 ||
     result.worldStateMechanisms.modelInvocationsStartedByRead !== 0 ||
     result.worldStateMechanisms.writesStartedByRead !== 0 ||
@@ -4101,8 +4122,8 @@ function AgentOperationsView() {
           <CardHeader>
             <div>
               <span className="eyebrow">World-state mechanism memory</span>
-              <h2>Search through what can change in the world</h2>
-              <p>Agents connect a trigger to a latent state and a dependent event. These are reusable search routes with explicit counter-scenarios, never causal facts or probability estimates.</p>
+              <h2>A dedicated Agent researches what can change in the world</h2>
+              <p>Mechanism research is now separate from normalization: each run must propose, falsify, or evidence-bound abstain. Ordinary entity and proposition results cannot end the role early.</p>
             </div>
             <Badge variant={worldStateMechanisms.routeCount > 0 ? "verified" : "shadow"}>
               {worldStateMechanisms.routeCount} ROUTES
@@ -4110,15 +4131,15 @@ function AgentOperationsView() {
           </CardHeader>
           <CardContent>
             <div className="research-attention-summary">
-              <div><strong>{worldStateMechanisms.proposalCount}</strong><span>admitted proposals</span></div>
-              <div><strong>{worldStateMechanisms.routeCount}</strong><span>mechanism families</span></div>
-              <div><strong>{worldStateMechanisms.routeStatusCounts.observed}</strong><span>actively observed</span></div>
-              <div><strong>{worldStateMechanisms.wakeCount}</strong><span>bounded wakes</span></div>
+              <div><strong>{worldStateMechanisms.researchYield.eligibleCount}</strong><span>eligible exact inputs</span></div>
+              <div><strong>{worldStateMechanisms.researchYield.attemptedCount}</strong><span>attempted issues</span></div>
+              <div><strong>{worldStateMechanisms.researchYield.proposedCount}</strong><span>proposed routes</span></div>
+              <div><strong>{worldStateMechanisms.researchYield.abstainedCount}</strong><span>evidence-bound abstentions</span></div>
             </div>
             <div className="research-attention-actions">
               {worldStateMechanisms.routes.length === 0 ? (
                 <div className="empty-state">
-                  No mechanism memory has been admitted yet. V3 ontology issues can now author the first route.
+                  No dedicated mechanism result has been retained yet. The queue is real and provider-free; a separately authorized campaign will create the first proposal, falsifier, or abstention.
                 </div>
               ) : worldStateMechanisms.routes.slice(0, 8).map((route) => (
                 <article key={route.routeId}>
@@ -4152,7 +4173,7 @@ function AgentOperationsView() {
             </div>
             <div className="research-attention-lock">
               <Waypoints size={14} />
-              <span>Routing-only ontology · no probability, certificate, dispatch, or trading authority</span>
+              <span>{worldStateMechanisms.researchYield.modelInvocationCount} invocations · {formatTokenCount(worldStateMechanisms.researchYield.usage.inputTokens)} input tokens · manual campaign only</span>
               <code>{worldStateMechanisms.projectionIdentity.slice(7, 19)}</code>
             </div>
           </CardContent>

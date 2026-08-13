@@ -123,6 +123,29 @@ export type WorldStateMechanismCounterexample = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export type WorldStateMechanismAbstention = Readonly<{
+  schemaVersion: "pmh.world-state-mechanism-abstention.v1";
+  abstentionId: Hash;
+  ontologyIdentity: Hash;
+  sourceSnapshotIdentity: Hash;
+  sourceIssueRevisionId: Hash;
+  sourceAgentRunId: Hash;
+  sourceTrailheadIds: readonly Hash[];
+  sourceRelationPatternIds: readonly Hash[];
+  evidenceBindings: readonly WorldStateMechanismEvidenceBinding[];
+  reason: string;
+  missingEvidence: readonly string[];
+  searchSignals: readonly string[];
+  proposedAt: string;
+  authority: "EVIDENCE_BOUND_MECHANISM_ABSTENTION_ONLY";
+  semanticDecisionAuthority: false;
+  probabilityAuthority: false;
+  certificateAuthority: false;
+  executionAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
+
 export type StandingWorldStateMechanismRoute = Readonly<{
   schemaVersion: "pmh.standing-world-state-mechanism-route.v1";
   routeId: Hash;
@@ -233,6 +256,17 @@ export interface WorldStateMechanismCounterexampleStore {
   ): readonly WorldStateMechanismCounterexample[];
 }
 
+export interface WorldStateMechanismAbstentionStore {
+  readonly worldStateMechanismAbstentionStorage:
+    OperationalStorageProjection<"abstentionId">;
+  loadWorldStateMechanismAbstentions(
+    limit: number,
+  ): readonly WorldStateMechanismAbstention[];
+  saveWorldStateMechanismAbstentions(
+    abstentions: readonly WorldStateMechanismAbstention[],
+  ): readonly WorldStateMechanismAbstention[];
+}
+
 type ProposalInput = Readonly<Omit<WorldStateMechanismProposal,
   "schemaVersion" | "proposalId" | "authority" |
   "semanticDecisionAuthority" | "probabilityAuthority" |
@@ -241,6 +275,12 @@ type ProposalInput = Readonly<Omit<WorldStateMechanismProposal,
 
 type CounterexampleInput = Readonly<Omit<WorldStateMechanismCounterexample,
   "schemaVersion" | "counterexampleId" | "authority" |
+  "semanticDecisionAuthority" | "probabilityAuthority" |
+  "certificateAuthority" | "executionAuthority" |
+  "externalWriteAuthority" | "valueMovingAuthority">>;
+
+type AbstentionInput = Readonly<Omit<WorldStateMechanismAbstention,
+  "schemaVersion" | "abstentionId" | "authority" |
   "semanticDecisionAuthority" | "probabilityAuthority" |
   "certificateAuthority" | "executionAuthority" |
   "externalWriteAuthority" | "valueMovingAuthority">>;
@@ -491,6 +531,79 @@ export function buildWorldStateMechanismCounterexample(
   return assertWorldStateMechanismCounterexample(Object.freeze({
     ...body,
     counterexampleId: hashCanonical(body),
+  }));
+}
+
+export function assertWorldStateMechanismAbstention(
+  value: unknown,
+): WorldStateMechanismAbstention {
+  const abstention = object(value);
+  if (abstention === null || !exactKeys(abstention, [
+    "schemaVersion", "abstentionId", "ontologyIdentity", "sourceSnapshotIdentity",
+    "sourceIssueRevisionId", "sourceAgentRunId", "sourceTrailheadIds",
+    "sourceRelationPatternIds", "evidenceBindings", "reason", "missingEvidence",
+    "searchSignals", "proposedAt", "authority", "semanticDecisionAuthority",
+    "probabilityAuthority", "certificateAuthority", "executionAuthority",
+    "externalWriteAuthority", "valueMovingAuthority",
+  ]) || abstention.schemaVersion !== "pmh.world-state-mechanism-abstention.v1" ||
+      ![abstention.abstentionId, abstention.ontologyIdentity,
+        abstention.sourceSnapshotIdentity, abstention.sourceIssueRevisionId,
+        abstention.sourceAgentRunId]
+        .every((item) => typeof item === "string" && HASH_PATTERN.test(item)) ||
+      !sortedUniqueHashes(abstention.sourceTrailheadIds, 1, 16) ||
+      !sortedUniqueHashes(abstention.sourceRelationPatternIds, 1, 16) ||
+      !Array.isArray(abstention.evidenceBindings) ||
+      abstention.evidenceBindings.length < 1 ||
+      abstention.evidenceBindings.length > MAX_ROLE_BINDINGS ||
+      !boundedText(abstention.reason, 2_000) ||
+      !boundedTexts(abstention.missingEvidence, 1, 12, 500) ||
+      !boundedTexts(abstention.searchSignals, 1, MAX_SEARCH_SIGNALS, 160) ||
+      !isCanonicalIso(abstention.proposedAt) ||
+      abstention.authority !== "EVIDENCE_BOUND_MECHANISM_ABSTENTION_ONLY" ||
+      abstention.semanticDecisionAuthority !== false ||
+      abstention.probabilityAuthority !== false ||
+      abstention.certificateAuthority !== false ||
+      abstention.executionAuthority !== false ||
+      abstention.externalWriteAuthority !== false ||
+      abstention.valueMovingAuthority !== false) {
+    throw new Error("world-state mechanism abstention violates its bounded contract");
+  }
+  const evidenceBindings = Object.freeze(abstention.evidenceBindings.map(assertBinding));
+  if (new Set(evidenceBindings.map((item) => item.listingRef)).size !==
+      evidenceBindings.length) {
+    throw new Error("world-state mechanism abstention repeats listing evidence");
+  }
+  if ((abstention.searchSignals as readonly string[]).some((signal) =>
+    !evidenceBindings.some((binding) =>
+      canonicalText(binding.title).includes(canonicalText(signal))
+    ))) {
+    throw new Error("world-state mechanism abstention signal is not title-grounded");
+  }
+  const { abstentionId, ...body } = abstention as unknown as WorldStateMechanismAbstention;
+  if (abstentionId !== hashCanonical(body)) {
+    throw new Error("world-state mechanism abstention identity is inconsistent");
+  }
+  return Object.freeze({ ...abstention, evidenceBindings }) as
+    WorldStateMechanismAbstention;
+}
+
+export function buildWorldStateMechanismAbstention(
+  input: AbstentionInput,
+): WorldStateMechanismAbstention {
+  const body = Object.freeze({
+    schemaVersion: "pmh.world-state-mechanism-abstention.v1" as const,
+    ...input,
+    authority: "EVIDENCE_BOUND_MECHANISM_ABSTENTION_ONLY" as const,
+    semanticDecisionAuthority: false as const,
+    probabilityAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+  });
+  return assertWorldStateMechanismAbstention(Object.freeze({
+    ...body,
+    abstentionId: hashCanonical(body),
   }));
 }
 

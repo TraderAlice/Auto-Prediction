@@ -501,7 +501,7 @@ describe("world-state mechanism routes", () => {
         .toEqual([counterexample]);
       expect(store.worldStateMechanismProposalStorage).toMatchObject({
         durable: true,
-        schemaVersion: 51,
+        schemaVersion: 52,
         idempotencyKey: "proposalId",
       });
       store.close();

@@ -1242,8 +1242,8 @@ describe("AI-native search lease scheduler", () => {
       retainedCorpusCount: 1,
       recoverableIssuedCount: 0,
       missingCorpusIssuedCount: 0,
-      storage: { schemaVersion: 51 },
-      corpusStorage: { schemaVersion: 51, idempotencyKey: "snapshotIdentity" },
+      storage: { schemaVersion: 52 },
+      corpusStorage: { schemaVersion: 52, idempotencyKey: "snapshotIdentity" },
     });
     expect(restored.projection().findingInbox).toEqual(
       scheduler.projection().findingInbox,

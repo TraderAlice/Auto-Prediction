@@ -237,14 +237,18 @@ import {
   type MarketOntologyAgentProposalStore,
 } from "./market-ontology-agent-tools.js";
 import {
+  assertWorldStateMechanismAbstention,
   assertWorldStateMechanismCounterexample,
   assertWorldStateMechanismProposal,
   worldStateMechanismRouteFamilyIdentity,
+  type WorldStateMechanismAbstention,
+  type WorldStateMechanismAbstentionStore,
   type WorldStateMechanismCounterexample,
   type WorldStateMechanismCounterexampleStore,
   type WorldStateMechanismProposal,
   type WorldStateMechanismProposalStore,
 } from "./world-state-mechanism.js";
+import { worldStateMechanismResearchIssueIdentity } from "./world-state-mechanism-research.js";
 import {
   assertWorldStateMechanismObservation,
   assertWorldStateMechanismSubjectBindingReview,
@@ -299,7 +303,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 51;
+const SCHEMA_VERSION = 52;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1925,6 +1929,29 @@ function parseWorldStateMechanismCounterexample(
   return counterexample;
 }
 
+function parseWorldStateMechanismAbstention(
+  value: unknown,
+): WorldStateMechanismAbstention {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world-state mechanism abstention row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.abstention_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world-state mechanism abstention row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world-state mechanism abstention contains invalid JSON");
+  }
+  const abstention = assertWorldStateMechanismAbstention(decoded);
+  if (abstention.abstentionId !== row.abstention_id ||
+      hashCanonical(abstention) !== row.record_hash) {
+    throw new Error("SQLite world-state mechanism abstention identity mismatch");
+  }
+  return abstention;
+}
+
 function parseWorldStateMechanismSubjectBindingReview(
   value: unknown,
 ): WorldStateMechanismSubjectBindingReview {
@@ -2223,6 +2250,7 @@ export class SqliteOperationalStore
     MarketOntologyAgentProposalStore,
     WorldStateMechanismProposalStore,
     WorldStateMechanismCounterexampleStore,
+    WorldStateMechanismAbstentionStore,
     WorldStateMechanismSubjectBindingReviewStore,
     WorldStateMechanismObservationStore,
     WorldStateMechanismWakeStore,
@@ -2300,6 +2328,8 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"proposalId">;
   public readonly worldStateMechanismCounterexampleStorage:
     OperationalStorageProjection<"counterexampleId">;
+  public readonly worldStateMechanismAbstentionStorage:
+    OperationalStorageProjection<"abstentionId">;
   public readonly worldStateMechanismSubjectBindingReviewStorage:
     OperationalStorageProjection<"reviewId">;
   public readonly worldStateMechanismObservationStorage:
@@ -2555,6 +2585,12 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "counterexampleId",
+    });
+    this.worldStateMechanismAbstentionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "abstentionId",
     });
     this.worldStateMechanismSubjectBindingReviewStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -2979,6 +3015,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'world_state_mechanism_counterexamples'`,
       )
       .get() !== undefined;
+    const worldStateMechanismAbstentionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_mechanism_abstentions'`,
+      )
+      .get() !== undefined;
     const worldStateMechanismSubjectReviewTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -3103,6 +3145,7 @@ export class SqliteOperationalStore
       && marketOntologyAgentProposalTableExists
       && worldStateMechanismProposalTableExists
       && worldStateMechanismCounterexampleTableExists
+      && worldStateMechanismAbstentionTableExists
       && worldStateMechanismSubjectReviewTableExists
       && worldStateMechanismObservationTableExists
       && worldStateMechanismWakeTableExists
@@ -4711,6 +4754,40 @@ export class SqliteOperationalStore
             );
         `);
       }
+      if (current < 52 || !worldStateMechanismAbstentionTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_mechanism_abstentions (
+            abstention_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(abstention_id) = 71 AND abstention_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            ontology_identity TEXT NOT NULL CHECK (
+              length(ontology_identity) = 71 AND ontology_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_snapshot_identity TEXT NOT NULL CHECK (
+              length(source_snapshot_identity) = 71 AND
+              source_snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_issue_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (source_issue_revision_id)
+              REFERENCES ontology_search_issue_revisions(revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_abstentions_revision
+            ON world_state_mechanism_abstentions (
+              source_issue_revision_id, proposed_at DESC, abstention_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS world_state_mechanism_abstentions_run
+            ON world_state_mechanism_abstentions (
+              source_agent_run_id, proposed_at, abstention_id
+            );
+        `);
+      }
       if (current < 51 || !worldStateMechanismSubjectReviewTableExists) {
         this.#database.exec(`
           CREATE TABLE IF NOT EXISTS world_state_mechanism_subject_reviews (
@@ -5221,6 +5298,25 @@ export class SqliteOperationalStore
 
   #assertOpen(): void {
     if (this.#closed) throw new Error("operational database is closed");
+  }
+
+  #worldStateMechanismRunMatchesRevision(
+    runTaskId: string,
+    revision: OntologySearchIssueRevision,
+  ): boolean {
+    if (runTaskId === revision.task.taskId) return true;
+    const row = this.#database.prepare(
+      "SELECT record_json FROM agent_tasks WHERE task_id = ?",
+    ).get(runTaskId) as Readonly<{ record_json?: unknown }> | undefined;
+    if (typeof row?.record_json !== "string") return false;
+    let decoded: unknown;
+    try { decoded = JSON.parse(row.record_json); } catch { return false; }
+    const task = assertAgentTask(decoded);
+    const mechanismIssueId = worldStateMechanismResearchIssueIdentity(revision);
+    return task.kind === "WORLD_STATE_MECHANISM_RESEARCH" &&
+      task.protocol === "WORLD_STATE_MECHANISM_RESEARCH_TASK_V1" &&
+      task.requestedEffectProtocol === "WORLD_STATE_MECHANISM_RESEARCH_TOOLS_V1" &&
+      task.provenanceRef === `world-state-mechanism-issue:${mechanismIssueId}`;
   }
 
   public loadStudioProjectionSnapshot(): StudioProjectionSnapshot | null {
@@ -8222,7 +8318,7 @@ export class SqliteOperationalStore
           ...proposal.trigger.evidenceBindings,
           ...proposal.dependent.evidenceBindings,
         ];
-        if (runRow.task_id !== revision.task.taskId ||
+        if (!this.#worldStateMechanismRunMatchesRevision(runRow.task_id, revision) ||
             proposal.ontologyIdentity !== revision.ontologyIdentity ||
             proposal.sourceSnapshotIdentity !== revision.sourceSnapshotIdentity ||
             !proposal.sourceRelationPatternIds.includes(revision.relationPatternId) ||
@@ -8323,7 +8419,10 @@ export class SqliteOperationalStore
         const revision = parseOntologySearchIssueRevision(revisionRow);
         const assignedEvidence = new Map(revision.taskPayload.listingEvidence
           .map((item) => [item.node.listingRef, item]));
-        const lineageInvalid = runRow.task_id !== revision.task.taskId ||
+        const lineageInvalid = !this.#worldStateMechanismRunMatchesRevision(
+          runRow.task_id,
+          revision,
+        ) ||
           counterexample.ontologyIdentity !== revision.ontologyIdentity ||
           counterexample.sourceSnapshotIdentity !== revision.sourceSnapshotIdentity ||
           !counterexample.sourceRelationPatternIds.includes(revision.relationPatternId) ||
@@ -8388,6 +8487,100 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return counterexamples;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateMechanismAbstentions(
+    limit: number,
+  ): readonly WorldStateMechanismAbstention[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT abstention_id, record_json, record_hash
+       FROM world_state_mechanism_abstentions
+       ORDER BY proposed_at DESC, abstention_id DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldStateMechanismAbstention));
+  }
+
+  public saveWorldStateMechanismAbstentions(
+    abstentionsInput: readonly WorldStateMechanismAbstention[],
+  ): readonly WorldStateMechanismAbstention[] {
+    this.#assertOpen();
+    const abstentions = Object.freeze(abstentionsInput
+      .map(assertWorldStateMechanismAbstention));
+    if (new Set(abstentions.map((item) => item.abstentionId)).size !==
+        abstentions.length) {
+      throw new Error("world-state mechanism abstention batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const abstention of abstentions) {
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(abstention.sourceAgentRunId) as
+          Readonly<{ task_id?: unknown }> | undefined;
+        const revisionRow = this.#database.prepare(
+          `SELECT revision_id, record_json, record_hash
+           FROM ontology_search_issue_revisions WHERE revision_id = ?`,
+        ).get(abstention.sourceIssueRevisionId);
+        if (typeof runRow?.task_id !== "string" || revisionRow === undefined) {
+          throw new Error("world-state mechanism abstention references unavailable lineage");
+        }
+        const revision = parseOntologySearchIssueRevision(revisionRow);
+        const assignedEvidence = new Map(revision.taskPayload.listingEvidence
+          .map((item) => [item.node.listingRef, item]));
+        const lineageInvalid = !this.#worldStateMechanismRunMatchesRevision(
+          runRow.task_id,
+          revision,
+        ) || abstention.ontologyIdentity !== revision.ontologyIdentity ||
+          abstention.sourceSnapshotIdentity !== revision.sourceSnapshotIdentity ||
+          !abstention.sourceRelationPatternIds.includes(revision.relationPatternId) ||
+          !abstention.sourceTrailheadIds.some((item) => revision.trailheadIds.includes(item)) ||
+          abstention.evidenceBindings.some((binding) => {
+            const evidence = assignedEvidence.get(binding.listingRef);
+            return evidence === undefined || binding.title !== evidence.title ||
+              binding.nodeId !== evidence.node.nodeId ||
+              binding.worldFacetId !== evidence.node.worldFacet.facetId ||
+              binding.sourceRawHash !== evidence.sourceRawHash ||
+              binding.protocolIdentity !== evidence.protocolIdentity;
+          });
+        if (lineageInvalid) {
+          throw new Error("world-state mechanism abstention is outside its assigned issue lineage");
+        }
+        const recordJson = canonicalJson(abstention);
+        const recordHash = hashCanonical(abstention);
+        this.#database.prepare(
+          `INSERT INTO world_state_mechanism_abstentions (
+             abstention_id, ontology_identity, source_snapshot_identity,
+             source_issue_revision_id, source_agent_run_id, proposed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(abstention_id) DO NOTHING`,
+        ).run(
+          abstention.abstentionId,
+          abstention.ontologyIdentity,
+          abstention.sourceSnapshotIdentity,
+          abstention.sourceIssueRevisionId,
+          abstention.sourceAgentRunId,
+          abstention.proposedAt,
+          recordJson,
+          recordHash,
+        );
+        const stored = parseWorldStateMechanismAbstention(this.#database.prepare(
+          `SELECT abstention_id, record_json, record_hash
+           FROM world_state_mechanism_abstentions WHERE abstention_id = ?`,
+        ).get(abstention.abstentionId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("abstentionId is already bound to another mechanism record");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return abstentions;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

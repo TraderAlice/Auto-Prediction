@@ -1820,6 +1820,31 @@ not reject the mechanism ontology—it identifies Agent tool-choice topology as
 the next experiment. New v3 effects bind exact source invocation identity, and
 Agent Operations presents the reconciled funnel without a provider call.
 
+That evidence changes the active architecture under
+[`plans/world-state-mechanism-research-role.md`](plans/world-state-mechanism-research-role.md).
+Issue #166 separates ontology normalization from world-state mechanism
+research. The former asks what contracts mean; the latter asks which real-world
+transition can connect event families. They share exact evidence lineage but no
+longer compete for one generic result slot. A mechanism-only task may inspect
+coverage and evidence, propose or falsify a route, or retain an explicit
+evidence-bound abstention. Ordinary normalization results cannot terminate it,
+and its campaign remains independently budgeted and manual-only.
+
+That split is now implemented. SQLite schema 52 retains mechanism abstentions
+with exact ontology-input and Agent-run lineage; a stable
+`WORLD_STATE_MECHANISM_RESEARCH` task binds a versioned ontology revision at
+campaign selection time instead of copying evidence. Its dedicated manifest
+exposes only bounded coverage/evidence reads and proposal, falsification, or
+evidence-bound abstention terminal tools. The live provider-free baseline is
+64 eligible exact inputs, zero attempts, zero results, and zero mechanism-role
+tokens; an eight-task, concurrency-one campaign preview exists but is neither
+created nor activated. Agent Operations shows this lifecycle separately from
+the historical 554,881-token normalization baseline. All 675 control-plane
+tests, Studio checks, desktop and 390 px visual qualification pass without
+horizontal overflow or console warnings. The remaining selection observation
+is one explicitly activated bounded live specimen; it is not authorization
+inferred from this read-only construction.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

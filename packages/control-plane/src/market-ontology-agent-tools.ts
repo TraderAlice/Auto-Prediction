@@ -17,6 +17,7 @@ import {
 import type { OperationalStorageProjection } from "./types.js";
 import {
   assessWorldStateMechanismAdmission,
+  buildWorldStateMechanismAbstention,
   buildWorldStateMechanismCounterexample,
   buildWorldStateMechanismProposal,
   compileConsolidatedWorldStateMechanismRoutes,
@@ -25,6 +26,8 @@ import {
   WORLD_STATE_TEMPORAL_POSTURES,
   WORLD_STATE_TRIGGER_INFLUENCES,
   worldStateMechanismRouteFamilyIdentity,
+  type WorldStateMechanismAbstention,
+  type WorldStateMechanismAbstentionStore,
   type WorldStateMechanismCounterexample,
   type WorldStateMechanismCounterexampleStore,
   type WorldStateMechanismEvidenceBinding,
@@ -36,6 +39,10 @@ export const MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL =
   "MARKET_ONTOLOGY_AGENT_TOOLS_V1" as const;
 export const MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2 =
   "MARKET_ONTOLOGY_AGENT_TOOLS_V2" as const;
+export const WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL =
+  "WORLD_STATE_MECHANISM_RESEARCH_TOOLS_V1" as const;
+export const WORLD_STATE_MECHANISM_RESEARCH_TASK_PROTOCOL =
+  "WORLD_STATE_MECHANISM_RESEARCH_TASK_V1" as const;
 export const MARKET_ONTOLOGY_NORMALIZATION_TASK_PROTOCOL =
   "MARKET_ONTOLOGY_NORMALIZATION_TASK_V1" as const;
 export const MARKET_ONTOLOGY_ISSUE_TASK_PROTOCOL =
@@ -633,6 +640,20 @@ const WORLD_STATE_MECHANISM_MANIFEST: readonly AgentRuntimeToolDefinition[] = Ob
       },
     }),
   }),
+  Object.freeze({
+    name: "record_world_state_mechanism_abstention",
+    description: "Conclude that the exact assigned evidence does not support a defensible directional mechanism. Retain what evidence is missing so changed inputs can make the issue eligible again.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: ["reason", "missingEvidence", "searchSignals", "listingRefs"],
+      properties: {
+        reason: textSchema(2_000),
+        missingEvidence: textArraySchema(1, 12, 500),
+        searchSignals: textArraySchema(1, 6, 160),
+        listingRefs: listingRefsSchema(1, 4),
+      },
+    }),
+  }),
 ]);
 
 const MANIFEST_V2: readonly AgentRuntimeToolDefinition[] = Object.freeze([
@@ -640,11 +661,27 @@ const MANIFEST_V2: readonly AgentRuntimeToolDefinition[] = Object.freeze([
   ...WORLD_STATE_MECHANISM_MANIFEST,
 ]);
 
+const MECHANISM_RESEARCH_MANIFEST: readonly AgentRuntimeToolDefinition[] = Object.freeze([
+  ...MANIFEST.filter((item) => [
+    "list_assigned_ontology_trailheads",
+    "read_ontology_trailhead_evidence",
+  ].includes(item.name)),
+  ...WORLD_STATE_MECHANISM_MANIFEST,
+]);
+
 export class MarketOntologyAgentToolHost implements AgentToolHost {
   public resultToolNames(toolProtocol: string): readonly string[] {
     if (toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL &&
-        toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2) {
+        toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2 &&
+        toolProtocol !== WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL) {
       throw new Error("market ontology tool protocol is unsupported");
+    }
+    if (toolProtocol === WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL) {
+      return Object.freeze([
+        "propose_world_state_mechanism",
+        "record_world_state_mechanism_counterexample",
+        "record_world_state_mechanism_abstention",
+      ]);
     }
     return Object.freeze([
       "propose_entity_alias",
@@ -669,6 +706,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
   readonly #proposals: MarketOntologyAgentProposal[] = [];
   readonly #mechanismProposals: WorldStateMechanismProposal[] = [];
   readonly #mechanismCounterexamples: WorldStateMechanismCounterexample[] = [];
+  readonly #mechanismAbstentions: WorldStateMechanismAbstention[] = [];
   readonly #ontologyIdentity: Hash;
   readonly #sourceSnapshotIdentity: Hash;
   readonly #taskIdentityPayloadHash: Hash;
@@ -683,6 +721,7 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     private readonly mechanismProposalStore?: WorldStateMechanismProposalStore,
     private readonly mechanismCounterexampleStore?: WorldStateMechanismCounterexampleStore,
     private readonly sourceIssueRevisionId?: Hash,
+    private readonly mechanismAbstentionStore?: WorldStateMechanismAbstentionStore,
   ) {
     if (ontologyOrPayload.schemaVersion === "pmh.market-ontology.v1") {
       const ontology = assertMarketOntologySnapshot(ontologyOrPayload);
@@ -747,12 +786,36 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     );
   }
 
+  public static fromMechanismResearchRevision(
+    taskIdentityPayload: unknown,
+    inputPayload: MarketOntologyNormalizationTaskPayload,
+    mechanismProposalStore: WorldStateMechanismProposalStore,
+    mechanismCounterexampleStore: WorldStateMechanismCounterexampleStore,
+    mechanismAbstentionStore: WorldStateMechanismAbstentionStore,
+    sourceIssueRevisionId: Hash,
+  ): MarketOntologyAgentToolHost {
+    return new MarketOntologyAgentToolHost(
+      inputPayload,
+      undefined,
+      undefined,
+      undefined,
+      taskIdentityPayload,
+      mechanismProposalStore,
+      mechanismCounterexampleStore,
+      sourceIssueRevisionId,
+      mechanismAbstentionStore,
+    );
+  }
+
   public manifest(toolProtocol: string): readonly AgentRuntimeToolDefinition[] {
     if (toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL &&
-        toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2) {
+        toolProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2 &&
+        toolProtocol !== WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL) {
       throw new Error("ontology Agent tool protocol is unsupported");
     }
-    const manifest = toolProtocol === MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2
+    const manifest = toolProtocol === WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL
+      ? MECHANISM_RESEARCH_MANIFEST
+      : toolProtocol === MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2
       ? MANIFEST_V2
       : MANIFEST;
     const assignedListingRefs = Object.freeze([...this.#allowedRefs].sort());
@@ -775,6 +838,10 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
 
   public mechanismCounterexamples(): readonly WorldStateMechanismCounterexample[] {
     return Object.freeze([...this.#mechanismCounterexamples]);
+  }
+
+  public mechanismAbstentions(): readonly WorldStateMechanismAbstention[] {
+    return Object.freeze([...this.#mechanismAbstentions]);
   }
 
   #listingBindings(value: unknown, minimum = 1): readonly MarketOntologyListingBinding[] {
@@ -875,9 +942,16 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
   }
 
   #requireMechanismProtocol(context: AgentToolHostContext): Hash {
-    if (context.task.requestedEffectProtocol !== MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2 ||
+    const legacyCombined = context.task.kind === "ONTOLOGY_NORMALIZATION" &&
+      context.task.requestedEffectProtocol === MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2;
+    const dedicated = context.task.kind === "WORLD_STATE_MECHANISM_RESEARCH" &&
+      context.task.requestedEffectProtocol === WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL;
+    if ((!legacyCombined && !dedicated) ||
         this.sourceIssueRevisionId === undefined) {
-      throw new Error("world-state mechanism tool requires an exact v2 issue revision");
+      throw new Error("world-state mechanism tool requires an exact assigned issue revision");
+    }
+    if (context.task.taskPayloadHash !== this.#taskIdentityPayloadHash) {
+      throw new Error("world-state mechanism task lineage is invalid");
     }
     return this.sourceIssueRevisionId;
   }
@@ -889,10 +963,16 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
     if (context.executionProfile.toolPolicy.protocol !==
         context.task.requestedEffectProtocol ||
         ![MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL, MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2]
-          .includes(context.task.requestedEffectProtocol as never)) {
+          .includes(context.task.requestedEffectProtocol as never) &&
+        context.task.requestedEffectProtocol !== WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL) {
       throw new Error("ontology tool call execution profile is out of scope");
     }
     const input = object(context.input, "ontology tool input");
+    if (context.task.requestedEffectProtocol === WORLD_STATE_MECHANISM_RESEARCH_TOOL_PROTOCOL &&
+        ["propose_entity_alias", "propose_world_proposition", "record_ontology_counterexample"]
+          .includes(context.toolName)) {
+      throw new Error("mechanism research cannot terminate with ontology normalization");
+    }
     if (context.toolName === "list_world_state_mechanism_coverage") {
       this.#requireMechanismProtocol(context);
       exactKeys(input, []);
@@ -1184,6 +1264,36 @@ export class MarketOntologyAgentToolHost implements AgentToolHost {
         counterexampleId: counterexample.counterexampleId,
         targetRouteFamilyId: counterexample.targetRouteFamilyId,
         authority: counterexample.authority,
+      }) });
+    }
+    if (context.toolName === "record_world_state_mechanism_abstention") {
+      const sourceIssueRevisionId = this.#requireMechanismProtocol(context);
+      exactKeys(input, ["reason", "missingEvidence", "searchSignals", "listingRefs"]);
+      const evidenceBindings = this.#mechanismEvidenceBindings(input.listingRefs);
+      const listingBindings = this.#listingBindings(
+        evidenceBindings.map((item) => item.listingRef),
+      );
+      const abstention = buildWorldStateMechanismAbstention({
+        ontologyIdentity: this.#ontologyIdentity,
+        sourceSnapshotIdentity: this.#sourceSnapshotIdentity,
+        sourceIssueRevisionId,
+        sourceAgentRunId: context.run.runId,
+        sourceTrailheadIds: this.#sourceTrailheadIds(listingBindings),
+        sourceRelationPatternIds: this.#sourceRelationPatternIds(listingBindings),
+        evidenceBindings,
+        reason: text(input.reason, "reason", 2_000),
+        missingEvidence: texts(input.missingEvidence, "missingEvidence", 12, 500, 1),
+        searchSignals: texts(input.searchSignals, "searchSignals", 6, 160, 1),
+        proposedAt: context.run.createdAt,
+      });
+      this.mechanismAbstentionStore?.saveWorldStateMechanismAbstentions([abstention]);
+      if (!this.#mechanismAbstentions.some((item) =>
+        item.abstentionId === abstention.abstentionId
+      )) this.#mechanismAbstentions.push(abstention);
+      return Object.freeze({ status: "ACCEPTED" as const, output: Object.freeze({
+        abstentionId: abstention.abstentionId,
+        sourceIssueRevisionId: abstention.sourceIssueRevisionId,
+        authority: abstention.authority,
       }) });
     }
     throw new Error("ontology Agent requested an unknown tool");
