@@ -253,6 +253,13 @@ describe("control-plane HTTP surface", () => {
         modelInvocationsStarted: number;
         campaignActivationAuthority: boolean;
       };
+      discoverySignals: {
+        schemaVersion: string;
+        providerRequestsStartedByRead: number;
+        modelInvocationsStartedByRead: number;
+        writesStartedByRead: number;
+        automaticDispatch: boolean;
+      };
       providerRequestsStartedByRead: number;
       modelInvocationsStartedByRead: number;
       writesStartedByRead: number;
@@ -275,6 +282,13 @@ describe("control-plane HTTP surface", () => {
         providerRequestsStarted: 0,
         modelInvocationsStarted: 0,
         campaignActivationAuthority: false,
+      },
+      discoverySignals: {
+        schemaVersion: "pmh.discovery-signal-projection.v1",
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        writesStartedByRead: 0,
+        automaticDispatch: false,
       },
       providerRequestsStartedByRead: 0,
       modelInvocationsStartedByRead: 0,
@@ -3356,7 +3370,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-        schemaVersion: 47,
+        schemaVersion: 48,
         },
         records: [{ investigationId: created.investigationId }],
       });

@@ -1659,12 +1659,35 @@ without conflating scheduler liveness with useful research yield.
 The flywheel decision ledger now retains why a successor action was novel
 enough to spend on. New research-decision episodes bind the named first-party
 reason (`NEW_STABLE_FAMILY`, `WORK_ARTIFACT_CHANGED`, bounded research debt or
-missing counterexample) into their content identity, while legacy episodes
-remain readable as unbound history. Outcomes separately attribute new
+missing counterexample) into their content identity. Because this is a
+pre-alpha development ledger, schema 48 removes pre-v2 episodes that cannot
+prove that binding instead of maintaining ambiguous compatibility state.
+Outcomes separately attribute new
 counterexamples and terminal no-yield attempts as anti-loop memory. This makes
 the long-running machine explainable in both directions: it can show why it
 woke a task and why retained negative evidence should stop it from repeating
 the same semantic search.
+
+The same flywheel now emits a durable discovery-signal inbox only when its
+research state becomes operator-relevant: new exact campaign membership,
+structured positive or useful-negative outcome, repeated costly no-movement,
+or portfolio exhaustion. Signals deduplicate by their exact source transition,
+survive SQLite restart, and have local read acknowledgement. Startup, catalog
+refresh, Agent completion, and recurring discovery-cycle paths all reconcile
+the inbox; ordinary timer liveness, manual baseline capture and free-text model
+responses remain silent. Reading or acknowledging a signal has zero provider,
+model, dispatch, external-write, or value-moving authority. This completes the
+Phase 3 interruption boundary while leaving external destination delivery as a
+deferred operator choice in `QUESTIONS.md`.
+
+The live schema-48 migration removed three deliberately obsolete unbound
+decision specimens, retained the single novelty-bound v2 episode, and derived
+one campaign-membership signal from it. Restart replayed the same identity and
+local read acknowledgement left provider, model, run and value-moving effects
+at zero. Desktop and 390 px Studio qualification has no horizontal overflow or
+console errors. Full workspace checks, 648 control-plane tests, 30 Studio tests,
+and the production build pass; only the known Node 24 engine expectation and
+existing Studio chunk-size warning remain.
 
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.

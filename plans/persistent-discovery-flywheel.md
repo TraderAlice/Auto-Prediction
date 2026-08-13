@@ -77,7 +77,7 @@ free text is not a result, and a catalog snapshot change alone is not novelty.
   `ONCE_PER_TASK_PER_LINEAGE`; a wake-up over unchanged state must be a no-op.
 - [x] Require a named first-party novelty reason for successor work and retain
   counterexamples/no-yield attempts as anti-loop memory.
-- [ ] Notify only on new campaign membership, structured outcomes, repeated
+- [x] Notify only on new campaign membership, structured outcomes, repeated
   costly no-movement, or portfolio exhaustion—not every model response.
 
 ## Phase 4 — yield dashboard and policy evolution
@@ -140,15 +140,39 @@ from an explicitly active lineage to a runnable, budgeted Agent attempt.
 
 Successor work now carries its first-party novelty reason through the allocation
 action, content-addressed action identity and durable v2 research-decision
-episode. The outcome projection keeps v1 episodes readable as
-`LEGACY_UNBOUND`, while new episodes expose the exact reason that justified
-spend plus counterexample, terminal no-yield and successful-free-text deltas as
-anti-loop memory. A counterexample is classified as useful negative memory,
-not falsely promoted as a positive finding merely because it advanced the
-evidence stage. Agent Operations presents both the spend premise and retained
-negative memory. The relation lineage already fixes concurrency at one and
-uses `ONCE_PER_TASK_PER_LINEAGE`; changing an allocation identity therefore
-cannot rerun an unchanged exact task.
+episode. Schema 48 deliberately retires pre-v2 unbound episodes instead of
+carrying a development-only compatibility branch: an outcome is admissible only
+when the exact first-party novelty reason is part of the decision identity.
+New episodes expose the reason that justified spend plus counterexample,
+terminal no-yield and successful-free-text deltas as anti-loop memory. A
+counterexample is classified as useful negative memory, not falsely promoted as
+a positive finding merely because it advanced the evidence stage. Agent
+Operations presents both the spend premise and retained negative memory. The
+relation lineage already fixes concurrency at one and uses
+`ONCE_PER_TASK_PER_LINEAGE`; changing an allocation identity therefore cannot
+rerun an unchanged exact task.
+
+The flywheel now also owns a durable, deduplicated discovery-signal inbox.
+Signals are derived only from four state transitions: exact campaign membership,
+structured positive or useful-negative outcomes, at least two costly no-movement
+episodes in one work family, and first-party portfolio exhaustion. Timer wakes,
+manual episode capture, free-text model responses and unacted ready work remain
+silent. Read acknowledgement changes only local inbox state and carries fixed
+zero provider, model, dispatch, external-write and value-moving effects. Signal
+reconciliation runs after startup, catalog refresh, Agent completion and every
+bounded discovery-cycle wake so a meaningful transition cannot be hidden by an
+unchanged membership revision.
+
+Live schema-48 qualification against the 1.1 GB ledger intentionally removed
+three pre-v2 unbound decision specimens and retained the one novelty-bound v2
+episode. Startup derived one `CAMPAIGN_MEMBERSHIP_ADDED` signal, SQLite restart
+replayed it, and local acknowledgement retained the same signal identity with
+zero provider, model or run effects. Agent Operations renders the inbox at the
+normal desktop viewport and at 390 px without horizontal overflow or console
+errors. Full workspace checks, all suites (94 control-plane files / 648 tests
+and five Studio files / 30 tests), and the production build pass on the
+available Node 22 host; the repository's expected Node 24 engine warning and
+existing Studio chunk-size warning remain.
 
 ## Initial qualification
 

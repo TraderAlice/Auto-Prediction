@@ -39,6 +39,14 @@ must not infer dispatch linkage from temporal proximity.
 The episode is append-only. A later outcome projection may change as evidence
 arrives, while the recorded baseline and decision identity never change.
 
+Development migration note (2026-08-13): the later flywheel work made a named
+novelty reason part of every admissible episode identity. SQLite schema 48
+removes pre-v2 episodes that lack that binding rather than retaining an
+indefinite `LEGACY_UNBOUND` interpretation. This repository is still pre-alpha;
+the three local legacy specimens were reproducible research baselines, not
+production records, and retaining ambiguous decision evidence would weaken the
+allocator's anti-loop semantics.
+
 ## Outcome vocabulary
 
 Each current outcome distinguishes:

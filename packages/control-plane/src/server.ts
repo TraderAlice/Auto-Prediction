@@ -29,6 +29,13 @@ import {
   type DiscoveryCycleProjection,
 } from "./discovery-cycle.js";
 import {
+  acknowledgeDiscoverySignal,
+  buildDiscoverySignalProjection,
+  deriveDiscoverySignals,
+  type DiscoverySignalRecord,
+  type DiscoverySignalStore,
+} from "./discovery-signals.js";
+import {
   createDiscoveryModelRuntime,
   type DiscoveryModelRuntime,
 } from "./model-runtime.js";
@@ -1060,6 +1067,19 @@ function supportsResearchDecisionEpisodes(
     typeof candidate.saveResearchDecisionEpisode === "function";
 }
 
+function supportsDiscoverySignals(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & DiscoverySignalStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<DiscoverySignalStore> & Readonly<{
+    discoverySignalStorage?: unknown;
+  }>;
+  return candidate.discoverySignalStorage !== undefined &&
+    typeof candidate.loadDiscoverySignalRecords === "function" &&
+    typeof candidate.loadDiscoverySignalRecord === "function" &&
+    typeof candidate.saveDiscoverySignalRecord === "function";
+}
+
 function parseAiRuntimeConfigurationUpdate(value: unknown): Readonly<{
   expectedRevision: number;
   provider: (typeof AI_RUNTIME_PROVIDERS)[number];
@@ -1259,7 +1279,11 @@ export function createControlPlane(options?: {
   const researchDecisionStore = supportsResearchDecisionEpisodes(options?.discoveryStore)
     ? options.discoveryStore
     : null;
+  const discoverySignalStore = supportsDiscoverySignals(options?.discoveryStore)
+    ? options.discoveryStore
+    : null;
   let inMemoryResearchDecisionEpisodes: readonly ResearchDecisionEpisode[] = Object.freeze([]);
+  let inMemoryDiscoverySignals: readonly DiscoverySignalRecord[] = Object.freeze([]);
   let relationDiscoveryTaskRevisions: readonly RelationDiscoveryTaskRevision[] =
     relationDiscoveryStore?.loadRelationDiscoveryTaskRevisions(512) ?? [];
   agentExecutionRegistry.importLegacyConfiguration(
@@ -1986,6 +2010,57 @@ export function createControlPlane(options?: {
     ].slice(0, 512));
     return episode;
   };
+  const loadDiscoverySignals = () => discoverySignalStore
+    ?.loadDiscoverySignalRecords(512) ?? inMemoryDiscoverySignals;
+  const saveDiscoverySignal = (signal: DiscoverySignalRecord) => {
+    if (discoverySignalStore !== null) {
+      return discoverySignalStore.saveDiscoverySignalRecord(signal);
+    }
+    const index = inMemoryDiscoverySignals.findIndex((item) =>
+      item.signalId === signal.signalId
+    );
+    if (index >= 0 && inMemoryDiscoverySignals[index]!.dedupeIdentity !==
+        signal.dedupeIdentity) {
+      throw new Error("discovery signal identity is already bound elsewhere");
+    }
+    inMemoryDiscoverySignals = Object.freeze([
+      signal,
+      ...inMemoryDiscoverySignals.filter((item) => item.signalId !== signal.signalId),
+    ].sort((left, right) => right.observedAt.localeCompare(left.observedAt) ||
+      left.signalId.localeCompare(right.signalId)).slice(0, 4096));
+    return signal;
+  };
+  const currentResearchDecisionOutcomes = () => {
+    const current = currentResearchActionState();
+    return buildResearchDecisionOutcomeProjection({
+      observedAt: current.allocation.observedAt,
+      episodes: loadResearchDecisionEpisodes(),
+      allocation: current.allocation,
+      targets: current.targets,
+    });
+  };
+  const reconcileDiscoverySignals = (): number => {
+    const current = currentResearchActionState();
+    const candidates = deriveDiscoverySignals({
+      observedAt: new Date().toISOString(),
+      episodes: loadResearchDecisionEpisodes(),
+      outcomes: currentResearchDecisionOutcomes(),
+      allocation: current.allocation,
+    });
+    let created = 0;
+    for (const candidate of candidates) {
+      const retained = discoverySignalStore?.loadDiscoverySignalRecord(candidate.signalId) ??
+        inMemoryDiscoverySignals.find((item) => item.signalId === candidate.signalId) ?? null;
+      if (retained !== null) continue;
+      saveDiscoverySignal(candidate);
+      created += 1;
+    }
+    return created;
+  };
+  const currentDiscoverySignalProjection = () => buildDiscoverySignalProjection({
+    observedAt: currentResearchActionState().allocation.observedAt,
+    signals: loadDiscoverySignals(),
+  });
   let baseSemanticReviewCandidateCache: Readonly<{
     revision: bigint;
     candidates: readonly SemanticReviewCandidate[];
@@ -3206,6 +3281,7 @@ export function createControlPlane(options?: {
     agentExecutionRegistry.saveBatch({ campaigns });
     const membership = campaigns.at(-1);
     if (membership !== undefined) captureResearchAttentionCampaignDecisions(membership);
+    reconcileDiscoverySignals();
     return true;
   };
   const discoveryCycleIntervalMs = parseDiscoveryCycleInterval(process.env);
@@ -3266,6 +3342,10 @@ export function createControlPlane(options?: {
     await runStartupReconciliationStep(
       "RECONCILE_RESEARCH_ATTENTION_RELATION_CAMPAIGN",
       () => { reconcileResearchAttentionRelationCampaign(); },
+    );
+    await runStartupReconciliationStep(
+      "RECONCILE_DISCOVERY_SIGNALS",
+      () => { reconcileDiscoverySignals(); },
     );
     await runStartupReconciliationStep(
       "RECOVER_PREPARED_AGENT_RUNS",
@@ -4551,6 +4631,7 @@ export function createControlPlane(options?: {
         // Startup or the next catalog refresh retries durable route reconciliation.
       }
     }
+    reconcileDiscoverySignals();
     await broadcastProjection();
   };
   publishSearchLeaseChange = () => {
@@ -4683,6 +4764,7 @@ export function createControlPlane(options?: {
         relationCampaign,
         targets: research.targets,
         decisions,
+        discoverySignals: currentDiscoverySignalProjection(),
         ontologyOutcomes: ontologyAllocationOutcomes(),
         discoveryCycle: discoveryCycleState,
         providerRequestsStartedByRead: 0 as const,
@@ -5346,6 +5428,37 @@ export function createControlPlane(options?: {
       return;
     }
     if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/discovery-signals"
+    ) {
+      await ready;
+      writeJson(response, 200, currentDiscoverySignalProjection());
+      return;
+    }
+    const discoverySignalAcknowledgement = url.pathname.match(
+      /^\/api\/v1\/discovery-signals\/(sha256:[0-9a-f]{64})\/acknowledgements$/u,
+    );
+    if (request.method === "POST" && discoverySignalAcknowledgement !== null) {
+      try {
+        await ready;
+        const signalId = discoverySignalAcknowledgement[1] as Hash;
+        const retained = discoverySignalStore?.loadDiscoverySignalRecord(signalId) ??
+          inMemoryDiscoverySignals.find((item) => item.signalId === signalId) ?? null;
+        if (retained === null) throw new Error("discovery signal was not found");
+        const acknowledged = retained.status === "READ" ? retained : saveDiscoverySignal(
+          acknowledgeDiscoverySignal(retained, new Date().toISOString()),
+        );
+        if (retained.status !== "READ") await broadcastProjection();
+        writeJson(response, 200, acknowledged);
+      } catch (error) {
+        writeJson(response, 400, {
+          error: error instanceof Error ? error.message :
+            "discovery signal acknowledgement failed",
+        });
+      }
+      return;
+    }
+    if (
       request.method === "POST" &&
       url.pathname === "/api/v1/research-decisions"
     ) {
@@ -5359,7 +5472,11 @@ export function createControlPlane(options?: {
         }
         const requestBody = body as Record<string, unknown>;
         const current = currentResearchActionState();
+        const action = current.allocation.portfolio.find((item) =>
+          item.actionId === requestBody.allocationActionId
+        );
         if (requestBody.allocationProjectionIdentity !== current.allocation.projectionIdentity ||
+            action === undefined ||
             typeof requestBody.allocationActionId !== "string" ||
             typeof requestBody.targetId !== "string" ||
             typeof requestBody.captureRef !== "string") {
@@ -5370,6 +5487,7 @@ export function createControlPlane(options?: {
           allocationActionId: requestBody.allocationActionId as Hash,
           targetId: requestBody.targetId as Hash,
           captureRef: requestBody.captureRef,
+          noveltyReason: action.noveltyReason,
         });
         const existing = researchDecisionStore?.loadResearchDecisionEpisode(episodeId) ??
           inMemoryResearchDecisionEpisodes.find((item) => item.episodeId === episodeId) ?? null;
@@ -6614,6 +6732,7 @@ export function createControlPlane(options?: {
       reconcileRelationDiscoveryTasks();
       migrateStandingRouteSeedCampaigns();
       reconcileResearchAttentionRelationCampaign();
+      reconcileDiscoverySignals();
       reconcileRuleEvidenceAgentTasks();
       await broadcastProjection();
       tickSearchIssues();
@@ -7647,6 +7766,7 @@ export function createControlPlane(options?: {
               reconcileRelationDiscoveryTasks();
               migrateStandingRouteSeedCampaigns();
               reconcileResearchAttentionRelationCampaign();
+              reconcileDiscoverySignals();
             } catch {
               // Retained tasks and route episodes remain authoritative. A later
               // successful refresh retries reconciliation without terminating
@@ -7903,6 +8023,7 @@ export function createControlPlane(options?: {
         // the separate dispatcher still requires an explicitly ACTIVE campaign,
         // a runnable current task, and remaining lineage budget.
         const changed = reconcileResearchAttentionRelationCampaign();
+        const signalsCreated = reconcileDiscoverySignals();
         discoveryCycleState = Object.freeze({
           ...discoveryCycleState,
           tickCount: discoveryCycleState.tickCount + 1,
@@ -7912,7 +8033,7 @@ export function createControlPlane(options?: {
           lastMembershipChanged: changed,
           lastDiagnostic: null,
         });
-        if (changed) {
+        if (changed || signalsCreated > 0) {
           void broadcastProjection();
         }
       } catch (error) {
