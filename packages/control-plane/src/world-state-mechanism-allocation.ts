@@ -163,7 +163,10 @@ function worldRoleSignature(
   )).join("\u0000");
 }
 
-function adjacentProperNameToken(title: string, sharedSignal: string): string | null {
+export function adjacentWorldStateProperNameToken(
+  title: string,
+  sharedSignal: string,
+): string | null {
   const titleTokens = title.match(/[\p{L}\p{N}]+/gu) ?? [];
   const index = titleTokens.findIndex((token) =>
     token.toLocaleLowerCase("en-US") === sharedSignal.toLocaleLowerCase("en-US")
@@ -234,9 +237,9 @@ function trailheadFacts(
   const rightTemplate = outcomeTemplate(right.title);
   const sharedSignal = trailhead.sharedSubjectSignals[0];
   const leftProperNeighbor = sharedSignal === undefined ? null :
-    adjacentProperNameToken(left.title, sharedSignal);
+    adjacentWorldStateProperNameToken(left.title, sharedSignal);
   const rightProperNeighbor = sharedSignal === undefined ? null :
-    adjacentProperNameToken(right.title, sharedSignal);
+    adjacentWorldStateProperNameToken(right.title, sharedSignal);
   return Object.freeze({
     coherent: trailhead.sharedSubjectSignals.length > 0,
     predicateDivergent,

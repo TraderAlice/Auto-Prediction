@@ -345,6 +345,21 @@ type RelationDiscoveryCampaignPreview = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type MechanismExplorationCampaignPreview = Readonly<{
+  schemaVersion: "pmh.mechanism-prototype-exploration-campaign-preview.v1";
+  previewIdentity: string;
+  campaignKey: string;
+  taskIds: readonly string[];
+  lensIds: readonly string[];
+  axes: readonly string[];
+  creationEligible: boolean;
+  dispatchEligible: false;
+  diagnostic: string;
+  providerRequestsStarted: 0;
+  modelInvocationsStarted: 0;
+  automaticDispatch: false;
+  semanticDecisionAuthority: false;
+}>;
 type ResearchActionTargetProjection = Readonly<{
   schemaVersion: "pmh.research-action-target-projection.v1";
   projectionIdentity: string;
@@ -766,6 +781,54 @@ type WorldStateMechanismProjection = Readonly<{
       campaignEligible: boolean;
     }>>;
   }>;
+  mechanismPrototypeExploration: null | Readonly<{
+    schemaVersion: "pmh.mechanism-prototype-exploration-projection.v1";
+    projectionIdentity: string;
+    prototypeCount: number;
+    lensCount: number;
+    eligibleLensCount: number;
+    attemptedLensCount: number;
+    successfulLensCount: number;
+    exhaustedLensCount: number;
+    currentSemanticAttemptedLensCount: number;
+    currentSemanticSuccessfulLensCount: number;
+    currentSemanticExhaustedLensCount: number;
+    seededLensCount: number;
+    zeroSeedLensCount: number;
+    seedCount: number;
+    usage: Readonly<{
+      sourceRunCount: number;
+      modelInvocationCount: number;
+      knownInputTokens: string;
+      knownOutputTokens: string;
+      knownReasoningTokens: string;
+      unknownUsageInvocationCount: number;
+    }>;
+    corpusSnapshotIdentity: string;
+    corpusSemanticIdentity: string;
+    lenses: ReadonlyArray<Readonly<{
+      lensId: string;
+      axis: "AGGREGATE_INSTITUTION" | "SUBJECT_AND_GEOGRAPHY" |
+        "SURFACE_DOMAIN" | "COUNTEREXAMPLE_FRONTIER";
+      variationQuestion: string;
+      currentInputRevision: Readonly<{
+        inputRevisionId: string;
+        semanticInputIdentity: string;
+        seedTrailheads: readonly Readonly<{
+          seedId: string;
+          listingTitleExcerpts: readonly [string, string];
+          noveltyReasons: readonly string[];
+        }>[];
+      }>;
+      trailheadIds: readonly string[];
+      exhaustionIds: readonly string[];
+      retainedTrailheadIds: readonly string[];
+      retainedExhaustionIds: readonly string[];
+      retainedSemanticInputCount: number;
+      state: "UNEXPLORED" | "TRAILHEAD_RECORDED" | "EXHAUSTED" | "MIXED_RESULTS";
+      campaignEligible: boolean;
+    }>>;
+  }>;
   familyScorecards: Readonly<{
     schemaVersion: "pmh.world-state-mechanism-family-scorecards.v1";
     projectionIdentity: string;
@@ -1041,6 +1104,7 @@ type AgentWorkspace = Readonly<{
   execution: AgentExecutionConsole;
   attention: ResearchAttentionAllocation;
   relationCampaign: RelationDiscoveryCampaignPreview;
+  mechanismExplorationCampaign: MechanismExplorationCampaignPreview;
   targets: ResearchActionTargetProjection;
   decisions: ResearchDecisionOutcomeProjection;
   discoverySignals: DiscoverySignalProjection;
@@ -3982,6 +4046,9 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
       "pmh.world-state-mechanism-research-yield.v1" ||
     result.worldStateMechanisms.retainedMechanismMemory.schemaVersion !==
       "pmh.retained-world-state-mechanism-memory.v1" ||
+    (result.worldStateMechanisms.mechanismPrototypeExploration !== null &&
+      result.worldStateMechanisms.mechanismPrototypeExploration.schemaVersion !==
+        "pmh.mechanism-prototype-exploration-projection.v1") ||
     result.worldStateMechanisms.familyScorecards.schemaVersion !==
       "pmh.world-state-mechanism-family-scorecards.v1" ||
     result.worldStateMechanisms.familyScorecards.attentionPolicyAuthority !== false ||
@@ -4015,6 +4082,12 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.ontologyAgentIntentCost.executionAuthority !== false ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
+    result.mechanismExplorationCampaign.schemaVersion !==
+      "pmh.mechanism-prototype-exploration-campaign-preview.v1" ||
+    result.mechanismExplorationCampaign.providerRequestsStarted !== 0 ||
+    result.mechanismExplorationCampaign.modelInvocationsStarted !== 0 ||
+    result.mechanismExplorationCampaign.automaticDispatch !== false ||
+    result.mechanismExplorationCampaign.semanticDecisionAuthority !== false ||
     result.discoveryCycle.schemaVersion !== "pmh.discovery-cycle.v1" ||
     result.discoveryCycle.providerRequestsStarted !== 0 ||
     result.discoveryCycle.modelInvocationsStarted !== 0 ||
@@ -4046,6 +4119,8 @@ function AgentOperationsView() {
     useState<SemanticNoveltyProjection | null>(null);
   const [worldStateMechanisms, setWorldStateMechanisms] =
     useState<WorldStateMechanismProjection | null>(null);
+  const [mechanismExplorationCampaign, setMechanismExplorationCampaign] =
+    useState<MechanismExplorationCampaignPreview | null>(null);
   const [ontologyAgentIntentCost, setOntologyAgentIntentCost] =
     useState<OntologyAgentIntentCostProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
@@ -4079,6 +4154,7 @@ function AgentOperationsView() {
     setResultRepairs(workspace.resultRepairs);
     setSemanticNovelty(workspace.semanticNovelty);
     setWorldStateMechanisms(workspace.worldStateMechanisms);
+    setMechanismExplorationCampaign(workspace.mechanismExplorationCampaign);
     setOntologyAgentIntentCost(workspace.ontologyAgentIntentCost);
     setOntologyOutcomeData(ontologyOutcomes);
     setDiscoveryCycle(workspace.discoveryCycle);
@@ -4445,6 +4521,81 @@ function AgentOperationsView() {
                 ))}
               </div>
             </section>
+            {worldStateMechanisms.mechanismPrototypeExploration !== null && (
+              <section className="mechanism-exploration-desk">
+                <div className="mechanism-prototype-head">
+                  <div>
+                    <span className="eyebrow">Prototype-guided exploration</span>
+                    <strong>Use learned mechanisms as lenses, not as claims to look up</strong>
+                    <small>Seeded pairs are optional trailheads. A zero-seed lens is still valid Agent work: the corpus index must not decide what the ontology is allowed to discover.</small>
+                  </div>
+                  <Badge variant={worldStateMechanisms.mechanismPrototypeExploration.successfulLensCount > 0 ? "verified" : "shadow"}>
+                    {worldStateMechanisms.mechanismPrototypeExploration.successfulLensCount} TRAILHEADS
+                  </Badge>
+                </div>
+                <div className="mechanism-prototype-summary">
+                  <div><strong>{worldStateMechanisms.mechanismPrototypeExploration.lensCount}</strong><span>search lenses</span></div>
+                  <div><strong>{worldStateMechanisms.mechanismPrototypeExploration.seededLensCount}</strong><span>programmatic seeds</span></div>
+                  <div><strong>{worldStateMechanisms.mechanismPrototypeExploration.zeroSeedLensCount}</strong><span>Agent-only frontiers</span></div>
+                  <div><strong>{worldStateMechanisms.mechanismPrototypeExploration.attemptedLensCount}</strong><span>historically attempted</span></div>
+                </div>
+                <div className="mechanism-exploration-campaign">
+                  <div>
+                    <span className="eyebrow">Next bounded specimen</span>
+                    <strong>{mechanismExplorationCampaign?.axes[0]?.replaceAll("_", " ") ?? "No eligible lens"}</strong>
+                    <small>{mechanismExplorationCampaign?.diagnostic ?? "Campaign preview unavailable"}</small>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy !== null || mechanismExplorationCampaign?.creationEligible !== true}
+                    onClick={() => void perform("mechanism-exploration-campaign", () => post(
+                      "/api/v1/world-state-mechanisms/prototypes/exploration/campaigns",
+                    ))}
+                  >
+                    Create paused campaign
+                  </Button>
+                </div>
+                <div className="mechanism-exploration-grid">
+                  {worldStateMechanisms.mechanismPrototypeExploration.lenses.map((lens) => (
+                    <article key={lens.lensId} className="mechanism-prototype-card">
+                      <div className="research-attention-action-head">
+                        <div>
+                          <Badge variant={lens.state === "TRAILHEAD_RECORDED" || lens.state === "MIXED_RESULTS" ? "verified" : lens.state === "EXHAUSTED" ? "warning" : "shadow"}>
+                            {lens.state.replaceAll("_", " ")}
+                          </Badge>
+                          <Badge variant={lens.currentInputRevision.seedTrailheads.length > 0 ? "muted" : "shadow"}>
+                            {lens.currentInputRevision.seedTrailheads.length} SEEDS
+                          </Badge>
+                        </div>
+                        <code>{lens.lensId.slice(7, 19)}</code>
+                      </div>
+                      <strong>{lens.axis.replaceAll("_", " ")}</strong>
+                      <p>{lens.variationQuestion}</p>
+                      {lens.currentInputRevision.seedTrailheads[0] !== undefined && (
+                        <div className="mechanism-seed-pair">
+                          <span>{lens.currentInputRevision.seedTrailheads[0].listingTitleExcerpts[0]}</span>
+                          <span>{lens.currentInputRevision.seedTrailheads[0].listingTitleExcerpts[1]}</span>
+                        </div>
+                      )}
+                      <div className="research-attention-facts">
+                        <span>{lens.retainedTrailheadIds.length} historical positives</span>
+                        <span>{lens.retainedExhaustionIds.length} historical negatives</span>
+                        <span>{lens.campaignEligible
+                          ? lens.retainedSemanticInputCount > 0
+                            ? "new semantic input eligible" : "first input eligible"
+                          : "current input covered"}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="research-attention-lock">
+                  <CircleOff size={14} />
+                  <span>{worldStateMechanisms.mechanismPrototypeExploration.usage.modelInvocationCount} model calls · {formatTokenCount(worldStateMechanisms.mechanismPrototypeExploration.usage.knownInputTokens)} input tokens · exact corpus binding</span>
+                  <code>HEURISTIC ROUTING ONLY</code>
+                </div>
+              </section>
+            )}
             <div className="research-attention-actions">
               {worldStateMechanisms.routes.length === 0 ? (
                 <div className="empty-state">

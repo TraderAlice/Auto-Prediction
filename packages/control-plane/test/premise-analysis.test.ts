@@ -466,7 +466,7 @@ describe("Agent-native hidden premise analysis", () => {
     expect(restartedDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 54,
+      schemaVersion: 55,
       idempotencyKey: "analysisId",
     });
     expect(restartedDesk.projection().records).toEqual([record]);
@@ -570,7 +570,7 @@ describe("Agent-native hidden premise analysis", () => {
       configured: true,
       pendingCount: 1,
       dueCount: 1,
-      storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 54 },
+      storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 55 },
     });
     await Promise.all(scheduler.tick(candidates));
     expect(scheduler.projection()).toMatchObject({
@@ -739,7 +739,7 @@ describe("Agent-native hidden premise analysis", () => {
       unreadNotificationCount: 0,
       activeCount: 0,
       dueCount: 0,
-      notificationStorage: { durable: true, schemaVersion: 54 },
+      notificationStorage: { durable: true, schemaVersion: 55 },
     });
     expect(restarted.projection().notifications).toEqual(
       scheduler.projection().notifications,

@@ -1,6 +1,6 @@
 # World-state mechanism prototypes
 
-Status: active mainline construction
+Status: completed; selected into prototype-guided exploration
 
 Issue: [#207](https://github.com/luokerenx4/my-little-pony/issues/207)
 

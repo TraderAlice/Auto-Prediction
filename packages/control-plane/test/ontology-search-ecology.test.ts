@@ -497,7 +497,7 @@ describe("ontology search ecology", () => {
       .toBeNull();
     expect(store.ontologySearchIssueRevisionStorage).toMatchObject({
       durable: false,
-      schemaVersion: 54,
+      schemaVersion: 55,
       idempotencyKey: "revisionId",
     });
     store.close();

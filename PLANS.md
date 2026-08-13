@@ -1,16 +1,27 @@
 # Plans
 
 The active execution continuation is
+[`plans/mechanism-prototype-guided-exploration.md`](plans/mechanism-prototype-guided-exploration.md).
+Issue #211 treats the accepted mechanism prototype as a search lens rather than
+a claim template. Its invariant, variable roles, transfer tests and
+counter-scenarios will be bound to one exact current corpus and one declared
+variation axis. An Agent may return exact unfamiliar trailheads or useful
+bounded exhaustion, but neither outcome admits semantic truth, probability or
+an opportunity. Known Iowa/Alaska route families and listing refs are positive
+memory and negative result constraints: simply finding another state-seat /
+Senate-control wording variant is not enough. Yield, novelty and Agent cost must
+be attributable separately from prototype authoring before any recurring
+attention allocation is considered.
+
+The completed predecessor is
 [`plans/world-state-mechanism-prototypes.md`](plans/world-state-mechanism-prototypes.md).
-Issue #207 separates exact world-state route instances from falsifiable,
-parameterized mechanism prototypes. Live Iowa/Democratic and
-Alaska/Republican seat-to-chamber-control routes are concrete independent
-instances of one candidate abstraction, but current route-family identity
-correctly keeps them separate. Provider-free code may now only nominate typed
-compatible comparison sets; an Agent-first tool must bind at least two exact
-route families, state invariants, variable slots and counter-scenarios before a
-prototype can become retained research memory. This preserves evidence lineage
-while letting the system measure cross-instance transfer yield and cost.
+Issue #207 separated exact world-state route instances from falsifiable,
+parameterized prototypes. Terra/high accepted the first prototype after one
+deterministic grounding rejection and same-run repair, using 83,855 input,
+2,516 output and 268 reasoning tokens across four invocations in 119 seconds.
+The result binds two independent Iowa/Alaska route families, four variable
+roles, four transfer tests and three counter-scenarios. It is retained research
+memory with no semantic, probability, certificate or execution authority.
 
 The completed predecessor is
 [`plans/world-state-mechanism-specimen-rotation.md`](plans/world-state-mechanism-specimen-rotation.md).

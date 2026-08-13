@@ -280,6 +280,15 @@ import {
   type WorldStateMechanismPrototypeStore,
 } from "./world-state-mechanism-prototype.js";
 import {
+  assertMechanismPrototypeExplorationExhaustion,
+  assertMechanismPrototypeExplorationInputRevision,
+  assertMechanismPrototypeExplorationTrailhead,
+  type MechanismPrototypeExplorationExhaustion,
+  type MechanismPrototypeExplorationInputRevision,
+  type MechanismPrototypeExplorationStore,
+  type MechanismPrototypeExplorationTrailhead,
+} from "./mechanism-prototype-guided-exploration.js";
+import {
   assertOntologySearchIssueRevision,
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
@@ -322,7 +331,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 54;
+const SCHEMA_VERSION = 55;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -2127,6 +2136,69 @@ function parseWorldStateMechanismPrototypeAbstention(
   return abstention;
 }
 
+function parseMechanismPrototypeExplorationInput(
+  value: unknown,
+): MechanismPrototypeExplorationInputRevision {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" ||
+      typeof row.input_revision_id !== "string" || typeof row.lens_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism exploration input row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism exploration input contains invalid JSON");
+  }
+  const input = assertMechanismPrototypeExplorationInputRevision(decoded);
+  if (input.inputRevisionId !== row.input_revision_id || input.lensId !== row.lens_id ||
+      hashCanonical(input) !== row.record_hash) {
+    throw new Error("SQLite mechanism exploration input identity mismatch");
+  }
+  return input;
+}
+
+function parseMechanismPrototypeExplorationTrailhead(
+  value: unknown,
+): MechanismPrototypeExplorationTrailhead {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" || typeof row.trailhead_id !== "string" ||
+      typeof row.lens_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism exploration trailhead row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism exploration trailhead contains invalid JSON");
+  }
+  const trailhead = assertMechanismPrototypeExplorationTrailhead(decoded);
+  if (trailhead.trailheadId !== row.trailhead_id || trailhead.lensId !== row.lens_id ||
+      hashCanonical(trailhead) !== row.record_hash) {
+    throw new Error("SQLite mechanism exploration trailhead identity mismatch");
+  }
+  return trailhead;
+}
+
+function parseMechanismPrototypeExplorationExhaustion(
+  value: unknown,
+): MechanismPrototypeExplorationExhaustion {
+  const row = value as Readonly<Record<string, unknown>> | null;
+  if (row === null || typeof row !== "object" || typeof row.exhaustion_id !== "string" ||
+      typeof row.lens_id !== "string" || typeof row.record_json !== "string" ||
+      typeof row.record_hash !== "string") {
+    throw new Error("SQLite mechanism exploration exhaustion row is malformed");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite mechanism exploration exhaustion contains invalid JSON");
+  }
+  const exhaustion = assertMechanismPrototypeExplorationExhaustion(decoded);
+  if (exhaustion.exhaustionId !== row.exhaustion_id || exhaustion.lensId !== row.lens_id ||
+      hashCanonical(exhaustion) !== row.record_hash) {
+    throw new Error("SQLite mechanism exploration exhaustion identity mismatch");
+  }
+  return exhaustion;
+}
+
 function parseWorldStateMechanismObservation(
   value: unknown,
 ): WorldStateMechanismObservation {
@@ -2406,6 +2478,7 @@ export class SqliteOperationalStore
     WorldStateMechanismSubjectBindingReviewStore,
     WorldStateSubjectBindingResearchStore,
     WorldStateMechanismPrototypeStore,
+    MechanismPrototypeExplorationStore,
     WorldStateMechanismObservationStore,
     WorldStateMechanismWakeStore,
     OntologySearchIssueRevisionStore,
@@ -2498,6 +2571,12 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"prototypeId">;
   public readonly worldStateMechanismPrototypeAbstentionStorage:
     OperationalStorageProjection<"abstentionId">;
+  public readonly mechanismPrototypeExplorationInputStorage:
+    OperationalStorageProjection<"inputRevisionId">;
+  public readonly mechanismPrototypeExplorationTrailheadStorage:
+    OperationalStorageProjection<"trailheadId">;
+  public readonly mechanismPrototypeExplorationExhaustionStorage:
+    OperationalStorageProjection<"exhaustionId">;
   public readonly worldStateMechanismObservationStorage:
     OperationalStorageProjection<"observationId">;
   public readonly worldStateMechanismWakeStorage:
@@ -2799,6 +2878,24 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "abstentionId",
+    });
+    this.mechanismPrototypeExplorationInputStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "inputRevisionId",
+    });
+    this.mechanismPrototypeExplorationTrailheadStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "trailheadId",
+    });
+    this.mechanismPrototypeExplorationExhaustionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "exhaustionId",
     });
     this.worldStateMechanismObservationStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -3265,6 +3362,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'world_state_mechanism_prototype_abstentions'`,
       )
       .get() !== undefined;
+    const mechanismPrototypeExplorationInputTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'mechanism_prototype_exploration_inputs'`,
+      )
+      .get() !== undefined;
+    const mechanismPrototypeExplorationTrailheadTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'mechanism_prototype_exploration_trailheads'`,
+      )
+      .get() !== undefined;
+    const mechanismPrototypeExplorationExhaustionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'mechanism_prototype_exploration_exhaustions'`,
+      )
+      .get() !== undefined;
     const worldStateMechanismObservationTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -3391,6 +3506,9 @@ export class SqliteOperationalStore
       && worldStateMechanismPrototypeInputTableExists
       && worldStateMechanismPrototypeProposalTableExists
       && worldStateMechanismPrototypeAbstentionTableExists
+      && mechanismPrototypeExplorationInputTableExists
+      && mechanismPrototypeExplorationTrailheadTableExists
+      && mechanismPrototypeExplorationExhaustionTableExists
       && worldStateMechanismObservationTableExists
       && worldStateMechanismWakeTableExists
       && ontologySearchIssueRevisionTableExists
@@ -5206,6 +5324,84 @@ export class SqliteOperationalStore
             );
         `);
       }
+      if (current < 55 || !mechanismPrototypeExplorationInputTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS mechanism_prototype_exploration_inputs (
+            input_revision_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(input_revision_id) = 71 AND input_revision_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            lens_id TEXT NOT NULL CHECK (
+              length(lens_id) = 71 AND lens_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            prototype_id TEXT NOT NULL,
+            semantic_input_identity TEXT NOT NULL,
+            corpus_snapshot_identity TEXT NOT NULL,
+            materialized_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (prototype_id)
+              REFERENCES world_state_mechanism_prototypes(prototype_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS mechanism_prototype_exploration_inputs_lens
+            ON mechanism_prototype_exploration_inputs (
+              lens_id, materialized_at DESC, input_revision_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS mechanism_prototype_exploration_inputs_semantic
+            ON mechanism_prototype_exploration_inputs (
+              lens_id, semantic_input_identity, input_revision_id
+            );
+        `);
+      }
+      if (current < 55 || !mechanismPrototypeExplorationTrailheadTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS mechanism_prototype_exploration_trailheads (
+            trailhead_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(trailhead_id) = 71 AND trailhead_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            lens_id TEXT NOT NULL,
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES mechanism_prototype_exploration_inputs(input_revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS mechanism_prototype_exploration_trailheads_lens
+            ON mechanism_prototype_exploration_trailheads (
+              lens_id, proposed_at DESC, trailhead_id DESC
+            );
+        `);
+      }
+      if (current < 55 || !mechanismPrototypeExplorationExhaustionTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS mechanism_prototype_exploration_exhaustions (
+            exhaustion_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(exhaustion_id) = 71 AND exhaustion_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            lens_id TEXT NOT NULL,
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES mechanism_prototype_exploration_inputs(input_revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS mechanism_prototype_exploration_exhaustions_lens
+            ON mechanism_prototype_exploration_exhaustions (
+              lens_id, proposed_at DESC, exhaustion_id DESC
+            );
+        `);
+      }
       if (current < 51 || !worldStateMechanismObservationTableExists) {
         this.#database.exec(`
           CREATE TABLE IF NOT EXISTS world_state_mechanism_observations (
@@ -5746,6 +5942,23 @@ export class SqliteOperationalStore
       task.requestedEffectProtocol === "WORLD_STATE_MECHANISM_PROTOTYPE_TOOLS_V1" &&
       task.provenanceRef ===
         `world-state-mechanism-prototype-candidate:${input.candidateId}`;
+  }
+
+  #mechanismPrototypeExplorationRunMatchesInput(
+    runTaskId: string,
+    input: MechanismPrototypeExplorationInputRevision,
+  ): boolean {
+    const row = this.#database.prepare(
+      "SELECT record_json FROM agent_tasks WHERE task_id = ?",
+    ).get(runTaskId) as Readonly<{ record_json?: unknown }> | undefined;
+    if (typeof row?.record_json !== "string") return false;
+    let decoded: unknown;
+    try { decoded = JSON.parse(row.record_json); } catch { return false; }
+    const task = assertAgentTask(decoded);
+    return task.kind === "MECHANISM_PROTOTYPE_EXPLORATION" &&
+      task.protocol === "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" &&
+      task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V1" &&
+      task.provenanceRef === `mechanism-prototype-exploration:${input.lensId}`;
   }
 
   public loadStudioProjectionSnapshot(): StudioProjectionSnapshot | null {
@@ -9424,6 +9637,194 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return abstentions;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadMechanismPrototypeExplorationInputs(
+    limit: number,
+  ): readonly MechanismPrototypeExplorationInputRevision[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT input_revision_id, lens_id, record_json, record_hash
+       FROM mechanism_prototype_exploration_inputs
+       ORDER BY materialized_at DESC, input_revision_id DESC LIMIT ?`,
+    ).all(limit).map(parseMechanismPrototypeExplorationInput));
+  }
+
+  public saveMechanismPrototypeExplorationInputs(
+    values: readonly MechanismPrototypeExplorationInputRevision[],
+  ): readonly MechanismPrototypeExplorationInputRevision[] {
+    this.#assertOpen();
+    const inputs = Object.freeze(values.map(assertMechanismPrototypeExplorationInputRevision));
+    if (new Set(inputs.map((item) => item.inputRevisionId)).size !== inputs.length) {
+      throw new Error("mechanism exploration input batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const input of inputs) {
+        if (this.#database.prepare(
+          `SELECT prototype_id FROM world_state_mechanism_prototypes
+           WHERE prototype_id = ?`,
+        ).get(input.prototypeId) === undefined) {
+          throw new Error("mechanism exploration input prototype is unavailable");
+        }
+        const recordJson = canonicalJson(input);
+        const recordHash = hashCanonical(input);
+        this.#database.prepare(
+          `INSERT INTO mechanism_prototype_exploration_inputs (
+             input_revision_id, lens_id, prototype_id, semantic_input_identity,
+             corpus_snapshot_identity, materialized_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(input_revision_id) DO NOTHING`,
+        ).run(input.inputRevisionId, input.lensId, input.prototypeId,
+          input.semanticInputIdentity, input.corpusSnapshotIdentity, input.materializedAt,
+          recordJson, recordHash);
+        const stored = parseMechanismPrototypeExplorationInput(this.#database.prepare(
+          `SELECT input_revision_id, lens_id, record_json, record_hash
+           FROM mechanism_prototype_exploration_inputs WHERE input_revision_id = ?`,
+        ).get(input.inputRevisionId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("inputRevisionId is already bound to another exploration input");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return inputs;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadMechanismPrototypeExplorationTrailheads(
+    limit: number,
+  ): readonly MechanismPrototypeExplorationTrailhead[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT trailhead_id, lens_id, record_json, record_hash
+       FROM mechanism_prototype_exploration_trailheads
+       ORDER BY proposed_at DESC, trailhead_id DESC LIMIT ?`,
+    ).all(limit).map(parseMechanismPrototypeExplorationTrailhead));
+  }
+
+  public saveMechanismPrototypeExplorationTrailheads(
+    values: readonly MechanismPrototypeExplorationTrailhead[],
+  ): readonly MechanismPrototypeExplorationTrailhead[] {
+    this.#assertOpen();
+    const trailheads = Object.freeze(values.map(assertMechanismPrototypeExplorationTrailhead));
+    if (new Set(trailheads.map((item) => item.trailheadId)).size !== trailheads.length) {
+      throw new Error("mechanism exploration trailhead batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const trailhead of trailheads) {
+        const inputRow = this.#database.prepare(
+          `SELECT input_revision_id, lens_id, record_json, record_hash
+           FROM mechanism_prototype_exploration_inputs WHERE input_revision_id = ?`,
+        ).get(trailhead.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(trailhead.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (inputRow === undefined || typeof runRow?.task_id !== "string") {
+          throw new Error("mechanism exploration trailhead references unavailable lineage");
+        }
+        const input = parseMechanismPrototypeExplorationInput(inputRow);
+        if (!this.#mechanismPrototypeExplorationRunMatchesInput(runRow.task_id, input) ||
+            input.lensId !== trailhead.lensId || input.prototypeId !== trailhead.prototypeId ||
+            input.semanticInputIdentity !== trailhead.semanticInputIdentity ||
+            input.axis !== trailhead.axis) {
+          throw new Error("mechanism exploration trailhead is outside its exact input lineage");
+        }
+        const recordJson = canonicalJson(trailhead);
+        const recordHash = hashCanonical(trailhead);
+        this.#database.prepare(
+          `INSERT INTO mechanism_prototype_exploration_trailheads (
+             trailhead_id, lens_id, input_revision_id, source_agent_run_id,
+             proposed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(trailhead_id) DO NOTHING`,
+        ).run(trailhead.trailheadId, trailhead.lensId, trailhead.inputRevisionId,
+          trailhead.sourceAgentRunId, trailhead.proposedAt, recordJson, recordHash);
+        const stored = parseMechanismPrototypeExplorationTrailhead(this.#database.prepare(
+          `SELECT trailhead_id, lens_id, record_json, record_hash
+           FROM mechanism_prototype_exploration_trailheads WHERE trailhead_id = ?`,
+        ).get(trailhead.trailheadId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("trailheadId is already bound to another exploration result");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return trailheads;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadMechanismPrototypeExplorationExhaustions(
+    limit: number,
+  ): readonly MechanismPrototypeExplorationExhaustion[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT exhaustion_id, lens_id, record_json, record_hash
+       FROM mechanism_prototype_exploration_exhaustions
+       ORDER BY proposed_at DESC, exhaustion_id DESC LIMIT ?`,
+    ).all(limit).map(parseMechanismPrototypeExplorationExhaustion));
+  }
+
+  public saveMechanismPrototypeExplorationExhaustions(
+    values: readonly MechanismPrototypeExplorationExhaustion[],
+  ): readonly MechanismPrototypeExplorationExhaustion[] {
+    this.#assertOpen();
+    const exhaustions = Object.freeze(values.map(assertMechanismPrototypeExplorationExhaustion));
+    if (new Set(exhaustions.map((item) => item.exhaustionId)).size !== exhaustions.length) {
+      throw new Error("mechanism exploration exhaustion batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const exhaustion of exhaustions) {
+        const inputRow = this.#database.prepare(
+          `SELECT input_revision_id, lens_id, record_json, record_hash
+           FROM mechanism_prototype_exploration_inputs WHERE input_revision_id = ?`,
+        ).get(exhaustion.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT task_id FROM agent_runs WHERE run_id = ?",
+        ).get(exhaustion.sourceAgentRunId) as Readonly<{ task_id?: unknown }> | undefined;
+        if (inputRow === undefined || typeof runRow?.task_id !== "string") {
+          throw new Error("mechanism exploration exhaustion references unavailable lineage");
+        }
+        const input = parseMechanismPrototypeExplorationInput(inputRow);
+        if (!this.#mechanismPrototypeExplorationRunMatchesInput(runRow.task_id, input) ||
+            input.lensId !== exhaustion.lensId || input.prototypeId !== exhaustion.prototypeId ||
+            input.semanticInputIdentity !== exhaustion.semanticInputIdentity ||
+            input.axis !== exhaustion.axis) {
+          throw new Error("mechanism exploration exhaustion is outside its exact input lineage");
+        }
+        const recordJson = canonicalJson(exhaustion);
+        const recordHash = hashCanonical(exhaustion);
+        this.#database.prepare(
+          `INSERT INTO mechanism_prototype_exploration_exhaustions (
+             exhaustion_id, lens_id, input_revision_id, source_agent_run_id,
+             proposed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(exhaustion_id) DO NOTHING`,
+        ).run(exhaustion.exhaustionId, exhaustion.lensId, exhaustion.inputRevisionId,
+          exhaustion.sourceAgentRunId, exhaustion.proposedAt, recordJson, recordHash);
+        const stored = parseMechanismPrototypeExplorationExhaustion(this.#database.prepare(
+          `SELECT exhaustion_id, lens_id, record_json, record_hash
+           FROM mechanism_prototype_exploration_exhaustions WHERE exhaustion_id = ?`,
+        ).get(exhaustion.exhaustionId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("exhaustionId is already bound to another exploration result");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return exhaustions;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

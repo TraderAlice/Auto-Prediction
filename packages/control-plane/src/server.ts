@@ -160,6 +160,17 @@ import {
   resolveWorldStateMechanismPrototypeCampaignInput,
 } from "./world-state-mechanism-prototype-campaign.js";
 import {
+  materializeMechanismPrototypeExplorationProjection,
+  type MechanismPrototypeExplorationLens,
+  type MechanismPrototypeExplorationStore,
+} from "./mechanism-prototype-guided-exploration.js";
+import { MechanismPrototypeExplorationAgentToolHost } from
+  "./mechanism-prototype-guided-exploration-agent-tools.js";
+import {
+  buildMechanismPrototypeExplorationCampaignPreview,
+  resolveMechanismPrototypeExplorationCampaignInput,
+} from "./mechanism-prototype-guided-exploration-campaign.js";
+import {
   observeWorldStateMechanismRoutes,
   worldStateMechanismSubjectBindingReviewCoversRoute,
   type WorldStateMechanismObservationStore,
@@ -1162,6 +1173,22 @@ function supportsWorldStateMechanismPrototypeResearch(
     typeof candidate.saveWorldStateMechanismPrototypeAbstentions === "function";
 }
 
+function supportsMechanismPrototypeExploration(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & MechanismPrototypeExplorationStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<MechanismPrototypeExplorationStore>;
+  return candidate.mechanismPrototypeExplorationInputStorage !== undefined &&
+    candidate.mechanismPrototypeExplorationTrailheadStorage !== undefined &&
+    candidate.mechanismPrototypeExplorationExhaustionStorage !== undefined &&
+    typeof candidate.loadMechanismPrototypeExplorationInputs === "function" &&
+    typeof candidate.saveMechanismPrototypeExplorationInputs === "function" &&
+    typeof candidate.loadMechanismPrototypeExplorationTrailheads === "function" &&
+    typeof candidate.saveMechanismPrototypeExplorationTrailheads === "function" &&
+    typeof candidate.loadMechanismPrototypeExplorationExhaustions === "function" &&
+    typeof candidate.saveMechanismPrototypeExplorationExhaustions === "function";
+}
+
 function supportsWorldStateMechanismObservations(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & WorldStateMechanismObservationStore {
@@ -1458,10 +1485,16 @@ export function createControlPlane(options?: {
     supportsWorldStateMechanismPrototypeResearch(options?.discoveryStore)
       ? options.discoveryStore
       : null;
+  const mechanismPrototypeExplorationStore =
+    supportsMechanismPrototypeExploration(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
   let worldStateSubjectBindingResearchCases:
     readonly WorldStateSubjectBindingResearchCase[] = [];
   let worldStateMechanismPrototypeResearchCases:
     readonly WorldStateMechanismPrototypeResearchCase[] = [];
+  let mechanismPrototypeExplorationLenses:
+    readonly MechanismPrototypeExplorationLens[] = [];
   const worldStateMechanismObservationStore =
     supportsWorldStateMechanismObservations(options?.discoveryStore)
       ? options.discoveryStore
@@ -3178,6 +3211,7 @@ export function createControlPlane(options?: {
       ...worldStateMechanismResearchAssignments.map((assignment) => assignment.task),
       ...worldStateSubjectBindingResearchCases.map((item) => item.task),
       ...worldStateMechanismPrototypeResearchCases.map((item) => item.task),
+      ...mechanismPrototypeExplorationLenses.map((item) => item.task),
       ...relationDiscoveryTaskRevisions.map((revision) => revision.task),
     ];
     agentTaskReadinessIndex = buildAgentTaskReadinessIndex(currentTasks);
@@ -3245,6 +3279,25 @@ export function createControlPlane(options?: {
         loadInput: (revisionId: Hash) => worldStateMechanismPrototypeStore
           .loadWorldStateMechanismPrototypeInputs(2_048)
           .find((item) => item.revisionId === revisionId) ?? null,
+      }),
+    });
+  const mechanismPrototypeExplorationLens = (taskId: Hash) => {
+    const lens = mechanismPrototypeExplorationLenses.find((item) =>
+      item.task.taskId === taskId
+    );
+    if (lens === undefined) throw new Error("mechanism exploration lens is unavailable");
+    return lens;
+  };
+  const mechanismPrototypeExplorationInput = (taskId: Hash, run: AgentRun) =>
+    resolveMechanismPrototypeExplorationCampaignInput({
+      taskId,
+      run,
+      campaigns: agentExecutionRegistry.snapshot().campaigns,
+      currentLenses: mechanismPrototypeExplorationLenses,
+      ...(mechanismPrototypeExplorationStore === null ? {} : {
+        loadInput: (revisionId: Hash) => mechanismPrototypeExplorationStore
+          .loadMechanismPrototypeExplorationInputs(2_048)
+          .find((item) => item.inputRevisionId === revisionId) ?? null,
       }),
     });
   const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
@@ -3357,6 +3410,25 @@ export function createControlPlane(options?: {
             worldStateMechanismPrototypeStore,
           );
         }
+        if (task.kind === "MECHANISM_PROTOTYPE_EXPLORATION") {
+          if (mechanismPrototypeExplorationStore === null) {
+            throw new Error("mechanism exploration durable result store is unavailable");
+          }
+          const lens = mechanismPrototypeExplorationLens(task.taskId);
+          const input = mechanismPrototypeExplorationInput(task.taskId, run);
+          const corpus = relationDiscoveryStore?.loadRelationDiscoveryCorpus(
+            input.corpusSnapshotIdentity,
+          ) ?? null;
+          if (corpus === null) {
+            throw new Error("mechanism exploration exact corpus is unavailable");
+          }
+          return new MechanismPrototypeExplorationAgentToolHost(
+            input,
+            lens.prototype,
+            corpus,
+            mechanismPrototypeExplorationStore,
+          );
+        }
         if (task.kind === "RELATION_DISCOVERY") {
           const revision = relationDiscoveryTaskRevision(task.taskId, run);
           const corpus = relationDiscoveryStore?.loadRelationDiscoveryCorpus(
@@ -3408,6 +3480,9 @@ export function createControlPlane(options?: {
           }
           return researchCase.taskContract;
         }
+        if (task.kind === "MECHANISM_PROTOTYPE_EXPLORATION") {
+          return mechanismPrototypeExplorationLens(task.taskId).taskContract;
+        }
         if (task.kind === "RELATION_DISCOVERY") {
           const revision = relationDiscoveryTaskRevision(task.taskId, run);
           return revision.taskPayload as RelationDiscoveryTaskPayload;
@@ -3453,6 +3528,16 @@ export function createControlPlane(options?: {
             run,
             revisionKind: "WORLD_STATE_MECHANISM_PROTOTYPE_INPUT",
             revisionId: input.revisionId,
+            exactInput: input,
+          })]);
+        }
+        if (task.kind === "MECHANISM_PROTOTYPE_EXPLORATION") {
+          const input = mechanismPrototypeExplorationInput(task.taskId, run);
+          return Object.freeze([buildAgentInputRevisionRunAnnotation({
+            task,
+            run,
+            revisionKind: "MECHANISM_PROTOTYPE_EXPLORATION_INPUT",
+            revisionId: input.inputRevisionId,
             exactInput: input,
           })]);
         }
@@ -3749,6 +3834,45 @@ export function createControlPlane(options?: {
     const knownTaskIds = new Set(agentExecutionRegistry.snapshot().tasks
       .map((item) => item.taskId));
     const tasks = worldStateMechanismPrototypeResearchCases
+      .map((item) => item.task)
+      .filter((item) => !knownTaskIds.has(item.taskId));
+    if (tasks.length > 0) agentExecutionRegistry.saveBatch({ tasks });
+    reconcileMechanismPrototypeExploration();
+    invalidateAgentTaskReadiness();
+  };
+  const reconcileMechanismPrototypeExploration = (): void => {
+    if (worldStateMechanismPrototypeStore === null ||
+        mechanismPrototypeExplorationStore === null) return;
+    const corpus = catalogObservationDesk.corpus();
+    if (corpus.listingCount === 0) return;
+    relationDiscoveryStore?.saveRelationDiscoveryCorpus(corpus);
+    const projection = materializeMechanismPrototypeExplorationProjection({
+      prototypes: worldStateMechanismPrototypeStore
+        .loadWorldStateMechanismPrototypeProposals(512),
+      prototypeInputs: worldStateMechanismPrototypeStore
+        .loadWorldStateMechanismPrototypeInputs(2_048),
+      trailheads: mechanismPrototypeExplorationStore
+        .loadMechanismPrototypeExplorationTrailheads(512),
+      exhaustions: mechanismPrototypeExplorationStore
+        .loadMechanismPrototypeExplorationExhaustions(512),
+      execution: agentExecutionRegistry.snapshot(),
+      corpus,
+      ontology: buildMarketOntologySnapshot(corpus),
+    });
+    mechanismPrototypeExplorationLenses = projection.lenses;
+    const retainedIds = new Set(mechanismPrototypeExplorationStore
+      .loadMechanismPrototypeExplorationInputs(2_048)
+      .map((item) => item.inputRevisionId));
+    const fresh = mechanismPrototypeExplorationLenses
+      .map((item) => item.currentInputRevision)
+      .filter((item) => !retainedIds.has(item.inputRevisionId));
+    if (fresh.length > 0) {
+      mechanismPrototypeExplorationStore
+        .saveMechanismPrototypeExplorationInputs(fresh);
+    }
+    const knownTaskIds = new Set(agentExecutionRegistry.snapshot().tasks
+      .map((item) => item.taskId));
+    const tasks = mechanismPrototypeExplorationLenses
       .map((item) => item.task)
       .filter((item) => !knownTaskIds.has(item.taskId));
     if (tasks.length > 0) agentExecutionRegistry.saveBatch({ tasks });
@@ -4253,6 +4377,24 @@ export function createControlPlane(options?: {
     const wakes = worldStateMechanismWakeStore
       ?.loadWorldStateMechanismWakes(2_048) ?? [];
     const routes = compileConsolidatedWorldStateMechanismRoutes(proposals);
+    const prototypeProposals = worldStateMechanismPrototypeStore
+      ?.loadWorldStateMechanismPrototypeProposals(512) ?? [];
+    const prototypeInputs = worldStateMechanismPrototypeStore
+      ?.loadWorldStateMechanismPrototypeInputs(2_048) ?? [];
+    const corpus = catalogObservationDesk.corpus();
+    const mechanismPrototypeExploration = corpus.listingCount === 0
+      ? null
+      : materializeMechanismPrototypeExplorationProjection({
+          prototypes: prototypeProposals,
+          prototypeInputs,
+          trailheads: mechanismPrototypeExplorationStore
+            ?.loadMechanismPrototypeExplorationTrailheads(512) ?? [],
+          exhaustions: mechanismPrototypeExplorationStore
+            ?.loadMechanismPrototypeExplorationExhaustions(512) ?? [],
+          execution: agentExecutionRegistry.snapshot(),
+          corpus,
+          ontology: buildMarketOntologySnapshot(corpus),
+        });
     const bindingCases = worldStateSubjectBindingResearchCases;
     const bindingAssessments = worldStateSubjectBindingResearchStore
       ?.loadWorldStateSubjectBindingAssessments(512) ?? [];
@@ -4308,8 +4450,7 @@ export function createControlPlane(options?: {
         abstainedCount: worldStateMechanismPrototypeResearchCases.filter((item) =>
           item.state === "ABSTAINED"
         ).length,
-        retainedProposalCount: worldStateMechanismPrototypeStore
-          ?.loadWorldStateMechanismPrototypeProposals(512).length ?? 0,
+        retainedProposalCount: prototypeProposals.length,
         retainedAbstentionCount: worldStateMechanismPrototypeStore
           ?.loadWorldStateMechanismPrototypeAbstentions(512).length ?? 0,
         automaticDispatch: false as const,
@@ -4334,6 +4475,7 @@ export function createControlPlane(options?: {
             campaignEligible: item.campaignEligible,
           }))),
       }),
+      mechanismPrototypeExploration,
       familyScorecards: buildWorldStateMechanismFamilyScorecards({
         routes,
         counterexamples,
@@ -4532,6 +4674,27 @@ export function createControlPlane(options?: {
     const configuration = await agentCredentialBroker.configuration(binding);
     return buildWorldStateMechanismPrototypeCampaignPreview({
       cases: worldStateMechanismPrototypeResearchCases,
+      execution: snapshot,
+      capability: agentExecutionCapabilityService.project(profile, configuration),
+    });
+  };
+  const mechanismPrototypeExplorationCampaignPreview = async () => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const route = [...snapshot.workloadRoutes]
+      .filter((item) => item.taskKind === "MECHANISM_PROTOTYPE_EXPLORATION")
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (route === undefined) throw new Error("Mechanism exploration route is unavailable");
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === route.executionProfileId
+    );
+    if (profile === undefined) throw new Error("Mechanism exploration profile is unavailable");
+    const binding = snapshot.credentialBindings.find((item) =>
+      item.credentialBindingId === profile.credentialBindingId
+    );
+    if (binding === undefined) throw new Error("Mechanism exploration credential is unavailable");
+    const configuration = await agentCredentialBroker.configuration(binding);
+    return buildMechanismPrototypeExplorationCampaignPreview({
+      lenses: mechanismPrototypeExplorationLenses,
       execution: snapshot,
       capability: agentExecutionCapabilityService.project(profile, configuration),
     });
@@ -5607,6 +5770,13 @@ export function createControlPlane(options?: {
         // Durable proposal or abstention remains authoritative; startup retries projection repair.
       }
     }
+    if (task?.kind === "MECHANISM_PROTOTYPE_EXPLORATION") {
+      try {
+        reconcileMechanismPrototypeExploration();
+      } catch {
+        // Durable trailheads or exhaustion remain authoritative; startup retries projection repair.
+      }
+    }
     if (task?.kind === "ONTOLOGY_NORMALIZATION" || task?.kind === "RELATION_DISCOVERY") {
       try {
         reconcileWorldStateMechanismObservations();
@@ -5738,9 +5908,10 @@ export function createControlPlane(options?: {
       // racing several HTTP handlers that each rebuild the same research graph.
       const research = currentResearchActionState();
       const agentSnapshot = agentExecutionRegistry.snapshot();
-      const [execution, relationCampaign] = await Promise.all([
+      const [execution, relationCampaign, mechanismExplorationCampaign] = await Promise.all([
         agentExecutionConsole(agentSnapshot),
         relationDiscoveryCampaignPreview(research.allocation),
+        mechanismPrototypeExplorationCampaignPreview(),
       ]);
       const decisions = buildResearchDecisionOutcomeProjection({
         observedAt: research.allocation.observedAt,
@@ -5753,6 +5924,7 @@ export function createControlPlane(options?: {
         execution,
         attention: research.allocation,
         relationCampaign,
+        mechanismExplorationCampaign,
         targets: research.targets,
         decisions,
         discoverySignals: currentDiscoverySignalProjection(),
@@ -6898,6 +7070,25 @@ export function createControlPlane(options?: {
     }
     if (
       request.method === "GET" &&
+      url.pathname ===
+        "/api/v1/world-state-mechanisms/prototypes/exploration/campaign-preview"
+    ) {
+      try {
+        await ready;
+        writeJson(response, 200, await mechanismPrototypeExplorationCampaignPreview());
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "mechanism exploration campaign preview is unavailable",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "GET" &&
       url.pathname === "/api/v1/relation-discovery/campaign-preview"
     ) {
       try {
@@ -7217,6 +7408,53 @@ export function createControlPlane(options?: {
           ok: false,
           diagnostic: error instanceof Error ? error.message :
             "mechanism prototype campaign could not be created",
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          semanticDecisionAuthority: false,
+        });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/world-state-mechanisms/prototypes/exploration/campaigns"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 0) {
+          throw new Error("mechanism exploration campaign creation accepts an empty object only");
+        }
+        const preview = await mechanismPrototypeExplorationCampaignPreview();
+        if (!preview.creationEligible) throw new Error(preview.diagnostic);
+        const latestRevision = agentExecutionRegistry.snapshot().campaigns
+          .filter((item) => item.campaignKey === preview.campaignKey)
+          .reduce((maximum, item) => Math.max(maximum, item.revision), 0);
+        const campaign = buildPausedAgentCampaign({
+          campaignKey: preview.campaignKey,
+          revision: latestRevision + 1,
+          executionProfileId: preview.executionProfile.executionProfileId,
+          taskIds: preview.taskIds,
+          schedule: preview.schedule,
+          budget: preview.budget,
+          selectionBinding: preview.selectionBinding,
+          taskRunPolicy: preview.taskRunPolicy,
+          createdAt: new Date().toISOString(),
+        });
+        agentExecutionRegistry.saveBatch({ campaigns: [campaign] });
+        await broadcastProjection();
+        writeJson(response, 201, {
+          ok: true, campaign, preview,
+          providerRequestsStarted: 0,
+          modelInvocationsStarted: 0,
+          semanticDecisionAuthority: false,
+        });
+      } catch (error) {
+        writeJson(response, 409, {
+          ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "mechanism exploration campaign could not be created",
           providerRequestsStarted: 0,
           modelInvocationsStarted: 0,
           semanticDecisionAuthority: false,
