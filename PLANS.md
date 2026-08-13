@@ -1899,6 +1899,18 @@ mixed, and no-accepted-result run/token strata, including unknown usage from a
 timed-out invocation. Full qualification must pass before this frozen campaign
 may resume.
 
+The first post-deadline-fix activation preview started no provider work but
+exposed a second contract gap: the plan and selection policy said one run per
+exact input lineage, while mechanism campaign creation had produced a v2
+campaign with no `taskRunPolicy`. Its interrupted first task therefore remained
+dispatchable alongside all four untouched tasks. Issue #173 turns that research
+intent into executable policy. New mechanism campaigns are v3
+`ONCE_PER_TASK_PER_LINEAGE`; activating an existing selection-bound mechanism
+v2 specimen first appends a policy-upgrade revision. Any terminal attempted run,
+including no-result interruption, suppresses that task across the lineage. The
+live specimen remains paused until full qualification proves its preview has
+four rather than five dispatchable tasks.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a

@@ -1,6 +1,6 @@
 # World-state mechanism live-yield qualification
 
-Status: runtime hold after the first bounded specimen
+Status: bounded runtime retest gated by once-per-lineage policy qualification
 
 Issue: [#170](https://github.com/luokerenx4/my-little-pony/issues/170)
 
@@ -96,6 +96,20 @@ than unstructured logs.
 Do not resume this campaign until deadline enforcement and yield strata pass
 full qualification. This observation does not yet justify revising structural
 selection: the Agent never reached the assigned evidence.
+
+The first post-fix activation preview exposed a second execution-contract gap
+before any additional provider work began. Although this plan and the mechanism
+selection policy both require one run per exact task/revision lineage, the
+mechanism campaign creation path had persisted a selection-bound v2 campaign
+without `taskRunPolicy`. The dispatcher therefore still reported all five
+tasks dispatchable after the first task's interrupted run, and a second dispatch
+would have repeated that task instead of advancing through the frozen specimen.
+The campaign was paused again with zero new invocations. Issue #173 now binds
+mechanism campaign creation to `ONCE_PER_TASK_PER_LINEAGE`; activation upgrades
+an existing selection-bound mechanism v2 specimen through an append-only v3
+revision before granting authority. Interrupted, failed, and successful runs
+all count as attempts. Resume only after that policy passes full qualification
+and the upgraded live preview reports four—not five—dispatchable tasks.
 
 The anonymous corpus refreshed while this hold was being qualified, moving the
 current allocator from 24 suitable / 5 selected to 25 / 6. The paused campaign

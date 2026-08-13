@@ -149,6 +149,7 @@ describe("world-state mechanism research role", () => {
     });
     expect(preview).toMatchObject({
       schedule: { kind: "MANUAL_ONLY" },
+      taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE",
       budget: { maximumConcurrentRuns: 1, maximumModelInvocations: 8 },
       creationEligible: true,
       dispatchEligible: true,

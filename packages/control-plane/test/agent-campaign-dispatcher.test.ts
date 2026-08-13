@@ -5,6 +5,7 @@ import {
   AgentCredentialBroker,
   AgentExecutionRegistry,
   buildAgentRun,
+  completeAgentRun,
   buildAgentRunAnnotation,
   buildAgentTask,
   buildPausedAgentCampaign,
@@ -256,6 +257,38 @@ describe("Agent campaign dispatcher", () => {
       maximumImmediateFanout: 0,
     });
     expect(item.dispatcher.dispatchCampaign(reactivated.campaignId).preparedRuns).toEqual([]);
+    item.store.close();
+  });
+
+  it("treats an interrupted run as an attempted once-per-lineage task", () => {
+    const item = fixture(2, {
+      maximumConcurrentRuns: 1,
+      maximumModelInvocations: 4,
+    }, { kind: "MANUAL_ONLY", intervalMs: null }, "ONCE_PER_TASK_PER_LINEAGE");
+    item.time.advance(1_000);
+    const active = activateAgentCampaign(item.paused, "operator:interrupted-once", item.time.iso());
+    item.registry.saveBatch({ campaigns: [active] });
+    const attemptedTask = item.tasks[0]!.task;
+    const profile = item.registry.snapshot().executionProfiles[0]!;
+    const prepared = buildAgentRun({
+      task: attemptedTask,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: { kind: "CAMPAIGN", campaign: active, authorizedAt: item.time.iso() },
+      createdAt: item.time.iso(),
+    });
+    item.time.advance(10);
+    item.registry.saveBatch({ runs: [completeAgentRun(
+      prepared, "INTERRUPTED", item.time.iso(), "model invocation timed_out",
+    )] });
+
+    expect(item.dispatcher.preview(active.campaignId)).toMatchObject({
+      dispatchableTaskCount: 1,
+      maximumImmediateFanout: 1,
+    });
+    const next = item.dispatcher.dispatchCampaign(active.campaignId);
+    expect(next.preparedRuns).toHaveLength(1);
+    expect(next.preparedRuns[0]!.taskId).not.toBe(attemptedTask.taskId);
     item.store.close();
   });
 
