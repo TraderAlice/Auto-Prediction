@@ -307,7 +307,8 @@ describe("production Agent CLI runtime drivers", () => {
       now: () => Date.parse(LATER),
     });
     expect(codexResult.modelInvocations[0]).toMatchObject({
-      schemaVersion: "pmh.model-invocation.v2",
+      schemaVersion: "pmh.model-invocation.v3",
+      purpose: "PRIMARY_REASONING",
       status: "FAILED",
       failureCategory: "CODEX_CLI_EXIT",
       diagnostic: expect.stringContaining("exitCode=23"),
@@ -335,7 +336,8 @@ describe("production Agent CLI runtime drivers", () => {
       now: () => Date.parse(LATER),
     });
     expect(piResult.modelInvocations[0]).toMatchObject({
-      schemaVersion: "pmh.model-invocation.v2",
+      schemaVersion: "pmh.model-invocation.v3",
+      purpose: "PRIMARY_REASONING",
       status: "FAILED",
       failureCategory: "PI_CLI_EXIT",
       diagnostic: expect.stringContaining("exitCode=17"),

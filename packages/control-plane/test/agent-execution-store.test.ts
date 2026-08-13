@@ -164,6 +164,7 @@ describe("SQLite Agent execution substrate", () => {
       createdAt: LATER,
     });
     const invocation = buildModelInvocation({
+      purpose: "PRIMARY_REASONING",
       run,
       modelProfile: imported.modelProfile,
       ordinal: 1,
@@ -304,6 +305,7 @@ describe("SQLite Agent execution substrate", () => {
       createdAt: NOW,
     });
     const invocation = buildModelInvocation({
+      purpose: "PRIMARY_REASONING",
       run,
       modelProfile: imported.modelProfile,
       ordinal: 1,
@@ -328,8 +330,9 @@ describe("SQLite Agent execution substrate", () => {
     const reopened = new SqliteOperationalStore(path);
     expect(reopened.loadAgentExecutionSnapshot().modelInvocations).toEqual([
       expect.objectContaining({
-        schemaVersion: "pmh.model-invocation.v2",
+        schemaVersion: "pmh.model-invocation.v3",
         invocationId: invocation.invocationId,
+        purpose: "PRIMARY_REASONING",
         diagnostic: "exitCode=23; timedOut=false; stderr=\"model is unavailable\"",
       }),
     ]);

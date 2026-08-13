@@ -268,6 +268,14 @@ describe("control-plane HTTP surface", () => {
         automaticDispatch: boolean;
         policyMutationAuthority: boolean;
       };
+      resultRepairs: {
+        schemaVersion: string;
+        providerRequestsStartedByRead: number;
+        modelInvocationsStartedByRead: number;
+        writesStartedByRead: number;
+        automaticDispatch: boolean;
+        policyMutationAuthority: boolean;
+      };
       providerRequestsStartedByRead: number;
       modelInvocationsStartedByRead: number;
       writesStartedByRead: number;
@@ -300,6 +308,14 @@ describe("control-plane HTTP surface", () => {
       },
       discoveryYield: {
         schemaVersion: "pmh.discovery-yield-projection.v1",
+        providerRequestsStartedByRead: 0,
+        modelInvocationsStartedByRead: 0,
+        writesStartedByRead: 0,
+        automaticDispatch: false,
+        policyMutationAuthority: false,
+      },
+      resultRepairs: {
+        schemaVersion: "pmh.agent-result-repair-projection.v1",
         providerRequestsStartedByRead: 0,
         modelInvocationsStartedByRead: 0,
         writesStartedByRead: 0,

@@ -201,6 +201,7 @@ describe("ontology research attention allocation", () => {
       item.modelProfileId === profile(baseExecution).modelProfileId
     )!;
     const invocation = buildModelInvocation({
+      purpose: "PRIMARY_REASONING",
       run,
       modelProfile: model,
       ordinal: 1,

@@ -200,6 +200,23 @@ store validation remove two whole-ledger scans without weakening durable
 reference checks. The separate monolithic Studio projection ceiling remains a
 named Phase 4 continuation.
 
+The first measured live relation run now supplies the next Phase 4 correction.
+It retained one terminal no-yield memory after 91,187 known Codex/Terra tokens,
+but its declared counterexample tool was rejected for an invalid listing count
+and one generic recovery turn still ended without an accepted result. The active
+repair-loop plan makes this rejected tool effect actionable inside the same
+budget-bounded Agent run and adds invocation-purpose evidence before policy may
+compare repair cost.
+
+That correction now has a live successor. Terra repaired one rejected ontology
+route call inside the same run for 27,371 known repair tokens and reached an
+accepted structured effect. The full 140,711-token run nevertheless advanced no
+evidence stage because its subject-reference route overlapped retained Lula
+event-reference routing memory. Discovery-yield attribution therefore records
+the window as `SPENT_WITHOUT_MOVEMENT` rather than treating schema-valid output
+as productive yield. The next loop must move novelty admission in front of
+retention and eventually in front of expensive search allocation.
+
 ## Authority boundary
 
 This plan may create or revise local Agent campaign membership under explicit
