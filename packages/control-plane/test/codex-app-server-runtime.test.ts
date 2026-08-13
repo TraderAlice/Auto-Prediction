@@ -19,7 +19,12 @@ import {
 const NOW_MS = Date.parse("2026-08-12T07:00:00.000Z");
 
 class FakeConnection implements CodexAppServerConnection {
-  public readonly requests: Array<Readonly<{ method: string; params: unknown }>> = [];
+  public readonly requests: Array<Readonly<{
+    method: string;
+    params: unknown;
+    timeoutMs: number | undefined;
+  }>> = [];
+  public readonly inboundTimeouts: number[] = [];
   public readonly responses: Array<Readonly<{
     id: CodexAppServerRequestId;
     result: unknown;
@@ -33,9 +38,9 @@ class FakeConnection implements CodexAppServerConnection {
     this.#events = [...events];
   }
 
-  public async request(method: string, params: unknown): Promise<unknown> {
+  public async request(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
     if (this.requestFailure !== null) throw this.requestFailure;
-    this.requests.push(Object.freeze({ method, params }));
+    this.requests.push(Object.freeze({ method, params, timeoutMs }));
     if (method === "thread/start") return {
       thread: { id: "thread:test" },
       model: "gpt-5.6-terra",
@@ -55,7 +60,8 @@ class FakeConnection implements CodexAppServerConnection {
     this.responses.push(Object.freeze({ id, result }));
   }
 
-  public async nextInbound(): Promise<CodexAppServerInbound> {
+  public async nextInbound(timeoutMs?: number): Promise<CodexAppServerInbound> {
+    if (timeoutMs !== undefined) this.inboundTimeouts.push(timeoutMs);
     const next = this.#events.shift();
     if (next === undefined) throw new Error("fake Codex app-server event queue is empty");
     return next;
@@ -66,7 +72,7 @@ class FakeConnection implements CodexAppServerConnection {
   }
 }
 
-function fixture(events: readonly CodexAppServerInbound[]) {
+function fixture(events: readonly CodexAppServerInbound[], maximumWallClockMs = 300_000) {
   const payload = Object.freeze({
     schemaVersion: "test.ontology-task.v1",
     evidenceRef: hashCanonical({ evidence: "bounded" }),
@@ -113,7 +119,7 @@ function fixture(events: readonly CodexAppServerInbound[]) {
     runBudget: {
       maximumModelInvocations: 4,
       maximumToolCalls: 4,
-      maximumWallClockMs: 300_000,
+      maximumWallClockMs,
       maximumInputTokens: "10000",
       maximumOutputTokens: "2000",
     },
@@ -300,6 +306,42 @@ describe("Codex app-server Agent runtime", () => {
       params: { model: "gpt-5.6-terra", effort: "high" },
     });
     expect(work.connection.closed).toBe(true);
+  });
+
+  it("bounds every app-server wait by the remaining run wall-clock budget", async () => {
+    const work = fixture([{
+      method: "item/started",
+      params: {
+        threadId: "thread:test",
+        turnId: "turn:test",
+        item: { type: "commandExecution", id: "command:1", command: "pwd" },
+      },
+    }], 1_000);
+
+    await executePreparedAgentRun({
+      run: work.run,
+      task: work.task,
+      taskPayload: work.payload,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: work.profile,
+      adapter: work.adapter,
+      credentialBroker: work.broker,
+      toolHost: work.toolHost,
+    });
+
+    expect(work.connection.requests.map((item) => item.timeoutMs)).toEqual(
+      expect.arrayContaining([expect.any(Number)]),
+    );
+    expect(work.connection.requests.filter((item) =>
+      item.method === "thread/start" || item.method === "turn/start"
+    ).every((item) =>
+      item.timeoutMs !== undefined && item.timeoutMs <= 1_000
+    )).toBe(true);
+    expect(work.connection.inboundTimeouts.length).toBeGreaterThan(0);
+    expect(work.connection.inboundTimeouts.every((timeout) => timeout > 0 && timeout <= 1_000))
+      .toBe(true);
   });
 
   it("fails closed when Codex starts a built-in command", async () => {

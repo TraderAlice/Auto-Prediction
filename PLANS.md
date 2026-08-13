@@ -1874,6 +1874,37 @@ produces reusable routes, useful falsifiers, or principled abstention at an
 acceptable token cost. Campaign creation and activation remain explicit
 operator actions rather than plan side effects.
 
+The active bounded continuation is
+[`plans/world-state-mechanism-live-yield.md`](plans/world-state-mechanism-live-yield.md).
+Issue #170 freezes the five selected exact revisions and qualifies one manual,
+concurrency-one Codex/Terra campaign under its existing eight-invocation,
+200k-input-token and 900-second ceilings. The selection decision is already
+made; the experiment asks whether the role returns reusable routes, useful
+falsifiers, or evidence-bound abstentions and what each result kind costs. A
+no-yield run remains evidence and cannot silently enlarge or recur the budget.
+
+The first specimen is now `HOLD_RUNTIME`, not a failed ontology verdict. Codex
+app-server / Terra high passed account preflight without inference, and paused
+campaign creation preserved the exact five-task allocation with zero spend.
+The first run then used 34,895 known input, 361 output and 222 reasoning tokens
+across two successful read turns before its third dynamic-tool continuation
+timed out. It retained coverage and assigned-trailhead reads but never reached
+evidence read or a terminal proposal, falsifier, or abstention. The other four
+tasks were not dispatched and the campaign is paused. Issue #171 fixes the
+observed runtime budget defect: the app-server 300-second turn timeout could
+extend a nominal 300-second run because wall time was checked only between
+turns. One common run deadline now bounds each thread/turn request and inbound
+event wait. Mechanism yield also separates proposal, falsifier, abstention,
+mixed, and no-accepted-result run/token strata, including unknown usage from a
+timed-out invocation. Full qualification must pass before this frozen campaign
+may resume.
+
+During qualification the anonymous corpus refreshed and the current allocator
+moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
+its original five actions and exact revisions. Current recommendations and a
+campaign specimen are therefore proven to be separate temporal objects rather
+than silently evolving membership.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

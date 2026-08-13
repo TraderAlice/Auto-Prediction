@@ -154,7 +154,14 @@ class CodexAppServerSession implements AgentRuntimeSession {
     this.#connectionPromise = connectionFactory();
   }
 
-  async #startInitialTurn(connection: CodexAppServerConnection): Promise<void> {
+  #remainingTurnTimeout(deadlineAtMs: number): number {
+    return Math.max(1, Math.min(this.turnTimeoutMs, deadlineAtMs - Date.now()));
+  }
+
+  async #startInitialTurn(
+    connection: CodexAppServerConnection,
+    deadlineAtMs: number,
+  ): Promise<void> {
     if (this.context.credential.kind !== "CODEX_OAUTH") {
       throw new Error("Codex app-server requires a Codex OAuth credential capability");
     }
@@ -179,13 +186,17 @@ class CodexAppServerSession implements AgentRuntimeSession {
         description: tool.description,
         inputSchema: tool.inputSchema,
       })),
-    }, this.turnTimeoutMs), "Codex app-server thread response");
+    }, this.#remainingTurnTimeout(deadlineAtMs)), "Codex app-server thread response");
     const thread = object(response.thread, "Codex app-server thread");
     this.#threadId = text(thread.id, "Codex app-server thread ID");
-    await this.#startTurn(connection, initialPrompt(this.context));
+    await this.#startTurn(connection, initialPrompt(this.context), deadlineAtMs);
   }
 
-  async #startTurn(connection: CodexAppServerConnection, prompt: string): Promise<void> {
+  async #startTurn(
+    connection: CodexAppServerConnection,
+    prompt: string,
+    deadlineAtMs: number,
+  ): Promise<void> {
     if (this.#threadId === null) throw new Error("Codex app-server thread is unavailable");
     const configuration = this.context.modelProfile.configuration as CodexModelConfiguration;
     const turn = object(await connection.request("turn/start", {
@@ -195,7 +206,7 @@ class CodexAppServerSession implements AgentRuntimeSession {
       effort: configuration.reasoning.effort,
       approvalPolicy: "never",
       environments: [],
-    }, this.turnTimeoutMs), "Codex app-server turn response");
+    }, this.#remainingTurnTimeout(deadlineAtMs)), "Codex app-server turn response");
     const turnRecord = object(turn.turn, "Codex app-server turn");
     this.#turnId = text(turnRecord.id, "Codex app-server turn ID");
   }
@@ -253,20 +264,22 @@ class CodexAppServerSession implements AgentRuntimeSession {
 
   public async advance(
     toolResults: readonly AgentRuntimeToolResult[],
+    budget?: Readonly<{ maximumWaitMs: number }>,
   ): Promise<AgentRuntimeTurn> {
     if (this.#closed) throw new Error("Codex app-server session is closed");
+    const deadlineAtMs = Date.now() + (budget?.maximumWaitMs ?? this.turnTimeoutMs);
     const connection = await this.#connectionPromise;
     try {
-      if (this.#threadId === null) await this.#startInitialTurn(connection);
+      if (this.#threadId === null) await this.#startInitialTurn(connection, deadlineAtMs);
       if (this.#pendingRecoveryPrompt !== null) {
         const prompt = this.#pendingRecoveryPrompt;
         this.#pendingRecoveryPrompt = null;
-        await this.#startTurn(connection, prompt);
+        await this.#startTurn(connection, prompt, deadlineAtMs);
       }
       await this.#respondToTools(connection, toolResults);
       let completedArtifact: Readonly<Record<string, unknown>> | null = null;
       while (true) {
-        const inbound = await connection.nextInbound(this.turnTimeoutMs);
+        const inbound = await connection.nextInbound(this.#remainingTurnTimeout(deadlineAtMs));
         const params: Readonly<Record<string, unknown>> = inbound.params === undefined
           ? Object.freeze({})
           : object(inbound.params, "Codex app-server event params");
