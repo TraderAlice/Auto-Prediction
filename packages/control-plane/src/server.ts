@@ -147,6 +147,7 @@ import {
 } from "./world-state-mechanism-campaign.js";
 import {
   observeWorldStateMechanismRoutes,
+  worldStateMechanismSubjectBindingReviewCoversRoute,
   type WorldStateMechanismObservationStore,
   type WorldStateMechanismSubjectBindingReviewStore,
   type WorldStateMechanismWakeStore,
@@ -157,6 +158,8 @@ import {
   type WorldStateSubjectBindingResearchCase,
   type WorldStateSubjectBindingResearchStore,
 } from "./world-state-subject-binding-research.js";
+import { buildWorldStateSubjectBindingPromotionReadiness } from
+  "./world-state-subject-binding-promotion-readiness.js";
 import { WorldStateSubjectBindingAgentToolHost } from
   "./world-state-subject-binding-agent-tools.js";
 import {
@@ -4145,11 +4148,13 @@ export function createControlPlane(options?: {
       ?.loadWorldStateSubjectBindingAssessments(512) ?? [];
     const bindingAbstentions = worldStateSubjectBindingResearchStore
       ?.loadWorldStateSubjectBindingAbstentions(512) ?? [];
-    const latestReviewByFamily = new Map<Hash, (typeof reviews)[number]>();
-    for (const review of [...reviews].sort((left, right) =>
-      left.reviewedAt.localeCompare(right.reviewedAt) ||
-      left.reviewId.localeCompare(right.reviewId)
-    )) latestReviewByFamily.set(review.routeFamilyId, review);
+    const latestReviewByFamily = new Map(routes.flatMap((route) => {
+      const review = [...reviews]
+        .filter((item) => worldStateMechanismSubjectBindingReviewCoversRoute(item, route))
+        .sort((left, right) => right.reviewedAt.localeCompare(left.reviewedAt) ||
+          right.reviewId.localeCompare(left.reviewId))[0];
+      return review === undefined ? [] : [[route.routeFamilyId, review] as const];
+    }));
     const latestObservationByFamily = new Map<Hash, (typeof observations)[number]>();
     for (const observation of [...observations].sort((left, right) =>
       left.observedAt.localeCompare(right.observedAt) ||
@@ -4179,6 +4184,12 @@ export function createControlPlane(options?: {
         abstentionCount: bindingAbstentions.length,
         automaticDispatch: false as const,
         promotionAuthority: false as const,
+        promotionReadiness: buildWorldStateSubjectBindingPromotionReadiness({
+          cases: bindingCases,
+          assessments: bindingAssessments,
+          abstentions: bindingAbstentions,
+          reviews,
+        }),
         cases: Object.freeze(bindingCases.slice(0, 128).map((item) => Object.freeze({
           caseId: item.caseId,
           routeFamilyId: item.routeFamilyId,

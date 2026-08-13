@@ -6,6 +6,7 @@ import {
   buildWorldStateSubjectBindingAbstention,
   buildWorldStateSubjectBindingAssessment,
   buildWorldStateSubjectBindingCampaignPreview,
+  buildWorldStateSubjectBindingPromotionReadiness,
   buildDefaultAgentRuntimePortfolio,
   compileConsolidatedWorldStateMechanismRoutes,
   materializeWorldStateSubjectBindingResearchCases,
@@ -155,6 +156,103 @@ describe("world-state subject-binding research", () => {
       reviews: [review],
     })[0]!;
     expect(reviewed).toMatchObject({ state: "REVIEWED", reviewIds: [review.reviewId] });
+  });
+
+  it("routes sufficient independent evidence to promotion without granting review authority", () => {
+    const source = proposal();
+    const route = compileConsolidatedWorldStateMechanismRoutes([source])[0]!;
+    const unexplored = materializeWorldStateSubjectBindingResearchCases({
+      routes: [route], proposals: [source], assessments: [], abstentions: [], reviews: [],
+    })[0]!;
+    const assessment = buildWorldStateSubjectBindingAssessment({
+      researchInput: unexplored.currentInputRevision,
+      sourceAgentRunId: hashCanonical({ run: "independent-promotion-evidence" }),
+      recommendation: "APPROVE",
+      supportedLabels: ["democratic party"],
+      rejectedLabels: [],
+      evidenceFindings: [
+        { role: "TRIGGER", listingRefs: ["venue:iowa-dem"],
+          finding: "The Iowa contract names the party as its outcome subject." },
+        { role: "DEPENDENT", listingRefs: ["venue:national-dem"],
+          finding: "The national contract names the party as its outcome subject." },
+        { role: "CROSS_ROLE", listingRefs: ["venue:iowa-dem", "venue:national-dem"],
+          finding: "Both exact roles name the same party subject." },
+      ],
+      counterexamples: ["The state nominee and national organization remain distinct objects."],
+      rationale: "This supports routing-only party identity, not the mechanism relation.",
+      assessedAt: NOW,
+    });
+    const assessed = materializeWorldStateSubjectBindingResearchCases({
+      routes: [route], proposals: [source], assessments: [assessment], abstentions: [], reviews: [],
+    });
+    const readiness = buildWorldStateSubjectBindingPromotionReadiness({
+      cases: assessed, assessments: [assessment], abstentions: [], reviews: [],
+    });
+
+    expect(readiness).toMatchObject({
+      readyCount: 1,
+      heldCount: 0,
+      reviewerPolicyConfigured: false,
+      providerRequestsStarted: 0,
+      modelInvocationsStarted: 0,
+      automaticPromotion: false,
+      promotionAuthority: false,
+      items: [{
+        status: "READY_FOR_INDEPENDENT_PROMOTION",
+        approvingAssessmentId: assessment.assessmentId,
+        checks: {
+          exactInputBound: true,
+          independentFromAuthoring: true,
+          candidateLabelsCovered: true,
+          triggerEvidencePresent: true,
+          dependentEvidencePresent: true,
+          crossRoleEvidencePresent: true,
+          counterexamplesPresent: true,
+          noConflictingAssessment: true,
+          exactReviewAbsent: true,
+        },
+      }],
+    });
+  });
+
+  it("holds same-author approval and invalidates reviews after proposal-set change", () => {
+    const first = proposal();
+    const route = compileConsolidatedWorldStateMechanismRoutes([first])[0]!;
+    const unexplored = materializeWorldStateSubjectBindingResearchCases({
+      routes: [route], proposals: [first], assessments: [], abstentions: [], reviews: [],
+    })[0]!;
+    const sameAuthor = buildWorldStateSubjectBindingAssessment({
+      researchInput: unexplored.currentInputRevision,
+      sourceAgentRunId: first.sourceAgentRunId,
+      recommendation: "APPROVE", supportedLabels: ["democratic party"], rejectedLabels: [],
+      evidenceFindings: [
+        { role: "TRIGGER", listingRefs: ["venue:iowa-dem"], finding: "Trigger label." },
+        { role: "DEPENDENT", listingRefs: ["venue:national-dem"], finding: "Dependent label." },
+        { role: "CROSS_ROLE", listingRefs: ["venue:iowa-dem", "venue:national-dem"],
+          finding: "Same label." },
+      ],
+      counterexamples: ["The organizations may differ."],
+      rationale: "The author cannot approve its own routing identity.", assessedAt: NOW,
+    });
+    const current = materializeWorldStateSubjectBindingResearchCases({
+      routes: [route], proposals: [first], assessments: [sameAuthor], abstentions: [], reviews: [],
+    });
+    expect(buildWorldStateSubjectBindingPromotionReadiness({
+      cases: current, assessments: [sameAuthor], abstentions: [], reviews: [],
+    }).items[0]?.status).toBe("HOLD_NONINDEPENDENT_ASSESSMENT");
+
+    const oldReview = buildWorldStateMechanismSubjectBindingReview({
+      route, decision: "APPROVED", approvedLabels: ["democratic party"], rejectedLabels: [],
+      rationale: "Review covered the original exact proposal set.",
+      reviewerRef: "operator:fixture", reviewedAt: NOW,
+    });
+    const second = proposal("Democrats may control the chamber through other seats.");
+    const changedRoute = compileConsolidatedWorldStateMechanismRoutes([first, second])[0]!;
+    const changed = materializeWorldStateSubjectBindingResearchCases({
+      routes: [changedRoute], proposals: [first, second], assessments: [], abstentions: [],
+      reviews: [oldReview],
+    })[0]!;
+    expect(changed).toMatchObject({ state: "UNEXPLORED", reviewIds: [] });
   });
 
   it("retains evidence gaps as terminal negative memory", () => {

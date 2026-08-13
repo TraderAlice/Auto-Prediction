@@ -42,6 +42,15 @@ export type WorldStateMechanismSubjectBindingReview = Readonly<{
   valueMovingAuthority: false;
 }>;
 
+export function worldStateMechanismSubjectBindingReviewCoversRoute(
+  review: WorldStateMechanismSubjectBindingReview,
+  route: Pick<ConsolidatedWorldStateMechanismRoute, "routeFamilyId" | "sourceProposalIds">,
+): boolean {
+  return review.routeFamilyId === route.routeFamilyId &&
+    [...new Set(review.sourceProposalIds)].sort().join("\n") ===
+      [...new Set(route.sourceProposalIds)].sort().join("\n");
+}
+
 export type WorldStateMechanismRoleMembership = Readonly<{
   role: "TRIGGER" | "DEPENDENT";
   listingRef: string;
@@ -623,7 +632,7 @@ export function observeWorldStateMechanismRoutes(input: Readonly<{
   const wakes: WorldStateMechanismWake[] = [];
   for (const route of input.routes) {
     const review = [...input.subjectBindingReviews]
-      .filter((item) => item.routeFamilyId === route.routeFamilyId)
+      .filter((item) => worldStateMechanismSubjectBindingReviewCoversRoute(item, route))
       .sort((left, right) => right.reviewedAt.localeCompare(left.reviewedAt) ||
         right.reviewId.localeCompare(left.reviewId))[0] ?? null;
     // A newly selected review establishes its own baseline. It must not turn

@@ -107,6 +107,7 @@ export * from "./world-state-mechanism-research.js";
 export * from "./world-state-mechanism-allocation.js";
 export * from "./world-state-mechanism-campaign.js";
 export * from "./world-state-subject-binding-research.js";
+export * from "./world-state-subject-binding-promotion-readiness.js";
 export * from "./world-state-subject-binding-agent-tools.js";
 export * from "./world-state-subject-binding-campaign.js";
 export * from "./agent-campaign-dispatcher.js";

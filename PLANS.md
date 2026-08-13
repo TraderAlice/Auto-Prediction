@@ -1968,6 +1968,19 @@ protocol code/message retention is now the prerequisite to a controlled probe.
 This is runtime evidence, not a negative semantic result, and the spent attempt
 cannot recur implicitly under once-per-lineage policy.
 
+Bounded diagnostics shipped in #184, and one explicitly authorized manual
+probe preserved the failed attempt as ordinal one rather than rewriting it. The
+error did not recur. Ordinal two completed in three Terra/high invocations with
+55,659 / 649 / 147 known input/output/reasoning tokens, two exact case reads and
+one accepted `APPROVE` assessment. It approves only the cross-role routing
+subject `democratic party`, explicitly withholds mechanism/probability authority,
+and retains three decisive counter-scenarios. Issue #185 now projects this as
+`READY_FOR_INDEPENDENT_PROMOTION` from exact provider-free checks while reviewer
+policy, automatic promotion and promotion authority remain false. The route is
+still unreviewed and blocked. Subject reviews now cover an exact proposal set,
+so a stable route family cannot silently inherit approval after its evidence
+changes.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a

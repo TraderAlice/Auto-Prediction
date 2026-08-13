@@ -163,6 +163,65 @@ function mechanismFixture() {
 }
 
 describe("world-state mechanism observation", () => {
+  it("does not apply a subject review to a changed exact proposal set", () => {
+    const fixture = mechanismFixture();
+    const successorProposal = buildWorldStateMechanismProposal({
+      ontologyIdentity: fixture.route.sourceOntologyIdentities[0]!,
+      sourceSnapshotIdentity: fixture.route.sourceSnapshotIdentities[0]!,
+      sourceIssueRevisionId: fixture.route.sourceIssueRevisionIds[0]!,
+      sourceAgentRunId: hash("run:successor-author"),
+      sourceTrailheadIds: fixture.route.sourceTrailheadIds,
+      sourceRelationPatternIds: fixture.route.sourceRelationPatternIds,
+      subjectLabel: "Donald Trump",
+      subjectAliases: ["Donald Trump", "Trump"],
+      subjectAmbiguityNotes: ["The complete name remains the routing subject."],
+      trigger: {
+        predicateLabel: fixture.route.canonicalRoute.triggerPredicate,
+        searchSignals: fixture.route.canonicalRoute.canonicalTriggerSearchSignals,
+        influence: fixture.route.canonicalRoute.triggerInfluence,
+        evidenceBindings: fixture.route.triggerEvidenceBindings,
+      },
+      state: {
+        dimension: fixture.route.canonicalRoute.stateDimension,
+        label: fixture.route.canonicalRoute.stateLabel,
+      },
+      dependent: {
+        predicateLabel: fixture.route.canonicalRoute.dependentPredicate,
+        searchSignals: fixture.route.canonicalRoute.canonicalDependentSearchSignals,
+        requirement: fixture.route.canonicalRoute.dependentRequirement,
+        evidenceBindings: fixture.route.dependentEvidenceBindings,
+      },
+      temporalPosture: fixture.route.canonicalRoute.temporalPosture,
+      counterScenarios: [
+        ...fixture.route.counterScenarios,
+        "The new proposal adds identity-relevant evidence that must be reviewed.",
+      ],
+      rationale: "A successor proposal must not inherit an old review.",
+      proposedAt: OCTOBER,
+    });
+    const changedRoute = compileConsolidatedWorldStateMechanismRoutes([successorProposal])[0]!;
+    // The family is stable because the canonical mechanism is stable, while
+    // the exact proposal set is intentionally new.
+    expect(changedRoute.routeFamilyId).toBe(fixture.route.routeFamilyId);
+    expect(changedRoute.sourceProposalIds).not.toEqual(fixture.review.sourceProposalIds);
+
+    const observed = observeWorldStateMechanismRoutes({
+      routes: [changedRoute],
+      ontology: fixture.baselineOntology,
+      listingTitles: fixture.titles(fixture.baselineCorpus),
+      subjectBindingReviews: [fixture.review],
+      priorObservations: [],
+      issueRevisions: fixture.revisions,
+      observedAt: OCTOBER,
+    });
+    expect(observed.observations[0]).toMatchObject({
+      status: "BLOCKED_SUBJECT_BINDING",
+      subjectBindingReviewId: null,
+      triggerMembers: [],
+      dependentMembers: [],
+    });
+  });
+
   it("wakes a physical-capability mechanism on a later public action without phrase overlap", () => {
     const fixture = mechanismFixture();
     const baseline = observeWorldStateMechanismRoutes({

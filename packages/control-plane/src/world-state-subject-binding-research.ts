@@ -5,8 +5,10 @@ import type {
   WorldStateMechanismEvidenceBinding,
   WorldStateMechanismProposal,
 } from "./world-state-mechanism.js";
-import type { WorldStateMechanismSubjectBindingReview } from
-  "./world-state-mechanism-observer.js";
+import {
+  worldStateMechanismSubjectBindingReviewCoversRoute,
+  type WorldStateMechanismSubjectBindingReview,
+} from "./world-state-mechanism-observer.js";
 import type { OperationalStorageProjection } from "./types.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
@@ -559,7 +561,9 @@ export function materializeWorldStateSubjectBindingResearchCases(input: Readonly
       currentInputRevision.caseId && item.inputRevisionId === currentInputRevision.revisionId);
     const abstentions = input.abstentions.filter((item) => item.caseId ===
       currentInputRevision.caseId && item.inputRevisionId === currentInputRevision.revisionId);
-    const reviews = input.reviews.filter((item) => item.routeFamilyId === route.routeFamilyId);
+    const reviews = input.reviews.filter((item) =>
+      worldStateMechanismSubjectBindingReviewCoversRoute(item, route)
+    );
     const state = reviews.length > 0 ? "REVIEWED" as const
       : assessments.length > 0 ? "ASSESSED" as const
       : abstentions.length > 0 ? "ABSTAINED" as const

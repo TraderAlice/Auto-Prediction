@@ -63,7 +63,7 @@ checks pass.
   independence in projection.
 - [x] Preview a paused, manual-only, concurrency-one campaign before any model
   spend.
-- [ ] Qualify one bounded Terra/high assessment for the live Democratic Party
+- [x] Qualify one bounded Terra/high assessment for the live Democratic Party
   route, then pause immediately.
 
 The execution layer now proves that runtime, credentials and model are reusable
@@ -90,9 +90,20 @@ a generic sentence, so the next gate is bounded retention of only its protocol
 code and diagnostic message before a deliberately authorized probe. The failed
 attempt remains terminal evidence and cannot recur implicitly.
 
+After bounded error-notification diagnostics shipped, an explicitly authorized
+manual probe retained the old failure and created run ordinal two. The runtime
+error did not recur. Terra/high used three successful invocations and 55,659 /
+649 / 147 input/output/reasoning tokens, accepted two exact case reads and one
+`APPROVE` assessment, and terminated in about 106 seconds. The assessment
+supports only `democratic party` as the same routing subject across both exact
+role listings. It explicitly does not approve the mechanism relation and
+retains the win-Iowa/lose-control, lose-Iowa/win-control and other-seat/control-
+rule counter-scenarios. No review, observation, wake or execution authority was
+created.
+
 ## Phase 3 — promotion and observation
 
-- [ ] Project assessment sufficiency separately from subject-binding review
+- [x] Project assessment sufficiency separately from subject-binding review
   status.
 - [ ] Implement an explicit promotion policy that can retain `NEEDS_EVIDENCE`
   without retrying on elapsed time or catalog refresh.
@@ -110,6 +121,17 @@ attempt remains terminal evidence and cannot recur implicitly.
 - [ ] Expose the case, assessment, review and observation states in Studio as
   distinct stages rather than one confidence score.
 
+Issue [#185](https://github.com/luokerenx4/my-little-pony/issues/185) now
+materializes provider-free promotion readiness without choosing the promotion
+authority. Exact current-input coverage, independent authoring and assessment
+runs, trigger/dependent/cross-role findings, candidate-label coverage,
+counterexamples, conflicts, abstentions and exact review absence are separate
+checks. The live case is `READY_FOR_INDEPENDENT_PROMOTION`, while
+`reviewerPolicyConfigured=false`, `automaticPromotion=false` and
+`promotionAuthority=false`. Reviews are now exact-proposal-set evidence: a
+stable route family cannot inherit an old review after its retained proposal
+set changes.
+
 ## Qualification gates
 
 - [ ] Same surface label across role listings cannot self-approve identity.
@@ -119,7 +141,7 @@ attempt remains terminal evidence and cannot recur implicitly.
   certify the downstream relation or probability.
 - [ ] Refresh and restart preserve the stable case and exact assessment lineage
   without model calls on read.
-- [ ] Full tests, checks and production build pass.
+- [x] Full tests, checks and production build pass.
 
 ## Live qualification ledger
 
@@ -135,6 +157,15 @@ attempt remains terminal evidence and cannot recur implicitly.
   (`CODEX_APP_SERVER_PROTOCOL`, unknown token usage, zero tool effects).
 - The exact-input run annotation succeeded before execution; no subject-binding
   assessment, abstention, review or route observation was created.
+- Successful diagnostic probe run:
+  `sha256:f755bc5360cf86a9b5a712c7589417954c75e41fde5d73f3208db63108320cc2`
+  (three successful invocations; 55,659 / 649 / 147 known tokens).
+- Accepted assessment:
+  `sha256:f9d1bac3bc70eef14534ca81de87e4a8817db7d45c635fdc51f3ce602b6ba2dd`
+  (`APPROVE`, assessment evidence only, independent promotion required).
+- Provider-free readiness:
+  `sha256:9da6c0a11bdb42cc74f6dc91ccbdb050e35def7070612e8dc3e41f8ba1bd21be`
+  (`READY_FOR_INDEPENDENT_PROMOTION`, no promotion authority).
 
 ## Non-goals
 
