@@ -1947,6 +1947,16 @@ closed. This prevents catalog refresh from silently repurchasing a 148k-input
 discovery while leaving route observation and semantic review independently
 current.
 
+The next active continuation is
+[`plans/world-state-subject-binding-research.md`](plans/world-state-subject-binding-research.md).
+Issue #181 treats subject identity as an independently researched and promoted
+relation, not a confidence field copied from the mechanism-authoring Agent. A
+stable route-family case will accept tool-bound evidence, counterexamples or
+abstention from a provider-neutral Agent, while only a separate explicit policy
+may promote that assessment into the routing-only subject review consumed by
+provider-free observation. The first live qualification is the retained
+Democratic Party route; it remains blocked meanwhile.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a

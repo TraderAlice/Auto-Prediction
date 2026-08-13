@@ -260,7 +260,7 @@ describe("legacy Rule Evidence Agent migration", () => {
 
   it("exposes the additive artifact and annotation tables in schema 40", () => {
     const store = new SqliteOperationalStore(":memory:");
-    expect(store.agentExecutionStorage.schemaVersion).toBe(52);
+    expect(store.agentExecutionStorage.schemaVersion).toBe(53);
     expect(store.loadAgentExecutionSnapshot()).toMatchObject({
       runArtifacts: [],
       runAnnotations: [],

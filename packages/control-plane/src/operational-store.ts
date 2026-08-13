@@ -261,6 +261,15 @@ import {
   type WorldStateMechanismWakeStore,
 } from "./world-state-mechanism-observer.js";
 import {
+  assertWorldStateSubjectBindingAbstention,
+  assertWorldStateSubjectBindingAssessment,
+  assertWorldStateSubjectBindingResearchInput,
+  type WorldStateSubjectBindingAbstention,
+  type WorldStateSubjectBindingAssessment,
+  type WorldStateSubjectBindingResearchInputRevision,
+  type WorldStateSubjectBindingResearchStore,
+} from "./world-state-subject-binding-research.js";
+import {
   assertOntologySearchIssueRevision,
   type OntologySearchIssueRevision,
   type OntologySearchIssueRevisionStore,
@@ -303,7 +312,7 @@ import {
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
 
-const SCHEMA_VERSION = 52;
+const SCHEMA_VERSION = 53;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1975,6 +1984,75 @@ function parseWorldStateMechanismSubjectBindingReview(
   return review;
 }
 
+function parseWorldStateSubjectBindingResearchInput(
+  value: unknown,
+): WorldStateSubjectBindingResearchInputRevision {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite subject-binding research input row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.revision_id !== "string" || typeof row.case_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite subject-binding research input row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite subject-binding research input contains invalid JSON");
+  }
+  const input = assertWorldStateSubjectBindingResearchInput(decoded);
+  if (input.revisionId !== row.revision_id || input.caseId !== row.case_id ||
+      hashCanonical(input) !== row.record_hash) {
+    throw new Error("SQLite subject-binding research input identity mismatch");
+  }
+  return input;
+}
+
+function parseWorldStateSubjectBindingAssessment(
+  value: unknown,
+): WorldStateSubjectBindingAssessment {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite subject-binding assessment row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.assessment_id !== "string" || typeof row.case_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite subject-binding assessment row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite subject-binding assessment contains invalid JSON");
+  }
+  const assessment = assertWorldStateSubjectBindingAssessment(decoded);
+  if (assessment.assessmentId !== row.assessment_id || assessment.caseId !== row.case_id ||
+      hashCanonical(assessment) !== row.record_hash) {
+    throw new Error("SQLite subject-binding assessment identity mismatch");
+  }
+  return assessment;
+}
+
+function parseWorldStateSubjectBindingAbstention(
+  value: unknown,
+): WorldStateSubjectBindingAbstention {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite subject-binding abstention row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.abstention_id !== "string" || typeof row.case_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite subject-binding abstention row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite subject-binding abstention contains invalid JSON");
+  }
+  const abstention = assertWorldStateSubjectBindingAbstention(decoded);
+  if (abstention.abstentionId !== row.abstention_id || abstention.caseId !== row.case_id ||
+      hashCanonical(abstention) !== row.record_hash) {
+    throw new Error("SQLite subject-binding abstention identity mismatch");
+  }
+  return abstention;
+}
+
 function parseWorldStateMechanismObservation(
   value: unknown,
 ): WorldStateMechanismObservation {
@@ -2252,6 +2330,7 @@ export class SqliteOperationalStore
     WorldStateMechanismCounterexampleStore,
     WorldStateMechanismAbstentionStore,
     WorldStateMechanismSubjectBindingReviewStore,
+    WorldStateSubjectBindingResearchStore,
     WorldStateMechanismObservationStore,
     WorldStateMechanismWakeStore,
     OntologySearchIssueRevisionStore,
@@ -2332,6 +2411,12 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"abstentionId">;
   public readonly worldStateMechanismSubjectBindingReviewStorage:
     OperationalStorageProjection<"reviewId">;
+  public readonly worldStateSubjectBindingResearchInputStorage:
+    OperationalStorageProjection<"revisionId">;
+  public readonly worldStateSubjectBindingAssessmentStorage:
+    OperationalStorageProjection<"assessmentId">;
+  public readonly worldStateSubjectBindingAbstentionStorage:
+    OperationalStorageProjection<"abstentionId">;
   public readonly worldStateMechanismObservationStorage:
     OperationalStorageProjection<"observationId">;
   public readonly worldStateMechanismWakeStorage:
@@ -2597,6 +2682,24 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "reviewId",
+    });
+    this.worldStateSubjectBindingResearchInputStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "revisionId",
+    });
+    this.worldStateSubjectBindingAssessmentStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "assessmentId",
+    });
+    this.worldStateSubjectBindingAbstentionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "abstentionId",
     });
     this.worldStateMechanismObservationStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -3027,6 +3130,24 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'world_state_mechanism_subject_reviews'`,
       )
       .get() !== undefined;
+    const worldStateSubjectBindingResearchInputTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_subject_binding_research_inputs'`,
+      )
+      .get() !== undefined;
+    const worldStateSubjectBindingAssessmentTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_subject_binding_assessments'`,
+      )
+      .get() !== undefined;
+    const worldStateSubjectBindingAbstentionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_state_subject_binding_abstentions'`,
+      )
+      .get() !== undefined;
     const worldStateMechanismObservationTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -3147,6 +3268,9 @@ export class SqliteOperationalStore
       && worldStateMechanismCounterexampleTableExists
       && worldStateMechanismAbstentionTableExists
       && worldStateMechanismSubjectReviewTableExists
+      && worldStateSubjectBindingResearchInputTableExists
+      && worldStateSubjectBindingAssessmentTableExists
+      && worldStateSubjectBindingAbstentionTableExists
       && worldStateMechanismObservationTableExists
       && worldStateMechanismWakeTableExists
       && ontologySearchIssueRevisionTableExists
@@ -4809,6 +4933,83 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS world_state_mechanism_subject_reviews_family
             ON world_state_mechanism_subject_reviews (
               route_family_id, reviewed_at DESC, review_id DESC
+            );
+        `);
+      }
+      if (current < 53 || !worldStateSubjectBindingResearchInputTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_subject_binding_research_inputs (
+            revision_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(revision_id) = 71 AND revision_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            case_id TEXT NOT NULL CHECK (
+              length(case_id) = 71 AND case_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            route_family_id TEXT NOT NULL CHECK (
+              length(route_family_id) = 71 AND route_family_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            materialized_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_subject_binding_inputs_case
+            ON world_state_subject_binding_research_inputs (
+              case_id, materialized_at DESC, revision_id DESC
+            );
+        `);
+      }
+      if (current < 53 || !worldStateSubjectBindingAssessmentTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_subject_binding_assessments (
+            assessment_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(assessment_id) = 71 AND assessment_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            case_id TEXT NOT NULL CHECK (
+              length(case_id) = 71 AND case_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            recommendation TEXT NOT NULL CHECK (recommendation IN ('APPROVE', 'REJECT')),
+            assessed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES world_state_subject_binding_research_inputs(revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_subject_binding_assessments_case
+            ON world_state_subject_binding_assessments (
+              case_id, assessed_at DESC, assessment_id DESC
+            );
+        `);
+      }
+      if (current < 53 || !worldStateSubjectBindingAbstentionTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_state_subject_binding_abstentions (
+            abstention_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(abstention_id) = 71 AND abstention_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            case_id TEXT NOT NULL CHECK (
+              length(case_id) = 71 AND case_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL,
+            assessed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES world_state_subject_binding_research_inputs(revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_state_subject_binding_abstentions_case
+            ON world_state_subject_binding_abstentions (
+              case_id, assessed_at DESC, abstention_id DESC
             );
         `);
       }
@@ -8599,6 +8800,198 @@ export class SqliteOperationalStore
        LIMIT ?`,
     ).all(limit);
     return Object.freeze(rows.map(parseWorldStateMechanismSubjectBindingReview));
+  }
+
+  public loadWorldStateSubjectBindingResearchInputs(
+    limit: number,
+  ): readonly WorldStateSubjectBindingResearchInputRevision[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT revision_id, case_id, record_json, record_hash
+       FROM world_state_subject_binding_research_inputs
+       ORDER BY materialized_at DESC, revision_id DESC LIMIT ?`,
+    ).all(limit).map(parseWorldStateSubjectBindingResearchInput));
+  }
+
+  public saveWorldStateSubjectBindingResearchInputs(
+    inputsValue: readonly WorldStateSubjectBindingResearchInputRevision[],
+  ): readonly WorldStateSubjectBindingResearchInputRevision[] {
+    this.#assertOpen();
+    const inputs = Object.freeze(inputsValue.map(assertWorldStateSubjectBindingResearchInput));
+    if (new Set(inputs.map((item) => item.revisionId)).size !== inputs.length) {
+      throw new Error("subject-binding research input batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const input of inputs) {
+        for (const proposalId of input.sourceProposalIds) {
+          const row = this.#database.prepare(
+            `SELECT proposal_id, route_family_id, record_json, record_hash
+             FROM world_state_mechanism_proposals WHERE proposal_id = ?`,
+          ).get(proposalId);
+          if (row === undefined || worldStateMechanismRouteFamilyIdentity(
+            parseWorldStateMechanismProposal(row),
+          ) !== input.routeFamilyId) {
+            throw new Error("subject-binding research input references inconsistent proposal");
+          }
+        }
+        const recordJson = canonicalJson(input);
+        const recordHash = hashCanonical(input);
+        this.#database.prepare(
+          `INSERT INTO world_state_subject_binding_research_inputs (
+             revision_id, case_id, route_family_id, materialized_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(revision_id) DO NOTHING`,
+        ).run(input.revisionId, input.caseId, input.routeFamilyId, input.materializedAt,
+          recordJson, recordHash);
+        const stored = parseWorldStateSubjectBindingResearchInput(this.#database.prepare(
+          `SELECT revision_id, case_id, record_json, record_hash
+           FROM world_state_subject_binding_research_inputs WHERE revision_id = ?`,
+        ).get(input.revisionId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("revisionId is already bound to another subject-binding input");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return inputs;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateSubjectBindingAssessments(
+    limit: number,
+  ): readonly WorldStateSubjectBindingAssessment[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT assessment_id, case_id, record_json, record_hash
+       FROM world_state_subject_binding_assessments
+       ORDER BY assessed_at DESC, assessment_id DESC LIMIT ?`,
+    ).all(limit).map(parseWorldStateSubjectBindingAssessment));
+  }
+
+  public saveWorldStateSubjectBindingAssessments(
+    values: readonly WorldStateSubjectBindingAssessment[],
+  ): readonly WorldStateSubjectBindingAssessment[] {
+    this.#assertOpen();
+    const assessments = Object.freeze(values.map(assertWorldStateSubjectBindingAssessment));
+    if (new Set(assessments.map((item) => item.assessmentId)).size !== assessments.length) {
+      throw new Error("subject-binding assessment batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const assessment of assessments) {
+        const inputRow = this.#database.prepare(
+          `SELECT revision_id, case_id, record_json, record_hash
+           FROM world_state_subject_binding_research_inputs WHERE revision_id = ?`,
+        ).get(assessment.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT run_id FROM agent_runs WHERE run_id = ?",
+        ).get(assessment.sourceAgentRunId);
+        if (inputRow === undefined || runRow === undefined) {
+          throw new Error("subject-binding assessment references unavailable lineage");
+        }
+        const researchInput = parseWorldStateSubjectBindingResearchInput(inputRow);
+        if (researchInput.caseId !== assessment.caseId ||
+            researchInput.routeFamilyId !== assessment.routeFamilyId ||
+            researchInput.sourceProposalIds.join("\n") !==
+              assessment.sourceProposalIds.join("\n")) {
+          throw new Error("subject-binding assessment is outside its exact input lineage");
+        }
+        const recordJson = canonicalJson(assessment);
+        const recordHash = hashCanonical(assessment);
+        this.#database.prepare(
+          `INSERT INTO world_state_subject_binding_assessments (
+             assessment_id, case_id, input_revision_id, source_agent_run_id,
+             recommendation, assessed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(assessment_id) DO NOTHING`,
+        ).run(assessment.assessmentId, assessment.caseId, assessment.inputRevisionId,
+          assessment.sourceAgentRunId, assessment.recommendation, assessment.assessedAt,
+          recordJson, recordHash);
+        const stored = parseWorldStateSubjectBindingAssessment(this.#database.prepare(
+          `SELECT assessment_id, case_id, record_json, record_hash
+           FROM world_state_subject_binding_assessments WHERE assessment_id = ?`,
+        ).get(assessment.assessmentId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("assessmentId is already bound to another subject-binding assessment");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return assessments;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldStateSubjectBindingAbstentions(
+    limit: number,
+  ): readonly WorldStateSubjectBindingAbstention[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    return Object.freeze(this.#database.prepare(
+      `SELECT abstention_id, case_id, record_json, record_hash
+       FROM world_state_subject_binding_abstentions
+       ORDER BY assessed_at DESC, abstention_id DESC LIMIT ?`,
+    ).all(limit).map(parseWorldStateSubjectBindingAbstention));
+  }
+
+  public saveWorldStateSubjectBindingAbstentions(
+    values: readonly WorldStateSubjectBindingAbstention[],
+  ): readonly WorldStateSubjectBindingAbstention[] {
+    this.#assertOpen();
+    const abstentions = Object.freeze(values.map(assertWorldStateSubjectBindingAbstention));
+    if (new Set(abstentions.map((item) => item.abstentionId)).size !== abstentions.length) {
+      throw new Error("subject-binding abstention batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const abstention of abstentions) {
+        const inputRow = this.#database.prepare(
+          `SELECT revision_id, case_id, record_json, record_hash
+           FROM world_state_subject_binding_research_inputs WHERE revision_id = ?`,
+        ).get(abstention.inputRevisionId);
+        const runRow = this.#database.prepare(
+          "SELECT run_id FROM agent_runs WHERE run_id = ?",
+        ).get(abstention.sourceAgentRunId);
+        if (inputRow === undefined || runRow === undefined) {
+          throw new Error("subject-binding abstention references unavailable lineage");
+        }
+        const researchInput = parseWorldStateSubjectBindingResearchInput(inputRow);
+        if (researchInput.caseId !== abstention.caseId ||
+            researchInput.routeFamilyId !== abstention.routeFamilyId ||
+            researchInput.sourceProposalIds.join("\n") !== abstention.sourceProposalIds.join("\n")) {
+          throw new Error("subject-binding abstention is outside its exact input lineage");
+        }
+        const recordJson = canonicalJson(abstention);
+        const recordHash = hashCanonical(abstention);
+        this.#database.prepare(
+          `INSERT INTO world_state_subject_binding_abstentions (
+             abstention_id, case_id, input_revision_id, source_agent_run_id,
+             assessed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(abstention_id) DO NOTHING`,
+        ).run(abstention.abstentionId, abstention.caseId, abstention.inputRevisionId,
+          abstention.sourceAgentRunId, abstention.assessedAt, recordJson, recordHash);
+        const stored = parseWorldStateSubjectBindingAbstention(this.#database.prepare(
+          `SELECT abstention_id, case_id, record_json, record_hash
+           FROM world_state_subject_binding_abstentions WHERE abstention_id = ?`,
+        ).get(abstention.abstentionId));
+        if (hashCanonical(stored) !== recordHash) {
+          throw new Error("abstentionId is already bound to another subject-binding abstention");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return abstentions;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   public saveWorldStateMechanismSubjectBindingReviews(

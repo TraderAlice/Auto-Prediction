@@ -13,6 +13,9 @@ import {
   buildWorldStateMechanismProposal,
   buildWorldStateMechanismCounterexample,
   buildWorldStateMechanismSubjectBindingReview,
+  buildWorldStateSubjectBindingAbstention,
+  buildWorldStateSubjectBindingAssessment,
+  buildWorldStateSubjectBindingResearchInput,
   compileConsolidatedWorldStateMechanismRoutes,
   compileStandingWorldStateMechanismRoute,
   defaultAiRuntimeConfiguration,
@@ -435,6 +438,38 @@ describe("world-state mechanism routes", () => {
       reviewerRef: "operator:world-state-mechanism-test",
       reviewedAt: NOW,
     });
+    const subjectBindingInput = buildWorldStateSubjectBindingResearchInput({
+      route: consolidated,
+      proposals: [proposal],
+    });
+    const subjectBindingAssessment = buildWorldStateSubjectBindingAssessment({
+      researchInput: subjectBindingInput,
+      sourceAgentRunId: run.runId,
+      recommendation: "APPROVE",
+      supportedLabels: ["donald trump", "trump"],
+      rejectedLabels: [],
+      evidenceFindings: [{
+        role: "CROSS_ROLE",
+        listingRefs: [dependentRef, triggerRef].sort(),
+        finding: "Both exact fixture titles name the same individual.",
+      }],
+      counterexamples: ["A namesake could make the surface labels ambiguous."],
+      rationale: "The exact fixture evidence supports a shared routing subject.",
+      assessedAt: NOW,
+    });
+    const subjectBindingAbstention = buildWorldStateSubjectBindingAbstention({
+      researchInput: subjectBindingInput,
+      sourceAgentRunId: run.runId,
+      evidenceFindings: [{
+        role: "CROSS_ROLE",
+        listingRefs: [dependentRef, triggerRef].sort(),
+        finding: "Titles alone do not supply an official identity definition.",
+      }],
+      missingEvidence: ["Official subject definitions"],
+      counterexamples: ["A namesake could make the surface labels ambiguous."],
+      rationale: "A stricter review policy could retain an evidence gap.",
+      assessedAt: NOW,
+    });
     const observation = observeWorldStateMechanismRoutes({
       routes: [consolidated],
       ontology,
@@ -489,6 +524,14 @@ describe("world-state mechanism routes", () => {
         .toEqual([counterexample]);
       expect(store.saveWorldStateMechanismSubjectBindingReviews([subjectReview]))
         .toEqual([subjectReview]);
+      expect(store.saveWorldStateSubjectBindingResearchInputs([subjectBindingInput]))
+        .toEqual([subjectBindingInput]);
+      expect(store.saveWorldStateSubjectBindingResearchInputs([subjectBindingInput]))
+        .toEqual([subjectBindingInput]);
+      expect(store.saveWorldStateSubjectBindingAssessments([subjectBindingAssessment]))
+        .toEqual([subjectBindingAssessment]);
+      expect(store.saveWorldStateSubjectBindingAbstentions([subjectBindingAbstention]))
+        .toEqual([subjectBindingAbstention]);
       expect(store.saveWorldStateMechanismSubjectBindingReviews([subjectReview]))
         .toEqual([subjectReview]);
       expect(store.saveWorldStateMechanismObservations([
@@ -501,8 +544,13 @@ describe("world-state mechanism routes", () => {
         .toEqual([counterexample]);
       expect(store.worldStateMechanismProposalStorage).toMatchObject({
         durable: true,
-        schemaVersion: 52,
+        schemaVersion: 53,
         idempotencyKey: "proposalId",
+      });
+      expect(store.worldStateSubjectBindingResearchInputStorage).toMatchObject({
+        durable: true,
+        schemaVersion: 53,
+        idempotencyKey: "revisionId",
       });
       store.close();
 
@@ -512,6 +560,12 @@ describe("world-state mechanism routes", () => {
         .toEqual([counterexample]);
       expect(reopened.loadWorldStateMechanismSubjectBindingReviews(10))
         .toEqual([subjectReview]);
+      expect(reopened.loadWorldStateSubjectBindingResearchInputs(10))
+        .toEqual([subjectBindingInput]);
+      expect(reopened.loadWorldStateSubjectBindingAssessments(10))
+        .toEqual([subjectBindingAssessment]);
+      expect(reopened.loadWorldStateSubjectBindingAbstentions(10))
+        .toEqual([subjectBindingAbstention]);
       expect(reopened.loadWorldStateMechanismObservations(10)).toEqual([
         laterObservation.observations[0]!,
         observation,

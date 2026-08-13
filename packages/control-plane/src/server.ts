@@ -152,6 +152,11 @@ import {
   type WorldStateMechanismWakeStore,
 } from "./world-state-mechanism-observer.js";
 import {
+  materializeWorldStateSubjectBindingResearchCases,
+  type WorldStateSubjectBindingResearchCase,
+  type WorldStateSubjectBindingResearchStore,
+} from "./world-state-subject-binding-research.js";
+import {
   buildOntologySearchYieldProjection,
   reconcileOntologySearchIssueRevisions,
   type OntologySearchIssueRevision,
@@ -1101,6 +1106,22 @@ function supportsWorldStateMechanismSubjectBindingReviews(
     typeof candidate.saveWorldStateMechanismSubjectBindingReviews === "function";
 }
 
+function supportsWorldStateSubjectBindingResearch(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & WorldStateSubjectBindingResearchStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<WorldStateSubjectBindingResearchStore>;
+  return candidate.worldStateSubjectBindingResearchInputStorage !== undefined &&
+    candidate.worldStateSubjectBindingAssessmentStorage !== undefined &&
+    candidate.worldStateSubjectBindingAbstentionStorage !== undefined &&
+    typeof candidate.loadWorldStateSubjectBindingResearchInputs === "function" &&
+    typeof candidate.saveWorldStateSubjectBindingResearchInputs === "function" &&
+    typeof candidate.loadWorldStateSubjectBindingAssessments === "function" &&
+    typeof candidate.saveWorldStateSubjectBindingAssessments === "function" &&
+    typeof candidate.loadWorldStateSubjectBindingAbstentions === "function" &&
+    typeof candidate.saveWorldStateSubjectBindingAbstentions === "function";
+}
+
 function supportsWorldStateMechanismObservations(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & WorldStateMechanismObservationStore {
@@ -1389,6 +1410,12 @@ export function createControlPlane(options?: {
     supportsWorldStateMechanismSubjectBindingReviews(options?.discoveryStore)
       ? options.discoveryStore
       : null;
+  const worldStateSubjectBindingResearchStore =
+    supportsWorldStateSubjectBindingResearch(options?.discoveryStore)
+      ? options.discoveryStore
+      : null;
+  let worldStateSubjectBindingResearchCases:
+    readonly WorldStateSubjectBindingResearchCase[] = [];
   const worldStateMechanismObservationStore =
     supportsWorldStateMechanismObservations(options?.discoveryStore)
       ? options.discoveryStore
@@ -3484,6 +3511,7 @@ export function createControlPlane(options?: {
     if (mechanismTasks.length > 0) {
       agentExecutionRegistry.saveBatch({ tasks: mechanismTasks });
     }
+    reconcileWorldStateSubjectBindingResearch();
     invalidateAgentTaskReadiness();
   };
   const reconcileWorldStateMechanismObservations = (): void => {
@@ -3535,6 +3563,33 @@ export function createControlPlane(options?: {
     if (newWakes.length > 0) {
       worldStateMechanismWakeStore.saveWorldStateMechanismWakes(newWakes);
       invalidateAgentTaskReadiness();
+    }
+  };
+  const reconcileWorldStateSubjectBindingResearch = (): void => {
+    if (worldStateMechanismProposalStore === null ||
+        worldStateSubjectBindingResearchStore === null) return;
+    const proposals = worldStateMechanismProposalStore
+      .loadWorldStateMechanismProposals(512);
+    const routes = compileConsolidatedWorldStateMechanismRoutes(proposals);
+    const assessments = worldStateSubjectBindingResearchStore
+      .loadWorldStateSubjectBindingAssessments(512);
+    const abstentions = worldStateSubjectBindingResearchStore
+      .loadWorldStateSubjectBindingAbstentions(512);
+    const reviews = worldStateMechanismSubjectBindingReviewStore
+      ?.loadWorldStateMechanismSubjectBindingReviews(512) ?? [];
+    worldStateSubjectBindingResearchCases =
+      materializeWorldStateSubjectBindingResearchCases({
+        routes, proposals, assessments, abstentions, reviews,
+      });
+    const retainedIds = new Set(worldStateSubjectBindingResearchStore
+      .loadWorldStateSubjectBindingResearchInputs(2_048)
+      .map((item) => item.revisionId));
+    const fresh = worldStateSubjectBindingResearchCases
+      .map((item) => item.currentInputRevision)
+      .filter((item) => !retainedIds.has(item.revisionId));
+    if (fresh.length > 0) {
+      worldStateSubjectBindingResearchStore
+        .saveWorldStateSubjectBindingResearchInputs(fresh);
     }
   };
   const reconcileWorldStateMechanismResearchAssignments = (): void => {
@@ -4035,6 +4090,11 @@ export function createControlPlane(options?: {
     const wakes = worldStateMechanismWakeStore
       ?.loadWorldStateMechanismWakes(2_048) ?? [];
     const routes = compileConsolidatedWorldStateMechanismRoutes(proposals);
+    const bindingCases = worldStateSubjectBindingResearchCases;
+    const bindingAssessments = worldStateSubjectBindingResearchStore
+      ?.loadWorldStateSubjectBindingAssessments(512) ?? [];
+    const bindingAbstentions = worldStateSubjectBindingResearchStore
+      ?.loadWorldStateSubjectBindingAbstentions(512) ?? [];
     const latestReviewByFamily = new Map<Hash, (typeof reviews)[number]>();
     for (const review of [...reviews].sort((left, right) =>
       left.reviewedAt.localeCompare(right.reviewedAt) ||
@@ -4046,7 +4106,7 @@ export function createControlPlane(options?: {
       left.observationId.localeCompare(right.observationId)
     )) latestObservationByFamily.set(observation.routeFamilyId, observation);
     const body = Object.freeze({
-      schemaVersion: "pmh.world-state-mechanism-projection.v2" as const,
+      schemaVersion: "pmh.world-state-mechanism-projection.v3" as const,
       proposalCount: proposals.length,
       counterexampleCount: counterexamples.length,
       abstentionCount: abstentions.length,
@@ -4059,6 +4119,34 @@ export function createControlPlane(options?: {
         execution: agentExecutionRegistry.snapshot(),
       }),
       subjectBindingReviewCount: reviews.length,
+      subjectBindingResearch: Object.freeze({
+        caseCount: bindingCases.length,
+        unexploredCount: bindingCases.filter((item) => item.state === "UNEXPLORED").length,
+        assessedCount: bindingCases.filter((item) => item.state === "ASSESSED").length,
+        abstainedCount: bindingCases.filter((item) => item.state === "ABSTAINED").length,
+        reviewedCount: bindingCases.filter((item) => item.state === "REVIEWED").length,
+        assessmentCount: bindingAssessments.length,
+        abstentionCount: bindingAbstentions.length,
+        automaticDispatch: false as const,
+        promotionAuthority: false as const,
+        cases: Object.freeze(bindingCases.slice(0, 128).map((item) => Object.freeze({
+          caseId: item.caseId,
+          routeFamilyId: item.routeFamilyId,
+          inputRevisionId: item.currentInputRevision.revisionId,
+          candidateLabels: item.currentInputRevision.candidateLabels,
+          sourceProposalCount: item.currentInputRevision.sourceProposalIds.length,
+          sourceAuthoringRunCount: item.currentInputRevision.sourceAuthoringRunIds.length,
+          triggerEvidenceCount: item.currentInputRevision.triggerEvidenceBindings.length,
+          dependentEvidenceCount: item.currentInputRevision.dependentEvidenceBindings.length,
+          ambiguityNoteCount: item.currentInputRevision.ambiguityNotes.length,
+          counterScenarioCount: item.currentInputRevision.counterScenarios.length,
+          state: item.state,
+          campaignEligible: item.campaignEligible,
+          assessmentCount: item.assessmentIds.length,
+          abstentionCount: item.abstentionIds.length,
+          reviewCount: item.reviewIds.length,
+        }))),
+      }),
       observationCount: observations.length,
       wakeCount: wakes.length,
       routeStatusCounts: Object.freeze({
@@ -5229,6 +5317,7 @@ export function createControlPlane(options?: {
     if (task?.kind === "WORLD_STATE_MECHANISM_RESEARCH") {
       try {
         reconcileWorldStateMechanismResearchAssignments();
+        reconcileWorldStateSubjectBindingResearch();
         reconcileWorldStateMechanismObservations();
       } catch {
         // Durable results remain authoritative; startup or catalog refresh retries projection repair.
@@ -7464,6 +7553,7 @@ export function createControlPlane(options?: {
       const pending = catalogRefreshScheduler.runNow("OPERATOR").promise;
       await broadcastProjection();
       const result = await pending;
+      reconcileWorldStateSubjectBindingResearch();
       reconcileWorldStateMechanismObservations();
       reconcileRelationDiscoveryTasks();
       migrateStandingRouteSeedCampaigns();
@@ -8503,6 +8593,7 @@ export function createControlPlane(options?: {
         void invocation.promise.then(
           () => {
             try {
+              reconcileWorldStateSubjectBindingResearch();
               reconcileWorldStateMechanismObservations();
               reconcileRelationDiscoveryTasks();
               migrateStandingRouteSeedCampaigns();
