@@ -115,7 +115,7 @@ created.
 ## Phase 4 — value and cost
 
 - [x] Attribute authoring and binding-review tokens separately.
-- [ ] Compare approved, rejected, abstained and no-result yield by stable route
+- [x] Compare approved, rejected, abstained and no-result yield by stable route
   family.
 - [ ] Bound repeated context and tool output before adding more review cases.
 - [x] Expose the case, assessment, review and observation states in Studio as
@@ -143,6 +143,21 @@ Desktop browser inspection at 1280 px shows the two scopes, the existing five
 stage lifecycle and no horizontal overflow; the added 720 px breakpoint reduces
 the two-column accounting strip to one column, while the prior 390 px lifecycle
 qualification remains unchanged.
+
+Issue [#193](https://github.com/luokerenx4/my-little-pony/issues/193) adds one
+non-scalar evidence-and-cost scorecard per stable route family. It keeps
+proposal, falsification, subject assessment, review, observation and wake stages
+distinct while attributing authoring and assessment usage through exact,
+de-duplicated run IDs. The live Democratic Party family is
+`READY_FOR_PROMOTION`: one proposal, three counter-scenarios, one independent
+approval assessment, no promoted review, 62 blocked observations and no wake.
+Its two independent source runs reconcile to 148,341 authoring plus 55,659
+assessment input tokens, or 204,000 unique total, with zero shared runs, missing
+runs or incomplete usage. The scorecard has no scalar ROI, dispatch, attention
+policy, semantic, probability, review, execution or value-moving authority.
+The 62 blocked observations reveal a separate write-amplification question:
+provider-free reconciliation may be retaining unchanged blocked state on every
+cycle instead of one baseline plus meaningful transitions.
 
 Issue [#185](https://github.com/luokerenx4/my-little-pony/issues/185) now
 materializes provider-free promotion readiness without choosing the promotion

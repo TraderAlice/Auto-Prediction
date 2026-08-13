@@ -141,6 +141,7 @@ import {
   type WorldStateMechanismResearchAssignment,
 } from "./world-state-mechanism-research.js";
 import { buildWorldStateMechanismAllocation } from "./world-state-mechanism-allocation.js";
+import { buildWorldStateMechanismFamilyScorecards } from "./world-state-mechanism-family-scorecard.js";
 import {
   buildWorldStateMechanismCampaignPreview,
   ensureWorldStateMechanismCampaignRunPolicy,
@@ -4151,6 +4152,13 @@ export function createControlPlane(options?: {
       ?.loadWorldStateSubjectBindingAssessments(512) ?? [];
     const bindingAbstentions = worldStateSubjectBindingResearchStore
       ?.loadWorldStateSubjectBindingAbstentions(512) ?? [];
+    const promotionReadiness = buildWorldStateSubjectBindingPromotionReadiness({
+      cases: bindingCases,
+      assessments: bindingAssessments,
+      abstentions: bindingAbstentions,
+      reviews,
+      execution: agentExecutionRegistry.snapshot(),
+    });
     const latestReviewByFamily = new Map(routes.flatMap((route) => {
       const review = [...reviews]
         .filter((item) => worldStateMechanismSubjectBindingReviewCoversRoute(item, route))
@@ -4164,7 +4172,7 @@ export function createControlPlane(options?: {
       left.observationId.localeCompare(right.observationId)
     )) latestObservationByFamily.set(observation.routeFamilyId, observation);
     const body = Object.freeze({
-      schemaVersion: "pmh.world-state-mechanism-projection.v4" as const,
+      schemaVersion: "pmh.world-state-mechanism-projection.v5" as const,
       proposalCount: proposals.length,
       counterexampleCount: counterexamples.length,
       abstentionCount: abstentions.length,
@@ -4183,6 +4191,15 @@ export function createControlPlane(options?: {
         abstentions,
         execution: agentExecutionRegistry.snapshot(),
       }),
+      familyScorecards: buildWorldStateMechanismFamilyScorecards({
+        routes,
+        counterexamples,
+        promotionReadiness: promotionReadiness.items,
+        reviews,
+        observations,
+        wakes,
+        execution: agentExecutionRegistry.snapshot(),
+      }),
       subjectBindingReviewCount: reviews.length,
       subjectBindingResearch: Object.freeze({
         caseCount: bindingCases.length,
@@ -4194,13 +4211,7 @@ export function createControlPlane(options?: {
         abstentionCount: bindingAbstentions.length,
         automaticDispatch: false as const,
         promotionAuthority: false as const,
-        promotionReadiness: buildWorldStateSubjectBindingPromotionReadiness({
-          cases: bindingCases,
-          assessments: bindingAssessments,
-          abstentions: bindingAbstentions,
-          reviews,
-          execution: agentExecutionRegistry.snapshot(),
-        }),
+        promotionReadiness,
         cases: Object.freeze(bindingCases.slice(0, 128).map((item) => Object.freeze({
           caseId: item.caseId,
           routeFamilyId: item.routeFamilyId,

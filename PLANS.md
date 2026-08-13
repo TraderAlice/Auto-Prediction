@@ -2010,6 +2010,16 @@ and 148,341 known input tokens. Desktop browser inspection shows both scopes
 without horizontal overflow; the new accounting strip has an explicit 720 px
 single-column breakpoint.
 
+Issue #193 now projects stable mechanism-family evidence frontiers without
+collapsing them into a scalar ROI. Proposal, falsification, independent subject
+assessment, promoted review, observation and wake remain distinct stages, while
+authoring and assessment costs follow exact de-duplicated run IDs. The live
+Democratic Party family is `READY_FOR_PROMOTION` and reconciles 148,341 authoring
+plus 55,659 assessment input tokens to 204,000 unique total across two independent
+runs, with no overlap, missing run or incomplete invocation usage. Its 62
+retained `BLOCKED_SUBJECT_BINDING` observations are now visible as a separate
+potential write-amplification defect rather than productive evidence movement.
+
 During qualification the anonymous corpus refreshed and the current allocator
 moved from 24 suitable / 5 selected to 25 / 6. The paused experiment retained
 its original five actions and exact revisions. Current recommendations and a

@@ -2989,9 +2989,53 @@ footer {
   line-height: 1.5;
 }
 
+.mechanism-family-scorecard {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--card) 92%, var(--muted));
+}
+
+.mechanism-family-scorecard-head,
+.mechanism-family-scorecard-cost {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mechanism-family-scorecard-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mechanism-family-scorecard-grid > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mechanism-family-scorecard-grid strong {
+  font-size: 18px;
+}
+
+.mechanism-family-scorecard-grid span,
+.mechanism-family-scorecard-cost span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
 @media (max-width: 720px) {
   .mechanism-accounting-scope {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mechanism-family-scorecard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

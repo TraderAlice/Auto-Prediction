@@ -652,7 +652,7 @@ type SemanticNoveltyProjection = Readonly<{
   valueMovingAuthority: false;
 }>;
 type WorldStateMechanismProjection = Readonly<{
-  schemaVersion: "pmh.world-state-mechanism-projection.v4";
+  schemaVersion: "pmh.world-state-mechanism-projection.v5";
   projectionIdentity: string;
   proposalCount: number;
   counterexampleCount: number;
@@ -722,6 +722,53 @@ type WorldStateMechanismProjection = Readonly<{
       unknownUsageInvocationCount: number;
     }>;
     authority: "DERIVED_RETAINED_MECHANISM_MEMORY_ONLY";
+  }>;
+  familyScorecards: Readonly<{
+    schemaVersion: "pmh.world-state-mechanism-family-scorecards.v1";
+    projectionIdentity: string;
+    familyCount: number;
+    items: ReadonlyArray<Readonly<{
+      scorecardId: string;
+      routeFamilyId: string;
+      routeId: string;
+      canonicalSubjectLabels: readonly string[];
+      stateDimension: string;
+      frontier: "PROPOSED_ONLY" | "ASSESSMENT_EVIDENCE_RETAINED" |
+        "READY_FOR_PROMOTION" | "REVIEW_DECIDED" | "OBSERVATION_BASELINE" |
+        "WAKE_PRODUCED";
+      evidence: Readonly<{
+        proposalCount: number;
+        counterScenarioCount: number;
+        counterexampleCount: number;
+        assessmentCount: number;
+        assessmentAbstentionCount: number;
+        assessmentRecommendation: "APPROVE" | "REJECT" | "ABSTAIN" | "NONE";
+        promotionReadinessStatus: string;
+        subjectBindingReviewCount: number;
+        latestSubjectBindingDecision: "APPROVED" | "REJECTED" | "NEEDS_EVIDENCE" | "NONE";
+        observationCount: number;
+        latestObservationStatus: string;
+        wakeCount: number;
+      }>;
+      authoringUsage: Readonly<{
+        sourceRunCount: number; modelInvocationCount: number; knownInputTokens: string;
+        missingSourceRunCount: number; unknownUsageInvocationCount: number;
+      }>;
+      assessmentUsage: Readonly<{
+        sourceRunCount: number; modelInvocationCount: number; knownInputTokens: string;
+        missingSourceRunCount: number; unknownUsageInvocationCount: number;
+      }>;
+      totalUsage: Readonly<{
+        sourceRunCount: number; modelInvocationCount: number; knownInputTokens: string;
+        missingSourceRunCount: number; unknownUsageInvocationCount: number;
+      }>;
+      sharedAuthoringAssessmentRunCount: number;
+      automaticDispatch: false;
+      attentionPolicyAuthority: false;
+    }>>;
+    automaticDispatch: false;
+    attentionPolicyAuthority: false;
+    authority: "DERIVED_MECHANISM_FAMILY_EVIDENCE_ONLY";
   }>;
   subjectBindingReviewCount: number;
   subjectBindingResearch: Readonly<{
@@ -3879,7 +3926,7 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.semanticNovelty.policyMutationAuthority !== false ||
     result.semanticNovelty.semanticDecisionAuthority !== false ||
     result.worldStateMechanisms.schemaVersion !==
-      "pmh.world-state-mechanism-projection.v4" ||
+      "pmh.world-state-mechanism-projection.v5" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness.schemaVersion !==
       "pmh.world-state-subject-binding-promotion-readiness.v1" ||
     result.worldStateMechanisms.subjectBindingResearch.promotionReadiness
@@ -3890,6 +3937,9 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
       "pmh.world-state-mechanism-research-yield.v1" ||
     result.worldStateMechanisms.retainedMechanismMemory.schemaVersion !==
       "pmh.retained-world-state-mechanism-memory.v1" ||
+    result.worldStateMechanisms.familyScorecards.schemaVersion !==
+      "pmh.world-state-mechanism-family-scorecards.v1" ||
+    result.worldStateMechanisms.familyScorecards.attentionPolicyAuthority !== false ||
     result.worldStateMechanisms.allocation.schemaVersion !==
       "pmh.world-state-mechanism-allocation.v1" ||
     result.worldStateMechanisms.allocation.providerRequestsStartedByRead !== 0 ||
@@ -4321,6 +4371,9 @@ function AgentOperationsView() {
                 const reviewed = route.subjectBindingStatus !== "UNREVIEWED";
                 const observed = route.observationStatus !== "UNOBSERVED" &&
                   route.observationStatus !== "BLOCKED_SUBJECT_BINDING";
+                const scorecard = worldStateMechanisms.familyScorecards.items.find((item) =>
+                  item.routeFamilyId === route.routeFamilyId
+                );
                 return (
                 <article key={route.routeId} className="mechanism-route-card">
                   <div className="research-attention-action-head">
@@ -4364,6 +4417,38 @@ function AgentOperationsView() {
                       <span><strong>{formatTokenCount(readiness.authoringUsage.inputTokens)}</strong> authoring input · {readiness.authoringUsage.invocationCount} calls</span>
                       <span><strong>{formatTokenCount(readiness.assessmentUsage.inputTokens)}</strong> independent assessment input · {readiness.assessmentUsage.invocationCount} calls</span>
                       <span>{readiness.diagnostic}</span>
+                    </div>
+                  )}
+                  {scorecard !== undefined && (
+                    <div className="mechanism-family-scorecard">
+                      <div className="mechanism-family-scorecard-head">
+                        <span className="eyebrow">Family evidence frontier</span>
+                        <Badge variant={scorecard.frontier === "READY_FOR_PROMOTION" ||
+                          scorecard.frontier === "OBSERVATION_BASELINE" ||
+                          scorecard.frontier === "WAKE_PRODUCED" ? "verified" : "shadow"}>
+                          {scorecard.frontier.replaceAll("_", " ")}
+                        </Badge>
+                      </div>
+                      <div className="mechanism-family-scorecard-grid">
+                        <div><strong>{scorecard.evidence.proposalCount}</strong><span>proposals</span></div>
+                        <div><strong>{scorecard.evidence.counterScenarioCount + scorecard.evidence.counterexampleCount}</strong><span>falsification cases</span></div>
+                        <div><strong>{scorecard.evidence.assessmentCount + scorecard.evidence.assessmentAbstentionCount}</strong><span>binding results</span></div>
+                        <div><strong>{scorecard.evidence.subjectBindingReviewCount}</strong><span>reviews</span></div>
+                        <div><strong>{scorecard.evidence.observationCount}</strong><span>observations</span></div>
+                        <div><strong>{scorecard.evidence.wakeCount}</strong><span>wakes</span></div>
+                      </div>
+                      <div className="mechanism-family-scorecard-cost">
+                        <span>{formatTokenCount(scorecard.authoringUsage.knownInputTokens)} authoring input</span>
+                        <span>{formatTokenCount(scorecard.assessmentUsage.knownInputTokens)} assessment input</span>
+                        <span>{formatTokenCount(scorecard.totalUsage.knownInputTokens)} unique total</span>
+                        {(scorecard.totalUsage.missingSourceRunCount > 0 ||
+                          scorecard.totalUsage.unknownUsageInvocationCount > 0) && (
+                          <span>{scorecard.totalUsage.missingSourceRunCount} missing runs · {scorecard.totalUsage.unknownUsageInvocationCount} incomplete calls</span>
+                        )}
+                        {scorecard.sharedAuthoringAssessmentRunCount > 0 && (
+                          <span>{scorecard.sharedAuthoringAssessmentRunCount} authoring/assessment runs overlap</span>
+                        )}
+                      </div>
                     </div>
                   )}
                   <div className="research-attention-facts">
