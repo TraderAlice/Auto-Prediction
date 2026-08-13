@@ -475,7 +475,7 @@ describe("mechanism-prototype-guided exploration substrate", () => {
       taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE", creationEligible: true,
       dispatchEligible: false, automaticDispatch: false, providerRequestsStarted: 0,
       modelInvocationsStarted: 0,
-      budget: { maximumModelInvocations: 12, maximumInputTokens: "300000" },
+      budget: { maximumModelInvocations: 16, maximumInputTokens: "500000" },
     });
     const selectedLens = projection.lenses.find((item) =>
       item.task.taskId === preview.taskIds[0]
@@ -636,6 +636,28 @@ describe("mechanism-prototype exploration Agent tools", () => {
     return { lens, prototype, snapshot, profile, model, run };
   }
 
+  async function openHypothesis(input: Readonly<{
+    host: MechanismPrototypeExplorationAgentToolHost;
+    lens: ReturnType<typeof runtimeFixture>["lens"];
+    run: ReturnType<typeof runtimeFixture>["run"];
+    profile: ReturnType<typeof runtimeFixture>["profile"];
+    suffix: string;
+    prototypeTestHandle?: string;
+  }>) {
+    return input.host.execute({ task: input.lens.task, run: input.run,
+      executionProfile: input.profile, callId: `hypothesis:${input.suffix}:open`,
+      toolName: "open_exploration_hypothesis", input: {
+        prototypeTestHandle: input.prototypeTestHandle ?? "transfer-test:1",
+        familyIntent: "DIFFERENT_TEST", priorFamilyId: null,
+        intentRationale: "No exact prior family exists for this bounded fixture test.",
+        materialVariation: "Move the component/aggregate mechanism into the searched neighborhood.",
+        predictedRoleStructure: "A bounded component outcome and a distinct aggregate dependent coexist.",
+        supportingObservation: "An inspected role-qualified pair survives the transfer test.",
+        falsifyingObservation: "Search finds only parallel alternatives or one role is absent.",
+        searchNeighborhoods: ["assigned exact corpus"],
+      } });
+  }
+
   async function closeHypothesis(input: Readonly<{
     host: MechanismPrototypeExplorationAgentToolHost;
     lens: ReturnType<typeof runtimeFixture>["lens"];
@@ -643,16 +665,6 @@ describe("mechanism-prototype exploration Agent tools", () => {
     profile: ReturnType<typeof runtimeFixture>["profile"];
     suffix: string;
   }>) {
-    await input.host.execute({ task: input.lens.task, run: input.run,
-      executionProfile: input.profile, callId: `hypothesis:${input.suffix}:open`,
-      toolName: "open_exploration_hypothesis", input: {
-        prototypeTestHandle: "transfer-test:1",
-        materialVariation: "Move the component/aggregate mechanism into the searched neighborhood.",
-        predictedRoleStructure: "A bounded component outcome and a distinct aggregate dependent coexist.",
-        supportingObservation: "An inspected role-qualified pair survives the transfer test.",
-        falsifyingObservation: "Search finds only parallel alternatives or one role is absent.",
-        searchNeighborhoods: ["assigned exact corpus"],
-      } });
     return input.host.execute({ task: input.lens.task, run: input.run,
       executionProfile: input.profile, callId: `hypothesis:${input.suffix}:close`,
       toolName: "close_exploration_hypothesis", input: {
@@ -792,7 +804,10 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const calls = [
       { callId: "hypothesis:open", toolName: "open_exploration_hypothesis", input: {
-        prototypeTestHandle: "transfer-test:1", materialVariation: "Transfer into sports.",
+        prototypeTestHandle: "transfer-test:1", familyIntent: "DIFFERENT_TEST",
+        priorFamilyId: null,
+        intentRationale: "No exact prior family exists for this fixture.",
+        materialVariation: "Transfer into sports.",
         predictedRoleStructure: "Race component and championship aggregate.",
         supportingObservation: "A role-qualified inspected pair.",
         falsifyingObservation: "Only parallel winner alternatives.",
@@ -863,6 +878,32 @@ describe("mechanism-prototype exploration Agent tools", () => {
         identityBasis: "EXACT_PROTOTYPE_AXIS_AND_TEST_BINDING",
         proseSimilarityUsed: false, schedulingAuthority: false,
         semanticDecisionAuthority: false, valueMovingAuthority: false }] });
+    const family = memory.hypothesisFamilies[0]!;
+    const nextHost = new MechanismPrototypeExplorationAgentToolHost(
+      lens.currentInputRevision, prototype, snapshot, undefined, [family],
+    );
+    await expect(nextHost.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "hypothesis:duplicate", toolName: "open_exploration_hypothesis", input: {
+        prototypeTestHandle: "transfer-test:1", familyIntent: "DIFFERENT_TEST",
+        priorFamilyId: null, intentRationale: "Pretend this exact test is new.",
+        materialVariation: "Paraphrase the same transfer.",
+        predictedRoleStructure: "Same component and aggregate.",
+        supportingObservation: "Same support.", falsifyingObservation: "Same falsifier.",
+        searchNeighborhoods: ["same neighborhood"],
+      } })).resolves.toMatchObject({ status: "REJECTED", output: {
+        diagnostic: expect.stringMatching(/no prior family/u),
+      } });
+    await expect(nextHost.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "hypothesis:extend", toolName: "open_exploration_hypothesis", input: {
+        prototypeTestHandle: "transfer-test:1", familyIntent: "EXTEND",
+        priorFamilyId: family.familyId,
+        intentRationale: "Extend the exact family into a new settlement-time neighborhood.",
+        materialVariation: "Change temporal scope while retaining the exact test.",
+        predictedRoleStructure: "Component resolves earlier than aggregate.",
+        supportingObservation: "Distinct time scopes and shared subject.",
+        falsifyingObservation: "The contracts resolve the same event and time.",
+        searchNeighborhoods: ["earlier component", "later aggregate"],
+      } })).resolves.toMatchObject({ status: "ACCEPTED", output: { status: "ACTIVE" } });
   });
 
   it("searches and inspects before retaining an exact routing-only trailhead", async () => {
@@ -917,13 +958,18 @@ describe("mechanism-prototype exploration Agent tools", () => {
       toolName: "inspect_mechanism_exploration_listings",
       input: { listingRefs: ["venue-sport:constructors", "venue-race:italy"] },
     });
-    await closeHypothesis({ host, lens, run, profile, suffix: "trailhead" });
+    await openHypothesis({ host, lens, run, profile, suffix: "trailhead" });
     const applied = await host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "mark_transfer_test_1_applied", input: {} });
     expect(applied).toMatchObject({ output: { readiness: {
       appliedTransferTestOrdinals: [1], inspectedRolePairCount: 1,
+      positive: { eligible: false, missingPrerequisites: ["CLOSED_HYPOTHESIS"] },
+      exhaustion: { eligible: false,
+        missingPrerequisites: ["FAILED_TRANSFER_TEST", "CLOSED_HYPOTHESIS"] },
+    } } });
+    const closed = await closeHypothesis({ host, lens, run, profile, suffix: "trailhead" });
+    expect(closed).toMatchObject({ output: { readiness: {
       positive: { eligible: true, missingPrerequisites: [] },
-      exhaustion: { eligible: false, missingPrerequisites: ["FAILED_TRANSFER_TEST"] },
     } } });
     const retained = await host.execute({
       task: lens.task, run, executionProfile: profile,
@@ -1057,6 +1103,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       semanticDecisionAuthority: false,
       executionAuthority: false,
     });
+    await openHypothesis({ host, lens, run, profile, suffix: "persisted-action" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "action:1", toolName: "mark_transfer_test_1_applied", input: {} });
     expect(actionObservations).toHaveLength(1);
@@ -1119,6 +1166,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       toolName: "inspect_mechanism_exploration_listings", input: {
         listingRefs: ["venue-a:iowa-republican", "venue-b:senate-control-republican"],
       } });
+    await openHypothesis({ host, lens, run, profile, suffix: "surface-axis" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "mark_transfer_test_1_applied", input: {} });
     await closeHypothesis({ host, lens, run, profile, suffix: "surface-axis" });
@@ -1179,6 +1227,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
         toolName: "inspect_mechanism_exploration_listings", input: {
           listingRefs: [seatRef, "geo:senate-control"],
         } });
+      await openHypothesis({ host, lens, run, profile,
+        suffix: seatRef.replace(/[^a-z]/gu, "-") });
       await host.execute({ task: lens.task, run, executionProfile: profile,
         toolName: "mark_transfer_test_1_applied", input: {} });
       await closeHypothesis({ host, lens, run, profile,
@@ -1244,6 +1294,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
     );
+    await openHypothesis({ host, lens, run, profile, suffix: "invalid-terminal" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "mark_transfer_test_1_failed", input: {} });
     await closeHypothesis({ host, lens, run, profile, suffix: "invalid-terminal" });
@@ -1291,11 +1342,20 @@ describe("mechanism-prototype exploration Agent tools", () => {
     await expect(host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "mark_transfer_test_999_failed", input: {} }))
       .rejects.toThrow(/transfer action is unknown/u);
+    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "mark_transfer_test_1_failed", input: {} }))
+      .resolves.toMatchObject({ status: "REJECTED", output: {
+        diagnostic: "prototype action requires an active falsifiable hypothesis",
+      } });
+    await openHypothesis({ host, lens, run, profile, suffix: "exhaustion" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "mark_transfer_test_1_failed", input: {} });
+    await closeHypothesis({ host, lens, run, profile, suffix: "exhaustion" });
+    await openHypothesis({ host, lens, run, profile, suffix: "counter-scenario",
+      prototypeTestHandle: "counter-scenario:1" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "activate_counter_scenario_1", input: {} });
-    await closeHypothesis({ host, lens, run, profile, suffix: "exhaustion" });
+    await closeHypothesis({ host, lens, run, profile, suffix: "counter-scenario" });
     const terminal = () => host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "record_mechanism_exploration_exhaustion",

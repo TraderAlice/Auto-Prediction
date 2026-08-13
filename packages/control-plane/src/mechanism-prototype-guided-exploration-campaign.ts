@@ -32,8 +32,8 @@ export type MechanismPrototypeExplorationCampaignPreview = Readonly<{
   taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE";
   budget: Readonly<{
     maximumConcurrentRuns: 1;
-    maximumModelInvocations: 12;
-    maximumInputTokens: "300000";
+    maximumModelInvocations: 16;
+    maximumInputTokens: "500000";
     maximumOutputTokens: "20000";
     maximumWallClockMs: 600000;
   }>;
@@ -131,7 +131,7 @@ export function buildMechanismPrototypeExplorationCampaignPreview(input: Readonl
     item.executionProfileId === workloadRoute.executionProfileId
   );
   if (executionProfile === undefined || executionProfile.toolPolicy.protocol !==
-      "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V10") {
+      "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V11") {
     throw new Error("mechanism exploration execution profile is unavailable");
   }
   const eligible = [...input.lenses]
@@ -165,8 +165,8 @@ export function buildMechanismPrototypeExplorationCampaignPreview(input: Readonl
     taskRunPolicy: "ONCE_PER_TASK_PER_LINEAGE" as const,
     budget: Object.freeze({
       maximumConcurrentRuns: 1 as const,
-      maximumModelInvocations: 12 as const,
-      maximumInputTokens: "300000" as const,
+      maximumModelInvocations: 16 as const,
+      maximumInputTokens: "500000" as const,
       maximumOutputTokens: "20000" as const,
       maximumWallClockMs: 600000 as const,
     }),

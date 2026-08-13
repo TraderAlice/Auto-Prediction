@@ -3437,6 +3437,13 @@ export function createControlPlane(options?: {
             lens.prototype,
             corpus,
             mechanismPrototypeExplorationStore,
+            buildMechanismPrototypeExplorationMemoryProjection({
+              inputs: mechanismPrototypeExplorationStore
+                .loadMechanismPrototypeExplorationInputs(2_048),
+              stepObservations: mechanismPrototypeExplorationStore
+                .loadMechanismPrototypeExplorationStepObservations(8_192),
+              execution: agentExecutionRegistry.snapshot(),
+            }).hypothesisFamilies,
           );
         }
         if (task.kind === "RELATION_DISCOVERY") {
