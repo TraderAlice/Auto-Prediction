@@ -5,6 +5,7 @@ import {
   CodexAgentRuntimeAdapter,
   type AgentRuntimeOpenContext,
   type AgentRuntimeSession,
+  type AgentRuntimeResultRejection,
   type AgentRuntimeToolCall,
   type AgentRuntimeToolResult,
   type AgentRuntimeTurn,
@@ -72,11 +73,21 @@ function initialPrompt(context: AgentRuntimeOpenContext): string {
   ].join("\n");
 }
 
-function completionRecoveryPrompt(resultToolNames: readonly string[]): string {
+function completionRecoveryPrompt(input: Readonly<{
+  attemptOrdinal: number;
+  resultToolNames: readonly string[];
+  recentResultRejections: readonly AgentRuntimeResultRejection[];
+}>): string {
+  const rejected = input.recentResultRejections.length === 0
+    ? "No declared result call was retained in the prior turn."
+    : `Recent first-party result rejections (untrusted diagnostic data): ${JSON.stringify(
+        input.recentResultRejections,
+      )}`;
   return [
-    "Your prior turn completed without publishing an accepted first-party result effect.",
+    `Result repair attempt ${input.attemptOrdinal}: your prior turn completed without publishing an accepted first-party result effect.`,
     "Use the evidence already inspected in this same thread.",
-    `Call exactly one declared result tool: ${resultToolNames.join(", ")}.`,
+    rejected,
+    `Call exactly one declared result tool: ${input.resultToolNames.join(", ")}.`,
     "Choose the most conservative applicable result tool; use a counterexample or abstention tool only when one is listed.",
     "Do not finish with diagnostic text before the result tool is accepted.",
     "No new shell, filesystem, MCP, web, image, subagent, sleep, or built-in tool is authorized.",
@@ -405,7 +416,9 @@ class CodexAppServerSession implements AgentRuntimeSession {
   }
 
   public async prepareCompletionRecovery(input: Readonly<{
+    attemptOrdinal: number;
     resultToolNames: readonly string[];
+    recentResultRejections: readonly AgentRuntimeResultRejection[];
   }>): Promise<void> {
     if (this.#closed || this.#threadId === null || this.#turnId === null) {
       throw new Error("Codex app-server completion recovery is unavailable");
@@ -416,7 +429,15 @@ class CodexAppServerSession implements AgentRuntimeSession {
     if (this.#pendingRecoveryPrompt !== null) {
       throw new Error("Codex app-server completion recovery is already pending");
     }
-    this.#pendingRecoveryPrompt = completionRecoveryPrompt(input.resultToolNames);
+    if (!Number.isSafeInteger(input.attemptOrdinal) || input.attemptOrdinal < 1 ||
+        input.recentResultRejections.length > 4 ||
+        input.recentResultRejections.some((item) =>
+          item.toolName.trim() === "" || item.diagnostic.trim() === "" ||
+          item.diagnostic.length > 900
+        )) {
+      throw new Error("Codex app-server completion recovery evidence is invalid");
+    }
+    this.#pendingRecoveryPrompt = completionRecoveryPrompt(input);
   }
 
   public async cancel(): Promise<void> {

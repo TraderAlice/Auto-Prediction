@@ -47,8 +47,13 @@ function buildLegacyModelInvocation(
   input: Parameters<typeof buildModelInvocation>[0],
 ): ReturnType<typeof buildModelInvocation> {
   const current = buildModelInvocation(input);
-  if (current.schemaVersion !== "pmh.model-invocation.v2") return current;
-  const { diagnostic: _diagnostic, ...legacy } = current;
+  if (current.schemaVersion !== "pmh.model-invocation.v3") return current;
+  const {
+    diagnostic: _diagnostic,
+    purpose: _purpose,
+    repairContext: _repairContext,
+    ...legacy
+  } = current;
   return assertModelInvocation(Object.freeze({
     ...legacy,
     schemaVersion: "pmh.model-invocation.v1" as const,
@@ -554,6 +559,7 @@ export function buildRuleEvidenceAgentMigration(input: Readonly<{
       const requests = requestCount(event);
       representedProviderRequests += requests;
       invocations.push(buildLegacyModelInvocation({
+        purpose: "PRIMARY_REASONING",
         run: prepared,
         modelProfile: profile.modelProfile,
         ordinal: eventIndex + 1,
@@ -594,6 +600,7 @@ export function buildRuleEvidenceAgentMigration(input: Readonly<{
     if (assignedEvents.length === 0 && item.record !== undefined &&
         item.record.completedAt !== null) {
       invocations.push(buildLegacyModelInvocation({
+        purpose: "PRIMARY_REASONING",
         run: prepared,
         modelProfile: profile.modelProfile,
         ordinal: 1,

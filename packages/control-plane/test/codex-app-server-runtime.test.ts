@@ -232,6 +232,10 @@ describe("Codex app-server Agent runtime", () => {
 
     expect(result.run.status).toBe("SUCCEEDED");
     expect(result.modelInvocations).toHaveLength(1);
+    expect(result.modelInvocations[0]).toMatchObject({
+      schemaVersion: "pmh.model-invocation.v3",
+      purpose: "PRIMARY_REASONING",
+    });
     expect(result.modelInvocations.map((item) => [item.inputTokens, item.outputTokens]))
       .toEqual([["120", "30"]]);
     expect(result.toolEffects).toHaveLength(1);
@@ -378,6 +382,9 @@ describe("Codex app-server Agent runtime", () => {
 
     expect(result.run.status).toBe("SUCCEEDED");
     expect(result.modelInvocations).toHaveLength(2);
+    expect(result.modelInvocations.map((item) =>
+      item.schemaVersion === "pmh.model-invocation.v3" ? item.purpose : null
+    )).toEqual(["PRIMARY_REASONING", "RESULT_REPAIR"]);
     expect(result.toolEffects).toEqual([expect.objectContaining({
       toolName: "record_counterexample",
       status: "ACCEPTED",
@@ -394,7 +401,7 @@ describe("Codex app-server Agent runtime", () => {
     expect(work.connection.closed).toBe(true);
   });
 
-  it("fails closed after a second diagnostic-only completion", async () => {
+  it("terminates repeated diagnostic-only completion at the configured invocation budget", async () => {
     const work = fixture([
       {
         method: "turn/completed",
@@ -434,6 +441,44 @@ describe("Codex app-server Agent runtime", () => {
           tokenUsage: { last: { inputTokens: 44, outputTokens: 11, reasoningOutputTokens: 5 } },
         },
       },
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:recovery",
+            status: "completed",
+            items: [{ type: "agentMessage", text: "I still refuse to use a result tool." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          tokenUsage: { last: { inputTokens: 45, outputTokens: 12, reasoningOutputTokens: 6 } },
+        },
+      },
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread:test",
+          turn: {
+            id: "turn:recovery",
+            status: "completed",
+            items: [{ type: "agentMessage", text: "No result tool." }],
+          },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          tokenUsage: { last: { inputTokens: 46, outputTokens: 13, reasoningOutputTokens: 7 } },
+        },
+      },
     ]);
 
     const result = await executePreparedAgentRun({
@@ -450,17 +495,23 @@ describe("Codex app-server Agent runtime", () => {
     });
 
     expect(result.run).toMatchObject({
-      status: "FAILED",
-      terminalDiagnostic: "runtime completed without an accepted result effect",
+      status: "INTERRUPTED",
+      terminalDiagnostic: "model invocation budget exhausted",
     });
-    expect(result.modelInvocations).toHaveLength(2);
+    expect(result.modelInvocations).toHaveLength(4);
+    expect(result.modelInvocations.map((item) =>
+      item.schemaVersion === "pmh.model-invocation.v3" ? item.purpose : null
+    )).toEqual([
+      "PRIMARY_REASONING", "RESULT_REPAIR", "RESULT_REPAIR", "RESULT_REPAIR",
+    ]);
     expect(result.toolEffects).toHaveLength(0);
     expect(work.connection.requests.filter((item) => item.method === "turn/start"))
-      .toHaveLength(2);
+      .toHaveLength(4);
     expect(work.connection.closed).toBe(true);
   });
 
-  it("does not treat diagnostic final text as success after a rejected result tool", async () => {
+  it("repairs a rejected result across repeated bounded recovery turns", async () => {
+    const opaqueDiagnosticFragment = "secret-like-fragment-".padEnd(64, "x");
     const work = fixture([
       {
         method: "item/tool/call",
@@ -501,14 +552,14 @@ describe("Codex app-server Agent runtime", () => {
         },
       },
       {
-        method: "turn/completed",
+        method: "item/tool/call",
+        id: 203,
         params: {
           threadId: "thread:test",
-          turn: {
-            id: "turn:recovery",
-            status: "completed",
-            items: [{ type: "agentMessage", text: "I still could not retain the result." }],
-          },
+          turnId: "turn:recovery",
+          callId: "call:counterexample:rejected-again",
+          tool: "record_counterexample",
+          arguments: { reason: "A second invalid repair attempt." },
         },
       },
       {
@@ -519,15 +570,41 @@ describe("Codex app-server Agent runtime", () => {
           tokenUsage: { last: { inputTokens: 22, outputTokens: 6, reasoningOutputTokens: 2 } },
         },
       },
+      {
+        method: "item/tool/call",
+        id: 204,
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          callId: "call:counterexample:repaired",
+          tool: "record_counterexample",
+          arguments: { reason: "Quoted retained source text now satisfies the constraint." },
+        },
+      },
+      {
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread:test",
+          turnId: "turn:recovery",
+          tokenUsage: { last: { inputTokens: 24, outputTokens: 7, reasoningOutputTokens: 3 } },
+        },
+      },
     ]);
+    let resultAttempt = 0;
     const rejectedHost: AgentToolHost = {
       ...work.toolHost,
-      execute: async () => Object.freeze({
-        status: "REJECTED" as const,
-        output: Object.freeze({
-          diagnostic: "reason must quote the retained source text",
-        }),
-      }),
+      execute: async () => {
+        resultAttempt += 1;
+        return resultAttempt <= 2 ? Object.freeze({
+          status: "REJECTED" as const,
+          output: Object.freeze({
+            diagnostic: `reason must quote the retained source text ${opaqueDiagnosticFragment} https://credential.invalid/private`,
+          }),
+        }) : Object.freeze({
+          status: "ACCEPTED" as const,
+          output: Object.freeze({ retained: true }),
+        });
+      },
     };
 
     const result = await executePreparedAgentRun({
@@ -544,16 +621,65 @@ describe("Codex app-server Agent runtime", () => {
     });
 
     expect(result.run).toMatchObject({
-      status: "FAILED",
-      terminalDiagnostic: "runtime completed without an accepted result effect",
+      status: "SUCCEEDED",
+      terminalDiagnostic: null,
     });
     expect(result.toolEffects).toEqual([
       expect.objectContaining({
         schemaVersion: "pmh.agent-tool-effect.v2",
         status: "REJECTED",
-        diagnostic: "reason must quote the retained source text",
+        diagnostic: "reason must quote the retained source text [opaque] [url]",
+      }),
+      expect.objectContaining({
+        schemaVersion: "pmh.agent-tool-effect.v2",
+        status: "REJECTED",
+        diagnostic: "reason must quote the retained source text [opaque] [url]",
+      }),
+      expect.objectContaining({
+        schemaVersion: "pmh.agent-tool-effect.v2",
+        status: "ACCEPTED",
+        diagnostic: null,
       }),
     ]);
-    expect(result.runArtifacts).toHaveLength(0);
+    expect(result.modelInvocations.map((item) =>
+      item.schemaVersion === "pmh.model-invocation.v3" ? item.purpose : null
+    )).toEqual([
+      "PRIMARY_REASONING", "RESULT_REPAIR", "RESULT_REPAIR", "RESULT_REPAIR",
+    ]);
+    const repairInvocations = result.modelInvocations.filter((item) =>
+      item.schemaVersion === "pmh.model-invocation.v3" && item.purpose === "RESULT_REPAIR"
+    );
+    expect(repairInvocations).toHaveLength(3);
+    expect(repairInvocations.map((item) => item.schemaVersion === "pmh.model-invocation.v3"
+      ? item.repairContext
+      : null)).toEqual([
+        {
+          attemptOrdinal: 1,
+          rejectedResultEffectIds: [result.toolEffects[0]!.effectId],
+        },
+        {
+          attemptOrdinal: 2,
+          rejectedResultEffectIds: [result.toolEffects[0]!.effectId],
+        },
+        {
+          attemptOrdinal: 3,
+          rejectedResultEffectIds: [
+            result.toolEffects[0]!.effectId,
+            result.toolEffects[1]!.effectId,
+          ].sort(),
+        },
+      ]);
+    const recoveryRequest = work.connection.requests.filter((item) =>
+      item.method === "turn/start"
+    )[1];
+    expect(recoveryRequest)
+      .toMatchObject({
+        params: { input: [{ text: expect.stringContaining(
+          "reason must quote the retained source text",
+        ) }] },
+      });
+    expect(JSON.stringify(recoveryRequest)).not.toContain(opaqueDiagnosticFragment);
+    expect(JSON.stringify(recoveryRequest)).not.toContain("credential.invalid");
+    expect(result.runArtifacts).toHaveLength(1);
   });
 });

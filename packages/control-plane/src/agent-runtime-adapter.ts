@@ -97,8 +97,10 @@ function redactedDiagnostic(value: unknown, fallback: string): string {
 }
 
 function boundedToolDiagnostic(value: unknown): string {
-  if (!(value instanceof Error)) return "tool rejected";
-  const message = value.message.trim()
+  const source = typeof value === "string" ? value : value instanceof Error
+    ? value.message
+    : "tool rejected";
+  const message = source.trim()
     .replace(/https?:\/\/\S+/giu, "[url]")
     .replace(/[A-Za-z0-9_+/=-]{48,}/gu, "[opaque]")
     .replace(/\s+/gu, " ")
@@ -483,6 +485,16 @@ export type AgentRuntimeToolResult = Readonly<{
   output: unknown;
 }>;
 
+export type AgentRuntimeInvocationPurpose =
+  | "PRIMARY_REASONING"
+  | "TOOL_CONTINUATION"
+  | "RESULT_REPAIR";
+
+export type AgentRuntimeResultRejection = Readonly<{
+  toolName: string;
+  diagnostic: string;
+}>;
+
 export type AgentRuntimeTurn = Readonly<{
   invocation: Readonly<{
     status: ModelInvocation["status"];
@@ -521,7 +533,9 @@ export interface AgentRuntimeSession {
   advance(toolResults: readonly AgentRuntimeToolResult[]): Promise<AgentRuntimeTurn>;
   settleAcceptedResult?(toolResults: readonly AgentRuntimeToolResult[]): Promise<void>;
   prepareCompletionRecovery?(input: Readonly<{
+    attemptOrdinal: number;
     resultToolNames: readonly string[];
+    recentResultRejections: readonly AgentRuntimeResultRejection[];
   }>): Promise<void>;
   cancel?(): Promise<void>;
 }
@@ -659,7 +673,13 @@ export async function executePreparedAgentRun(
   let session: AgentRuntimeSession | undefined;
   let toolResults: readonly AgentRuntimeToolResult[] = Object.freeze([]);
   const seenToolCallIds = new Set<string>();
-  let completionRecoveryUsed = false;
+  let completionRecoveryAttemptCount = 0;
+  let activeRepairAttemptOrdinal: number | null = null;
+  let nextInvocationPurpose: AgentRuntimeInvocationPurpose = "PRIMARY_REASONING";
+  let nextInvocationRepairContext: Readonly<{
+    attemptOrdinal: number;
+    rejectedResultEffectIds: readonly Hash[];
+  }> | null = null;
 
   const finish = (
     status: Exclude<AgentRun["status"], "PREPARED">,
@@ -749,6 +769,7 @@ export async function executePreparedAgentRun(
         elapsedMs: Math.max(0, now() - startedAt),
       }));
 
+      const invocationPurpose = nextInvocationPurpose;
       const turn = await session.advance(toolResults);
       const ordinal = invocations.length + 1;
       const invocationStartedAt = canonicalIso(
@@ -775,7 +796,10 @@ export async function executePreparedAgentRun(
         reasoningTokens: turn.invocation.reasoningTokens,
         failureCategory: turn.invocation.failureCategory,
         diagnostic: turn.invocation.diagnostic ?? null,
+        purpose: invocationPurpose,
+        repairContext: nextInvocationRepairContext,
       });
+      nextInvocationRepairContext = null;
       invocations.push(invocation);
       await input.onProgress?.(Object.freeze({
         modelInvocations: Object.freeze([invocation]),
@@ -830,7 +854,7 @@ export async function executePreparedAgentRun(
           (turn.completionAuthority ?? "RESULT_TOOL") !== "RESULT_TOOL" &&
           !acceptedResultEffect
         ) {
-          if (!completionRecoveryUsed && session.prepareCompletionRecovery !== undefined) {
+          if (session.prepareCompletionRecovery !== undefined) {
             const maximumInputForRecovery = tokenCount(
               valid.profile.runBudget.maximumInputTokens,
               "Maximum input tokens",
@@ -856,9 +880,29 @@ export async function executePreparedAgentRun(
               await session.cancel?.();
               return finish("INTERRUPTED", recoveryBudgetDiagnostic, null);
             }
-            completionRecoveryUsed = true;
-            await session.prepareCompletionRecovery(Object.freeze({ resultToolNames }));
+            completionRecoveryAttemptCount += 1;
+            activeRepairAttemptOrdinal = completionRecoveryAttemptCount;
+            const recentResultRejections = Object.freeze(effects.filter((effect) =>
+              effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
+            ).slice(-4).map((effect) => Object.freeze({
+              toolName: effect.toolName,
+              diagnostic: effect.schemaVersion === "pmh.agent-tool-effect.v2"
+                ? effect.diagnostic ?? "first-party result validation rejected the call"
+                : "first-party result validation rejected the call",
+            })));
+            await session.prepareCompletionRecovery(Object.freeze({
+              attemptOrdinal: completionRecoveryAttemptCount,
+              resultToolNames,
+              recentResultRejections,
+            }));
             toolResults = Object.freeze([]);
+            nextInvocationPurpose = "RESULT_REPAIR";
+            nextInvocationRepairContext = Object.freeze({
+              attemptOrdinal: activeRepairAttemptOrdinal,
+              rejectedResultEffectIds: Object.freeze(effects.filter((effect) =>
+                effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
+              ).slice(-4).map((effect) => effect.effectId)),
+            });
             continue;
           }
           await session.cancel?.();
@@ -924,7 +968,7 @@ export async function executePreparedAgentRun(
           diagnostic: result.status === "REJECTED" && result.output !== null &&
               typeof result.output === "object" &&
               typeof (result.output as { diagnostic?: unknown }).diagnostic === "string"
-            ? (result.output as { diagnostic: string }).diagnostic
+            ? boundedToolDiagnostic((result.output as { diagnostic: string }).diagnostic)
             : null,
           occurredAt: turn.invocation.completedAt,
         });
@@ -957,6 +1001,24 @@ export async function executePreparedAgentRun(
         }));
       }
       toolResults = Object.freeze(nextResults);
+      const rejectedDeclaredResult = effects.slice(-turn.toolCalls.length).some((effect) =>
+        effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
+      );
+      if (rejectedDeclaredResult) {
+        completionRecoveryAttemptCount += 1;
+        activeRepairAttemptOrdinal = completionRecoveryAttemptCount;
+      }
+      nextInvocationPurpose = activeRepairAttemptOrdinal === null
+        ? "TOOL_CONTINUATION"
+        : "RESULT_REPAIR";
+      nextInvocationRepairContext = activeRepairAttemptOrdinal === null
+        ? null
+        : Object.freeze({
+            attemptOrdinal: activeRepairAttemptOrdinal,
+            rejectedResultEffectIds: Object.freeze(effects.filter((effect) =>
+              effect.status === "REJECTED" && resultToolNames.includes(effect.toolName)
+            ).slice(-4).map((effect) => effect.effectId)),
+          });
     }
   } catch (error) {
     try {

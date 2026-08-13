@@ -225,6 +225,11 @@ type AgentExecutionConsole = Readonly<{
     reasoningTokens: string | null;
     failureCategory?: string | null;
     diagnostic?: string | null;
+    purpose?: "PRIMARY_REASONING" | "TOOL_CONTINUATION" | "RESULT_REPAIR";
+    repairContext?: Readonly<{
+      attemptOrdinal: number;
+      rejectedResultEffectIds: readonly string[];
+    }> | null;
     completedAt: string;
   }>>;
   usage: Readonly<{
@@ -239,6 +244,7 @@ type AgentExecutionConsole = Readonly<{
       runtimeKind: string;
       model: string;
       taskKind: string;
+      invocationPurpose: string;
       invocationCount: number;
       failedInvocationCount: number;
       inputTokens: string;
@@ -555,6 +561,50 @@ type DiscoveryYieldProjection = Readonly<{
   externalWriteAuthority: false;
   valueMovingAuthority: false;
 }>;
+type AgentResultRepairProjection = Readonly<{
+  schemaVersion: "pmh.agent-result-repair-projection.v1";
+  projectionIdentity: string;
+  observedAt: string;
+  repairRunCount: number;
+  repairInvocationCount: number;
+  rejectedResultEffectCount: number;
+  acceptedAfterRepairRunCount: number;
+  budgetTerminatedRepairRunCount: number;
+  otherTerminalRepairRunCount: number;
+  inFlightRepairRunCount: number;
+  exactRepairRunCount: number;
+  knownInputTokens: string;
+  knownOutputTokens: string;
+  knownReasoningTokens: string;
+  knownTotalTokens: string;
+  incompleteUsageInvocationCount: number;
+  historicalUnclassifiedInvocationCount: number;
+  unlinkedRejectedEffectCount: number;
+  runs: ReadonlyArray<Readonly<{
+    runId: string;
+    taskId: string;
+    runStatus: "PREPARED" | "INTERRUPTED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+    completedAt: string | null;
+    repairInvocationCount: number;
+    repairAttemptCount: number;
+    rejectedResultEffectCount: number;
+    acceptedAfterRepair: boolean;
+    acceptedResultEffectId: string | null;
+    budgetTerminated: boolean;
+    integrity: "EXACT" | "MISSING_REJECTED_EFFECT" |
+      "NON_REJECTED_EFFECT_REFERENCE" | "NON_SEQUENTIAL_ATTEMPTS";
+    knownTotalTokens: string;
+    incompleteUsageInvocationCount: number;
+    diagnostic: string;
+  }>>;
+  providerRequestsStartedByRead: 0;
+  modelInvocationsStartedByRead: 0;
+  writesStartedByRead: 0;
+  automaticDispatch: false;
+  policyMutationAuthority: false;
+  externalWriteAuthority: false;
+  valueMovingAuthority: false;
+}>;
 type OntologyAllocationOutcomeProjection = Readonly<{
   schemaVersion: "pmh.ontology-allocation-outcome-projection.v1";
   projectionIdentity: string;
@@ -632,6 +682,7 @@ type AgentWorkspace = Readonly<{
   decisions: ResearchDecisionOutcomeProjection;
   discoverySignals: DiscoverySignalProjection;
   discoveryYield: DiscoveryYieldProjection;
+  resultRepairs: AgentResultRepairProjection;
   ontologyOutcomes: OntologyAllocationOutcomeProjection;
   discoveryCycle: Readonly<{
     schemaVersion: "pmh.discovery-cycle.v1";
@@ -3539,6 +3590,12 @@ async function requestAgentWorkspace(): Promise<AgentWorkspace> {
     result.discoveryYield.writesStartedByRead !== 0 ||
     result.discoveryYield.automaticDispatch !== false ||
     result.discoveryYield.policyMutationAuthority !== false ||
+    result.resultRepairs.schemaVersion !== "pmh.agent-result-repair-projection.v1" ||
+    result.resultRepairs.providerRequestsStartedByRead !== 0 ||
+    result.resultRepairs.modelInvocationsStartedByRead !== 0 ||
+    result.resultRepairs.writesStartedByRead !== 0 ||
+    result.resultRepairs.automaticDispatch !== false ||
+    result.resultRepairs.policyMutationAuthority !== false ||
     result.ontologyOutcomes.schemaVersion !== "pmh.ontology-allocation-outcome-projection.v1" ||
     result.relationCampaign.schemaVersion !== "pmh.relation-discovery-campaign-preview.v1" ||
     result.discoveryCycle.schemaVersion !== "pmh.discovery-cycle.v1" ||
@@ -3566,6 +3623,8 @@ function AgentOperationsView() {
     useState<DiscoverySignalProjection | null>(null);
   const [discoveryYield, setDiscoveryYield] =
     useState<DiscoveryYieldProjection | null>(null);
+  const [resultRepairs, setResultRepairs] =
+    useState<AgentResultRepairProjection | null>(null);
   const [ontologyOutcomeData, setOntologyOutcomeData] =
     useState<OntologyAllocationOutcomeProjection | null>(null);
   const [discoveryCycle, setDiscoveryCycle] =
@@ -3594,6 +3653,7 @@ function AgentOperationsView() {
     setOutcomeData(outcomes);
     setDiscoverySignals(workspace.discoverySignals);
     setDiscoveryYield(workspace.discoveryYield);
+    setResultRepairs(workspace.resultRepairs);
     setOntologyOutcomeData(ontologyOutcomes);
     setDiscoveryCycle(workspace.discoveryCycle);
     setTaskId((current) => next.tasks.some((task) =>
@@ -3789,6 +3849,72 @@ function AgentOperationsView() {
                   ) : <Badge variant="shadow">READ</Badge>}
                 </article>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {resultRepairs !== null && (
+        <Card className="research-attention-card">
+          <CardHeader>
+            <div>
+              <span className="eyebrow">Agent result repair</span>
+              <h2>Do rejected structured results recover inside the same budget?</h2>
+              <p>First-party rejection stays authoritative. Repair turns retain their exact rejected-effect lineage and token cost instead of becoming hidden retries.</p>
+            </div>
+            <Badge variant={resultRepairs.acceptedAfterRepairRunCount > 0 ? "verified" :
+              resultRepairs.repairRunCount > 0 ? "warning" : "shadow"}>
+              {resultRepairs.acceptedAfterRepairRunCount}/{resultRepairs.repairRunCount} RECOVERED
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="research-attention-summary">
+              <div><strong>{resultRepairs.repairRunCount}</strong><span>repair runs</span></div>
+              <div><strong>{resultRepairs.repairInvocationCount}</strong><span>repair calls</span></div>
+              <div><strong>{resultRepairs.acceptedAfterRepairRunCount}</strong><span>accepted after repair</span></div>
+              <div><strong>{formatTokenCount(resultRepairs.knownTotalTokens)}</strong><span>repair tokens</span></div>
+            </div>
+            <div className="research-attention-lock">
+              <span>
+                {resultRepairs.rejectedResultEffectCount} linked rejections · {resultRepairs.budgetTerminatedRepairRunCount} budget terminations · {resultRepairs.unlinkedRejectedEffectCount} historical/unlinked rejections
+              </span>
+              <code>{resultRepairs.exactRepairRunCount}/{resultRepairs.repairRunCount} EXACT</code>
+            </div>
+            <div className="research-attention-actions">
+              {resultRepairs.runs.length === 0 ? (
+                <div className="empty-state">
+                  No purpose-classified repair invocation has been retained yet. {resultRepairs.historicalUnclassifiedInvocationCount} historical invocations remain deliberately unclassified.
+                </div>
+              ) : resultRepairs.runs.slice(0, 8).map((run) => (
+                <article key={run.runId}>
+                  <div className="research-attention-action-head">
+                    <div>
+                      <Badge variant={run.acceptedAfterRepair ? "verified" :
+                        run.budgetTerminated ? "warning" : "muted"}>
+                        {run.acceptedAfterRepair ? "ACCEPTED AFTER REPAIR" :
+                          run.budgetTerminated ? "BUDGET TERMINATED" : run.runStatus}
+                      </Badge>
+                      <Badge variant={run.integrity === "EXACT" ? "muted" : "warning"}>
+                        {run.integrity.replaceAll("_", " ")}
+                      </Badge>
+                    </div>
+                    <code>{run.runId.slice(7, 19)}</code>
+                  </div>
+                  <strong>{run.repairAttemptCount} result repair attempt{run.repairAttemptCount === 1 ? "" : "s"}</strong>
+                  <p>{run.diagnostic}</p>
+                  <div className="research-attention-facts">
+                    <span>{run.repairInvocationCount} model calls</span>
+                    <span>{run.rejectedResultEffectCount} linked rejections</span>
+                    <span>{formatTokenCount(run.knownTotalTokens)} known tokens</span>
+                    <span>{run.incompleteUsageInvocationCount} incomplete usage</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="research-attention-lock">
+              <CircleOff size={14} />
+              <span>Read-only attribution · no retry, dispatch, or policy authority</span>
+              <code>{resultRepairs.projectionIdentity.slice(7, 19)}</code>
             </div>
           </CardContent>
         </Card>
@@ -4163,8 +4289,8 @@ function AgentOperationsView() {
             <p>{consoleData.usage.currencyCostDiagnostic}</p>
             <div className="agent-usage-breakdown">
               {consoleData.usage.byRuntimeModelPurpose.slice(0, 5).map((item) => (
-                <div key={`${item.runtimeKind}:${item.model}:${item.taskKind}`}>
-                  <span>{item.runtimeKind} · {item.model}<small>{item.taskKind} · {item.invocationCount} calls · {item.failedInvocationCount} failed</small></span>
+                <div key={`${item.runtimeKind}:${item.model}:${item.taskKind}:${item.invocationPurpose}`}>
+                  <span>{item.runtimeKind} · {item.model}<small>{item.taskKind} · {item.invocationPurpose.replaceAll("_", " ").toLowerCase()} · {item.invocationCount} calls · {item.failedInvocationCount} failed</small></span>
                   <strong>{formatTokenCount((BigInt(item.inputTokens) + BigInt(item.outputTokens)).toString())}</strong>
                 </div>
               ))}
@@ -4255,6 +4381,9 @@ function AgentOperationsView() {
                   <span>
                     {run.authorization.kind} · run {run.runOrdinal} · {invocations.length} calls · {formatTokenCount(runTokens.toString())} tokens
                   </span>
+                  {invocations.some((item) => item.purpose === "RESULT_REPAIR") && (
+                    <small>{invocations.filter((item) => item.purpose === "RESULT_REPAIR").length} purpose-classified result repair calls</small>
+                  )}
                   {run.terminalDiagnostic !== null && <small>{run.terminalDiagnostic}</small>}
                   {failedInvocations.length > 0 && (
                     <details className="agent-invocation-diagnostics">

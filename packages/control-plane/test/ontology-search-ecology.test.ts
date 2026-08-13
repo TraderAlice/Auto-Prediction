@@ -380,6 +380,7 @@ describe("ontology search ecology", () => {
       null,
     );
     const invocation = buildModelInvocation({
+      purpose: "PRIMARY_REASONING",
       run,
       modelProfile: model,
       ordinal: 1,

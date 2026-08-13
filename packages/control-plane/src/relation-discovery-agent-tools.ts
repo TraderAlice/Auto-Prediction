@@ -268,7 +268,7 @@ function texts(
   maximumCharacters: number,
 ): readonly string[] {
   if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
-    throw new Error(`${name} has an invalid item count`);
+    throw new Error(`${name} requires between ${minimum} and ${maximum} items`);
   }
   const normalized = value.map((item) => text(item, name, maximumCharacters));
   if (new Set(normalized).size !== normalized.length) {

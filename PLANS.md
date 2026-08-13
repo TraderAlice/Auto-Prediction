@@ -1713,6 +1713,25 @@ content identity; synthetic tests prove non-overlapping cost/artifact credit and
 downstream isolation. Full checks, 653 control-plane tests, 30 Studio tests and
 the production build pass.
 
+The active continuation is now
+[`plans/agent-result-repair-loop.md`](plans/agent-result-repair-loop.md). The
+first live measured relation run spent 91,187 known tokens across five
+Codex/Terra turns and correctly failed without an accepted result. Its terminal
+counterexample tool was rejected for an invalid listing-reference count, after
+which one generic recovery turn ended in non-authoritative text. Issue #154
+treats this as runtime feedback, not a reason to weaken schemas: a result repair
+must retain exact bounded diagnostics and continue inside the same Agent thread
+until a declared result tool is accepted or the existing run/campaign budget is
+exhausted. New invocation records must also say which tokens served primary
+reasoning, tool continuation, or result repair. That continuation is now live-
+qualified: new invocation v3 evidence binds repair purpose and exact rejected
+effect IDs; one Terra repair corrected a rejected ontology-route call in the
+same thread for 27,371 known repair tokens and reached an accepted result. The
+full 140,711-token run is still classified `SPENT_WITHOUT_MOVEMENT`, because
+the accepted subject-reference route did not advance beyond retained Lula
+routing memory. Result repair is selected for serial integration; semantic
+novelty admission before retention is the immediate successor problem.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external

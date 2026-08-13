@@ -40,6 +40,10 @@ import {
   type DiscoveryYieldProjection,
 } from "./discovery-yield-attribution.js";
 import {
+  buildAgentResultRepairProjection,
+  type AgentResultRepairProjection,
+} from "./agent-result-repair-observability.js";
+import {
   createDiscoveryModelRuntime,
   type DiscoveryModelRuntime,
 } from "./model-runtime.js";
@@ -3502,8 +3506,9 @@ export function createControlPlane(options?: {
     );
   });
 
-  const agentExecutionConsole = async () => {
-    const snapshot = agentExecutionRegistry.snapshot();
+  const agentExecutionConsole = async (
+    snapshot = agentExecutionRegistry.snapshot(),
+  ) => {
     const effectiveCampaignIds = new Set(effectiveAgentCampaigns(snapshot.campaigns).map((item) =>
       item.campaignId
     ));
@@ -3558,6 +3563,7 @@ export function createControlPlane(options?: {
       runtimeKind: string;
       model: string;
       taskKind: string;
+      invocationPurpose: string;
       invocationCount: number;
       failedInvocationCount: number;
       inputTokens: bigint;
@@ -3577,11 +3583,15 @@ export function createControlPlane(options?: {
       const runtime = profile === undefined ? undefined : runtimesById.get(
         profile.runtimeDefinitionId,
       );
-      const identity = `${runtime?.kind ?? "UNKNOWN"}|${model?.model ?? "UNKNOWN"}|${task?.kind ?? "UNKNOWN"}`;
+      const invocationPurpose = invocation.schemaVersion === "pmh.model-invocation.v3"
+        ? invocation.purpose
+        : "HISTORICAL_UNCLASSIFIED";
+      const identity = `${runtime?.kind ?? "UNKNOWN"}|${model?.model ?? "UNKNOWN"}|${task?.kind ?? "UNKNOWN"}|${invocationPurpose}`;
       const aggregate = usageBreakdown.get(identity) ?? {
         runtimeKind: runtime?.kind ?? "UNKNOWN",
         model: model?.model ?? "UNKNOWN",
         taskKind: task?.kind ?? "UNKNOWN",
+        invocationPurpose,
         invocationCount: 0,
         failedInvocationCount: 0,
         inputTokens: 0n,
@@ -3686,6 +3696,23 @@ export function createControlPlane(options?: {
       credentialSecretTextRetained: false as const,
       externalWriteAuthority: false as const,
       valueMovingAuthority: false as const,
+    });
+  };
+  const agentResultRepairProjection = (
+    snapshot = agentExecutionRegistry.snapshot(),
+  ): AgentResultRepairProjection => {
+    const timestamps = [
+      ...snapshot.runs.flatMap((run) => [run.createdAt, run.completedAt].filter(
+        (value): value is string => value !== null,
+      )),
+      ...snapshot.modelInvocations.flatMap((invocation) => [
+        invocation.startedAt, invocation.completedAt,
+      ]),
+      ...snapshot.toolEffects.map((effect) => effect.occurredAt),
+    ];
+    return buildAgentResultRepairProjection({
+      observedAt: timestamps.sort().at(-1) ?? "1970-01-01T00:00:00.000Z",
+      execution: snapshot,
     });
   };
   const ontologyAgentCampaignPreview = async () => {
@@ -4892,8 +4919,9 @@ export function createControlPlane(options?: {
       // share the expensive ontology/relation/allocation derivation instead of
       // racing several HTTP handlers that each rebuild the same research graph.
       const research = currentResearchActionState();
+      const agentSnapshot = agentExecutionRegistry.snapshot();
       const [execution, relationCampaign] = await Promise.all([
-        agentExecutionConsole(),
+        agentExecutionConsole(agentSnapshot),
         relationDiscoveryCampaignPreview(research.allocation),
       ]);
       const decisions = buildResearchDecisionOutcomeProjection({
@@ -4911,6 +4939,7 @@ export function createControlPlane(options?: {
         decisions,
         discoverySignals: currentDiscoverySignalProjection(),
         discoveryYield: currentDiscoveryYieldProjection(),
+        resultRepairs: agentResultRepairProjection(agentSnapshot),
         ontologyOutcomes: ontologyAllocationOutcomes(),
         discoveryCycle: discoveryCycleState,
         providerRequestsStartedByRead: 0 as const,
@@ -5587,6 +5616,14 @@ export function createControlPlane(options?: {
     ) {
       await ready;
       writeJson(response, 200, currentDiscoveryYieldProjection());
+      return;
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/agent-result-repairs"
+    ) {
+      await ready;
+      writeJson(response, 200, agentResultRepairProjection());
       return;
     }
     const discoverySignalAcknowledgement = url.pathname.match(

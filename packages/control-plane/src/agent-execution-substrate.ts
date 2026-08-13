@@ -312,6 +312,11 @@ type ModelInvocationFields = Readonly<{
   responseStorage: false;
 }>;
 
+export type ModelInvocationPurpose =
+  | "PRIMARY_REASONING"
+  | "TOOL_CONTINUATION"
+  | "RESULT_REPAIR";
+
 export type ModelInvocation = Readonly<
   | (ModelInvocationFields & {
       schemaVersion: "pmh.model-invocation.v1";
@@ -319,6 +324,15 @@ export type ModelInvocation = Readonly<
   | (ModelInvocationFields & {
       schemaVersion: "pmh.model-invocation.v2";
       diagnostic: string | null;
+    })
+  | (ModelInvocationFields & {
+      schemaVersion: "pmh.model-invocation.v3";
+      diagnostic: string | null;
+      purpose: ModelInvocationPurpose;
+      repairContext: Readonly<{
+        attemptOrdinal: number;
+        rejectedResultEffectIds: readonly Hash[];
+      }> | null;
     })
 >;
 
@@ -1758,8 +1772,10 @@ export function assertModelInvocation(value: unknown): ModelInvocation {
     exactKeys(record, commonKeys);
   const isV2 = record.schemaVersion === "pmh.model-invocation.v2" &&
     exactKeys(record, [...commonKeys, "diagnostic"]);
+  const isV3 = record.schemaVersion === "pmh.model-invocation.v3" &&
+    exactKeys(record, [...commonKeys, "diagnostic", "purpose", "repairContext"]);
   if (
-    (!isV1 && !isV2) ||
+    (!isV1 && !isV2 && !isV3) ||
     !MODEL_ACCESS_DRIVERS.includes(record.accessDriver) ||
     !["SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"].includes(record.status) ||
     record.responseStorage !== false
@@ -1783,12 +1799,40 @@ export function assertModelInvocation(value: unknown): ModelInvocation {
   if (record.status === "SUCCEEDED" && record.failureCategory !== null) {
     throw new Error("Successful model invocation cannot have a failure category");
   }
-  if (record.schemaVersion === "pmh.model-invocation.v2") {
+  if (record.schemaVersion === "pmh.model-invocation.v2" ||
+      record.schemaVersion === "pmh.model-invocation.v3") {
     if (record.diagnostic !== null) {
       boundedText(record.diagnostic, "Model invocation diagnostic", 2_000);
     }
     if (record.status === "SUCCEEDED" && record.diagnostic !== null) {
       throw new Error("Successful model invocation cannot have a diagnostic");
+    }
+  }
+  if (record.schemaVersion === "pmh.model-invocation.v3" &&
+      !["PRIMARY_REASONING", "TOOL_CONTINUATION", "RESULT_REPAIR"]
+        .includes(record.purpose)) {
+    throw new Error("Model invocation purpose is invalid");
+  }
+  if (record.schemaVersion === "pmh.model-invocation.v3") {
+    if ((record.purpose === "RESULT_REPAIR") !== (record.repairContext !== null)) {
+      throw new Error("Model invocation repair context is inconsistent");
+    }
+    if (record.repairContext !== null) {
+      if (!exactKeys(record.repairContext, [
+        "attemptOrdinal", "rejectedResultEffectIds",
+      ]) || !Number.isSafeInteger(record.repairContext.attemptOrdinal) ||
+          record.repairContext.attemptOrdinal < 1 ||
+          record.repairContext.attemptOrdinal > 100_000 ||
+          !Array.isArray(record.repairContext.rejectedResultEffectIds) ||
+          record.repairContext.rejectedResultEffectIds.length > 4) {
+        throw new Error("Model invocation repair context is invalid");
+      }
+      const rejectedResultEffectIds = record.repairContext.rejectedResultEffectIds.map(
+        (effectId) => hash(effectId, "Rejected result effect ID"),
+      );
+      if (new Set(rejectedResultEffectIds).size !== rejectedResultEffectIds.length) {
+        throw new Error("Model invocation repair context repeats an effect ID");
+      }
     }
   }
   assertHashIdentity(record.invocationId, identity, "Model invocation identity");
@@ -1807,6 +1851,11 @@ export function buildModelInvocation(input: Readonly<{
   reasoningTokens?: string | null;
   failureCategory?: string | null;
   diagnostic?: string | null;
+  purpose: ModelInvocationPurpose;
+  repairContext?: Readonly<{
+    attemptOrdinal: number;
+    rejectedResultEffectIds: readonly Hash[];
+  }> | null;
 }>): ModelInvocation {
   const run = assertAgentRun(input.run);
   const model = assertModelProfile(input.modelProfile);
@@ -1815,7 +1864,7 @@ export function buildModelInvocation(input: Readonly<{
     ordinal: positiveInteger(input.ordinal, "Model invocation ordinal", 100_000),
   });
   return assertModelInvocation(Object.freeze({
-    schemaVersion: "pmh.model-invocation.v2" as const,
+    schemaVersion: "pmh.model-invocation.v3" as const,
     invocationId: hashCanonical(identity),
     ...identity,
     accessDriver: model.accessDriver,
@@ -1835,6 +1884,22 @@ export function buildModelInvocation(input: Readonly<{
     diagnostic: input.diagnostic === undefined || input.diagnostic === null
       ? null
       : boundedText(input.diagnostic, "Model invocation diagnostic", 2_000),
+    purpose: input.purpose,
+    repairContext: input.purpose === "RESULT_REPAIR"
+      ? Object.freeze({
+          attemptOrdinal: positiveInteger(
+            input.repairContext?.attemptOrdinal,
+            "Result repair attempt ordinal",
+            100_000,
+          ),
+          rejectedResultEffectIds: sortedUnique(
+            (input.repairContext?.rejectedResultEffectIds ?? []).map((effectId) =>
+              hash(effectId, "Rejected result effect ID")
+            ),
+            (effectId) => effectId,
+          ),
+        })
+      : null,
     responseStorage: false as const,
   }));
 }

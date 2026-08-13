@@ -254,6 +254,7 @@ describe("ontology allocation realized outcomes", () => {
       item.modelProfileId === work.profile.modelProfileId
     )!;
     const invocation = buildModelInvocation({
+      purpose: "PRIMARY_REASONING",
       run,
       modelProfile: model,
       ordinal: 1,
