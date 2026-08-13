@@ -31,6 +31,8 @@ lines.on("line", (line) => {
     send({ id: first.id, result: { order: 1 } });
   } else if (message.method === "overflow") {
     process.stderr.write("x".repeat(12000));
+  } else if (message.method === "protocol-error") {
+    send({ id: message.id, error: { code: -32602, message: "dynamic tool schema rejected" } });
   } else if (message.id === 900) {
     send({ method: "tool/result-observed", params: message.result });
   }
@@ -109,6 +111,21 @@ describe("Codex app-server JSONL process transport", () => {
 
     await expect(connection.request("overflow", {}, 2_000)).rejects.toThrow(
       "Codex app-server output bound exceeded",
+    );
+    await connection.close();
+  });
+
+  it("retains bounded app-server protocol error details", async () => {
+    const fixture = await fakeAppServer();
+    const connection = await createCodexAppServerConnectionFactory({
+      ...fixture,
+      requestTimeoutMs: 2_000,
+    })();
+    await connection.nextInbound(2_000);
+    await connection.nextInbound(2_000);
+
+    await expect(connection.request("protocol-error", {}, 2_000)).rejects.toThrow(
+      "code=-32602; message=dynamic tool schema rejected",
     );
     await connection.close();
   });

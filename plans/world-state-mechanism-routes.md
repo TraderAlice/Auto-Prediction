@@ -129,6 +129,13 @@ as transport absence rather than evidence that a world state disappeared.
 - [ ] Notify only through the existing destination decision; in-app visibility
   is sufficient for qualification.
 
+The first live V3 ontology run after authoring became available produced zero
+mechanism routes, but it is not yet valid evidence against the mechanism
+ontology. The run exhausted eight calls and 149,864 input tokens on repeated
+structural counterexample rejections because its public tool schema and private
+validator disagreed. Issue #162 first repairs that Agent/tool boundary; only
+then can accepted-result and mechanism-route yield be compared honestly.
+
 ## Qualification gates
 
 - [x] A shooting/public-livestream fixture retains a directional physical-

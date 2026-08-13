@@ -215,8 +215,154 @@ describe("market ontology Agent tools", () => {
         listingRefs: ["venue-c:other"],
         rationale: "Out of scope on purpose.",
       },
-    })).rejects.toThrow(/assigned evidence scope/iu);
+    })).rejects.toThrow(
+      /listingRefs must use assigned evidence only; received 1 outside assignment/iu,
+    );
     expect(work.host.proposals()).toHaveLength(0);
+  });
+
+  it("declares validator bounds and repairs a rejected result inside one Agent thread", async () => {
+    const work = fixture();
+    const revision = materializeOntologySearchIssueRevisions({
+      corpus: work.corpus,
+      ontology: work.ontology,
+      proposals: [],
+    }).find((item) => item.trailheadIds.includes(work.trailhead.trailheadId))!;
+    if (revision.schemaVersion !== "pmh.ontology-search-issue-revision.v3") {
+      throw new Error("test requires the successor issue revision");
+    }
+    const profile = buildExecutionProfile({
+      profileKey: "ontology-repair-congruence-test",
+      revision: 1,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      toolProtocol: MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2,
+      runBudget: work.profile.runBudget,
+      createdAt: NOW,
+    });
+    const run = buildAgentRun({
+      task: revision.task,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:repair-congruence-test",
+        authorizedAt: NOW,
+      },
+      createdAt: NOW,
+    });
+    const host = MarketOntologyAgentToolHost.fromIssueRevision(
+      revision.taskContract,
+      revision.taskPayload,
+      undefined,
+      undefined,
+      undefined,
+      revision.revisionId,
+    );
+    const counterexampleSchema = host.manifest(MARKET_ONTOLOGY_AGENT_TOOL_PROTOCOL_V2)
+      .find((item) => item.name === "record_ontology_counterexample")!
+      .inputSchema as {
+        properties: { listingRefs: Record<string, unknown> };
+      };
+    expect(counterexampleSchema.properties.listingRefs).toMatchObject({
+      type: "array",
+      minItems: 2,
+      maxItems: 16,
+      uniqueItems: true,
+      items: {
+        type: "string",
+        minLength: 1,
+        maxLength: 500,
+        enum: ["venue-a:kelly-crime", "venue-b:kelly-nominee"],
+      },
+    });
+
+    let turn = 0;
+    const session: AgentRuntimeSession = {
+      advance: async (results) => {
+        turn += 1;
+        if (turn === 1) return {
+          invocation: {
+            status: "SUCCEEDED" as const,
+            startedAt: NOW,
+            completedAt: NEXT,
+            inputTokens: "100",
+            outputTokens: "20",
+            reasoningTokens: "5",
+            failureCategory: null,
+          },
+          toolCalls: [{
+            callId: "call:repair:rejected",
+            toolName: "record_ontology_counterexample",
+            input: {
+              rejectedClaim: "The two contracts are equivalent.",
+              reason: "They concern different predicates.",
+              searchSignals: ["Mark Kelly"],
+              listingRefs: ["venue-a:kelly-crime"],
+              rationale: "Deliberately exercise first-party count rejection.",
+            },
+          }],
+          completed: false,
+          finalArtifact: null,
+        };
+        expect(results).toEqual([expect.objectContaining({
+          status: "REJECTED",
+          output: {
+            diagnostic: "listingRefs must contain 2..16 items; received 1",
+          },
+        })]);
+        return {
+          invocation: {
+            status: "SUCCEEDED" as const,
+            startedAt: NEXT,
+            completedAt: LATER,
+            inputTokens: "120",
+            outputTokens: "30",
+            reasoningTokens: "8",
+            failureCategory: null,
+          },
+          toolCalls: [{
+            callId: "call:repair:accepted",
+            toolName: "record_ontology_counterexample",
+            input: {
+              rejectedClaim: "The two contracts are equivalent.",
+              reason: "They concern distinct predicates and time windows.",
+              searchSignals: ["Mark Kelly"],
+              listingRefs: ["venue-a:kelly-crime", "venue-b:kelly-nominee"],
+              rationale: "Correct the exact item-count violation without widening scope.",
+            },
+          }],
+          completed: false,
+          finalArtifact: null,
+        };
+      },
+    };
+    const result = await executePreparedAgentRun({
+      run,
+      task: revision.task,
+      taskPayload: revision.taskContract,
+      runtimeDefinition: work.runtime,
+      credentialBinding: work.credential,
+      modelProfile: work.model,
+      executionProfile: profile,
+      adapter: new InProcessAgentRuntimeAdapter(async () => session),
+      credentialBroker: new AgentCredentialBroker([
+        new EnvironmentCredentialResolver({ DEEPSEEK_API_KEY: "test-secret" }),
+      ]),
+      toolHost: host,
+      now: () => Date.parse("2026-08-12T08:00:03.000Z"),
+    });
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.toolEffects.map((item) => [item.status, item.diagnostic])).toEqual([
+      ["REJECTED", "listingRefs must contain 2..16 items; received 1"],
+      ["ACCEPTED", null],
+    ]);
+    expect(result.modelInvocations.map((item) => item.purpose)).toEqual([
+      "PRIMARY_REASONING",
+      "RESULT_REPAIR",
+    ]);
+    expect(host.proposals()).toHaveLength(1);
   });
 
   it("replays an assigned tool host from its durable payload after the corpus rotates", async () => {

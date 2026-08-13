@@ -53,7 +53,11 @@ function token(value: unknown): string | null {
 }
 
 function boundedDiagnostic(value: unknown, fallback: string): string {
-  const raw = value instanceof Error ? `${fallback}:${value.name}` : fallback;
+  if (!(value instanceof Error)) return fallback.slice(0, MAX_DIAGNOSTIC_CHARACTERS);
+  const detail = value.message.replace(/\s+/gu, " ").trim();
+  const raw = detail === ""
+    ? `${fallback}:${value.name}`
+    : `${fallback}:${value.name}:${detail}`;
   return raw.slice(0, MAX_DIAGNOSTIC_CHARACTERS);
 }
 

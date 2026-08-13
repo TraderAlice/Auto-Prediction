@@ -1768,6 +1768,38 @@ semantic review and the existing adverse-state estimation/calibration path
 still decide whether any supplied pair is meaningful, estimable, and
 economically interesting.
 
+The mechanism observation continuation is now serially integrated. Schema 51
+persists reviewed subject bindings, provider-free role membership observations,
+and bounded transition wakes. Startup and catalog refresh can supply one
+ordinary relation-research work item when a reviewed subject gains a new,
+time-compatible trigger/dependent member; initial baselines, replay, empty
+refreshes, name-only matches, broad routes and unclassified predicates stay
+quiet. Studio exposes review, observation and wake posture without starting a
+model. Full checks, 668 control-plane tests, 30 Studio tests, builds and
+desktop/390 px qualification pass.
+
+The first live V3 authoring run then exposed the next active bottleneck under
+[`plans/ontology-tool-repair-congruence.md`](plans/ontology-tool-repair-congruence.md).
+Terra/high spent eight invocations and exact 149,864 / 2,700 / 1,939 known
+input/output/reasoning tokens; six calls were repair, but four counterexample
+submissions remained structurally invalid and no result was admitted. The
+declared tool schema omitted validator item-count, uniqueness and assigned-
+scope constraints, while repair received only generic diagnostics. Issue #162
+therefore makes planning schema, persistence validator and repair feedback one
+congruent contract before mechanism proposal count is interpreted as model
+yield.
+
+The refined contract has now passed both provider-free and live qualification.
+Codex app-server accepted the exact count, uniqueness, enum, string, nullable
+and hash constraints without schema lowering. A fresh Terra/high run then made
+two accepted evidence-read calls using 37,647 / 244 / 59 known
+input/output/reasoning tokens before the campaign's final two-invocation budget
+interrupted it. The two earlier zero-token protocol failures were transient;
+their real engineering defect was that runtime diagnostics collapsed every
+JSON-RPC error to the word `Error`. Bounded protocol code/message evidence is
+now retained for recurrence. The qualification campaign is paused and
+exhausted; no further model call can start implicitly.
+
 - Venue-specific AMM and dynamic-fee calibration.
 - Polymarket Global match-level fee-rounding evidence.
 - Destination-specific notification formatting after the first external
