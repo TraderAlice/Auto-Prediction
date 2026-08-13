@@ -159,7 +159,7 @@ describe("world relation experiment work", () => {
       expect(store.saveWorldRelationExperimentInputs([work.inputRevision]))
         .toEqual([work.inputRevision]);
       expect(store.worldRelationExperimentInputStorage).toMatchObject({
-        durable: true, schemaVersion: 61, idempotencyKey: "inputRevisionId",
+        durable: true, schemaVersion: 62, idempotencyKey: "inputRevisionId",
       });
     } finally {
       store.close();

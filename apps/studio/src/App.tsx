@@ -380,6 +380,13 @@ type WorldRelationExperimentProjection = Readonly<{
   settlementProjectionCount: number;
   retainedInputRevisionCount: number;
   retainedExperimentCount: number;
+  settlementObservationCount: number;
+  settlementDispositionCounts: Readonly<{
+    exact: number;
+    researchOnly: number;
+    blocked: number;
+  }>;
+  settlementBlockerCounts: Readonly<Record<string, number>>;
   currentFrontiers: ReadonlyArray<Readonly<{
     frontierId: string;
     frontierArtifactHash: string;
@@ -5184,6 +5191,15 @@ function AgentOperationsView() {
               <div><strong>{worldRelationExperiments.settlementProjectionCount}</strong><span>settlement mappings</span></div>
               <div><strong>{worldRelationExperiments.retainedInputRevisionCount}</strong><span>exact input revisions</span></div>
             </div>
+            {worldRelationExperiments.settlementObservationCount > 0 && (
+              <div className="research-attention-lock">
+                <Database size={14} />
+                <span>{worldRelationExperiments.settlementDispositionCounts.exact} exact · {worldRelationExperiments.settlementDispositionCounts.researchOnly} research-only · {worldRelationExperiments.settlementDispositionCounts.blocked} blocked settlement observations</span>
+                <code>{Object.entries(worldRelationExperiments.settlementBlockerCounts)
+                  .sort((left, right) => right[1] - left[1])
+                  .slice(0, 2).map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`).join(" · ") || "NO DEBT"}</code>
+              </div>
+            )}
             <div className="mechanism-exploration-campaign">
               <div>
                 <span className="eyebrow">Next bounded ontology experiment</span>

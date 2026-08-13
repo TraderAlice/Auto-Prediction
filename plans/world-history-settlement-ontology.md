@@ -195,12 +195,11 @@ compiler-value bottleneck.
 
 ## Active continuation
 
-1. Compile settlement projections from exact market-ontology settlement facets
-   and retained rule evidence, with ambiguity/void postures explicit and only
-   first-party exact mappings admitted to compiler use.
-2. Add an observation ledger that explains why a listing failed to become a
-   settlement projection, so missing mappings become actionable evidence debt
-   rather than a silent zero.
+1. Extend the first-party settlement compiler from exact catalog contract text
+   to retained official venue-rule evidence without allowing advisory Agent
+   interpretation alone to confer exactness.
+2. Route durable settlement blocker observations into evidence acquisition and
+   measure blocker retirement by new evidence revision.
 3. Run a Terra/high world-relation specimen only after at least two real
    listings have durable projections; compare terminal yield, counterworld
    coverage, structural rejection and token cost with mechanism exploration.
@@ -211,3 +210,12 @@ compiler-value bottleneck.
 No user decision blocks this continuation. Subject/alias promotion authority
 remains a separate queued policy question; current artifacts retain research
 authority only.
+
+The first settlement compiler and durable observation ledger are now active.
+On the live Polymarket US frontier they produce four research-only projections,
+two per relation frontier. All four share one explicit debt:
+`MISSING_NEGATIVE_RESOLUTION_CLAUSE`. This is useful fail-closed evidence, not a
+parser failure: the retained contract text states the affirmative payout but
+does not establish an iff/otherwise-No mapping. Existing catalog-rule evidence
+contains no covering claim for these four listings, so the next iteration must
+qualify a first-party venue-level rule or retain them as research-only.

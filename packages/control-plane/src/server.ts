@@ -139,6 +139,10 @@ import {
   type WorldHistoryOntologyStore,
 } from "./world-history-ontology.js";
 import {
+  compileSettlementProjections,
+  type SettlementProjectionObservationStore,
+} from "./settlement-projection-compiler.js";
+import {
   buildWorldRelationExperimentAssignment,
   buildWorldRelationExperimentCampaignPreview,
   buildWorldRelationExperimentTask,
@@ -1276,18 +1280,22 @@ function supportsRelationDiscoveryRecords(
 function supportsWorldRelationExperimentRecords(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & WorldHistoryOntologyStore &
-  WorldRelationExperimentInputStore {
+  WorldRelationExperimentInputStore & SettlementProjectionObservationStore {
   if (store === undefined) return false;
   const candidate = store as Partial<WorldHistoryOntologyStore &
-    WorldRelationExperimentInputStore>;
+    WorldRelationExperimentInputStore & SettlementProjectionObservationStore>;
   return candidate.worldPredicateArtifactStorage !== undefined &&
     candidate.settlementProjectionStorage !== undefined &&
+    candidate.settlementProjectionObservationStorage !== undefined &&
     candidate.worldRelationExperimentStorage !== undefined &&
     candidate.worldRelationExperimentInputStorage !== undefined &&
     candidate.worldRelationExperimentCorpusStorage !== undefined &&
     typeof candidate.loadWorldPredicateArtifacts === "function" &&
     typeof candidate.saveWorldPredicateArtifacts === "function" &&
     typeof candidate.loadSettlementProjections === "function" &&
+    typeof candidate.saveSettlementProjections === "function" &&
+    typeof candidate.loadSettlementProjectionObservations === "function" &&
+    typeof candidate.saveSettlementProjectionObservations === "function" &&
     typeof candidate.loadWorldRelationExperiments === "function" &&
     typeof candidate.saveWorldRelationExperiments === "function" &&
     typeof candidate.loadWorldRelationExperimentInputs === "function" &&
@@ -4036,11 +4044,25 @@ export function createControlPlane(options?: {
     const corpus = catalogObservationDesk.corpus();
     if (corpus.listingCount === 0) return;
     worldRelationExperimentStore.saveWorldRelationExperimentCorpus(corpus);
+    const frontiers = worldStateMechanismProposalStore
+      .loadWorldStateMechanismProposals(512)
+      .map(adaptWorldStateMechanismProposal);
+    const sourcePredicates = [...new Map(frontiers.flatMap((item) => item.predicates)
+      .map((item) => [item.artifactHash, item] as const)).values()];
+    worldRelationExperimentStore.saveWorldPredicateArtifacts(sourcePredicates);
+    const settlement = compileSettlementProjections({
+      corpus,
+      ontology: buildMarketOntologySnapshot(corpus),
+      predicates: sourcePredicates,
+    });
+    worldRelationExperimentStore.saveWorldPredicateArtifacts(settlement.predicates);
+    worldRelationExperimentStore.saveSettlementProjections(settlement.projections);
+    worldRelationExperimentStore.saveSettlementProjectionObservations(
+      settlement.observations,
+    );
     const projections = worldRelationExperimentStore.loadSettlementProjections(2_048);
     const experiments = worldRelationExperimentStore.loadWorldRelationExperiments(2_048);
-    worldRelationExperimentAssignments = worldStateMechanismProposalStore
-      .loadWorldStateMechanismProposals(512)
-      .map(adaptWorldStateMechanismProposal)
+    worldRelationExperimentAssignments = frontiers
       .map((frontier) => buildWorldRelationExperimentAssignment({
         frontier, corpus, projections, priorExperiments: experiments,
       }));
@@ -4049,10 +4071,6 @@ export function createControlPlane(options?: {
     const freshInputs = worldRelationExperimentAssignments
       .map((item) => item.inputRevision)
       .filter((item) => !retained.has(item.inputRevisionId));
-    const predicates = [...new Map(worldRelationExperimentAssignments
-      .flatMap((item) => item.inputRevision.frontier.predicates)
-      .map((item) => [item.artifactHash, item] as const)).values()];
-    worldRelationExperimentStore.saveWorldPredicateArtifacts(predicates);
     if (freshInputs.length > 0) {
       worldRelationExperimentStore.saveWorldRelationExperimentInputs(freshInputs);
     }
@@ -4551,6 +4569,8 @@ export function createControlPlane(options?: {
       ?.loadSettlementProjections(2_048) ?? [];
     const inputs = worldRelationExperimentStore
       ?.loadWorldRelationExperimentInputs(2_048) ?? [];
+    const settlementObservations = worldRelationExperimentStore
+      ?.loadSettlementProjectionObservations(2_048) ?? [];
     const experiments = worldRelationExperimentStore
       ?.loadWorldRelationExperiments(2_048) ?? [];
     const execution = agentExecutionRegistry.snapshot();
@@ -4560,6 +4580,20 @@ export function createControlPlane(options?: {
       settlementProjectionCount: projections.length,
       retainedInputRevisionCount: inputs.length,
       retainedExperimentCount: experiments.length,
+      settlementObservationCount: settlementObservations.length,
+      settlementDispositionCounts: Object.freeze({
+        exact: settlementObservations.filter((item) =>
+          item.disposition === "EXACT_PROJECTED").length,
+        researchOnly: settlementObservations.filter((item) =>
+          item.disposition === "RESEARCH_ONLY_PROJECTED").length,
+        blocked: settlementObservations.filter((item) =>
+          item.disposition === "BLOCKED").length,
+      }),
+      settlementBlockerCounts: Object.freeze(Object.fromEntries(
+        [...new Set(settlementObservations.flatMap((item) => item.blockers))]
+          .sort().map((blocker) => [blocker, settlementObservations.filter((item) =>
+            item.blockers.includes(blocker)).length]),
+      )),
       currentFrontiers: Object.freeze(worldRelationExperimentAssignments.map((item) =>
         Object.freeze({
           frontierId: item.inputRevision.frontier.frontierId,

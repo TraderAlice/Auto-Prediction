@@ -352,8 +352,13 @@ import {
   type WorldRelationExperimentInputRevision,
   type WorldRelationExperimentInputStore,
 } from "./world-relation-experiment-work.js";
+import {
+  assertSettlementProjectionObservation,
+  type SettlementProjectionObservation,
+  type SettlementProjectionObservationStore,
+} from "./settlement-projection-compiler.js";
 
-const SCHEMA_VERSION = 61;
+const SCHEMA_VERSION = 62;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1975,6 +1980,21 @@ function parseSettlementProjection(value: unknown): SettlementProjection {
   return projection;
 }
 
+function parseSettlementProjectionObservation(
+  value: unknown,
+): SettlementProjectionObservation {
+  const row = value as Readonly<{ artifact_hash?: unknown; record_json?: unknown;
+    record_hash?: unknown }>;
+  if (typeof row?.record_json !== "string" || row.record_hash !== row.artifact_hash) {
+    throw new Error("stored settlement projection observation is malformed");
+  }
+  const decoded = assertSettlementProjectionObservation(JSON.parse(row.record_json));
+  if (decoded.artifactHash !== row.artifact_hash) {
+    throw new Error("stored settlement projection observation identity is inconsistent");
+  }
+  return decoded;
+}
+
 function parseWorldRelationExperiment(value: unknown): WorldRelationExperiment {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite world relation experiment row is malformed");
@@ -2684,7 +2704,8 @@ export class SqliteOperationalStore
     DiscoverySignalStore,
     StudioProjectionSnapshotStore,
     WorldHistoryOntologyStore,
-    WorldRelationExperimentInputStore
+    WorldRelationExperimentInputStore,
+    SettlementProjectionObservationStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -2806,6 +2827,8 @@ export class SqliteOperationalStore
   public readonly worldPredicateArtifactStorage:
     OperationalStorageProjection<"artifactHash">;
   public readonly settlementProjectionStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly settlementProjectionObservationStorage:
     OperationalStorageProjection<"artifactHash">;
   public readonly worldRelationExperimentStorage:
     OperationalStorageProjection<"artifactHash">;
@@ -3208,6 +3231,12 @@ export class SqliteOperationalStore
       idempotencyKey: "artifactHash",
     });
     this.settlementProjectionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.settlementProjectionObservationStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
@@ -3767,6 +3796,12 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'settlement_projections'`,
       )
       .get() !== undefined;
+    const settlementProjectionObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'settlement_projection_observations'`,
+      )
+      .get() !== undefined;
     const worldRelationExperimentTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -3854,6 +3889,7 @@ export class SqliteOperationalStore
       && studioProjectionSnapshotTableExists
       && worldPredicateArtifactTableExists
       && settlementProjectionTableExists
+      && settlementProjectionObservationTableExists
       && worldRelationExperimentTableExists
       && worldRelationExperimentInputTableExists
       && worldRelationExperimentCorpusTableExists
@@ -6446,6 +6482,33 @@ export class SqliteOperationalStore
           CREATE INDEX IF NOT EXISTS world_relation_experiment_inputs_semantic
             ON world_relation_experiment_inputs (
               semantic_input_identity, materialized_at DESC, input_revision_id DESC
+            );
+        `);
+      }
+      if (current < 62 || !settlementProjectionObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS settlement_projection_observations (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            observation_id TEXT NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL,
+            disposition TEXT NOT NULL CHECK (disposition IN (
+              'EXACT_PROJECTED', 'RESEARCH_ONLY_PROJECTED', 'BLOCKED'
+            )),
+            observed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = artifact_hash)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS settlement_projection_observations_listing
+            ON settlement_projection_observations (
+              listing_ref, observed_at DESC, artifact_hash DESC
+            );
+          CREATE INDEX IF NOT EXISTS settlement_projection_observations_identity
+            ON settlement_projection_observations (
+              observation_id, observed_at DESC, artifact_hash DESC
             );
         `);
       }
@@ -13333,6 +13396,56 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return projections;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSettlementProjectionObservations(
+    limit: number,
+  ): readonly SettlementProjectionObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_hash, observation_id, record_json, record_hash
+       FROM settlement_projection_observations
+       ORDER BY observed_at DESC, artifact_hash DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseSettlementProjectionObservation));
+  }
+
+  public saveSettlementProjectionObservations(
+    observationsInput: readonly SettlementProjectionObservation[],
+  ): readonly SettlementProjectionObservation[] {
+    this.#assertOpen();
+    const observations = Object.freeze(observationsInput.map(
+      assertSettlementProjectionObservation,
+    ));
+    if (new Set(observations.map((item) => item.artifactHash)).size !== observations.length) {
+      throw new Error("settlement projection observation batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const item of observations) {
+        this.#database.prepare(
+          `INSERT INTO settlement_projection_observations (
+             artifact_hash, observation_id, listing_ref, disposition,
+             observed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_hash) DO NOTHING`,
+        ).run(item.artifactHash, item.observationId, item.listingRef, item.disposition,
+          item.observedAt, canonicalJson(item), item.artifactHash);
+        const row = this.#database.prepare(
+          `SELECT artifact_hash, observation_id, record_json, record_hash
+           FROM settlement_projection_observations WHERE artifact_hash = ?`,
+        ).get(item.artifactHash);
+        if (parseSettlementProjectionObservation(row).artifactHash !== item.artifactHash) {
+          throw new Error("settlement projection observation identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return observations;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;
