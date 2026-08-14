@@ -162,6 +162,8 @@ import { compileWorldRelationShadowTradeHypotheses } from
   "./world-relation-shadow-hypothesis.js";
 import { buildWorldRelationShadowRoutingProjection } from
   "./world-relation-shadow-routing.js";
+import { buildWorldRelationEconomicMemory } from
+  "./world-relation-economic-memory.js";
 import {
   buildWorldStateMechanismResearchTaskContract,
   buildWorldStateMechanismResearchYield,
@@ -1310,6 +1312,7 @@ function supportsWorldRelationExperimentRecords(
     typeof candidate.loadWorldRelationExperiments === "function" &&
     typeof candidate.saveWorldRelationExperiments === "function" &&
     typeof candidate.loadWorldRelationExperimentInputs === "function" &&
+    typeof candidate.countWorldRelationExperimentInputs === "function" &&
     typeof candidate.loadWorldRelationExperimentInput === "function" &&
     typeof candidate.saveWorldRelationExperimentInputs === "function" &&
     typeof candidate.loadWorldRelationExperimentCorpus === "function" &&
@@ -3412,7 +3415,8 @@ export function createControlPlane(options?: {
       projections: worldRelationExperimentStore.loadSettlementProjections(2_048)
         .filter((item) => projectionHashes.has(item.artifactHash)),
       priorExperiments: worldRelationExperimentStore.loadWorldRelationExperiments(2_048)
-        .filter((item) => experimentHashes.has(item.artifactHash)) });
+        .filter((item) => experimentHashes.has(item.artifactHash)),
+      priorEconomicMemories: revision.priorEconomicMemories ?? [] });
   };
   const agentCampaignDispatcher = options?.agentCampaignDispatcher ??
     new AgentCampaignDispatcher({
@@ -3584,6 +3588,7 @@ export function createControlPlane(options?: {
             assignment.corpus,
             assignment.projections,
             assignment.priorExperiments,
+            assignment.priorEconomicMemories,
           );
         }
         throw new Error("Agent task has no registered first-party tool host");
@@ -4129,9 +4134,43 @@ export function createControlPlane(options?: {
     currentSettlementProjectionObservations = settlement.observations;
     const projections = currentSettlementProjections;
     const experiments = worldRelationExperimentStore.loadWorldRelationExperiments(2_048);
+    const inputs = worldRelationExperimentStore.loadWorldRelationExperimentInputs(2_048);
+    const inputById = new Map(inputs.map((item) => [item.inputRevisionId, item] as const));
+    const checkpointByRunId = new Map(worldRelationExperimentStore
+      .loadWorldRelationExperimentCheckpoints(2_048)
+      .map((item) => [item.sourceAgentRunId, item] as const));
+    const economicMemories = experiments.flatMap((experiment) => {
+      const checkpoint = checkpointByRunId.get(experiment.sourceAgentRunId);
+      const revision = checkpoint === undefined
+        ? undefined : inputById.get(checkpoint.inputRevisionId);
+      const retainedCorpus = revision === undefined ? null
+        : worldRelationExperimentStore.loadWorldRelationExperimentCorpus(
+            revision.corpusSnapshotIdentity,
+          );
+      if (revision === undefined || retainedCorpus === null) return [];
+      const allowedHashes = new Set(revision.settlementProjectionArtifactHashes);
+      const hypotheses = compileWorldRelationShadowTradeHypotheses({
+        experiment, inputRevision: revision, corpus: retainedCorpus,
+        // Agent memory is stable research lineage. Current quotes are projected
+        // separately by the read model and must not create semantic revisions.
+        quoteCorpus: retainedCorpus,
+        projections: worldRelationExperimentStore.loadSettlementProjections(2_048)
+          .filter((item) => allowedHashes.has(item.artifactHash)),
+      });
+      const routes = buildWorldRelationShadowRoutingProjection(hypotheses).actions;
+      return hypotheses.flatMap((hypothesis) => {
+        const routeAction = routes.find((item) =>
+          item.hypothesisId === hypothesis.hypothesisId);
+        return routeAction === undefined ? [] : [buildWorldRelationEconomicMemory({
+          hypothesis, routeAction,
+          sourceFrontierArtifactHash: revision.frontier.artifactHash,
+        })];
+      });
+    });
     worldRelationExperimentAssignments = frontiers
       .map((frontier) => buildWorldRelationExperimentAssignment({
         frontier, corpus, projections, priorExperiments: experiments,
+        priorEconomicMemories: economicMemories,
       }));
     const retained = new Set(worldRelationExperimentStore
       .loadWorldRelationExperimentInputs(2_048).map((item) => item.inputRevisionId));
@@ -4634,29 +4673,29 @@ export function createControlPlane(options?: {
       ?.loadWorldPredicateArtifacts(2_048) ?? [];
     const projections = worldRelationExperimentStore
       ?.loadSettlementProjections(2_048) ?? [];
-    const inputs = worldRelationExperimentStore
-      ?.loadWorldRelationExperimentInputs(2_048) ?? [];
+    const retainedInputRevisionCount = worldRelationExperimentStore
+      ?.countWorldRelationExperimentInputs() ?? 0;
     const retainedSettlementObservations = worldRelationExperimentStore
       ?.loadSettlementProjectionObservations(2_048) ?? [];
     const experiments = worldRelationExperimentStore
       ?.loadWorldRelationExperiments(2_048) ?? [];
-    const inputById = new Map(inputs.map((item) => [item.inputRevisionId, item] as const));
-    const corpusById = new Map(inputs.flatMap((item) => {
-      const corpus = worldRelationExperimentStore?.loadWorldRelationExperimentCorpus(
-        item.corpusSnapshotIdentity,
-      ) ?? null;
-      return corpus === null ? [] : [[item.corpusSnapshotIdentity, corpus] as const];
-    }));
     const shadowHypotheses = experiments.flatMap((experiment) => {
       const checkpoint = worldRelationExperimentStore
         ?.loadWorldRelationExperimentCheckpoints(2_048)
         .find((item) => item.sourceAgentRunId === experiment.sourceAgentRunId);
-      const revision = checkpoint === undefined ? undefined : inputById.get(checkpoint.inputRevisionId);
-      const corpus = revision === undefined ? undefined : corpusById.get(revision.corpusSnapshotIdentity);
-      if (revision === undefined || corpus === undefined) return [];
+      const revision = checkpoint === undefined ? null
+        : worldRelationExperimentStore?.loadWorldRelationExperimentInput(
+            checkpoint.inputRevisionId,
+          ) ?? null;
+      const corpus = revision === null ? null
+        : worldRelationExperimentStore?.loadWorldRelationExperimentCorpus(
+            revision.corpusSnapshotIdentity,
+          ) ?? null;
+      if (revision === null || corpus === null) return [];
       const allowedHashes = new Set(revision.settlementProjectionArtifactHashes);
       return compileWorldRelationShadowTradeHypotheses({
         experiment, inputRevision: revision, corpus,
+        quoteCorpus: catalogObservationDesk.corpus(),
         projections: projections.filter((item) => allowedHashes.has(item.artifactHash)),
       });
     });
@@ -4666,7 +4705,7 @@ export function createControlPlane(options?: {
       predicateArtifactCount: predicates.length,
       settlementProjectionCount: currentSettlementProjections.length,
       retainedSettlementProjectionCount: projections.length,
-      retainedInputRevisionCount: inputs.length,
+      retainedInputRevisionCount,
       retainedExperimentCount: experiments.length,
       shadowHypothesisCount: shadowHypotheses.length,
       shadowHypothesisStatusCounts: Object.freeze(Object.fromEntries(
@@ -4703,6 +4742,7 @@ export function createControlPlane(options?: {
           taskId: item.task.taskId,
           settlementProjectionCount: item.projections.length,
           priorExperimentCount: item.priorExperiments.length,
+          priorEconomicMemoryCount: item.priorEconomicMemories.length,
           attempted: execution.runs.some((run) => run.taskId === item.task.taskId &&
             run.status !== "PREPARED"),
         }))

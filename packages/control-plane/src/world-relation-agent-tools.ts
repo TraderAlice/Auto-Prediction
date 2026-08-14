@@ -19,6 +19,8 @@ import {
 } from "./world-relation-experiment-checkpoint.js";
 import type { WorldRelationExperimentInputRevision } from
   "./world-relation-experiment-work.js";
+import type { WorldRelationEconomicMemory } from
+  "./world-relation-economic-memory.js";
 
 export const WORLD_RELATION_EXPERIMENT_TOOL_PROTOCOL =
   "WORLD_RELATION_EXPERIMENT_TOOLS_V1" as const;
@@ -172,6 +174,7 @@ export class WorldRelationExperimentAgentToolHost implements AgentToolHost {
     public readonly corpus: MarketCorpusSnapshot,
     public readonly projections: readonly SettlementProjection[] = [],
     public readonly priorExperiments: readonly WorldRelationExperiment[] = [],
+    public readonly priorEconomicMemories: readonly WorldRelationEconomicMemory[] = [],
   ) {}
 
   public manifest(protocol: string): readonly AgentRuntimeToolDefinition[] {
@@ -244,6 +247,7 @@ export class WorldRelationExperimentAgentToolHost implements AgentToolHost {
         counterworldResults: item.counterworlds.map((counterworld) => counterworld.result),
         rationale: item.rationale,
       })),
+      priorEconomicMemory: this.priorEconomicMemories.slice(0, 16),
       authority: "FIRST_PARTY_STATE_ROUTING_CHECKPOINT_ONLY",
       semanticDecisionAuthority: false,
       probabilityAuthority: false,
@@ -339,6 +343,7 @@ export class WorldRelationExperimentAgentToolHost implements AgentToolHost {
           })),
           rationale: item.rationale,
         })),
+        priorEconomicMemory: this.priorEconomicMemories.slice(0, 16),
         authority: "RELATION_EXPERIMENT_REASONING_INPUT_ONLY",
       }));
     }
@@ -395,17 +400,25 @@ export class WorldRelationExperimentAgentToolHost implements AgentToolHost {
         throw new Error("counterworld truth assignment must partition every frontier predicate exactly once");
       }
       const trueSet = new Set(trueIds as Hash[]);
+      const truthByPredicateId = Object.freeze(Object.fromEntries(expected.map((predicateId) => [
+        predicateId, trueSet.has(predicateId as Hash),
+      ])) as Record<Hash, boolean>);
+      const stateId = expected.map((predicateId) => truthByPredicateId[predicateId as Hash]
+        ? "T" : "F").join("");
+      if (this.priorEconomicMemories.some((item) =>
+        item.adverseWorldStateId === stateId)) {
+        return this.#rejected(
+          "this exact adverse world already has an economic projection; select a semantically distinct falsifiable counterworld",
+        );
+      }
       this.#counterworld = Object.freeze({
         description: boundedText(input.description, "description", 2_000),
-        truthByPredicateId: Object.freeze(Object.fromEntries(expected.map((predicateId) => [
-          predicateId, trueSet.has(predicateId as Hash),
-        ])) as Record<Hash, boolean>),
+        truthByPredicateId,
         outcome: null,
         outcomeDescription: null,
       });
       return this.#accepted(Object.freeze({
-        stateId: expected.map((predicateId) => this.#counterworld!.truthByPredicateId[predicateId as Hash]
-          ? "T" : "F").join(""),
+        stateId,
         truthByPredicateId: this.#counterworld.truthByPredicateId,
         status: "ACTIVE_COUNTERWORLD_BOUND",
       }));

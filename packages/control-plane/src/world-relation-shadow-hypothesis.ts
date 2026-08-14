@@ -25,11 +25,12 @@ export type WorldRelationShadowHypothesisBlocker =
   | "ADVERSE_PROBABILITY_BOUND_UNAVAILABLE";
 
 export type WorldRelationShadowTradeHypothesis = Readonly<{
-  schemaVersion: "pmh.world-relation-shadow-trade-hypothesis.v1";
+  schemaVersion: "pmh.world-relation-shadow-trade-hypothesis.v2";
   hypothesisId: Hash;
   sourceExperimentArtifactHash: Hash;
   sourceInputRevisionId: Hash;
   sourceCorpusSnapshotIdentity: Hash;
+  quoteCorpusSnapshotIdentity: Hash;
   adverseWorldStateId: string;
   adverseListingStateId: string;
   legs: readonly Readonly<{
@@ -59,6 +60,7 @@ export type WorldRelationShadowTradeHypothesis = Readonly<{
     | "RESEARCH_ONLY";
   blockers: readonly WorldRelationShadowHypothesisBlocker[];
   quotePosture: "INDICATIVE_CATALOG_PRICE_ZERO_FEE_ZERO_DEPTH";
+  quoteRefreshPosture: "CURRENT_LISTING_REF_MATCH_OVER_RETAINED_SEMANTIC_INPUT";
   guaranteedProfit: false;
   verifierEligible: false;
   authority: "SHADOW_TRADE_HYPOTHESIS_ONLY";
@@ -104,11 +106,13 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
   experiment: WorldRelationExperiment;
   inputRevision: WorldRelationExperimentInputRevision;
   corpus: MarketCorpusSnapshot;
+  quoteCorpus?: MarketCorpusSnapshot;
   projections: readonly SettlementProjection[];
 }>): readonly WorldRelationShadowTradeHypothesis[] {
   const experiment = assertWorldRelationExperiment(input.experiment);
   const revision = assertWorldRelationExperimentInputRevision(input.inputRevision);
   const corpus = assertMarketCorpusSnapshot(input.corpus);
+  const quoteCorpus = assertMarketCorpusSnapshot(input.quoteCorpus ?? input.corpus);
   if (corpus.snapshotIdentity !== revision.corpusSnapshotIdentity ||
       experiment.predicateIds.join("\n") !==
         revision.frontier.predicates.map((item) => item.predicateId).sort().join("\n")) {
@@ -119,7 +123,7 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
   const projections = input.projections.map(assertSettlementProjection).filter((item) =>
     allowedProjectionHashes.has(item.artifactHash) &&
     inspectedProjectionIds.has(item.projectionId));
-  const listingByRef = new Map(corpus.listings.map((item) => [item.listingRef, item] as const));
+  const listingByRef = new Map(quoteCorpus.listings.map((item) => [item.listingRef, item] as const));
   const globalBlockers: WorldRelationShadowHypothesisBlocker[] = [];
   if (experiment.terminalDisposition !== "SUPPORTED_PROBABILISTIC") {
     globalBlockers.push("RELATION_NOT_PROBABILISTICALLY_SUPPORTED");
@@ -192,10 +196,11 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
           ? "READY_FOR_PROBABILITY_BOUND" as const
           : "RESEARCH_ONLY" as const;
     const body = Object.freeze({
-      schemaVersion: "pmh.world-relation-shadow-trade-hypothesis.v1" as const,
+      schemaVersion: "pmh.world-relation-shadow-trade-hypothesis.v2" as const,
       sourceExperimentArtifactHash: experiment.artifactHash,
       sourceInputRevisionId: revision.inputRevisionId,
       sourceCorpusSnapshotIdentity: corpus.snapshotIdentity,
+      quoteCorpusSnapshotIdentity: quoteCorpus.snapshotIdentity,
       adverseWorldStateId: adverse.stateId,
       adverseListingStateId,
       legs: Object.freeze(legs),
@@ -211,6 +216,8 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
       status,
       blockers: uniqueBlockers,
       quotePosture: "INDICATIVE_CATALOG_PRICE_ZERO_FEE_ZERO_DEPTH" as const,
+      quoteRefreshPosture:
+        "CURRENT_LISTING_REF_MATCH_OVER_RETAINED_SEMANTIC_INPUT" as const,
       guaranteedProfit: false as const,
       verifierEligible: false as const,
       authority: "SHADOW_TRADE_HYPOTHESIS_ONLY" as const,

@@ -131,4 +131,45 @@ describe("world relation shadow trade hypotheses", () => {
       "ADVERSE_PROBABILITY_BOUND_UNAVAILABLE", "NON_EXACT_SETTLEMENT_PROJECTION",
     ]));
   });
+
+  it("reprices retained semantic evidence from the current matching listing snapshot", () => {
+    const work = fixture();
+    const quoteCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: work.corpus.sourceSetIdentity,
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: work.corpus.listings.map((listing) => ({
+        ...listing,
+        sourceReceivedAt: "2026-08-14T00:10:00.000Z",
+        outcomes: listing.outcomes.map((outcome) => ({
+          ...outcome,
+          indicativePrice: outcome.label === "No" && listing.listingRef === "fixture:alaska"
+            ? "0.3"
+            : outcome.label === "Yes" && listing.listingRef === "fixture:national"
+              ? "0.4" : outcome.indicativePrice,
+        })),
+      })),
+    });
+    const [result] = compileWorldRelationShadowTradeHypotheses({
+      experiment: work.experiment,
+      inputRevision: work.assignment.inputRevision,
+      corpus: work.corpus,
+      quoteCorpus,
+      projections: work.projections,
+    });
+    expect(result).toMatchObject({
+      sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+      quoteCorpusSnapshotIdentity: quoteCorpus.snapshotIdentity,
+      quoteRefreshPosture: "CURRENT_LISTING_REF_MATCH_OVER_RETAINED_SEMANTIC_INPUT",
+      payoffShape: { totalIndicativeCostUnits: "700000",
+        grossFailureBudgetUnits: "300000",
+        breakEvenAdverseProbabilityUpperPpm: "300000" },
+      status: "READY_FOR_PROBABILITY_BOUND",
+      blockers: ["ADVERSE_PROBABILITY_BOUND_UNAVAILABLE"],
+    });
+    expect(result?.hypothesisId).not.toBe(compileWorldRelationShadowTradeHypotheses({
+      experiment: work.experiment, inputRevision: work.assignment.inputRevision,
+      corpus: work.corpus, projections: work.projections,
+    })[0]?.hypothesisId);
+  });
 });

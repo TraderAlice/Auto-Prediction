@@ -25,6 +25,10 @@ import type { WorldRelationFrontierSeed } from
 import { WORLD_RELATION_EXPERIMENT_TOOL_PROTOCOL } from
   "./world-relation-agent-tools.js";
 import type { OperationalStorageProjection } from "./types.js";
+import {
+  assertWorldRelationEconomicMemory,
+  type WorldRelationEconomicMemory,
+} from "./world-relation-economic-memory.js";
 
 const HASH = /^sha256:[0-9a-f]{64}$/u;
 export const WORLD_RELATION_EXPERIMENT_TASK_PROTOCOL =
@@ -33,7 +37,8 @@ export const WORLD_RELATION_EXPERIMENT_SELECTION_PROTOCOL =
   "WORLD_RELATION_EXPERIMENT_SELECTION_V1" as const;
 
 export type WorldRelationExperimentInputRevision = Readonly<{
-  schemaVersion: "pmh.world-relation-experiment-input.v1";
+  schemaVersion: "pmh.world-relation-experiment-input.v1" |
+    "pmh.world-relation-experiment-input.v2";
   inputRevisionId: Hash;
   semanticInputIdentity: Hash;
   frontier: WorldRelationFrontierSeed;
@@ -42,6 +47,7 @@ export type WorldRelationExperimentInputRevision = Readonly<{
   sourceSetIdentity: Hash;
   settlementProjectionArtifactHashes: readonly Hash[];
   priorExperimentArtifactHashes: readonly Hash[];
+  priorEconomicMemories?: readonly WorldRelationEconomicMemory[];
   materializedAt: string;
   inputBinding: "EXACT_FRONTIER_CORPUS_PROJECTIONS_AND_NEGATIVE_MEMORY";
   authority: "WORLD_RELATION_EXPERIMENT_INPUT_ONLY";
@@ -71,6 +77,7 @@ export type WorldRelationExperimentAssignment = Readonly<{
   corpus: MarketCorpusSnapshot;
   projections: readonly SettlementProjection[];
   priorExperiments: readonly WorldRelationExperiment[];
+  priorEconomicMemories: readonly WorldRelationEconomicMemory[];
 }>;
 
 export type WorldRelationExperimentCampaignPreview = Readonly<{
@@ -106,6 +113,7 @@ export interface WorldRelationExperimentInputStore {
   loadWorldRelationExperimentInputs(
     limit: number,
   ): readonly WorldRelationExperimentInputRevision[];
+  countWorldRelationExperimentInputs(): number;
   loadWorldRelationExperimentInput(
     inputRevisionId: Hash,
   ): WorldRelationExperimentInputRevision | null;
@@ -134,6 +142,7 @@ export function buildWorldRelationExperimentAssignment(input: Readonly<{
   corpus: MarketCorpusSnapshot;
   projections?: readonly SettlementProjection[];
   priorExperiments?: readonly WorldRelationExperiment[];
+  priorEconomicMemories?: readonly WorldRelationEconomicMemory[];
 }>): WorldRelationExperimentAssignment {
   const corpus = assertMarketCorpusSnapshot(input.corpus);
   const projections = Object.freeze((input.projections ?? [])
@@ -147,10 +156,14 @@ export function buildWorldRelationExperimentAssignment(input: Readonly<{
     .filter((item) => item.predicateIds.some((predicateId) => predicateIds.has(predicateId)))
     .sort((left, right) => right.closedAt.localeCompare(left.closedAt) ||
       right.artifactHash.localeCompare(left.artifactHash)).slice(0, 8));
+  const priorEconomicMemories = Object.freeze((input.priorEconomicMemories ?? [])
+    .map(assertWorldRelationEconomicMemory)
+    .filter((item) => item.sourceFrontierArtifactHash === input.frontier.artifactHash)
+    .sort((left, right) => left.memoryId.localeCompare(right.memoryId)).slice(0, 16));
   const corpusSemanticIdentity = buildSearchScopeIdentity(corpus.listings)
     .semanticScopeIdentity;
   const semanticInputIdentity = hashCanonical({
-    schemaVersion: "pmh.world-relation-experiment-semantic-input.v1",
+    schemaVersion: "pmh.world-relation-experiment-semantic-input.v2",
     frontierId: input.frontier.frontierId,
     // Preserve semantic de-duplication across price-only corpus refreshes while
     // allowing changed rule/evidence lineage for the same proposition to earn
@@ -164,9 +177,13 @@ export function buildWorldRelationExperimentAssignment(input: Readonly<{
       terminalDisposition: item.terminalDisposition,
       counterworldResults: item.counterworlds.map((counterworld) => counterworld.result),
     })),
+    economicallyProjectedStates: priorEconomicMemories.map((item) => ({
+      sourceExperimentArtifactHash: item.sourceExperimentArtifactHash,
+      adverseWorldStateId: item.adverseWorldStateId,
+    })),
   });
   const body = Object.freeze({
-    schemaVersion: "pmh.world-relation-experiment-input.v1" as const,
+    schemaVersion: "pmh.world-relation-experiment-input.v2" as const,
     semanticInputIdentity,
     frontier: input.frontier,
     corpusSnapshotIdentity: corpus.snapshotIdentity,
@@ -174,6 +191,7 @@ export function buildWorldRelationExperimentAssignment(input: Readonly<{
     sourceSetIdentity: corpus.sourceSetIdentity,
     settlementProjectionArtifactHashes: exactHashes(projections.map((item) => item.artifactHash)),
     priorExperimentArtifactHashes: exactHashes(priorExperiments.map((item) => item.artifactHash)),
+    priorEconomicMemories,
     materializedAt: latestObservation(corpus),
     inputBinding: "EXACT_FRONTIER_CORPUS_PROJECTIONS_AND_NEGATIVE_MEMORY" as const,
     authority: "WORLD_RELATION_EXPERIMENT_INPUT_ONLY" as const,
@@ -185,7 +203,7 @@ export function buildWorldRelationExperimentAssignment(input: Readonly<{
   const taskPayload = worldRelationExperimentTaskPayload(inputRevision);
   const task = buildWorldRelationExperimentTask(inputRevision);
   return Object.freeze({ inputRevision, taskPayload, task, corpus, projections,
-    priorExperiments });
+    priorExperiments, priorEconomicMemories });
 }
 
 export function worldRelationExperimentTaskPayload(
@@ -235,7 +253,8 @@ export function assertWorldRelationExperimentInputRevision(
   }
   const revision = value as WorldRelationExperimentInputRevision;
   const { inputRevisionId, ...body } = revision;
-  if (revision.schemaVersion !== "pmh.world-relation-experiment-input.v1" ||
+  if (!["pmh.world-relation-experiment-input.v1", "pmh.world-relation-experiment-input.v2"]
+        .includes(revision.schemaVersion) ||
       !HASH.test(String(inputRevisionId)) || inputRevisionId !== hashCanonical(body) ||
       ![revision.semanticInputIdentity, revision.frontier.frontierId,
         revision.frontier.artifactHash, revision.corpusSnapshotIdentity,
@@ -245,6 +264,19 @@ export function assertWorldRelationExperimentInputRevision(
         exactHashes(revision.settlementProjectionArtifactHashes).join("\n") ||
       revision.priorExperimentArtifactHashes.join("\n") !==
         exactHashes(revision.priorExperimentArtifactHashes).join("\n") ||
+      (revision.schemaVersion === "pmh.world-relation-experiment-input.v1"
+        ? revision.priorEconomicMemories !== undefined
+        : !Array.isArray(revision.priorEconomicMemories) ||
+          revision.priorEconomicMemories.length > 16 ||
+          revision.priorEconomicMemories.some((item) => {
+            try {
+              return assertWorldRelationEconomicMemory(item)
+                .sourceFrontierArtifactHash !== revision.frontier.artifactHash;
+            } catch {
+              return true;
+            }
+          }) || revision.priorEconomicMemories.map((item) => item.memoryId).join("\n") !==
+            [...revision.priorEconomicMemories.map((item) => item.memoryId)].sort().join("\n")) ||
       !Number.isFinite(Date.parse(revision.materializedAt)) ||
       new Date(revision.materializedAt).toISOString() !== revision.materializedAt ||
       revision.inputBinding !== "EXACT_FRONTIER_CORPUS_PROJECTIONS_AND_NEGATIVE_MEMORY" ||

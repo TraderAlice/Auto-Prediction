@@ -328,3 +328,28 @@ its minimum non-adverse payout. The next search generation should use this
 negative economic memory to favor relation neighborhoods whose complement-leg
 prices leave a positive failure budget, while preserving semantic novelty so
 the system does not collapse back into claim-first popularity search.
+
+The next input revision will bind that economic result as terminal research
+memory rather than use price as a semantic ranking oracle. A retained memory
+names the exact experiment, shadow hypothesis, adverse listing state, cost,
+failure budget, blockers and deterministic route. The Agent may see that an
+adverse state was already semantically interesting but economically retired;
+the first-party tool host will reject selecting the identical retired adverse
+state again unless a future input carries genuinely revised semantic evidence.
+Price-only refreshes remain semantically deduplicated. This preserves the
+ontology-first search direction while preventing repeated token spend on an
+already falsified economic construction.
+
+That boundary is now implemented as two ledgers. The durable Agent input binds
+a stable economic memory compiled from the experiment's retained quote corpus;
+the tool host exposes it in context and rejects an identical already-projected
+adverse world. The read projection independently reprices the same semantic
+experiment against the current listing-ref-matched corpus, so a price move can
+change margin routing without manufacturing a new ontology fact or provider
+request. Live qualification also found and retired an operational scaling
+failure: four stale `tsx watch` supervisors were contending for port 4100, and
+the world-relation endpoint reparsed every retained exact input on every read.
+After restoring a single control-plane process and replacing the history scan
+with indexed checkpoint → input lookups plus SQL count, three live reads fell
+from 8–15 seconds to 0.53–0.54 seconds. The historical input count may grow,
+but projection latency no longer grows linearly with it.

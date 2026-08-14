@@ -13634,6 +13634,14 @@ export class SqliteOperationalStore
     return Object.freeze(rows.map(parseWorldRelationExperimentInput));
   }
 
+  public countWorldRelationExperimentInputs(): number {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      "SELECT COUNT(*) AS count FROM world_relation_experiment_inputs",
+    ).get() as Readonly<{ count: number }>;
+    return row.count;
+  }
+
   public loadWorldRelationExperimentInput(
     inputRevisionId: Hash,
   ): WorldRelationExperimentInputRevision | null {
@@ -13679,6 +13687,15 @@ export class SqliteOperationalStore
             "SELECT artifact_hash FROM world_relation_experiments WHERE artifact_hash = ?",
           ).get(artifactHash) === undefined) {
             throw new Error("world relation experiment input references unavailable prior memory");
+          }
+        }
+        for (const memory of input.priorEconomicMemories ?? []) {
+          if (this.#database.prepare(
+            "SELECT artifact_hash FROM world_relation_experiments WHERE artifact_hash = ?",
+          ).get(memory.sourceExperimentArtifactHash) === undefined) {
+            throw new Error(
+              "world relation experiment input references unavailable economic memory",
+            );
           }
         }
         const recordJson = canonicalJson(input);

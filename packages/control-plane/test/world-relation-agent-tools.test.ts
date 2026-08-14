@@ -10,6 +10,8 @@ import {
   buildMarketCorpusSnapshot,
   buildModelInvocation,
   buildModelProfile,
+  buildWorldRelationEconomicMemory,
+  buildWorldRelationShadowRoutingProjection,
   buildWorldPredicateArtifact,
   completeAgentRun,
   checkpointWorldRelationExperimentRun,
@@ -20,6 +22,7 @@ import {
   WorldRelationExperimentAgentToolHost,
   type AgentToolHostContext,
   type WorldRelationFrontierSeed,
+  type WorldRelationShadowTradeHypothesis,
 } from "../src/index.js";
 
 const at = "2026-08-14T00:00:00.000Z";
@@ -128,6 +131,65 @@ function fixture(sharedRawEvidence = false) {
 }
 
 describe("world relation Agent tools", () => {
+  it("rejects an adverse world that already has an economic projection", async () => {
+    const work = fixture();
+    const stateId = work.frontier.predicates.map(() => "T").sort().join("");
+    const hypothesis: WorldRelationShadowTradeHypothesis = Object.freeze({
+      schemaVersion: "pmh.world-relation-shadow-trade-hypothesis.v2",
+      hypothesisId: hash("projected-hypothesis"),
+      sourceExperimentArtifactHash: hash("prior-experiment"),
+      sourceInputRevisionId: hash("prior-input"),
+      sourceCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+      quoteCorpusSnapshotIdentity: work.corpus.snapshotIdentity,
+      adverseWorldStateId: stateId, adverseListingStateId: "TF", legs: [],
+      payoffShape: Object.freeze({ commonPriceScale: "1000000",
+        minimumNonAdversePayoutUnits: "1000000", adversePayoutUnits: "0",
+        totalIndicativeCostUnits: "1100000", grossFailureBudgetUnits: "-100000",
+        breakEvenAdverseProbabilityUpperPpm: "0",
+        formula: "MIN_NON_ADVERSE_PAYOUT_MINUS_COST_MINUS_ADVERSE_PROBABILITY_TAIL" }),
+      status: "NON_POSITIVE_INDICATIVE_MARGIN",
+      blockers: Object.freeze(["ADVERSE_PROBABILITY_BOUND_UNAVAILABLE",
+        "NON_POSITIVE_INDICATIVE_FAILURE_BUDGET"]),
+      quotePosture: "INDICATIVE_CATALOG_PRICE_ZERO_FEE_ZERO_DEPTH",
+      quoteRefreshPosture: "CURRENT_LISTING_REF_MATCH_OVER_RETAINED_SEMANTIC_INPUT",
+      guaranteedProfit: false, verifierEligible: false,
+      authority: "SHADOW_TRADE_HYPOTHESIS_ONLY", semanticDecisionAuthority: false,
+      probabilityAuthority: false, certificateAuthority: false,
+      executionAuthority: false, externalWriteAuthority: false, valueMovingAuthority: false,
+    });
+    const routeAction = buildWorldRelationShadowRoutingProjection([hypothesis]).actions[0]!;
+    const memory = buildWorldRelationEconomicMemory({ hypothesis, routeAction,
+      sourceFrontierArtifactHash: work.frontier.artifactHash });
+    const host = new WorldRelationExperimentAgentToolHost(
+      work.frontier, work.corpus, [], [], [memory],
+    );
+    const call = (toolName: string, input: unknown) => host.execute({
+      run: work.run, task: work.task, executionProfile: work.profile,
+      callId: `call:memory:${toolName}`, toolName, input,
+    });
+    const context = await call("read_world_relation_context", {});
+    expect(context).toMatchObject({ status: "ACCEPTED",
+      output: { priorEconomicMemory: [{ memoryId: memory.memoryId }] } });
+    await call("open_world_relation_hypothesis", {
+      predictedConstraint: "Test a distinct state only.",
+      supportingObservation: "Prior state exists.",
+      falsifyingObservation: "A different assignment survives.",
+      rationale: "Avoid repeated token spend.",
+    });
+    await call("search_world_relation_corpus", { patterns: ["Trump"], syntax: "LITERAL",
+      mode: "ANY", fields: ["title"], venueIds: [], limit: 10 });
+    await call("close_world_relation_search", {});
+    await call("inspect_world_relation_listings", {
+      listingRefs: ["fixture:shot", "fixture:cola"],
+    });
+    await expect(call("select_active_counterworld", {
+      truePredicateIds: work.frontier.predicates.map((item) => item.predicateId),
+      falsePredicateIds: [], description: "Repeat the economically projected world.",
+    })).resolves.toMatchObject({ status: "REJECTED",
+      output: { diagnostic: expect.stringContaining("already has an economic projection") } });
+    expect(host.counterworld()).toBeNull();
+  });
+
   it("supports multi-neighborhood search and binds an explicit complete counterworld", async () => {
     const work = fixture();
     expect(work.host.manifest(WORLD_RELATION_EXPERIMENT_TOOL_PROTOCOL).map((item) => item.name))

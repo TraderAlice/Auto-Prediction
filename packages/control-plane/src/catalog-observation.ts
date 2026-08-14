@@ -622,6 +622,10 @@ export class CatalogObservationDesk {
   readonly #contractTextStore: CatalogContractTextEvidenceStore | undefined;
   readonly #states: Map<string, SourceState>;
   #refreshing: Promise<CatalogObservationProjection> | null = null;
+  #corpusCache: Readonly<{
+    sourceSetIdentity: Hash;
+    snapshot: MarketCorpusSnapshot;
+  }> | null = null;
 
   public constructor(options: Readonly<{
     fetcher?: CatalogFetchLike;
@@ -1159,12 +1163,17 @@ export class CatalogObservationDesk {
         listingCount: state.listings.length,
       })),
     );
-    return buildMarketCorpusSnapshot({
+    if (this.#corpusCache?.sourceSetIdentity === sourceSetIdentity) {
+      return this.#corpusCache.snapshot;
+    }
+    const snapshot = buildMarketCorpusSnapshot({
       sourceSetIdentity,
       eligibleSourceCount: eligibleStates.length,
       excludedSourceCount: states.length - eligibleStates.length,
       listings: eligibleStates.flatMap((state) => state.listings),
     });
+    this.#corpusCache = Object.freeze({ sourceSetIdentity, snapshot });
+    return snapshot;
   }
 
   public radarTriageScope(candidateId: string): RadarTriageScope {

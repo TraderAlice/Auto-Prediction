@@ -116,6 +116,9 @@ describe("world relation experiment work", () => {
     expect(first.task.requestedEffectProtocol).toBe("WORLD_RELATION_EXPERIMENT_TOOLS_V1");
     expect(first.inputRevision.frontier.predicates).toHaveLength(1);
     expect(first.inputRevision.priorExperimentArtifactHashes).toEqual([]);
+    expect(first.inputRevision.schemaVersion)
+      .toBe("pmh.world-relation-experiment-input.v2");
+    expect(first.inputRevision.priorEconomicMemories).toEqual([]);
     expect(first.taskPayload.automaticDispatch).toBe(false);
   });
 

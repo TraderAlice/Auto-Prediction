@@ -12,10 +12,11 @@ function hypothesis(
   blockers: WorldRelationShadowTradeHypothesis["blockers"],
 ): WorldRelationShadowTradeHypothesis {
   return {
-    schemaVersion: "pmh.world-relation-shadow-trade-hypothesis.v1",
+    schemaVersion: "pmh.world-relation-shadow-trade-hypothesis.v2",
     hypothesisId: hash(label), sourceExperimentArtifactHash: hash(`${label}:experiment`),
     sourceInputRevisionId: hash(`${label}:input`),
-    sourceCorpusSnapshotIdentity: hash(`${label}:corpus`), adverseWorldStateId: "TF",
+    sourceCorpusSnapshotIdentity: hash(`${label}:corpus`),
+    quoteCorpusSnapshotIdentity: hash(`${label}:quote-corpus`), adverseWorldStateId: "TF",
     adverseListingStateId: "TF", legs: [],
     payoffShape: { commonPriceScale: "1000000", minimumNonAdversePayoutUnits: "1000000",
       adversePayoutUnits: "0", totalIndicativeCostUnits: "800000",
@@ -23,6 +24,7 @@ function hypothesis(
       formula: "MIN_NON_ADVERSE_PAYOUT_MINUS_COST_MINUS_ADVERSE_PROBABILITY_TAIL" },
     status: "RESEARCH_ONLY", blockers,
     quotePosture: "INDICATIVE_CATALOG_PRICE_ZERO_FEE_ZERO_DEPTH",
+    quoteRefreshPosture: "CURRENT_LISTING_REF_MATCH_OVER_RETAINED_SEMANTIC_INPUT",
     guaranteedProfit: false, verifierEligible: false,
     authority: "SHADOW_TRADE_HYPOTHESIS_ONLY", semanticDecisionAuthority: false,
     probabilityAuthority: false, certificateAuthority: false, executionAuthority: false,
