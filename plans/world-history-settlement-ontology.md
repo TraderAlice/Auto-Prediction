@@ -600,3 +600,26 @@ same-family searches and no invented evidence; the full control-plane suite
 remains 120 files / 791 tests green. The next live run should compare terminal
 latency and token use against `73b9b1fa…`, then use the retained negative memory
 to steer away from the exhausted election neighborhood.
+
+The matched Terra/high run (`5b1d63c5…`) validates that liveness boundary. It
+completed in nine model invocations / 182,735 input tokens with seven accepted
+effects and one recoverable rejected family declaration. Two distinct exact
+role searches produced zero axis-admissible pairs; the Agent then closed the
+hypothesis `UNRESOLVED` and emitted exhaustion V3
+`5ee5c47f… / NO_AXIS_ADMISSIBLE_ROLE_PAIR`. The artifact binds both search
+result identities while retaining zero inspected-evidence bindings and zero
+failed prototype tests. Against `73b9b1fa…`, the run moved from 12 calls /
+225,887 input tokens with no terminal to a bounded terminal in nine calls /
+182,735 input tokens. More importantly, the negative result changes selection:
+the next campaign preview leaves the exhausted `SURFACE_DOMAIN` lens and offers
+an unattempted `AGGREGATE_INSTITUTION` lens (`983a0627…`). Scoped absence is
+therefore functioning as search-state knowledge rather than a decorative log.
+
+The next generation should exercise that selected institutional axis before
+adding more orchestration policy. Its selection question is ontological: can
+the Agent discover a relation in which a venue-defined settlement projection
+aggregates or mediates through an institution, without returning to a merely
+geographic election clone? A positive result must still pass exact non-source
+and axis admission; a negative result should close through the same scoped
+absence path. The comparison should measure semantic neighborhood, exact
+frontier yield, terminal kind and token cost.
