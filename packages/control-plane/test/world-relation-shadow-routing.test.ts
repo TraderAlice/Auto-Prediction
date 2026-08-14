@@ -39,14 +39,18 @@ describe("world relation shadow routing", () => {
         "NON_EXACT_SETTLEMENT_PROJECTION", "ADVERSE_PROBABILITY_BOUND_UNAVAILABLE"]),
       hypothesis("settlement", ["NON_EXACT_SETTLEMENT_PROJECTION",
         "ADVERSE_PROBABILITY_BOUND_UNAVAILABLE"]),
+      hypothesis("coverage", ["INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS",
+        "ADVERSE_PROBABILITY_BOUND_UNAVAILABLE"]),
       hypothesis("estimate", ["ADVERSE_PROBABILITY_BOUND_UNAVAILABLE"]),
       hypothesis("hold", ["INDICATIVE_PRICE_UNAVAILABLE"]),
     ]);
-    expect(projection).toMatchObject({ hypothesisCount: 4, retiredCount: 1,
-      settlementEvidenceCount: 1, probabilityEstimationCount: 1, heldCount: 1,
+    expect(projection).toMatchObject({ hypothesisCount: 5, retiredCount: 1,
+      projectionCoverageCount: 1, settlementEvidenceCount: 1,
+      probabilityEstimationCount: 1, heldCount: 1,
       providerRequestsStartedByRead: 0, jobsCreatedByRead: 0, automaticDispatch: false });
     expect(projection.actions.map((item) => item.action)).toEqual([
-      "ESTIMATE_ADVERSE_PROBABILITY", "ACQUIRE_SETTLEMENT_EVIDENCE",
+      "ESTIMATE_ADVERSE_PROBABILITY", "ACQUIRE_PROJECTION_COVERAGE",
+      "ACQUIRE_SETTLEMENT_EVIDENCE",
       "HOLD_RESEARCH_ONLY", "RETIRE_NON_POSITIVE_MARGIN",
     ]);
   });

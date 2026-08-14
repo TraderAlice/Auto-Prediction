@@ -47,4 +47,38 @@ describe("world relation economic memory", () => {
       routeAction: { ...route!, hypothesisId: hash("other") },
       sourceFrontierArtifactHash: hash("frontier") })).toThrow(/exact route action/u);
   });
+
+  it("admits an empty listing state only for explicit projection coverage debt", () => {
+    const hypothesis: WorldRelationShadowTradeHypothesis = Object.freeze({
+      schemaVersion: "pmh.world-relation-shadow-trade-hypothesis.v2",
+      hypothesisId: hash("coverage-hypothesis"),
+      sourceExperimentArtifactHash: hash("coverage-experiment"),
+      sourceInputRevisionId: hash("coverage-input"),
+      sourceCorpusSnapshotIdentity: hash("semantic-corpus"),
+      quoteCorpusSnapshotIdentity: hash("quote-corpus"),
+      adverseWorldStateId: "FFT", adverseListingStateId: "", legs: [],
+      payoffShape: Object.freeze({ commonPriceScale: null,
+        minimumNonAdversePayoutUnits: null, adversePayoutUnits: "0",
+        totalIndicativeCostUnits: null, grossFailureBudgetUnits: null,
+        breakEvenAdverseProbabilityUpperPpm: null,
+        formula: "MIN_NON_ADVERSE_PAYOUT_MINUS_COST_MINUS_ADVERSE_PROBABILITY_TAIL" }),
+      status: "RESEARCH_ONLY",
+      blockers: Object.freeze(["ADVERSE_PROBABILITY_BOUND_UNAVAILABLE",
+        "INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS"]),
+      quotePosture: "INDICATIVE_CATALOG_PRICE_ZERO_FEE_ZERO_DEPTH",
+      quoteRefreshPosture: "CURRENT_LISTING_REF_MATCH_OVER_RETAINED_SEMANTIC_INPUT",
+      guaranteedProfit: false, verifierEligible: false,
+      authority: "SHADOW_TRADE_HYPOTHESIS_ONLY", semanticDecisionAuthority: false,
+      probabilityAuthority: false, certificateAuthority: false,
+      executionAuthority: false, externalWriteAuthority: false,
+      valueMovingAuthority: false,
+    });
+    const routeAction = buildWorldRelationShadowRoutingProjection([hypothesis]).actions[0]!;
+    const memory = buildWorldRelationEconomicMemory({ hypothesis, routeAction,
+      sourceFrontierArtifactHash: hash("frontier") });
+    expect(memory.routeAction).toBe("ACQUIRE_PROJECTION_COVERAGE");
+    expect(assertWorldRelationEconomicMemory(memory)).toBe(memory);
+    expect(() => assertWorldRelationEconomicMemory({ ...memory,
+      blockers: ["ADVERSE_PROBABILITY_BOUND_UNAVAILABLE"] })).toThrow(/bounded contract/u);
+  });
 });

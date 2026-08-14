@@ -353,3 +353,19 @@ After restoring a single control-plane process and replacing the history scan
 with indexed checkpoint → input lookups plus SQL count, three live reads fell
 from 8–15 seconds to 0.53–0.54 seconds. The historical input count may grow,
 but projection latency no longer grows linearly with it.
+
+The first Iowa frontier specimen now supplies a differentiated second live
+observation. Run `53e03c3d…` completed in nine accepted effects with zero
+rejections, using 190,793 input, 3,081 output and 1,614 reasoning tokens. It
+inspected six Gemini Iowa-winner and national-Senate-control contracts, selected
+the complete `FFT` adverse world, and retained `SUPPORTED_PROBABILISTIC`: a
+Democratic Iowa winner can coexist with failure to control the national Senate.
+Unlike Alaska, the result cannot yet form any shadow legs because none of the
+six inspected Gemini listings has a retained settlement projection. This is
+not unsupported arity and not negative economics. The router now records
+`INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS` and emits
+`ACQUIRE_PROJECTION_COVERAGE`, ahead of settlement exactness and probability
+estimation but after margin retirement. The next construction should compile
+those exact inspected Gemini contracts into research-only settlement
+projections from retained contract text, then re-run economics without another
+relation Agent request.

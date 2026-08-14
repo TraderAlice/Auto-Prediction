@@ -91,11 +91,14 @@ export function assertWorldRelationEconomicMemory(
         memory.sourceFrontierArtifactHash, memory.sourceHypothesisId,
         memory.quoteCorpusSnapshotIdentity]
         .every((item) => HASH.test(String(item))) ||
-      !/^[TF]{2,4}$/u.test(memory.adverseListingStateId) ||
+      !/^(?:[TF]{2,4})?$/u.test(memory.adverseListingStateId) ||
+      (memory.adverseListingStateId === "") !==
+        memory.blockers.includes("INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS") ||
       !/^[TF]{2,8}$/u.test(memory.adverseWorldStateId) ||
       monetary.some((item) => item !== null && !INTEGER.test(item)) ||
       memory.blockers.join("\n") !== exactStrings(memory.blockers).join("\n") ||
-      !["RETIRE_NON_POSITIVE_MARGIN", "ACQUIRE_SETTLEMENT_EVIDENCE",
+      !["RETIRE_NON_POSITIVE_MARGIN", "ACQUIRE_PROJECTION_COVERAGE",
+        "ACQUIRE_SETTLEMENT_EVIDENCE",
         "ESTIMATE_ADVERSE_PROBABILITY", "HOLD_RESEARCH_ONLY"]
         .includes(memory.routeAction) ||
       memory.quotePosture !== "INDICATIVE_CATALOG_PRICE_ZERO_FEE_ZERO_DEPTH" ||

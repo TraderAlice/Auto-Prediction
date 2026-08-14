@@ -17,6 +17,7 @@ export type WorldRelationShadowHypothesisBlocker =
   | "RELATION_NOT_PROBABILISTICALLY_SUPPORTED"
   | "MISSING_ADVERSE_ASSIGNMENT"
   | "LISTING_ARITY_UNSUPPORTED"
+  | "INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS"
   | "MISSING_EXACT_INPUT_PROJECTION"
   | "PROJECTION_NOT_SINGLE_PREDICATE"
   | "NON_EXACT_SETTLEMENT_PROJECTION"
@@ -131,7 +132,10 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
   if (experiment.adverseAssignments.length === 0) {
     globalBlockers.push("MISSING_ADVERSE_ASSIGNMENT");
   }
-  if (projections.length < 2 || projections.length > 4) {
+  if (experiment.inspectedProjectionIds.length === 0 &&
+      experiment.counterworlds[0]?.evidenceBindingHashes.length !== 0) {
+    globalBlockers.push("INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS");
+  } else if (projections.length < 2 || projections.length > 4) {
     globalBlockers.push("LISTING_ARITY_UNSUPPORTED");
   }
   if (projections.length !== experiment.inspectedProjectionIds.length) {

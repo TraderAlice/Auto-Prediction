@@ -386,6 +386,7 @@ type WorldRelationExperimentProjection = Readonly<{
   shadowRouting: Readonly<{
     hypothesisCount: number;
     retiredCount: number;
+    projectionCoverageCount: number;
     settlementEvidenceCount: number;
     probabilityEstimationCount: number;
     heldCount: number;
@@ -5320,8 +5321,8 @@ function AgentOperationsView() {
             {worldRelationExperiments.shadowRouting.hypothesisCount > 0 && (
               <div className="research-attention-lock">
                 <Waypoints size={14} />
-                <span>{worldRelationExperiments.shadowRouting.retiredCount} retired on margin · {worldRelationExperiments.shadowRouting.settlementEvidenceCount} settlement evidence · {worldRelationExperiments.shadowRouting.probabilityEstimationCount} probability estimates</span>
-                <code>MARGIN → SETTLEMENT → ε</code>
+                <span>{worldRelationExperiments.shadowRouting.retiredCount} retired on margin · {worldRelationExperiments.shadowRouting.projectionCoverageCount} projection coverage · {worldRelationExperiments.shadowRouting.settlementEvidenceCount} settlement evidence · {worldRelationExperiments.shadowRouting.probabilityEstimationCount} probability estimates</span>
+                <code>MARGIN → COVERAGE → SETTLEMENT → ε</code>
               </div>
             )}
             <div className="research-attention-lock">

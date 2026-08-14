@@ -7,6 +7,7 @@ export type WorldRelationShadowRouteAction = Readonly<{
   hypothesisId: Hash;
   action:
     | "RETIRE_NON_POSITIVE_MARGIN"
+    | "ACQUIRE_PROJECTION_COVERAGE"
     | "ACQUIRE_SETTLEMENT_EVIDENCE"
     | "ESTIMATE_ADVERSE_PROBABILITY"
     | "HOLD_RESEARCH_ONLY";
@@ -30,6 +31,7 @@ export type WorldRelationShadowRoutingProjection = Readonly<{
   hypothesisCount: number;
   retiredCount: number;
   settlementEvidenceCount: number;
+  projectionCoverageCount: number;
   probabilityEstimationCount: number;
   heldCount: number;
   actions: readonly WorldRelationShadowRouteAction[];
@@ -52,20 +54,28 @@ function route(hypothesis: WorldRelationShadowTradeHypothesis): WorldRelationSha
   const settlement = blockers.includes("NON_EXACT_SETTLEMENT_PROJECTION") ||
     blockers.includes("MISSING_EXACT_INPUT_PROJECTION") ||
     blockers.includes("PROJECTION_NOT_SINGLE_PREDICATE");
+  const projectionCoverage = blockers.includes(
+    "INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS",
+  );
   const onlyProbability = blockers.length === 1 &&
     blockers[0] === "ADVERSE_PROBABILITY_BOUND_UNAVAILABLE";
   const action = nonPositive
     ? "RETIRE_NON_POSITIVE_MARGIN" as const
+    : projectionCoverage
+      ? "ACQUIRE_PROJECTION_COVERAGE" as const
     : settlement
       ? "ACQUIRE_SETTLEMENT_EVIDENCE" as const
       : onlyProbability
         ? "ESTIMATE_ADVERSE_PROBABILITY" as const
         : "HOLD_RESEARCH_ONLY" as const;
   const priority = action === "ESTIMATE_ADVERSE_PROBABILITY" ? 900
+    : action === "ACQUIRE_PROJECTION_COVERAGE" ? 800
     : action === "ACQUIRE_SETTLEMENT_EVIDENCE" ? 700
       : action === "HOLD_RESEARCH_ONLY" ? 200 : 0;
   const diagnostic = action === "RETIRE_NON_POSITIVE_MARGIN"
     ? "Indicative complement-leg cost leaves no positive adverse-probability failure budget; do not spend estimator tokens."
+    : action === "ACQUIRE_PROJECTION_COVERAGE"
+      ? "The Agent inspected market evidence, but no retained settlement projection maps those listings into the world ontology; acquire projection coverage before economic qualification."
     : action === "ACQUIRE_SETTLEMENT_EVIDENCE"
       ? "Positive indicative margin, if any, cannot advance until first-party settlement mapping becomes exact."
       : action === "ESTIMATE_ADVERSE_PROBABILITY"
@@ -94,6 +104,8 @@ export function buildWorldRelationShadowRoutingProjection(
       "RETIRE_NON_POSITIVE_MARGIN").length,
     settlementEvidenceCount: actions.filter((item) => item.action ===
       "ACQUIRE_SETTLEMENT_EVIDENCE").length,
+    projectionCoverageCount: actions.filter((item) => item.action ===
+      "ACQUIRE_PROJECTION_COVERAGE").length,
     probabilityEstimationCount: actions.filter((item) => item.action ===
       "ESTIMATE_ADVERSE_PROBABILITY").length,
     heldCount: actions.filter((item) => item.action === "HOLD_RESEARCH_ONLY").length,
