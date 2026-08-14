@@ -52,6 +52,16 @@ export type WorldPredicateEvidenceBinding = Readonly<{
   protocolIdentity: string;
 }>;
 
+export type WorldPredicateSupplementalEvidenceBinding = Readonly<{
+  kind: "ENTITY_ROLE_ASSERTION";
+  listingRef: string;
+  assertionId: Hash;
+  requirementId: Hash;
+  sourceDocumentId: Hash;
+  sourceRawHash: Hash;
+  sourceTextHash: Hash;
+}>;
+
 export type WorldPredicateArtifact = Readonly<{
   schemaVersion: "pmh.world-predicate.v1";
   predicateId: Hash;
@@ -60,6 +70,7 @@ export type WorldPredicateArtifact = Readonly<{
   observability: "DIRECTLY_OBSERVABLE" | "RULE_DEFINED" | "DERIVED" | "LATENT_HYPOTHESIS";
   epistemicPosture: WorldPredicateEpistemicPosture;
   evidenceBindings: readonly WorldPredicateEvidenceBinding[];
+  supplementalEvidenceBindings?: readonly WorldPredicateSupplementalEvidenceBinding[];
   ambiguityNotes: readonly string[];
   counterworlds: readonly string[];
   source: Readonly<{
@@ -376,11 +387,38 @@ function canonicalEvidenceBindings(
   return Object.freeze(bindings);
 }
 
+function canonicalSupplementalEvidenceBindings(
+  input: readonly WorldPredicateSupplementalEvidenceBinding[] | undefined,
+): readonly WorldPredicateSupplementalEvidenceBinding[] {
+  if (input === undefined) return Object.freeze([]);
+  if (!Array.isArray(input) || input.length > 16) {
+    throw new Error("world predicate supplemental evidence bindings are malformed");
+  }
+  const bindings = input.map((raw) => {
+    const binding = record(raw, "world predicate supplemental evidence binding");
+    if (binding.kind !== "ENTITY_ROLE_ASSERTION") {
+      throw new Error("world predicate supplemental evidence kind is unsupported");
+    }
+    return Object.freeze({ kind: "ENTITY_ROLE_ASSERTION" as const,
+      listingRef: boundedText(binding.listingRef, "supplemental listing ref", 500),
+      assertionId: hash(binding.assertionId, "entity-role assertion identity"),
+      requirementId: hash(binding.requirementId, "entity-role requirement identity"),
+      sourceDocumentId: hash(binding.sourceDocumentId, "entity-role source document"),
+      sourceRawHash: hash(binding.sourceRawHash, "entity-role source raw hash"),
+      sourceTextHash: hash(binding.sourceTextHash, "entity-role source text hash") });
+  }).sort((left, right) => left.assertionId.localeCompare(right.assertionId));
+  if (new Set(bindings.map((item) => item.assertionId)).size !== bindings.length) {
+    throw new Error("world predicate supplemental evidence identity is duplicated");
+  }
+  return Object.freeze(bindings);
+}
+
 export function buildWorldPredicateArtifact(input: Readonly<{
   semantic: WorldPredicateSemanticCore;
   observability: WorldPredicateArtifact["observability"];
   epistemicPosture: WorldPredicateEpistemicPosture;
   evidenceBindings: readonly WorldPredicateEvidenceBinding[];
+  supplementalEvidenceBindings?: readonly WorldPredicateSupplementalEvidenceBinding[];
   ambiguityNotes: readonly string[];
   counterworlds: readonly string[];
   source: WorldPredicateArtifact["source"];
@@ -393,6 +431,9 @@ export function buildWorldPredicateArtifact(input: Readonly<{
     throw new Error("world predicate posture is unsupported");
   }
   const evidenceBindings = canonicalEvidenceBindings(input.evidenceBindings);
+  const supplementalEvidenceBindings = canonicalSupplementalEvidenceBindings(
+    input.supplementalEvidenceBindings,
+  );
   if (input.epistemicPosture === "SETTLEMENT_BOUND_PREDICATE" && evidenceBindings.length === 0) {
     throw new Error("settlement-bound world predicate requires listing evidence");
   }
@@ -412,6 +453,9 @@ export function buildWorldPredicateArtifact(input: Readonly<{
     observability: input.observability,
     epistemicPosture: input.epistemicPosture,
     evidenceBindings,
+    ...(supplementalEvidenceBindings.length === 0 ? {} : {
+      supplementalEvidenceBindings,
+    }),
     ambiguityNotes: texts(input.ambiguityNotes, "predicate ambiguity notes", 16),
     counterworlds: texts(input.counterworlds, "predicate counterworlds", 16),
     source,

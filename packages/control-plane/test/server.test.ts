@@ -18,7 +18,10 @@ import {
   buildStudioProjectionSnapshot,
   buildAgentTask,
   buildAgentRun,
+  buildMarketCorpusSnapshot,
   buildPausedAgentCampaign,
+  buildWorldRelationEntityRoleAssertion,
+  buildWorldRelationEntityRoleSourceDocument,
   CatalogObservationDesk,
   CatalogRefreshScheduler,
   catalogObservationSources,
@@ -579,6 +582,61 @@ describe("control-plane HTTP surface", () => {
     });
     expect(remote.status).toBe(200);
     expect(remote.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("captures official entity-role evidence without starting a model", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pmh-role-source-"));
+    const path = join(directory, "control-plane.sqlite");
+    const store = new SqliteOperationalStore(path);
+    const at = "2026-08-14T00:00:00.000Z";
+    const corpus = buildMarketCorpusSnapshot({ sourceSetIdentity: hashCanonical({ set: 1 }),
+      eligibleSourceCount: 0, excludedSourceCount: 0, listings: [] });
+    store.saveWorldRelationExperimentCorpus(corpus);
+    const requirementBody = Object.freeze({
+      schemaVersion: "pmh.world-relation-entity-role-requirement.v1" as const,
+      frontierArtifactHash: hashCanonical({ frontier: 1 }),
+      corpusSnapshotIdentity: corpus.snapshotIdentity,
+      listingRef: "fixture:iowa-josh", entityLabel: "Josh Turek",
+      organizationLabel: "Democratic Party",
+      roleKind: "GENERAL_ELECTION_CANDIDATE_OF_ORGANIZATION" as const,
+      eventDescription: "Who will win the 2026 U.S. Senate election in Iowa?",
+      satisfyingEvidence: "Official source names Josh Turek",
+      contradictingEvidence: "Official source assigns another party",
+      status: "EVIDENCE_REQUIRED" as const,
+      authority: "ENTITY_ROLE_EVIDENCE_ROUTING_ONLY" as const,
+      semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
+      certificateAuthority: false as const, executionAuthority: false as const,
+      externalWriteAuthority: false as const, valueMovingAuthority: false as const,
+    });
+    const requirement = Object.freeze({ ...requirementBody,
+      requirementId: hashCanonical(requirementBody) });
+    store.saveWorldRelationEntityRoleRequirements([requirement]);
+    const excerpt = "Candidate List November 3, 2026 General Election\nUnited States Senator Democratic Josh Turek";
+    const document = buildWorldRelationEntityRoleSourceDocument({
+      url: "https://sos.iowa.gov/sites/default/files/2026-07/candidates.pdf",
+      publisher: "Iowa Secretary of State", contentType: "application/pdf",
+      bytes: new TextEncoder().encode("fixture pdf"), text: excerpt, receivedAt: at,
+      extractorIdentity: hashCanonical({ extractor: 1 }),
+    });
+    const assertion = buildWorldRelationEntityRoleAssertion({ requirement, document,
+      source: { url: document.record.url, publisher: document.record.publisher,
+        documentId: document.record.documentId, rawHash: document.record.rawHash,
+        textHash: document.record.textHash, receivedAt: at }, evidenceExcerpt: excerpt,
+      sourceOrganizationLabel: "Democratic", disposition: "SUPPORTED", assertedAt: at });
+    const { baseUrl } = await listenControlPlane({ discoveryStore: store,
+      entityRoleSourceCapture: async () => Object.freeze({ document,
+        assertions: Object.freeze([assertion]) }) });
+    const response = await fetch(`${baseUrl}/api/v1/world-relations/entity-role-evidence/iowa-2026-general-election/captures`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({ ok: true,
+      assertionCount: 1, dispositionCounts: { SUPPORTED: 1 },
+      providerRequestsStarted: 1, modelInvocationsStarted: 0,
+      valueMovingAuthority: false });
+    expect(store.loadWorldRelationEntityRoleAssertions(10)).toEqual([assertion]);
+    await closeTracked(servers.at(-1)!);
+    store.close();
+    await rm(directory, { recursive: true, force: true });
   });
 
   it("loses a port race without starting catalog or lease mutations", async () => {
@@ -3635,7 +3693,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-            schemaVersion: 63,
+            schemaVersion: 64,
         },
         records: [{ investigationId: created.investigationId }],
       });

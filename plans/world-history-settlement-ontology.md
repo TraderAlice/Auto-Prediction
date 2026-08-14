@@ -195,17 +195,17 @@ Agent cannot mistake superseded mappings for concurrent truths.
 
 ## Active continuation
 
-1. Route durable settlement blocker observations into evidence acquisition and
-   measure blocker retirement by new evidence revision.
-2. Run a Terra/high world-relation specimen against the current four real
-   research-only projections; compare terminal yield, counterworld
-   coverage, structural rejection and token cost with mechanism exploration.
-3. Feed admitted hard/probabilistic bridges into shadow opportunity construction
-   and measure whether they produce new payoff-state candidates rather than only
-   ontology artifacts.
-4. Generalize venue-policy interpretation from the first conservative
-   settlement-discretion pattern into a bounded rule-policy compiler with
-   explicit positive and negative fixtures per supported venue dialect.
+1. Route the two live Iowa semantic legs to complete Gemini contract/venue-rule
+   evidence and prove both false- and true-state resolution mappings without
+   weakening the first-party compiler.
+2. Recover current listing-ref/instrument-matched quotes and depth for the two
+   retained Gemini legs; keep absence distinct from a zero price or stale quote.
+3. Add freshness-aware scheduled entity-role acquisition so an inconclusive
+   official candidate list can be revisited without repeatedly creating work on
+   every projection read.
+4. Only after exact settlement and positive executable margin, route the Iowa
+   adverse state to probability-bound estimation; otherwise retain the exact
+   economic reason for retirement.
 
 No user decision blocks this continuation. Subject/alias promotion authority
 remains a separate queued policy question; current artifacts retain research
@@ -402,3 +402,43 @@ to the correct frontier predicate without rewriting the venue contract. Only
 after both Iowa and national legs exist should the system calculate the
 complement portfolio; settlement-rule exactness and fresh quote/depth remain
 separate later gates.
+
+Schema 64 now implements that entity-role evidence boundary. A requirement is
+bound to the exact relation frontier, retained corpus, inspected listing,
+person, organization and event. An official-source document retains the raw
+bytes, extracted text, independent hashes, receive time and extractor identity.
+Assertions record both the canonical organization (`Democratic Party`) and the
+source's actual ballot label (`Democratic`), so normalization never alters the
+evidence excerpt. SQLite persists all three artifact classes with restart tests;
+the migration also detects and repairs the short-lived schema-64 draft table by
+column capability rather than trusting only `user_version`.
+
+The first constrained source adapter admits only the Iowa Secretary of State's
+HTTPS document path, caps responses at 10 MB / 25 pages / 30 seconds, performs
+no model call and coalesces concurrent capture requests. Live capture retained
+the 218,755-byte July candidate-list PDF with raw hash
+`081e64911b5c6db9248b7565e7b4168c98f6f3430b9795c0673c25898d3dc438`.
+The deterministic office-scoped parser yields `Josh Turek = SUPPORTED`,
+`Ashley Hinson = CONTRADICTED`, and `Nathan Sage / Zach Wahls = INCONCLUSIVE`.
+Absence from a current list is deliberately not promoted into permanent
+exclusion.
+
+A supported assertion is now a first-class supplemental predicate evidence
+binding. Its assertion, requirement, source-document, raw and extracted-text
+hashes enter both predicate and settlement-projection lineage. The conservative
+settlement compiler verifies the exact retained assertion before it may satisfy
+subject grounding; event terms still have to occur in the venue contract. Live
+reconciliation therefore added the Josh contract as a second Iowa leg beside
+national Democratic Senate control. Unresolved alternative candidates no
+longer globally block this two-leg construction because the same observable
+Iowa predicate is already covered; the untraded latent office-holding predicate
+is correctly excluded from settlement-coverage completeness.
+
+The current live shadow construction is now semantically complete at two legs
+and no longer carries `INSPECTED_LISTING_PROJECTION_COVERAGE_INCOMPLETE`. It
+remains `SETTLEMENT_MAPPING_BLOCKED` for two independent empirical reasons:
+the retained Gemini text does not prove both affirmative and negative
+resolution clauses, and the current anonymous corpus omits both retained
+listings so indicative asks are unavailable. `ADVERSE_PROBABILITY_BOUND_UNAVAILABLE`
+remains downstream. The next generation should acquire those rule and quote
+artifacts provider-free before spending another relation-Agent token.

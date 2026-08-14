@@ -169,6 +169,13 @@ import {
   type WorldRelationProjectionCoverageObservation,
 } from "./world-relation-projection-coverage.js";
 import {
+  buildWorldRelationEntityRoleRequirements,
+  captureIowaGeneralElectionEntityRoleSource,
+  IOWA_2026_GENERAL_ELECTION_CANDIDATE_LIST_URL,
+  type WorldRelationEntityRoleSourceCapture,
+  type WorldRelationEntityRoleEvidenceStore,
+} from "./world-relation-entity-role-evidence.js";
+import {
   buildWorldStateMechanismResearchTaskContract,
   buildWorldStateMechanismResearchYield,
   buildRetainedWorldStateMechanismMemory,
@@ -1325,6 +1332,22 @@ function supportsWorldRelationExperimentRecords(
     typeof candidate.saveWorldRelationExperimentCheckpoints === "function";
 }
 
+function supportsWorldRelationEntityRoleEvidenceRecords(
+  store: DiscoveryRunStore | undefined,
+): store is DiscoveryRunStore & WorldRelationEntityRoleEvidenceStore {
+  if (store === undefined) return false;
+  const candidate = store as Partial<WorldRelationEntityRoleEvidenceStore>;
+  return candidate.worldRelationEntityRoleRequirementStorage !== undefined &&
+    candidate.worldRelationEntityRoleAssertionStorage !== undefined &&
+    candidate.worldRelationEntityRoleSourceDocumentStorage !== undefined &&
+    typeof candidate.loadWorldRelationEntityRoleRequirements === "function" &&
+    typeof candidate.saveWorldRelationEntityRoleRequirements === "function" &&
+    typeof candidate.loadWorldRelationEntityRoleAssertions === "function" &&
+    typeof candidate.saveWorldRelationEntityRoleAssertions === "function" &&
+    typeof candidate.loadWorldRelationEntityRoleSourceDocuments === "function" &&
+    typeof candidate.saveWorldRelationEntityRoleSourceDocuments === "function";
+}
+
 function supportsStandingOntologyRouteObservationEpisodes(
   store: DiscoveryRunStore | undefined,
 ): store is DiscoveryRunStore & StandingOntologyRouteObservationEpisodeStore {
@@ -1497,6 +1520,12 @@ export function createControlPlane(options?: {
   officialSourceDiscoveryAgent?: OfficialSourceDiscoveryAgentPort | null;
   officialSourceDiscoveryScheduler?: OfficialSourceDiscoveryScheduler;
   evidenceAcquisitionScheduler?: EvidenceAcquisitionScheduler;
+  entityRoleSourceCapture?: (input: Readonly<{
+    url: string;
+    receivedAt: string;
+    requirements: readonly import("./world-relation-entity-role-evidence.js")
+      .WorldRelationEntityRoleRequirement[];
+  }>) => Promise<WorldRelationEntityRoleSourceCapture>;
   ruleEvidenceClaimDesk?: ReturnType<typeof createRuleEvidenceClaimDesk>;
   ruleEvidenceClaimScheduler?: RuleEvidenceClaimScheduler;
   opportunityLifecycleDesk?: OpportunityLifecycleDesk;
@@ -1619,6 +1648,12 @@ export function createControlPlane(options?: {
   const worldRelationExperimentStore = supportsWorldRelationExperimentRecords(
     options?.discoveryStore,
   ) ? options.discoveryStore : null;
+  const worldRelationEntityRoleEvidenceStore =
+    supportsWorldRelationEntityRoleEvidenceRecords(options?.discoveryStore)
+      ? options.discoveryStore : null;
+  const entityRoleSourceCapture = options?.entityRoleSourceCapture ??
+    captureIowaGeneralElectionEntityRoleSource;
+  let pendingEntityRoleSourceCapture: Promise<WorldRelationEntityRoleSourceCapture> | null = null;
   let worldRelationExperimentAssignments:
     readonly WorldRelationExperimentAssignment[] = [];
   let currentSettlementProjections:
@@ -4138,6 +4173,10 @@ export function createControlPlane(options?: {
     }
     const retainedProjectionHistory = worldRelationExperimentStore
       .loadSettlementProjections(2_048);
+    const retainedRoleRequirements = worldRelationEntityRoleEvidenceStore
+      ?.loadWorldRelationEntityRoleRequirements(2_048) ?? [];
+    const retainedRoleAssertions = worldRelationEntityRoleEvidenceStore
+      ?.loadWorldRelationEntityRoleAssertions(2_048) ?? [];
     const checkpointByRunId = new Map(worldRelationExperimentStore
       .loadWorldRelationExperimentCheckpoints(2_048)
       .map((item) => [item.sourceAgentRunId, item] as const));
@@ -4155,7 +4194,9 @@ export function createControlPlane(options?: {
       if (revision === null || retainedCorpus === null) return [];
       return [compileWorldRelationProjectionCoverage({ frontier: revision.frontier,
         corpus: retainedCorpus, inspectedListingRefs: checkpoint.inspectedListingRefs,
-        existingProjections: retainedProjectionHistory, venuePolicyEvidence })];
+        existingProjections: retainedProjectionHistory, venuePolicyEvidence,
+        entityRoleRequirements: retainedRoleRequirements,
+        entityRoleAssertions: retainedRoleAssertions })];
     });
     const coveragePredicates = [...new Map(coverageCompilations
       .flatMap((item) => item.predicates)
@@ -4186,7 +4227,33 @@ export function createControlPlane(options?: {
     currentWorldRelationProjectionCoverageObservations = Object.freeze(
       coverageCompilations.flatMap((item) => item.observations),
     );
-    const projections = currentSettlementProjections;
+    if (worldRelationEntityRoleEvidenceStore !== null) {
+      const requirements = coverageCompilations.flatMap((coverage) => {
+        const matching = worldRelationExperimentStore
+          .loadWorldRelationExperimentInputs(2_048)
+          .find((item) => item.frontier.artifactHash ===
+            coverage.observations[0]?.frontierArtifactHash &&
+            item.corpusSnapshotIdentity ===
+            coverage.observations[0]?.corpusSnapshotIdentity);
+        const retainedCorpus = matching === undefined ? null
+          : worldRelationExperimentStore.loadWorldRelationExperimentCorpus(
+              matching.corpusSnapshotIdentity,
+            );
+        return matching === undefined || retainedCorpus === null ? []
+          : buildWorldRelationEntityRoleRequirements({ frontier: matching.frontier,
+              corpus: retainedCorpus, coverageObservations: coverage.observations });
+      });
+      const uniqueRequirements = [...new Map(requirements.map((item) =>
+        [item.requirementId, item] as const)).values()];
+      if (uniqueRequirements.length > 0) {
+        worldRelationEntityRoleEvidenceStore.saveWorldRelationEntityRoleRequirements(
+          uniqueRequirements,
+        );
+      }
+    }
+    const projections = [...new Map([
+      ...currentSettlementProjections, ...coverageProjections,
+    ].map((item) => [item.artifactHash, item] as const)).values()];
     const experiments = worldRelationExperimentStore.loadWorldRelationExperiments(2_048);
     const inputs = worldRelationExperimentStore.loadWorldRelationExperimentInputs(2_048);
     const inputById = new Map(inputs.map((item) => [item.inputRevisionId, item] as const));
@@ -4202,7 +4269,8 @@ export function createControlPlane(options?: {
       const coverage = compileWorldRelationProjectionCoverage({ frontier: revision.frontier,
         corpus: retainedCorpus, inspectedListingRefs: checkpoint.inspectedListingRefs,
         existingProjections: worldRelationExperimentStore.loadSettlementProjections(2_048),
-        venuePolicyEvidence });
+        venuePolicyEvidence, entityRoleRequirements: retainedRoleRequirements,
+        entityRoleAssertions: retainedRoleAssertions });
       const hypotheses = compileWorldRelationShadowTradeHypotheses({
         experiment, inputRevision: revision, corpus: retainedCorpus,
         // Agent memory is stable research lineage. Current quotes are projected
@@ -4210,8 +4278,11 @@ export function createControlPlane(options?: {
         quoteCorpus: retainedCorpus,
         projections: coverage.projections,
         inspectedListingRefs: checkpoint.inspectedListingRefs,
-        projectionCoverageIncomplete: coverage.observations.some((item) =>
-          item.disposition === "ENTITY_ROLE_EVIDENCE_REQUIRED"),
+        projectionCoverageIncomplete: revision.frontier.predicates
+          .filter((predicate) => !revision.frontier.latentPredicateIds
+            .includes(predicate.predicateId))
+          .some((predicate) => !coverage.projections.some((projection) =>
+            projection.predicateIds.includes(predicate.predicateId))),
       });
       const routes = buildWorldRelationShadowRoutingProjection(hypotheses).actions;
       return hypotheses.flatMap((hypothesis) => {
@@ -4767,13 +4838,20 @@ export function createControlPlane(options?: {
         projections: applicableProjections,
         inspectedListingRefs: checkpoint.inspectedListingRefs,
         projectionCoverageIncomplete:
-          currentWorldRelationProjectionCoverageObservations.some((item) =>
-            item.frontierArtifactHash === revision.frontier.artifactHash &&
-            item.corpusSnapshotIdentity === revision.corpusSnapshotIdentity &&
-            item.disposition === "ENTITY_ROLE_EVIDENCE_REQUIRED"),
+          [...frontierPredicateIds]
+            .filter((predicateId) => !experiment.latentPredicateIds.includes(predicateId))
+            .some((predicateId) =>
+            !applicableProjections.some((projection) =>
+              projection.predicateIds.includes(predicateId))),
       });
     });
     const execution = agentExecutionRegistry.snapshot();
+    const roleRequirements = worldRelationEntityRoleEvidenceStore
+      ?.loadWorldRelationEntityRoleRequirements(2_048) ?? [];
+    const roleAssertions = worldRelationEntityRoleEvidenceStore
+      ?.loadWorldRelationEntityRoleAssertions(2_048) ?? [];
+    const supportedRequirementIds = new Set(roleAssertions.filter((item) =>
+      item.disposition === "SUPPORTED").map((item) => item.requirementId));
     const body = Object.freeze({
       schemaVersion: "pmh.world-relation-experiment-projection.v1" as const,
       predicateArtifactCount: predicates.length,
@@ -4793,6 +4871,7 @@ export function createControlPlane(options?: {
         currentWorldRelationProjectionCoverageObservations.length,
       projectionCoverageDispositionCounts: Object.freeze(Object.fromEntries([
         "ALREADY_COVERED", "TEXT_GROUNDED_PREDICATE_BOUND",
+        "ENTITY_ROLE_ASSERTION_BOUND",
         "ENTITY_ROLE_EVIDENCE_REQUIRED", "OPPOSING_SUBJECT",
         "NO_GROUNDED_PREDICATE",
       ].map((disposition) => [disposition,
@@ -4800,6 +4879,18 @@ export function createControlPlane(options?: {
           item.disposition === disposition).length]))),
       projectionCoverageObservations:
         currentWorldRelationProjectionCoverageObservations,
+      entityRoleEvidence: Object.freeze({
+        requirementCount: roleRequirements.length,
+        supportedCount: roleRequirements.filter((item) =>
+          supportedRequirementIds.has(item.requirementId)).length,
+        openCount: roleRequirements.filter((item) =>
+          !supportedRequirementIds.has(item.requirementId)).length,
+        assertionCount: roleAssertions.length,
+        requirements: roleRequirements,
+        assertions: roleAssertions,
+        automaticDispatch: false as const,
+        semanticDecisionAuthority: false as const,
+      }),
       retainedSettlementObservationCount: retainedSettlementObservations.length,
       settlementDispositionCounts: Object.freeze({
         exact: currentSettlementProjectionObservations.filter((item) =>
@@ -7777,6 +7868,59 @@ export function createControlPlane(options?: {
           providerRequestsStarted: 0,
           modelInvocationsStarted: 0,
         });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname ===
+        "/api/v1/world-relations/entity-role-evidence/iowa-2026-general-election/captures"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 0) {
+          throw new Error("Iowa entity-role capture accepts an empty object only");
+        }
+        if (worldRelationEntityRoleEvidenceStore === null) {
+          throw new Error("entity-role evidence storage is unavailable");
+        }
+        const requirements = worldRelationEntityRoleEvidenceStore
+          .loadWorldRelationEntityRoleRequirements(2_048);
+        if (requirements.length === 0) {
+          throw new Error("no entity-role evidence requirements are available");
+        }
+        pendingEntityRoleSourceCapture ??= entityRoleSourceCapture({
+          url: IOWA_2026_GENERAL_ELECTION_CANDIDATE_LIST_URL,
+          receivedAt: new Date().toISOString(), requirements,
+        }).finally(() => { pendingEntityRoleSourceCapture = null; });
+        const capture = await pendingEntityRoleSourceCapture;
+        worldRelationEntityRoleEvidenceStore.saveWorldRelationEntityRoleSourceDocuments(
+          [capture.document],
+        );
+        worldRelationEntityRoleEvidenceStore.saveWorldRelationEntityRoleAssertions(
+          capture.assertions,
+        );
+        reconcileWorldRelationExperiments();
+        await broadcastProjection();
+        writeJson(response, 201, Object.freeze({ ok: true,
+          document: capture.document.record,
+          assertionCount: capture.assertions.length,
+          dispositionCounts: Object.freeze(Object.fromEntries(
+            ["SUPPORTED", "CONTRADICTED", "INCONCLUSIVE"].map((disposition) =>
+              [disposition, capture.assertions.filter((item) =>
+                item.disposition === disposition).length]))),
+          providerRequestsStarted: 1, modelInvocationsStarted: 0,
+          semanticDecisionAuthority: false, executionAuthority: false,
+          externalWriteAuthority: false, valueMovingAuthority: false,
+        }));
+      } catch (error) {
+        writeJson(response, 409, { ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "Iowa entity-role evidence capture failed",
+          providerRequestsStarted: 0, modelInvocationsStarted: 0,
+          executionAuthority: false, valueMovingAuthority: false });
       }
       return;
     }

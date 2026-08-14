@@ -362,8 +362,17 @@ import {
   type SettlementProjectionObservation,
   type SettlementProjectionObservationStore,
 } from "./settlement-projection-compiler.js";
+import {
+  assertWorldRelationEntityRoleAssertion,
+  assertWorldRelationEntityRoleRequirement,
+  assertStoredWorldRelationEntityRoleSourceDocument,
+  type StoredWorldRelationEntityRoleSourceDocument,
+  type WorldRelationEntityRoleAssertion,
+  type WorldRelationEntityRoleEvidenceStore,
+  type WorldRelationEntityRoleRequirement,
+} from "./world-relation-entity-role-evidence.js";
 
-const SCHEMA_VERSION = 63;
+const SCHEMA_VERSION = 64;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -2000,6 +2009,57 @@ function parseSettlementProjectionObservation(
   return decoded;
 }
 
+function parseWorldRelationEntityRoleRequirement(
+  value: unknown,
+): WorldRelationEntityRoleRequirement {
+  const row = value as Readonly<{ requirement_id?: unknown; record_json?: unknown;
+    record_hash?: unknown }>;
+  if (typeof row?.requirement_id !== "string" || typeof row.record_json !== "string" ||
+      row.record_hash !== row.requirement_id) {
+    throw new Error("stored entity-role requirement is malformed");
+  }
+  const decoded = assertWorldRelationEntityRoleRequirement(JSON.parse(row.record_json));
+  if (decoded.requirementId !== row.requirement_id) {
+    throw new Error("stored entity-role requirement identity is inconsistent");
+  }
+  return decoded;
+}
+
+function parseWorldRelationEntityRoleAssertion(
+  value: unknown,
+): WorldRelationEntityRoleAssertion {
+  const row = value as Readonly<{ assertion_id?: unknown; record_json?: unknown;
+    record_hash?: unknown }>;
+  if (typeof row?.assertion_id !== "string" || typeof row.record_json !== "string" ||
+      row.record_hash !== row.assertion_id) {
+    throw new Error("stored entity-role assertion is malformed");
+  }
+  const decoded = assertWorldRelationEntityRoleAssertion(JSON.parse(row.record_json));
+  if (decoded.assertionId !== row.assertion_id) {
+    throw new Error("stored entity-role assertion identity is inconsistent");
+  }
+  return decoded;
+}
+
+function parseWorldRelationEntityRoleSourceDocument(
+  value: unknown,
+): StoredWorldRelationEntityRoleSourceDocument {
+  const row = value as Readonly<{ document_id?: unknown; record_json?: unknown;
+    record_hash?: unknown; raw_bytes?: unknown; extracted_text?: unknown }>;
+  if (typeof row?.document_id !== "string" || typeof row.record_json !== "string" ||
+      row.record_hash !== row.document_id || !(row.raw_bytes instanceof Uint8Array) ||
+      typeof row.extracted_text !== "string") {
+    throw new Error("stored entity-role source document row is malformed");
+  }
+  const decoded = assertStoredWorldRelationEntityRoleSourceDocument(Object.freeze({
+    record: JSON.parse(row.record_json), bytes: row.raw_bytes, text: row.extracted_text,
+  }));
+  if (decoded.record.documentId !== row.document_id) {
+    throw new Error("stored entity-role source document identity is inconsistent");
+  }
+  return decoded;
+}
+
 function parseWorldRelationExperiment(value: unknown): WorldRelationExperiment {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite world relation experiment row is malformed");
@@ -2730,7 +2790,8 @@ export class SqliteOperationalStore
     WorldHistoryOntologyStore,
     WorldRelationExperimentInputStore,
     WorldRelationExperimentCheckpointStore,
-    SettlementProjectionObservationStore
+    SettlementProjectionObservationStore,
+    WorldRelationEntityRoleEvidenceStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -2863,6 +2924,12 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"snapshotIdentity">;
   public readonly worldRelationExperimentCheckpointStorage:
     OperationalStorageProjection<"checkpointId">;
+  public readonly worldRelationEntityRoleRequirementStorage:
+    OperationalStorageProjection<"requirementId">;
+  public readonly worldRelationEntityRoleAssertionStorage:
+    OperationalStorageProjection<"assertionId">;
+  public readonly worldRelationEntityRoleSourceDocumentStorage:
+    OperationalStorageProjection<"documentId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -3292,6 +3359,22 @@ export class SqliteOperationalStore
       durable: !inMemory,
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "checkpointId",
+    });
+    this.worldRelationEntityRoleRequirementStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "requirementId",
+    });
+    this.worldRelationEntityRoleAssertionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "assertionId",
+    });
+    this.worldRelationEntityRoleSourceDocumentStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL", durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION, idempotencyKey: "documentId",
     });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
@@ -3859,6 +3942,30 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'world_relation_experiment_checkpoints'`,
       )
       .get() !== undefined;
+    const worldRelationEntityRoleRequirementTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_entity_role_requirements'`,
+      )
+      .get() !== undefined;
+    const worldRelationEntityRoleAssertionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_entity_role_assertions'`,
+      )
+      .get() !== undefined;
+    const worldRelationEntityRoleAssertionDocumentColumnExists = this.#database
+      .prepare(
+        `SELECT name FROM pragma_table_info('world_relation_entity_role_assertions')
+         WHERE name = 'document_id'`,
+      )
+      .get() !== undefined;
+    const worldRelationEntityRoleSourceDocumentTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_entity_role_source_documents'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -3933,6 +4040,10 @@ export class SqliteOperationalStore
       && worldRelationExperimentInputTableExists
       && worldRelationExperimentCorpusTableExists
       && worldRelationExperimentCheckpointTableExists
+      && worldRelationEntityRoleRequirementTableExists
+      && worldRelationEntityRoleAssertionTableExists
+      && worldRelationEntityRoleAssertionDocumentColumnExists
+      && worldRelationEntityRoleSourceDocumentTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -6572,6 +6683,89 @@ export class SqliteOperationalStore
               input_revision_id, closed_at DESC, checkpoint_id DESC
             );
         `);
+      }
+      if (current < 64 || !worldRelationEntityRoleRequirementTableExists ||
+          !worldRelationEntityRoleAssertionTableExists ||
+          !worldRelationEntityRoleAssertionDocumentColumnExists ||
+          !worldRelationEntityRoleSourceDocumentTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_relation_entity_role_source_documents (
+            document_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(document_id) = 71 AND document_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            received_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = document_id),
+            raw_bytes BLOB NOT NULL,
+            extracted_text TEXT NOT NULL
+          ) STRICT;
+          CREATE TABLE IF NOT EXISTS world_relation_entity_role_requirements (
+            requirement_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(requirement_id) = 71 AND requirement_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            frontier_artifact_hash TEXT NOT NULL,
+            corpus_snapshot_identity TEXT NOT NULL,
+            listing_ref TEXT NOT NULL,
+            entity_label TEXT NOT NULL,
+            organization_label TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = requirement_id),
+            FOREIGN KEY (corpus_snapshot_identity)
+              REFERENCES world_relation_experiment_corpora(snapshot_identity)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_entity_role_requirements_scope
+            ON world_relation_entity_role_requirements (
+              frontier_artifact_hash, corpus_snapshot_identity, listing_ref
+            );
+        `);
+        if (worldRelationEntityRoleAssertionTableExists &&
+            !worldRelationEntityRoleAssertionDocumentColumnExists) {
+          this.#database.exec(`
+            DROP INDEX IF EXISTS world_relation_entity_role_assertions_requirement;
+            ALTER TABLE world_relation_entity_role_assertions
+              RENAME TO world_relation_entity_role_assertions_v63_draft;
+          `);
+        }
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_relation_entity_role_assertions (
+            assertion_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(assertion_id) = 71 AND assertion_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            requirement_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            disposition TEXT NOT NULL CHECK (disposition IN (
+              'SUPPORTED', 'CONTRADICTED', 'INCONCLUSIVE'
+            )),
+            asserted_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = assertion_id),
+            FOREIGN KEY (requirement_id)
+              REFERENCES world_relation_entity_role_requirements(requirement_id),
+            FOREIGN KEY (document_id)
+              REFERENCES world_relation_entity_role_source_documents(document_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_entity_role_assertions_requirement
+            ON world_relation_entity_role_assertions (
+              requirement_id, asserted_at DESC, assertion_id DESC
+            );
+        `);
+        if (worldRelationEntityRoleAssertionTableExists &&
+            !worldRelationEntityRoleAssertionDocumentColumnExists) {
+          this.#database.exec(`
+            INSERT INTO world_relation_entity_role_assertions (
+              assertion_id, requirement_id, document_id, disposition,
+              asserted_at, record_json, record_hash
+            )
+            SELECT assertion_id, requirement_id,
+              json_extract(legacy.record_json, '$.source.documentId'), disposition,
+              asserted_at, legacy.record_json, legacy.record_hash
+            FROM world_relation_entity_role_assertions_v63_draft AS legacy
+            INNER JOIN world_relation_entity_role_source_documents AS documents
+              ON documents.document_id =
+                json_extract(legacy.record_json, '$.source.documentId');
+            DROP TABLE world_relation_entity_role_assertions_v63_draft;
+          `);
+        }
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
@@ -13776,6 +13970,164 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return checkpoints;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationEntityRoleRequirements(
+    limit: number,
+  ): readonly WorldRelationEntityRoleRequirement[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT requirement_id, record_json, record_hash
+       FROM world_relation_entity_role_requirements
+       ORDER BY requirement_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationEntityRoleRequirement));
+  }
+
+  public loadWorldRelationEntityRoleSourceDocuments(
+    limit: number,
+  ): readonly StoredWorldRelationEntityRoleSourceDocument[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT document_id, record_json, record_hash, raw_bytes, extracted_text
+       FROM world_relation_entity_role_source_documents
+       ORDER BY received_at DESC, document_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationEntityRoleSourceDocument));
+  }
+
+  public saveWorldRelationEntityRoleSourceDocuments(
+    documentsInput: readonly StoredWorldRelationEntityRoleSourceDocument[],
+  ): readonly StoredWorldRelationEntityRoleSourceDocument[] {
+    this.#assertOpen();
+    const documents = Object.freeze(documentsInput.map(
+      assertStoredWorldRelationEntityRoleSourceDocument,
+    ));
+    if (new Set(documents.map((item) => item.record.documentId)).size !== documents.length) {
+      throw new Error("entity-role source document batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const item of documents) {
+        this.#database.prepare(
+          `INSERT INTO world_relation_entity_role_source_documents (
+             document_id, received_at, record_json, record_hash, raw_bytes, extracted_text
+           ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(document_id) DO NOTHING`,
+        ).run(item.record.documentId, item.record.receivedAt, canonicalJson(item.record),
+          item.record.documentId, item.bytes, item.text);
+        const row = this.#database.prepare(
+          `SELECT document_id, record_json, record_hash, raw_bytes, extracted_text
+           FROM world_relation_entity_role_source_documents WHERE document_id = ?`,
+        ).get(item.record.documentId);
+        if (parseWorldRelationEntityRoleSourceDocument(row).record.documentId !==
+            item.record.documentId) throw new Error("entity-role source identity collision");
+      }
+      this.#database.exec("COMMIT");
+      return documents;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public saveWorldRelationEntityRoleRequirements(
+    requirementsInput: readonly WorldRelationEntityRoleRequirement[],
+  ): readonly WorldRelationEntityRoleRequirement[] {
+    this.#assertOpen();
+    const requirements = Object.freeze(requirementsInput.map(
+      assertWorldRelationEntityRoleRequirement,
+    ));
+    if (new Set(requirements.map((item) => item.requirementId)).size !==
+        requirements.length) throw new Error("entity-role requirement batch repeats an identity");
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const item of requirements) {
+        if (this.loadWorldRelationExperimentCorpus(item.corpusSnapshotIdentity) === null) {
+          throw new Error("entity-role requirement references an unavailable corpus");
+        }
+        this.#database.prepare(
+          `INSERT INTO world_relation_entity_role_requirements (
+             requirement_id, frontier_artifact_hash, corpus_snapshot_identity,
+             listing_ref, entity_label, organization_label, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(requirement_id) DO NOTHING`,
+        ).run(item.requirementId, item.frontierArtifactHash, item.corpusSnapshotIdentity,
+          item.listingRef, item.entityLabel, item.organizationLabel,
+          canonicalJson(item), item.requirementId);
+        const row = this.#database.prepare(
+          `SELECT requirement_id, record_json, record_hash
+           FROM world_relation_entity_role_requirements WHERE requirement_id = ?`,
+        ).get(item.requirementId);
+        if (parseWorldRelationEntityRoleRequirement(row).requirementId !== item.requirementId) {
+          throw new Error("entity-role requirement identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return requirements;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationEntityRoleAssertions(
+    limit: number,
+  ): readonly WorldRelationEntityRoleAssertion[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT assertion_id, record_json, record_hash
+       FROM world_relation_entity_role_assertions
+       ORDER BY asserted_at DESC, assertion_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationEntityRoleAssertion));
+  }
+
+  public saveWorldRelationEntityRoleAssertions(
+    assertionsInput: readonly WorldRelationEntityRoleAssertion[],
+  ): readonly WorldRelationEntityRoleAssertion[] {
+    this.#assertOpen();
+    const assertions = Object.freeze(assertionsInput.map(
+      assertWorldRelationEntityRoleAssertion,
+    ));
+    if (new Set(assertions.map((item) => item.assertionId)).size !== assertions.length) {
+      throw new Error("entity-role assertion batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const item of assertions) {
+        if (this.#database.prepare(
+          "SELECT requirement_id FROM world_relation_entity_role_requirements WHERE requirement_id = ?",
+        ).get(item.requirementId) === undefined) {
+          throw new Error("entity-role assertion references an unavailable requirement");
+        }
+        if (this.#database.prepare(
+          "SELECT document_id FROM world_relation_entity_role_source_documents WHERE document_id = ?",
+        ).get(item.source.documentId) === undefined) {
+          throw new Error("entity-role assertion references an unavailable source document");
+        }
+        this.#database.prepare(
+          `INSERT INTO world_relation_entity_role_assertions (
+             assertion_id, requirement_id, document_id, disposition, asserted_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(assertion_id) DO NOTHING`,
+        ).run(item.assertionId, item.requirementId, item.source.documentId,
+          item.disposition, item.assertedAt, canonicalJson(item), item.assertionId);
+        const row = this.#database.prepare(
+          `SELECT assertion_id, record_json, record_hash
+           FROM world_relation_entity_role_assertions WHERE assertion_id = ?`,
+        ).get(item.assertionId);
+        if (parseWorldRelationEntityRoleAssertion(row).assertionId !== item.assertionId) {
+          throw new Error("entity-role assertion identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return assertions;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

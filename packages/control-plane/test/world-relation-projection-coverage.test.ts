@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildMarketCorpusSnapshot,
   buildWorldPredicateArtifact,
+  buildWorldRelationEntityRoleAssertion,
+  buildWorldRelationEntityRoleRequirements,
+  buildWorldRelationEntityRoleSourceDocument,
   compileWorldRelationProjectionCoverage,
   type DiscoveryCatalogListing,
   type WorldRelationFrontierSeed,
@@ -87,5 +90,43 @@ describe("world relation projection coverage", () => {
     expect(result.settlement.observations[0]?.blockers).toContain(
       "MISSING_NEGATIVE_RESOLUTION_CLAUSE",
     );
+
+    const requirements = buildWorldRelationEntityRoleRequirements({ frontier, corpus,
+      coverageObservations: result.observations });
+    const roleDocument = buildWorldRelationEntityRoleSourceDocument({
+      url: "https://sos.iowa.gov/sites/default/files/2026-07/candidates.pdf",
+      publisher: "Iowa Secretary of State", contentType: "application/pdf",
+      bytes: new TextEncoder().encode("fixture pdf"),
+      text: "United States Senator Democratic Josh Turek",
+      receivedAt: at, extractorIdentity: hash("extractor"),
+    });
+    const roleAssertion = buildWorldRelationEntityRoleAssertion({
+      requirement: requirements[0]!, document: roleDocument,
+      source: { url: roleDocument.record.url, publisher: roleDocument.record.publisher,
+        documentId: roleDocument.record.documentId, rawHash: roleDocument.record.rawHash,
+        textHash: roleDocument.record.textHash, receivedAt: at },
+      sourceOrganizationLabel: "Democratic",
+      evidenceExcerpt: roleDocument.text, disposition: "SUPPORTED", assertedAt: at,
+    });
+    const bridged = compileWorldRelationProjectionCoverage({ frontier, corpus,
+      inspectedListingRefs: corpus.listings.map((item) => item.listingRef),
+      existingProjections: [], entityRoleRequirements: requirements,
+      entityRoleAssertions: [roleAssertion] });
+    expect(bridged.observations.map((item) => [item.listingRef, item.disposition])).toEqual([
+      ["gemini:control-dem", "TEXT_GROUNDED_PREDICATE_BOUND"],
+      ["gemini:control-gop", "OPPOSING_SUBJECT"],
+      ["gemini:iowa-josh", "ENTITY_ROLE_ASSERTION_BOUND"],
+    ]);
+    const joshProjection = bridged.projections.find((item) =>
+      item.listing.listingRef === "gemini:iowa-josh");
+    expect(joshProjection).toMatchObject({ predicateIds: [iowa.predicateId],
+      compilerAdmission: "RESEARCH_ONLY" });
+    expect(joshProjection?.truthStates.every((state) =>
+      state.ruleEvidenceHashes.includes(roleAssertion.assertionId))).toBe(true);
+    expect(bridged.settlement.observations.find((item) =>
+      item.listingRef === "gemini:iowa-josh")?.blockers).toEqual([
+      "MISSING_AFFIRMATIVE_RESOLUTION_CLAUSE",
+      "MISSING_NEGATIVE_RESOLUTION_CLAUSE",
+    ]);
   });
 });

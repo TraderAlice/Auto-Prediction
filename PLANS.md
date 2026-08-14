@@ -9,6 +9,12 @@ the currently separate market-facet, world-mechanism, semantic-truth-table and
 probabilistic-bound layers through reusable typed world predicates, exact
 settlement projections and state-refreshed relation experiments. It must
 represent state-mediated soft inhibition without manufacturing hard exclusion.
+The current continuation has now proved an additional boundary on live Iowa
+evidence: a venue contract may name a person while the reusable world predicate
+names an organization. Content-addressed independent entity-role assertions
+bridge those ontologies without rewriting contract text or granting an Agent
+semantic authority. The next gates are complete Gemini settlement evidence and
+fresh quote/depth recovery for the resulting two-leg shadow construction.
 
 The selected execution continuation is
 [`plans/state-refreshed-agent-boundary.md`](plans/state-refreshed-agent-boundary.md).

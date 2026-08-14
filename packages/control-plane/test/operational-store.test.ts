@@ -13,6 +13,9 @@ import {
   buildStudioProjection,
   buildStudioProjectionSnapshot,
   buildResearchDecisionOutcomeObservation,
+  buildMarketCorpusSnapshot,
+  buildWorldRelationEntityRoleAssertion,
+  buildWorldRelationEntityRoleSourceDocument,
   acknowledgeDiscoverySignal,
   createPiInvestigatorRuntime,
   DiscoveryLedger,
@@ -548,7 +551,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 63,
+        schemaVersion: 64,
         idempotencyKey: "taskId",
       },
     });
@@ -737,11 +740,11 @@ describe("SQLite operational store", () => {
     database.close();
 
     const migrated = new SqliteOperationalStore(path);
-    expect(migrated.storage.schemaVersion).toBe(63);
+    expect(migrated.storage.schemaVersion).toBe(64);
     expect(migrated.investigationStorage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 63,
+      schemaVersion: 64,
       idempotencyKey: "taskId+catalogContextIdentity",
     });
     migrated.close();
@@ -836,6 +839,9 @@ describe("SQLite operational store", () => {
       "studio_projection_snapshot",
       "workload_routes",
       "world_predicate_artifacts",
+      "world_relation_entity_role_assertions",
+      "world_relation_entity_role_requirements",
+      "world_relation_entity_role_source_documents",
       "world_relation_experiment_checkpoints",
       "world_relation_experiment_corpora",
       "world_relation_experiment_inputs",
@@ -853,14 +859,14 @@ describe("SQLite operational store", () => {
       "world_state_subject_binding_assessments",
       "world_state_subject_binding_research_inputs",
     ]);
-    expect(version.user_version).toBe(63);
+    expect(version.user_version).toBe(64);
     inspected.close();
 
     const partial = new DatabaseSync(path);
     partial.exec("DROP TABLE search_lease_corpora");
     partial.exec("DROP TABLE search_lease_records");
     partial.exec("DROP TABLE search_notification_records");
-    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(63);
+    expect((partial.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(64);
     partial.close();
     const repaired = new SqliteOperationalStore(path);
     repaired.close();
@@ -885,7 +891,7 @@ describe("SQLite operational store", () => {
     const partialCurrent = new DatabaseSync(path);
     partialCurrent.exec("DROP TABLE mechanism_prototype_exploration_trailheads");
     expect((partialCurrent.prepare("PRAGMA user_version").get() as { user_version: number })
-      .user_version).toBe(63);
+      .user_version).toBe(64);
     partialCurrent.close();
     const repairedCurrent = new SqliteOperationalStore(path);
     repairedCurrent.close();
@@ -901,7 +907,7 @@ describe("SQLite operational store", () => {
     partialExecutionSchema.exec("DROP TABLE agent_runtime_definitions");
     expect((partialExecutionSchema.prepare("PRAGMA user_version").get() as {
       user_version: number;
-    }).user_version).toBe(63);
+    }).user_version).toBe(64);
     partialExecutionSchema.close();
     const repairedExecutionSchema = new SqliteOperationalStore(path);
     repairedExecutionSchema.close();
@@ -923,7 +929,7 @@ describe("SQLite operational store", () => {
     expect(first.loadResearchDecisionEpisodes(10)).toEqual([expected]);
     expect(first.researchDecisionEpisodeStorage).toMatchObject({
       durable: true,
-      schemaVersion: 63,
+      schemaVersion: 64,
       idempotencyKey: "episodeId",
     });
     first.close();
@@ -973,7 +979,7 @@ describe("SQLite operational store", () => {
 
     const migrated = new SqliteOperationalStore(path);
     expect(migrated.loadResearchDecisionEpisodes(10)).toEqual([current]);
-    expect(migrated.storage.schemaVersion).toBe(63);
+    expect(migrated.storage.schemaVersion).toBe(64);
     migrated.close();
   });
 
@@ -985,7 +991,7 @@ describe("SQLite operational store", () => {
     const read = acknowledgeDiscoverySignal(expected, "2026-08-12T13:00:00.000Z");
     expect(first.saveDiscoverySignalRecord(read)).toEqual(read);
     expect(first.discoverySignalStorage).toMatchObject({
-      durable: true, schemaVersion: 63, idempotencyKey: "signalId",
+      durable: true, schemaVersion: 64, idempotencyKey: "signalId",
     });
     first.close();
 
@@ -1045,7 +1051,7 @@ describe("SQLite operational store", () => {
     });
     expect(first.saveResearchDecisionOutcomeObservation(advanced)).toEqual(advanced);
     expect(first.researchDecisionOutcomeObservationStorage).toMatchObject({
-      durable: true, schemaVersion: 63, idempotencyKey: "observationId",
+      durable: true, schemaVersion: 64, idempotencyKey: "observationId",
     });
     const expectedYield = buildDiscoveryYieldProjection({
       observedAt: advanced.observedAt,
@@ -1120,7 +1126,7 @@ describe("SQLite operational store", () => {
     expect(firstDesk.projection().storage).toMatchObject({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 63,
+      schemaVersion: 64,
     });
     firstStore.close();
 
@@ -1230,7 +1236,7 @@ describe("SQLite operational store", () => {
     expect(first.catalogObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 63,
+      schemaVersion: 64,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -1275,6 +1281,56 @@ describe("SQLite operational store", () => {
     store.close();
   });
 
+  it("restores entity-role evidence requirements and assertions across restart", async () => {
+    const path = await databasePath();
+    const at = "2026-08-14T00:00:00.000Z";
+    const corpus = buildMarketCorpusSnapshot({ sourceSetIdentity: hashCanonical({ set: 1 }),
+      eligibleSourceCount: 0, excludedSourceCount: 0, listings: [] });
+    const requirementBody = Object.freeze({
+      schemaVersion: "pmh.world-relation-entity-role-requirement.v1" as const,
+      frontierArtifactHash: hashCanonical({ frontier: 1 }),
+      corpusSnapshotIdentity: corpus.snapshotIdentity,
+      listingRef: "fixture:iowa-josh", entityLabel: "Josh Turek",
+      organizationLabel: "Democratic Party",
+      roleKind: "GENERAL_ELECTION_CANDIDATE_OF_ORGANIZATION" as const,
+      eventDescription: "2026 Iowa U.S. Senate election",
+      satisfyingEvidence: "Election authority names Josh Turek as Democratic Party candidate",
+      contradictingEvidence: "Election authority assigns another party or excludes candidate",
+      status: "EVIDENCE_REQUIRED" as const,
+      authority: "ENTITY_ROLE_EVIDENCE_ROUTING_ONLY" as const,
+      semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
+      certificateAuthority: false as const, executionAuthority: false as const,
+      externalWriteAuthority: false as const, valueMovingAuthority: false as const,
+    });
+    const requirement = Object.freeze({ ...requirementBody,
+      requirementId: hashCanonical(requirementBody) });
+    const excerpt = "United States Senator Democratic Party Josh Turek";
+    const document = buildWorldRelationEntityRoleSourceDocument({
+      url: "https://sos.iowa.gov/candidates.pdf", publisher: "Iowa Secretary of State",
+      contentType: "application/pdf", bytes: new TextEncoder().encode("fixture pdf"),
+      text: excerpt, receivedAt: at, extractorIdentity: hashCanonical({ extractor: 1 }),
+    });
+    const assertion = buildWorldRelationEntityRoleAssertion({ requirement, document,
+      source: { url: document.record.url,
+        publisher: document.record.publisher, documentId: document.record.documentId,
+        rawHash: document.record.rawHash, textHash: document.record.textHash,
+        receivedAt: at }, evidenceExcerpt: excerpt, disposition: "SUPPORTED", assertedAt: at });
+    const first = new SqliteOperationalStore(path);
+    first.saveWorldRelationExperimentCorpus(corpus);
+    expect(first.saveWorldRelationEntityRoleRequirements([requirement])).toEqual([requirement]);
+    expect(first.saveWorldRelationEntityRoleSourceDocuments([document])).toEqual([document]);
+    expect(first.saveWorldRelationEntityRoleAssertions([assertion])).toEqual([assertion]);
+    first.close();
+    const second = new SqliteOperationalStore(path);
+    expect(second.loadWorldRelationEntityRoleRequirements(10)).toEqual([requirement]);
+    expect(second.loadWorldRelationEntityRoleAssertions(10)).toEqual([assertion]);
+    expect(second.loadWorldRelationEntityRoleSourceDocuments(10)).toEqual([document]);
+    expect(second.worldRelationEntityRoleAssertionStorage).toMatchObject({
+      durable: true, schemaVersion: 64, idempotencyKey: "assertionId",
+    });
+    second.close();
+  });
+
   it("restores bounded candidate books byte-for-byte across store lifetimes", async () => {
     const path = await databasePath();
     const polymarket = candidateBookObservation("polymarket-global");
@@ -1285,7 +1341,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateBookObservationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 63,
+      schemaVersion: 64,
       idempotencyKey: "observationId",
     });
     first.close();
@@ -1332,7 +1388,7 @@ describe("SQLite operational store", () => {
     expect(first.candidateWatchRefreshStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 63,
+      schemaVersion: 64,
       idempotencyKey: "refreshId",
     });
     first.close();
@@ -1374,7 +1430,7 @@ describe("SQLite operational store", () => {
     expect(first.anonymousSimulationMaterializationStorage).toEqual({
       mode: "SQLITE_WAL",
       durable: true,
-      schemaVersion: 63,
+      schemaVersion: 64,
       idempotencyKey: "materializationId",
     });
     first.close();
@@ -1393,7 +1449,7 @@ describe("SQLite operational store", () => {
       storage: {
         mode: "SQLITE_WAL",
         durable: true,
-        schemaVersion: 63,
+        schemaVersion: 64,
       },
     });
     expect(

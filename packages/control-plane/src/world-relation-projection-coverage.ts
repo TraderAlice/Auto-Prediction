@@ -13,6 +13,11 @@ import {
 } from "./world-history-ontology.js";
 import type { WorldRelationFrontierSeed } from
   "./world-history-ontology-adapter.js";
+import {
+  supportedRoleAssertionForPredicate,
+  type WorldRelationEntityRoleAssertion,
+  type WorldRelationEntityRoleRequirement,
+} from "./world-relation-entity-role-evidence.js";
 
 export type WorldRelationProjectionCoverageObservation = Readonly<{
   schemaVersion: "pmh.world-relation-projection-coverage-observation.v1";
@@ -23,6 +28,7 @@ export type WorldRelationProjectionCoverageObservation = Readonly<{
   disposition:
     | "ALREADY_COVERED"
     | "TEXT_GROUNDED_PREDICATE_BOUND"
+    | "ENTITY_ROLE_ASSERTION_BOUND"
     | "ENTITY_ROLE_EVIDENCE_REQUIRED"
     | "OPPOSING_SUBJECT"
     | "NO_GROUNDED_PREDICATE";
@@ -108,6 +114,8 @@ export function compileWorldRelationProjectionCoverage(input: Readonly<{
   inspectedListingRefs: readonly string[];
   existingProjections: readonly SettlementProjection[];
   venuePolicyEvidence?: readonly SettlementVenuePolicyEvidence[];
+  entityRoleRequirements?: readonly WorldRelationEntityRoleRequirement[];
+  entityRoleAssertions?: readonly WorldRelationEntityRoleAssertion[];
 }>): WorldRelationProjectionCoverageCompilation {
   const listingByRef = new Map(input.corpus.listings.map((item) =>
     [item.listingRef, item] as const));
@@ -179,6 +187,51 @@ export function compileWorldRelationProjectionCoverage(input: Readonly<{
     }
     const roleDebt = scored.some((item) => !item.score.subject &&
       item.score.eventTotal >= 2 && item.score.eventCount === item.score.eventTotal);
+    const roleBindings = scored.flatMap((item) => {
+      if (item.score.subject || item.score.eventTotal < 2 ||
+          item.score.eventCount !== item.score.eventTotal) return [];
+      return (input.entityRoleRequirements ?? []).flatMap((requirement) => {
+        if (requirement.frontierArtifactHash !== input.frontier.artifactHash ||
+            requirement.corpusSnapshotIdentity !== input.corpus.snapshotIdentity ||
+            requirement.listingRef !== listingRef) return [];
+        const assertion = supportedRoleAssertionForPredicate({ requirement,
+          assertions: input.entityRoleAssertions ?? [], predicate: item.predicate });
+        return assertion === null ? [] : [{ predicate: item.predicate, requirement,
+          assertion }];
+      });
+    });
+    if (roleBindings.length === 1) {
+      const role = roleBindings[0]!;
+      const node = nodeByRef.get(listingRef)!;
+      const predicate = buildWorldPredicateArtifact({ ...role.predicate,
+        evidenceBindings: [...role.predicate.evidenceBindings, {
+          listingRef, nodeId: node.nodeId, worldFacetId: node.worldFacet.facetId,
+          sourceRawHash: listing.sourceRawHash as Hash,
+          protocolIdentity: listing.protocolIdentity,
+        }],
+        supplementalEvidenceBindings: [
+          ...(role.predicate.supplementalEvidenceBindings ?? []),
+          { kind: "ENTITY_ROLE_ASSERTION", listingRef,
+            assertionId: role.assertion.assertionId,
+            requirementId: role.requirement.requirementId,
+            sourceDocumentId: role.assertion.source.documentId,
+            sourceRawHash: role.assertion.source.rawHash,
+            sourceTextHash: role.assertion.source.textHash },
+        ],
+        source: { ...role.predicate.source,
+          sourceSnapshotIdentities: [...new Set([
+            ...role.predicate.source.sourceSnapshotIdentities,
+            input.corpus.snapshotIdentity,
+          ])].sort() },
+        proposedAt: role.assertion.assertedAt,
+      });
+      derivedPredicates.push(predicate);
+      drafts.push({ ...common, disposition: "ENTITY_ROLE_ASSERTION_BOUND",
+        predicateId: predicate.predicateId, predicateArtifactHash: predicate.artifactHash,
+        projectionArtifactHash: null,
+        rationale: "The event anchors are contract-grounded and an exact independent role assertion binds the named candidate to the frontier organization." });
+      continue;
+    }
     const opposing = /\b(?:democratic|republican)\s+party\b/iu.test(text) &&
       scored.every((item) => !item.score.subject);
     drafts.push({ ...common,
@@ -194,6 +247,9 @@ export function compileWorldRelationProjectionCoverage(input: Readonly<{
   }
   const settlement = compileSettlementProjections({ corpus: input.corpus, ontology,
     predicates: derivedPredicates,
+    ...(input.entityRoleAssertions === undefined ? {} : {
+      entityRoleAssertions: input.entityRoleAssertions,
+    }),
     ...(input.venuePolicyEvidence === undefined ? {} : {
       venuePolicyEvidence: input.venuePolicyEvidence,
     }) });

@@ -8,6 +8,10 @@ import type { MarketOntologySnapshot } from "./market-ontology.js";
 import type { DiscoveryCatalogListing } from "./types.js";
 import type { OperationalStorageProjection } from "./types.js";
 import {
+  assertWorldRelationEntityRoleAssertion,
+  type WorldRelationEntityRoleAssertion,
+} from "./world-relation-entity-role-evidence.js";
+import {
   buildSettlementProjection,
   buildWorldPredicateArtifact,
   type SettlementProjection,
@@ -101,14 +105,34 @@ function terms(value: string): readonly string[] {
     .sort());
 }
 
-function grounded(predicate: WorldPredicateArtifact, listing: DiscoveryCatalogListing): boolean {
+function grounded(predicate: WorldPredicateArtifact, listing: DiscoveryCatalogListing,
+  assertions: readonly WorldRelationEntityRoleAssertion[]): boolean {
   const required = terms([
     ...predicate.semantic.subjects.map((item) => item.canonicalLabel),
     predicate.semantic.verbPhrase,
     ...predicate.semantic.parameters.flatMap((item) => [item.name, item.value]),
   ].join(" "));
   const evidence = new Set(terms(`${listing.title} ${listing.rulesText ?? ""}`));
-  return required.length > 0 && required.every((item) => evidence.has(item));
+  if (required.length > 0 && required.every((item) => evidence.has(item))) return true;
+  const subjects = new Set(terms(predicate.semantic.subjects
+    .map((item) => item.canonicalLabel).join(" ")));
+  const eventTerms = required.filter((item) => !subjects.has(item));
+  return eventTerms.length >= 2 && eventTerms.every((item) => evidence.has(item)) &&
+    (predicate.supplementalEvidenceBindings ?? []).some((binding) => {
+      if (binding.kind !== "ENTITY_ROLE_ASSERTION" ||
+          binding.listingRef !== listing.listingRef) return false;
+      return assertions.map(assertWorldRelationEntityRoleAssertion).some((assertion) =>
+        assertion.assertionId === binding.assertionId &&
+        assertion.requirementId === binding.requirementId &&
+        assertion.source.documentId === binding.sourceDocumentId &&
+        assertion.source.rawHash === binding.sourceRawHash &&
+        assertion.source.textHash === binding.sourceTextHash &&
+        assertion.disposition === "SUPPORTED" &&
+        predicate.semantic.subjects.some((subject) =>
+          subject.entityType === "ORGANIZATION" &&
+          subject.canonicalLabel.toLowerCase() ===
+            assertion.organizationLabel.toLowerCase()));
+    });
 }
 
 function exactBlockers(input: Readonly<{
@@ -116,6 +140,7 @@ function exactBlockers(input: Readonly<{
   outcomeShape: string;
   predicate: WorldPredicateArtifact;
   venuePolicyEvidence: readonly SettlementVenuePolicyEvidence[];
+  entityRoleAssertions: readonly WorldRelationEntityRoleAssertion[];
 }>): readonly SettlementProjectionBlocker[] {
   const blockers: SettlementProjectionBlocker[] = [];
   if (input.outcomeShape !== "BINARY_YES_NO_LABELS") blockers.push("NON_BINARY_OUTCOME_SPACE");
@@ -137,7 +162,9 @@ function exactBlockers(input: Readonly<{
   if (input.venuePolicyEvidence.some((item) => VENUE_SETTLEMENT_DISCRETION.test(item.text))) {
     blockers.push("VOID_REFUND_OR_DISCRETION_OVERRIDE");
   }
-  if (!grounded(input.predicate, input.listing)) blockers.push("PREDICATE_TERMS_NOT_GROUNDED");
+  if (!grounded(input.predicate, input.listing, input.entityRoleAssertions)) {
+    blockers.push("PREDICATE_TERMS_NOT_GROUNDED");
+  }
   return Object.freeze([...new Set(blockers)].sort());
 }
 
@@ -287,6 +314,7 @@ export function compileSettlementProjections(input: Readonly<{
   ontology: MarketOntologySnapshot;
   predicates: readonly WorldPredicateArtifact[];
   venuePolicyEvidence?: readonly SettlementVenuePolicyEvidence[];
+  entityRoleAssertions?: readonly WorldRelationEntityRoleAssertion[];
 }>): SettlementProjectionCompilation {
   if (input.ontology.sourceSnapshotIdentity !== input.corpus.snapshotIdentity) {
     throw new Error("settlement projection compiler requires the exact ontology corpus");
@@ -331,7 +359,8 @@ export function compileSettlementProjections(input: Readonly<{
       evidence: input.venuePolicyEvidence ?? [],
     });
     const blockers = exactBlockers({ listing, outcomeShape: node.settlementFacet.outcomeShape,
-      predicate: sourcePredicate, venuePolicyEvidence });
+      predicate: sourcePredicate, venuePolicyEvidence,
+      entityRoleAssertions: input.entityRoleAssertions ?? [] });
     const ruleEvidenceHash = hashCanonical({
       rulesText: listing.rulesText,
       rulesTextPosture: listing.rulesTextPosture ?? null,
@@ -342,6 +371,8 @@ export function compileSettlementProjections(input: Readonly<{
     const ruleEvidenceHashes = Object.freeze([
       ruleEvidenceHash,
       ...venuePolicyEvidence.map((item) => item.textHash),
+      ...(sourcePredicate.supplementalEvidenceBindings ?? []).flatMap((item) =>
+        [item.assertionId, item.sourceDocumentId, item.sourceRawHash, item.sourceTextHash]),
     ].sort());
     const predicate = blockers.length === 0
       ? buildWorldPredicateArtifact({ ...sourcePredicate,

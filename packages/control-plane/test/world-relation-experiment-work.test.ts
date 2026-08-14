@@ -166,7 +166,7 @@ describe("world relation experiment work", () => {
       expect(store.saveWorldRelationExperimentInputs([work.inputRevision]))
         .toEqual([work.inputRevision]);
       expect(store.worldRelationExperimentInputStorage).toMatchObject({
-        durable: true, schemaVersion: 63, idempotencyKey: "inputRevisionId",
+        durable: true, schemaVersion: 64, idempotencyKey: "inputRevisionId",
       });
     } finally {
       store.close();
@@ -226,7 +226,7 @@ describe("world relation experiment work", () => {
       expect(store.saveWorldRelationExperimentCheckpoints([checkpoint]))
         .toEqual([checkpoint]);
       expect(store.worldRelationExperimentCheckpointStorage).toMatchObject({
-        durable: true, schemaVersion: 63, idempotencyKey: "checkpointId",
+        durable: true, schemaVersion: 64, idempotencyKey: "checkpointId",
       });
     } finally {
       store.close();
