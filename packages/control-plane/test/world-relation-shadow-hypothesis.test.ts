@@ -172,4 +172,27 @@ describe("world relation shadow trade hypotheses", () => {
       corpus: work.corpus, projections: work.projections,
     })[0]?.hypothesisId);
   });
+
+  it("retains semantic legs when a current quote snapshot temporarily omits a listing", () => {
+    const work = fixture();
+    const quoteCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: work.corpus.sourceSetIdentity,
+      eligibleSourceCount: work.corpus.eligibleSourceCount,
+      excludedSourceCount: work.corpus.excludedSourceCount,
+      listings: [],
+    });
+    const [result] = compileWorldRelationShadowTradeHypotheses({
+      experiment: work.experiment,
+      inputRevision: work.assignment.inputRevision,
+      corpus: work.corpus,
+      quoteCorpus,
+      projections: work.projections,
+    });
+    expect(result).toMatchObject({
+      adverseListingStateId: "TF",
+      legs: [{ listingRef: "fixture:alaska", indicativeAskUnits: null },
+        { listingRef: "fixture:national", indicativeAskUnits: null }],
+      blockers: ["ADVERSE_PROBABILITY_BOUND_UNAVAILABLE", "INDICATIVE_PRICE_UNAVAILABLE"],
+    });
+  });
 });

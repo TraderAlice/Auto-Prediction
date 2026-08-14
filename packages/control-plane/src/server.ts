@@ -165,6 +165,10 @@ import { buildWorldRelationShadowRoutingProjection } from
 import { buildWorldRelationEconomicMemory } from
   "./world-relation-economic-memory.js";
 import {
+  compileWorldRelationProjectionCoverage,
+  type WorldRelationProjectionCoverageObservation,
+} from "./world-relation-projection-coverage.js";
+import {
   buildWorldStateMechanismResearchTaskContract,
   buildWorldStateMechanismResearchYield,
   buildRetainedWorldStateMechanismMemory,
@@ -1621,6 +1625,8 @@ export function createControlPlane(options?: {
     readonly import("./world-history-ontology.js").SettlementProjection[] = [];
   let currentSettlementProjectionObservations:
     readonly import("./settlement-projection-compiler.js").SettlementProjectionObservation[] = [];
+  let currentWorldRelationProjectionCoverageObservations:
+    readonly WorldRelationProjectionCoverageObservation[] = [];
   const studioProjectionSnapshotStore = supportsStudioProjectionSnapshots(
       options?.discoveryStore,
     )
@@ -4130,15 +4136,60 @@ export function createControlPlane(options?: {
       ]);
       materializedRunIds.add(checkpoint.sourceAgentRunId);
     }
+    const retainedProjectionHistory = worldRelationExperimentStore
+      .loadSettlementProjections(2_048);
+    const checkpointByRunId = new Map(worldRelationExperimentStore
+      .loadWorldRelationExperimentCheckpoints(2_048)
+      .map((item) => [item.sourceAgentRunId, item] as const));
+    const coverageCompilations = worldRelationExperimentStore
+      .loadWorldRelationExperiments(2_048).flatMap((experiment) => {
+      const checkpoint = checkpointByRunId.get(experiment.sourceAgentRunId);
+      if (checkpoint === undefined) return [];
+      const revision = worldRelationExperimentStore.loadWorldRelationExperimentInput(
+        checkpoint.inputRevisionId,
+      );
+      const retainedCorpus = revision === null ? null
+        : worldRelationExperimentStore.loadWorldRelationExperimentCorpus(
+            revision.corpusSnapshotIdentity,
+          );
+      if (revision === null || retainedCorpus === null) return [];
+      return [compileWorldRelationProjectionCoverage({ frontier: revision.frontier,
+        corpus: retainedCorpus, inspectedListingRefs: checkpoint.inspectedListingRefs,
+        existingProjections: retainedProjectionHistory, venuePolicyEvidence })];
+    });
+    const coveragePredicates = [...new Map(coverageCompilations
+      .flatMap((item) => item.predicates)
+      .map((item) => [item.artifactHash, item] as const)).values()];
+    const coverageProjections = [...new Map(coverageCompilations
+      .flatMap((item) => item.projections)
+      .map((item) => [item.artifactHash, item] as const)).values()];
+    const coverageSettlementObservations = [...new Map(coverageCompilations
+      .flatMap((item) => item.settlement.observations)
+      .map((item) => [item.observationId, item] as const)).values()];
+    if (coveragePredicates.length > 0) {
+      worldRelationExperimentStore.saveWorldPredicateArtifacts(coveragePredicates);
+    }
+    if (coverageProjections.length > 0) {
+      worldRelationExperimentStore.saveSettlementProjections(coverageProjections);
+    }
+    if (coverageSettlementObservations.length > 0) {
+      worldRelationExperimentStore.saveSettlementProjectionObservations(
+        coverageSettlementObservations,
+      );
+    }
+    // "Current" remains the current catalog generation. Coverage compiled from
+    // an experiment's retained semantic corpus is durable history and may price
+    // through a matching current quote, but must not masquerade as a currently
+    // observed catalog mapping when that listing has disappeared.
     currentSettlementProjections = settlement.projections;
     currentSettlementProjectionObservations = settlement.observations;
+    currentWorldRelationProjectionCoverageObservations = Object.freeze(
+      coverageCompilations.flatMap((item) => item.observations),
+    );
     const projections = currentSettlementProjections;
     const experiments = worldRelationExperimentStore.loadWorldRelationExperiments(2_048);
     const inputs = worldRelationExperimentStore.loadWorldRelationExperimentInputs(2_048);
     const inputById = new Map(inputs.map((item) => [item.inputRevisionId, item] as const));
-    const checkpointByRunId = new Map(worldRelationExperimentStore
-      .loadWorldRelationExperimentCheckpoints(2_048)
-      .map((item) => [item.sourceAgentRunId, item] as const));
     const economicMemories = experiments.flatMap((experiment) => {
       const checkpoint = checkpointByRunId.get(experiment.sourceAgentRunId);
       const revision = checkpoint === undefined
@@ -4147,15 +4198,20 @@ export function createControlPlane(options?: {
         : worldRelationExperimentStore.loadWorldRelationExperimentCorpus(
             revision.corpusSnapshotIdentity,
           );
-      if (revision === undefined || retainedCorpus === null) return [];
-      const allowedHashes = new Set(revision.settlementProjectionArtifactHashes);
+      if (checkpoint === undefined || revision === undefined || retainedCorpus === null) return [];
+      const coverage = compileWorldRelationProjectionCoverage({ frontier: revision.frontier,
+        corpus: retainedCorpus, inspectedListingRefs: checkpoint.inspectedListingRefs,
+        existingProjections: worldRelationExperimentStore.loadSettlementProjections(2_048),
+        venuePolicyEvidence });
       const hypotheses = compileWorldRelationShadowTradeHypotheses({
         experiment, inputRevision: revision, corpus: retainedCorpus,
         // Agent memory is stable research lineage. Current quotes are projected
         // separately by the read model and must not create semantic revisions.
         quoteCorpus: retainedCorpus,
-        projections: worldRelationExperimentStore.loadSettlementProjections(2_048)
-          .filter((item) => allowedHashes.has(item.artifactHash)),
+        projections: coverage.projections,
+        inspectedListingRefs: checkpoint.inspectedListingRefs,
+        projectionCoverageIncomplete: coverage.observations.some((item) =>
+          item.disposition === "ENTITY_ROLE_EVIDENCE_REQUIRED"),
       });
       const routes = buildWorldRelationShadowRoutingProjection(hypotheses).actions;
       return hypotheses.flatMap((hypothesis) => {
@@ -4691,12 +4747,30 @@ export function createControlPlane(options?: {
         : worldRelationExperimentStore?.loadWorldRelationExperimentCorpus(
             revision.corpusSnapshotIdentity,
           ) ?? null;
-      if (revision === null || corpus === null) return [];
+      if (checkpoint === undefined || revision === null || corpus === null) return [];
       const allowedHashes = new Set(revision.settlementProjectionArtifactHashes);
+      const inspectedListingRefs = new Set(checkpoint.inspectedListingRefs);
+      const frontierPredicateIds = new Set(experiment.predicateIds);
+      const listingByRef = new Map(corpus.listings.map((item) =>
+        [item.listingRef, item] as const));
+      const applicableProjections = projections.filter((item) => {
+        if (allowedHashes.has(item.artifactHash)) return true;
+        const listing = listingByRef.get(item.listing.listingRef);
+        return inspectedListingRefs.has(item.listing.listingRef) &&
+          listing !== undefined && item.listing.sourceRawHash === listing.sourceRawHash &&
+          item.listing.protocolIdentity === listing.protocolIdentity &&
+          item.predicateIds.every((predicateId) => frontierPredicateIds.has(predicateId));
+      });
       return compileWorldRelationShadowTradeHypotheses({
         experiment, inputRevision: revision, corpus,
         quoteCorpus: catalogObservationDesk.corpus(),
-        projections: projections.filter((item) => allowedHashes.has(item.artifactHash)),
+        projections: applicableProjections,
+        inspectedListingRefs: checkpoint.inspectedListingRefs,
+        projectionCoverageIncomplete:
+          currentWorldRelationProjectionCoverageObservations.some((item) =>
+            item.frontierArtifactHash === revision.frontier.artifactHash &&
+            item.corpusSnapshotIdentity === revision.corpusSnapshotIdentity &&
+            item.disposition === "ENTITY_ROLE_EVIDENCE_REQUIRED"),
       });
     });
     const execution = agentExecutionRegistry.snapshot();
@@ -4715,6 +4789,17 @@ export function createControlPlane(options?: {
       )),
       shadowRouting: buildWorldRelationShadowRoutingProjection(shadowHypotheses),
       settlementObservationCount: currentSettlementProjectionObservations.length,
+      projectionCoverageObservationCount:
+        currentWorldRelationProjectionCoverageObservations.length,
+      projectionCoverageDispositionCounts: Object.freeze(Object.fromEntries([
+        "ALREADY_COVERED", "TEXT_GROUNDED_PREDICATE_BOUND",
+        "ENTITY_ROLE_EVIDENCE_REQUIRED", "OPPOSING_SUBJECT",
+        "NO_GROUNDED_PREDICATE",
+      ].map((disposition) => [disposition,
+        currentWorldRelationProjectionCoverageObservations.filter((item) =>
+          item.disposition === disposition).length]))),
+      projectionCoverageObservations:
+        currentWorldRelationProjectionCoverageObservations,
       retainedSettlementObservationCount: retainedSettlementObservations.length,
       settlementDispositionCounts: Object.freeze({
         exact: currentSettlementProjectionObservations.filter((item) =>

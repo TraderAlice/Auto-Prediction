@@ -114,6 +114,7 @@ export * from "./world-relation-experiment-checkpoint.js";
 export * from "./world-relation-shadow-hypothesis.js";
 export * from "./world-relation-shadow-routing.js";
 export * from "./world-relation-economic-memory.js";
+export * from "./world-relation-projection-coverage.js";
 export * from "./world-state-mechanism-observer.js";
 export * from "./world-state-mechanism-research.js";
 export * from "./world-state-mechanism-family-scorecard.js";

@@ -18,6 +18,7 @@ export type WorldRelationShadowHypothesisBlocker =
   | "MISSING_ADVERSE_ASSIGNMENT"
   | "LISTING_ARITY_UNSUPPORTED"
   | "INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS"
+  | "INSPECTED_LISTING_PROJECTION_COVERAGE_INCOMPLETE"
   | "MISSING_EXACT_INPUT_PROJECTION"
   | "PROJECTION_NOT_SINGLE_PREDICATE"
   | "NON_EXACT_SETTLEMENT_PROJECTION"
@@ -109,6 +110,8 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
   corpus: MarketCorpusSnapshot;
   quoteCorpus?: MarketCorpusSnapshot;
   projections: readonly SettlementProjection[];
+  inspectedListingRefs?: readonly string[];
+  projectionCoverageIncomplete?: boolean;
 }>): readonly WorldRelationShadowTradeHypothesis[] {
   const experiment = assertWorldRelationExperiment(input.experiment);
   const revision = assertWorldRelationExperimentInputRevision(input.inputRevision);
@@ -121,10 +124,20 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
   }
   const allowedProjectionHashes = new Set(revision.settlementProjectionArtifactHashes);
   const inspectedProjectionIds = new Set(experiment.inspectedProjectionIds);
-  const projections = input.projections.map(assertSettlementProjection).filter((item) =>
-    allowedProjectionHashes.has(item.artifactHash) &&
-    inspectedProjectionIds.has(item.projectionId));
-  const listingByRef = new Map(quoteCorpus.listings.map((item) => [item.listingRef, item] as const));
+  const inspectedListingRefs = new Set(input.inspectedListingRefs ?? []);
+  const frontierPredicateIds = new Set(experiment.predicateIds);
+  const projections = [...new Map(input.projections.map(assertSettlementProjection)
+    .filter((item) => (
+      allowedProjectionHashes.has(item.artifactHash) &&
+      inspectedProjectionIds.has(item.projectionId)
+    ) || (
+      inspectedListingRefs.has(item.listing.listingRef) &&
+      item.predicateIds.every((predicateId) => frontierPredicateIds.has(predicateId))
+    )).map((item) => [item.projectionId, item] as const)).values()];
+  const semanticListingByRef = new Map(corpus.listings.map((item) =>
+    [item.listingRef, item] as const));
+  const quoteListingByRef = new Map(quoteCorpus.listings.map((item) =>
+    [item.listingRef, item] as const));
   const globalBlockers: WorldRelationShadowHypothesisBlocker[] = [];
   if (experiment.terminalDisposition !== "SUPPORTED_PROBABILISTIC") {
     globalBlockers.push("RELATION_NOT_PROBABILISTICALLY_SUPPORTED");
@@ -133,12 +146,16 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
     globalBlockers.push("MISSING_ADVERSE_ASSIGNMENT");
   }
   if (experiment.inspectedProjectionIds.length === 0 &&
-      experiment.counterworlds[0]?.evidenceBindingHashes.length !== 0) {
+      experiment.counterworlds[0]?.evidenceBindingHashes.length !== 0 &&
+      projections.length === 0) {
     globalBlockers.push("INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS");
+  } else if (input.projectionCoverageIncomplete === true) {
+    globalBlockers.push("INSPECTED_LISTING_PROJECTION_COVERAGE_INCOMPLETE");
   } else if (projections.length < 2 || projections.length > 4) {
     globalBlockers.push("LISTING_ARITY_UNSUPPORTED");
   }
-  if (projections.length !== experiment.inspectedProjectionIds.length) {
+  if (experiment.inspectedProjectionIds.some((projectionId) =>
+      !projections.some((item) => item.projectionId === projectionId))) {
     globalBlockers.push("MISSING_EXACT_INPUT_PROJECTION");
   }
   if (projections.some((item) => item.predicateIds.length !== 1)) {
@@ -151,22 +168,24 @@ export function compileWorldRelationShadowTradeHypotheses(input: Readonly<{
   for (const adverse of experiment.adverseAssignments) {
     const legs = projections.flatMap((projection) => {
       const predicateId = projection.predicateIds[0];
-      const listing = listingByRef.get(projection.listing.listingRef);
-      if (predicateId === undefined || listing === undefined ||
+      const semanticListing = semanticListingByRef.get(projection.listing.listingRef);
+      const quoteListing = quoteListingByRef.get(projection.listing.listingRef);
+      if (predicateId === undefined || semanticListing === undefined ||
           adverse.truthByPredicateId[predicateId] === undefined) return [];
       const adverseTruth = adverse.truthByPredicateId[predicateId]!;
       const outcome = adverseTruth ? "FALSE" as const : "TRUE" as const;
-      const price = outcomePrice(listing, outcome);
+      const price = quoteListing === undefined ? null : outcomePrice(quoteListing, outcome);
+      const observedListing = quoteListing ?? semanticListing;
       return [Object.freeze({
-        listingRef: listing.listingRef,
+        listingRef: semanticListing.listingRef,
         projectionId: projection.projectionId,
         predicateId,
         adverseTruth,
         outcome,
         indicativeAskUnits: price?.toString() ?? null,
-        priceScale: listing.priceScale,
-        sourceReceivedAt: listing.sourceReceivedAt,
-        evidenceHash: listing.sourceRawHash as Hash,
+        priceScale: semanticListing.priceScale,
+        sourceReceivedAt: observedListing.sourceReceivedAt,
+        evidenceHash: observedListing.sourceRawHash as Hash,
       })];
     }).sort((left, right) => left.listingRef.localeCompare(right.listingRef));
     const adverseListingStateId = legs.map((item) => item.adverseTruth ? "T" : "F").join("");

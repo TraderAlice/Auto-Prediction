@@ -91,7 +91,7 @@ export function assertWorldRelationEconomicMemory(
         memory.sourceFrontierArtifactHash, memory.sourceHypothesisId,
         memory.quoteCorpusSnapshotIdentity]
         .every((item) => HASH.test(String(item))) ||
-      !/^(?:[TF]{2,4})?$/u.test(memory.adverseListingStateId) ||
+      !/^(?:[TF]{1,4})?$/u.test(memory.adverseListingStateId) ||
       (memory.adverseListingStateId === "") !==
         memory.blockers.includes("INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS") ||
       !/^[TF]{2,8}$/u.test(memory.adverseWorldStateId) ||

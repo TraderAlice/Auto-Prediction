@@ -56,7 +56,7 @@ function route(hypothesis: WorldRelationShadowTradeHypothesis): WorldRelationSha
     blockers.includes("PROJECTION_NOT_SINGLE_PREDICATE");
   const projectionCoverage = blockers.includes(
     "INSPECTED_LISTINGS_LACK_SETTLEMENT_PROJECTIONS",
-  );
+  ) || blockers.includes("INSPECTED_LISTING_PROJECTION_COVERAGE_INCOMPLETE");
   const onlyProbability = blockers.length === 1 &&
     blockers[0] === "ADVERSE_PROBABILITY_BOUND_UNAVAILABLE";
   const action = nonPositive

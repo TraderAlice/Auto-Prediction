@@ -369,3 +369,36 @@ estimation but after margin retirement. The next construction should compile
 those exact inspected Gemini contracts into research-only settlement
 projections from retained contract text, then re-run economics without another
 relation Agent request.
+
+That projection-coverage continuation is now compiled provider-free from the
+exact retained Agent checkpoint and corpus. It only binds an inspected listing
+when the frontier subject and every normalized event anchor occur in the
+contract text; it explicitly separates opposing-party contracts from candidate
+contracts whose party role still needs external evidence. The live Iowa replay
+therefore recovers the Gemini national Democratic-control contract as one
+research-only semantic leg, rejects the Republican counterpart as an opposing
+subject, and records four Iowa candidate contracts as
+`ENTITY_ROLE_EVIDENCE_REQUIRED`. It does not infer party membership from a
+candidate name or model memory. The resulting one-leg `F` projection preserves
+the semantic construction even when the current catalog temporarily omits the
+Gemini listing; current price becomes unavailable rather than deleting the
+historical leg. The router remains `ACQUIRE_PROJECTION_COVERAGE`, now with an
+explicit incomplete-coverage blocker instead of generic arity.
+
+Live startup also exposed two replay invariants and one read-model distinction.
+Content-identical predicates/projections reconstructed by multiple retained
+experiments must be deduplicated before batch persistence. A partially covered
+shadow may legitimately have one listing leg. Finally, retained semantic
+coverage is durable history, not a current-catalog projection: it may reprice
+through a matching current listing but cannot inflate the current settlement
+count after that listing disappears. Focused tests now cover all three. The
+world-relation endpoint remains provider-free and settles at roughly 0.80s on
+the live 162-projection history.
+
+The next engineering continuation is entity-role evidence acquisition. It
+should produce a content-addressed assertion that a named Iowa candidate was
+the Democratic nominee/candidate for the exact election and bind that assertion
+to the correct frontier predicate without rewriting the venue contract. Only
+after both Iowa and national legs exist should the system calculate the
+complement portfolio; settlement-rule exactness and fresh quote/depth remain
+separate later gates.
