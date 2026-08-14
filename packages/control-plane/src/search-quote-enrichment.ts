@@ -14,6 +14,10 @@ import {
   geminiEventTickerFromInstrumentSymbol,
   normalizeGeminiEventDetailQuote,
 } from "@pmh/venue-gemini";
+import {
+  buildMarketCorpusSnapshot,
+  type MarketCorpusSnapshot,
+} from "./market-corpus.js";
 import type { DiscoveryCatalogListing } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -345,6 +349,37 @@ export function applySearchQuoteObservations(
     sourceRawHash: hashCanonical({ schemaVersion: "pmh.search-quote-overlay.v1",
       observationIds: used.map((item) => item.observationId) }),
     protocolIdentity: "search-quote-overlay.v1",
+  });
+}
+
+export function buildSearchQuoteOverlayCorpus(input: Readonly<{
+  semanticCorpus: MarketCorpusSnapshot;
+  currentCorpus: MarketCorpusSnapshot;
+  observations: readonly SearchQuoteObservationRecord[];
+}>): MarketCorpusSnapshot {
+  const currentListingByRef = new Map(input.currentCorpus.listings.map((item) =>
+    [item.listingRef, item] as const));
+  const listings = input.semanticCorpus.listings.flatMap((listing) => {
+    const observedCurrent = currentListingByRef.get(listing.listingRef) ?? null;
+    const current = observedCurrent !== null &&
+        observedCurrent.venueId === listing.venueId &&
+        observedCurrent.venueInstrumentId === listing.venueInstrumentId
+      ? observedCurrent : null;
+    const targeted = applySearchQuoteObservations(listing, input.observations);
+    const selected = targeted !== null && (current === null ||
+      targeted.sourceReceivedAt > current.sourceReceivedAt) ? targeted : current;
+    return selected === null ? [] : [selected];
+  });
+  return buildMarketCorpusSnapshot({
+    sourceSetIdentity: hashCanonical({
+      schemaVersion: "pmh.search-quote-overlay-source-set.v1",
+      currentCorpusSnapshotIdentity: input.currentCorpus.snapshotIdentity,
+      semanticCorpusSnapshotIdentity: input.semanticCorpus.snapshotIdentity,
+      observationIds: input.observations.map((item) => item.observationId).sort(),
+    }),
+    eligibleSourceCount: listings.length === 0 ? 0 : 1,
+    excludedSourceCount: 0,
+    listings,
   });
 }
 

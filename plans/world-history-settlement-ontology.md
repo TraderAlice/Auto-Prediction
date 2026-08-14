@@ -494,3 +494,18 @@ control projection and a current-compiler Josh projection whose only local rule
 debt is the missing negative clause. The live shadow still routes Iowa to
 `RETIRE_NON_POSITIVE_MARGIN` with two exact targeted quote legs and zero
 read-triggered requests or jobs.
+
+The quote-bound retirement now also reaches the durable Agent input instead of
+existing only in the read projection. A shared pure overlay compiler selects
+the newest exact targeted observation or matching current instrument for each
+retained semantic listing. Reconciliation uses that quote corpus to build
+economic memory, while `semanticInputIdentity` still records only that the
+frontier's adverse world has already received an economic projection—not its
+price or margin. Thus a first projection can prevent repeated semantic work,
+but later price movement only changes the exact observation revision and cannot
+manufacture a new ontology task. Live SQLite now binds the Iowa input to
+`RETIRE_NON_POSITIVE_MARGIN`, cost `103000000`, failure budget `-3000000` at
+scale `100000000`; the Alaska input independently retains positive indicative
+budget `49300000` but routes to projection coverage. These two differentiated
+memories are the first raw material for cross-frontier economic selection
+pressure.

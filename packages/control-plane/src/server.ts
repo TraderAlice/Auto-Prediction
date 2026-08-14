@@ -466,7 +466,7 @@ import {
   type SearchLens,
 } from "./search-lease-scheduler.js";
 import {
-  applySearchQuoteObservations,
+  buildSearchQuoteOverlayCorpus,
   SearchQuoteEnrichmentDesk,
   type SearchQuoteObservationStore,
 } from "./search-quote-enrichment.js";
@@ -4259,6 +4259,8 @@ export function createControlPlane(options?: {
     const experiments = worldRelationExperimentStore.loadWorldRelationExperiments(2_048);
     const inputs = worldRelationExperimentStore.loadWorldRelationExperimentInputs(2_048);
     const inputById = new Map(inputs.map((item) => [item.inputRevisionId, item] as const));
+    const currentQuoteCorpus = catalogObservationDesk.corpus();
+    const quoteObservations = searchQuoteEnrichmentDesk.projection().observations;
     const economicMemories = experiments.flatMap((experiment) => {
       const checkpoint = checkpointByRunId.get(experiment.sourceAgentRunId);
       const revision = checkpoint === undefined
@@ -4275,9 +4277,15 @@ export function createControlPlane(options?: {
         entityRoleAssertions: retainedRoleAssertions });
       const hypotheses = compileWorldRelationShadowTradeHypotheses({
         experiment, inputRevision: revision, corpus: retainedCorpus,
-        // Agent memory is stable research lineage. Current quotes are projected
-        // separately by the read model and must not create semantic revisions.
-        quoteCorpus: retainedCorpus,
+        // Quote-bound economics is exact Agent evidence, but the assignment's
+        // semantic identity records only that this adverse state has already
+        // been projected. Later price changes therefore cannot manufacture a
+        // new ontology question or bypass once-per-semantic-input selection.
+        quoteCorpus: buildSearchQuoteOverlayCorpus({
+          semanticCorpus: retainedCorpus,
+          currentCorpus: currentQuoteCorpus,
+          observations: quoteObservations,
+        }),
         projections: coverage.projections,
         inspectedListingRefs: checkpoint.inspectedListingRefs,
         projectionCoverageIncomplete: revision.frontier.predicates
@@ -4822,25 +4830,11 @@ export function createControlPlane(options?: {
           ) ?? null;
       if (checkpoint === undefined || revision === null || corpus === null) return [];
       const currentQuoteCorpus = catalogObservationDesk.corpus();
-      const currentListingByRef = new Map(currentQuoteCorpus.listings.map((item) =>
-        [item.listingRef, item] as const));
       const quoteObservations = searchQuoteEnrichmentDesk.projection().observations;
-      const quoteListings = corpus.listings.flatMap((listing) => {
-        const current = currentListingByRef.get(listing.listingRef) ?? null;
-        const targeted = applySearchQuoteObservations(listing, quoteObservations);
-        const selected = targeted !== null && (current === null ||
-          targeted.sourceReceivedAt > current.sourceReceivedAt) ? targeted : current;
-        return selected === null ? [] : [selected];
-      });
-      const quoteCorpus = buildMarketCorpusSnapshot({
-        sourceSetIdentity: hashCanonical({
-          schemaVersion: "pmh.world-relation-quote-source-set.v1",
-          currentCorpusSnapshotIdentity: currentQuoteCorpus.snapshotIdentity,
-          quoteObservationIds: quoteObservations.map((item) => item.observationId).sort(),
-        }),
-        eligibleSourceCount: quoteListings.length === 0 ? 0 : 1,
-        excludedSourceCount: 0,
-        listings: quoteListings,
+      const quoteCorpus = buildSearchQuoteOverlayCorpus({
+        semanticCorpus: corpus,
+        currentCorpus: currentQuoteCorpus,
+        observations: quoteObservations,
       });
       const allowedHashes = new Set(revision.settlementProjectionArtifactHashes);
       const inspectedListingRefs = new Set(checkpoint.inspectedListingRefs);

@@ -5,6 +5,8 @@ import { hashCanonical } from "@pmh/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applySearchQuoteObservations,
+  buildMarketCorpusSnapshot,
+  buildSearchQuoteOverlayCorpus,
   SearchQuoteEnrichmentDesk,
   SqliteOperationalStore,
   verifyStoredSearchQuoteObservation,
@@ -227,6 +229,21 @@ describe("selected-pair anonymous quote enrichment", () => {
       outcomes: [{ indicativePrice: "0.48" }, { indicativePrice: "0.56" }],
       sourceKind: "LIVE_OBSERVATION", protocolIdentity: "search-quote-overlay.v1",
     });
+    const semanticCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ fixture: "semantic" }),
+      eligibleSourceCount: 1, excludedSourceCount: 0,
+      listings: [iowa, national],
+    });
+    const emptyCurrentCorpus = buildMarketCorpusSnapshot({
+      sourceSetIdentity: hashCanonical({ fixture: "current-empty" }),
+      eligibleSourceCount: 0, excludedSourceCount: 1, listings: [],
+    });
+    const overlay = buildSearchQuoteOverlayCorpus({ semanticCorpus,
+      currentCorpus: emptyCurrentCorpus, observations });
+    expect(overlay.listings.map((item) => item.outcomes.map((outcome) =>
+      outcome.indicativePrice))).toEqual([["0.47", "0.54"], ["0.48", "0.56"]]);
+    expect(overlay.listings.every((item) =>
+      item.protocolIdentity === "search-quote-overlay.v1")).toBe(true);
     store.close();
   });
 });
