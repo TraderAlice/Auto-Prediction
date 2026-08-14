@@ -747,3 +747,21 @@ source prototype and axis contract. All later role, inspection, hypothesis and
 terminal gates remain unchanged. The matched live signal is whether the first
 durable search vocabulary draws from a non-election directory object; runtime
 success alone is insufficient.
+
+V15 (`86c9d525…`) validated that blind-first order changes browsing behavior but
+falsified order alone as sufficient grounding. The Agent browsed once before
+context, read the source prototype, browsed another page, then duplicated a page
+before issuing Senate-only role and flat searches. It later browsed a third page
+and inspected retrieved evidence, but never left the source family or reached a
+terminal. Twelve invocations consumed 236,924 input / 3,185 output / 2,212
+reasoning tokens before the 600-second wall-clock boundary interrupted it.
+
+Selection: concrete ontology objects must become explicit research-attention
+state, not merely prior conversation. V16 adds a pre-context neighborhood pin:
+after browsing, the Agent must select exact page members before source disclosure.
+For a surface-domain lens, the selectable set prefers and requires an object
+whose classified predicate family is outside the source family whenever one is
+available. The first lexical or role search must share distinctive vocabulary
+with the pinned exact title. This is a falsifiable query-grounding constraint,
+not a semantic relation claim; ordinary axis admission, inspection, hypothesis
+and verifier gates remain authoritative.

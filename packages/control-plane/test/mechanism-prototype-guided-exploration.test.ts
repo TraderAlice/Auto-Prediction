@@ -850,6 +850,24 @@ describe("mechanism-prototype exploration Agent tools", () => {
       input: { offset: 0, limit: 24 } });
   }
 
+  async function pinDirectoryNeighborhood(input: Readonly<{
+    host: MechanismPrototypeExplorationAgentToolHost;
+    lens: ReturnType<typeof runtimeFixture>["lens"];
+    run: ReturnType<typeof runtimeFixture>["run"];
+    profile: ReturnType<typeof runtimeFixture>["profile"];
+    suffix: string;
+  }>) {
+    const tool = input.host.manifest(input.lens.task.requestedEffectProtocol)
+      .find((item) => item.name === "pin_mechanism_exploration_neighborhood")!;
+    const refs = (tool.inputSchema as { properties: { listingRefs: {
+      items: { enum: readonly string[] } } } }).properties.listingRefs.items.enum;
+    return input.host.execute({ task: input.lens.task, run: input.run,
+      executionProfile: input.profile, callId: `directory:${input.suffix}:pin`,
+      toolName: "pin_mechanism_exploration_neighborhood",
+      input: { listingRefs: [refs[0]!],
+        rationale: "Pin one exact non-source directory object before source disclosure." } });
+  }
+
   async function closeHypothesis(input: Readonly<{
     host: MechanismPrototypeExplorationAgentToolHost;
     lens: ReturnType<typeof runtimeFixture>["lens"];
@@ -876,6 +894,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
       "browse_mechanism_exploration_directory",
     ]);
     await browseDirectory({ host, lens, run, profile, suffix: "recovery" });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "browse_mechanism_exploration_directory",
+      "pin_mechanism_exploration_neighborhood",
+    ]);
+    await pinDirectoryNeighborhood({ host, lens, run, profile, suffix: "recovery" });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "read_mechanism_exploration_context",
     ]);
@@ -920,6 +943,52 @@ describe("mechanism-prototype exploration Agent tools", () => {
       "submit_mechanism_exploration_trailhead",
       "record_mechanism_exploration_exhaustion",
     ]);
+  });
+
+  it("rejects a source-anchored first search after a blind ontology pin", async () => {
+    const { lens, prototype, snapshot, profile, run } = runtimeFixture();
+    const host = new MechanismPrototypeExplorationAgentToolHost(
+      lens.currentInputRevision, prototype, snapshot,
+    );
+    await browseDirectory({ host, lens, run, profile, suffix: "grounding" });
+    const pin = await pinDirectoryNeighborhood({ host, lens, run, profile,
+      suffix: "grounding" });
+    expect(pin).toMatchObject({ status: "ACCEPTED", output: {
+      schemaVersion: "pmh.mechanism-prototype-exploration-neighborhood-pin.v1",
+      blindFirst: true, listingRefs: ["venue-sport:constructors"],
+      groundingPolicy: "FIRST_SEARCH_DISTINCTIVE_TOKEN_OVERLAP",
+      semanticDecisionAuthority: false, executionAuthority: false,
+    } });
+    const context = await host.execute({ task: lens.task, run,
+      executionProfile: profile, callId: "grounding:context",
+      toolName: "read_mechanism_exploration_context", input: {} });
+    expect(context).toMatchObject({ status: "ACCEPTED", output: {
+      schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v9",
+      pinnedOntologyNeighborhood: { blindFirst: true,
+        listingRefs: ["venue-sport:constructors"] },
+      firstSearchGroundingPolicy:
+        "DISTINCTIVE_QUERY_TOKEN_MUST_OVERLAP_PINNED_EXACT_TITLE",
+    } });
+    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "grounding:source-anchor", toolName: "search_mechanism_exploration_roles",
+      input: {
+        component: { patterns: ["senate seat"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["senate control"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Democrats"], pairLimit: 10,
+      } })).resolves.toMatchObject({ status: "REJECTED", output: {
+        diagnostic: expect.stringMatching(/pinned ontology neighborhood/u),
+      } });
+    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "grounding:directory-domain", toolName: "search_mechanism_exploration_roles",
+      input: {
+        component: { patterns: ["Grand Prix race"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["constructors championship"], syntax: "LITERAL",
+          mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
+      } })).resolves.toMatchObject({ status: "ACCEPTED", output: { pairCount: 1 } });
   });
 
   it("compiles exact ordered effects into a causal experiment episode", () => {
@@ -1254,6 +1323,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
         "browse_mechanism_exploration_directory",
       ]);
     await browseDirectory({ host: diversifyHost, lens, run, profile, suffix: "diversify" });
+    await pinDirectoryNeighborhood({ host: diversifyHost, lens, run, profile,
+      suffix: "diversify" });
     expect(diversifyHost.manifest(lens.task.requestedEffectProtocol)
       .map((item) => item.name)).toEqual([
         "browse_mechanism_exploration_directory",
@@ -1411,6 +1482,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "same-domain:read", toolName: "read_mechanism_exploration_context", input: {} });
     await browseDirectory({ host, lens, run, profile, suffix: "same-domain" });
+    await pinDirectoryNeighborhood({ host, lens, run, profile, suffix: "same-domain" });
     const search = await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "same-domain:search", toolName: "search_mechanism_exploration_roles",
       input: {
@@ -1821,7 +1893,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(read).toMatchObject({
       status: "ACCEPTED",
       output: {
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v8",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v9",
         axisContract: {
           admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
           sourcePredicateFamilies: expect.arrayContaining(["ELECTION_OR_OFFICE"]),
@@ -1857,7 +1929,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const first = await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "context:first", toolName: "read_mechanism_exploration_context", input: {} });
     expect(first).toMatchObject({ status: "ACCEPTED", output: {
-      schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v8",
+      schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v9",
       corpusDialectAtlas: {
         detailedAtlas: {
           schemaVersion: "pmh.corpus-dialect-atlas.v1",
