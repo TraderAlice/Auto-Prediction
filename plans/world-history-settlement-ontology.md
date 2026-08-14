@@ -694,3 +694,10 @@ control-plane suite passes 120 files / 791 tests. The next matched live specimen
 should test whether Terra's first substantive action is search rather than a
 source-anchored election hypothesis, then compare semantic-domain yield and
 token cost against `d1203b31…`.
+
+The first existing-database restart correctly caught an immutable-profile
+migration omission before any dispatch: V13 content initially reused execution
+profile revision `20017`, colliding with retained V12. The exploration execution
+revision is now `20018`; a SQLite regression first installs V12/20017, then V13/
+20018, and proves both immutable profiles coexist. The live process restarts on
+V13/20018 and offers the next surface-domain input without rewriting history.
