@@ -18,6 +18,14 @@ import {
   type WorldPredicateArtifact,
 } from "./world-history-ontology.js";
 
+export const SETTLEMENT_PROJECTION_COMPILER_IDENTITY = hashCanonical({
+  schemaVersion: "pmh.first-party-settlement-projection-compiler.v2",
+  affirmativeDialect: "resolves-yes-if|if-then-resolves-yes",
+  negativeDialect: "otherwise-no|no-otherwise|and-to-no-otherwise",
+  termNormalization: "win-family|control-family",
+  supplementalEntityRoleEvidence: true,
+});
+
 export const SETTLEMENT_PROJECTION_BLOCKERS = Object.freeze([
   "STALE_LISTING_EVIDENCE",
   "STALE_ONTOLOGY_NODE",
@@ -46,7 +54,8 @@ export type SettlementProjectionObservation = Readonly<{
   blockers: readonly SettlementProjectionBlocker[];
   projectionArtifactHash: Hash | null;
   observedAt: string;
-  compiler: "FIRST_PARTY_CONSERVATIVE_BINARY_RULE_COMPILER_V1";
+  compiler: "FIRST_PARTY_CONSERVATIVE_BINARY_RULE_COMPILER_V1" |
+    "FIRST_PARTY_CONSERVATIVE_BINARY_RULE_COMPILER_V2";
   authority: "SETTLEMENT_PROJECTION_OBSERVATION_ONLY";
   semanticDecisionAuthority: false;
   probabilityAuthority: false;
@@ -93,15 +102,19 @@ export interface SettlementProjectionObservationStore {
 
 const VOID_OR_DISCRETION = /\b(?:void|voided|refund|refunded|cancel(?:led|ed)?|invalid|discretion|sole discretion|clarification|override)\b/iu;
 const VENUE_SETTLEMENT_DISCRETION = /\b(?:prior\s+to\s+settlement[\s\S]{0,800}(?:sole|full)\s+discretion|(?:sole|full)\s+discretion[\s\S]{0,800}(?:settlement|final\s+outcome)|full\s+discretion\s+in\s+reviewing\s+markets)\b/iu;
-const AFFIRMATIVE = /\b(?:resolve(?:s|d)?|settle(?:s|d)?)\s+(?:to\s+)?(?:the\s+)?["']?yes["']?\s+if\b/iu;
-const NEGATIVE = /\botherwise\b[^.]{0,160}\b(?:no|resolve(?:s|d)?\s+(?:to\s+)?(?:the\s+)?["']?no)\b|\bresolve(?:s|d)?\s+(?:to\s+)?(?:the\s+)?["']?no["']?\s+(?:if|otherwise)\b/iu;
+const AFFIRMATIVE = /\b(?:resolve(?:s|d)?|settle(?:s|d)?)\s+(?:to\s+)?(?:the\s+)?["']?yes["']?\s+if\b|\bif\b[\s\S]{1,500}?\bthen\s+(?:this\s+)?(?:market|contract)\s+(?:resolve(?:s|d)?|settle(?:s|d)?)\s+(?:to\s+)?["']?yes["']?\b/iu;
+const NEGATIVE = /\botherwise\b[^.]{0,160}\b(?:no|resolve(?:s|d)?\s+(?:to\s+)?(?:the\s+)?["']?no)\b|\bresolve(?:s|d)?\s+(?:to\s+)?(?:the\s+)?["']?no["']?\s+(?:if|otherwise)\b|\b(?:and\s+)?to\s+["']?no["']?\s+otherwise\b/iu;
 const STOP = new Set(["will", "would", "could", "does", "the", "and", "that", "this",
   "with", "from", "into", "than", "then", "have", "has", "had", "is", "are", "was",
   "were", "be", "been", "being", "on", "in", "at", "to", "of", "a", "an", "or"]);
 
 function terms(value: string): readonly string[] {
   return Object.freeze([...new Set(value.normalize("NFKC").toLowerCase()
-    .match(/[\p{L}\p{N}]+/gu)?.filter((item) => item.length >= 3 && !STOP.has(item)) ?? [])]
+    .match(/[\p{L}\p{N}]+/gu)?.map((item) => {
+      if (["winner", "wins", "winning"].includes(item)) return "win";
+      if (["controls", "controlled", "controlling"].includes(item)) return "control";
+      return item;
+    }).filter((item) => item.length >= 3 && !STOP.has(item)) ?? [])]
     .sort());
 }
 
@@ -267,7 +280,7 @@ function observation(input: Omit<SettlementProjectionObservation,
     schemaVersion: "pmh.settlement-projection-observation.v1" as const,
     observationId: hashCanonical(identityBody),
     ...input,
-    compiler: "FIRST_PARTY_CONSERVATIVE_BINARY_RULE_COMPILER_V1" as const,
+    compiler: "FIRST_PARTY_CONSERVATIVE_BINARY_RULE_COMPILER_V2" as const,
     authority: "SETTLEMENT_PROJECTION_OBSERVATION_ONLY" as const,
     semanticDecisionAuthority: false as const,
     probabilityAuthority: false as const,
@@ -299,7 +312,8 @@ export function assertSettlementProjectionObservation(
       artifactHash !== hashCanonical(body) ||
       !["EXACT_PROJECTED", "RESEARCH_ONLY_PROJECTED", "BLOCKED"].includes(item.disposition) ||
       item.blockers.some((blocker) => !SETTLEMENT_PROJECTION_BLOCKERS.includes(blocker)) ||
-      item.compiler !== "FIRST_PARTY_CONSERVATIVE_BINARY_RULE_COMPILER_V1" ||
+      !["FIRST_PARTY_CONSERVATIVE_BINARY_RULE_COMPILER_V1",
+        "FIRST_PARTY_CONSERVATIVE_BINARY_RULE_COMPILER_V2"].includes(item.compiler) ||
       item.authority !== "SETTLEMENT_PROJECTION_OBSERVATION_ONLY" ||
       item.semanticDecisionAuthority !== false || item.probabilityAuthority !== false ||
       item.certificateAuthority !== false || item.executionAuthority !== false ||
@@ -407,6 +421,7 @@ export function compileSettlementProjections(input: Readonly<{
       sourceAgentRunIds: predicate.source.sourceAgentRunIds,
       sourceToolEffectIds: predicate.source.sourceToolEffectIds,
       observedAt: listing.sourceReceivedAt,
+      compilerIdentity: SETTLEMENT_PROJECTION_COMPILER_IDENTITY,
     });
     projections.push(projection);
     observations.push(observation({ ...base,

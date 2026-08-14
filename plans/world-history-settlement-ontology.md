@@ -195,17 +195,17 @@ Agent cannot mistake superseded mappings for concurrent truths.
 
 ## Active continuation
 
-1. Route the two live Iowa semantic legs to complete Gemini contract/venue-rule
-   evidence and prove both false- and true-state resolution mappings without
-   weakening the first-party compiler.
-2. Recover current listing-ref/instrument-matched quotes and depth for the two
-   retained Gemini legs; keep absence distinct from a zero price or stale quote.
-3. Add freshness-aware scheduled entity-role acquisition so an inconclusive
-   official candidate list can be revisited without repeatedly creating work on
-   every projection read.
-4. Only after exact settlement and positive executable margin, route the Iowa
-   adverse state to probability-bound estimation; otherwise retain the exact
-   economic reason for retirement.
+1. Persist the now-negative Iowa complement construction as exact economic
+   memory and make the next ontology frontier observe it without letting price
+   become semantic truth or a popularity oracle.
+2. Add freshness-aware targeted quote refresh for retained Gemini legs. Broad
+   catalog absence must remain distinct from an inactive event, a missing
+   instrument, a zero price and a stale exact quote.
+3. Use that negative memory to seek a semantically distinct relation whose
+   fresh complement asks leave positive failure budget before spending on
+   settlement completion or probability estimation.
+4. Generalize official entity-role acquisition beyond the Iowa-specific
+   adapter only when a new positive-margin construction actually requires it.
 
 No user decision blocks this continuation. Subject/alias promotion authority
 remains a separate queued policy question; current artifacts retain research
@@ -442,3 +442,55 @@ resolution clauses, and the current anonymous corpus omits both retained
 listings so indicative asks are unavailable. `ADVERSE_PROBABILITY_BOUND_UNAVAILABLE`
 remains downstream. The next generation should acquire those rule and quote
 artifacts provider-free before spending another relation-Agent token.
+
+That quote gate is now qualified. Gemini's official public event-detail
+endpoint uses an event ticker while its returned markets and trading streams use
+instrument symbols; treating those identities as interchangeable had made a
+page-limited catalog look like the contracts were gone. Schema 65 adds a
+Gemini-capable exact quote-observation ledger beside Opinion, including a
+capability-detecting migration for the earlier Opinion-only table. Each retained
+observation binds the requested event ticker, exact returned instrument symbol,
+raw response bytes, receive time, protocol identity and outcome ask. A read
+projection may overlay those observations only onto the exact retained listing
+revision; it performs no network request.
+
+The operator-authorized live targeted refresh issued two anonymous official GETs
+and retained four outcome observations with zero model calls. National
+Democratic Senate control has a current YES ask of `0.47`; Josh Turek winning
+Iowa has a current NO ask of `0.56`. The complement portfolio therefore costs
+`1.03`, has a gross failure budget of `-0.03`, and a break-even adverse-state
+probability of zero before fees or depth. The deterministic router correctly
+chooses `RETIRE_NON_POSITIVE_MARGIN` despite remaining probability and
+settlement debt. More rule research or estimator spend cannot rescue this
+quote state, so Iowa is now a useful negative economic specimen rather than an
+unfinished opportunity.
+
+The first-party settlement compiler also advances to a content-addressed V2
+identity. Its bounded Gemini dialect recognizes official `if … then this market
+resolves to Yes` and `… to No otherwise` clauses across abbreviations such as
+`U.S.`, and normalizes `winner/wins` and `controls/control` only for lexical
+grounding. Projections retain the compiler identity; coverage recompiles stale
+artifacts provider-free and the live read model prefers the current compiler
+generation over identical legacy projection keys. This prevents a semantic
+cache from silently surviving a changed deterministic interpretation policy.
+
+The next selection pressure is now clear: exact targeted prices should be a
+cheap early falsifier after a relation has enough semantic legs, while costly
+probability estimation and generalized rule acquisition remain downstream of a
+positive complement budget. The next ontology neighborhood must differ from the
+retired Iowa adverse state rather than merely search the same popular election
+contracts under new prose.
+
+Live schema-65 restart qualified the complete replay path and exposed one
+history-only invariant before persistence. A V2 recompile may receive a frontier
+predicate that already carries the same listing evidence from an earlier
+generation; evidence identity is unique by listing ref, not by the incidental
+ontology-node revision. Coverage now replaces that binding with the current
+exact node/facet binding and deduplicates repeated supplemental assertion IDs.
+The process failed closed before writing the malformed predicate, the focused
+history-replay regression passes, and the subsequent startup completed. The
+retained ledger now contains a current-compiler exact national Democratic
+control projection and a current-compiler Josh projection whose only local rule
+debt is the missing negative clause. The live shadow still routes Iowa to
+`RETIRE_NON_POSITIVE_MARGIN` with two exact targeted quote legs and zero
+read-triggered requests or jobs.

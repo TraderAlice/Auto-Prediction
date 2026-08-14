@@ -140,6 +140,7 @@ import {
 } from "./world-history-ontology.js";
 import {
   compileSettlementProjections,
+  SETTLEMENT_PROJECTION_COMPILER_IDENTITY,
   settlementVenuePolicyEvidenceFromCaptures,
   type SettlementProjectionObservationStore,
 } from "./settlement-projection-compiler.js";
@@ -465,6 +466,7 @@ import {
   type SearchLens,
 } from "./search-lease-scheduler.js";
 import {
+  applySearchQuoteObservations,
   SearchQuoteEnrichmentDesk,
   type SearchQuoteObservationStore,
 } from "./search-quote-enrichment.js";
@@ -4819,12 +4821,40 @@ export function createControlPlane(options?: {
             revision.corpusSnapshotIdentity,
           ) ?? null;
       if (checkpoint === undefined || revision === null || corpus === null) return [];
+      const currentQuoteCorpus = catalogObservationDesk.corpus();
+      const currentListingByRef = new Map(currentQuoteCorpus.listings.map((item) =>
+        [item.listingRef, item] as const));
+      const quoteObservations = searchQuoteEnrichmentDesk.projection().observations;
+      const quoteListings = corpus.listings.flatMap((listing) => {
+        const current = currentListingByRef.get(listing.listingRef) ?? null;
+        const targeted = applySearchQuoteObservations(listing, quoteObservations);
+        const selected = targeted !== null && (current === null ||
+          targeted.sourceReceivedAt > current.sourceReceivedAt) ? targeted : current;
+        return selected === null ? [] : [selected];
+      });
+      const quoteCorpus = buildMarketCorpusSnapshot({
+        sourceSetIdentity: hashCanonical({
+          schemaVersion: "pmh.world-relation-quote-source-set.v1",
+          currentCorpusSnapshotIdentity: currentQuoteCorpus.snapshotIdentity,
+          quoteObservationIds: quoteObservations.map((item) => item.observationId).sort(),
+        }),
+        eligibleSourceCount: quoteListings.length === 0 ? 0 : 1,
+        excludedSourceCount: 0,
+        listings: quoteListings,
+      });
       const allowedHashes = new Set(revision.settlementProjectionArtifactHashes);
       const inspectedListingRefs = new Set(checkpoint.inspectedListingRefs);
       const frontierPredicateIds = new Set(experiment.predicateIds);
       const listingByRef = new Map(corpus.listings.map((item) =>
         [item.listingRef, item] as const));
+      const projectionKey = (item: (typeof projections)[number]): string =>
+        `${item.listing.listingRef}\n${[...item.predicateIds].sort().join("\n")}`;
+      const currentCompilerProjectionKeys = new Set(projections.filter((item) =>
+        item.compilerIdentity === SETTLEMENT_PROJECTION_COMPILER_IDENTITY
+      ).map(projectionKey));
       const applicableProjections = projections.filter((item) => {
+        if (item.compilerIdentity !== SETTLEMENT_PROJECTION_COMPILER_IDENTITY &&
+            currentCompilerProjectionKeys.has(projectionKey(item))) return false;
         if (allowedHashes.has(item.artifactHash)) return true;
         const listing = listingByRef.get(item.listing.listingRef);
         return inspectedListingRefs.has(item.listing.listingRef) &&
@@ -4834,7 +4864,7 @@ export function createControlPlane(options?: {
       });
       return compileWorldRelationShadowTradeHypotheses({
         experiment, inputRevision: revision, corpus,
-        quoteCorpus: catalogObservationDesk.corpus(),
+        quoteCorpus,
         projections: applicableProjections,
         inspectedListingRefs: checkpoint.inspectedListingRefs,
         projectionCoverageIncomplete:
@@ -7868,6 +7898,70 @@ export function createControlPlane(options?: {
           providerRequestsStarted: 0,
           modelInvocationsStarted: 0,
         });
+      }
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/api/v1/world-relations/quotes/refresh"
+    ) {
+      try {
+        await ready;
+        const body = await readJson(request);
+        if (body === null || typeof body !== "object" || Array.isArray(body) ||
+            Object.keys(body).length !== 0) {
+          throw new Error("world-relation quote refresh accepts an empty object only");
+        }
+        if (worldRelationExperimentStore === null) {
+          throw new Error("world-relation experiment storage is unavailable");
+        }
+        const hypotheses = worldRelationExperimentProjection().shadowHypotheses
+          .filter((item) => item.legs.some((leg) =>
+            leg.indicativeAskUnits === null &&
+            leg.listingRef.startsWith("gemini-predictions:")));
+        const pairs = [...new Map(hypotheses.map((hypothesis) => [
+          hypothesis.legs.map((item) => item.listingRef).sort().join("\n"), hypothesis,
+        ] as const)).values()];
+        const results = [];
+        let providerRequestsStarted = 0;
+        for (const hypothesis of pairs) {
+          const revision = worldRelationExperimentStore.loadWorldRelationExperimentInput(
+            hypothesis.sourceInputRevisionId,
+          );
+          const corpus = revision === null ? null
+            : worldRelationExperimentStore.loadWorldRelationExperimentCorpus(
+                revision.corpusSnapshotIdentity,
+              );
+          if (revision === null || corpus === null) continue;
+          const listingByRef = new Map(corpus.listings.map((item) =>
+            [item.listingRef, item] as const));
+          const listings = hypothesis.legs.flatMap((leg) => {
+            const listing = listingByRef.get(leg.listingRef);
+            return listing === undefined ? [] : [Object.freeze({ ...listing,
+              outcomes: Object.freeze(listing.outcomes.map((outcome) =>
+                Object.freeze({ ...outcome, indicativePrice: null }))) })];
+          });
+          if (listings.length !== 2) continue;
+          providerRequestsStarted += new Set(listings.filter((item) =>
+            item.venueId === "gemini-predictions").map((item) => item.listingRef)).size;
+          const result = await searchQuoteEnrichmentDesk.enrich(listings);
+          results.push(Object.freeze({ hypothesisId: hypothesis.hypothesisId,
+            status: result.status, requestedListingCount: result.requestedListingCount,
+            enrichedOutcomeCount: result.enrichedOutcomeCount,
+            observationIds: result.observationIds, diagnostics: result.diagnostics }));
+        }
+        await broadcastProjection();
+        writeJson(response, 200, Object.freeze({ ok: true,
+          refreshedHypothesisCount: results.length, results,
+          providerRequestsStarted, modelInvocationsStarted: 0,
+          semanticDecisionAuthority: false, probabilityAuthority: false,
+          executionAuthority: false, externalWriteAuthority: false,
+          valueMovingAuthority: false }));
+      } catch (error) {
+        writeJson(response, 409, { ok: false,
+          diagnostic: error instanceof Error ? error.message :
+            "world-relation quote refresh failed",
+          executionAuthority: false, valueMovingAuthority: false });
       }
       return;
     }

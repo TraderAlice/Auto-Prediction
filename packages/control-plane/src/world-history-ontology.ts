@@ -124,6 +124,7 @@ export type SettlementProjection = Readonly<{
   sourceAgentRunIds: readonly Hash[];
   sourceToolEffectIds: readonly Hash[];
   observedAt: string;
+  compilerIdentity?: Hash;
   authority: "SETTLEMENT_MAPPING_RESEARCH_ONLY";
   semanticDecisionAuthority: false;
   probabilityAuthority: false;
@@ -524,6 +525,7 @@ export function buildSettlementProjection(input: Readonly<{
   sourceAgentRunIds: readonly Hash[];
   sourceToolEffectIds: readonly Hash[];
   observedAt: string;
+  compilerIdentity?: Hash;
 }>): SettlementProjection {
   const predicateById = new Map(input.predicateArtifacts.map((item) => {
     const predicateArtifact = assertWorldPredicateArtifact(item);
@@ -608,6 +610,9 @@ export function buildSettlementProjection(input: Readonly<{
     sourceAgentRunIds: hashes(input.sourceAgentRunIds, "settlement source runs", 32),
     sourceToolEffectIds: hashes(input.sourceToolEffectIds, "settlement source effects", 128),
     observedAt: iso(input.observedAt, "settlement observation time"),
+    ...(input.compilerIdentity === undefined ? {} : {
+      compilerIdentity: hash(input.compilerIdentity, "settlement compiler identity"),
+    }),
     authority: "SETTLEMENT_MAPPING_RESEARCH_ONLY" as const,
     semanticDecisionAuthority: false as const,
     probabilityAuthority: false as const,
@@ -679,6 +684,8 @@ export function assertSettlementProjection(value: unknown): SettlementProjection
     artifact.semanticDecisionAuthority !== false || artifact.probabilityAuthority !== false ||
     artifact.certificateAuthority !== false || artifact.executionAuthority !== false ||
     artifact.externalWriteAuthority !== false || artifact.valueMovingAuthority !== false
+    || (artifact.compilerIdentity !== undefined &&
+      !HASH_PATTERN.test(artifact.compilerIdentity))
   ) {
     throw new Error("settlement projection identity does not match its canonical content");
   }

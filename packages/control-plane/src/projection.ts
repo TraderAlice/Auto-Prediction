@@ -1263,7 +1263,7 @@ export function buildStudioProjection(input: {
         timeoutMs: 10_000,
         maxResponseBytes: 1_000_000,
         retentionLimit: 100,
-        supportedVenues: Object.freeze(["opinion"] as const),
+        supportedVenues: Object.freeze(["gemini-predictions", "opinion"] as const),
         storage: Object.freeze({
           mode: "MEMORY" as const,
           durable: false as const,

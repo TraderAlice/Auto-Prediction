@@ -493,8 +493,8 @@ describe("search attention outbox", () => {
       })]);
       const expected = first.projection();
       expect(expected.storage).toMatchObject({
-        messages: { durable: true, schemaVersion: 64 },
-        deliveries: { durable: true, schemaVersion: 64 },
+        messages: { durable: true, schemaVersion: 65 },
+        deliveries: { durable: true, schemaVersion: 65 },
       });
       firstStore.close();
 

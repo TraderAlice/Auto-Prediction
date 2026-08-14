@@ -24,9 +24,7 @@ const RichTextNodeSchema: z.ZodType<RichTextNode> = z.lazy(() => z.object({
   content: z.array(RichTextNodeSchema).optional(),
 }).passthrough());
 
-const ResponseSchema = z.object({
-  data: z.array(
-    z.object({
+const EventSchema = z.object({
       id: z.string(),
       ticker: z.string(),
       title: z.string(),
@@ -54,11 +52,56 @@ const ResponseSchema = z.object({
                 .optional(),
             })
             .optional(),
+          marketState: z.string().optional(),
         }),
       ),
-    }),
-  ),
+    });
+
+const ResponseSchema = z.object({
+  data: z.array(EventSchema),
 });
+
+export const GEMINI_EVENT_DETAIL_PROTOCOL_IDENTITY =
+  "prediction-markets-event-detail-rest:2026-07-23" as const;
+
+export type GeminiEventDetailQuote = Readonly<{
+  eventTicker: string;
+  instrumentSymbol: string;
+  contractStatus: string;
+  marketState: string | null;
+  yesAsk: string | null;
+  noAsk: string | null;
+}>;
+
+export function geminiEventTickerFromInstrumentSymbol(symbol: string): string {
+  const match = /^GEMI-([A-Z0-9-]+)-[A-Z0-9]+$/u.exec(symbol);
+  if (match?.[1] === undefined) {
+    throw new Error("Gemini instrument symbol cannot identify an event ticker");
+  }
+  return match[1];
+}
+
+export function normalizeGeminiEventDetailQuote(
+  bytes: Uint8Array,
+  expectedInstrumentSymbol: string,
+): GeminiEventDetailQuote {
+  const event = EventSchema.parse(parseJsonWithNumberLexemes(
+    new TextDecoder().decode(bytes),
+  ));
+  const eventTicker = geminiEventTickerFromInstrumentSymbol(expectedInstrumentSymbol);
+  if (event.ticker !== eventTicker) {
+    throw new Error("Gemini event detail ticker does not match the requested instrument");
+  }
+  const contract = event.contracts.find((item) =>
+    item.instrumentSymbol === expectedInstrumentSymbol);
+  if (contract === undefined) {
+    throw new Error("Gemini event detail omits the requested instrument");
+  }
+  return Object.freeze({ eventTicker, instrumentSymbol: contract.instrumentSymbol,
+    contractStatus: contract.status, marketState: contract.marketState ?? null,
+    yesAsk: contract.prices?.buy?.yes ?? null,
+    noAsk: contract.prices?.buy?.no ?? null });
+}
 
 function richTextValue(
   node: RichTextNode | undefined,

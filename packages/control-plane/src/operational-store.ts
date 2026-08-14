@@ -372,7 +372,7 @@ import {
   type WorldRelationEntityRoleRequirement,
 } from "./world-relation-entity-role-evidence.js";
 
-const SCHEMA_VERSION = 64;
+const SCHEMA_VERSION = 65;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -3631,6 +3631,13 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'search_quote_observations'`,
       )
       .get() !== undefined;
+    const searchQuoteObservationGeminiVenueAllowed = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_quote_observations'
+           AND sql LIKE '%gemini-predictions%'`,
+      )
+      .get() !== undefined;
     const evidenceAcquisitionJobTableExists = this.#database
       .prepare(
         `SELECT name FROM sqlite_master
@@ -3987,6 +3994,7 @@ export class SqliteOperationalStore
       aiUsageEventTableExists &&
       aiRuntimeConfigurationTableExists &&
       searchQuoteObservationTableExists &&
+      searchQuoteObservationGeminiVenueAllowed &&
       officialSourceDiscoveryJobTableExists &&
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
@@ -4426,7 +4434,9 @@ export class SqliteOperationalStore
               observation_id GLOB 'sha256:[0-9a-f]*'
             ),
             listing_ref TEXT NOT NULL CHECK (length(listing_ref) > 0),
-            venue_id TEXT NOT NULL CHECK (venue_id = 'opinion'),
+            venue_id TEXT NOT NULL CHECK (
+              venue_id IN ('gemini-predictions', 'opinion')
+            ),
             received_at TEXT NOT NULL CHECK (length(received_at) > 0),
             record_json TEXT NOT NULL CHECK (json_valid(record_json)),
             record_hash TEXT NOT NULL CHECK (
@@ -6766,6 +6776,43 @@ export class SqliteOperationalStore
             DROP TABLE world_relation_entity_role_assertions_v63_draft;
           `);
         }
+      }
+      if (searchQuoteObservationTableExists &&
+          !searchQuoteObservationGeminiVenueAllowed) {
+        this.#database.exec(`
+          DROP INDEX IF EXISTS search_quote_observations_received;
+          DROP INDEX IF EXISTS search_quote_observations_listing;
+          ALTER TABLE search_quote_observations
+            RENAME TO search_quote_observations_opinion_v1;
+          CREATE TABLE search_quote_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND
+              observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL CHECK (length(listing_ref) > 0),
+            venue_id TEXT NOT NULL CHECK (
+              venue_id IN ('gemini-predictions', 'opinion')
+            ),
+            received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            raw_bytes BLOB NOT NULL
+          ) STRICT;
+          INSERT INTO search_quote_observations (
+            observation_id, listing_ref, venue_id, received_at,
+            record_json, record_hash, raw_bytes
+          )
+          SELECT observation_id, listing_ref, venue_id, received_at,
+            record_json, record_hash, raw_bytes
+          FROM search_quote_observations_opinion_v1;
+          DROP TABLE search_quote_observations_opinion_v1;
+          CREATE INDEX search_quote_observations_received
+            ON search_quote_observations (received_at DESC, observation_id DESC);
+          CREATE INDEX search_quote_observations_listing
+            ON search_quote_observations (listing_ref, received_at DESC);
+        `);
       }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");

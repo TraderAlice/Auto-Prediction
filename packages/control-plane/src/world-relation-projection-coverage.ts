@@ -3,6 +3,7 @@ import { buildMarketOntologySnapshot } from "./market-ontology.js";
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import {
   compileSettlementProjections,
+  SETTLEMENT_PROJECTION_COMPILER_IDENTITY,
   type SettlementProjectionCompilation,
   type SettlementVenuePolicyEvidence,
 } from "./settlement-projection-compiler.js";
@@ -127,6 +128,7 @@ export function compileWorldRelationProjectionCoverage(input: Readonly<{
     const listing = listingByRef.get(item.listing.listingRef);
     return listing !== undefined && item.listing.sourceRawHash === listing.sourceRawHash &&
       item.listing.protocolIdentity === listing.protocolIdentity &&
+      item.compilerIdentity === SETTLEMENT_PROJECTION_COMPILER_IDENTITY &&
       item.predicateIds.some((predicateId) => frontierPredicateIds.has(predicateId));
   });
   const existingByRef = new Map(applicableExisting.map((item) =>
@@ -168,7 +170,7 @@ export function compileWorldRelationProjectionCoverage(input: Readonly<{
           protocolIdentity: listing.protocolIdentity };
       const evidenceBindings = [...new Map(
         [...source.evidenceBindings, evidenceBinding].map((item) =>
-          [`${item.listingRef}:${item.nodeId}:${item.worldFacetId}`, item] as const),
+          [item.listingRef, item] as const),
       ).values()];
       const predicate = buildWorldPredicateArtifact({ ...source,
         evidenceBindings,
@@ -203,21 +205,27 @@ export function compileWorldRelationProjectionCoverage(input: Readonly<{
     if (roleBindings.length === 1) {
       const role = roleBindings[0]!;
       const node = nodeByRef.get(listingRef)!;
+      const evidenceBinding = {
+        listingRef, nodeId: node.nodeId, worldFacetId: node.worldFacet.facetId,
+        sourceRawHash: listing.sourceRawHash as Hash,
+        protocolIdentity: listing.protocolIdentity,
+      };
+      const supplementalEvidenceBinding = { kind: "ENTITY_ROLE_ASSERTION" as const,
+        listingRef,
+        assertionId: role.assertion.assertionId,
+        requirementId: role.requirement.requirementId,
+        sourceDocumentId: role.assertion.source.documentId,
+        sourceRawHash: role.assertion.source.rawHash,
+        sourceTextHash: role.assertion.source.textHash };
       const predicate = buildWorldPredicateArtifact({ ...role.predicate,
-        evidenceBindings: [...role.predicate.evidenceBindings, {
-          listingRef, nodeId: node.nodeId, worldFacetId: node.worldFacet.facetId,
-          sourceRawHash: listing.sourceRawHash as Hash,
-          protocolIdentity: listing.protocolIdentity,
-        }],
-        supplementalEvidenceBindings: [
+        evidenceBindings: [...new Map(
+          [...role.predicate.evidenceBindings, evidenceBinding].map((item) =>
+            [item.listingRef, item] as const),
+        ).values()],
+        supplementalEvidenceBindings: [...new Map([
           ...(role.predicate.supplementalEvidenceBindings ?? []),
-          { kind: "ENTITY_ROLE_ASSERTION", listingRef,
-            assertionId: role.assertion.assertionId,
-            requirementId: role.requirement.requirementId,
-            sourceDocumentId: role.assertion.source.documentId,
-            sourceRawHash: role.assertion.source.rawHash,
-            sourceTextHash: role.assertion.source.textHash },
-        ],
+          supplementalEvidenceBinding,
+        ].map((item) => [item.assertionId, item] as const)).values()],
         source: { ...role.predicate.source,
           sourceSnapshotIdentities: [...new Set([
             ...role.predicate.source.sourceSnapshotIdentities,

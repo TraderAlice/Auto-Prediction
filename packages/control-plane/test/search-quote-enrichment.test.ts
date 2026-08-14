@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { hashCanonical } from "@pmh/domain";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applySearchQuoteObservations,
   SearchQuoteEnrichmentDesk,
   SqliteOperationalStore,
   verifyStoredSearchQuoteObservation,
@@ -65,6 +66,17 @@ function opinionBook(tokenId: string, ask: string): Response {
     status: 200,
     headers: { "content-type": "application/json; charset=utf-8" },
   });
+}
+
+function geminiEvent(ticker: string, instrumentSymbol: string,
+  yes: string, no: string): Response {
+  return new Response(JSON.stringify({ id: ticker, ticker,
+    title: ticker, type: "categorical", status: "active",
+    expiryDate: "2026-11-10T00:00:00.000Z", contracts: [{ id: `${ticker}-1`,
+      label: instrumentSymbol, ticker: instrumentSymbol.split("-").at(-1),
+      instrumentSymbol, status: "active", marketState: "open",
+      prices: { buy: { yes, no } } }] }), { status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" } });
 }
 
 afterEach(() => {
@@ -143,7 +155,7 @@ describe("selected-pair anonymous quote enrichment", () => {
     const restored = new SearchQuoteEnrichmentDesk({ fetch, store: reopened });
     expect(restored.projection()).toMatchObject({
       retainedObservationCount: 2,
-      storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 64 },
+      storage: { mode: "SQLITE_WAL", durable: true, schemaVersion: 65 },
     });
     expect(restored.projection().observations.every((record) =>
       record.acquisition.credentialsUsed === false &&
@@ -180,5 +192,41 @@ describe("selected-pair anonymous quote enrichment", () => {
     expect(result.attemptedOutcomeCount).toBe(0);
     expect(result.effects.anonymousPublicGets).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("refreshes Gemini event details once per listing and overlays retained semantics", async () => {
+    const fetch = vi.fn(async (url: string) => {
+      const ticker = new URL(url).pathname.split("/").at(-1)!;
+      return ticker === "SEN26IA"
+        ? geminiEvent(ticker, "GEMI-SEN26IA-JOSHTUREK", "0.48", "0.56")
+        : geminiEvent(ticker, "GEMI-CTRLUSSEN-DEM", "0.47", "0.54");
+    });
+    const directory = mkdtempSync(join(tmpdir(), "pmh-gemini-quotes-"));
+    temporaryDirectories.push(directory);
+    const store = new SqliteOperationalStore(join(directory, "operations.sqlite"));
+    const yesNo = (item: DiscoveryCatalogListing): DiscoveryCatalogListing =>
+      Object.freeze({ ...item, outcomes: Object.freeze(item.outcomes.map((outcome, index) =>
+        Object.freeze({ ...outcome, label: index === 0 ? "Yes" : "No" }))) });
+    const iowa = yesNo(listing({ venueId: "gemini-predictions",
+      suffix: "GEMI-SEN26IA-JOSHTUREK", prices: [null, null] }));
+    const national = yesNo(listing({ venueId: "gemini-predictions",
+      suffix: "GEMI-CTRLUSSEN-DEM", prices: [null, null] }));
+    const result = await new SearchQuoteEnrichmentDesk({ fetch, store,
+      now: () => Date.parse(receivedAt) }).enrich([iowa, national]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ status: "READY", attemptedOutcomeCount: 4,
+      enrichedOutcomeCount: 4 });
+    expect(result.listings.map((item) => item.outcomes.map((outcome) =>
+      outcome.indicativePrice))).toEqual([["0.48", "0.56"], ["0.47", "0.54"]]);
+    const observations = store.loadSearchQuoteObservations(10).map((item) =>
+      verifyStoredSearchQuoteObservation(item).record);
+    expect(observations).toHaveLength(4);
+    expect(observations.every((item) => item.venueId === "gemini-predictions" &&
+      item.schemaVersion === "pmh.search-quote-observation.v2")).toBe(true);
+    expect(applySearchQuoteObservations(iowa, observations)).toMatchObject({
+      outcomes: [{ indicativePrice: "0.48" }, { indicativePrice: "0.56" }],
+      sourceKind: "LIVE_OBSERVATION", protocolIdentity: "search-quote-overlay.v1",
+    });
+    store.close();
   });
 });

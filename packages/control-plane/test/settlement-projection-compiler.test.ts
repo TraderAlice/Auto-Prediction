@@ -79,6 +79,20 @@ describe("first-party settlement projection compiler", () => {
     });
   });
 
+  it("recognizes bounded Gemini affirmative and otherwise dialects", () => {
+    for (const rulesText of [
+      "This contract resolves to Yes if Donald Trump drinks cola on a livestream and to No otherwise.",
+      "If Donald Trump drinks cola on a livestream, then this market resolves to Yes. Otherwise it resolves to No.",
+    ]) {
+      const input = fixture({ rulesText,
+        rulesTextSourceCharacterCount: rulesText.length });
+      expect(compileSettlementProjections({ ...input,
+        predicates: [input.predicate] }).observations[0]).toMatchObject({
+        disposition: "EXACT_PROJECTED", blockers: [],
+      });
+    }
+  });
+
   it("retains a research-only projection when a void override exists", () => {
     const rulesText = "Resolves Yes if Donald Trump drinks cola on a livestream. Otherwise resolves No. The venue may void this market at its sole discretion.";
     const input = fixture({
@@ -212,7 +226,7 @@ describe("first-party settlement projection compiler", () => {
       expect(store.saveSettlementProjectionObservations(result.observations))
         .toEqual(result.observations);
       expect(store.settlementProjectionObservationStorage).toMatchObject({
-        durable: true, schemaVersion: 64, idempotencyKey: "artifactHash",
+        durable: true, schemaVersion: 65, idempotencyKey: "artifactHash",
       });
       store.close();
       store = new SqliteOperationalStore(path);

@@ -1402,7 +1402,7 @@ describe("control-plane HTTP surface", () => {
     expect(projection.ai.searchQuoteEnrichment).toMatchObject({
       mode: "ANONYMOUS_PUBLIC_GET",
       retainedObservationCount: 0,
-      supportedVenues: ["opinion"],
+      supportedVenues: ["gemini-predictions", "opinion"],
       storage: { durable: false, idempotencyKey: "observationId" },
       semanticDecisionAuthority: false,
       executionAuthority: false,
@@ -3693,7 +3693,7 @@ describe("control-plane HTTP surface", () => {
         storage: {
           mode: "SQLITE_WAL",
           durable: true,
-            schemaVersion: 64,
+            schemaVersion: 65,
         },
         records: [{ investigationId: created.investigationId }],
       });

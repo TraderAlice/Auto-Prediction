@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hashBytes } from "@pmh/domain";
 import { loadRawFixture, verifyRawFixture } from "@pmh/evidence";
-import { geminiManifest, normalizeGeminiCatalog } from "../src/index.js";
+import { geminiEventTickerFromInstrumentSymbol, geminiManifest,
+  normalizeGeminiCatalog, normalizeGeminiEventDetailQuote } from "../src/index.js";
 
 const fixtureDirectory = resolve(
   import.meta.dirname,
@@ -10,6 +11,23 @@ const fixtureDirectory = resolve(
 );
 
 describe("Gemini catalog fixtures", () => {
+  it("binds a targeted event detail response to the exact instrument", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ id: "93889",
+      ticker: "SEN26IA", title: "Iowa US Senate Winner", type: "categorical",
+      status: "active", expiryDate: "2026-11-10T00:00:00.000Z", contracts: [{
+        id: "93889-282131", label: "Josh Turek", ticker: "JOSHTUREK",
+        instrumentSymbol: "GEMI-SEN26IA-JOSHTUREK", status: "active",
+        marketState: "open", prices: { buy: { yes: "0.48", no: "0.56" } },
+      }] }));
+    expect(geminiEventTickerFromInstrumentSymbol("GEMI-SEN26IA-JOSHTUREK"))
+      .toBe("SEN26IA");
+    expect(normalizeGeminiEventDetailQuote(bytes,
+      "GEMI-SEN26IA-JOSHTUREK")).toEqual({ eventTicker: "SEN26IA",
+      instrumentSymbol: "GEMI-SEN26IA-JOSHTUREK", contractStatus: "active",
+      marketState: "open", yesAsk: "0.48", noAsk: "0.56" });
+    expect(() => normalizeGeminiEventDetailQuote(bytes,
+      "GEMI-CTRLUSSEN-DEM")).toThrow(/ticker does not match/u);
+  });
   it("normalizes a public binary contract", async () => {
     const fixture = await loadRawFixture(
       `${fixtureDirectory}/gemini-binary-catalog.json`,

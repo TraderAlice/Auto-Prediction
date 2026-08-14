@@ -86,10 +86,8 @@ describe("world relation projection coverage", () => {
       listing: { listingRef: "gemini:control-dem" },
       predicateIds: [control.predicateId],
     });
-    expect(result.projections[0]?.compilerAdmission).toBe("RESEARCH_ONLY");
-    expect(result.settlement.observations[0]?.blockers).toContain(
-      "MISSING_NEGATIVE_RESOLUTION_CLAUSE",
-    );
+    expect(result.projections[0]?.compilerAdmission).toBe("EXACT_BINARY_ELIGIBLE");
+    expect(result.settlement.observations[0]?.blockers).toEqual([]);
 
     const requirements = buildWorldRelationEntityRoleRequirements({ frontier, corpus,
       coverageObservations: result.observations });
@@ -125,8 +123,23 @@ describe("world relation projection coverage", () => {
       state.ruleEvidenceHashes.includes(roleAssertion.assertionId))).toBe(true);
     expect(bridged.settlement.observations.find((item) =>
       item.listingRef === "gemini:iowa-josh")?.blockers).toEqual([
-      "MISSING_AFFIRMATIVE_RESOLUTION_CLAUSE",
       "MISSING_NEGATIVE_RESOLUTION_CLAUSE",
     ]);
+
+    const replayPredicates = frontier.predicates.map((item) =>
+      bridged.predicates.find((candidate) => candidate.predicateId === item.predicateId) ?? item);
+    const replayFrontierBody = { ...frontierBody, predicates: replayPredicates };
+    const replayFrontier = Object.freeze({ ...replayFrontierBody,
+      artifactHash: hashCanonical(replayFrontierBody) }) satisfies WorldRelationFrontierSeed;
+    const replayed = compileWorldRelationProjectionCoverage({ frontier: replayFrontier,
+      corpus, inspectedListingRefs: corpus.listings.map((item) => item.listingRef),
+      existingProjections: [], entityRoleRequirements: requirements,
+      entityRoleAssertions: [roleAssertion] });
+    const replayedControl = replayed.predicates.find((item) =>
+      item.predicateId === control.predicateId);
+    expect(replayedControl?.evidenceBindings.filter((item) =>
+      item.listingRef === democraticControl.listingRef)).toHaveLength(1);
+    expect(replayedControl?.artifactHash).toBe(bridged.predicates.find((item) =>
+      item.predicateId === control.predicateId)?.artifactHash);
   });
 });
