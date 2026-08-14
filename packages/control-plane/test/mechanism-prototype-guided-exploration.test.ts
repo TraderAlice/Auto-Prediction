@@ -873,14 +873,14 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const protocol = lens.task.requestedEffectProtocol;
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "browse_mechanism_exploration_directory",
+    ]);
+    await browseDirectory({ host, lens, run, profile, suffix: "recovery" });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "read_mechanism_exploration_context",
     ]);
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "recovery:lens", toolName: "read_mechanism_exploration_context", input: {} });
-    expect(host.completionRecoveryToolNames(protocol)).toEqual([
-      "browse_mechanism_exploration_directory",
-    ]);
-    await browseDirectory({ host, lens, run, profile, suffix: "recovery" });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "browse_mechanism_exploration_directory",
       "search_mechanism_exploration_roles", "search_mechanism_exploration_corpus",
@@ -1302,7 +1302,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     const manifest = host.manifest(lens.task.requestedEffectProtocol);
     expect(manifest.map((tool) => tool.name)).toEqual([
-      "read_mechanism_exploration_context",
+      "browse_mechanism_exploration_directory",
     ]);
     expect(host.manifestRefreshPolicy(lens.task.requestedEffectProtocol))
       .toBe("AFTER_ACCEPTED_EFFECT");

@@ -204,7 +204,7 @@ const BASE_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: "browse_mechanism_exploration_directory",
-    description: "Browse one bounded, deterministic page of exact coverage listings before constructing a search query. Entries are round-robin stratified across predicate family and venue, with non-source families first. Titles are untrusted query inspiration only and do not establish a semantic relation.",
+    description: "Blind-first reconnaissance: browse one bounded, deterministic page of exact uncovered listings before the source prototype is disclosed or any search query is constructed. Entries are round-robin stratified across predicate family and venue, with non-source families first. Let these concrete objects frame a candidate neighborhood; titles are untrusted query inspiration only and do not establish a semantic relation.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
       required: ["offset", "limit"],
@@ -591,11 +591,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     if (protocol !== MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL) {
       throw new Error("mechanism exploration tool protocol is unsupported");
     }
-    if (this.#lensReadCount === 0) {
-      return Object.freeze(["read_mechanism_exploration_context"]);
-    }
     if (this.#directoryPageIds.size === 0) {
       return Object.freeze(["browse_mechanism_exploration_directory"]);
+    }
+    if (this.#lensReadCount === 0) {
+      return Object.freeze(["read_mechanism_exploration_context"]);
     }
     const readiness = this.readiness();
     if (this.#activeHypothesis === null) {

@@ -724,3 +724,26 @@ venue and predicate family before free-form search. The observation grants only
 query-inspiration authority. It must be durable through the ordinary effect
 ledger, deduplicated, bounded, and unable to assert a relation or bypass role,
 inspection, hypothesis or verifier gates.
+
+V14 implemented that directory as a bounded, content-addressed, provider-free
+capability and made it mandatory immediately after the source-prototype context
+read. Full qualification passed (120 control-plane files / 793 tests and 30
+Studio tests), but live specimen `df46406a…` falsified the ordering rather than
+the need for concrete browsing. The run accepted context read → directory browse
+→ Senate role search, then accumulated a duplicate-search rejection, an invalid
+directory-page rejection, an empty Senate flat search and a second Senate role
+search. It was interrupted when the eleventh model invocation reached the
+600-second campaign wall-clock boundary. Ten successful invocations consumed
+202,314 input / 2,886 output / 1,655 reasoning tokens; there was no terminal
+result. Both durable role queries remained entirely within the source election
+family despite directory access.
+
+Selection: retain V14 as negative causal evidence and change the ordering. The
+source prototype was disclosed on the first turn, before the Agent saw any exact
+uncovered object, so the directory arrived after the search problem had already
+been framed. V15 must be ontology-blind-first: the only initial capability is an
+exact directory browse; only after one accepted page may the Agent read the
+source prototype and axis contract. All later role, inspection, hypothesis and
+terminal gates remain unchanged. The matched live signal is whether the first
+durable search vocabulary draws from a non-election directory object; runtime
+success alone is insufficient.
