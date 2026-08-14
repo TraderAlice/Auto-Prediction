@@ -131,7 +131,7 @@ export function buildMechanismPrototypeExplorationCampaignPreview(input: Readonl
     item.executionProfileId === workloadRoute.executionProfileId
   );
   if (executionProfile === undefined || executionProfile.toolPolicy.protocol !==
-      "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12") {
+      "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V13") {
     throw new Error("mechanism exploration execution profile is unavailable");
   }
   const eligible = [...input.lenses]

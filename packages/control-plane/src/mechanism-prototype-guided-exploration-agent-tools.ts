@@ -273,12 +273,14 @@ const BASE_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: "open_exploration_hypothesis",
-    description: "Open one falsifiable ontological conjecture before any prototype action. Select one host-enumerated exact test/family choice and state in advance what would support or falsify it. This routes research only and does not assert a semantic relation.",
+    description: "Open one falsifiable ontological conjecture after bounded reconnaissance. Select one host-enumerated inspected role-pair evidence choice and one exact test/family choice, then state in advance what would support or falsify the transfer. This routes research only and does not assert a semantic relation.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
-      required: ["hypothesisChoice", "intentRationale", "materialVariation", "predictedRoleStructure",
+      required: ["reconnaissanceChoice", "hypothesisChoice", "intentRationale",
+        "materialVariation", "predictedRoleStructure",
         "supportingObservation", "falsifyingObservation", "searchNeighborhoods"],
       properties: {
+        reconnaissanceChoice: text(250),
         hypothesisChoice: text(250),
         intentRationale: text(2_000), materialVariation: text(2_000),
         predictedRoleStructure: text(2_000), supportingObservation: text(2_000),
@@ -341,7 +343,7 @@ const BASE_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: "record_mechanism_exploration_exhaustion",
-    description: "Retain bounded negative search memory after at least one exact search, one inspection, a failed active prototype test, and hypothesis closure. Name searched neighborhoods rather than saying only that nothing was found.",
+    description: "Retain bounded negative search memory after either a closed failed prototype experiment or two distinct exact role searches with zero axis-admissible pairs. The scoped-absence path deliberately needs no ceremonial hypothesis or invented inspection. Name searched neighborhoods rather than saying only that nothing was found.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
       required: [
@@ -410,6 +412,25 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     );
   }
 
+  #reconnaissanceChoices() {
+    return [...this.#roleSearchResults.values()].flatMap((result) =>
+      result.pairs.filter((pair) => this.#pairAxisAdmissible(pair) &&
+          this.#inspectedListingRefs.has(pair.componentListingRef) &&
+          this.#inspectedListingRefs.has(pair.aggregateListingRef))
+        .map((pair) => {
+          const binding = Object.freeze({
+            roleSearchResultId: result.resultIdentity,
+            componentListingRef: pair.componentListingRef,
+            aggregateListingRef: pair.aggregateListingRef,
+          });
+          return Object.freeze({
+            handle: `reconnaissance:${hashCanonical(binding)}`,
+            binding,
+          });
+        })
+    ).sort((left, right) => left.handle.localeCompare(right.handle));
+  }
+
   #scopedAbsenceEligible(): boolean {
     return this.#roleSearchResults.size >= 2 && this.#axisAdmissibleRolePairs().length === 0;
   }
@@ -445,12 +466,16 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         }
       }
     }
+    const reconnaissanceChoices = this.#reconnaissanceChoices();
     const baseManifest = BASE_MANIFEST.map((definition) =>
       definition.name !== "open_exploration_hypothesis" ? definition : Object.freeze({
         ...definition,
         inputSchema: Object.freeze({ ...definition.inputSchema,
           properties: Object.freeze({
             ...(definition.inputSchema.properties as Readonly<Record<string, unknown>>),
+            reconnaissanceChoice: Object.freeze({
+              enum: Object.freeze(reconnaissanceChoices.map((item) => item.handle)),
+            }),
             hypothesisChoice: Object.freeze({ enum: Object.freeze(legalHypothesisChoices) }),
           }),
         }),
@@ -512,6 +537,10 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           rawComponentHitCount: result.rawComponentHitCount,
           rawAggregateHitCount: result.rawAggregateHitCount }),
       )),
+      reconnaissanceCandidates: Object.freeze(this.#reconnaissanceChoices().map((item) => ({
+        handle: item.handle,
+        ...item.binding,
+      }))),
       inspectableListings: Object.freeze(inspectableListings),
       inspectedListings: Object.freeze([...this.#inspectedListingRefs].sort().map((ref) => {
         const listing = this.corpus.listings.find((item) => item.listingRef === ref);
@@ -552,9 +581,25 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       if (readiness.exhaustion.eligible) {
         terminal.push("record_mechanism_exploration_exhaustion");
       }
-      return terminal.length > 0
-        ? Object.freeze(terminal)
-        : Object.freeze(["open_exploration_hypothesis"]);
+      if (terminal.length > 0) return Object.freeze(terminal);
+      if (this.#closedHypotheses.length > 0) {
+        return Object.freeze(["open_exploration_hypothesis"]);
+      }
+      if (this.#reconnaissanceChoices().length > 0) {
+        return Object.freeze(["open_exploration_hypothesis"]);
+      }
+      const admissiblePairs = this.#axisAdmissibleRolePairs();
+      if (admissiblePairs.length > 0) {
+        return Object.freeze(["inspect_mechanism_exploration_listings"]);
+      }
+      const inspectableListingCount = [...this.#searchedListingRefs]
+        .filter((ref) => !this.#inspectedListingRefs.has(ref)).length;
+      return Object.freeze([
+        "search_mechanism_exploration_roles",
+        "search_mechanism_exploration_corpus",
+        ...(inspectableListingCount > 0
+          ? ["inspect_mechanism_exploration_listings"] : []),
+      ]);
     }
     const binding = this.#activeHypothesis.testBinding;
     const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
@@ -623,7 +668,8 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         : prerequisite === "FAILED_PROTOTYPE_TEST"
           ? this.#failedTransferTests.size + this.#failedCounterScenarios.size === 0 &&
             !scopedAbsenceEligible
-        : this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null,
+        : this.#activeHypothesis !== null ||
+          (this.#closedHypotheses.length === 0 && !scopedAbsenceEligible),
     );
     return assertMechanismPrototypeExplorationActionReadiness(Object.freeze({
       schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v4" as const,
@@ -892,17 +938,27 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           counterScenarios: references.counterScenarios.map(({ handle, text }) => ({ handle, text })),
           activeTestOutcomeTool: "record_active_prototype_test_outcome" as const,
         }),
-        hypothesisActionPolicy: "OPEN_BEFORE_ACTION_MATCH_EXACT_BINDING_CLOSE_AFTER_ACTION",
+        hypothesisActionPolicy:
+          "RECONNAISSANCE_FIRST_BIND_INSPECTED_PAIR_OPEN_BEFORE_ACTION_CLOSE_AFTER_ACTION",
         familyIntentPolicy: "EMPTY_PRIOR_FAMILIES_REQUIRES_DIFFERENT_TEST_AND_NULL_PRIOR_FAMILY",
         terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
         authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_ONLY",
       }));
     }
     if (context.toolName === "open_exploration_hypothesis") {
-      exactKeys(input, ["hypothesisChoice", "intentRationale", "materialVariation", "predictedRoleStructure",
+      exactKeys(input, ["reconnaissanceChoice", "hypothesisChoice", "intentRationale",
+        "materialVariation", "predictedRoleStructure",
         "supportingObservation", "falsifyingObservation", "searchNeighborhoods"]);
       if (this.#activeHypothesis !== null) {
         return this.#rejected("close or revise the active exploration hypothesis first");
+      }
+      const reconnaissance = this.#reconnaissanceChoices().find((item) =>
+        item.handle === input.reconnaissanceChoice
+      );
+      if (reconnaissance === undefined) {
+        return this.#rejected(
+          "hypothesis requires one host-enumerated inspected axis-admissible reconnaissance pair",
+        );
       }
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
       const choice = input.hypothesisChoice;
@@ -960,7 +1016,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         openingToolCallId: context.callId,
       }));
       const hypothesis = Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v2" as const,
+        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v3" as const,
         hypothesisId, revision: 1, status: "ACTIVE" as const,
         testBinding: Object.freeze({ kind: binding.kind, ordinal: binding.index + 1,
           handle: binding.item.handle, exactText: binding.item.text }),
@@ -972,6 +1028,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         revisionReason: null, disposition: null,
         observedSupport: Object.freeze([]), observedFalsifiers: Object.freeze([]), rationale: null,
         familyIntent, priorFamilyId, intentRationale: input.intentRationale as string,
+        reconnaissanceBinding: reconnaissance.binding,
         authority: "AGENT_RESEARCH_HYPOTHESIS_ONLY" as const,
         semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
         certificateAuthority: false as const, executionAuthority: false as const,
@@ -1311,9 +1368,10 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           "mechanism exploration exhaustion requires a failed prototype test or bounded scoped absence",
         );
       }
-      if (this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null) {
+      if (this.#activeHypothesis !== null ||
+          (this.#closedHypotheses.length === 0 && !scopedAbsence)) {
         return this.#rejected(
-          "mechanism exploration exhaustion requires one closed falsifiable hypothesis",
+          "mechanism exploration exhaustion requires a closed falsifiable hypothesis or pre-hypothesis bounded scoped absence",
         );
       }
       const roleSearchResults = [...this.#roleSearchResults.values()];

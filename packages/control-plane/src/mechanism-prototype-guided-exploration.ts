@@ -43,7 +43,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V13" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -329,7 +329,8 @@ export const MECHANISM_PROTOTYPE_EXPLORATION_HYPOTHESIS_DISPOSITIONS = Object.fr
 
 export type MechanismPrototypeExplorationHypothesis = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v1" |
-    "pmh.mechanism-prototype-exploration-hypothesis.v2";
+    "pmh.mechanism-prototype-exploration-hypothesis.v2" |
+    "pmh.mechanism-prototype-exploration-hypothesis.v3";
   hypothesisId: Hash;
   revision: number;
   status: "ACTIVE" | "CLOSED";
@@ -352,6 +353,11 @@ export type MechanismPrototypeExplorationHypothesis = Readonly<{
   familyIntent?: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
   priorFamilyId?: Hash | null;
   intentRationale?: string;
+  reconnaissanceBinding?: Readonly<{
+    roleSearchResultId: Hash;
+    componentListingRef: string;
+    aggregateListingRef: string;
+  }>;
   authority: "AGENT_RESEARCH_HYPOTHESIS_ONLY";
   semanticDecisionAuthority: false;
   probabilityAuthority: false;
@@ -369,13 +375,16 @@ export function assertMechanismPrototypeExplorationHypothesis(
   }
   const item = value as Readonly<Record<string, unknown>>;
   const binding = item.testBinding as Readonly<Record<string, unknown>> | undefined;
+  const reconnaissance = item.reconnaissanceBinding as
+    Readonly<Record<string, unknown>> | undefined;
   const strings = [item.materialVariation, item.predictedRoleStructure,
     item.supportingObservation, item.falsifyingObservation];
   const arrays = [item.searchNeighborhoods, item.observedSupport, item.observedFalsifiers];
   const isV11Hypothesis = item.familyIntent !== undefined || item.priorFamilyId !== undefined ||
     item.intentRationale !== undefined;
   if (!["pmh.mechanism-prototype-exploration-hypothesis.v1",
-        "pmh.mechanism-prototype-exploration-hypothesis.v2"]
+        "pmh.mechanism-prototype-exploration-hypothesis.v2",
+        "pmh.mechanism-prototype-exploration-hypothesis.v3"]
       .includes(String(item.schemaVersion)) ||
       !HASH_PATTERN.test(String(item.hypothesisId)) ||
       !Number.isSafeInteger(item.revision) || Number(item.revision) < 1 ||
@@ -411,6 +420,24 @@ export function assertMechanismPrototypeExplorationHypothesis(
   if (item.schemaVersion === "pmh.mechanism-prototype-exploration-hypothesis.v2" &&
       !isV11Hypothesis) {
     throw new Error("mechanism exploration V2 hypothesis requires family intent");
+  }
+  if (item.schemaVersion === "pmh.mechanism-prototype-exploration-hypothesis.v3" &&
+      (!isV11Hypothesis || reconnaissance === undefined ||
+       Object.keys(reconnaissance).sort().join("|") !==
+         "aggregateListingRef|componentListingRef|roleSearchResultId" ||
+       !HASH_PATTERN.test(String(reconnaissance.roleSearchResultId)) ||
+       typeof reconnaissance.componentListingRef !== "string" ||
+       reconnaissance.componentListingRef.length < 1 ||
+       reconnaissance.componentListingRef.length > 500 ||
+       typeof reconnaissance.aggregateListingRef !== "string" ||
+       reconnaissance.aggregateListingRef.length < 1 ||
+       reconnaissance.aggregateListingRef.length > 500 ||
+       reconnaissance.componentListingRef === reconnaissance.aggregateListingRef)) {
+    throw new Error("mechanism exploration V3 hypothesis requires exact reconnaissance");
+  }
+  if (item.schemaVersion !== "pmh.mechanism-prototype-exploration-hypothesis.v3" &&
+      reconnaissance !== undefined) {
+    throw new Error("legacy mechanism exploration hypothesis cannot claim reconnaissance");
   }
   return value as MechanismPrototypeExplorationHypothesis;
 }
@@ -3395,7 +3422,9 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
   };
   const hypothesisIntentRealizations = Object.freeze(familyMembers.flatMap((member) => {
     const hypothesis = member.hypothesis.final;
-    if (hypothesis.schemaVersion !== "pmh.mechanism-prototype-exploration-hypothesis.v2" ||
+    if (!["pmh.mechanism-prototype-exploration-hypothesis.v2",
+      "pmh.mechanism-prototype-exploration-hypothesis.v3"]
+      .includes(hypothesis.schemaVersion) ||
         hypothesis.familyIntent === undefined) return [];
     const currentFamilyId = familyIdOf(member.episode, member.hypothesis);
     const referenceMembers = familyMembers.filter((candidate) => {

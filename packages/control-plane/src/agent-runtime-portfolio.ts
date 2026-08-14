@@ -244,7 +244,7 @@ export function buildDefaultAgentRuntimePortfolio(
     runtimeDefinition: codex,
     credentialBinding: codexCredential,
     modelProfile: codexModel,
-    toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12",
+    toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V13",
     runBudget: {
       maximumModelInvocations: 16,
       maximumToolCalls: 32,

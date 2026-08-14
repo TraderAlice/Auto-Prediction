@@ -644,3 +644,53 @@ durable state before selection. The rebuild may retain derived inputs/tasks but
 must start zero provider requests and zero model invocations. This is required
 for autonomous continuity: a search machine cannot require operator restarts to
 incorporate its own completed experiments.
+
+The selection boundary now performs that defensive provider-free rebuild.
+Focused mechanism/HTTP qualification passes 58/58 tests; the full suite had one
+unrelated five-second SQLite retention timeout and its isolated eight-test file
+then passed. Two consecutive live previews were content-identical, advanced to
+a new surface-domain semantic input, and left the global model-invocation count
+unchanged at 970 with explicit zero provider/model effects.
+
+That newly selected surface specimen (`d1203b31…`) completed even more cheaply:
+seven calls / 137,173 input tokens, six accepted effects, two distinct zero-pair
+role searches and a scoped-absence terminal. Yet its chronology identifies the
+next architectural bottleneck. Although the exact coverage contained 204
+members including Formula 1 constructors, Ballon d'Or and token-launch markets,
+the state machine required a hypothesis immediately after context. Terra
+therefore committed first to another state-Senate-seat → national-control
+extension, and only then searched. Economic diversification and a broad corpus
+cannot overcome this source anchor when conjecture precedes observation.
+
+The next protocol should be reconnaissance-first, not claim-first. After the
+single context read, the legal capability surface must permit bounded role and
+flat searches before any hypothesis. A positive conjecture may open only after
+an exact axis-admissible role pair has been inspected, and it must bind that
+reconnaissance result/pair. Two distinct role searches with zero admissible pairs
+may terminalize directly as scoped absence without manufacturing a ceremonial
+hypothesis. Search observations remain untrusted routing evidence: they gain no
+semantic, probability, certificate, scheduling or execution authority. Once a
+candidate is grounded, the existing exact test binding, falsification action,
+hypothesis closure and first-party terminal gates remain mandatory.
+
+Protocol V13 now implements that ordering as a state invariant rather than a
+prompt preference. After context, the fresh manifest exposes only bounded role
+and flat searches (plus inspection when exact retrieval coordinates exist). An
+axis-admissible role pair must have both exact listings inspected before the
+host creates a content-addressed `reconnaissance:<hash>` choice. Hypothesis V3
+requires that host-enumerated choice and durably binds the exact role-search
+result ID, component listing ref and aggregate listing ref. The Agent cannot
+invent or substitute the pair. Scoped absence becomes directly terminal after
+two distinct zero-admissible-pair role searches, with no fake hypothesis,
+inspection or prototype failure. Positive paths still require an exact
+prototype test, closed hypothesis and first-party terminal assessment.
+
+Backward evidence remains readable: V1/V2 hypotheses and V1–V12 task protocols
+retain recovery recognition, while only V13 is newly dispatchable. V2/V3 family
+intent measurement continues to compile, and V3 rejects reconnaissance fields
+with extra keys or malformed identities. Focused mechanism tests pass 25/25,
+cross-module type/store/campaign/server qualification passes 85/85, and the full
+control-plane suite passes 120 files / 791 tests. The next matched live specimen
+should test whether Terra's first substantive action is search rather than a
+source-anchored election hypothesis, then compare semantic-domain yield and
+token cost against `d1203b31…`.

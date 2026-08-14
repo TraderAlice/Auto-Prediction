@@ -784,9 +784,17 @@ describe("mechanism-prototype exploration Agent tools", () => {
     suffix: string;
     prototypeTestHandle?: string;
   }>) {
+    const reconnaissanceChoice = ((input.host.manifestRefreshCheckpoint(
+      input.lens.task.requestedEffectProtocol,
+    ) as { reconnaissanceCandidates: readonly { handle: string }[] })
+      .reconnaissanceCandidates[0]?.handle);
+    if (reconnaissanceChoice === undefined) {
+      throw new Error("test hypothesis requires inspected reconnaissance");
+    }
     return input.host.execute({ task: input.lens.task, run: input.run,
       executionProfile: input.profile, callId: `hypothesis:${input.suffix}:open`,
       toolName: "open_exploration_hypothesis", input: {
+        reconnaissanceChoice,
         hypothesisChoice: `${input.prototypeTestHandle ?? "transfer-test:1"}|DIFFERENT_TEST|NEW`,
         intentRationale: "No exact prior family exists for this bounded fixture test.",
         materialVariation: "Move the component/aggregate mechanism into the searched neighborhood.",
@@ -825,23 +833,26 @@ describe("mechanism-prototype exploration Agent tools", () => {
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "recovery:lens", toolName: "read_mechanism_exploration_context", input: {} });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
-      "open_exploration_hypothesis",
-    ]);
-    await openHypothesis({ host, lens, run, profile, suffix: "recovery" });
-    expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "search_mechanism_exploration_roles", "search_mechanism_exploration_corpus",
     ]);
     await host.execute({ task: lens.task, run, executionProfile: profile,
-      callId: "recovery:search", toolName: "search_mechanism_exploration_corpus", input: {
-        patterns: ["Scuderia Ferrari"], syntax: "LITERAL", mode: "ANY",
-        fields: ["title"], venueIds: [], limit: 10,
+      callId: "recovery:search", toolName: "search_mechanism_exploration_roles", input: {
+        component: { patterns: ["race"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["constructors championship"], syntax: "LITERAL",
+          mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
       } });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "inspect_mechanism_exploration_listings",
     ]);
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "recovery:inspect", toolName: "inspect_mechanism_exploration_listings",
-      input: { listingRefs: ["venue-sport:constructors"] } });
+      input: { listingRefs: ["venue-race:italy", "venue-sport:constructors"] } });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "open_exploration_hypothesis",
+    ]);
+    await openHypothesis({ host, lens, run, profile, suffix: "recovery" });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "record_active_prototype_test_outcome",
     ]);
@@ -991,8 +1002,25 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot, store,
     );
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "hypothesis:recon-search", toolName: "search_mechanism_exploration_roles",
+      input: {
+        component: { patterns: ["race"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["constructors championship"], syntax: "LITERAL",
+          mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
+      } });
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "hypothesis:recon-inspect", toolName: "inspect_mechanism_exploration_listings",
+      input: { listingRefs: ["venue-race:italy", "venue-sport:constructors"] } });
+    const reconnaissanceChoice = ((host.manifestRefreshCheckpoint(
+      lens.task.requestedEffectProtocol,
+    ) as { reconnaissanceCandidates: readonly { handle: string }[] })
+      .reconnaissanceCandidates[0]!.handle);
     const calls = [
       { callId: "hypothesis:open", toolName: "open_exploration_hypothesis", input: {
+        reconnaissanceChoice,
         hypothesisChoice: "transfer-test:1|DIFFERENT_TEST|NEW",
         intentRationale: "No exact prior family exists for this fixture.",
         materialVariation: "Transfer into sports.",
@@ -1036,8 +1064,13 @@ describe("mechanism-prototype exploration Agent tools", () => {
     ]);
     expect(steps[3]).toMatchObject({ resultSummary: { kind: "HYPOTHESIS_ACTION" },
       readinessAfter: { activeHypothesis: false, closedHypothesisCount: 1 },
-      hypothesisAfter: { revision: 3, status: "CLOSED", disposition: "FALSIFIED",
-        semanticDecisionAuthority: false } });
+      hypothesisAfter: { schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v3",
+        revision: 3, status: "CLOSED", disposition: "FALSIFIED",
+        reconnaissanceBinding: {
+          roleSearchResultId: expect.stringMatching(/^sha256:/u),
+          componentListingRef: "venue-race:italy",
+          aggregateListingRef: "venue-sport:constructors",
+        }, semanticDecisionAuthority: false } });
     const episode = compileMechanismPrototypeExplorationExperimentEpisodes({
       inputs: [lens.currentInputRevision], stepObservations: steps,
       execution: { runtimeDefinitions: [], credentialBindings: [], modelProfiles: [model],
@@ -1093,8 +1126,25 @@ describe("mechanism-prototype exploration Agent tools", () => {
         posture: "COVERAGE_GAP", observationCount: 0,
         evidenceDebt: "NO_OBSERVATION", knownInputTokens: "0" })]),
     );
+    await nextHost.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "family:recon-search", toolName: "search_mechanism_exploration_roles",
+      input: {
+        component: { patterns: ["race"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["constructors championship"], syntax: "LITERAL",
+          mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
+      } });
+    await nextHost.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "family:recon-inspect", toolName: "inspect_mechanism_exploration_listings",
+      input: { listingRefs: ["venue-race:italy", "venue-sport:constructors"] } });
+    const familyReconnaissanceChoice = ((nextHost.manifestRefreshCheckpoint(
+      lens.task.requestedEffectProtocol,
+    ) as { reconnaissanceCandidates: readonly { handle: string }[] })
+      .reconnaissanceCandidates[0]!.handle);
     await expect(nextHost.execute({ task: lens.task, run, executionProfile: profile,
       callId: "hypothesis:duplicate", toolName: "open_exploration_hypothesis", input: {
+        reconnaissanceChoice: familyReconnaissanceChoice,
         hypothesisChoice: "transfer-test:1|DIFFERENT_TEST|NEW",
         intentRationale: "Pretend this exact test is new.",
         materialVariation: "Paraphrase the same transfer.",
@@ -1106,6 +1156,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       } });
     await expect(nextHost.execute({ task: lens.task, run, executionProfile: profile,
       callId: "hypothesis:extend", toolName: "open_exploration_hypothesis", input: {
+        reconnaissanceChoice: familyReconnaissanceChoice,
         hypothesisChoice: `transfer-test:1|EXTEND|${family.familyId}`,
         intentRationale: "Extend the exact family into a new settlement-time neighborhood.",
         materialVariation: "Change temporal scope while retaining the exact test.",
@@ -1115,23 +1166,67 @@ describe("mechanism-prototype exploration Agent tools", () => {
         searchNeighborhoods: ["earlier component", "later aggregate"],
       } })).resolves.toMatchObject({ status: "ACCEPTED", output: { status: "ACTIVE" } });
 
+    const attentionBody = Object.freeze({
+      schemaVersion: "pmh.world-relation-economic-attention.v1" as const,
+      observationCount: 1, retiredConstructionCount: 1,
+      incompleteConstructionCount: 0, positiveScreenCount: 0,
+      observations: Object.freeze([Object.freeze({ memoryId: hash("retired-memory"),
+        sourceFrontierArtifactHash: hash("retired-frontier"),
+        relationKind: "COMMON_CAUSE_DEPENDENCE" as const,
+        predicateSummaries: Object.freeze(["retired election construction"]),
+        routeAction: "RETIRE_NON_POSITIVE_MARGIN" as const,
+        grossFailureBudgetPpm: "-30000",
+        selectionSignal: "DIVERSIFY_FROM_NON_POSITIVE_CONSTRUCTION" as const })]),
+      recommendedMutation: "DIVERSIFY_SEMANTIC_DOMAIN" as const,
+      recommendationRationale: "Vary the semantic domain.",
+      priceIsSemanticTruth: false as const, schedulingAuthority: false as const,
+      semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
+      certificateAuthority: false as const, executionAuthority: false as const,
+      externalWriteAuthority: false as const, valueMovingAuthority: false as const,
+    });
+    const { inputRevisionId: _priorInputRevisionId, ...priorInputBody } =
+      lens.currentInputRevision;
+    const diversifyInputBody = Object.freeze({ ...priorInputBody,
+      schemaVersion: "pmh.mechanism-prototype-exploration-input.v2" as const,
+      economicAttention: Object.freeze({
+        ...attentionBody, projectionIdentity: hashCanonical(attentionBody),
+      }),
+    });
     const diversifyHost = new MechanismPrototypeExplorationAgentToolHost(
-      { ...lens.currentInputRevision,
-        economicAttention: Object.freeze({
-          recommendedMutation: "DIVERSIFY_SEMANTIC_DOMAIN",
-        }) as never },
+      Object.freeze({ ...diversifyInputBody,
+        inputRevisionId: hashCanonical(diversifyInputBody) }),
       prototype, snapshot, undefined, [family],
     );
     await diversifyHost.execute({ task: lens.task, run, executionProfile: profile,
       callId: "lens:diversify", toolName: "read_mechanism_exploration_context", input: {} });
+    expect(diversifyHost.manifest(lens.task.requestedEffectProtocol)
+      .map((item) => item.name)).toEqual([
+        "search_mechanism_exploration_corpus", "search_mechanism_exploration_roles",
+      ]);
+    await diversifyHost.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "diversify:recon-search", toolName: "search_mechanism_exploration_roles",
+      input: {
+        component: { patterns: ["race"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["constructors championship"], syntax: "LITERAL",
+          mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
+      } });
+    await diversifyHost.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "diversify:recon-inspect", toolName: "inspect_mechanism_exploration_listings",
+      input: { listingRefs: ["venue-race:italy", "venue-sport:constructors"] } });
     const hypothesisTool = diversifyHost.manifest(lens.task.requestedEffectProtocol)
       .find((item) => item.name === "open_exploration_hypothesis")!;
-    const choices = ((hypothesisTool.inputSchema as { properties: {
-      hypothesisChoice: { enum: readonly string[] } } }).properties.hypothesisChoice.enum);
+    const hypothesisProperties = (hypothesisTool.inputSchema as { properties: {
+      reconnaissanceChoice: { enum: readonly string[] };
+      hypothesisChoice: { enum: readonly string[] } } }).properties;
+    const choices = hypothesisProperties.hypothesisChoice.enum;
+    const diversifyReconnaissanceChoice = hypothesisProperties.reconnaissanceChoice.enum[0]!;
     expect(choices).toContain(`transfer-test:1|EXTEND|${family.familyId}`);
     expect(choices.some((choice) => choice.includes("|REPLICATE|"))).toBe(false);
     await expect(diversifyHost.execute({ task: lens.task, run, executionProfile: profile,
       callId: "hypothesis:replicate-blocked", toolName: "open_exploration_hypothesis", input: {
+        reconnaissanceChoice: diversifyReconnaissanceChoice,
         hypothesisChoice: `transfer-test:1|REPLICATE|${family.familyId}`,
         intentRationale: "Repeat the same election construction.",
         materialVariation: "Another state election.",
@@ -1259,7 +1354,6 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const protocol = lens.task.requestedEffectProtocol;
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "same-domain:read", toolName: "read_mechanism_exploration_context", input: {} });
-    await openHypothesis({ host, lens, run, profile, suffix: "same-domain" });
     const search = await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "same-domain:search", toolName: "search_mechanism_exploration_roles",
       input: {
@@ -1286,7 +1380,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       },
     } });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
-      "inspect_mechanism_exploration_listings",
+      "search_mechanism_exploration_roles", "search_mechanism_exploration_corpus",
     ]);
     const repeated = await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "same-domain:search-repeat", toolName: "search_mechanism_exploration_roles",
@@ -1313,15 +1407,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(differentiated).toMatchObject({ status: "ACCEPTED", output: {
       rawPairCount: 1, pairCount: 0,
       readiness: { searchedResultCount: 2, roleSearchResultCount: 2,
-        exhaustion: { eligible: false, missingPrerequisites: ["CLOSED_HYPOTHESIS"] } },
+        exhaustion: { eligible: true, missingPrerequisites: [] } },
     } });
-    expect(host.completionRecoveryToolNames(protocol)).toEqual([
-      "close_exploration_hypothesis",
-    ]);
-    const closed = await closeHypothesis({ host, lens, run, profile,
-      suffix: "same-domain" });
-    expect(closed).toMatchObject({ status: "ACCEPTED", output: { disposition: "UNRESOLVED",
-      readiness: { exhaustion: { eligible: true, missingPrerequisites: [] } } } });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "record_mechanism_exploration_exhaustion",
     ]);
@@ -1444,6 +1531,9 @@ describe("mechanism-prototype exploration Agent tools", () => {
       semanticDecisionAuthority: false,
       executionAuthority: false,
     });
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "role-search:inspect", toolName: "inspect_mechanism_exploration_listings",
+      input: { listingRefs: ["venue-race:italy", "venue-sport:constructors"] } });
     await openHypothesis({ host, lens, run, profile, suffix: "persisted-action" });
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "action:1", toolName: "record_active_prototype_test_outcome",
@@ -1619,19 +1709,30 @@ describe("mechanism-prototype exploration Agent tools", () => {
         toolName: "inspect_mechanism_exploration_listings", input: {
           listingRefs: [seatRef, "geo:senate-control"],
         } });
-      await openHypothesis({ host, lens, run, profile,
-        suffix: seatRef.replace(/[^a-z]/gu, "-") });
-      await host.execute({ task: lens.task, run, executionProfile: profile,
-        toolName: "record_active_prototype_test_outcome", input: { outcome: "SUPPORTED" } });
-      await closeHypothesis({ host, lens, run, profile,
-        suffix: seatRef.replace(/[^a-z]/gu, "-") });
+      const reconnaissanceCandidates = (host.manifestRefreshCheckpoint(
+        lens.task.requestedEffectProtocol,
+      ) as { reconnaissanceCandidates: readonly { handle: string }[] })
+        .reconnaissanceCandidates;
+      if (reconnaissanceCandidates.length > 0) {
+        await openHypothesis({ host, lens, run, profile,
+          suffix: seatRef.replace(/[^a-z]/gu, "-") });
+        await host.execute({ task: lens.task, run, executionProfile: profile,
+          toolName: "record_active_prototype_test_outcome", input: { outcome: "SUPPORTED" } });
+        await closeHypothesis({ host, lens, run, profile,
+          suffix: seatRef.replace(/[^a-z]/gu, "-") });
+      }
       return { host, roleSearchResultId:
-        (roleSearch.output as { resultIdentity: Hash }).resultIdentity };
+        (roleSearch.output as { resultIdentity: Hash }).resultIdentity,
+        reconnaissanceCandidateCount: reconnaissanceCandidates.length };
     };
     const known = await inspectPair("geo:iowa-seat");
+    expect(known.reconnaissanceCandidateCount).toBe(0);
     await expect(terminal("geo:iowa-seat", known.roleSearchResultId, known.host))
-      .rejects.toThrow(/does not satisfy SUBJECT_AND_GEOGRAPHY/u);
+      .resolves.toMatchObject({ status: "REJECTED", output: {
+        diagnostic: expect.stringMatching(/requires a supported/u),
+      } });
     const novel = await inspectPair("geo:georgia-seat");
+    expect(novel.reconnaissanceCandidateCount).toBe(1);
     await expect(terminal("geo:georgia-seat", novel.roleSearchResultId, novel.host))
       .resolves.toMatchObject({ status: "ACCEPTED" });
     expect(novel.host.trailheads()[0]?.axisAssessment).toMatchObject({
@@ -1733,10 +1834,17 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
     );
-    await openHypothesis({ host, lens, run, profile, suffix: "invalid-terminal" });
-    await host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "record_active_prototype_test_outcome", input: { outcome: "FAILED" } });
-    await closeHypothesis({ host, lens, run, profile, suffix: "invalid-terminal" });
+    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
+      toolName: "open_exploration_hypothesis", input: {
+        reconnaissanceChoice: `reconnaissance:${hash("uninspected")}`,
+        hypothesisChoice: "transfer-test:1|DIFFERENT_TEST|NEW",
+        intentRationale: "No exact prior family exists.", materialVariation: "Sports.",
+        predictedRoleStructure: "Component and aggregate.",
+        supportingObservation: "Inspected pair.", falsifyingObservation: "No pair.",
+        searchNeighborhoods: ["motorsport"],
+      } })).resolves.toMatchObject({ status: "REJECTED", output: {
+        diagnostic: expect.stringMatching(/inspected axis-admissible reconnaissance/u),
+      } });
     await expect(host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "submit_mechanism_exploration_trailhead",
@@ -1758,7 +1866,9 @@ describe("mechanism-prototype exploration Agent tools", () => {
       input: {
         searchedNeighborhoods: ["motorsport"], reason: "No exact analogy survived.",
       },
-    })).rejects.toThrow(/inspected|search/u);
+    })).resolves.toMatchObject({ status: "REJECTED", output: {
+      diagnostic: expect.stringMatching(/failed prototype test|scoped absence/u),
+    } });
   });
 
   it("binds outcomes to the active exact prototype test without caller ordinals", async () => {
@@ -1768,14 +1878,19 @@ describe("mechanism-prototype exploration Agent tools", () => {
     );
     await host.execute({
       task: lens.task, run, executionProfile: profile,
-      toolName: "search_mechanism_exploration_corpus",
-      input: { patterns: ["Scuderia Ferrari"], syntax: "LITERAL", mode: "ANY",
-        fields: ["title"], venueIds: [], limit: 10 },
+      toolName: "search_mechanism_exploration_roles",
+      input: {
+        component: { patterns: ["race"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["constructors championship"], syntax: "LITERAL",
+          mode: "ANY", fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Scuderia Ferrari"], pairLimit: 10,
+      },
     });
     await host.execute({
       task: lens.task, run, executionProfile: profile,
       toolName: "inspect_mechanism_exploration_listings",
-      input: { listingRefs: ["venue-sport:constructors"] },
+      input: { listingRefs: ["venue-race:italy", "venue-sport:constructors"] },
     });
     await expect(host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "record_active_prototype_test_outcome", input: { outcome: "FAILED" } }))
