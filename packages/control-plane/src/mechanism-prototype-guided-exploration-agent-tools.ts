@@ -392,6 +392,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       throw new Error("mechanism exploration tool protocol is unsupported");
     }
     const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+    const diversifySurfaceDomain = this.researchInput.axis === "SURFACE_DOMAIN" &&
+      this.researchInput.economicAttention?.recommendedMutation ===
+        "DIVERSIFY_SEMANTIC_DOMAIN";
     const legalBindings = [...references.transferTests.map((item) => ({ item,
       families: this.hypothesisFamilies.filter((family) =>
         family.prototypeId === this.researchInput.prototypeId &&
@@ -409,7 +412,8 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         continue;
       }
       for (const family of families) {
-        for (const familyIntent of ["EXTEND", "REPLICATE"] as const) {
+        for (const familyIntent of (diversifySurfaceDomain
+          ? ["EXTEND"] as const : ["EXTEND", "REPLICATE"] as const)) {
           legalHypothesisChoices.push(`${item.handle}|${familyIntent}|${family.familyId}`);
         }
       }
@@ -756,7 +760,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       }
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
       return this.#accepted(Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v7",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v8",
         inputRevisionId: this.researchInput.inputRevisionId,
         semanticInputIdentity: this.researchInput.semanticInputIdentity,
         lensId: this.researchInput.lensId,
@@ -802,6 +806,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
               schedulingAuthority: false as const,
               executionAuthority: false as const,
             }),
+        economicSelectionPressure: this.researchInput.economicAttention ?? null,
         coverage: Object.freeze({
           scopeIdentity: this.researchInput.coverageScopeIdentity ?? null,
           memberCount: this.researchInput.coverageMembers?.length ?? 0,
@@ -895,6 +900,13 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       }
       const familyIntent = rawIntent as "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
       const priorFamilyId = rawPrior === "NEW" ? null : rawPrior as Hash;
+      if (this.researchInput.axis === "SURFACE_DOMAIN" &&
+          this.researchInput.economicAttention?.recommendedMutation ===
+            "DIVERSIFY_SEMANTIC_DOMAIN" && familyIntent === "REPLICATE") {
+        return this.#rejected(
+          "economic attention requires a semantic-domain extension; exact replication is not legal in this surface-domain run",
+        );
+      }
       if (familyIntent === "DIFFERENT_TEST" &&
           (matchingFamilies.length > 0 || priorFamilyId !== null)) {
         return this.#rejected(

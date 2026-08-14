@@ -509,3 +509,32 @@ scale `100000000`; the Alaska input independently retains positive indicative
 budget `49300000` but routes to projection coverage. These two differentiated
 memories are the first raw material for cross-frontier economic selection
 pressure.
+
+That pressure is now a content-addressed cross-frontier projection. It
+normalizes complete failure budgets to ppm, keeps incomplete one-leg
+constructions distinct from positive screens, and emits one descriptive
+mutation posture without scheduling or semantic authority. Live evidence has
+one retired complete construction (Iowa, `-30000` ppm), one incomplete
+projection-coverage construction (Alaska, apparent `493000` ppm before the
+missing leg), and therefore recommends `DIVERSIFY_SEMANTIC_DOMAIN`. Mechanism
+exploration input V2 binds the exact attention artifact while deliberately
+excluding it from semantic identity. The unattempted `SURFACE_DOMAIN` lane now
+receives that artifact in its state-scoped V8 reasoning context.
+
+The first Terra/high V8 specimen (`e48e810a…`) exposed a remaining action-space
+incongruence. It retained 11 successful invocations, 211,982 known input tokens,
+2,491 output tokens, 635 reasoning tokens and one repaired invalid-regex
+rejection before a twelfth app-server continuation timed out. It opened and
+closed a supported Georgia Democratic Senate-seat → national-control
+replication, then opened a second same-domain replication and was interrupted
+without a terminal. The full effect ledger is durable, so this is useful
+negative selection evidence: a descriptive domain-diversification signal did
+not matter while the legal hypothesis schema still offered `REPLICATE`.
+
+For `SURFACE_DOMAIN` inputs carrying `DIVERSIFY_SEMANTIC_DOMAIN`, the host now
+compiles that pressure into capability. Existing exact hypothesis families
+offer `EXTEND` but not `REPLICATE`; a handcrafted stale replication call is
+also rejected. Other axes retain the measured replication control. The next
+specimen should retry the same exact surface-domain semantic input and test
+whether capability congruence produces a genuinely non-election hypothesis or
+a bounded exhaustion, rather than another geographic Senate clone.

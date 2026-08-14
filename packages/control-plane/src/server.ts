@@ -166,6 +166,10 @@ import { buildWorldRelationShadowRoutingProjection } from
 import { buildWorldRelationEconomicMemory } from
   "./world-relation-economic-memory.js";
 import {
+  buildWorldRelationEconomicAttention,
+  type WorldRelationEconomicAttentionProjection,
+} from "./world-relation-economic-attention.js";
+import {
   compileWorldRelationProjectionCoverage,
   type WorldRelationProjectionCoverageObservation,
 } from "./world-relation-projection-coverage.js";
@@ -1610,6 +1614,8 @@ export function createControlPlane(options?: {
     readonly WorldStateMechanismPrototypeResearchCase[] = [];
   let mechanismPrototypeExplorationLenses:
     readonly MechanismPrototypeExplorationLens[] = [];
+  let worldRelationEconomicAttention: WorldRelationEconomicAttentionProjection =
+    buildWorldRelationEconomicAttention({ memories: [], frontiers: [] });
   const worldStateMechanismObservationStore =
     supportsWorldStateMechanismObservations(options?.discoveryStore)
       ? options.discoveryStore
@@ -4087,6 +4093,7 @@ export function createControlPlane(options?: {
       execution: agentExecutionRegistry.snapshot(),
       corpus,
       ontology: buildMarketOntologySnapshot(corpus),
+      economicAttention: worldRelationEconomicAttention,
     });
     mechanismPrototypeExplorationLenses = projection.lenses;
     const retainedIds = new Set(mechanismPrototypeExplorationStore
@@ -4304,6 +4311,10 @@ export function createControlPlane(options?: {
         })];
       });
     });
+    worldRelationEconomicAttention = buildWorldRelationEconomicAttention({
+      memories: economicMemories,
+      frontiers,
+    });
     worldRelationExperimentAssignments = frontiers
       .map((frontier) => buildWorldRelationExperimentAssignment({
         frontier, corpus, projections, priorExperiments: experiments,
@@ -4322,6 +4333,7 @@ export function createControlPlane(options?: {
     const tasks = worldRelationExperimentAssignments.map((item) => item.task)
       .filter((item) => !knownTaskIds.has(item.taskId));
     if (tasks.length > 0) agentExecutionRegistry.saveBatch({ tasks });
+    reconcileMechanismPrototypeExploration();
     invalidateAgentTaskReadiness();
   };
   const reconcileRelationDiscoveryTasks = (): void => {
@@ -4962,6 +4974,7 @@ export function createControlPlane(options?: {
         closedAt: item.closedAt,
       }))),
       shadowHypotheses: Object.freeze(shadowHypotheses.slice(0, 128)),
+      economicAttention: worldRelationEconomicAttention,
       providerRequestsStartedByRead: 0 as const,
       modelInvocationsStartedByRead: 0 as const,
       writesStartedByRead: 0 as const,
@@ -5026,6 +5039,7 @@ export function createControlPlane(options?: {
           execution,
           corpus,
           ontology: buildMarketOntologySnapshot(corpus),
+          economicAttention: worldRelationEconomicAttention,
         });
     const bindingCases = worldStateSubjectBindingResearchCases;
     const bindingAssessments = worldStateSubjectBindingResearchStore

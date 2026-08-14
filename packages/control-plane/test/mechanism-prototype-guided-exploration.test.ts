@@ -1110,6 +1110,34 @@ describe("mechanism-prototype exploration Agent tools", () => {
         falsifyingObservation: "The contracts resolve the same event and time.",
         searchNeighborhoods: ["earlier component", "later aggregate"],
       } })).resolves.toMatchObject({ status: "ACCEPTED", output: { status: "ACTIVE" } });
+
+    const diversifyHost = new MechanismPrototypeExplorationAgentToolHost(
+      { ...lens.currentInputRevision,
+        economicAttention: Object.freeze({
+          recommendedMutation: "DIVERSIFY_SEMANTIC_DOMAIN",
+        }) as never },
+      prototype, snapshot, undefined, [family],
+    );
+    await diversifyHost.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "lens:diversify", toolName: "read_mechanism_exploration_context", input: {} });
+    const hypothesisTool = diversifyHost.manifest(lens.task.requestedEffectProtocol)
+      .find((item) => item.name === "open_exploration_hypothesis")!;
+    const choices = ((hypothesisTool.inputSchema as { properties: {
+      hypothesisChoice: { enum: readonly string[] } } }).properties.hypothesisChoice.enum);
+    expect(choices).toContain(`transfer-test:1|EXTEND|${family.familyId}`);
+    expect(choices.some((choice) => choice.includes("|REPLICATE|"))).toBe(false);
+    await expect(diversifyHost.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "hypothesis:replicate-blocked", toolName: "open_exploration_hypothesis", input: {
+        hypothesisChoice: `transfer-test:1|REPLICATE|${family.familyId}`,
+        intentRationale: "Repeat the same election construction.",
+        materialVariation: "Another state election.",
+        predictedRoleStructure: "Same seat and national control.",
+        supportingObservation: "Another state candidate contract.",
+        falsifyingObservation: "No matching state contract.",
+        searchNeighborhoods: ["state senate election"],
+      } })).resolves.toMatchObject({ status: "REJECTED", output: {
+        diagnostic: expect.stringMatching(/semantic-domain extension/u),
+      } });
   });
 
   it("searches and inspects before retaining an exact routing-only trailhead", async () => {
@@ -1549,7 +1577,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(read).toMatchObject({
       status: "ACCEPTED",
       output: {
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v7",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v8",
         axisContract: {
           admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
           sourcePredicateFamilies: expect.arrayContaining(["ELECTION_OR_OFFICE"]),
@@ -1585,7 +1613,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const first = await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "context:first", toolName: "read_mechanism_exploration_context", input: {} });
     expect(first).toMatchObject({ status: "ACCEPTED", output: {
-      schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v7",
+      schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v8",
       corpusDialectAtlas: {
         detailedAtlas: {
           schemaVersion: "pmh.corpus-dialect-atlas.v1",

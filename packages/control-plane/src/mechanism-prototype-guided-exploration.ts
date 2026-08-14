@@ -31,6 +31,10 @@ import {
 } from "./world-state-mechanism-prototype.js";
 import { adjacentWorldStateProperNameToken } from
   "./world-state-mechanism-allocation.js";
+import {
+  assertWorldRelationEconomicAttention,
+  type WorldRelationEconomicAttentionProjection,
+} from "./world-relation-economic-attention.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_SEEDS_PER_LENS = 8;
@@ -129,7 +133,8 @@ export type MechanismPrototypeExplorationCoverageMember = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationInputRevision = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-input.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-input.v1" |
+    "pmh.mechanism-prototype-exploration-input.v2";
   inputRevisionId: Hash;
   lensId: Hash;
   prototypeId: Hash;
@@ -146,6 +151,7 @@ export type MechanismPrototypeExplorationInputRevision = Readonly<{
   knownMemberRouteFamilyIds: readonly Hash[];
   excludedListingRefs: readonly string[];
   seedTrailheads: readonly MechanismPrototypeExplorationSeed[];
+  economicAttention?: WorldRelationEconomicAttentionProjection;
   materializedAt: string;
   inputBinding: "EXACT_CURRENT_CORPUS_OBSERVATION_WITH_PRICE_INDEPENDENT_SEMANTIC_IDENTITY";
   authority: "PROTOTYPE_GUIDED_SEARCH_INPUT_ONLY";
@@ -1619,6 +1625,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
   execution?: AgentExecutionSnapshot;
   corpus: MarketCorpusSnapshot;
   ontology: MarketOntologySnapshot;
+  economicAttention?: WorldRelationEconomicAttentionProjection;
 }>): MechanismPrototypeExplorationProjection {
   const corpus = assertMarketCorpusSnapshot(input.corpus);
   const ontology = assertMarketOntologySnapshot(input.ontology);
@@ -1683,8 +1690,12 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         excludedListingRefs,
         seedTrailheadIds: seedTrailheads.map((item) => item.seedId),
       });
+      const economicAttention = input.economicAttention === undefined ? undefined
+        : assertWorldRelationEconomicAttention(input.economicAttention);
       const revisionBody = Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-input.v1" as const,
+        schemaVersion: economicAttention === undefined
+          ? "pmh.mechanism-prototype-exploration-input.v1" as const
+          : "pmh.mechanism-prototype-exploration-input.v2" as const,
         lensId,
         prototypeId: prototype.prototypeId,
         sourcePrototypeInputRevisionId: sourceInput.revisionId,
@@ -1700,6 +1711,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         knownMemberRouteFamilyIds: sourceInput.memberRouteFamilyIds,
         excludedListingRefs,
         seedTrailheads,
+        ...(economicAttention === undefined ? {} : { economicAttention }),
         materializedAt: latestSourceTime(corpus),
         inputBinding:
           "EXACT_CURRENT_CORPUS_OBSERVATION_WITH_PRICE_INDEPENDENT_SEMANTIC_IDENTITY" as const,
@@ -1964,7 +1976,8 @@ export function assertMechanismPrototypeExplorationInputRevision(
   const revision = value as MechanismPrototypeExplorationInputRevision;
   const { inputRevisionId, ...body } = revision;
   if (
-    revision.schemaVersion !== "pmh.mechanism-prototype-exploration-input.v1" ||
+    !["pmh.mechanism-prototype-exploration-input.v1",
+      "pmh.mechanism-prototype-exploration-input.v2"].includes(revision.schemaVersion) ||
     !HASH_PATTERN.test(String(inputRevisionId)) || inputRevisionId !== hashCanonical(body) ||
     ![revision.lensId, revision.prototypeId, revision.sourcePrototypeInputRevisionId,
       revision.semanticInputIdentity, revision.corpusSnapshotIdentity,
@@ -2011,6 +2024,16 @@ export function assertMechanismPrototypeExplorationInputRevision(
       return seed.axis !== revision.axis ||
       seed.listingRefs.some((ref: string) => revision.excludedListingRefs.includes(ref))
     }) ||
+    (revision.schemaVersion === "pmh.mechanism-prototype-exploration-input.v1"
+      ? revision.economicAttention !== undefined
+      : revision.economicAttention === undefined || (() => {
+        try {
+          assertWorldRelationEconomicAttention(revision.economicAttention);
+          return false;
+        } catch {
+          return true;
+        }
+      })()) ||
     revision.inputBinding !==
       "EXACT_CURRENT_CORPUS_OBSERVATION_WITH_PRICE_INDEPENDENT_SEMANTIC_IDENTITY" ||
     revision.authority !== "PROTOTYPE_GUIDED_SEARCH_INPUT_ONLY" ||
