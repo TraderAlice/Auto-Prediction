@@ -5348,6 +5348,12 @@ export function createControlPlane(options?: {
     });
   };
   const mechanismPrototypeExplorationCampaignPreview = async () => {
+    // Completion callbacks normally keep this derived portfolio current, but a
+    // missed or failed callback must not make a persistent process schedule an
+    // already-covered semantic input. Rebuild from durable, provider-free
+    // evidence at the selection boundary; this may retain newly derived
+    // inputs/tasks, but starts no provider request or model invocation.
+    reconcileMechanismPrototypeExploration();
     const snapshot = agentExecutionRegistry.snapshot();
     const route = [...snapshot.workloadRoutes]
       .filter((item) => item.taskKind === "MECHANISM_PROTOTYPE_EXPLORATION")

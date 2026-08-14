@@ -623,3 +623,24 @@ geographic election clone? A positive result must still pass exact non-source
 and axis admission; a negative result should close through the same scoped
 absence path. The comparison should measure semantic neighborhood, exact
 frontier yield, terminal kind and token cost.
+
+The first `AGGREGATE_INSTITUTION` specimen (`50db7ee4…`) also completed as
+bounded scoped absence in nine calls / 165,920 input tokens. It opened one
+replication family, retained one role search, rejected an exact duplicate before
+ledger mutation, accepted a differentiated second search, closed `UNRESOLVED`,
+and emitted exhaustion V3 `b36de9a4…` with two exact search bindings and zero
+axis-admissible pairs. The result demonstrates stable negative-result metabolism
+across two axes, not only a special-case surface-domain recovery.
+
+It also exposed a persistence-to-attention freshness defect. Immediately after
+completion, the hot campaign preview still offered the exhausted exact
+aggregate-institution selection. A provider-free cold reconstruction from the
+same SQLite evidence moved to a different surface-domain semantic input. The
+durable ontology memory is therefore correct, but a persistent process can
+temporarily reason from a stale in-memory lens portfolio when the completion
+reconciliation misses or fails silently. Campaign preview and campaign creation
+must defensively rebuild the provider-free mechanism-exploration projection from
+durable state before selection. The rebuild may retain derived inputs/tasks but
+must start zero provider requests and zero model invocations. This is required
+for autonomous continuity: a search machine cannot require operator restarts to
+incorporate its own completed experiments.
