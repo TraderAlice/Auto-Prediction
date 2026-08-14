@@ -1007,6 +1007,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
         falsifyingObservation: "Contracts settle the same event.",
         searchNeighborhoods: ["team games", "season winners"],
         revisionReason: "Reconnaissance suggests time scope is the material axis." } },
+      { callId: "hypothesis:failed-test", toolName: "record_active_prototype_test_outcome",
+        input: { outcome: "FAILED" } },
       { callId: "hypothesis:close", toolName: "close_exploration_hypothesis", input: {
         disposition: "FALSIFIED", observedSupport: [],
         observedFalsifiers: ["all retrieved markets were parallel alternatives"],
@@ -1029,8 +1031,10 @@ describe("mechanism-prototype exploration Agent tools", () => {
       host.observeEffect({ context: { task: lens.task, run, executionProfile: profile,
         ...call }, result, effect });
     }
-    expect(steps.map((step) => step.hypothesisEvent)).toEqual(["OPENED", "REVISED", "CLOSED"]);
-    expect(steps[2]).toMatchObject({ resultSummary: { kind: "HYPOTHESIS_ACTION" },
+    expect(steps.map((step) => step.hypothesisEvent)).toEqual([
+      "OPENED", "REVISED", undefined, "CLOSED",
+    ]);
+    expect(steps[3]).toMatchObject({ resultSummary: { kind: "HYPOTHESIS_ACTION" },
       readinessAfter: { activeHypothesis: false, closedHypothesisCount: 1 },
       hypothesisAfter: { revision: 3, status: "CLOSED", disposition: "FALSIFIED",
         semanticDecisionAuthority: false } });
@@ -1046,7 +1050,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       schemaVersion: "pmh.mechanism-prototype-exploration-experiment-episode.v2",
       hypotheses: [{ revisions: [{ revision: 1 }, { revision: 2 }, { revision: 3 }],
         final: { disposition: "FALSIFIED" }, openedEffectOrdinal: 1,
-        closedEffectOrdinal: 3 }], usage: { knownInputTokens: "300" },
+        closedEffectOrdinal: 4 }], usage: { knownInputTokens: "400" },
     });
     const memory = buildMechanismPrototypeExplorationMemoryProjection({
       inputs: [lens.currentInputRevision], stepObservations: steps,
@@ -1061,8 +1065,8 @@ describe("mechanism-prototype exploration Agent tools", () => {
         distinctRunCount: 1, distinctSemanticInputCount: 1,
         dispositionCounts: { SUPPORTED: 0, WEAKENED: 0, FALSIFIED: 1, UNRESOLVED: 0 },
         selectionSignal: "FIRST_OBSERVATION",
-        yield: { effectCount: 3, searchEffectCount: 0 },
-        usage: { invocationCount: 3, knownInputTokens: "300" },
+        yield: { effectCount: 4, searchEffectCount: 0 },
+        usage: { invocationCount: 4, knownInputTokens: "400" },
         identityBasis: "EXACT_PROTOTYPE_AXIS_AND_TEST_BINDING",
         proseSimilarityUsed: false, schedulingAuthority: false,
         semanticDecisionAuthority: false, valueMovingAuthority: false }] });
@@ -1247,7 +1251,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     });
   });
 
-  it("keeps exploration open when a surface-domain search only finds source-family pairs", async () => {
+  it("retains bounded scoped absence when distinct searches only find source-family pairs", async () => {
     const { lens, prototype, snapshot, profile, run } = runtimeFixture();
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, snapshot,
@@ -1284,6 +1288,58 @@ describe("mechanism-prototype exploration Agent tools", () => {
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
       "inspect_mechanism_exploration_listings",
     ]);
+    const repeated = await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "same-domain:search-repeat", toolName: "search_mechanism_exploration_roles",
+      input: {
+        component: { patterns: ["House district"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["control the House"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Democrats"], pairLimit: 10,
+      } });
+    expect(repeated).toMatchObject({ status: "REJECTED", output: {
+      diagnostic: expect.stringMatching(/already observed/u),
+      readiness: { searchedResultCount: 1, roleSearchResultCount: 1 },
+    } });
+    const differentiated = await host.execute({ task: lens.task, run,
+      executionProfile: profile, callId: "same-domain:search-differentiated",
+      toolName: "search_mechanism_exploration_roles", input: {
+        component: { patterns: ["New York 17th"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["House after the 2026"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Democrats"], pairLimit: 10,
+      } });
+    expect(differentiated).toMatchObject({ status: "ACCEPTED", output: {
+      rawPairCount: 1, pairCount: 0,
+      readiness: { searchedResultCount: 2, roleSearchResultCount: 2,
+        exhaustion: { eligible: false, missingPrerequisites: ["CLOSED_HYPOTHESIS"] } },
+    } });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "close_exploration_hypothesis",
+    ]);
+    const closed = await closeHypothesis({ host, lens, run, profile,
+      suffix: "same-domain" });
+    expect(closed).toMatchObject({ status: "ACCEPTED", output: { disposition: "UNRESOLVED",
+      readiness: { exhaustion: { eligible: true, missingPrerequisites: [] } } } });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "record_mechanism_exploration_exhaustion",
+    ]);
+    const exhausted = await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "same-domain:exhaustion", toolName: "record_mechanism_exploration_exhaustion",
+      input: { searchedNeighborhoods: ["House district to House control"],
+        reason: "Two differentiated exact searches found no axis-admissible role pair." } });
+    expect(exhausted).toMatchObject({ status: "ACCEPTED" });
+    expect(host.exhaustions()).toEqual([expect.objectContaining({
+      schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v3",
+      negativeBasis: "NO_AXIS_ADMISSIBLE_ROLE_PAIR",
+      axisAdmissibleRolePairCount: 0,
+      inspectedEvidenceBindings: [],
+      failedTransferTests: [],
+      failedCounterScenarios: [],
+      roleSearchResultIds: expect.any(Array),
+      authority: "BOUNDED_PROTOTYPE_EXPLORATION_NEGATIVE_MEMORY_ONLY",
+    })]);
   });
 
   it("rejects parallel alternatives and returns only role-grounded bridge pairs", () => {

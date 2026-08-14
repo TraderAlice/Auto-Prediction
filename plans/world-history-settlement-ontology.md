@@ -561,3 +561,42 @@ surface-domain lane, source predicate-family membership—not an Agent-chosen
 `EXTEND`/`REPLICATE` label—is the operative diversification boundary. A focused
 state-machine test should reproduce the rejected election pair and prove that
 the next legal action is renewed exploration rather than repeated submission.
+
+That early gate now preserves the full raw role-search observation but returns
+an Agent view containing only axis-admissible pairs and inspectable refs.
+Readiness counts only inspected admissible pairs. The focused same-domain test
+retains one raw election pair while exposing zero actionable pairs; the existing
+motorsport component → constructors-championship test remains admissible. The
+full control-plane suite passes 120 files / 791 tests.
+
+The next live specimen (`73b9b1fa…`) confirmed the positive boundary and found
+the next liveness defect. Its opening prose still described a state Senate →
+national-control `EXTEND`, but three role searches exposed zero actionable
+pairs and could not change positive readiness. One identical role search was
+accepted twice; later flat searches produced 10 broad same-domain hits and the
+run inspected seven listings. It reached no prototype action or terminal before
+the 600,000 ms wall-clock budget: 12 invocations, 225,887 input tokens, 3,671
+output tokens, 1,994 reasoning tokens, eight accepted effects and zero rejected
+effects. This is a safer failure than terminal repair, but still cannot sustain
+long-running discovery.
+
+The next selection step treats scoped absence as a first-class ontology result.
+Two distinct exact role-search identities with zero axis-admissible pairs should
+permit an `UNRESOLVED` hypothesis closure and a bounded negative terminal without
+inventing inspected falsifiers. The artifact must bind the exact role-search
+observations, distinguish scoped absence from a failed inspected prototype test,
+and retain zero semantic authority. Repeating an already observed exact search
+identity should be rejected as no new evidence rather than consuming another
+accepted step.
+
+This path is now implemented as exhaustion V3. Its `negativeBasis` distinguishes
+`FAILED_PROTOTYPE_TEST` from `NO_AXIS_ADMISSIBLE_ROLE_PAIR`; the latter requires
+at least two distinct exact role-search identities, records an exact zero
+axis-admissible-pair count, permits empty inspected evidence, and can close only
+as `UNRESOLVED` without a prototype-test outcome. Exact duplicate role or flat
+search identities are rejected before they mutate the search ledger. A focused
+state-machine specimen reaches the scoped-absence terminal with two distinct
+same-family searches and no invented evidence; the full control-plane suite
+remains 120 files / 791 tests green. The next live run should compare terminal
+latency and token use against `73b9b1fa…`, then use the retained negative memory
+to steer away from the exhausted election neighborhood.

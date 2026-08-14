@@ -388,6 +388,32 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     this.#corpusDialectAtlas = buildCorpusDialectAtlas(corpus);
   }
 
+  #pairAxisAdmissible(
+    pair: MechanismPrototypeExplorationRoleSearchResult["pairs"][number],
+  ): boolean {
+    try {
+      assessMechanismPrototypeExplorationCandidatePair({
+        researchInput: this.researchInput,
+        corpus: this.corpus,
+        listingRefs: [pair.componentListingRef, pair.aggregateListingRef],
+        activatedCounterScenarios: [...this.#activatedCounterScenarios],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  #axisAdmissibleRolePairs() {
+    return [...this.#roleSearchResults.values()].flatMap((result) =>
+      result.pairs.filter((pair) => this.#pairAxisAdmissible(pair))
+    );
+  }
+
+  #scopedAbsenceEligible(): boolean {
+    return this.#roleSearchResults.size >= 2 && this.#axisAdmissibleRolePairs().length === 0;
+  }
+
   public manifest(protocol: string): readonly AgentRuntimeToolDefinition[] {
     if (protocol !== MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL) {
       throw new Error("mechanism exploration tool protocol is unsupported");
@@ -542,7 +568,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       ? this.#appliedTransferTests.has(selected.text) || this.#failedTransferTests.has(selected.text)
       : this.#activatedCounterScenarios.has(selected.text) ||
         this.#failedCounterScenarios.has(selected.text);
-    if (actionRetained) return Object.freeze(["close_exploration_hypothesis"]);
+    if (actionRetained || this.#scopedAbsenceEligible()) {
+      return Object.freeze(["close_exploration_hypothesis"]);
+    }
     const seededListingCount = new Set(this.researchInput.seedTrailheads.flatMap((item) =>
       item.listingRefs
     )).size;
@@ -575,20 +603,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         .map((item, index) => selected.has(item.text) ? index + 1 : null)
         .filter((ordinal): ordinal is number => ordinal !== null));
     const rolePairs = [...this.#roleSearchResults.values()].flatMap((result) => result.pairs);
-    const admissiblePair = (pair: MechanismPrototypeExplorationRoleSearchResult["pairs"][number]) => {
-      try {
-        assessMechanismPrototypeExplorationCandidatePair({
-          researchInput: this.researchInput,
-          corpus: this.corpus,
-          listingRefs: [pair.componentListingRef, pair.aggregateListingRef],
-          activatedCounterScenarios: [...this.#activatedCounterScenarios],
-        });
-        return true;
-      } catch {
-        return false;
-      }
-    };
-    const admissibleRolePairs = rolePairs.filter(admissiblePair);
+    const admissibleRolePairs = this.#axisAdmissibleRolePairs();
     const inspectedRolePairCount = admissibleRolePairs.filter((pair) =>
       this.#inspectedListingRefs.has(pair.componentListingRef) &&
       this.#inspectedListingRefs.has(pair.aggregateListingRef)
@@ -600,11 +615,14 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           ? this.#appliedTransferTests.size + this.#activatedCounterScenarios.size === 0
         : this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null,
     );
+    const scopedAbsenceEligible = this.#scopedAbsenceEligible();
     const exhaustionMissing = MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES.filter(
       (prerequisite) => prerequisite === "EXACT_SEARCH" ? this.#searchedResultIds.size === 0
-        : prerequisite === "INSPECTED_LISTING" ? this.#inspectedListingRefs.size === 0
+        : prerequisite === "INSPECTED_LISTING"
+          ? this.#inspectedListingRefs.size === 0 && !scopedAbsenceEligible
         : prerequisite === "FAILED_PROTOTYPE_TEST"
-          ? this.#failedTransferTests.size + this.#failedCounterScenarios.size === 0
+          ? this.#failedTransferTests.size + this.#failedCounterScenarios.size === 0 &&
+            !scopedAbsenceEligible
         : this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null,
     );
     return assertMechanismPrototypeExplorationActionReadiness(Object.freeze({
@@ -995,6 +1013,26 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         "FALSIFIED" | "UNRESOLVED";
       const observedSupport = input.observedSupport as readonly string[];
       const observedFalsifiers = input.observedFalsifiers as readonly string[];
+      const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+      const selected = active.testBinding.kind === "TRANSFER_TEST"
+        ? references.transferTests[active.testBinding.ordinal - 1]
+        : references.counterScenarios[active.testBinding.ordinal - 1];
+      const actionRetained = selected !== undefined &&
+        (active.testBinding.kind === "TRANSFER_TEST"
+          ? this.#appliedTransferTests.has(selected.text) ||
+            this.#failedTransferTests.has(selected.text)
+          : this.#activatedCounterScenarios.has(selected.text) ||
+            this.#failedCounterScenarios.has(selected.text));
+      if (!actionRetained && !this.#scopedAbsenceEligible()) {
+        return this.#rejected(
+          "hypothesis closure requires a prototype-test outcome or bounded scoped absence",
+        );
+      }
+      if (!actionRetained && disposition !== "UNRESOLVED") {
+        return this.#rejected(
+          "scoped absence can close only as UNRESOLVED without a prototype-test outcome",
+        );
+      }
       if (disposition === "SUPPORTED" && observedSupport.length === 0) {
         return this.#rejected("SUPPORTED hypothesis closure requires observed support");
       }
@@ -1083,6 +1121,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           limit: input.limit as number,
         },
       });
+      if (this.#searchedResultIds.has(result.resultIdentity)) {
+        return this.#rejected(
+          "exact flat-search identity was already observed; vary the query to add evidence",
+        );
+      }
       this.#searchedResultIds.add(result.resultIdentity);
       this.store?.saveMechanismPrototypeExplorationFlatSearchObservations([
         buildMechanismPrototypeExplorationFlatSearchObservation({
@@ -1109,6 +1152,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         bridgeSignals: input.bridgeSignals as readonly string[],
         pairLimit: input.pairLimit as number,
       });
+      if (this.#searchedResultIds.has(result.resultIdentity)) {
+        return this.#rejected(
+          "exact role-search identity was already observed; vary the query to add evidence",
+        );
+      }
       this.#searchedResultIds.add(result.resultIdentity);
       this.#roleSearchResults.set(result.resultIdentity, result);
       this.store?.saveMechanismPrototypeExplorationRoleSearchObservations([
@@ -1123,19 +1171,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         }),
       ]);
       const axisRoutedPairs = this.researchInput.axis === "SURFACE_DOMAIN"
-        ? result.pairs.filter((pair) => {
-          try {
-            assessMechanismPrototypeExplorationCandidatePair({
-              researchInput: this.researchInput,
-              corpus: this.corpus,
-              listingRefs: [pair.componentListingRef, pair.aggregateListingRef],
-              activatedCounterScenarios: [...this.#activatedCounterScenarios],
-            });
-            return true;
-          } catch {
-            return false;
-          }
-        }) : result.pairs;
+        ? result.pairs.filter((pair) => this.#pairAxisAdmissible(pair)) : result.pairs;
       const axisRoutedListingRefs = new Set(axisRoutedPairs.flatMap((pair) => [
         pair.componentListingRef, pair.aggregateListingRef,
       ]));
@@ -1267,9 +1303,12 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       exactKeys(input, [
         "searchedNeighborhoods", "reason",
       ]);
-      if (this.#failedTransferTests.size + this.#failedCounterScenarios.size === 0) {
+      const failedPrototypeTest =
+        this.#failedTransferTests.size + this.#failedCounterScenarios.size > 0;
+      const scopedAbsence = this.#scopedAbsenceEligible();
+      if (!failedPrototypeTest && !scopedAbsence) {
         return this.#rejected(
-          "mechanism exploration exhaustion requires a failed prototype-test outcome",
+          "mechanism exploration exhaustion requires a failed prototype test or bounded scoped absence",
         );
       }
       if (this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null) {
@@ -1301,6 +1340,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         failedTransferTests: [...this.#failedTransferTests],
         failedCounterScenarios: [...this.#failedCounterScenarios],
         activatedCounterScenarios: [...this.#activatedCounterScenarios],
+        negativeBasis: failedPrototypeTest
+          ? "FAILED_PROTOTYPE_TEST" : "NO_AXIS_ADMISSIBLE_ROLE_PAIR",
+        axisAdmissibleRolePairCount: this.#axisAdmissibleRolePairs().length,
         reason: input.reason as string,
         proposedAt: context.run.createdAt,
       });

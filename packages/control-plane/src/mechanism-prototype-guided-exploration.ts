@@ -918,7 +918,8 @@ export type MechanismPrototypeExplorationTrailhead = Readonly<{
 
 export type MechanismPrototypeExplorationExhaustion = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v1" |
-    "pmh.mechanism-prototype-exploration-exhaustion.v2";
+    "pmh.mechanism-prototype-exploration-exhaustion.v2" |
+    "pmh.mechanism-prototype-exploration-exhaustion.v3";
   exhaustionId: Hash;
   lensId: Hash;
   inputRevisionId: Hash;
@@ -934,6 +935,8 @@ export type MechanismPrototypeExplorationExhaustion = Readonly<{
   failedTransferTests: readonly string[];
   failedCounterScenarios?: readonly string[];
   activatedCounterScenarios: readonly string[];
+  negativeBasis?: "FAILED_PROTOTYPE_TEST" | "NO_AXIS_ADMISSIBLE_ROLE_PAIR";
+  axisAdmissibleRolePairCount?: number;
   reason: string;
   proposedAt: string;
   authority: "BOUNDED_PROTOTYPE_EXPLORATION_NEGATIVE_MEMORY_ONLY";
@@ -2239,6 +2242,8 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
   failedTransferTests: readonly string[];
   failedCounterScenarios?: readonly string[];
   activatedCounterScenarios: readonly string[];
+  negativeBasis?: "FAILED_PROTOTYPE_TEST" | "NO_AXIS_ADMISSIBLE_ROLE_PAIR";
+  axisAdmissibleRolePairCount?: number;
   reason: string;
   proposedAt: string;
 }>): MechanismPrototypeExplorationExhaustion {
@@ -2261,27 +2266,41 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
   }
   const failedCounterScenarios = (input.failedCounterScenarios ?? []).length === 0
     ? Object.freeze([]) : boundedTexts(input.failedCounterScenarios ?? [], 1, 12);
-  if (failedCounterScenarios.some((item) => !prototype.counterScenarios.includes(item)) ||
-      failedTransferTests.length + failedCounterScenarios.length === 0) {
-    throw new Error("mechanism exploration exhaustion requires a failed prototype test");
+  const negativeBasis = input.negativeBasis ?? "FAILED_PROTOTYPE_TEST";
+  const axisAdmissibleRolePairCount = input.axisAdmissibleRolePairCount ?? 0;
+  if (!["FAILED_PROTOTYPE_TEST", "NO_AXIS_ADMISSIBLE_ROLE_PAIR"].includes(negativeBasis) ||
+      !Number.isSafeInteger(axisAdmissibleRolePairCount) || axisAdmissibleRolePairCount < 0 ||
+      failedCounterScenarios.some((item) => !prototype.counterScenarios.includes(item)) ||
+      (negativeBasis === "FAILED_PROTOTYPE_TEST" &&
+        failedTransferTests.length + failedCounterScenarios.length === 0) ||
+      (negativeBasis === "NO_AXIS_ADMISSIBLE_ROLE_PAIR" &&
+        (failedTransferTests.length + failedCounterScenarios.length !== 0 ||
+         axisAdmissibleRolePairCount !== 0 ||
+         (input.roleSearchResultIds?.length ?? 0) < 2))) {
+    throw new Error("mechanism exploration exhaustion negative basis is unsupported");
   }
   const searchedResultIds = exactHashes(input.searchedResultIds);
   if (searchedResultIds.length === 0) {
     throw new Error("mechanism exploration exhaustion requires at least one exact search");
   }
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v2" as const,
+    schemaVersion: input.negativeBasis === undefined
+      ? "pmh.mechanism-prototype-exploration-exhaustion.v2" as const
+      : "pmh.mechanism-prototype-exploration-exhaustion.v3" as const,
     lensId: researchInput.lensId,
     inputRevisionId: researchInput.inputRevisionId,
     semanticInputIdentity: researchInput.semanticInputIdentity,
     prototypeId: prototype.prototypeId,
     axis: researchInput.axis,
     sourceAgentRunId: input.sourceAgentRunId,
-    inspectedEvidenceBindings: evidenceBindings({
-      researchInput, corpus: input.corpus,
-      listingRefs: input.inspectedListingRefsForResult,
-      inspectedListingRefs: input.inspectedListingRefs, minimum: 1,
-    }),
+    inspectedEvidenceBindings: input.negativeBasis === "NO_AXIS_ADMISSIBLE_ROLE_PAIR" &&
+        input.inspectedListingRefsForResult.length === 0
+      ? Object.freeze([])
+      : evidenceBindings({
+        researchInput, corpus: input.corpus,
+        listingRefs: input.inspectedListingRefsForResult,
+        inspectedListingRefs: input.inspectedListingRefs, minimum: 1,
+      }),
     searchedResultIds,
     ...(input.roleSearchResultIds === undefined ? {} : {
       roleSearchResultIds: exactHashes(input.roleSearchResultIds),
@@ -2294,6 +2313,10 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
     failedTransferTests,
     failedCounterScenarios,
     activatedCounterScenarios,
+    ...(input.negativeBasis === undefined ? {} : {
+      negativeBasis,
+      axisAdmissibleRolePairCount,
+    }),
     reason: input.reason,
     proposedAt: exactTime(input.proposedAt),
     authority: "BOUNDED_PROTOTYPE_EXPLORATION_NEGATIVE_MEMORY_ONLY" as const,
@@ -2420,13 +2443,16 @@ export function assertMechanismPrototypeExplorationExhaustion(
   const { exhaustionId, ...body } = item;
   if (
     !["pmh.mechanism-prototype-exploration-exhaustion.v1",
-      "pmh.mechanism-prototype-exploration-exhaustion.v2"]
+      "pmh.mechanism-prototype-exploration-exhaustion.v2",
+      "pmh.mechanism-prototype-exploration-exhaustion.v3"]
       .includes(String(item.schemaVersion)) ||
     !HASH_PATTERN.test(String(exhaustionId)) || exhaustionId !== hashCanonical(body) ||
     ![item.lensId, item.inputRevisionId, item.semanticInputIdentity, item.prototypeId,
       item.sourceAgentRunId].every((field) => HASH_PATTERN.test(String(field))) ||
     !MECHANISM_PROTOTYPE_EXPLORATION_AXES.includes(item.axis) ||
-    !validEvidenceBindings(item.inspectedEvidenceBindings, 1) ||
+    !validEvidenceBindings(item.inspectedEvidenceBindings,
+      item.schemaVersion === "pmh.mechanism-prototype-exploration-exhaustion.v3" &&
+        item.negativeBasis === "NO_AXIS_ADMISSIBLE_ROLE_PAIR" ? 0 : 1) ||
     exactHashes(item.searchedResultIds).join("\n") !== item.searchedResultIds.join("\n") ||
     (item.roleSearchResultIds !== undefined &&
       exactHashes(item.roleSearchResultIds).join("\n") !==
@@ -2456,6 +2482,22 @@ export function assertMechanismPrototypeExplorationExhaustion(
        (item.failedCounterScenarios.length > 0 &&
         boundedTexts(item.failedCounterScenarios, 1, 12).join("\n") !==
           item.failedCounterScenarios.join("\n")))) ||
+    (item.schemaVersion === "pmh.mechanism-prototype-exploration-exhaustion.v3" && (
+      !Array.isArray(item.failedCounterScenarios) ||
+      !["FAILED_PROTOTYPE_TEST", "NO_AXIS_ADMISSIBLE_ROLE_PAIR"]
+        .includes(String(item.negativeBasis)) ||
+      !Number.isSafeInteger(item.axisAdmissibleRolePairCount) ||
+      Number(item.axisAdmissibleRolePairCount) < 0 ||
+      (item.failedCounterScenarios.length > 0 &&
+        boundedTexts(item.failedCounterScenarios, 1, 12).join("\n") !==
+          item.failedCounterScenarios.join("\n")) ||
+      (item.negativeBasis === "FAILED_PROTOTYPE_TEST"
+        ? item.failedTransferTests.length + item.failedCounterScenarios.length === 0
+        : item.failedTransferTests.length + item.failedCounterScenarios.length !== 0 ||
+          item.axisAdmissibleRolePairCount !== 0 ||
+          (item.roleSearchResultIds?.length ?? 0) < 2 ||
+          (item.roleSearchSummaries?.length ?? 0) < 2)
+    )) ||
     (item.activatedCounterScenarios.length > 0 &&
       boundedTexts(item.activatedCounterScenarios, 1, 12).join("\n") !==
         item.activatedCounterScenarios.join("\n")) ||
