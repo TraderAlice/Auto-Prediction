@@ -33,6 +33,8 @@ import {
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import type { WorldStateMechanismPrototypeProposal } from
   "./world-state-mechanism-prototype.js";
+import { browseMechanismPrototypeExplorationDirectory } from
+  "./mechanism-prototype-exploration-directory.js";
 
 const text = (maximum: number) => Object.freeze({
   type: "string", minLength: 1, maxLength: maximum,
@@ -201,6 +203,18 @@ const BASE_MANIFEST = Object.freeze([
     inputSchema: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
   Object.freeze({
+    name: "browse_mechanism_exploration_directory",
+    description: "Browse one bounded, deterministic page of exact coverage listings before constructing a search query. Entries are round-robin stratified across predicate family and venue, with non-source families first. Titles are untrusted query inspiration only and do not establish a semantic relation.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: ["offset", "limit"],
+      properties: Object.freeze({
+        offset: Object.freeze({ type: "integer", minimum: 0, maximum: 10_000 }),
+        limit: Object.freeze({ type: "integer", minimum: 1, maximum: 24 }),
+      }),
+    }),
+  }),
+  Object.freeze({
     name: "search_mechanism_exploration_corpus",
     description: "Fallback flat search over the exact assigned corpus. Prefer role-aware search when testing a component/aggregate transfer. Output has evidence-routing authority only.",
     inputSchema: Object.freeze({
@@ -358,6 +372,7 @@ const BASE_MANIFEST = Object.freeze([
 ] satisfies readonly AgentRuntimeToolDefinition[]);
 
 export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost {
+  readonly #directoryPageIds = new Set<Hash>();
   readonly #searchedResultIds = new Set<`sha256:${string}`>();
   readonly #roleSearchResults = new Map<Hash, MechanismPrototypeExplorationRoleSearchResult>();
   readonly #searchedListingRefs = new Set<string>();
@@ -524,6 +539,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       inputRevisionId: this.researchInput.inputRevisionId,
       axis: this.researchInput.axis,
       currentTools: this.completionRecoveryToolNames(protocol),
+      directoryBrowse: Object.freeze({
+        observedPageCount: this.#directoryPageIds.size,
+        maximumPageCount: 3,
+        authority: "EXACT_COVERAGE_DIRECTORY_QUERY_INSPIRATION_ONLY",
+      }),
       prototype: Object.freeze({ label: this.prototype.label,
         invariantDescription: this.prototype.invariantDescription,
         searchSignals: this.prototype.searchSignals,
@@ -574,6 +594,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     if (this.#lensReadCount === 0) {
       return Object.freeze(["read_mechanism_exploration_context"]);
     }
+    if (this.#directoryPageIds.size === 0) {
+      return Object.freeze(["browse_mechanism_exploration_directory"]);
+    }
     const readiness = this.readiness();
     if (this.#activeHypothesis === null) {
       const terminal: string[] = [];
@@ -595,6 +618,8 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       const inspectableListingCount = [...this.#searchedListingRefs]
         .filter((ref) => !this.#inspectedListingRefs.has(ref)).length;
       return Object.freeze([
+        ...(this.#directoryPageIds.size < 3
+          ? ["browse_mechanism_exploration_directory"] : []),
         "search_mechanism_exploration_roles",
         "search_mechanism_exploration_corpus",
         ...(inspectableListingCount > 0
@@ -742,6 +767,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       };
       if (input.context.toolName === "read_mechanism_exploration_context") {
         return Object.freeze({ kind: "LENS_READ" as const, ...zero });
+      }
+      if (input.context.toolName === "browse_mechanism_exploration_directory") {
+        return Object.freeze({ kind: "DIRECTORY_BROWSE" as const, ...zero });
       }
       if (input.context.toolName === "search_mechanism_exploration_corpus") {
         const hits = Array.isArray(output.hits) ? output.hits.length : 0;
@@ -944,6 +972,25 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
         authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_ONLY",
       }));
+    }
+    if (context.toolName === "browse_mechanism_exploration_directory") {
+      exactKeys(input, ["offset", "limit"]);
+      if (this.#directoryPageIds.size >= 3) {
+        return this.#rejected("mechanism exploration directory browse is bounded to three pages");
+      }
+      const page = browseMechanismPrototypeExplorationDirectory({
+        researchInput: this.researchInput,
+        corpus: this.corpus,
+        offset: input.offset as number,
+        limit: input.limit as number,
+      });
+      if (this.#directoryPageIds.has(page.pageIdentity)) {
+        return this.#rejected(
+          "exact ontology-directory page was already observed; change the offset or proceed to search",
+        );
+      }
+      this.#directoryPageIds.add(page.pageIdentity);
+      return this.#accepted(page);
     }
     if (context.toolName === "open_exploration_hypothesis") {
       exactKeys(input, ["reconnaissanceChoice", "hypothesisChoice", "intentRationale",

@@ -126,6 +126,7 @@ export * from "./world-state-mechanism-prototype.js";
 export * from "./world-state-mechanism-prototype-agent-tools.js";
 export * from "./world-state-mechanism-prototype-campaign.js";
 export * from "./mechanism-prototype-guided-exploration.js";
+export * from "./mechanism-prototype-exploration-directory.js";
 export * from "./mechanism-prototype-guided-exploration-agent-tools.js";
 export * from "./mechanism-prototype-guided-exploration-campaign.js";
 export * from "./world-state-subject-binding-research.js";

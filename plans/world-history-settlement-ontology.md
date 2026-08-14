@@ -701,3 +701,26 @@ profile revision `20017`, colliding with retained V12. The exploration execution
 revision is now `20018`; a SQLite regression first installs V12/20017, then V13/
 20018, and proves both immutable profiles coexist. The live process restarts on
 V13/20018 and offers the next surface-domain input without rewriting history.
+
+The matched V13 Terra/high specimen (`96bf0153…`) validates the architectural
+ordering. It completed in seven calls / 123,320 input tokens with five accepted
+effects and zero rejections: context read → role search → flat search →
+differentiated role search → exhaustion. No hypothesis was opened, no listing
+was pretended inspected and no prototype test was pretended failed. Exhaustion
+`33054f56…` binds both exact role-search IDs plus the intervening flat-search ID,
+records zero admissible pairs and empty inspected/failure evidence, and explains
+the pre-hypothesis scoped absence. Against hypothesis-first `d1203b31…`, input
+fell from 137,173 to 123,320 tokens while removing two ceremonial state
+transitions.
+
+The query content, however, remained source-anchored election vocabulary. The
+reasoning view reports a 204-member coverage scope but intentionally omits its
+members; the Agent sees a statistical dialect atlas, not an explorable directory
+of exact candidate objects. Removing premature claims is necessary but not
+sufficient for mutation. The next protocol needs a provider-free ontology
+directory tool analogous to `ls`/repository browsing: return a small,
+content-addressed, diversity-stratified set of exact coverage listings across
+venue and predicate family before free-form search. The observation grants only
+query-inspiration authority. It must be durable through the ordinary effect
+ledger, deduplicated, bounded, and unable to assert a relation or bypass role,
+inspection, hypothesis or verifier gates.

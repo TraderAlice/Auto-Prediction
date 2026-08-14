@@ -8,6 +8,7 @@ import {
   assertMechanismPrototypeExplorationInputRevision,
   buildMarketCorpusSnapshot,
   buildMarketOntologySnapshot,
+  browseMechanismPrototypeExplorationDirectory,
   buildCorpusDialectAtlas,
   buildRepresentationRoleCoverageFeedback,
   buildAgentRun,
@@ -776,6 +777,37 @@ describe("mechanism-prototype exploration Agent tools", () => {
     return { lens, prototype, mechanismProposals, snapshot, runtime, credential, profile, model, run };
   }
 
+  it("browses a deterministic cross-family directory without creating semantic evidence", () => {
+    const { lens, snapshot } = runtimeFixture();
+    const first = browseMechanismPrototypeExplorationDirectory({
+      researchInput: lens.currentInputRevision, corpus: snapshot, offset: 0, limit: 2,
+    });
+    const replay = browseMechanismPrototypeExplorationDirectory({
+      researchInput: lens.currentInputRevision, corpus: snapshot, offset: 0, limit: 2,
+    });
+    expect(first).toEqual(replay);
+    expect(first).toMatchObject({
+      schemaVersion: "pmh.mechanism-prototype-exploration-directory-page.v1",
+      totalEntryCount: 2, nextOffset: null,
+      samplingPolicy: "ROUND_ROBIN_PREDICATE_FAMILY_AND_VENUE_NON_SOURCE_FAMILIES_FIRST",
+      authority: "EXACT_COVERAGE_DIRECTORY_QUERY_INSPIRATION_ONLY",
+      semanticDecisionAuthority: false, probabilityAuthority: false,
+      schedulingAuthority: false, certificateAuthority: false,
+      executionAuthority: false, externalWriteAuthority: false, valueMovingAuthority: false,
+    });
+    expect(first.entries).toHaveLength(2);
+    expect(first.entries.every((entry) =>
+      typeof entry.outsideSourcePredicateFamily === "boolean"
+    )).toBe(true);
+    expect(first.entries.map((entry) => entry.listingRef).sort()).toEqual([
+      "venue-race:italy", "venue-sport:constructors",
+    ]);
+    expect(new Set(first.entries.map((entry) => entry.venueId)).size).toBe(2);
+    expect(() => browseMechanismPrototypeExplorationDirectory({
+      researchInput: lens.currentInputRevision, corpus: snapshot, offset: 0, limit: 25,
+    })).toThrow("directory page bounds are invalid");
+  });
+
   async function openHypothesis(input: Readonly<{
     host: MechanismPrototypeExplorationAgentToolHost;
     lens: ReturnType<typeof runtimeFixture>["lens"];
@@ -803,6 +835,19 @@ describe("mechanism-prototype exploration Agent tools", () => {
         falsifyingObservation: "Search finds only parallel alternatives or one role is absent.",
         searchNeighborhoods: ["assigned exact corpus"],
       } });
+  }
+
+  async function browseDirectory(input: Readonly<{
+    host: MechanismPrototypeExplorationAgentToolHost;
+    lens: ReturnType<typeof runtimeFixture>["lens"];
+    run: ReturnType<typeof runtimeFixture>["run"];
+    profile: ReturnType<typeof runtimeFixture>["profile"];
+    suffix: string;
+  }>) {
+    return input.host.execute({ task: input.lens.task, run: input.run,
+      executionProfile: input.profile, callId: `directory:${input.suffix}`,
+      toolName: "browse_mechanism_exploration_directory",
+      input: { offset: 0, limit: 24 } });
   }
 
   async function closeHypothesis(input: Readonly<{
@@ -833,6 +878,11 @@ describe("mechanism-prototype exploration Agent tools", () => {
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "recovery:lens", toolName: "read_mechanism_exploration_context", input: {} });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "browse_mechanism_exploration_directory",
+    ]);
+    await browseDirectory({ host, lens, run, profile, suffix: "recovery" });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "browse_mechanism_exploration_directory",
       "search_mechanism_exploration_roles", "search_mechanism_exploration_corpus",
     ]);
     await host.execute({ task: lens.task, run, executionProfile: profile,
@@ -1201,6 +1251,12 @@ describe("mechanism-prototype exploration Agent tools", () => {
       callId: "lens:diversify", toolName: "read_mechanism_exploration_context", input: {} });
     expect(diversifyHost.manifest(lens.task.requestedEffectProtocol)
       .map((item) => item.name)).toEqual([
+        "browse_mechanism_exploration_directory",
+      ]);
+    await browseDirectory({ host: diversifyHost, lens, run, profile, suffix: "diversify" });
+    expect(diversifyHost.manifest(lens.task.requestedEffectProtocol)
+      .map((item) => item.name)).toEqual([
+        "browse_mechanism_exploration_directory",
         "search_mechanism_exploration_corpus", "search_mechanism_exploration_roles",
       ]);
     await diversifyHost.execute({ task: lens.task, run, executionProfile: profile,
@@ -1354,6 +1410,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const protocol = lens.task.requestedEffectProtocol;
     await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "same-domain:read", toolName: "read_mechanism_exploration_context", input: {} });
+    await browseDirectory({ host, lens, run, profile, suffix: "same-domain" });
     const search = await host.execute({ task: lens.task, run, executionProfile: profile,
       callId: "same-domain:search", toolName: "search_mechanism_exploration_roles",
       input: {
@@ -1380,6 +1437,7 @@ describe("mechanism-prototype exploration Agent tools", () => {
       },
     } });
     expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "browse_mechanism_exploration_directory",
       "search_mechanism_exploration_roles", "search_mechanism_exploration_corpus",
     ]);
     const repeated = await host.execute({ task: lens.task, run, executionProfile: profile,

@@ -74,36 +74,37 @@ function task(ordinal: number) {
 }
 
 describe("SQLite Agent execution substrate", () => {
-  it("retains the V12 exploration profile while installing the V13 protocol revision", async () => {
+  it("retains the V13 exploration profile while installing the V14 protocol revision", async () => {
     const store = new SqliteOperationalStore(await databasePath());
     const current = buildDefaultAgentRuntimePortfolio(configuration());
-    const v13 = current.executionProfiles!.find((item) =>
+    const v14 = current.executionProfiles!.find((item) =>
       item.profileKey === "mechanism-prototype-exploration-codex-app-server"
     )!;
     const runtime = current.runtimeDefinitions!.find((item) =>
-      item.runtimeDefinitionId === v13.runtimeDefinitionId
+      item.runtimeDefinitionId === v14.runtimeDefinitionId
     )!;
     const credential = current.credentialBindings!.find((item) =>
-      item.credentialBindingId === v13.credentialBindingId
+      item.credentialBindingId === v14.credentialBindingId
     )!;
     const model = current.modelProfiles!.find((item) =>
-      item.modelProfileId === v13.modelProfileId
+      item.modelProfileId === v14.modelProfileId
     )!;
-    const v12 = buildExecutionProfile({
-      profileKey: v13.profileKey, revision: 20_017,
+    const v13 = buildExecutionProfile({
+      profileKey: v14.profileKey, revision: 20_018,
       runtimeDefinition: runtime, credentialBinding: credential, modelProfile: model,
-      toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12",
-      runBudget: v13.runBudget, createdAt: v13.createdAt,
+      toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V13",
+      runBudget: v14.runBudget, createdAt: v14.createdAt,
     });
     store.saveAgentExecutionBatch({ runtimeDefinitions: [runtime],
-      credentialBindings: [credential], modelProfiles: [model], executionProfiles: [v12] });
+      credentialBindings: [credential], modelProfiles: [model], executionProfiles: [v13] });
     store.saveAgentExecutionBatch(current);
     expect(store.loadAgentExecutionSnapshot().executionProfiles.filter((item) =>
-      item.profileKey === v13.profileKey
-    ).map((item) => ({ revision: item.revision, protocol: item.toolPolicy.protocol })))
+      item.profileKey === v14.profileKey
+    ).map((item) => ({ revision: item.revision, protocol: item.toolPolicy.protocol }))
+      .sort((left, right) => left.revision - right.revision))
       .toEqual([
-        { revision: 20_017, protocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12" },
         { revision: 20_018, protocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V13" },
+        { revision: 20_019, protocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V14" },
       ]);
     store.close();
   });

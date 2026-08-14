@@ -43,7 +43,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V13" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V14" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -461,7 +461,7 @@ export type MechanismPrototypeExplorationStepObservation = Readonly<{
   status: "ACCEPTED" | "REJECTED";
   resultSummary: Readonly<{
     kind: "LENS_READ" | "DIALECT_ATLAS_READ" | "REPRESENTATION_ROLE_FEEDBACK_READ" |
-      "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
+      "DIRECTORY_BROWSE" | "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
       "PROTOTYPE_ACTION" | "POSITIVE_TERMINAL" | "EXHAUSTION_TERMINAL" |
       "HYPOTHESIS_ACTION" | "OTHER";
     rawHitCount: number;
@@ -2978,7 +2978,7 @@ export function assertMechanismPrototypeExplorationStepObservation(
       !["ACCEPTED", "REJECTED"].includes(String(item.status)) ||
       summary === undefined || ![
         "LENS_READ", "DIALECT_ATLAS_READ", "REPRESENTATION_ROLE_FEEDBACK_READ",
-        "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
+        "DIRECTORY_BROWSE", "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
         "PROTOTYPE_ACTION", "POSITIVE_TERMINAL", "EXHAUSTION_TERMINAL",
         "HYPOTHESIS_ACTION", "OTHER",
       ].includes(String(summary.kind)) || [
