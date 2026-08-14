@@ -1429,6 +1429,28 @@ function assessExplorationAxis(input: Readonly<{
   return Object.freeze({ ...body, assessmentId: hashCanonical(body) });
 }
 
+export function assessMechanismPrototypeExplorationCandidatePair(input: Readonly<{
+  researchInput: MechanismPrototypeExplorationInputRevision;
+  corpus: MarketCorpusSnapshot;
+  listingRefs: readonly string[];
+  activatedCounterScenarios: readonly string[];
+}>): MechanismPrototypeExplorationAxisAssessment {
+  const researchInput = assertMechanismPrototypeExplorationInputRevision(input.researchInput);
+  const corpus = assertMarketCorpusSnapshot(input.corpus);
+  const refs = exactStrings(input.listingRefs);
+  if (refs.length !== 2 || refs.some((ref) =>
+    researchInput.excludedListingRefs.includes(ref)
+  )) throw new Error("mechanism exploration candidate pair contains source listings");
+  if (researchInput.axisContract === undefined) {
+    throw new Error("mechanism exploration axis contract is unavailable");
+  }
+  return assessExplorationAxis({
+    contract: researchInput.axisContract,
+    bindings: refs.map((ref) => semanticEvidenceBinding(corpus, ref)),
+    activatedCounterScenarios: input.activatedCounterScenarios,
+  });
+}
+
 function taskContract(input: Readonly<{
   lensId: Hash;
   prototypeId: Hash;
@@ -2162,9 +2184,10 @@ export function buildMechanismPrototypeExplorationTrailhead(input: Readonly<{
   if (researchInput.axisContract === undefined) {
     throw new Error("mechanism exploration axis contract is unavailable");
   }
-  const axisAssessment = assessExplorationAxis({
-    contract: researchInput.axisContract,
-    bindings,
+  const axisAssessment = assessMechanismPrototypeExplorationCandidatePair({
+    researchInput,
+    corpus: input.corpus,
+    listingRefs: bindings.map((binding) => binding.listingRef),
     activatedCounterScenarios,
   });
   const body = Object.freeze({

@@ -538,3 +538,26 @@ also rejected. Other axes retain the measured replication control. The next
 specimen should retry the same exact surface-domain semantic input and test
 whether capability congruence produces a genuinely non-election hypothesis or
 a bounded exhaustion, rather than another geographic Senate clone.
+
+The congruent-capability retry (`064c7953…`) disproved the assumption that
+family intent is an adequate proxy for semantic-domain novelty. Terra/high
+legally chose `EXTEND`, but described and tested another state Senate-seat →
+national Senate-control relation. The exact terminal builder correctly rejected
+that source-bound pair. However, readiness had already counted any inspected
+role pair as positive-eligible, so the state-scoped manifest collapsed to the
+trailhead result tool and left no search or hypothesis action with which to
+recover. Five repeated terminal rejections then consumed the remainder of a
+16-invocation run: 467,729 input tokens, 7,599 output tokens and 4,338 reasoning
+tokens, ending `INTERRUPTED` on model-invocation budget. This is durable evidence
+of an ontology-state-machine defect, not evidence that more repair prompting is
+valuable.
+
+The next revision must move exact admissibility earlier. Positive readiness
+should require at least one inspected role-search pair that is non-source and
+passes the requested axis assessment; raw or inspected pairs remain search
+evidence but cannot switch the manifest into terminal-only repair. Search and
+hypothesis actions must remain available when no admissible pair exists. For a
+surface-domain lane, source predicate-family membership—not an Agent-chosen
+`EXTEND`/`REPLICATE` label—is the operative diversification boundary. A focused
+state-machine test should reproduce the rejected election pair and prove that
+the next legal action is renewed exploration rather than repeated submission.

@@ -17,6 +17,7 @@ import {
   buildMechanismPrototypeExplorationStepObservation,
   buildMechanismPrototypeExplorationExhaustion,
   buildMechanismPrototypeExplorationTrailhead,
+  assessMechanismPrototypeExplorationCandidatePair,
   MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL,
   searchMechanismPrototypeExplorationCorpus,
   searchMechanismPrototypeExplorationRoles,
@@ -574,7 +575,21 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         .map((item, index) => selected.has(item.text) ? index + 1 : null)
         .filter((ordinal): ordinal is number => ordinal !== null));
     const rolePairs = [...this.#roleSearchResults.values()].flatMap((result) => result.pairs);
-    const inspectedRolePairCount = rolePairs.filter((pair) =>
+    const admissiblePair = (pair: MechanismPrototypeExplorationRoleSearchResult["pairs"][number]) => {
+      try {
+        assessMechanismPrototypeExplorationCandidatePair({
+          researchInput: this.researchInput,
+          corpus: this.corpus,
+          listingRefs: [pair.componentListingRef, pair.aggregateListingRef],
+          activatedCounterScenarios: [...this.#activatedCounterScenarios],
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const admissibleRolePairs = rolePairs.filter(admissiblePair);
+    const inspectedRolePairCount = admissibleRolePairs.filter((pair) =>
       this.#inspectedListingRefs.has(pair.componentListingRef) &&
       this.#inspectedListingRefs.has(pair.aggregateListingRef)
     ).length;
@@ -1107,10 +1122,57 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           result,
         }),
       ]);
-      for (const hit of [...result.componentHits, ...result.aggregateHits]) {
+      const axisRoutedPairs = this.researchInput.axis === "SURFACE_DOMAIN"
+        ? result.pairs.filter((pair) => {
+          try {
+            assessMechanismPrototypeExplorationCandidatePair({
+              researchInput: this.researchInput,
+              corpus: this.corpus,
+              listingRefs: [pair.componentListingRef, pair.aggregateListingRef],
+              activatedCounterScenarios: [...this.#activatedCounterScenarios],
+            });
+            return true;
+          } catch {
+            return false;
+          }
+        }) : result.pairs;
+      const axisRoutedListingRefs = new Set(axisRoutedPairs.flatMap((pair) => [
+        pair.componentListingRef, pair.aggregateListingRef,
+      ]));
+      const componentHits = result.componentHits.filter((hit) =>
+        axisRoutedListingRefs.has(hit.listingRef)
+      );
+      const aggregateHits = result.aggregateHits.filter((hit) =>
+        axisRoutedListingRefs.has(hit.listingRef)
+      );
+      for (const hit of [...componentHits, ...aggregateHits]) {
         this.#searchedListingRefs.add(hit.listingRef);
       }
-      return this.#accepted(result);
+      return this.#accepted(Object.freeze({
+        schemaVersion: "pmh.mechanism-prototype-exploration-role-search-agent-view.v1",
+        resultIdentity: result.resultIdentity,
+        componentQuery: result.componentQuery,
+        aggregateQuery: result.aggregateQuery,
+        requestedBridgeSignals: result.requestedBridgeSignals,
+        rawComponentHitCount: result.rawComponentHitCount,
+        rawAggregateHitCount: result.rawAggregateHitCount,
+        rawPairCount: result.pairCount,
+        componentHits: Object.freeze(componentHits),
+        aggregateHits: Object.freeze(aggregateHits),
+        pairs: Object.freeze(axisRoutedPairs),
+        pairCount: axisRoutedPairs.length,
+        axisRouting: Object.freeze({
+          requestedAxis: this.researchInput.axis,
+          admissionRule: this.researchInput.axisContract?.admissionRule ?? null,
+          rejectedPairCount: result.pairCount - axisRoutedPairs.length,
+          exactEvidenceIdentity: result.resultIdentity,
+          authority: "FIRST_PARTY_AXIS_ROUTING_ONLY",
+          semanticDecisionAuthority: false,
+        }),
+        authority: result.authority,
+        semanticDecisionAuthority: false,
+        executionAuthority: false,
+      }));
     }
     if (context.toolName === "inspect_mechanism_exploration_listings") {
       exactKeys(input, ["listingRefs"]);

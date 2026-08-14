@@ -1247,6 +1247,45 @@ describe("mechanism-prototype exploration Agent tools", () => {
     });
   });
 
+  it("keeps exploration open when a surface-domain search only finds source-family pairs", async () => {
+    const { lens, prototype, snapshot, profile, run } = runtimeFixture();
+    const host = new MechanismPrototypeExplorationAgentToolHost(
+      lens.currentInputRevision, prototype, snapshot,
+    );
+    const protocol = lens.task.requestedEffectProtocol;
+    await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "same-domain:read", toolName: "read_mechanism_exploration_context", input: {} });
+    await openHypothesis({ host, lens, run, profile, suffix: "same-domain" });
+    const search = await host.execute({ task: lens.task, run, executionProfile: profile,
+      callId: "same-domain:search", toolName: "search_mechanism_exploration_roles",
+      input: {
+        component: { patterns: ["House district"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        aggregate: { patterns: ["control the House"], syntax: "LITERAL", mode: "ANY",
+          fields: ["title"], venueIds: [], limit: 10 },
+        bridgeSignals: ["Democrats"], pairLimit: 10,
+      } });
+    expect(search).toMatchObject({ status: "ACCEPTED", output: {
+      schemaVersion: "pmh.mechanism-prototype-exploration-role-search-agent-view.v1",
+      rawPairCount: 1, pairCount: 0, componentHits: [], aggregateHits: [], pairs: [],
+      axisRouting: {
+        requestedAxis: "SURFACE_DOMAIN",
+        admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE",
+        rejectedPairCount: 1,
+        semanticDecisionAuthority: false,
+      },
+      readiness: {
+        rolePairCount: 1,
+        inspectedRolePairCount: 0,
+        positive: { eligible: false,
+          missingPrerequisites: expect.arrayContaining(["INSPECTED_ROLE_PAIR"]) },
+      },
+    } });
+    expect(host.completionRecoveryToolNames(protocol)).toEqual([
+      "inspect_mechanism_exploration_listings",
+    ]);
+  });
+
   it("rejects parallel alternatives and returns only role-grounded bridge pairs", () => {
     const snapshot = buildMarketCorpusSnapshot({
       sourceSetIdentity: hash("role-search-source-set"), eligibleSourceCount: 2,
@@ -1460,7 +1499,6 @@ describe("mechanism-prototype exploration Agent tools", () => {
     const host = new MechanismPrototypeExplorationAgentToolHost(
       lens.currentInputRevision, prototype, electionSnapshot,
     );
-    const references = buildMechanismPrototypeExplorationPrototypeReferences(prototype);
     const roleSearch = await host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "search_mechanism_exploration_roles", input: {
         component: { patterns: ["Iowa Senate Election"], syntax: "LITERAL", mode: "ANY",
@@ -1469,26 +1507,17 @@ describe("mechanism-prototype exploration Agent tools", () => {
           fields: ["title"], venueIds: [], limit: 10 },
         bridgeSignals: ["Republican Party"], pairLimit: 10,
       } });
-    await host.execute({ task: lens.task, run, executionProfile: profile,
+    expect(roleSearch).toMatchObject({ status: "ACCEPTED", output: {
+      rawPairCount: 1, pairCount: 0, pairs: [],
+      axisRouting: { requestedAxis: "SURFACE_DOMAIN", rejectedPairCount: 1,
+        admissionRule: "CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE" },
+      readiness: { positive: { eligible: false,
+        missingPrerequisites: expect.arrayContaining(["INSPECTED_ROLE_PAIR"]) } },
+    } });
+    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
       toolName: "inspect_mechanism_exploration_listings", input: {
         listingRefs: ["venue-a:iowa-republican", "venue-b:senate-control-republican"],
-      } });
-    await openHypothesis({ host, lens, run, profile, suffix: "surface-axis" });
-    await host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "record_active_prototype_test_outcome", input: { outcome: "SUPPORTED" } });
-    await closeHypothesis({ host, lens, run, profile, suffix: "surface-axis" });
-    await expect(host.execute({ task: lens.task, run, executionProfile: profile,
-      toolName: "submit_mechanism_exploration_trailhead", input: {
-        roleSearchResultId: (roleSearch.output as { resultIdentity: Hash }).resultIdentity,
-        componentListingRef: "venue-a:iowa-republican",
-        aggregateListingRef: "venue-b:senate-control-republican",
-        structuralAnalogy: "One state seat contributes to national chamber control.",
-        surfaceDifferences: ["venues and state-party parameters differ"], searchSignals: ["republican", "senate"],
-        noveltyAxisExplanation: "Cross-venue election pair.",
-        rationale: "Candidate remains in the election domain.",
-      } })).rejects.toThrow(
-        /does not satisfy SURFACE_DOMAIN.*CANDIDATE_PREDICATE_FAMILY_OUTSIDE_SOURCE.*ELECTION_OR_OFFICE/u,
-      );
+      } })).rejects.toThrow(/requires searched or seeded refs/u);
     expect(host.trailheads()).toEqual([]);
   });
 
