@@ -11,7 +11,7 @@ onboarding surface.
 | --- | --- | --- |
 | New reader | [Concepts](CONCEPTS.md) | What is a prediction market in this system, and what counts as an opportunity? |
 | Operator | [Operations](OPERATIONS.md) | How do I install, run, configure, and qualify the local system? |
-| Operator | [Harmony Studio](STUDIO.md) | What do the desks show, and what actions are safe? |
+| Operator | [Auto Prediction Studio](STUDIO.md) | What do the desks show, and what actions are safe? |
 | Contributor | [Architecture](ARCHITECTURE.md) | Where are the authority boundaries and major data flows? |
 | Contributor | [Project format](PROJECT_FORMAT.md) | Where does each kind of source or evidence belong? |
 | Automation / tooling | [CLI](CLI.md) | Which machine-readable commands exist today? |

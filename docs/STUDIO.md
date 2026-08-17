@@ -1,6 +1,6 @@
-# Harmony Studio
+# Auto Prediction Studio
 
-Harmony Studio is the non-value-moving operator cockpit for discovery,
+Auto Prediction Studio is the non-value-moving operator cockpit for discovery,
 qualification, and architecture evidence. It uses Vite, React 19, Tailwind CSS
 4, and repository-owned shadcn/ui components.
 

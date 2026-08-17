@@ -2796,7 +2796,7 @@ const EMPTY_SEARCH_QUOTE_ENRICHMENT: StudioProjection["ai"]["searchQuoteEnrichme
   timeoutMs: 10_000,
   maxResponseBytes: 1_000_000,
   retentionLimit: 100,
-  supportedVenues: ["opinion"],
+  supportedVenues: ["gemini-predictions", "opinion"],
   storage: { mode: "MEMORY", durable: false, schemaVersion: 0, idempotencyKey: "observationId" },
   observations: [],
   authority: "SEARCH_PRICE_EVIDENCE_ONLY",
@@ -3044,9 +3044,10 @@ const systemNavigation = navigation.slice(7);
 function SignalMark() {
   return (
     <div className="signal-mark" aria-hidden="true">
-      <span />
-      <span />
-      <span />
+      <svg viewBox="0 0 32 32" fill="none">
+        <path d="M4.5 24 10.8 8 17 24M7.2 18h7.2" />
+        <path d="M20 24V8h4.2a4.8 4.8 0 0 1 0 9.6H20" />
+      </svg>
     </div>
   );
 }
@@ -3956,8 +3957,8 @@ function Sidebar({
         <div className="brand">
           <SignalMark />
           <div>
-            <span>Harmony</span>
-            <small>Market research</small>
+            <span>Auto Prediction</span>
+            <small>AI-native research</small>
           </div>
           <Button
             className="mobile-close"
@@ -14203,7 +14204,7 @@ function GlobalProjectionApp() {
     return (
       <main className="control-plane-gate">
         <SignalMark />
-        <span className="eyebrow">Harmony control plane</span>
+        <span className="eyebrow">Auto Prediction control plane</span>
         <h1>{diagnostic === null ? "Preparing the research desk…" : "Desk offline"}</h1>
         <p>
           {diagnostic ?? `${phaseCopy}${readiness === null ? "" : ` · ${(readiness.elapsedMs / 1_000).toFixed(1)}s elapsed`}`}
