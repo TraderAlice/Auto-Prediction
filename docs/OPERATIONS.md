@@ -160,5 +160,5 @@ Then verify in Studio:
 - **A run stops at its deadline:** preserve the run as evidence, then adjust
   the relevant complete-loop timeout or campaign budget deliberately.
 
-See [Harmony Studio](STUDIO.md) for the operator surfaces and
+See [Auto Prediction Studio](STUDIO.md) for the operator surfaces and
 [Architecture](ARCHITECTURE.md) for authority boundaries.

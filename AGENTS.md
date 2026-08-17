@@ -1,4 +1,4 @@
-# Prediction Market Interoperability Harness — Collaboration Ledger
+# Auto Prediction — Collaboration Ledger
 
 This repository is a pre-alpha, research-first interoperability harness. It must never place a live order, sign a transaction, approve a token, move funds, or request/store production trading credentials unless the user separately and explicitly expands authority.
 
@@ -90,7 +90,6 @@ Delete an item as soon as the user supplies it or the project no longer needs it
 
 ### Deferred decisions (not blockers)
 
-- Final product/repository name (working name: `prediction-market-harness`).
 - Equivalence-review authority for production decisions.
 - First account-eligible region and first live venue.
 - Initial real-capital and per-venue limits.

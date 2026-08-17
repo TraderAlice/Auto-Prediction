@@ -1,7 +1,9 @@
-# Prediction Market Interoperability Harness
+# Auto Prediction
 
 An AI-native research system for finding, testing, and retaining semantic
 arbitrage hypotheses across prediction markets.
+
+![Auto Prediction — AI-native semantic arbitrage research](apps/studio/public/og.png)
 
 The project treats a prediction-market quote as a **traded valuation of a
 venue-defined settlement contract**—not as a certified probability of the
@@ -9,7 +11,9 @@ world. Agents explore the large, ambiguous space of possible relationships;
 first-party code preserves the evidence, checks exact payout logic with
 `bigint`, and decides whether a hypothesis is admissible for simulation.
 
-> **Status: pre-alpha research harness.** Anonymous catalog and market-data
+> **Status: pre-alpha research harness.** Auto Prediction is the product brand;
+> existing `pmh` CLI, package scopes, environment variables, and schema names
+> remain stable compatibility identifiers. Anonymous catalog and market-data
 > research, deterministic replay, simulation, and shadow observation are in
 > scope. Live orders, transaction signing, token approvals, credentials for
 > production trading, and movement of funds are disabled and out of scope.
@@ -76,7 +80,7 @@ See [Concepts](docs/CONCEPTS.md) for the reasoning model and
   fee treatment, and exact fixed-point portfolio arithmetic.
 - Independent semantic review, payoff compilation, certificate verification,
   capital accounting, risk gates, and certificate-bound shadow replay.
-- Harmony Studio: a React + Vite + shadcn/ui operator surface over the Node
+- Auto Prediction Studio: a React + Vite + shadcn/ui operator surface over the Node
   control plane and its SSE projections.
 - Fixture-backed adapters for Polymarket Global, Polymarket US, Kalshi,
   Gemini Prediction Markets, Opinion, Myriad, and Limitless.

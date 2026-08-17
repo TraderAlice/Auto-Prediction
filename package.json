@@ -2,7 +2,7 @@
   "name": "prediction-market-harness",
   "version": "0.0.0",
   "private": true,
-  "description": "Pre-alpha harness for prediction-market contract interoperability, exact arbitrage verification, and shadow execution.",
+  "description": "Auto Prediction: an AI-native semantic arbitrage research harness for prediction markets.",
   "packageManager": "pnpm@11.13.1",
   "engines": {
     "node": ">=24"

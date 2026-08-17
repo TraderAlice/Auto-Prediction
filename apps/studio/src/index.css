@@ -208,22 +208,18 @@ pre,
   padding: 6px;
 }
 
-.signal-mark span {
-  width: 3px;
-  border-radius: 10px;
-  background: var(--primary);
+.signal-mark svg {
+  width: 19px;
+  height: 19px;
+  overflow: visible;
+  color: var(--primary);
 }
 
-.signal-mark span:nth-child(1) {
-  height: 7px;
-}
-
-.signal-mark span:nth-child(2) {
-  height: 15px;
-}
-
-.signal-mark span:nth-child(3) {
-  height: 11px;
+.signal-mark path {
+  stroke: currentColor;
+  stroke-width: 2.15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sidebar nav {

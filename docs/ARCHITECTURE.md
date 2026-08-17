@@ -2,7 +2,7 @@
 
 This document describes the implementation and authority boundaries. For the
 product ontology, start with [Concepts](CONCEPTS.md); for local configuration,
-see [Operations](OPERATIONS.md); for the UI, see [Harmony Studio](STUDIO.md).
+see [Operations](OPERATIONS.md); for the UI, see [Auto Prediction Studio](STUDIO.md).
 
 The harness separates contract truth from venue transport:
 

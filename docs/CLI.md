@@ -1,7 +1,7 @@
 # CLI
 
 For installation and process startup, see [Operations](OPERATIONS.md). The CLI
-is a narrow machine-readable inspection surface; Harmony Studio remains the
+is a narrow machine-readable inspection surface; Auto Prediction Studio remains the
 primary operator interface.
 
 The bundled `pmh` CLI emits schema `pmh.cli.v1`. Every response contains command identity, current state, diagnostics, an explicit no-side-effects declaration, content-hashed artifacts, allowed next actions, and an `ok` verdict.

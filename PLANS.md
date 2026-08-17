@@ -1,5 +1,10 @@
 # Plans
 
+The product brand is **Auto Prediction**, paired conceptually with Auto Quant.
+The rename is presentation-only for now: `pmh` CLI, package scopes, environment
+variables, and content-addressed protocol/schema identifiers remain stable
+compatibility surfaces rather than being mechanically rewritten.
+
 The active mutation is
 [`plans/world-history-settlement-ontology.md`](plans/world-history-settlement-ontology.md).
 Issue #249 treats a market as a venue-defined contingent claim whose settlement
