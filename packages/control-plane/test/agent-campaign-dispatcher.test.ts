@@ -70,7 +70,8 @@ function fixture(taskCount: number, budget?: Partial<{
   kind: "INTERVAL";
   intervalMs: number;
 } = { kind: "MANUAL_ONLY", intervalMs: null }, taskRunPolicy?:
-  "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE") {
+  "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE", onExecutionResult?:
+  ConstructorParameters<typeof AgentCampaignDispatcher>[0]["onExecutionResult"]) {
   const time = clock();
   const store = new SqliteOperationalStore(":memory:");
   const registry = new AgentExecutionRegistry(store);
@@ -168,12 +169,52 @@ function fixture(taskCount: number, budget?: Partial<{
       note: "Fixture run is bound before runtime execution.",
       createdAt: run.createdAt,
     })]),
+    ...(onExecutionResult === undefined ? {} : { onExecutionResult }),
     now: time.now,
   });
   return { time, store, registry, tasks, payloads, paused, dispatcher };
 }
 
 describe("Agent campaign dispatcher", () => {
+  it("materializes a first-party post-run artifact after execution lineage is durable", async () => {
+    const observed: Array<Readonly<{ status: string; invocationCount: number;
+      taskPayload: unknown }>> = [];
+    const item = fixture(1, undefined, { kind: "MANUAL_ONLY", intervalMs: null },
+      undefined, ({ execution, taskPayload }) => {
+        const snapshot = item.registry.snapshot();
+        expect(snapshot.runs.find((run) => run.runId === execution.run.runId)?.status)
+          .toBe("SUCCEEDED");
+        expect(snapshot.modelInvocations.some((invocation) =>
+          invocation.runId === execution.run.runId)).toBe(true);
+        observed.push({ status: execution.run.status,
+          invocationCount: execution.modelInvocations.length, taskPayload });
+      });
+    const profile = item.registry.snapshot().executionProfiles[0]!;
+    const dispatched = item.dispatcher.dispatchManual(item.tasks[0]!.task.taskId,
+      profile.executionProfileId, "operator:post-run-materializer");
+    await dispatched.completion;
+    expect(observed).toEqual([{ status: "SUCCEEDED", invocationCount: 1,
+      taskPayload: item.tasks[0]!.payload }]);
+    item.store.close();
+  });
+
+  it("retains a materializer failure annotation without rewriting a successful model run", async () => {
+    const item = fixture(1, undefined, { kind: "MANUAL_ONLY", intervalMs: null },
+      undefined, () => { throw new Error("fixture materializer failed"); });
+    const profile = item.registry.snapshot().executionProfiles[0]!;
+    const dispatched = item.dispatcher.dispatchManual(item.tasks[0]!.task.taskId,
+      profile.executionProfileId, "operator:post-run-failure");
+    await expect(dispatched.completion).resolves.toMatchObject({ status: "SUCCEEDED" });
+    expect(item.registry.snapshot().runAnnotations).toContainEqual(expect.objectContaining({
+      runId: dispatched.run.runId,
+      category: "POST_RUN_MATERIALIZATION_FAILURE",
+      note: expect.stringContaining(
+        "first-party post-run artifact materializer failed: fixture materializer failed",
+      ),
+    }));
+    item.store.close();
+  });
+
   it("requires explicit activation and obeys campaign concurrency and request budgets", async () => {
     const item = fixture(4);
     expect(() => item.dispatcher.dispatchCampaign(item.paused.campaignId))

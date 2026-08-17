@@ -460,6 +460,19 @@ describe("durable evidence acquisition scheduler", () => {
     expect(scheduler.projection().jobs[0]).toMatchObject({
       status: "EXHAUSTED", attemptCount: 2, diagnostic: "upstream timeout",
     });
+
+    read.mockImplementationOnce(async () => new Response(
+      "Official rule became reachable after operator-authorized retry.",
+      { status: 200, headers: { "content-type": "text/plain" } },
+    ));
+    const exhausted = scheduler.projection().jobs[0]!;
+    expect(scheduler.retryExhaustedJob(exhausted.jobId)).toMatchObject({
+      status: "PENDING", attemptCount: 0, totalAttemptCount: 2, diagnostic: null,
+    });
+    await scheduler.runJob(exhausted.jobId, [input]);
+    expect(scheduler.projection().jobs[0]).toMatchObject({
+      status: "CAPTURED", attemptCount: 0, totalAttemptCount: 3,
+    });
   });
 
   it("marks current evidence stale and records conditional 304 reuse", async () => {

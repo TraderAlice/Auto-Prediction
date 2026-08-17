@@ -1,6 +1,11 @@
 # Harmony Studio
 
-Harmony Studio is the read-only visual surface for architecture qualification. It uses Vite, React 19, Tailwind CSS 4, and repository-owned shadcn/ui components.
+Harmony Studio is the non-value-moving operator cockpit for discovery,
+qualification, and architecture evidence. It uses Vite, React 19, Tailwind CSS
+4, and repository-owned shadcn/ui components.
+
+For installation and runtime configuration, see [Operations](OPERATIONS.md).
+For the system's ontology and opportunity model, see [Concepts](CONCEPTS.md).
 
 ## Process boundary
 
@@ -279,4 +284,13 @@ pnpm studio
 pnpm studio:build
 ```
 
-The first command runs the control plane and Vite dashboard together.
+The first command runs the control plane on `127.0.0.1:4100` and the Vite
+dashboard together. Vite starts at `127.0.0.1:5173` and automatically advances
+to the next free port. The dashboard uses a same-origin development proxy for
+the control plane; always follow the URL printed by Vite.
+
+On first use, check readiness and storage posture before refreshing catalogs or
+starting a campaign. Catalog refresh is anonymous and does not call a model.
+Agent work begins only through an explicit action or an enabled durable
+scheduler. The selected provider, runtime capability, model, reasoning effort,
+campaign state, and usage lineage remain visible in Studio.

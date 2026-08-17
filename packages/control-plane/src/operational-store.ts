@@ -338,8 +338,41 @@ import {
   type StudioProjectionSnapshot,
   type StudioProjectionSnapshotStore,
 } from "./studio-projection-snapshot.js";
+import {
+  assertSettlementProjection,
+  assertWorldPredicateArtifact,
+  assertWorldRelationExperiment,
+  type SettlementProjection,
+  type WorldHistoryOntologyStore,
+  type WorldPredicateArtifact,
+  type WorldRelationExperiment,
+} from "./world-history-ontology.js";
+import {
+  assertWorldRelationExperimentInputRevision,
+  type WorldRelationExperimentInputRevision,
+  type WorldRelationExperimentInputStore,
+} from "./world-relation-experiment-work.js";
+import {
+  assertWorldRelationExperimentCheckpoint,
+  type WorldRelationExperimentCheckpoint,
+  type WorldRelationExperimentCheckpointStore,
+} from "./world-relation-experiment-checkpoint.js";
+import {
+  assertSettlementProjectionObservation,
+  type SettlementProjectionObservation,
+  type SettlementProjectionObservationStore,
+} from "./settlement-projection-compiler.js";
+import {
+  assertWorldRelationEntityRoleAssertion,
+  assertWorldRelationEntityRoleRequirement,
+  assertStoredWorldRelationEntityRoleSourceDocument,
+  type StoredWorldRelationEntityRoleSourceDocument,
+  type WorldRelationEntityRoleAssertion,
+  type WorldRelationEntityRoleEvidenceStore,
+  type WorldRelationEntityRoleRequirement,
+} from "./world-relation-entity-role-evidence.js";
 
-const SCHEMA_VERSION = 59;
+const SCHEMA_VERSION = 65;
 const MAX_SEARCH_LEASE_CORPUS_BYTES = 32_000_000;
 const MAX_RETAINED_ONTOLOGY_SEARCH_REVISIONS = 512;
 
@@ -1918,6 +1951,179 @@ function parseMarketOntologyAgentProposal(value: unknown): MarketOntologyAgentPr
   return proposal;
 }
 
+function parseWorldPredicateArtifact(value: unknown): WorldPredicateArtifact {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world predicate artifact row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.artifact_hash !== "string" || typeof row.predicate_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world predicate artifact row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world predicate artifact contains invalid JSON");
+  }
+  const artifact = assertWorldPredicateArtifact(decoded);
+  if (artifact.artifactHash !== row.artifact_hash || artifact.predicateId !== row.predicate_id ||
+      artifact.artifactHash !== row.record_hash) {
+    throw new Error("SQLite world predicate artifact identity mismatch");
+  }
+  return artifact;
+}
+
+function parseSettlementProjection(value: unknown): SettlementProjection {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite settlement projection row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.artifact_hash !== "string" || typeof row.projection_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite settlement projection row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite settlement projection contains invalid JSON");
+  }
+  const projection = assertSettlementProjection(decoded);
+  if (projection.artifactHash !== row.artifact_hash ||
+      projection.projectionId !== row.projection_id ||
+      projection.artifactHash !== row.record_hash) {
+    throw new Error("SQLite settlement projection identity mismatch");
+  }
+  return projection;
+}
+
+function parseSettlementProjectionObservation(
+  value: unknown,
+): SettlementProjectionObservation {
+  const row = value as Readonly<{ artifact_hash?: unknown; record_json?: unknown;
+    record_hash?: unknown }>;
+  if (typeof row?.record_json !== "string" || row.record_hash !== row.artifact_hash) {
+    throw new Error("stored settlement projection observation is malformed");
+  }
+  const decoded = assertSettlementProjectionObservation(JSON.parse(row.record_json));
+  if (decoded.artifactHash !== row.artifact_hash) {
+    throw new Error("stored settlement projection observation identity is inconsistent");
+  }
+  return decoded;
+}
+
+function parseWorldRelationEntityRoleRequirement(
+  value: unknown,
+): WorldRelationEntityRoleRequirement {
+  const row = value as Readonly<{ requirement_id?: unknown; record_json?: unknown;
+    record_hash?: unknown }>;
+  if (typeof row?.requirement_id !== "string" || typeof row.record_json !== "string" ||
+      row.record_hash !== row.requirement_id) {
+    throw new Error("stored entity-role requirement is malformed");
+  }
+  const decoded = assertWorldRelationEntityRoleRequirement(JSON.parse(row.record_json));
+  if (decoded.requirementId !== row.requirement_id) {
+    throw new Error("stored entity-role requirement identity is inconsistent");
+  }
+  return decoded;
+}
+
+function parseWorldRelationEntityRoleAssertion(
+  value: unknown,
+): WorldRelationEntityRoleAssertion {
+  const row = value as Readonly<{ assertion_id?: unknown; record_json?: unknown;
+    record_hash?: unknown }>;
+  if (typeof row?.assertion_id !== "string" || typeof row.record_json !== "string" ||
+      row.record_hash !== row.assertion_id) {
+    throw new Error("stored entity-role assertion is malformed");
+  }
+  const decoded = assertWorldRelationEntityRoleAssertion(JSON.parse(row.record_json));
+  if (decoded.assertionId !== row.assertion_id) {
+    throw new Error("stored entity-role assertion identity is inconsistent");
+  }
+  return decoded;
+}
+
+function parseWorldRelationEntityRoleSourceDocument(
+  value: unknown,
+): StoredWorldRelationEntityRoleSourceDocument {
+  const row = value as Readonly<{ document_id?: unknown; record_json?: unknown;
+    record_hash?: unknown; raw_bytes?: unknown; extracted_text?: unknown }>;
+  if (typeof row?.document_id !== "string" || typeof row.record_json !== "string" ||
+      row.record_hash !== row.document_id || !(row.raw_bytes instanceof Uint8Array) ||
+      typeof row.extracted_text !== "string") {
+    throw new Error("stored entity-role source document row is malformed");
+  }
+  const decoded = assertStoredWorldRelationEntityRoleSourceDocument(Object.freeze({
+    record: JSON.parse(row.record_json), bytes: row.raw_bytes, text: row.extracted_text,
+  }));
+  if (decoded.record.documentId !== row.document_id) {
+    throw new Error("stored entity-role source document identity is inconsistent");
+  }
+  return decoded;
+}
+
+function parseWorldRelationExperiment(value: unknown): WorldRelationExperiment {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world relation experiment row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.artifact_hash !== "string" || typeof row.experiment_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world relation experiment row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world relation experiment contains invalid JSON");
+  }
+  const experiment = assertWorldRelationExperiment(decoded);
+  if (experiment.artifactHash !== row.artifact_hash ||
+      experiment.experimentId !== row.experiment_id ||
+      experiment.artifactHash !== row.record_hash) {
+    throw new Error("SQLite world relation experiment identity mismatch");
+  }
+  return experiment;
+}
+
+function parseWorldRelationExperimentInput(
+  value: unknown,
+): WorldRelationExperimentInputRevision {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world relation experiment input row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.input_revision_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world relation experiment input row has invalid columns");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.record_json); } catch {
+    throw new Error("SQLite world relation experiment input contains invalid JSON");
+  }
+  const revision = assertWorldRelationExperimentInputRevision(decoded);
+  if (revision.inputRevisionId !== row.input_revision_id ||
+      hashCanonical(revision) !== row.record_hash) {
+    throw new Error("SQLite world relation experiment input identity mismatch");
+  }
+  return revision;
+}
+
+function parseWorldRelationExperimentCheckpoint(
+  value: unknown,
+): WorldRelationExperimentCheckpoint {
+  if (value === null || typeof value !== "object") {
+    throw new Error("SQLite world relation experiment checkpoint row is malformed");
+  }
+  const row = value as Readonly<Record<string, unknown>>;
+  if (typeof row.checkpoint_id !== "string" ||
+      typeof row.record_json !== "string" || typeof row.record_hash !== "string") {
+    throw new Error("SQLite world relation experiment checkpoint row has invalid columns");
+  }
+  const checkpoint = assertWorldRelationExperimentCheckpoint(JSON.parse(row.record_json));
+  if (checkpoint.checkpointId !== row.checkpoint_id ||
+      checkpoint.checkpointId !== row.record_hash) {
+    throw new Error("SQLite world relation experiment checkpoint identity mismatch");
+  }
+  return checkpoint;
+}
+
 function parseWorldStateMechanismProposal(value: unknown): WorldStateMechanismProposal {
   if (value === null || typeof value !== "object") {
     throw new Error("SQLite world-state mechanism proposal row is malformed");
@@ -2580,7 +2786,12 @@ export class SqliteOperationalStore
     ResearchDecisionEpisodeStore,
     ResearchDecisionOutcomeObservationStore,
     DiscoverySignalStore,
-    StudioProjectionSnapshotStore
+    StudioProjectionSnapshotStore,
+    WorldHistoryOntologyStore,
+    WorldRelationExperimentInputStore,
+    WorldRelationExperimentCheckpointStore,
+    SettlementProjectionObservationStore,
+    WorldRelationEntityRoleEvidenceStore
 {
   readonly #database: DatabaseSync;
   #closed = false;
@@ -2699,6 +2910,26 @@ export class SqliteOperationalStore
     OperationalStorageProjection<"signalId">;
   public readonly studioProjectionSnapshotStorage:
     OperationalStorageProjection<"singleton">;
+  public readonly worldPredicateArtifactStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly settlementProjectionStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly settlementProjectionObservationStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly worldRelationExperimentStorage:
+    OperationalStorageProjection<"artifactHash">;
+  public readonly worldRelationExperimentInputStorage:
+    OperationalStorageProjection<"inputRevisionId">;
+  public readonly worldRelationExperimentCorpusStorage:
+    OperationalStorageProjection<"snapshotIdentity">;
+  public readonly worldRelationExperimentCheckpointStorage:
+    OperationalStorageProjection<"checkpointId">;
+  public readonly worldRelationEntityRoleRequirementStorage:
+    OperationalStorageProjection<"requirementId">;
+  public readonly worldRelationEntityRoleAssertionStorage:
+    OperationalStorageProjection<"assertionId">;
+  public readonly worldRelationEntityRoleSourceDocumentStorage:
+    OperationalStorageProjection<"documentId">;
   public readonly premiseAnalysisStorage: OperationalStorageProjection<"analysisId">;
   public readonly premiseAnalysisJobStorage: OperationalStorageProjection<"jobId">;
   public readonly premiseAnalysisNotificationStorage: OperationalStorageProjection<"notificationId">;
@@ -3087,6 +3318,64 @@ export class SqliteOperationalStore
       schemaVersion: SCHEMA_VERSION,
       idempotencyKey: "singleton",
     });
+    this.worldPredicateArtifactStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.settlementProjectionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.settlementProjectionObservationStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.worldRelationExperimentStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "artifactHash",
+    });
+    this.worldRelationExperimentInputStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "inputRevisionId",
+    });
+    this.worldRelationExperimentCorpusStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "snapshotIdentity",
+    });
+    this.worldRelationExperimentCheckpointStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "checkpointId",
+    });
+    this.worldRelationEntityRoleRequirementStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "requirementId",
+    });
+    this.worldRelationEntityRoleAssertionStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL",
+      durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION,
+      idempotencyKey: "assertionId",
+    });
+    this.worldRelationEntityRoleSourceDocumentStorage = Object.freeze({
+      mode: inMemory ? "MEMORY" : "SQLITE_WAL", durable: !inMemory,
+      schemaVersion: SCHEMA_VERSION, idempotencyKey: "documentId",
+    });
     this.premiseAnalysisStorage = Object.freeze({
       mode: inMemory ? "MEMORY" : "SQLITE_WAL",
       durable: !inMemory,
@@ -3340,6 +3629,13 @@ export class SqliteOperationalStore
       .prepare(
         `SELECT name FROM sqlite_master
          WHERE type = 'table' AND name = 'search_quote_observations'`,
+      )
+      .get() !== undefined;
+    const searchQuoteObservationGeminiVenueAllowed = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'search_quote_observations'
+           AND sql LIKE '%gemini-predictions%'`,
       )
       .get() !== undefined;
     const evidenceAcquisitionJobTableExists = this.#database
@@ -3611,6 +3907,72 @@ export class SqliteOperationalStore
          WHERE type = 'table' AND name = 'studio_projection_snapshot'`,
       )
       .get() !== undefined;
+    const worldPredicateArtifactTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_predicate_artifacts'`,
+      )
+      .get() !== undefined;
+    const settlementProjectionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'settlement_projections'`,
+      )
+      .get() !== undefined;
+    const settlementProjectionObservationTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'settlement_projection_observations'`,
+      )
+      .get() !== undefined;
+    const worldRelationExperimentTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_experiments'`,
+      )
+      .get() !== undefined;
+    const worldRelationExperimentInputTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_experiment_inputs'`,
+      )
+      .get() !== undefined;
+    const worldRelationExperimentCorpusTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_experiment_corpora'`,
+      )
+      .get() !== undefined;
+    const worldRelationExperimentCheckpointTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_experiment_checkpoints'`,
+      )
+      .get() !== undefined;
+    const worldRelationEntityRoleRequirementTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_entity_role_requirements'`,
+      )
+      .get() !== undefined;
+    const worldRelationEntityRoleAssertionTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_entity_role_assertions'`,
+      )
+      .get() !== undefined;
+    const worldRelationEntityRoleAssertionDocumentColumnExists = this.#database
+      .prepare(
+        `SELECT name FROM pragma_table_info('world_relation_entity_role_assertions')
+         WHERE name = 'document_id'`,
+      )
+      .get() !== undefined;
+    const worldRelationEntityRoleSourceDocumentTableExists = this.#database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name = 'world_relation_entity_role_source_documents'`,
+      )
+      .get() !== undefined;
     if (
       current === SCHEMA_VERSION &&
       searchLeaseTableExists &&
@@ -3632,6 +3994,7 @@ export class SqliteOperationalStore
       aiUsageEventTableExists &&
       aiRuntimeConfigurationTableExists &&
       searchQuoteObservationTableExists &&
+      searchQuoteObservationGeminiVenueAllowed &&
       officialSourceDiscoveryJobTableExists &&
       evidenceAcquisitionJobTableExists && evidenceDocumentTableExists &&
       evidenceDocumentTextTableExists && evidenceDocumentObservationTableExists &&
@@ -3678,6 +4041,17 @@ export class SqliteOperationalStore
       && researchDecisionOutcomeObservationBoundaryExists
       && researchDecisionOutcomeObservationYieldVectorCurrent
       && studioProjectionSnapshotTableExists
+      && worldPredicateArtifactTableExists
+      && settlementProjectionTableExists
+      && settlementProjectionObservationTableExists
+      && worldRelationExperimentTableExists
+      && worldRelationExperimentInputTableExists
+      && worldRelationExperimentCorpusTableExists
+      && worldRelationExperimentCheckpointTableExists
+      && worldRelationEntityRoleRequirementTableExists
+      && worldRelationEntityRoleAssertionTableExists
+      && worldRelationEntityRoleAssertionDocumentColumnExists
+      && worldRelationEntityRoleSourceDocumentTableExists
     ) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
@@ -4060,7 +4434,9 @@ export class SqliteOperationalStore
               observation_id GLOB 'sha256:[0-9a-f]*'
             ),
             listing_ref TEXT NOT NULL CHECK (length(listing_ref) > 0),
-            venue_id TEXT NOT NULL CHECK (venue_id = 'opinion'),
+            venue_id TEXT NOT NULL CHECK (
+              venue_id IN ('gemini-predictions', 'opinion')
+            ),
             received_at TEXT NOT NULL CHECK (length(received_at) > 0),
             record_json TEXT NOT NULL CHECK (json_valid(record_json)),
             record_hash TEXT NOT NULL CHECK (
@@ -6148,6 +6524,296 @@ export class SqliteOperationalStore
             );
         `);
       }
+      if (current < 60 || !worldPredicateArtifactTableExists ||
+          !settlementProjectionTableExists || !worldRelationExperimentTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_predicate_artifacts (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            predicate_id TEXT NOT NULL CHECK (
+              length(predicate_id) = 71 AND predicate_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            epistemic_posture TEXT NOT NULL CHECK (epistemic_posture IN (
+              'SEARCH_HYPOTHESIS_ONLY', 'EVIDENCE_BOUND_PROPOSITION',
+              'SETTLEMENT_BOUND_PREDICATE'
+            )),
+            proposed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = artifact_hash)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_predicate_artifacts_predicate
+            ON world_predicate_artifacts (
+              predicate_id, proposed_at DESC, artifact_hash DESC
+            );
+
+          CREATE TABLE IF NOT EXISTS settlement_projections (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            projection_id TEXT NOT NULL CHECK (
+              length(projection_id) = 71 AND projection_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL,
+            compiler_admission TEXT NOT NULL CHECK (
+              compiler_admission IN ('EXACT_BINARY_ELIGIBLE', 'RESEARCH_ONLY')
+            ),
+            observed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = artifact_hash)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS settlement_projections_listing
+            ON settlement_projections (
+              listing_ref, observed_at DESC, artifact_hash DESC
+            );
+          CREATE INDEX IF NOT EXISTS settlement_projections_identity
+            ON settlement_projections (
+              projection_id, observed_at DESC, artifact_hash DESC
+            );
+
+          CREATE TABLE IF NOT EXISTS world_relation_experiments (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            experiment_id TEXT NOT NULL CHECK (
+              length(experiment_id) = 71 AND experiment_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            relation_kind TEXT NOT NULL,
+            terminal_disposition TEXT NOT NULL CHECK (terminal_disposition IN (
+              'SUPPORTED_HARD', 'SUPPORTED_PROBABILISTIC', 'FALSIFIED',
+              'EXHAUSTED', 'UNRESOLVED'
+            )),
+            source_agent_run_id TEXT NOT NULL,
+            closed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = artifact_hash),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_experiments_scope
+            ON world_relation_experiments (
+              experiment_id, closed_at DESC, artifact_hash DESC
+            );
+          CREATE INDEX IF NOT EXISTS world_relation_experiments_run
+            ON world_relation_experiments (
+              source_agent_run_id, closed_at, artifact_hash
+            );
+        `);
+      }
+      if (current < 61 || !worldRelationExperimentInputTableExists ||
+          !worldRelationExperimentCorpusTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_relation_experiment_corpora (
+            snapshot_identity TEXT PRIMARY KEY NOT NULL CHECK (
+              length(snapshot_identity) = 71 AND snapshot_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            source_set_identity TEXT NOT NULL CHECK (
+              length(source_set_identity) = 71 AND source_set_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_count INTEGER NOT NULL CHECK (listing_count >= 0),
+            retained_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            )
+          ) STRICT;
+          CREATE TABLE IF NOT EXISTS world_relation_experiment_inputs (
+            input_revision_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(input_revision_id) = 71 AND input_revision_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            semantic_input_identity TEXT NOT NULL CHECK (
+              length(semantic_input_identity) = 71 AND
+              semantic_input_identity GLOB 'sha256:[0-9a-f]*'
+            ),
+            frontier_id TEXT NOT NULL CHECK (
+              length(frontier_id) = 71 AND frontier_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            corpus_snapshot_identity TEXT NOT NULL,
+            materialized_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            FOREIGN KEY (corpus_snapshot_identity)
+              REFERENCES world_relation_experiment_corpora(snapshot_identity)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_experiment_inputs_frontier
+            ON world_relation_experiment_inputs (
+              frontier_id, materialized_at DESC, input_revision_id DESC
+            );
+          CREATE INDEX IF NOT EXISTS world_relation_experiment_inputs_semantic
+            ON world_relation_experiment_inputs (
+              semantic_input_identity, materialized_at DESC, input_revision_id DESC
+            );
+        `);
+      }
+      if (current < 62 || !settlementProjectionObservationTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS settlement_projection_observations (
+            artifact_hash TEXT PRIMARY KEY NOT NULL CHECK (
+              length(artifact_hash) = 71 AND artifact_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            observation_id TEXT NOT NULL CHECK (
+              length(observation_id) = 71 AND observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL,
+            disposition TEXT NOT NULL CHECK (disposition IN (
+              'EXACT_PROJECTED', 'RESEARCH_ONLY_PROJECTED', 'BLOCKED'
+            )),
+            observed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = artifact_hash)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS settlement_projection_observations_listing
+            ON settlement_projection_observations (
+              listing_ref, observed_at DESC, artifact_hash DESC
+            );
+          CREATE INDEX IF NOT EXISTS settlement_projection_observations_identity
+            ON settlement_projection_observations (
+              observation_id, observed_at DESC, artifact_hash DESC
+            );
+        `);
+      }
+      if (current < 63 || !worldRelationExperimentCheckpointTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_relation_experiment_checkpoints (
+            checkpoint_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(checkpoint_id) = 71 AND checkpoint_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            input_revision_id TEXT NOT NULL,
+            source_agent_run_id TEXT NOT NULL UNIQUE,
+            closed_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = checkpoint_id),
+            FOREIGN KEY (input_revision_id)
+              REFERENCES world_relation_experiment_inputs(input_revision_id),
+            FOREIGN KEY (source_agent_run_id) REFERENCES agent_runs(run_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_experiment_checkpoints_input
+            ON world_relation_experiment_checkpoints (
+              input_revision_id, closed_at DESC, checkpoint_id DESC
+            );
+        `);
+      }
+      if (current < 64 || !worldRelationEntityRoleRequirementTableExists ||
+          !worldRelationEntityRoleAssertionTableExists ||
+          !worldRelationEntityRoleAssertionDocumentColumnExists ||
+          !worldRelationEntityRoleSourceDocumentTableExists) {
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_relation_entity_role_source_documents (
+            document_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(document_id) = 71 AND document_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            received_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = document_id),
+            raw_bytes BLOB NOT NULL,
+            extracted_text TEXT NOT NULL
+          ) STRICT;
+          CREATE TABLE IF NOT EXISTS world_relation_entity_role_requirements (
+            requirement_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(requirement_id) = 71 AND requirement_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            frontier_artifact_hash TEXT NOT NULL,
+            corpus_snapshot_identity TEXT NOT NULL,
+            listing_ref TEXT NOT NULL,
+            entity_label TEXT NOT NULL,
+            organization_label TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = requirement_id),
+            FOREIGN KEY (corpus_snapshot_identity)
+              REFERENCES world_relation_experiment_corpora(snapshot_identity)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_entity_role_requirements_scope
+            ON world_relation_entity_role_requirements (
+              frontier_artifact_hash, corpus_snapshot_identity, listing_ref
+            );
+        `);
+        if (worldRelationEntityRoleAssertionTableExists &&
+            !worldRelationEntityRoleAssertionDocumentColumnExists) {
+          this.#database.exec(`
+            DROP INDEX IF EXISTS world_relation_entity_role_assertions_requirement;
+            ALTER TABLE world_relation_entity_role_assertions
+              RENAME TO world_relation_entity_role_assertions_v63_draft;
+          `);
+        }
+        this.#database.exec(`
+          CREATE TABLE IF NOT EXISTS world_relation_entity_role_assertions (
+            assertion_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(assertion_id) = 71 AND assertion_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            requirement_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            disposition TEXT NOT NULL CHECK (disposition IN (
+              'SUPPORTED', 'CONTRADICTED', 'INCONCLUSIVE'
+            )),
+            asserted_at TEXT NOT NULL,
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (record_hash = assertion_id),
+            FOREIGN KEY (requirement_id)
+              REFERENCES world_relation_entity_role_requirements(requirement_id),
+            FOREIGN KEY (document_id)
+              REFERENCES world_relation_entity_role_source_documents(document_id)
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS world_relation_entity_role_assertions_requirement
+            ON world_relation_entity_role_assertions (
+              requirement_id, asserted_at DESC, assertion_id DESC
+            );
+        `);
+        if (worldRelationEntityRoleAssertionTableExists &&
+            !worldRelationEntityRoleAssertionDocumentColumnExists) {
+          this.#database.exec(`
+            INSERT INTO world_relation_entity_role_assertions (
+              assertion_id, requirement_id, document_id, disposition,
+              asserted_at, record_json, record_hash
+            )
+            SELECT assertion_id, requirement_id,
+              json_extract(legacy.record_json, '$.source.documentId'), disposition,
+              asserted_at, legacy.record_json, legacy.record_hash
+            FROM world_relation_entity_role_assertions_v63_draft AS legacy
+            INNER JOIN world_relation_entity_role_source_documents AS documents
+              ON documents.document_id =
+                json_extract(legacy.record_json, '$.source.documentId');
+            DROP TABLE world_relation_entity_role_assertions_v63_draft;
+          `);
+        }
+      }
+      if (searchQuoteObservationTableExists &&
+          !searchQuoteObservationGeminiVenueAllowed) {
+        this.#database.exec(`
+          DROP INDEX IF EXISTS search_quote_observations_received;
+          DROP INDEX IF EXISTS search_quote_observations_listing;
+          ALTER TABLE search_quote_observations
+            RENAME TO search_quote_observations_opinion_v1;
+          CREATE TABLE search_quote_observations (
+            observation_id TEXT PRIMARY KEY NOT NULL CHECK (
+              length(observation_id) = 71 AND
+              observation_id GLOB 'sha256:[0-9a-f]*'
+            ),
+            listing_ref TEXT NOT NULL CHECK (length(listing_ref) > 0),
+            venue_id TEXT NOT NULL CHECK (
+              venue_id IN ('gemini-predictions', 'opinion')
+            ),
+            received_at TEXT NOT NULL CHECK (length(received_at) > 0),
+            record_json TEXT NOT NULL CHECK (json_valid(record_json)),
+            record_hash TEXT NOT NULL CHECK (
+              length(record_hash) = 71 AND record_hash GLOB 'sha256:[0-9a-f]*'
+            ),
+            raw_bytes BLOB NOT NULL
+          ) STRICT;
+          INSERT INTO search_quote_observations (
+            observation_id, listing_ref, venue_id, received_at,
+            record_json, record_hash, raw_bytes
+          )
+          SELECT observation_id, listing_ref, venue_id, received_at,
+            record_json, record_hash, raw_bytes
+          FROM search_quote_observations_opinion_v1;
+          DROP TABLE search_quote_observations_opinion_v1;
+          CREATE INDEX search_quote_observations_received
+            ON search_quote_observations (received_at DESC, observation_id DESC);
+          CREATE INDEX search_quote_observations_listing
+            ON search_quote_observations (listing_ref, received_at DESC);
+        `);
+      }
       this.#database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.#database.exec("COMMIT");
     } catch (error) {
@@ -6227,7 +6893,7 @@ export class SqliteOperationalStore
     const task = assertAgentTask(decoded);
     return task.kind === "MECHANISM_PROTOTYPE_EXPLORATION" &&
       task.protocol === "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" &&
-      // V9 is the only dispatchable protocol. Earlier tasks remain recognizable
+      // V16 is the only dispatchable protocol. Earlier tasks remain recognizable
       // here solely so their immutable input/result lineage survives restart.
       (task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V1" ||
         task.requestedEffectProtocol === "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V2" ||
@@ -6240,7 +6906,11 @@ export class SqliteOperationalStore
         ["MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V9",
           "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V10",
           "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V11",
-          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12"]
+          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12",
+          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V13",
+          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V14",
+          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V15",
+          "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V16"]
           .includes(task.requestedEffectProtocol)) &&
       task.provenanceRef === `mechanism-prototype-exploration:${input.lensId}`;
   }
@@ -12926,6 +13596,589 @@ export class SqliteOperationalStore
       }
       this.#database.exec("COMMIT");
       return episodes;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldPredicateArtifacts(limit: number): readonly WorldPredicateArtifact[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_hash, predicate_id, record_json, record_hash
+       FROM world_predicate_artifacts
+       ORDER BY proposed_at DESC, artifact_hash DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldPredicateArtifact));
+  }
+
+  public saveWorldPredicateArtifacts(
+    artifactsInput: readonly WorldPredicateArtifact[],
+  ): readonly WorldPredicateArtifact[] {
+    this.#assertOpen();
+    const artifacts = Object.freeze(artifactsInput.map(assertWorldPredicateArtifact));
+    if (new Set(artifacts.map((item) => item.artifactHash)).size !== artifacts.length) {
+      throw new Error("world predicate artifact batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const artifact of artifacts) {
+        this.#database.prepare(
+          `INSERT INTO world_predicate_artifacts (
+             artifact_hash, predicate_id, epistemic_posture, proposed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_hash) DO NOTHING`,
+        ).run(
+          artifact.artifactHash, artifact.predicateId, artifact.epistemicPosture,
+          artifact.proposedAt, canonicalJson(artifact), artifact.artifactHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT artifact_hash, predicate_id, record_json, record_hash
+           FROM world_predicate_artifacts WHERE artifact_hash = ?`,
+        ).get(artifact.artifactHash);
+        if (parseWorldPredicateArtifact(row).artifactHash !== artifact.artifactHash) {
+          throw new Error("world predicate artifact identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return artifacts;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSettlementProjections(limit: number): readonly SettlementProjection[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_hash, projection_id, record_json, record_hash
+       FROM settlement_projections
+       ORDER BY observed_at DESC, artifact_hash DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseSettlementProjection));
+  }
+
+  public saveSettlementProjections(
+    projectionsInput: readonly SettlementProjection[],
+  ): readonly SettlementProjection[] {
+    this.#assertOpen();
+    const projections = Object.freeze(projectionsInput.map(assertSettlementProjection));
+    if (new Set(projections.map((item) => item.artifactHash)).size !== projections.length) {
+      throw new Error("settlement projection batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const projection of projections) {
+        for (const binding of projection.predicateBindings) {
+          const predicate = this.#database.prepare(
+            `SELECT artifact_hash FROM world_predicate_artifacts
+             WHERE artifact_hash = ? AND predicate_id = ?`,
+          ).get(binding.predicateArtifactHash, binding.predicateId);
+          if (predicate === undefined) {
+            throw new Error("settlement projection references an unavailable predicate revision");
+          }
+        }
+        this.#database.prepare(
+          `INSERT INTO settlement_projections (
+             artifact_hash, projection_id, listing_ref, compiler_admission,
+             observed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_hash) DO NOTHING`,
+        ).run(
+          projection.artifactHash, projection.projectionId, projection.listing.listingRef,
+          projection.compilerAdmission, projection.observedAt,
+          canonicalJson(projection), projection.artifactHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT artifact_hash, projection_id, record_json, record_hash
+           FROM settlement_projections WHERE artifact_hash = ?`,
+        ).get(projection.artifactHash);
+        if (parseSettlementProjection(row).artifactHash !== projection.artifactHash) {
+          throw new Error("settlement projection artifact identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return projections;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadSettlementProjectionObservations(
+    limit: number,
+  ): readonly SettlementProjectionObservation[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_hash, observation_id, record_json, record_hash
+       FROM settlement_projection_observations
+       ORDER BY observed_at DESC, artifact_hash DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseSettlementProjectionObservation));
+  }
+
+  public saveSettlementProjectionObservations(
+    observationsInput: readonly SettlementProjectionObservation[],
+  ): readonly SettlementProjectionObservation[] {
+    this.#assertOpen();
+    const observations = Object.freeze(observationsInput.map(
+      assertSettlementProjectionObservation,
+    ));
+    if (new Set(observations.map((item) => item.artifactHash)).size !== observations.length) {
+      throw new Error("settlement projection observation batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const item of observations) {
+        this.#database.prepare(
+          `INSERT INTO settlement_projection_observations (
+             artifact_hash, observation_id, listing_ref, disposition,
+             observed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_hash) DO NOTHING`,
+        ).run(item.artifactHash, item.observationId, item.listingRef, item.disposition,
+          item.observedAt, canonicalJson(item), item.artifactHash);
+        const row = this.#database.prepare(
+          `SELECT artifact_hash, observation_id, record_json, record_hash
+           FROM settlement_projection_observations WHERE artifact_hash = ?`,
+        ).get(item.artifactHash);
+        if (parseSettlementProjectionObservation(row).artifactHash !== item.artifactHash) {
+          throw new Error("settlement projection observation identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return observations;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationExperiments(limit: number): readonly WorldRelationExperiment[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT artifact_hash, experiment_id, record_json, record_hash
+       FROM world_relation_experiments
+       ORDER BY closed_at DESC, artifact_hash DESC
+       LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationExperiment));
+  }
+
+  public saveWorldRelationExperiments(
+    experimentsInput: readonly WorldRelationExperiment[],
+  ): readonly WorldRelationExperiment[] {
+    this.#assertOpen();
+    const experiments = Object.freeze(experimentsInput.map(assertWorldRelationExperiment));
+    if (new Set(experiments.map((item) => item.artifactHash)).size !== experiments.length) {
+      throw new Error("world relation experiment batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const experiment of experiments) {
+        const run = this.#database.prepare(
+          "SELECT run_id FROM agent_runs WHERE run_id = ?",
+        ).get(experiment.sourceAgentRunId);
+        if (run === undefined) {
+          throw new Error("world relation experiment references an unavailable Agent run");
+        }
+        const availablePredicates = new Set((this.#database.prepare(
+          `SELECT DISTINCT predicate_id FROM world_predicate_artifacts
+           WHERE predicate_id IN (${experiment.predicateIds.map(() => "?").join(",")})`,
+        ).all(...experiment.predicateIds) as unknown as readonly Readonly<{ predicate_id: string }>[])
+          .map((item) => item.predicate_id));
+        if (experiment.predicateIds.some((item) => !availablePredicates.has(item))) {
+          throw new Error("world relation experiment references unavailable predicates");
+        }
+        if (experiment.inspectedProjectionIds.length > 0) {
+          const availableProjections = new Set((this.#database.prepare(
+            `SELECT DISTINCT projection_id FROM settlement_projections
+             WHERE projection_id IN (${experiment.inspectedProjectionIds.map(() => "?").join(",")})`,
+          ).all(...experiment.inspectedProjectionIds) as unknown as readonly Readonly<{ projection_id: string }>[])
+            .map((item) => item.projection_id));
+          if (experiment.inspectedProjectionIds.some((item) => !availableProjections.has(item))) {
+            throw new Error("world relation experiment references unavailable projections");
+          }
+        }
+        this.#database.prepare(
+          `INSERT INTO world_relation_experiments (
+             artifact_hash, experiment_id, relation_kind, terminal_disposition,
+             source_agent_run_id, closed_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_hash) DO NOTHING`,
+        ).run(
+          experiment.artifactHash, experiment.experimentId, experiment.relationKind,
+          experiment.terminalDisposition, experiment.sourceAgentRunId,
+          experiment.closedAt, canonicalJson(experiment), experiment.artifactHash,
+        );
+        const row = this.#database.prepare(
+          `SELECT artifact_hash, experiment_id, record_json, record_hash
+           FROM world_relation_experiments WHERE artifact_hash = ?`,
+        ).get(experiment.artifactHash);
+        if (parseWorldRelationExperiment(row).artifactHash !== experiment.artifactHash) {
+          throw new Error("world relation experiment artifact identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return experiments;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationExperimentCorpus(
+    snapshotIdentity: Hash,
+  ): MarketCorpusSnapshot | null {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      `SELECT snapshot_identity, source_set_identity, listing_count,
+              record_json AS corpus_json, record_hash AS corpus_hash
+       FROM world_relation_experiment_corpora WHERE snapshot_identity = ?`,
+    ).get(snapshotIdentity);
+    return row === undefined ? null : parseSearchLeaseCorpus(row);
+  }
+
+  public saveWorldRelationExperimentCorpus(
+    corpusInput: MarketCorpusSnapshot,
+  ): MarketCorpusSnapshot {
+    this.#assertOpen();
+    const corpus = assertMarketCorpusSnapshot(corpusInput);
+    const recordJson = canonicalJson(corpus);
+    const recordHash = hashCanonical(corpus);
+    const retainedAt = [...corpus.listings].map((item) => item.sourceReceivedAt)
+      .sort().at(-1) ?? "1970-01-01T00:00:00.000Z";
+    this.#database.prepare(
+      `INSERT INTO world_relation_experiment_corpora (
+         snapshot_identity, source_set_identity, listing_count, retained_at,
+         record_json, record_hash
+       ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(snapshot_identity) DO NOTHING`,
+    ).run(corpus.snapshotIdentity, corpus.sourceSetIdentity, corpus.listingCount,
+      retainedAt, recordJson, recordHash);
+    const stored = this.loadWorldRelationExperimentCorpus(corpus.snapshotIdentity);
+    if (stored === null || hashCanonical(stored) !== recordHash) {
+      throw new Error("world relation experiment corpus identity collision");
+    }
+    return stored;
+  }
+
+  public loadWorldRelationExperimentInputs(
+    limit: number,
+  ): readonly WorldRelationExperimentInputRevision[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT input_revision_id, record_json, record_hash
+       FROM world_relation_experiment_inputs
+       ORDER BY materialized_at DESC, input_revision_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationExperimentInput));
+  }
+
+  public countWorldRelationExperimentInputs(): number {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      "SELECT COUNT(*) AS count FROM world_relation_experiment_inputs",
+    ).get() as Readonly<{ count: number }>;
+    return row.count;
+  }
+
+  public loadWorldRelationExperimentInput(
+    inputRevisionId: Hash,
+  ): WorldRelationExperimentInputRevision | null {
+    this.#assertOpen();
+    const row = this.#database.prepare(
+      `SELECT input_revision_id, record_json, record_hash
+       FROM world_relation_experiment_inputs WHERE input_revision_id = ?`,
+    ).get(inputRevisionId);
+    return row === undefined ? null : parseWorldRelationExperimentInput(row);
+  }
+
+  public saveWorldRelationExperimentInputs(
+    inputsRaw: readonly WorldRelationExperimentInputRevision[],
+  ): readonly WorldRelationExperimentInputRevision[] {
+    this.#assertOpen();
+    const inputs = Object.freeze(inputsRaw.map(assertWorldRelationExperimentInputRevision));
+    if (new Set(inputs.map((item) => item.inputRevisionId)).size !== inputs.length) {
+      throw new Error("world relation experiment input batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const input of inputs) {
+        if (this.loadWorldRelationExperimentCorpus(input.corpusSnapshotIdentity) === null) {
+          throw new Error("world relation experiment input references an unavailable corpus");
+        }
+        for (const predicate of input.frontier.predicates) {
+          if (this.#database.prepare(
+            `SELECT artifact_hash FROM world_predicate_artifacts
+             WHERE artifact_hash = ? AND predicate_id = ?`,
+          ).get(predicate.artifactHash, predicate.predicateId) === undefined) {
+            throw new Error("world relation experiment input references an unavailable predicate");
+          }
+        }
+        for (const artifactHash of input.settlementProjectionArtifactHashes) {
+          if (this.#database.prepare(
+            "SELECT artifact_hash FROM settlement_projections WHERE artifact_hash = ?",
+          ).get(artifactHash) === undefined) {
+            throw new Error("world relation experiment input references an unavailable projection");
+          }
+        }
+        for (const artifactHash of input.priorExperimentArtifactHashes) {
+          if (this.#database.prepare(
+            "SELECT artifact_hash FROM world_relation_experiments WHERE artifact_hash = ?",
+          ).get(artifactHash) === undefined) {
+            throw new Error("world relation experiment input references unavailable prior memory");
+          }
+        }
+        for (const memory of input.priorEconomicMemories ?? []) {
+          if (this.#database.prepare(
+            "SELECT artifact_hash FROM world_relation_experiments WHERE artifact_hash = ?",
+          ).get(memory.sourceExperimentArtifactHash) === undefined) {
+            throw new Error(
+              "world relation experiment input references unavailable economic memory",
+            );
+          }
+        }
+        const recordJson = canonicalJson(input);
+        const recordHash = hashCanonical(input);
+        this.#database.prepare(
+          `INSERT INTO world_relation_experiment_inputs (
+             input_revision_id, semantic_input_identity, frontier_id,
+             corpus_snapshot_identity, materialized_at, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(input_revision_id) DO NOTHING`,
+        ).run(input.inputRevisionId, input.semanticInputIdentity,
+          input.frontier.frontierId, input.corpusSnapshotIdentity,
+          input.materializedAt, recordJson, recordHash);
+        const stored = this.loadWorldRelationExperimentInput(input.inputRevisionId);
+        if (stored === null || hashCanonical(stored) !== recordHash) {
+          throw new Error("world relation experiment input identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return inputs;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationExperimentCheckpoints(
+    limit: number,
+  ): readonly WorldRelationExperimentCheckpoint[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT checkpoint_id, record_json, record_hash
+       FROM world_relation_experiment_checkpoints
+       ORDER BY closed_at DESC, checkpoint_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationExperimentCheckpoint));
+  }
+
+  public saveWorldRelationExperimentCheckpoints(
+    checkpointsInput: readonly WorldRelationExperimentCheckpoint[],
+  ): readonly WorldRelationExperimentCheckpoint[] {
+    this.#assertOpen();
+    const checkpoints = Object.freeze(checkpointsInput.map(
+      assertWorldRelationExperimentCheckpoint,
+    ));
+    if (new Set(checkpoints.map((item) => item.checkpointId)).size !== checkpoints.length ||
+        new Set(checkpoints.map((item) => item.sourceAgentRunId)).size !== checkpoints.length) {
+      throw new Error("world relation checkpoint batch repeats an identity or run");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const checkpoint of checkpoints) {
+        if (this.loadWorldRelationExperimentInput(checkpoint.inputRevisionId) === null) {
+          throw new Error("world relation checkpoint references an unavailable exact input");
+        }
+        const run = this.#database.prepare(
+          "SELECT status FROM agent_runs WHERE run_id = ?",
+        ).get(checkpoint.sourceAgentRunId) as Readonly<{ status: string }> | undefined;
+        if (run?.status !== "SUCCEEDED") {
+          throw new Error("world relation checkpoint requires a durable successful Agent run");
+        }
+        this.#database.prepare(
+          `INSERT INTO world_relation_experiment_checkpoints (
+             checkpoint_id, input_revision_id, source_agent_run_id, closed_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(checkpoint_id) DO NOTHING`,
+        ).run(checkpoint.checkpointId, checkpoint.inputRevisionId,
+          checkpoint.sourceAgentRunId, checkpoint.closedAt,
+          canonicalJson(checkpoint), checkpoint.checkpointId);
+        const row = this.#database.prepare(
+          `SELECT checkpoint_id, record_json, record_hash
+           FROM world_relation_experiment_checkpoints WHERE checkpoint_id = ?`,
+        ).get(checkpoint.checkpointId);
+        if (parseWorldRelationExperimentCheckpoint(row).checkpointId !==
+            checkpoint.checkpointId) {
+          throw new Error("world relation checkpoint identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return checkpoints;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationEntityRoleRequirements(
+    limit: number,
+  ): readonly WorldRelationEntityRoleRequirement[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT requirement_id, record_json, record_hash
+       FROM world_relation_entity_role_requirements
+       ORDER BY requirement_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationEntityRoleRequirement));
+  }
+
+  public loadWorldRelationEntityRoleSourceDocuments(
+    limit: number,
+  ): readonly StoredWorldRelationEntityRoleSourceDocument[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT document_id, record_json, record_hash, raw_bytes, extracted_text
+       FROM world_relation_entity_role_source_documents
+       ORDER BY received_at DESC, document_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationEntityRoleSourceDocument));
+  }
+
+  public saveWorldRelationEntityRoleSourceDocuments(
+    documentsInput: readonly StoredWorldRelationEntityRoleSourceDocument[],
+  ): readonly StoredWorldRelationEntityRoleSourceDocument[] {
+    this.#assertOpen();
+    const documents = Object.freeze(documentsInput.map(
+      assertStoredWorldRelationEntityRoleSourceDocument,
+    ));
+    if (new Set(documents.map((item) => item.record.documentId)).size !== documents.length) {
+      throw new Error("entity-role source document batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const item of documents) {
+        this.#database.prepare(
+          `INSERT INTO world_relation_entity_role_source_documents (
+             document_id, received_at, record_json, record_hash, raw_bytes, extracted_text
+           ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(document_id) DO NOTHING`,
+        ).run(item.record.documentId, item.record.receivedAt, canonicalJson(item.record),
+          item.record.documentId, item.bytes, item.text);
+        const row = this.#database.prepare(
+          `SELECT document_id, record_json, record_hash, raw_bytes, extracted_text
+           FROM world_relation_entity_role_source_documents WHERE document_id = ?`,
+        ).get(item.record.documentId);
+        if (parseWorldRelationEntityRoleSourceDocument(row).record.documentId !==
+            item.record.documentId) throw new Error("entity-role source identity collision");
+      }
+      this.#database.exec("COMMIT");
+      return documents;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public saveWorldRelationEntityRoleRequirements(
+    requirementsInput: readonly WorldRelationEntityRoleRequirement[],
+  ): readonly WorldRelationEntityRoleRequirement[] {
+    this.#assertOpen();
+    const requirements = Object.freeze(requirementsInput.map(
+      assertWorldRelationEntityRoleRequirement,
+    ));
+    if (new Set(requirements.map((item) => item.requirementId)).size !==
+        requirements.length) throw new Error("entity-role requirement batch repeats an identity");
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const item of requirements) {
+        if (this.loadWorldRelationExperimentCorpus(item.corpusSnapshotIdentity) === null) {
+          throw new Error("entity-role requirement references an unavailable corpus");
+        }
+        this.#database.prepare(
+          `INSERT INTO world_relation_entity_role_requirements (
+             requirement_id, frontier_artifact_hash, corpus_snapshot_identity,
+             listing_ref, entity_label, organization_label, record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(requirement_id) DO NOTHING`,
+        ).run(item.requirementId, item.frontierArtifactHash, item.corpusSnapshotIdentity,
+          item.listingRef, item.entityLabel, item.organizationLabel,
+          canonicalJson(item), item.requirementId);
+        const row = this.#database.prepare(
+          `SELECT requirement_id, record_json, record_hash
+           FROM world_relation_entity_role_requirements WHERE requirement_id = ?`,
+        ).get(item.requirementId);
+        if (parseWorldRelationEntityRoleRequirement(row).requirementId !== item.requirementId) {
+          throw new Error("entity-role requirement identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return requirements;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  public loadWorldRelationEntityRoleAssertions(
+    limit: number,
+  ): readonly WorldRelationEntityRoleAssertion[] {
+    this.#assertOpen();
+    assertLimit(limit);
+    const rows = this.#database.prepare(
+      `SELECT assertion_id, record_json, record_hash
+       FROM world_relation_entity_role_assertions
+       ORDER BY asserted_at DESC, assertion_id DESC LIMIT ?`,
+    ).all(limit);
+    return Object.freeze(rows.map(parseWorldRelationEntityRoleAssertion));
+  }
+
+  public saveWorldRelationEntityRoleAssertions(
+    assertionsInput: readonly WorldRelationEntityRoleAssertion[],
+  ): readonly WorldRelationEntityRoleAssertion[] {
+    this.#assertOpen();
+    const assertions = Object.freeze(assertionsInput.map(
+      assertWorldRelationEntityRoleAssertion,
+    ));
+    if (new Set(assertions.map((item) => item.assertionId)).size !== assertions.length) {
+      throw new Error("entity-role assertion batch repeats an identity");
+    }
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const item of assertions) {
+        if (this.#database.prepare(
+          "SELECT requirement_id FROM world_relation_entity_role_requirements WHERE requirement_id = ?",
+        ).get(item.requirementId) === undefined) {
+          throw new Error("entity-role assertion references an unavailable requirement");
+        }
+        if (this.#database.prepare(
+          "SELECT document_id FROM world_relation_entity_role_source_documents WHERE document_id = ?",
+        ).get(item.source.documentId) === undefined) {
+          throw new Error("entity-role assertion references an unavailable source document");
+        }
+        this.#database.prepare(
+          `INSERT INTO world_relation_entity_role_assertions (
+             assertion_id, requirement_id, document_id, disposition, asserted_at,
+             record_json, record_hash
+           ) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(assertion_id) DO NOTHING`,
+        ).run(item.assertionId, item.requirementId, item.source.documentId,
+          item.disposition, item.assertedAt, canonicalJson(item), item.assertionId);
+        const row = this.#database.prepare(
+          `SELECT assertion_id, record_json, record_hash
+           FROM world_relation_entity_role_assertions WHERE assertion_id = ?`,
+        ).get(item.assertionId);
+        if (parseWorldRelationEntityRoleAssertion(row).assertionId !== item.assertionId) {
+          throw new Error("entity-role assertion identity collision");
+        }
+      }
+      this.#database.exec("COMMIT");
+      return assertions;
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;

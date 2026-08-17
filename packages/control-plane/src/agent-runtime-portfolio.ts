@@ -14,7 +14,8 @@ const ONTOLOGY_MECHANISM_EXECUTION_PROTOCOL_REVISION = 2;
 const WORLD_STATE_MECHANISM_RESEARCH_EXECUTION_REVISION = 1;
 const SUBJECT_BINDING_RESEARCH_EXECUTION_REVISION = 1;
 const MECHANISM_PROTOTYPE_RESEARCH_EXECUTION_REVISION = 1;
-const MECHANISM_PROTOTYPE_EXPLORATION_EXECUTION_REVISION = 17;
+const MECHANISM_PROTOTYPE_EXPLORATION_EXECUTION_REVISION = 21;
+const WORLD_RELATION_EXPERIMENT_EXECUTION_REVISION = 2;
 
 export function buildDefaultAgentRuntimePortfolio(
   configuration: AiRuntimeConfiguration,
@@ -243,7 +244,7 @@ export function buildDefaultAgentRuntimePortfolio(
     runtimeDefinition: codex,
     credentialBinding: codexCredential,
     modelProfile: codexModel,
-    toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12",
+    toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V16",
     runBudget: {
       maximumModelInvocations: 16,
       maximumToolCalls: 32,
@@ -291,6 +292,34 @@ export function buildDefaultAgentRuntimePortfolio(
     executionProfileId: relationDiscoveryCodexAppServer.executionProfileId,
     updatedAt: createdAt,
   });
+  const worldRelationExperiment = buildExecutionProfile({
+    revision: configuration.revision * 1_000 +
+      WORLD_RELATION_EXPERIMENT_EXECUTION_REVISION,
+    profileKey: "world-relation-experiment-codex-app-server",
+    runtimeDefinition: codex,
+    credentialBinding: codexCredential,
+    modelProfile: codexModel,
+    toolProtocol: "WORLD_RELATION_EXPERIMENT_TOOLS_V1",
+    runBudget: {
+      // The first live Terra specimen reached a host-accepted counterworld
+      // outcome at effect 10, then exhausted the 12-call budget before it
+      // could write terminal memory. Preserve the full lifecycle margin.
+      maximumModelInvocations: 16,
+      maximumToolCalls: 32,
+      maximumWallClockMs: 600_000,
+      maximumInputTokens: "400000",
+      maximumOutputTokens: "30000",
+    },
+    createdAt,
+  });
+  const worldRelationExperimentRoute = buildWorkloadRoute({
+    routeKey: "world-relation-experiment-default",
+    revision: configuration.revision * 1_000 +
+      WORLD_RELATION_EXPERIMENT_EXECUTION_REVISION,
+    taskKind: "WORLD_RELATION_EXPERIMENT",
+    executionProfileId: worldRelationExperiment.executionProfileId,
+    updatedAt: createdAt,
+  });
   return Object.freeze({
     runtimeDefinitions: Object.freeze([pi, codex, inProcess]),
     credentialBindings: Object.freeze([codexCredential, deepSeekCredential]),
@@ -308,6 +337,7 @@ export function buildDefaultAgentRuntimePortfolio(
       mechanismPrototypeResearch,
       mechanismPrototypeExploration,
       relationDiscoveryCodexAppServer,
+      worldRelationExperiment,
     ]),
     workloadRoutes: Object.freeze([
       route,
@@ -317,6 +347,7 @@ export function buildDefaultAgentRuntimePortfolio(
       mechanismPrototypeRoute,
       mechanismPrototypeExplorationRoute,
       relationDiscoveryRoute,
+      worldRelationExperimentRoute,
     ]),
   });
 }

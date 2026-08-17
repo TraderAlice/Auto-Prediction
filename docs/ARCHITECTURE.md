@@ -1,5 +1,9 @@
 # Architecture
 
+This document describes the implementation and authority boundaries. For the
+product ontology, start with [Concepts](CONCEPTS.md); for local configuration,
+see [Operations](OPERATIONS.md); for the UI, see [Harmony Studio](STUDIO.md).
+
 The harness separates contract truth from venue transport:
 
 ```text
@@ -30,20 +34,24 @@ fresh anonymous catalogs
   -> fixture certificate (shadow only)
 ```
 
-The external scout rack uses `deepseek-v4-flash` through Vercel AI SDK by
-default and retains direct OpenAI Responses as an explicit alternate route. It
-sends no tools, requests validated JSON output, disables thinking for the
-DeepSeek fast lane, caps output tokens, and aborts on a bounded timeout. OpenAI
-requests set `store:false`; DeepSeek retention remains provider policy. Before
-any worker runs, the control plane
-normalizes verified catalog fixtures and selects a bounded task context. The
-context binds concrete listing IDs, rules, indicative prices, source fixture
-hashes, and protocol identities under its own SHA-256 identity. The adapter
-accepts only task-scoped venue IDs and listing references and reconstructs
-authority fields locally; model output cannot supply an
-identity, review status, certificate, or execution flag. Missing credentials,
-HTTP errors, refusals, incomplete output, malformed JSON, and out-of-scope
-venues fail closed while independent heuristic workers may still finish.
+Agent execution is factored into four separately identified layers: runtime,
+credential binding, model profile (including model-supported reasoning effort),
+and workload route. The durable SQLite configuration selects Codex OAuth with
+`gpt-5.6-terra` / high effort by default. Current profiles can instead bind Pi
+or the in-process AI SDK loop to an admitted credential and model. DeepSeek is
+available for explicitly selected work; automatic DeepSeek spend is a separate
+durable setting and defaults off.
+
+Long-loop workers use first-party tools rather than treating one final response
+as an authoritative fixed-schema document. The host validates each call,
+records accepted/rejected/idempotent effects, and can narrow the callable tool
+surface after a state transition. Final prose is diagnostic. Before any worker
+runs, the control plane selects a bounded, content-addressed task context with
+concrete listing IDs, rules, source hashes, receive times, and protocol
+identities. Model output cannot supply an evidence identity, review status,
+certificate, or execution flag. Missing credentials, transport failures,
+timeouts, malformed tool input, and out-of-scope references fail closed while
+retaining the completed part of the experiment.
 
 `OpportunityRadar` is a deterministic workload router, not an arbitrage
 solver. It uses integer rare-term-weighted title overlap to bound the search
@@ -53,11 +61,12 @@ bind both listings' source receive time, raw hash, and protocol identity. Only
 an explicit server-side triage action may create an exact two-listing discovery
 context; the browser never supplies the evidence body.
 
-Tasks that need repository-aware investigation use a second lane: a pinned pi
-CLI launched as an isolated, no-session final-text subprocess. It uses DeepSeek V4
-Flash but receives only read/search/list tools, a minimal environment, a hard
-deadline, and a combined output cap. Extensions and user-level pi resources
-are disabled. The resulting report is task-scoped, application-validated,
+Tasks that need repository-aware investigation can use Pi as a second Agent
+runtime. It is launched in an isolated, no-session process with a minimal
+environment, a hard deadline, and bounded output. Its credential and model are
+profile choices rather than properties of Pi itself: qualified profiles can
+bind Codex OAuth or DeepSeek. Extensions and user-level Pi resources are
+disabled. The resulting report is task-scoped, application-validated,
 self-hashed, proposal-only, and never routed into execution or automatic
 promotion. This heavier lane is explicit rather than part of every discovery
 request. The control plane exposes it only as an operator-triggered

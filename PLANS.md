@@ -1,5 +1,26 @@
 # Plans
 
+The active mutation is
+[`plans/world-history-settlement-ontology.md`](plans/world-history-settlement-ontology.md).
+Issue #249 treats a market as a venue-defined contingent claim whose settlement
+function projects evidence-observable world histories into outcomes; quotes are
+traded valuations, not certified world probabilities. The candidate will join
+the currently separate market-facet, world-mechanism, semantic-truth-table and
+probabilistic-bound layers through reusable typed world predicates, exact
+settlement projections and state-refreshed relation experiments. It must
+represent state-mediated soft inhibition without manufacturing hard exclusion.
+The current continuation has now proved two additional boundaries on live Iowa
+evidence. A venue contract may name a person while the reusable world predicate
+names an organization, so content-addressed independent entity-role assertions
+bridge those ontologies without rewriting contract text or granting an Agent
+semantic authority. Separately, Gemini's broad catalog omission is not evidence
+that a retained contract is inactive: exact public event-detail reads recovered
+both retained instruments and current asks. Their complement portfolio costs
+`0.47 + 0.56 = 1.03`, so the relation is economically retired before another
+model or probability-estimator call. The next generation should retain this
+negative construction as search memory and seek a semantically distinct
+relation whose fresh complement prices leave positive failure budget.
+
 The selected execution continuation is
 [`plans/state-refreshed-agent-boundary.md`](plans/state-refreshed-agent-boundary.md).
 Issue #247 follows abandoned mutation PR #246. Codex app-server binds dynamic

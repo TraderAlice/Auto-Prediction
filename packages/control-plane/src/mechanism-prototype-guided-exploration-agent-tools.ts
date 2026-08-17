@@ -17,6 +17,7 @@ import {
   buildMechanismPrototypeExplorationStepObservation,
   buildMechanismPrototypeExplorationExhaustion,
   buildMechanismPrototypeExplorationTrailhead,
+  assessMechanismPrototypeExplorationCandidatePair,
   MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL,
   searchMechanismPrototypeExplorationCorpus,
   searchMechanismPrototypeExplorationRoles,
@@ -32,6 +33,10 @@ import {
 import type { MarketCorpusSnapshot } from "./market-corpus.js";
 import type { WorldStateMechanismPrototypeProposal } from
   "./world-state-mechanism-prototype.js";
+import { browseMechanismPrototypeExplorationDirectory,
+  type MechanismPrototypeExplorationDirectoryEntry,
+  type MechanismPrototypeExplorationDirectoryPage } from
+  "./mechanism-prototype-exploration-directory.js";
 
 const text = (maximum: number) => Object.freeze({
   type: "string", minLength: 1, maxLength: maximum,
@@ -59,6 +64,19 @@ function exactKeys(value: Readonly<Record<string, unknown>>, expected: readonly 
         "none"}; unknown=${unknown.join(",") || "none"}`,
     );
   }
+}
+
+const GROUNDING_STOP_WORDS = new Set([
+  "after", "before", "could", "from", "market", "markets", "outcome", "result",
+  "that", "their", "there", "these", "this", "what", "when", "where", "which",
+  "will", "winner", "wins", "with", "would", "year", "yes", "the", "who",
+]);
+
+function groundingTokens(values: readonly string[]): ReadonlySet<string> {
+  return new Set(values.flatMap((value) => value.normalize("NFKC").toLocaleLowerCase("en-US")
+    .match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter((value) => value.length >= 2 && !/^\d+$/u.test(value) &&
+      !GROUNDING_STOP_WORDS.has(value)));
 }
 
 export type MechanismPrototypeExplorationPrototypeReference = Readonly<{
@@ -200,8 +218,33 @@ const BASE_MANIFEST = Object.freeze([
     inputSchema: Object.freeze({ type: "object", additionalProperties: false, properties: {} }),
   }),
   Object.freeze({
+    name: "browse_mechanism_exploration_directory",
+    description: "Blind-first reconnaissance: browse one bounded, deterministic page of exact uncovered listings before the source prototype is disclosed or any search query is constructed. Entries are round-robin stratified across predicate family and venue, with non-source families first. Let these concrete objects frame a candidate neighborhood; titles are untrusted query inspiration only and do not establish a semantic relation.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: ["offset", "limit"],
+      properties: Object.freeze({
+        offset: Object.freeze({ type: "integer", minimum: 0, maximum: 10_000 }),
+        limit: Object.freeze({ type: "integer", minimum: 1, maximum: 24 }),
+      }),
+    }),
+  }),
+  Object.freeze({
+    name: "pin_mechanism_exploration_neighborhood",
+    description: "Before reading the source prototype, pin one to four exact directory listings as the concrete research neighborhood. This is attention state only: it asserts no relation, probability, or opportunity. The first search must reuse distinctive vocabulary from the pinned titles.",
+    inputSchema: Object.freeze({
+      type: "object", additionalProperties: false,
+      required: ["listingRefs", "rationale"],
+      properties: Object.freeze({
+        listingRefs: Object.freeze({ type: "array", minItems: 1, maxItems: 4,
+          uniqueItems: true, items: text(500) }),
+        rationale: text(1_000),
+      }),
+    }),
+  }),
+  Object.freeze({
     name: "search_mechanism_exploration_corpus",
-    description: "Fallback flat search over the exact assigned corpus. Prefer role-aware search when testing a component/aggregate transfer. Output has evidence-routing authority only.",
+    description: "Fallback flat search over the exact assigned corpus. The first search must share distinctive vocabulary with the pre-context pinned neighborhood or the host rejects it. Prefer role-aware search when testing a component/aggregate transfer. Output has evidence-routing authority only.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
       required: ["patterns", "syntax", "mode", "fields", "venueIds", "limit"],
@@ -222,7 +265,7 @@ const BASE_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: "search_mechanism_exploration_roles",
-    description: "Search separate component and aggregate neighborhoods, then return only distinct-ref candidate pairs whose exact titles ground both role cues and at least one shared bridge signal. Empty buckets or pair frontiers are valid negative evidence; role cues and shared strings do not prove a semantic relation.",
+    description: "Search separate component and aggregate neighborhoods. The first search must share distinctive vocabulary with the pre-context pinned neighborhood or the host rejects it. Return only distinct-ref candidate pairs whose exact titles ground both role cues and at least one shared bridge signal. Empty buckets or pair frontiers are valid negative evidence; role cues and shared strings do not prove a semantic relation.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
       required: ["component", "aggregate", "bridgeSignals", "pairLimit"],
@@ -272,12 +315,14 @@ const BASE_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: "open_exploration_hypothesis",
-    description: "Open one falsifiable ontological conjecture before any prototype action. Select one host-enumerated exact test/family choice and state in advance what would support or falsify it. This routes research only and does not assert a semantic relation.",
+    description: "Open one falsifiable ontological conjecture after bounded reconnaissance. Select one host-enumerated inspected role-pair evidence choice and one exact test/family choice, then state in advance what would support or falsify the transfer. This routes research only and does not assert a semantic relation.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
-      required: ["hypothesisChoice", "intentRationale", "materialVariation", "predictedRoleStructure",
+      required: ["reconnaissanceChoice", "hypothesisChoice", "intentRationale",
+        "materialVariation", "predictedRoleStructure",
         "supportingObservation", "falsifyingObservation", "searchNeighborhoods"],
       properties: {
+        reconnaissanceChoice: text(250),
         hypothesisChoice: text(250),
         intentRationale: text(2_000), materialVariation: text(2_000),
         predictedRoleStructure: text(2_000), supportingObservation: text(2_000),
@@ -340,7 +385,7 @@ const BASE_MANIFEST = Object.freeze([
   }),
   Object.freeze({
     name: "record_mechanism_exploration_exhaustion",
-    description: "Retain bounded negative search memory after at least one exact search, one inspection, a failed active prototype test, and hypothesis closure. Name searched neighborhoods rather than saying only that nothing was found.",
+    description: "Retain bounded negative search memory after either a closed failed prototype experiment or two distinct exact role searches with zero axis-admissible pairs. The scoped-absence path deliberately needs no ceremonial hypothesis or invented inspection. Name searched neighborhoods rather than saying only that nothing was found.",
     inputSchema: Object.freeze({
       type: "object", additionalProperties: false,
       required: [
@@ -355,6 +400,8 @@ const BASE_MANIFEST = Object.freeze([
 ] satisfies readonly AgentRuntimeToolDefinition[]);
 
 export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost {
+  readonly #directoryPageIds = new Set<Hash>();
+  readonly #directoryPages = new Map<Hash, MechanismPrototypeExplorationDirectoryPage>();
   readonly #searchedResultIds = new Set<`sha256:${string}`>();
   readonly #roleSearchResults = new Map<Hash, MechanismPrototypeExplorationRoleSearchResult>();
   readonly #searchedListingRefs = new Set<string>();
@@ -371,6 +418,13 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     hypothesis: MechanismPrototypeExplorationHypothesis;
   }>>();
   #activeHypothesis: MechanismPrototypeExplorationHypothesis | null = null;
+  #pinnedNeighborhood: Readonly<{
+    neighborhoodIdentity: Hash;
+    listingRefs: readonly string[];
+    entries: readonly MechanismPrototypeExplorationDirectoryEntry[];
+    rationale: string;
+    blindFirst: boolean;
+  }> | null = null;
   #lensReadCount = 0;
   readonly #corpusDialectAtlas: CorpusDialectAtlas;
 
@@ -387,11 +441,79 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     this.#corpusDialectAtlas = buildCorpusDialectAtlas(corpus);
   }
 
+  #pairAxisAdmissible(
+    pair: MechanismPrototypeExplorationRoleSearchResult["pairs"][number],
+  ): boolean {
+    try {
+      assessMechanismPrototypeExplorationCandidatePair({
+        researchInput: this.researchInput,
+        corpus: this.corpus,
+        listingRefs: [pair.componentListingRef, pair.aggregateListingRef],
+        activatedCounterScenarios: [...this.#activatedCounterScenarios],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  #axisAdmissibleRolePairs() {
+    return [...this.#roleSearchResults.values()].flatMap((result) =>
+      result.pairs.filter((pair) => this.#pairAxisAdmissible(pair))
+    );
+  }
+
+  #reconnaissanceChoices() {
+    return [...this.#roleSearchResults.values()].flatMap((result) =>
+      result.pairs.filter((pair) => this.#pairAxisAdmissible(pair) &&
+          this.#inspectedListingRefs.has(pair.componentListingRef) &&
+          this.#inspectedListingRefs.has(pair.aggregateListingRef))
+        .map((pair) => {
+          const binding = Object.freeze({
+            roleSearchResultId: result.resultIdentity,
+            componentListingRef: pair.componentListingRef,
+            aggregateListingRef: pair.aggregateListingRef,
+          });
+          return Object.freeze({
+            handle: `reconnaissance:${hashCanonical(binding)}`,
+            binding,
+          });
+        })
+    ).sort((left, right) => left.handle.localeCompare(right.handle));
+  }
+
+  #scopedAbsenceEligible(): boolean {
+    return this.#roleSearchResults.size >= 2 && this.#axisAdmissibleRolePairs().length === 0;
+  }
+
+  #pinCandidates(): readonly MechanismPrototypeExplorationDirectoryEntry[] {
+    const entries = [...this.#directoryPages.values()].flatMap((page) => page.entries);
+    const unique = [...new Map(entries.map((entry) => [entry.listingRef, entry])).values()]
+      .sort((left, right) => left.listingRef.localeCompare(right.listingRef));
+    if (this.researchInput.axis !== "SURFACE_DOMAIN") return Object.freeze(unique);
+    const outsideSource = unique.filter((entry) => entry.outsideSourcePredicateFamily);
+    if (outsideSource.length > 0) return Object.freeze(outsideSource);
+    return this.#directoryPages.size >= 3 ? Object.freeze(unique) : Object.freeze([]);
+  }
+
+  #firstSearchGrounded(values: readonly string[]): boolean {
+    if (this.#pinnedNeighborhood === null || !this.#pinnedNeighborhood.blindFirst ||
+        this.#searchedResultIds.size > 0) return true;
+    const pinnedTokens = groundingTokens(this.#pinnedNeighborhood.entries.map((entry) =>
+      entry.title
+    ));
+    const queryTokens = groundingTokens(values);
+    return [...queryTokens].some((token) => pinnedTokens.has(token));
+  }
+
   public manifest(protocol: string): readonly AgentRuntimeToolDefinition[] {
     if (protocol !== MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL) {
       throw new Error("mechanism exploration tool protocol is unsupported");
     }
     const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+    const diversifySurfaceDomain = this.researchInput.axis === "SURFACE_DOMAIN" &&
+      this.researchInput.economicAttention?.recommendedMutation ===
+        "DIVERSIFY_SEMANTIC_DOMAIN";
     const legalBindings = [...references.transferTests.map((item) => ({ item,
       families: this.hypothesisFamilies.filter((family) =>
         family.prototypeId === this.researchInput.prototypeId &&
@@ -409,22 +531,43 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         continue;
       }
       for (const family of families) {
-        for (const familyIntent of ["EXTEND", "REPLICATE"] as const) {
+        for (const familyIntent of (diversifySurfaceDomain
+          ? ["EXTEND"] as const : ["EXTEND", "REPLICATE"] as const)) {
           legalHypothesisChoices.push(`${item.handle}|${familyIntent}|${family.familyId}`);
         }
       }
     }
-    const baseManifest = BASE_MANIFEST.map((definition) =>
-      definition.name !== "open_exploration_hypothesis" ? definition : Object.freeze({
+    const reconnaissanceChoices = this.#reconnaissanceChoices();
+    const pinCandidates = this.#pinCandidates();
+    const baseManifest = BASE_MANIFEST.map((definition) => {
+      if (definition.name === "pin_mechanism_exploration_neighborhood") {
+        return Object.freeze({ ...definition,
+          inputSchema: Object.freeze({ ...definition.inputSchema,
+            properties: Object.freeze({
+              ...(definition.inputSchema.properties as Readonly<Record<string, unknown>>),
+              listingRefs: Object.freeze({ type: "array", minItems: 1,
+                maxItems: Math.max(1, Math.min(4, pinCandidates.length)), uniqueItems: true,
+                items: Object.freeze({ enum: Object.freeze(pinCandidates.map((item) =>
+                  item.listingRef)) }),
+              }),
+            }),
+          }),
+        });
+      }
+      if (definition.name !== "open_exploration_hypothesis") return definition;
+      return Object.freeze({
         ...definition,
         inputSchema: Object.freeze({ ...definition.inputSchema,
           properties: Object.freeze({
             ...(definition.inputSchema.properties as Readonly<Record<string, unknown>>),
+            reconnaissanceChoice: Object.freeze({
+              enum: Object.freeze(reconnaissanceChoices.map((item) => item.handle)),
+            }),
             hypothesisChoice: Object.freeze({ enum: Object.freeze(legalHypothesisChoices) }),
           }),
         }),
-      })
-    );
+      });
+    });
     const legalNames = new Set(this.completionRecoveryToolNames(protocol));
     const inspectableListingRefs = [...new Set([
       ...this.#searchedListingRefs,
@@ -468,6 +611,12 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       inputRevisionId: this.researchInput.inputRevisionId,
       axis: this.researchInput.axis,
       currentTools: this.completionRecoveryToolNames(protocol),
+      directoryBrowse: Object.freeze({
+        observedPageCount: this.#directoryPageIds.size,
+        maximumPageCount: 3,
+        authority: "EXACT_COVERAGE_DIRECTORY_QUERY_INSPIRATION_ONLY",
+      }),
+      pinnedNeighborhood: this.#pinnedNeighborhood,
       prototype: Object.freeze({ label: this.prototype.label,
         invariantDescription: this.prototype.invariantDescription,
         searchSignals: this.prototype.searchSignals,
@@ -481,6 +630,10 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           rawComponentHitCount: result.rawComponentHitCount,
           rawAggregateHitCount: result.rawAggregateHitCount }),
       )),
+      reconnaissanceCandidates: Object.freeze(this.#reconnaissanceChoices().map((item) => ({
+        handle: item.handle,
+        ...item.binding,
+      }))),
       inspectableListings: Object.freeze(inspectableListings),
       inspectedListings: Object.freeze([...this.#inspectedListingRefs].sort().map((ref) => {
         const listing = this.corpus.listings.find((item) => item.listingRef === ref);
@@ -511,6 +664,18 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     if (protocol !== MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL) {
       throw new Error("mechanism exploration tool protocol is unsupported");
     }
+    if (this.#directoryPageIds.size === 0) {
+      return Object.freeze(["browse_mechanism_exploration_directory"]);
+    }
+    if (this.#pinnedNeighborhood === null) {
+      const pinCandidates = this.#pinCandidates();
+      return Object.freeze([
+        ...(this.#directoryPageIds.size < 3
+          ? ["browse_mechanism_exploration_directory"] : []),
+        ...(pinCandidates.length > 0
+          ? ["pin_mechanism_exploration_neighborhood"] : []),
+      ]);
+    }
     if (this.#lensReadCount === 0) {
       return Object.freeze(["read_mechanism_exploration_context"]);
     }
@@ -521,9 +686,27 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       if (readiness.exhaustion.eligible) {
         terminal.push("record_mechanism_exploration_exhaustion");
       }
-      return terminal.length > 0
-        ? Object.freeze(terminal)
-        : Object.freeze(["open_exploration_hypothesis"]);
+      if (terminal.length > 0) return Object.freeze(terminal);
+      if (this.#closedHypotheses.length > 0) {
+        return Object.freeze(["open_exploration_hypothesis"]);
+      }
+      if (this.#reconnaissanceChoices().length > 0) {
+        return Object.freeze(["open_exploration_hypothesis"]);
+      }
+      const admissiblePairs = this.#axisAdmissibleRolePairs();
+      if (admissiblePairs.length > 0) {
+        return Object.freeze(["inspect_mechanism_exploration_listings"]);
+      }
+      const inspectableListingCount = [...this.#searchedListingRefs]
+        .filter((ref) => !this.#inspectedListingRefs.has(ref)).length;
+      return Object.freeze([
+        ...(this.#directoryPageIds.size < 3
+          ? ["browse_mechanism_exploration_directory"] : []),
+        "search_mechanism_exploration_roles",
+        "search_mechanism_exploration_corpus",
+        ...(inspectableListingCount > 0
+          ? ["inspect_mechanism_exploration_listings"] : []),
+      ]);
     }
     const binding = this.#activeHypothesis.testBinding;
     const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
@@ -537,7 +720,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       ? this.#appliedTransferTests.has(selected.text) || this.#failedTransferTests.has(selected.text)
       : this.#activatedCounterScenarios.has(selected.text) ||
         this.#failedCounterScenarios.has(selected.text);
-    if (actionRetained) return Object.freeze(["close_exploration_hypothesis"]);
+    if (actionRetained || this.#scopedAbsenceEligible()) {
+      return Object.freeze(["close_exploration_hypothesis"]);
+    }
     const seededListingCount = new Set(this.researchInput.seedTrailheads.flatMap((item) =>
       item.listingRefs
     )).size;
@@ -570,7 +755,8 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         .map((item, index) => selected.has(item.text) ? index + 1 : null)
         .filter((ordinal): ordinal is number => ordinal !== null));
     const rolePairs = [...this.#roleSearchResults.values()].flatMap((result) => result.pairs);
-    const inspectedRolePairCount = rolePairs.filter((pair) =>
+    const admissibleRolePairs = this.#axisAdmissibleRolePairs();
+    const inspectedRolePairCount = admissibleRolePairs.filter((pair) =>
       this.#inspectedListingRefs.has(pair.componentListingRef) &&
       this.#inspectedListingRefs.has(pair.aggregateListingRef)
     ).length;
@@ -581,12 +767,16 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           ? this.#appliedTransferTests.size + this.#activatedCounterScenarios.size === 0
         : this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null,
     );
+    const scopedAbsenceEligible = this.#scopedAbsenceEligible();
     const exhaustionMissing = MECHANISM_PROTOTYPE_EXPLORATION_EXHAUSTION_PREREQUISITES.filter(
       (prerequisite) => prerequisite === "EXACT_SEARCH" ? this.#searchedResultIds.size === 0
-        : prerequisite === "INSPECTED_LISTING" ? this.#inspectedListingRefs.size === 0
+        : prerequisite === "INSPECTED_LISTING"
+          ? this.#inspectedListingRefs.size === 0 && !scopedAbsenceEligible
         : prerequisite === "FAILED_PROTOTYPE_TEST"
-          ? this.#failedTransferTests.size + this.#failedCounterScenarios.size === 0
-        : this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null,
+          ? this.#failedTransferTests.size + this.#failedCounterScenarios.size === 0 &&
+            !scopedAbsenceEligible
+        : this.#activeHypothesis !== null ||
+          (this.#closedHypotheses.length === 0 && !scopedAbsenceEligible),
     );
     return assertMechanismPrototypeExplorationActionReadiness(Object.freeze({
       schemaVersion: "pmh.mechanism-prototype-exploration-action-readiness.v4" as const,
@@ -659,6 +849,13 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       };
       if (input.context.toolName === "read_mechanism_exploration_context") {
         return Object.freeze({ kind: "LENS_READ" as const, ...zero });
+      }
+      if (input.context.toolName === "browse_mechanism_exploration_directory") {
+        return Object.freeze({ kind: "DIRECTORY_BROWSE" as const, ...zero });
+      }
+      if (input.context.toolName === "pin_mechanism_exploration_neighborhood") {
+        return Object.freeze({ kind: "DIRECTORY_SELECTION" as const, ...zero,
+          acceptedActionCount: accepted ? 1 : 0 });
       }
       if (input.context.toolName === "search_mechanism_exploration_corpus") {
         const hits = Array.isArray(output.hits) ? output.hits.length : 0;
@@ -756,13 +953,16 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       }
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
       return this.#accepted(Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v7",
+        schemaVersion: "pmh.mechanism-prototype-exploration-reasoning-view.v9",
         inputRevisionId: this.researchInput.inputRevisionId,
         semanticInputIdentity: this.researchInput.semanticInputIdentity,
         lensId: this.researchInput.lensId,
         prototypeId: this.researchInput.prototypeId,
         axis: this.researchInput.axis,
         axisContract: this.researchInput.axisContract ?? null,
+        pinnedOntologyNeighborhood: this.#pinnedNeighborhood,
+        firstSearchGroundingPolicy:
+          "DISTINCTIVE_QUERY_TOKEN_MUST_OVERLAP_PINNED_EXACT_TITLE",
         corpusSnapshotIdentity: this.researchInput.corpusSnapshotIdentity,
         corpusDialectAtlas: Object.freeze({
           atlasIdentity: this.#corpusDialectAtlas.atlasIdentity,
@@ -802,6 +1002,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
               schedulingAuthority: false as const,
               executionAuthority: false as const,
             }),
+        economicSelectionPressure: this.researchInput.economicAttention ?? null,
         coverage: Object.freeze({
           scopeIdentity: this.researchInput.coverageScopeIdentity ?? null,
           memberCount: this.researchInput.coverageMembers?.length ?? 0,
@@ -854,17 +1055,97 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           counterScenarios: references.counterScenarios.map(({ handle, text }) => ({ handle, text })),
           activeTestOutcomeTool: "record_active_prototype_test_outcome" as const,
         }),
-        hypothesisActionPolicy: "OPEN_BEFORE_ACTION_MATCH_EXACT_BINDING_CLOSE_AFTER_ACTION",
+        hypothesisActionPolicy:
+          "RECONNAISSANCE_FIRST_BIND_INSPECTED_PAIR_OPEN_BEFORE_ACTION_CLOSE_AFTER_ACTION",
         familyIntentPolicy: "EMPTY_PRIOR_FAMILIES_REQUIRES_DIFFERENT_TEST_AND_NULL_PRIOR_FAMILY",
         terminalReferencePolicy: "FIRST_PARTY_ACTION_TOOLS_ACCUMULATE_EXACT_SELECTIONS",
         authority: "COMPACT_PROTOTYPE_GUIDED_REASONING_INPUT_ONLY",
       }));
     }
+    if (context.toolName === "browse_mechanism_exploration_directory") {
+      exactKeys(input, ["offset", "limit"]);
+      if (this.#directoryPageIds.size >= 3) {
+        return this.#rejected("mechanism exploration directory browse is bounded to three pages");
+      }
+      const page = browseMechanismPrototypeExplorationDirectory({
+        researchInput: this.researchInput,
+        corpus: this.corpus,
+        offset: input.offset as number,
+        limit: input.limit as number,
+      });
+      if (this.#directoryPageIds.has(page.pageIdentity)) {
+        return this.#rejected(
+          "exact ontology-directory page was already observed; change the offset or proceed to search",
+        );
+      }
+      this.#directoryPageIds.add(page.pageIdentity);
+      this.#directoryPages.set(page.pageIdentity, page);
+      return this.#accepted(page);
+    }
+    if (context.toolName === "pin_mechanism_exploration_neighborhood") {
+      exactKeys(input, ["listingRefs", "rationale"]);
+      if (this.#pinnedNeighborhood !== null) {
+        return this.#rejected("ontology neighborhood is already pinned for this run");
+      }
+      const listingRefs = [...new Set(input.listingRefs as readonly string[])];
+      if (listingRefs.length < 1 || listingRefs.length > 4) {
+        throw new Error("ontology neighborhood pin requires one to four exact listing refs");
+      }
+      const candidates = new Map(this.#pinCandidates().map((entry) =>
+        [entry.listingRef, entry] as const
+      ));
+      const entries = listingRefs.map((ref) => candidates.get(ref));
+      if (entries.some((entry) => entry === undefined)) {
+        return this.#rejected(
+          "ontology neighborhood pin must use selectable refs from observed directory pages",
+        );
+      }
+      const rationale = input.rationale;
+      if (typeof rationale !== "string" || rationale.length < 1 || rationale.length > 1_000) {
+        throw new Error("ontology neighborhood pin rationale is invalid");
+      }
+      const body = Object.freeze({
+        schemaVersion: "pmh.mechanism-prototype-exploration-neighborhood-pin.v1" as const,
+        inputRevisionId: this.researchInput.inputRevisionId,
+        listingRefs: Object.freeze(listingRefs),
+        entries: Object.freeze(entries as readonly MechanismPrototypeExplorationDirectoryEntry[]),
+        rationale,
+        blindFirst: this.#lensReadCount === 0,
+        groundingPolicy: "FIRST_SEARCH_DISTINCTIVE_TOKEN_OVERLAP" as const,
+        authority: "AGENT_RESEARCH_ATTENTION_ONLY" as const,
+        semanticDecisionAuthority: false as const,
+        probabilityAuthority: false as const,
+        schedulingAuthority: false as const,
+        certificateAuthority: false as const,
+        executionAuthority: false as const,
+        externalWriteAuthority: false as const,
+        valueMovingAuthority: false as const,
+      });
+      this.#pinnedNeighborhood = Object.freeze({
+        neighborhoodIdentity: hashCanonical(body),
+        listingRefs: body.listingRefs,
+        entries: body.entries,
+        rationale: body.rationale,
+        blindFirst: body.blindFirst,
+      });
+      return this.#accepted(Object.freeze({
+        ...body, neighborhoodIdentity: this.#pinnedNeighborhood.neighborhoodIdentity,
+      }));
+    }
     if (context.toolName === "open_exploration_hypothesis") {
-      exactKeys(input, ["hypothesisChoice", "intentRationale", "materialVariation", "predictedRoleStructure",
+      exactKeys(input, ["reconnaissanceChoice", "hypothesisChoice", "intentRationale",
+        "materialVariation", "predictedRoleStructure",
         "supportingObservation", "falsifyingObservation", "searchNeighborhoods"]);
       if (this.#activeHypothesis !== null) {
         return this.#rejected("close or revise the active exploration hypothesis first");
+      }
+      const reconnaissance = this.#reconnaissanceChoices().find((item) =>
+        item.handle === input.reconnaissanceChoice
+      );
+      if (reconnaissance === undefined) {
+        return this.#rejected(
+          "hypothesis requires one host-enumerated inspected axis-admissible reconnaissance pair",
+        );
       }
       const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
       const choice = input.hypothesisChoice;
@@ -895,6 +1176,13 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       }
       const familyIntent = rawIntent as "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
       const priorFamilyId = rawPrior === "NEW" ? null : rawPrior as Hash;
+      if (this.researchInput.axis === "SURFACE_DOMAIN" &&
+          this.researchInput.economicAttention?.recommendedMutation ===
+            "DIVERSIFY_SEMANTIC_DOMAIN" && familyIntent === "REPLICATE") {
+        return this.#rejected(
+          "economic attention requires a semantic-domain extension; exact replication is not legal in this surface-domain run",
+        );
+      }
       if (familyIntent === "DIFFERENT_TEST" &&
           (matchingFamilies.length > 0 || priorFamilyId !== null)) {
         return this.#rejected(
@@ -915,7 +1203,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         openingToolCallId: context.callId,
       }));
       const hypothesis = Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v2" as const,
+        schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v3" as const,
         hypothesisId, revision: 1, status: "ACTIVE" as const,
         testBinding: Object.freeze({ kind: binding.kind, ordinal: binding.index + 1,
           handle: binding.item.handle, exactText: binding.item.text }),
@@ -927,6 +1215,7 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         revisionReason: null, disposition: null,
         observedSupport: Object.freeze([]), observedFalsifiers: Object.freeze([]), rationale: null,
         familyIntent, priorFamilyId, intentRationale: input.intentRationale as string,
+        reconnaissanceBinding: reconnaissance.binding,
         authority: "AGENT_RESEARCH_HYPOTHESIS_ONLY" as const,
         semanticDecisionAuthority: false as const, probabilityAuthority: false as const,
         certificateAuthority: false as const, executionAuthority: false as const,
@@ -968,6 +1257,26 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         "FALSIFIED" | "UNRESOLVED";
       const observedSupport = input.observedSupport as readonly string[];
       const observedFalsifiers = input.observedFalsifiers as readonly string[];
+      const references = buildMechanismPrototypeExplorationPrototypeReferences(this.prototype);
+      const selected = active.testBinding.kind === "TRANSFER_TEST"
+        ? references.transferTests[active.testBinding.ordinal - 1]
+        : references.counterScenarios[active.testBinding.ordinal - 1];
+      const actionRetained = selected !== undefined &&
+        (active.testBinding.kind === "TRANSFER_TEST"
+          ? this.#appliedTransferTests.has(selected.text) ||
+            this.#failedTransferTests.has(selected.text)
+          : this.#activatedCounterScenarios.has(selected.text) ||
+            this.#failedCounterScenarios.has(selected.text));
+      if (!actionRetained && !this.#scopedAbsenceEligible()) {
+        return this.#rejected(
+          "hypothesis closure requires a prototype-test outcome or bounded scoped absence",
+        );
+      }
+      if (!actionRetained && disposition !== "UNRESOLVED") {
+        return this.#rejected(
+          "scoped absence can close only as UNRESOLVED without a prototype-test outcome",
+        );
+      }
       if (disposition === "SUPPORTED" && observedSupport.length === 0) {
         return this.#rejected("SUPPORTED hypothesis closure requires observed support");
       }
@@ -1045,6 +1354,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     }
     if (context.toolName === "search_mechanism_exploration_corpus") {
       exactKeys(input, ["patterns", "syntax", "mode", "fields", "venueIds", "limit"]);
+      if (!this.#firstSearchGrounded(input.patterns as readonly string[])) {
+        return this.#rejected(
+          "first search must reuse distinctive vocabulary from the pinned ontology neighborhood",
+        );
+      }
       const result = searchMechanismPrototypeExplorationCorpus({
         corpus: this.corpus,
         query: {
@@ -1056,6 +1370,11 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           limit: input.limit as number,
         },
       });
+      if (this.#searchedResultIds.has(result.resultIdentity)) {
+        return this.#rejected(
+          "exact flat-search identity was already observed; vary the query to add evidence",
+        );
+      }
       this.#searchedResultIds.add(result.resultIdentity);
       this.store?.saveMechanismPrototypeExplorationFlatSearchObservations([
         buildMechanismPrototypeExplorationFlatSearchObservation({
@@ -1071,17 +1390,32 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
     }
     if (context.toolName === "search_mechanism_exploration_roles") {
       exactKeys(input, ["component", "aggregate", "bridgeSignals", "pairLimit"]);
+      const componentQuery = object(input.component) as unknown as Parameters<
+        typeof searchMechanismPrototypeExplorationRoles
+      >[0]["componentQuery"];
+      const aggregateQuery = object(input.aggregate) as unknown as Parameters<
+        typeof searchMechanismPrototypeExplorationRoles
+      >[0]["aggregateQuery"];
+      if (!this.#firstSearchGrounded([
+        ...componentQuery.patterns, ...aggregateQuery.patterns,
+        ...(input.bridgeSignals as readonly string[]),
+      ])) {
+        return this.#rejected(
+          "first search must reuse distinctive vocabulary from the pinned ontology neighborhood",
+        );
+      }
       const result = searchMechanismPrototypeExplorationRoles({
         corpus: this.corpus,
-        componentQuery: object(input.component) as unknown as Parameters<
-          typeof searchMechanismPrototypeExplorationRoles
-        >[0]["componentQuery"],
-        aggregateQuery: object(input.aggregate) as unknown as Parameters<
-          typeof searchMechanismPrototypeExplorationRoles
-        >[0]["aggregateQuery"],
+        componentQuery,
+        aggregateQuery,
         bridgeSignals: input.bridgeSignals as readonly string[],
         pairLimit: input.pairLimit as number,
       });
+      if (this.#searchedResultIds.has(result.resultIdentity)) {
+        return this.#rejected(
+          "exact role-search identity was already observed; vary the query to add evidence",
+        );
+      }
       this.#searchedResultIds.add(result.resultIdentity);
       this.#roleSearchResults.set(result.resultIdentity, result);
       this.store?.saveMechanismPrototypeExplorationRoleSearchObservations([
@@ -1095,10 +1429,45 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
           result,
         }),
       ]);
-      for (const hit of [...result.componentHits, ...result.aggregateHits]) {
+      const axisRoutedPairs = this.researchInput.axis === "SURFACE_DOMAIN"
+        ? result.pairs.filter((pair) => this.#pairAxisAdmissible(pair)) : result.pairs;
+      const axisRoutedListingRefs = new Set(axisRoutedPairs.flatMap((pair) => [
+        pair.componentListingRef, pair.aggregateListingRef,
+      ]));
+      const componentHits = result.componentHits.filter((hit) =>
+        axisRoutedListingRefs.has(hit.listingRef)
+      );
+      const aggregateHits = result.aggregateHits.filter((hit) =>
+        axisRoutedListingRefs.has(hit.listingRef)
+      );
+      for (const hit of [...componentHits, ...aggregateHits]) {
         this.#searchedListingRefs.add(hit.listingRef);
       }
-      return this.#accepted(result);
+      return this.#accepted(Object.freeze({
+        schemaVersion: "pmh.mechanism-prototype-exploration-role-search-agent-view.v1",
+        resultIdentity: result.resultIdentity,
+        componentQuery: result.componentQuery,
+        aggregateQuery: result.aggregateQuery,
+        requestedBridgeSignals: result.requestedBridgeSignals,
+        rawComponentHitCount: result.rawComponentHitCount,
+        rawAggregateHitCount: result.rawAggregateHitCount,
+        rawPairCount: result.pairCount,
+        componentHits: Object.freeze(componentHits),
+        aggregateHits: Object.freeze(aggregateHits),
+        pairs: Object.freeze(axisRoutedPairs),
+        pairCount: axisRoutedPairs.length,
+        axisRouting: Object.freeze({
+          requestedAxis: this.researchInput.axis,
+          admissionRule: this.researchInput.axisContract?.admissionRule ?? null,
+          rejectedPairCount: result.pairCount - axisRoutedPairs.length,
+          exactEvidenceIdentity: result.resultIdentity,
+          authority: "FIRST_PARTY_AXIS_ROUTING_ONLY",
+          semanticDecisionAuthority: false,
+        }),
+        authority: result.authority,
+        semanticDecisionAuthority: false,
+        executionAuthority: false,
+      }));
     }
     if (context.toolName === "inspect_mechanism_exploration_listings") {
       exactKeys(input, ["listingRefs"]);
@@ -1193,14 +1562,18 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
       exactKeys(input, [
         "searchedNeighborhoods", "reason",
       ]);
-      if (this.#failedTransferTests.size + this.#failedCounterScenarios.size === 0) {
+      const failedPrototypeTest =
+        this.#failedTransferTests.size + this.#failedCounterScenarios.size > 0;
+      const scopedAbsence = this.#scopedAbsenceEligible();
+      if (!failedPrototypeTest && !scopedAbsence) {
         return this.#rejected(
-          "mechanism exploration exhaustion requires a failed prototype-test outcome",
+          "mechanism exploration exhaustion requires a failed prototype test or bounded scoped absence",
         );
       }
-      if (this.#closedHypotheses.length === 0 || this.#activeHypothesis !== null) {
+      if (this.#activeHypothesis !== null ||
+          (this.#closedHypotheses.length === 0 && !scopedAbsence)) {
         return this.#rejected(
-          "mechanism exploration exhaustion requires one closed falsifiable hypothesis",
+          "mechanism exploration exhaustion requires a closed falsifiable hypothesis or pre-hypothesis bounded scoped absence",
         );
       }
       const roleSearchResults = [...this.#roleSearchResults.values()];
@@ -1227,6 +1600,9 @@ export class MechanismPrototypeExplorationAgentToolHost implements AgentToolHost
         failedTransferTests: [...this.#failedTransferTests],
         failedCounterScenarios: [...this.#failedCounterScenarios],
         activatedCounterScenarios: [...this.#activatedCounterScenarios],
+        negativeBasis: failedPrototypeTest
+          ? "FAILED_PROTOTYPE_TEST" : "NO_AXIS_ADMISSIBLE_ROLE_PAIR",
+        axisAdmissibleRolePairCount: this.#axisAdmissibleRolePairs().length,
         reason: input.reason as string,
         proposedAt: context.run.createdAt,
       });

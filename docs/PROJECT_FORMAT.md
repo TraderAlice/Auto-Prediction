@@ -1,5 +1,8 @@
 # Project Format
 
+See the [documentation index](README.md) for reader-oriented navigation and
+[`PLANS.md`](../PLANS.md) for the selected research continuation.
+
 - `packages/`: first-party runtime packages with source and focused tests.
 - `projects/venue-research/`: dated official-source census and capability evidence.
 - `projects/fixtures/`: small immutable raw protocol fixtures plus provenance.

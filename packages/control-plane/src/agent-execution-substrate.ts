@@ -48,6 +48,7 @@ export const AGENT_TASK_KINDS = Object.freeze([
   "MECHANISM_PROTOTYPE_RESEARCH",
   "MECHANISM_PROTOTYPE_EXPLORATION",
   "RELATION_DISCOVERY",
+  "WORLD_RELATION_EXPERIMENT",
 ] as const);
 
 export type AgentRuntimeKind = (typeof AGENT_RUNTIME_KINDS)[number];

@@ -643,6 +643,25 @@ export class EvidenceAcquisitionScheduler {
     return this.#dispatch(job);
   }
 
+  public retryExhaustedJob(jobId: Hash): EvidenceAcquisitionJobRecord {
+    const job = this.#jobs.find((item) => item.jobId === jobId);
+    if (job === undefined) throw new Error("evidence acquisition job was not found");
+    if (job.status !== "EXHAUSTED") {
+      throw new Error(`evidence acquisition job is not exhausted from ${job.status}`);
+    }
+    const now = new Date(this.#now()).toISOString();
+    return this.#saveJob(withHash({
+      ...withoutHash(job),
+      status: "PENDING",
+      attemptCount: 0,
+      nextAttemptAt: now,
+      leasedAt: null,
+      leaseExpiresAt: null,
+      diagnostic: null,
+      updatedAt: now,
+    }));
+  }
+
   #dispatch(job: EvidenceAcquisitionJobRecord): Promise<EvidenceAcquisitionJobRecord> {
     if (job.locatorIdentity === null || job.policyIdentity === null) {
       throw new Error("evidence acquisition job has no admitted locator");

@@ -31,6 +31,10 @@ import {
 } from "./world-state-mechanism-prototype.js";
 import { adjacentWorldStateProperNameToken } from
   "./world-state-mechanism-allocation.js";
+import {
+  assertWorldRelationEconomicAttention,
+  type WorldRelationEconomicAttentionProjection,
+} from "./world-relation-economic-attention.js";
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const MAX_SEEDS_PER_LENS = 8;
@@ -39,7 +43,7 @@ const ESTABLISHED_AT = "2026-08-13T00:00:00.000Z";
 export const MECHANISM_PROTOTYPE_EXPLORATION_TASK_PROTOCOL =
   "MECHANISM_PROTOTYPE_EXPLORATION_TASK_V1" as const;
 export const MECHANISM_PROTOTYPE_EXPLORATION_TOOL_PROTOCOL =
-  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V12" as const;
+  "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V16" as const;
 
 export const MECHANISM_PROTOTYPE_EXPLORATION_AXES = Object.freeze([
   "AGGREGATE_INSTITUTION",
@@ -129,7 +133,8 @@ export type MechanismPrototypeExplorationCoverageMember = Readonly<{
 }>;
 
 export type MechanismPrototypeExplorationInputRevision = Readonly<{
-  schemaVersion: "pmh.mechanism-prototype-exploration-input.v1";
+  schemaVersion: "pmh.mechanism-prototype-exploration-input.v1" |
+    "pmh.mechanism-prototype-exploration-input.v2";
   inputRevisionId: Hash;
   lensId: Hash;
   prototypeId: Hash;
@@ -146,6 +151,7 @@ export type MechanismPrototypeExplorationInputRevision = Readonly<{
   knownMemberRouteFamilyIds: readonly Hash[];
   excludedListingRefs: readonly string[];
   seedTrailheads: readonly MechanismPrototypeExplorationSeed[];
+  economicAttention?: WorldRelationEconomicAttentionProjection;
   materializedAt: string;
   inputBinding: "EXACT_CURRENT_CORPUS_OBSERVATION_WITH_PRICE_INDEPENDENT_SEMANTIC_IDENTITY";
   authority: "PROTOTYPE_GUIDED_SEARCH_INPUT_ONLY";
@@ -323,7 +329,8 @@ export const MECHANISM_PROTOTYPE_EXPLORATION_HYPOTHESIS_DISPOSITIONS = Object.fr
 
 export type MechanismPrototypeExplorationHypothesis = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-hypothesis.v1" |
-    "pmh.mechanism-prototype-exploration-hypothesis.v2";
+    "pmh.mechanism-prototype-exploration-hypothesis.v2" |
+    "pmh.mechanism-prototype-exploration-hypothesis.v3";
   hypothesisId: Hash;
   revision: number;
   status: "ACTIVE" | "CLOSED";
@@ -346,6 +353,11 @@ export type MechanismPrototypeExplorationHypothesis = Readonly<{
   familyIntent?: "EXTEND" | "REPLICATE" | "DIFFERENT_TEST";
   priorFamilyId?: Hash | null;
   intentRationale?: string;
+  reconnaissanceBinding?: Readonly<{
+    roleSearchResultId: Hash;
+    componentListingRef: string;
+    aggregateListingRef: string;
+  }>;
   authority: "AGENT_RESEARCH_HYPOTHESIS_ONLY";
   semanticDecisionAuthority: false;
   probabilityAuthority: false;
@@ -363,13 +375,16 @@ export function assertMechanismPrototypeExplorationHypothesis(
   }
   const item = value as Readonly<Record<string, unknown>>;
   const binding = item.testBinding as Readonly<Record<string, unknown>> | undefined;
+  const reconnaissance = item.reconnaissanceBinding as
+    Readonly<Record<string, unknown>> | undefined;
   const strings = [item.materialVariation, item.predictedRoleStructure,
     item.supportingObservation, item.falsifyingObservation];
   const arrays = [item.searchNeighborhoods, item.observedSupport, item.observedFalsifiers];
   const isV11Hypothesis = item.familyIntent !== undefined || item.priorFamilyId !== undefined ||
     item.intentRationale !== undefined;
   if (!["pmh.mechanism-prototype-exploration-hypothesis.v1",
-        "pmh.mechanism-prototype-exploration-hypothesis.v2"]
+        "pmh.mechanism-prototype-exploration-hypothesis.v2",
+        "pmh.mechanism-prototype-exploration-hypothesis.v3"]
       .includes(String(item.schemaVersion)) ||
       !HASH_PATTERN.test(String(item.hypothesisId)) ||
       !Number.isSafeInteger(item.revision) || Number(item.revision) < 1 ||
@@ -406,6 +421,24 @@ export function assertMechanismPrototypeExplorationHypothesis(
       !isV11Hypothesis) {
     throw new Error("mechanism exploration V2 hypothesis requires family intent");
   }
+  if (item.schemaVersion === "pmh.mechanism-prototype-exploration-hypothesis.v3" &&
+      (!isV11Hypothesis || reconnaissance === undefined ||
+       Object.keys(reconnaissance).sort().join("|") !==
+         "aggregateListingRef|componentListingRef|roleSearchResultId" ||
+       !HASH_PATTERN.test(String(reconnaissance.roleSearchResultId)) ||
+       typeof reconnaissance.componentListingRef !== "string" ||
+       reconnaissance.componentListingRef.length < 1 ||
+       reconnaissance.componentListingRef.length > 500 ||
+       typeof reconnaissance.aggregateListingRef !== "string" ||
+       reconnaissance.aggregateListingRef.length < 1 ||
+       reconnaissance.aggregateListingRef.length > 500 ||
+       reconnaissance.componentListingRef === reconnaissance.aggregateListingRef)) {
+    throw new Error("mechanism exploration V3 hypothesis requires exact reconnaissance");
+  }
+  if (item.schemaVersion !== "pmh.mechanism-prototype-exploration-hypothesis.v3" &&
+      reconnaissance !== undefined) {
+    throw new Error("legacy mechanism exploration hypothesis cannot claim reconnaissance");
+  }
   return value as MechanismPrototypeExplorationHypothesis;
 }
 
@@ -428,7 +461,7 @@ export type MechanismPrototypeExplorationStepObservation = Readonly<{
   status: "ACCEPTED" | "REJECTED";
   resultSummary: Readonly<{
     kind: "LENS_READ" | "DIALECT_ATLAS_READ" | "REPRESENTATION_ROLE_FEEDBACK_READ" |
-      "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
+      "DIRECTORY_BROWSE" | "DIRECTORY_SELECTION" | "FLAT_SEARCH" | "ROLE_SEARCH" | "INSPECTION" |
       "PROTOTYPE_ACTION" | "POSITIVE_TERMINAL" | "EXHAUSTION_TERMINAL" |
       "HYPOTHESIS_ACTION" | "OTHER";
     rawHitCount: number;
@@ -912,7 +945,8 @@ export type MechanismPrototypeExplorationTrailhead = Readonly<{
 
 export type MechanismPrototypeExplorationExhaustion = Readonly<{
   schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v1" |
-    "pmh.mechanism-prototype-exploration-exhaustion.v2";
+    "pmh.mechanism-prototype-exploration-exhaustion.v2" |
+    "pmh.mechanism-prototype-exploration-exhaustion.v3";
   exhaustionId: Hash;
   lensId: Hash;
   inputRevisionId: Hash;
@@ -928,6 +962,8 @@ export type MechanismPrototypeExplorationExhaustion = Readonly<{
   failedTransferTests: readonly string[];
   failedCounterScenarios?: readonly string[];
   activatedCounterScenarios: readonly string[];
+  negativeBasis?: "FAILED_PROTOTYPE_TEST" | "NO_AXIS_ADMISSIBLE_ROLE_PAIR";
+  axisAdmissibleRolePairCount?: number;
   reason: string;
   proposedAt: string;
   authority: "BOUNDED_PROTOTYPE_EXPLORATION_NEGATIVE_MEMORY_ONLY";
@@ -1423,6 +1459,28 @@ function assessExplorationAxis(input: Readonly<{
   return Object.freeze({ ...body, assessmentId: hashCanonical(body) });
 }
 
+export function assessMechanismPrototypeExplorationCandidatePair(input: Readonly<{
+  researchInput: MechanismPrototypeExplorationInputRevision;
+  corpus: MarketCorpusSnapshot;
+  listingRefs: readonly string[];
+  activatedCounterScenarios: readonly string[];
+}>): MechanismPrototypeExplorationAxisAssessment {
+  const researchInput = assertMechanismPrototypeExplorationInputRevision(input.researchInput);
+  const corpus = assertMarketCorpusSnapshot(input.corpus);
+  const refs = exactStrings(input.listingRefs);
+  if (refs.length !== 2 || refs.some((ref) =>
+    researchInput.excludedListingRefs.includes(ref)
+  )) throw new Error("mechanism exploration candidate pair contains source listings");
+  if (researchInput.axisContract === undefined) {
+    throw new Error("mechanism exploration axis contract is unavailable");
+  }
+  return assessExplorationAxis({
+    contract: researchInput.axisContract,
+    bindings: refs.map((ref) => semanticEvidenceBinding(corpus, ref)),
+    activatedCounterScenarios: input.activatedCounterScenarios,
+  });
+}
+
 function taskContract(input: Readonly<{
   lensId: Hash;
   prototypeId: Hash;
@@ -1619,6 +1677,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
   execution?: AgentExecutionSnapshot;
   corpus: MarketCorpusSnapshot;
   ontology: MarketOntologySnapshot;
+  economicAttention?: WorldRelationEconomicAttentionProjection;
 }>): MechanismPrototypeExplorationProjection {
   const corpus = assertMarketCorpusSnapshot(input.corpus);
   const ontology = assertMarketOntologySnapshot(input.ontology);
@@ -1683,8 +1742,12 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         excludedListingRefs,
         seedTrailheadIds: seedTrailheads.map((item) => item.seedId),
       });
+      const economicAttention = input.economicAttention === undefined ? undefined
+        : assertWorldRelationEconomicAttention(input.economicAttention);
       const revisionBody = Object.freeze({
-        schemaVersion: "pmh.mechanism-prototype-exploration-input.v1" as const,
+        schemaVersion: economicAttention === undefined
+          ? "pmh.mechanism-prototype-exploration-input.v1" as const
+          : "pmh.mechanism-prototype-exploration-input.v2" as const,
         lensId,
         prototypeId: prototype.prototypeId,
         sourcePrototypeInputRevisionId: sourceInput.revisionId,
@@ -1700,6 +1763,7 @@ export function materializeMechanismPrototypeExplorationProjection(input: Readon
         knownMemberRouteFamilyIds: sourceInput.memberRouteFamilyIds,
         excludedListingRefs,
         seedTrailheads,
+        ...(economicAttention === undefined ? {} : { economicAttention }),
         materializedAt: latestSourceTime(corpus),
         inputBinding:
           "EXACT_CURRENT_CORPUS_OBSERVATION_WITH_PRICE_INDEPENDENT_SEMANTIC_IDENTITY" as const,
@@ -1964,7 +2028,8 @@ export function assertMechanismPrototypeExplorationInputRevision(
   const revision = value as MechanismPrototypeExplorationInputRevision;
   const { inputRevisionId, ...body } = revision;
   if (
-    revision.schemaVersion !== "pmh.mechanism-prototype-exploration-input.v1" ||
+    !["pmh.mechanism-prototype-exploration-input.v1",
+      "pmh.mechanism-prototype-exploration-input.v2"].includes(revision.schemaVersion) ||
     !HASH_PATTERN.test(String(inputRevisionId)) || inputRevisionId !== hashCanonical(body) ||
     ![revision.lensId, revision.prototypeId, revision.sourcePrototypeInputRevisionId,
       revision.semanticInputIdentity, revision.corpusSnapshotIdentity,
@@ -2011,6 +2076,16 @@ export function assertMechanismPrototypeExplorationInputRevision(
       return seed.axis !== revision.axis ||
       seed.listingRefs.some((ref: string) => revision.excludedListingRefs.includes(ref))
     }) ||
+    (revision.schemaVersion === "pmh.mechanism-prototype-exploration-input.v1"
+      ? revision.economicAttention !== undefined
+      : revision.economicAttention === undefined || (() => {
+        try {
+          assertWorldRelationEconomicAttention(revision.economicAttention);
+          return false;
+        } catch {
+          return true;
+        }
+      })()) ||
     revision.inputBinding !==
       "EXACT_CURRENT_CORPUS_OBSERVATION_WITH_PRICE_INDEPENDENT_SEMANTIC_IDENTITY" ||
     revision.authority !== "PROTOTYPE_GUIDED_SEARCH_INPUT_ONLY" ||
@@ -2139,9 +2214,10 @@ export function buildMechanismPrototypeExplorationTrailhead(input: Readonly<{
   if (researchInput.axisContract === undefined) {
     throw new Error("mechanism exploration axis contract is unavailable");
   }
-  const axisAssessment = assessExplorationAxis({
-    contract: researchInput.axisContract,
-    bindings,
+  const axisAssessment = assessMechanismPrototypeExplorationCandidatePair({
+    researchInput,
+    corpus: input.corpus,
+    listingRefs: bindings.map((binding) => binding.listingRef),
     activatedCounterScenarios,
   });
   const body = Object.freeze({
@@ -2193,6 +2269,8 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
   failedTransferTests: readonly string[];
   failedCounterScenarios?: readonly string[];
   activatedCounterScenarios: readonly string[];
+  negativeBasis?: "FAILED_PROTOTYPE_TEST" | "NO_AXIS_ADMISSIBLE_ROLE_PAIR";
+  axisAdmissibleRolePairCount?: number;
   reason: string;
   proposedAt: string;
 }>): MechanismPrototypeExplorationExhaustion {
@@ -2215,27 +2293,41 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
   }
   const failedCounterScenarios = (input.failedCounterScenarios ?? []).length === 0
     ? Object.freeze([]) : boundedTexts(input.failedCounterScenarios ?? [], 1, 12);
-  if (failedCounterScenarios.some((item) => !prototype.counterScenarios.includes(item)) ||
-      failedTransferTests.length + failedCounterScenarios.length === 0) {
-    throw new Error("mechanism exploration exhaustion requires a failed prototype test");
+  const negativeBasis = input.negativeBasis ?? "FAILED_PROTOTYPE_TEST";
+  const axisAdmissibleRolePairCount = input.axisAdmissibleRolePairCount ?? 0;
+  if (!["FAILED_PROTOTYPE_TEST", "NO_AXIS_ADMISSIBLE_ROLE_PAIR"].includes(negativeBasis) ||
+      !Number.isSafeInteger(axisAdmissibleRolePairCount) || axisAdmissibleRolePairCount < 0 ||
+      failedCounterScenarios.some((item) => !prototype.counterScenarios.includes(item)) ||
+      (negativeBasis === "FAILED_PROTOTYPE_TEST" &&
+        failedTransferTests.length + failedCounterScenarios.length === 0) ||
+      (negativeBasis === "NO_AXIS_ADMISSIBLE_ROLE_PAIR" &&
+        (failedTransferTests.length + failedCounterScenarios.length !== 0 ||
+         axisAdmissibleRolePairCount !== 0 ||
+         (input.roleSearchResultIds?.length ?? 0) < 2))) {
+    throw new Error("mechanism exploration exhaustion negative basis is unsupported");
   }
   const searchedResultIds = exactHashes(input.searchedResultIds);
   if (searchedResultIds.length === 0) {
     throw new Error("mechanism exploration exhaustion requires at least one exact search");
   }
   const body = Object.freeze({
-    schemaVersion: "pmh.mechanism-prototype-exploration-exhaustion.v2" as const,
+    schemaVersion: input.negativeBasis === undefined
+      ? "pmh.mechanism-prototype-exploration-exhaustion.v2" as const
+      : "pmh.mechanism-prototype-exploration-exhaustion.v3" as const,
     lensId: researchInput.lensId,
     inputRevisionId: researchInput.inputRevisionId,
     semanticInputIdentity: researchInput.semanticInputIdentity,
     prototypeId: prototype.prototypeId,
     axis: researchInput.axis,
     sourceAgentRunId: input.sourceAgentRunId,
-    inspectedEvidenceBindings: evidenceBindings({
-      researchInput, corpus: input.corpus,
-      listingRefs: input.inspectedListingRefsForResult,
-      inspectedListingRefs: input.inspectedListingRefs, minimum: 1,
-    }),
+    inspectedEvidenceBindings: input.negativeBasis === "NO_AXIS_ADMISSIBLE_ROLE_PAIR" &&
+        input.inspectedListingRefsForResult.length === 0
+      ? Object.freeze([])
+      : evidenceBindings({
+        researchInput, corpus: input.corpus,
+        listingRefs: input.inspectedListingRefsForResult,
+        inspectedListingRefs: input.inspectedListingRefs, minimum: 1,
+      }),
     searchedResultIds,
     ...(input.roleSearchResultIds === undefined ? {} : {
       roleSearchResultIds: exactHashes(input.roleSearchResultIds),
@@ -2248,6 +2340,10 @@ export function buildMechanismPrototypeExplorationExhaustion(input: Readonly<{
     failedTransferTests,
     failedCounterScenarios,
     activatedCounterScenarios,
+    ...(input.negativeBasis === undefined ? {} : {
+      negativeBasis,
+      axisAdmissibleRolePairCount,
+    }),
     reason: input.reason,
     proposedAt: exactTime(input.proposedAt),
     authority: "BOUNDED_PROTOTYPE_EXPLORATION_NEGATIVE_MEMORY_ONLY" as const,
@@ -2374,13 +2470,16 @@ export function assertMechanismPrototypeExplorationExhaustion(
   const { exhaustionId, ...body } = item;
   if (
     !["pmh.mechanism-prototype-exploration-exhaustion.v1",
-      "pmh.mechanism-prototype-exploration-exhaustion.v2"]
+      "pmh.mechanism-prototype-exploration-exhaustion.v2",
+      "pmh.mechanism-prototype-exploration-exhaustion.v3"]
       .includes(String(item.schemaVersion)) ||
     !HASH_PATTERN.test(String(exhaustionId)) || exhaustionId !== hashCanonical(body) ||
     ![item.lensId, item.inputRevisionId, item.semanticInputIdentity, item.prototypeId,
       item.sourceAgentRunId].every((field) => HASH_PATTERN.test(String(field))) ||
     !MECHANISM_PROTOTYPE_EXPLORATION_AXES.includes(item.axis) ||
-    !validEvidenceBindings(item.inspectedEvidenceBindings, 1) ||
+    !validEvidenceBindings(item.inspectedEvidenceBindings,
+      item.schemaVersion === "pmh.mechanism-prototype-exploration-exhaustion.v3" &&
+        item.negativeBasis === "NO_AXIS_ADMISSIBLE_ROLE_PAIR" ? 0 : 1) ||
     exactHashes(item.searchedResultIds).join("\n") !== item.searchedResultIds.join("\n") ||
     (item.roleSearchResultIds !== undefined &&
       exactHashes(item.roleSearchResultIds).join("\n") !==
@@ -2410,6 +2509,22 @@ export function assertMechanismPrototypeExplorationExhaustion(
        (item.failedCounterScenarios.length > 0 &&
         boundedTexts(item.failedCounterScenarios, 1, 12).join("\n") !==
           item.failedCounterScenarios.join("\n")))) ||
+    (item.schemaVersion === "pmh.mechanism-prototype-exploration-exhaustion.v3" && (
+      !Array.isArray(item.failedCounterScenarios) ||
+      !["FAILED_PROTOTYPE_TEST", "NO_AXIS_ADMISSIBLE_ROLE_PAIR"]
+        .includes(String(item.negativeBasis)) ||
+      !Number.isSafeInteger(item.axisAdmissibleRolePairCount) ||
+      Number(item.axisAdmissibleRolePairCount) < 0 ||
+      (item.failedCounterScenarios.length > 0 &&
+        boundedTexts(item.failedCounterScenarios, 1, 12).join("\n") !==
+          item.failedCounterScenarios.join("\n")) ||
+      (item.negativeBasis === "FAILED_PROTOTYPE_TEST"
+        ? item.failedTransferTests.length + item.failedCounterScenarios.length === 0
+        : item.failedTransferTests.length + item.failedCounterScenarios.length !== 0 ||
+          item.axisAdmissibleRolePairCount !== 0 ||
+          (item.roleSearchResultIds?.length ?? 0) < 2 ||
+          (item.roleSearchSummaries?.length ?? 0) < 2)
+    )) ||
     (item.activatedCounterScenarios.length > 0 &&
       boundedTexts(item.activatedCounterScenarios, 1, 12).join("\n") !==
         item.activatedCounterScenarios.join("\n")) ||
@@ -2863,7 +2978,7 @@ export function assertMechanismPrototypeExplorationStepObservation(
       !["ACCEPTED", "REJECTED"].includes(String(item.status)) ||
       summary === undefined || ![
         "LENS_READ", "DIALECT_ATLAS_READ", "REPRESENTATION_ROLE_FEEDBACK_READ",
-        "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
+        "DIRECTORY_BROWSE", "DIRECTORY_SELECTION", "FLAT_SEARCH", "ROLE_SEARCH", "INSPECTION",
         "PROTOTYPE_ACTION", "POSITIVE_TERMINAL", "EXHAUSTION_TERMINAL",
         "HYPOTHESIS_ACTION", "OTHER",
       ].includes(String(summary.kind)) || [
@@ -3307,7 +3422,9 @@ export function buildMechanismPrototypeExplorationMemoryProjection(input: Readon
   };
   const hypothesisIntentRealizations = Object.freeze(familyMembers.flatMap((member) => {
     const hypothesis = member.hypothesis.final;
-    if (hypothesis.schemaVersion !== "pmh.mechanism-prototype-exploration-hypothesis.v2" ||
+    if (!["pmh.mechanism-prototype-exploration-hypothesis.v2",
+      "pmh.mechanism-prototype-exploration-hypothesis.v3"]
+      .includes(hypothesis.schemaVersion) ||
         hypothesis.familyIntent === undefined) return [];
     const currentFamilyId = familyIdOf(member.episode, member.hypothesis);
     const referenceMembers = familyMembers.filter((candidate) => {

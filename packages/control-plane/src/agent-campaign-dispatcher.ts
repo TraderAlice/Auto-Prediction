@@ -3,6 +3,7 @@ import {
   AgentExecutionRegistry,
   assertAgentCampaign,
   buildAgentRun,
+  buildAgentRunAnnotation,
   completeAgentRun,
   effectiveAgentCampaigns,
   type AgentCampaign,
@@ -20,6 +21,7 @@ import {
   type AgentExecutionCapabilityService,
   type AgentRuntimeAdapter,
   type AgentToolHost,
+  type AgentRuntimeExecutionResult,
 } from "./agent-runtime-adapter.js";
 import { type AgentTaskReadiness } from "./agent-task-readiness.js";
 
@@ -125,6 +127,12 @@ export type AgentCampaignDispatcherOptions = Readonly<{
     task: AgentTask,
     run: AgentRun,
   ) => readonly AgentRunAnnotation[];
+  onExecutionResult?: (input: Readonly<{
+    task: AgentTask;
+    taskPayload: unknown;
+    toolHost: AgentToolHost;
+    execution: AgentRuntimeExecutionResult;
+  }>) => Promise<void> | void;
   now?: () => number;
 }>;
 
@@ -151,6 +159,7 @@ export class AgentCampaignDispatcher {
     task: AgentTask,
     run: AgentRun,
   ) => readonly AgentRunAnnotation[];
+  readonly #onExecutionResult: AgentCampaignDispatcherOptions["onExecutionResult"];
   readonly #now: () => number;
   readonly #active = new Map<Hash, Promise<AgentRun>>();
   readonly #reservedInvocations = new Map<Hash, number>();
@@ -170,6 +179,7 @@ export class AgentCampaignDispatcher {
       successorTaskId: null,
     }));
     this.#runAnnotations = options.runAnnotations ?? (() => Object.freeze([]));
+    this.#onExecutionResult = options.onExecutionResult;
     this.#now = options.now ?? Date.now;
     const adapters = new Map<string, AgentRuntimeAdapter>();
     for (const adapter of options.adapters) {
@@ -437,8 +447,11 @@ export class AgentCampaignDispatcher {
       return failed;
     }
     let result: Awaited<ReturnType<typeof executePreparedAgentRun>>;
+    let taskPayload: unknown;
+    let toolHost: AgentToolHost;
     try {
-      const taskPayload = this.#taskPayload(task, run);
+      taskPayload = this.#taskPayload(task, run);
+      toolHost = this.#toolHost(task, taskPayload, run);
       result = await executePreparedAgentRun({
         run,
         task,
@@ -449,7 +462,7 @@ export class AgentCampaignDispatcher {
         executionProfile: profile,
         adapter,
         credentialBroker: this.#credentialBroker,
-        toolHost: this.#toolHost(task, taskPayload, run),
+        toolHost,
         now: this.#now,
         ...(campaign === null ? {} : {
           beforeModelInvocation: () => {
@@ -499,6 +512,21 @@ export class AgentCampaignDispatcher {
       toolEffects: result.toolEffects,
       runArtifacts: result.runArtifacts,
     });
+    if (this.#onExecutionResult !== undefined) {
+      try {
+        await this.#onExecutionResult({ task, taskPayload, toolHost, execution: result });
+      } catch (error) {
+        const diagnostic = compactDiagnostic(error);
+        this.#registry.saveBatch({ runAnnotations: [buildAgentRunAnnotation({
+          run: result.run,
+          category: "POST_RUN_MATERIALIZATION_FAILURE",
+          sourceRecordRef: `agent-run:${result.run.runId}`,
+          observedFacts: { diagnostic },
+          note: `The model run is durable, but its first-party post-run artifact materializer failed: ${diagnostic}`,
+          createdAt: result.run.completedAt!,
+        })] });
+      }
+    }
     return result.run;
   }
 }

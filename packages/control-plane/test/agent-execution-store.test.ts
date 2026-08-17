@@ -11,6 +11,8 @@ import {
   buildAgentRunAnnotation,
   buildAgentRunArtifact,
   buildExecutionCapabilityObservation,
+  buildDefaultAgentRuntimePortfolio,
+  buildExecutionProfile,
   buildAgentTask,
   buildAgentToolEffect,
   buildModelInvocation,
@@ -72,6 +74,41 @@ function task(ordinal: number) {
 }
 
 describe("SQLite Agent execution substrate", () => {
+  it("retains the V15 exploration profile while installing the V16 protocol revision", async () => {
+    const store = new SqliteOperationalStore(await databasePath());
+    const current = buildDefaultAgentRuntimePortfolio(configuration());
+    const v16 = current.executionProfiles!.find((item) =>
+      item.profileKey === "mechanism-prototype-exploration-codex-app-server"
+    )!;
+    const runtime = current.runtimeDefinitions!.find((item) =>
+      item.runtimeDefinitionId === v16.runtimeDefinitionId
+    )!;
+    const credential = current.credentialBindings!.find((item) =>
+      item.credentialBindingId === v16.credentialBindingId
+    )!;
+    const model = current.modelProfiles!.find((item) =>
+      item.modelProfileId === v16.modelProfileId
+    )!;
+    const v15 = buildExecutionProfile({
+      profileKey: v16.profileKey, revision: 20_020,
+      runtimeDefinition: runtime, credentialBinding: credential, modelProfile: model,
+      toolProtocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V15",
+      runBudget: v16.runBudget, createdAt: v16.createdAt,
+    });
+    store.saveAgentExecutionBatch({ runtimeDefinitions: [runtime],
+      credentialBindings: [credential], modelProfiles: [model], executionProfiles: [v15] });
+    store.saveAgentExecutionBatch(current);
+    expect(store.loadAgentExecutionSnapshot().executionProfiles.filter((item) =>
+      item.profileKey === v16.profileKey
+    ).map((item) => ({ revision: item.revision, protocol: item.toolPolicy.protocol }))
+      .sort((left, right) => left.revision - right.revision))
+      .toEqual([
+        { revision: 20_020, protocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V15" },
+        { revision: 20_021, protocol: "MECHANISM_PROTOTYPE_EXPLORATION_TOOLS_V16" },
+      ]);
+    store.close();
+  });
+
   it("imports configuration durably without creating tasks, runs, campaigns, or invocations", async () => {
     const path = await databasePath();
     const first = new SqliteOperationalStore(path);
@@ -90,7 +127,7 @@ describe("SQLite Agent execution substrate", () => {
       automaticDispatchFromConfiguration: false,
       runArtifactCount: 0,
       runAnnotationCount: 0,
-      storage: { schemaVersion: 59, durable: true },
+      storage: { schemaVersion: 65, durable: true },
     });
     first.close();
 

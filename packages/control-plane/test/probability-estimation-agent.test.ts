@@ -2094,8 +2094,8 @@ describe("durable probability estimation scheduling", () => {
         passedCount: 2,
         unreadNotificationCount: 1,
         storage: {
-          jobs: { durable: true, schemaVersion: 59 },
-          notifications: { durable: true, schemaVersion: 59 },
+          jobs: { durable: true, schemaVersion: 65 },
+          notifications: { durable: true, schemaVersion: 65 },
         },
       });
       expect(secondScheduler.projection().jobs.every((job) =>
