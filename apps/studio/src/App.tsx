@@ -70,6 +70,7 @@ import {
   type StandingRouteState,
   type StandingRouteUsage,
 } from "@/data/standing-routes";
+import { describeSidebarCatalogStatus } from "@/lib/sidebar-catalog-status";
 import { cn } from "@/lib/utils";
 import {
   parseWorkspaceRoute,
@@ -3891,18 +3892,37 @@ async function requestCandidateWatchRefresh(): Promise<"READY" | "DEGRADED"> {
 
 function SidebarStatus() {
   const studioProjection = useStudioProjection();
-  const observation = studioProjection.ai.catalogObservation;
+  const status = describeSidebarCatalogStatus(
+    studioProjection.ai.catalogObservation,
+  );
   return (
-    <div className="sidebar-status">
-      <span className="sidebar-status-dot" />
-      <div>
-        <strong>System ready</strong>
-        <span>
-          {observation.healthySourceCount}/{observation.sourceCount} sources ·{" "}
-          {observation.listingCount} markets
-        </span>
+    <details className={cn("sidebar-status", `is-${status.tone}`)}>
+      <summary className="sidebar-status-summary" title={status.hoverLabel}>
+        <span className="sidebar-status-dot" />
+        <div>
+          <strong>{status.heading}</strong>
+          <span>{status.countLabel}</span>
+        </div>
+      </summary>
+      <div className="sidebar-status-detail">
+        {status.unhealthySources.length === 0 ? (
+          <p>All catalog sources are current.</p>
+        ) : (
+          <ul>
+            {status.unhealthySources.map((source) => (
+              <li key={source.venueId}>
+                <strong>{source.venueId}</strong>
+                <span>{source.statusLabel}</span>
+                {source.diagnostic !== null && (
+                  <span>{source.diagnostic}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p>{status.refreshHint}</p>
       </div>
-    </div>
+    </details>
   );
 }
 
