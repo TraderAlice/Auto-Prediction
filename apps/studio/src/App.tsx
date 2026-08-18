@@ -66,6 +66,13 @@ import {
 import { buildOpportunityFrontier } from "@/data/opportunity-frontier";
 import { useDiscoveryExecutionCapability } from "@/data/discovery-execution";
 import {
+  discoverFirstStep,
+  discoverSpendAction,
+  findingsPrimaryAction,
+  inspirationEmptyState,
+  isCredentialBlockedDispatch,
+} from "@/data/first-operator-next-step";
+import {
   useStandingRouteWorkspace,
   type StandingRouteState,
   type StandingRouteUsage,
@@ -6945,8 +6952,13 @@ function RealCandidatePreflightView() {
   );
 }
 
-function MarketArchaeologistView() {
+function MarketArchaeologistView({
+  onNavigate,
+}: {
+  onNavigate: (view: View) => void;
+}) {
   const studioProjection = useStudioProjection();
+  const catalogObservation = studioProjection.ai.catalogObservation;
   const corpus =
     studioProjection.ai.marketCorpus ?? EMPTY_MARKET_CORPUS;
   const catalogRefreshScheduler =
@@ -7050,6 +7062,9 @@ function MarketArchaeologistView() {
   const [deepRetryLeaseId, setDeepRetryLeaseId] = useState<string | null>(null);
   const [issueAction, setIssueAction] = useState<string | null>(null);
   const [issueDiagnostic, setIssueDiagnostic] = useState<string | null>(null);
+  const [refreshStatus, setRefreshStatus] = useState<
+    "IDLE" | "RUNNING" | "READY" | "DEGRADED" | "FAILED"
+  >("IDLE");
   const [newIssueTitle, setNewIssueTitle] = useState("");
   const [newIssueQuestion, setNewIssueQuestion] = useState("");
   const [newIssueLens, setNewIssueLens] = useState<SearchIssue["lens"]>("EQUIVALENCE");
@@ -7058,6 +7073,17 @@ function MarketArchaeologistView() {
   const discoveryCapability = discoveryExecution.data?.capability;
   const discoveryRuntime = discoveryExecution.data?.runtime;
   const discoveryModel = discoveryExecution.data?.model;
+  const discoveryBlocked = isCredentialBlockedDispatch(
+    discoveryCapability?.dispatchEligibility,
+    discoveryCapability?.diagnostic ?? discoveryExecution.diagnostic,
+  );
+  const firstStep = discoverFirstStep({
+    healthySourceCount: catalogObservation.healthySourceCount,
+    sourceCount: catalogObservation.sourceCount,
+    listingCount: catalogObservation.listingCount,
+  });
+  const spendAction = discoverSpendAction(discoveryBlocked);
+  const emptyInspiration = inspirationEmptyState(discoveryBlocked);
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
@@ -7090,6 +7116,15 @@ function MarketArchaeologistView() {
       setLeaseDiagnostic(
         error instanceof Error ? error.message : "search lease failed",
       );
+    }
+  }
+
+  async function refreshCatalog(): Promise<void> {
+    setRefreshStatus("RUNNING");
+    try {
+      setRefreshStatus(await requestCatalogRefresh());
+    } catch {
+      setRefreshStatus("FAILED");
     }
   }
 
@@ -7207,23 +7242,30 @@ function MarketArchaeologistView() {
             {discoveryExecution.preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
             {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
           </Button>
-          <Button
-            disabled={
-              corpus.listingCount === 0 ||
-              nextLens === undefined ||
-              scheduler.status === "RUNNING" ||
-              leaseStatus === "RUNNING" ||
-              discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
-            }
-            onClick={() => void runLease()}
-          >
-            {leaseStatus === "RUNNING" ? (
-              <RefreshCw className="is-spinning" size={13} />
-            ) : (
-              <Sparkles size={13} />
-            )}
-            {leaseStatus === "RUNNING" ? "Exploring…" : "Start heuristic scan"}
-          </Button>
+          {spendAction.kind === "OPEN_AGENT_OPERATIONS" ? (
+            <Button onClick={() => onNavigate("agents")}>
+              <Bot size={13} />
+              {spendAction.label}
+            </Button>
+          ) : (
+            <Button
+              disabled={
+                corpus.listingCount === 0 ||
+                nextLens === undefined ||
+                scheduler.status === "RUNNING" ||
+                leaseStatus === "RUNNING" ||
+                discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
+              }
+              onClick={() => void runLease()}
+            >
+              {leaseStatus === "RUNNING" ? (
+                <RefreshCw className="is-spinning" size={13} />
+              ) : (
+                <Sparkles size={13} />
+              )}
+              {leaseStatus === "RUNNING" ? "Exploring…" : spendAction.label}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -7233,6 +7275,29 @@ function MarketArchaeologistView() {
           {discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
         </div>
       )}
+
+      <section className="first-operator-step" aria-label="First step">
+        <div>
+          <span className="eyebrow">{firstStep.title}</span>
+          <strong>{firstStep.sourceHealthLabel}</strong>
+          <p>{firstStep.body}</p>
+        </div>
+        <div className="first-operator-step-actions">
+          <Button
+            disabled={refreshStatus === "RUNNING"}
+            onClick={() => void refreshCatalog()}
+          >
+            <RefreshCw size={13} />
+            {refreshStatus === "RUNNING"
+              ? "Refreshing…"
+              : refreshStatus === "FAILED"
+                ? "Retry refresh"
+                : refreshStatus === "READY" || refreshStatus === "DEGRADED"
+                  ? "Catalogs refreshed"
+                  : firstStep.primaryLabel}
+          </Button>
+        </div>
+      </section>
 
       <div className="radar-summary-grid archaeology-summary-grid">
         <Metric
@@ -7344,8 +7409,8 @@ function MarketArchaeologistView() {
               <div className="inspiration-empty">
                 <Sparkles size={18} />
                 <div>
-                  <strong>No useful detours yet</strong>
-                  <p>When a heuristic scan finds a grounded relation outside its assignment, it appears here instead of being forced into a claim.</p>
+                  <strong>{emptyInspiration.title}</strong>
+                  <p>{emptyInspiration.body}</p>
                 </div>
               </div>
             ) : (
@@ -11388,8 +11453,10 @@ function StandingRouteMemory({ revision }: { revision: string }) {
 
 function ScoutInboxView({
   onOpenReview,
+  onNavigate,
 }: {
   onOpenReview: (proposalIds: readonly string[]) => void;
+  onNavigate: (view: View) => void;
 }) {
   const studioProjection = useStudioProjection();
   const scheduler = studioProjection.ai.searchLeaseScheduler ?? EMPTY_SEARCH_LEASE_SCHEDULER;
@@ -11430,6 +11497,10 @@ function ScoutInboxView({
   const discoveryCapability = discoveryExecution.data?.capability;
   const discoveryRuntime = discoveryExecution.data?.runtime;
   const discoveryModel = discoveryExecution.data?.model;
+  const findingsAction = findingsPrimaryAction({
+    dispatchEligibility: discoveryCapability?.dispatchEligibility,
+    diagnostic: discoveryCapability?.diagnostic ?? discoveryExecution.diagnostic,
+  });
   const liveContextEligible =
     catalogMode === "VERIFIED_FIXTURES" ||
     selectedVenueIds.every(
@@ -11545,34 +11616,44 @@ function ScoutInboxView({
             {discoveryExecution.preflightBusy ? <RefreshCw className="is-spinning" size={13} /> : <ShieldCheck size={13} />}
             {discoveryCapability?.observation == null ? "Preflight" : "Recheck"}
           </Button>
-          <Button
-            disabled={
-              scheduler.status === "RUNNING" ||
-              explorationStatus === "RUNNING" ||
-              discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
-            }
-            onClick={() => void exploreNext()}
-          >
-            {explorationStatus === "RUNNING" ? (
-              <RefreshCw className="is-spinning" size={13} />
-            ) : (
-              <Sparkles size={13} />
-            )}
-            {explorationStatus === "RUNNING"
-              ? "Exploring…"
-              : explorationStatus === "RESTORED"
-                ? "Latest scan restored"
-                : explorationStatus === "FAILED"
-                  ? "Retry exploration"
-                  : "Explore next"}
-          </Button>
+          {findingsAction.kind === "OPEN_AGENT_OPERATIONS" ? (
+            <Button onClick={() => onNavigate("agents")}>
+              <Bot size={13} />
+              {findingsAction.label}
+            </Button>
+          ) : (
+            <Button
+              disabled={
+                scheduler.status === "RUNNING" ||
+                explorationStatus === "RUNNING" ||
+                discoveryCapability?.dispatchEligibility !== "ELIGIBLE"
+              }
+              onClick={() => void exploreNext()}
+            >
+              {explorationStatus === "RUNNING" ? (
+                <RefreshCw className="is-spinning" size={13} />
+              ) : (
+                <Sparkles size={13} />
+              )}
+              {explorationStatus === "RUNNING"
+                ? "Exploring…"
+                : explorationStatus === "RESTORED"
+                  ? "Latest scan restored"
+                  : explorationStatus === "FAILED"
+                    ? "Retry exploration"
+                    : findingsAction.label}
+            </Button>
+          )}
         </div>
       </div>
 
       {(discoveryExecution.diagnostic !== null || discoveryCapability?.dispatchEligibility === "BLOCKED") && (
         <div className="inline-alert" role="status">
           <CircleOff size={14} />
-          {discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}
+          <div>
+            <p>{discoveryExecution.diagnostic ?? `Discovery is blocked before model spend: ${discoveryCapability?.diagnostic ?? "run a capability preflight"}`}</p>
+            {findingsAction.helper !== "" && <p>{findingsAction.helper}</p>}
+          </div>
         </div>
       )}
 
@@ -14073,7 +14154,9 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
         <main>
           {view === "overview" && <Overview onInspect={setOpportunity} />}
           {view === "agents" && <AgentOperationsView />}
-          {view === "archaeologist" && <MarketArchaeologistView />}
+          {view === "archaeologist" && (
+            <MarketArchaeologistView onNavigate={(nextView) => navigate(nextView)} />
+          )}
           {view === "lifecycle" && (
             <OpportunityLifecycleView
               focusedProposalIds={focusedProposalIds}
@@ -14085,6 +14168,7 @@ function StudioShell({ projectionSync }: { projectionSync: ProjectionSyncState }
           {view === "scouts" && (
             <ScoutInboxView
               onOpenReview={(proposalIds) => navigate("lifecycle", proposalIds)}
+              onNavigate={(nextView) => navigate(nextView)}
             />
           )}
           {view === "budgets" && (
