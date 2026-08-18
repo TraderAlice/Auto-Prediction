@@ -77,6 +77,7 @@ import {
   workspaceReadModel,
   type WorkspaceView,
 } from "@/lib/workspace-route";
+import { agentTaskRunTile } from "@/lib/agent-task-run-tile";
 
 type View = WorkspaceView;
 type Opportunity = StudioProjection["opportunities"][number];
@@ -4619,7 +4620,7 @@ function AgentOperationsView() {
       <div className="metric-grid agent-metrics">
         <Metric label="Runtimes" value={`${consoleData.summary.runtimeDefinitionCount}`} detail="Pi · Codex · in-process" />
         <Metric label="Execution profiles" value={`${consoleData.summary.executionProfileCount}`} detail="immutable runtime/model compositions" />
-        <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail={`${runnableTaskCount} current · ${supersededTaskCount} superseded in view`} />
+        <Metric {...agentTaskRunTile({ taskCount: consoleData.summary.taskCount, runCount: consoleData.summary.runCount, runnableCount: runnableTaskCount })} />
         <Metric label="Known tokens" value={formatTokenCount((BigInt(consoleData.usage.inputTokens) + BigInt(consoleData.usage.outputTokens)).toString())} detail={`${consoleData.usage.incompleteTokenInvocationCount} invocations incomplete`} />
       </div>
 
