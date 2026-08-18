@@ -772,8 +772,19 @@ pre,
   font-weight: 550;
 }
 
-.sidebar-status span:last-child,
+.sidebar-status > div > span:last-child,
+.sidebar-status-summary span:last-child,
 .authority-note span {
+  color: #737c79;
+  font-size: 12px;
+}
+
+.sidebar-status-detail {
+  padding-left: 18px;
+}
+
+.sidebar-status-detail p,
+.sidebar-status-detail li {
   color: #737c79;
   font-size: 12px;
 }
@@ -4225,10 +4236,17 @@ body {
   font-weight: 550;
 }
 
-.sidebar-status span:last-child,
+.sidebar-status > div > span:last-child,
+.sidebar-status-summary span:last-child,
 .authority-note span {
   color: #6f7874;
   font-size: 13px;
+}
+
+.sidebar-status-detail p,
+.sidebar-status-detail li {
+  color: #6f7874;
+  font-size: 12px;
 }
 
 .topbar {
