@@ -79,6 +79,7 @@ import {
 } from "@/data/standing-routes";
 import { describeSidebarCatalogStatus } from "@/lib/sidebar-catalog-status";
 import { cn } from "@/lib/utils";
+import { presentVenueCapabilityChips } from "@/lib/venue-capability-chip";
 import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
@@ -12905,8 +12906,16 @@ function VenueMatrix() {
                 </div>
               </div>
               <div className="capability-chips">
-                {venue.capabilities.map((capability) => (
-                  <span key={capability}>{capability}</span>
+                {presentVenueCapabilityChips(
+                  venue.capabilities,
+                  venue.liveExecutionEnabled,
+                ).map((chip) => (
+                  <span
+                    key={chip.key}
+                    className={chip.inert ? "is-inert" : undefined}
+                  >
+                    {chip.label}
+                  </span>
                 ))}
               </div>
             </CardContent>
