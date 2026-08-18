@@ -3625,6 +3625,12 @@ footer {
   margin-top: 4px;
 }
 
+.inline-alert a {
+  color: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+}
+
 .first-operator-step {
   align-items: flex-start;
   background: var(--card);

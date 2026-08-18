@@ -80,6 +80,7 @@ import {
 import { describeSidebarCatalogStatus } from "@/lib/sidebar-catalog-status";
 import { cn } from "@/lib/utils";
 import { presentVenueCapabilityChips } from "@/lib/venue-capability-chip";
+import { reviewQueueNeedsKeyPath } from "@/lib/review-queue-needs-key";
 import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
@@ -8875,6 +8876,10 @@ function OpportunityLifecycleView({
     1,
     ...recentUsageHours.map((bucket) => Number(bucket.invocationCount)),
   );
+  const needsKeyPath = reviewQueueNeedsKeyPath({
+    reviewerConfigured: semanticReview.configured,
+    estimatorsConfigured: probabilityEstimation.configured,
+  });
 
   return (
     <section className="page-section lifecycle-page">
@@ -8902,6 +8907,17 @@ function OpportunityLifecycleView({
           <Badge variant="warning">LIVE ROUTE ABSENT</Badge>
         </div>
       </div>
+
+      {needsKeyPath !== null && (
+        <div className="inline-alert" role="status">
+          <CircleOff size={14} />
+          <span>
+            The review lane is idle until the existing{" "}
+            <a href={needsKeyPath}>Agent operations</a>
+            {" "}session exists.
+          </span>
+        </div>
+      )}
 
       {focusedProposalIds.length > 0 && (
         <section className="focused-review-handoff" aria-label="Focused finding review handoff">
