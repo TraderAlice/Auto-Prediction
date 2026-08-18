@@ -10871,7 +10871,7 @@ function OpportunityRadarView() {
               ? "Sources refreshed"
               : refreshStatus === "FAILED"
                 ? "Retry refresh"
-                : "Refresh live radar"}
+                : "Refresh catalogs"}
         </Button>
       </div>
 
@@ -10889,7 +10889,7 @@ function OpportunityRadarView() {
         <Metric
           label="Candidate pairs"
           value={`${radar.candidateCount}`}
-          detail={`${radar.candidates.filter((candidate) => candidate.indicativeEconomics.status === "POSITIVE_GROSS_HINT").length} positive gross hints`}
+          detail={`${radar.candidates.filter((candidate) => candidate.indicativeEconomics.status === "POSITIVE_GROSS_HINT").length} catalog-price overlap hints · not executable`}
         />
         <Metric
           label="Scout triage"
