@@ -72,6 +72,11 @@ import {
 } from "@/data/standing-routes";
 import { cn } from "@/lib/utils";
 import {
+  qualifiedBooksTile,
+  selectedVenueSessionLabel,
+  VENUE_SESSION_PICKER_HEADING,
+} from "@/lib/book-desk-copy";
+import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
   workspaceReadModel,
@@ -12884,11 +12889,7 @@ function BookDeskView() {
       </div>
 
       <div className="book-summary-grid">
-        <Metric
-          label="Qualified books"
-          value={`${studioProjection.bookDesk.books.length}`}
-          detail="three public transports"
-        />
+        <Metric {...qualifiedBooksTile(studioProjection.bookDesk.books)} />
         <Metric
           label="Replay generation"
           value={`${studioProjection.bookDesk.replayCount}`}
@@ -12904,31 +12905,35 @@ function BookDeskView() {
       <div className="book-desk-layout">
         <div className="book-session-list">
           <div className="book-list-heading">
-            <span>Venue sessions</span>
+            <span>{VENUE_SESSION_PICKER_HEADING}</span>
             <Badge variant="verified">
               <Radio size={10} /> SSE linked
             </Badge>
           </div>
-          {studioProjection.bookDesk.books.map((book) => (
-            <button
-              className={cn(
-                "book-session",
-                selectedBook?.bookId === book.bookId && "is-selected",
-              )}
-              key={book.bookId}
-              onClick={() => setSelectedBookId(book.bookId)}
-            >
-              <span className="book-session-status" />
-              <div>
-                <strong>{book.venueName}</strong>
-                <span>{book.instrumentId}</span>
-              </div>
-              <Badge variant="muted">{book.lifecycle}</Badge>
-              <small>
-                {book.bidLevelCount} × {book.askLevelCount} levels
-              </small>
-            </button>
-          ))}
+          {studioProjection.bookDesk.books.map((book) => {
+            const selected = selectedBook?.bookId === book.bookId;
+            const showingLabel = selectedVenueSessionLabel(selected);
+            return (
+              <button
+                className={cn("book-session", selected && "is-selected")}
+                key={book.bookId}
+                onClick={() => setSelectedBookId(book.bookId)}
+              >
+                <span className="book-session-status" />
+                <div>
+                  <strong>{book.venueName}</strong>
+                  <span>{book.instrumentId}</span>
+                  {showingLabel !== undefined && (
+                    <b className="book-session-showing">{showingLabel}</b>
+                  )}
+                </div>
+                <Badge variant="muted">{book.lifecycle}</Badge>
+                <small>
+                  {book.bidLevelCount} × {book.askLevelCount} levels
+                </small>
+              </button>
+            );
+          })}
         </div>
 
         {selectedBook && (
