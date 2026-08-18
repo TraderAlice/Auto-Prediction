@@ -11106,10 +11106,13 @@ function OpportunityRadarView() {
                     <ShieldCheck size={14} />
                     <span>
                       Exact two-listing context · proposal only · no auto spend
+                      · a click spends scout or pi budget
                     </span>
                   </div>
                   <div className="radar-action-buttons">
                     <Button
+                      variant="outline"
+                      title="Starts a bounded cheap-scout model run. Not free. Does not place orders."
                       disabled={running || studioProjection.ai.activeRuns > 0}
                       onClick={() => void triage(candidate)}
                     >
@@ -11119,17 +11122,18 @@ function OpportunityRadarView() {
                         <Sparkles size={14} />
                       )}
                       {running
-                        ? "Scouts triaging…"
+                        ? "Spending scout budget…"
                         : localState === "DONE"
                           ? "Triage complete"
                           : localState === "RESTORED" || retained
                             ? "Restore scout result"
                             : localState === "FAILED"
-                              ? "Retry scout triage"
-                              : "Triage with fast scouts"}
+                              ? "Retry scout spend"
+                              : "Spend scout budget to triage"}
                     </Button>
                     <Button
                       variant="outline"
+                      title="Starts a bounded deep-pi model run. Not free. Does not place orders."
                       disabled={
                         !retained ||
                         !studioProjection.ai.investigator.configured ||
@@ -11144,7 +11148,7 @@ function OpportunityRadarView() {
                         <SquareTerminal size={14} />
                       )}
                       {investigating
-                        ? "pi investigating…"
+                        ? "Spending deep-pi budget…"
                         : investigationState === "DONE"
                           ? "pi complete"
                           : investigationState === "RESTORED" ||
@@ -11152,8 +11156,8 @@ function OpportunityRadarView() {
                             ? "Restore pi report"
                             : investigationState === "FAILED" ||
                                 investigationRecord?.status === "FAILED"
-                              ? "Retry deep pi"
-                              : "Run deep pi"}
+                              ? "Retry deep-pi spend"
+                              : "Spend deep-pi model budget"}
                     </Button>
                   </div>
                 </div>
