@@ -150,8 +150,10 @@ Then verify in Studio:
   printed by the process.
 - **Studio says offline:** check `http://127.0.0.1:4100/health` and the control
   plane terminal output.
-- **Model unavailable:** inspect the runtime/credential posture in Readiness.
-  The system should fail visibly; do not assume a hidden fallback.
+- **Model unavailable:** inspect the runtime/credential posture in **Agent
+  operations**. The Discover sidebar reports **System ready** source health, not
+  a Readiness panel. The system should fail visibly; do not assume a hidden
+  fallback.
 - **DeepSeek setting appears ignored:** the SQLite configuration saved after
   first startup overrides environment seed values. Change it in Studio or use
   a fresh operational store intentionally.

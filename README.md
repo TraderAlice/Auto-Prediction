@@ -116,16 +116,20 @@ smoke commands, read [Operations](docs/OPERATIONS.md).
 
 ## First use
 
-1. Open Studio and check **Readiness** for the control plane, catalog, storage,
-   Agent runtime, and credential posture.
+1. Open Studio. The default **Discover** page reports **System ready** source
+   health and a **Refresh catalogs** first step. The same refresh also lives on
+   **System overview**.
 2. Refresh anonymous catalogs. A refresh creates a new immutable corpus; it
    does not spend model budget or grant trading authority.
-3. Open the ontology / discovery workspace and inspect the standing campaigns.
-   Run a bounded campaign or issue against the retained corpus.
-4. Read the effect timeline, exact listing references, counterexamples, and
+3. If discovery is blocked (`credential unavailable`), open **Agent operations**
+   to inspect the existing Codex session. Stay on Discover to keep refreshing
+   catalogs without DeepSeek or Codex; **Explore next** is not the next click.
+4. After catalogs are in view, start a heuristic scan or inspect standing
+   campaigns against the retained corpus.
+5. Read the effect timeline, exact listing references, counterexamples, and
    token usage. An empty or falsified run is retained research evidence.
-5. Move only a grounded multi-listing hypothesis into independent review.
-6. Treat economic hints as routing signals until fresh books, fees, depth, and
+6. Move only a grounded multi-listing hypothesis into independent review.
+7. Treat economic hints as routing signals until fresh books, fees, depth, and
    the exact verifier all agree.
 
 The longer operator walkthrough is in [Studio](docs/STUDIO.md).
