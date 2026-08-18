@@ -4053,7 +4053,7 @@ function Topbar({
         ? `${Math.floor(staleAge / 60_000)}m old`
         : `${Math.floor(staleAge / 3_600_000)}h old`;
   const syncLabel = projectionSync.status === "LIVE"
-    ? "Live data"
+    ? "SSE connected"
     : projectionSync.status === "STALE_REVALIDATING"
       ? `Last known · ${staleAgeLabel} · revalidating`
     : projectionSync.status === "REFRESHING"
@@ -6030,7 +6030,7 @@ function Overview({
             {studioProjection.identity.stateHash.slice(0, 22)}…
           </code>
           <div>
-            <Badge variant="muted">Live data</Badge>
+            <Badge variant="muted">Observed catalog</Badge>
             <span>{studioProjection.identity.mode} · {studioProjection.identity.view}</span>
           </div>
         </div>
@@ -6038,7 +6038,7 @@ function Overview({
 
       <section className="metric-grid" aria-label="System metrics">
         <Metric
-          label="Live markets"
+          label="Catalog listings"
           value={`${catalogObservation.listingCount}`}
           detail="current anonymous catalog"
         />
@@ -7236,7 +7236,7 @@ function MarketArchaeologistView() {
 
       <div className="radar-summary-grid archaeology-summary-grid">
         <Metric
-          label="Live markets"
+          label="Catalog listings"
           value={`${corpus.listingCount}`}
           detail="public contracts in view"
         />
