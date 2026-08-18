@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   BadgeCheck,
@@ -70,6 +70,10 @@ import {
   type StandingRouteState,
   type StandingRouteUsage,
 } from "@/data/standing-routes";
+import {
+  filterProjectionCommands,
+  stepCommandIndex,
+} from "@/lib/command-palette";
 import { cn } from "@/lib/utils";
 import {
   qualifiedBooksTile,
@@ -13975,7 +13979,33 @@ function CommandPalette({
   onClose: () => void;
   onNavigate: (view: View) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const matches = filterProjectionCommands(navigation, query);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setSelectedIndex(0);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    resultsRef.current
+      ?.querySelector<HTMLElement>("[aria-selected='true']")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex, query]);
+
   if (!open) return null;
+
+  function activate(index: number): void {
+    const item = matches[index];
+    if (item === undefined) return;
+    onNavigate(item.id);
+    onClose();
+  }
+
   return (
     <div className="command-layer" role="dialog" aria-modal="true">
       <button
@@ -13989,27 +14019,66 @@ function CommandPalette({
           <Input
             autoFocus
             aria-label="Search commands"
+            aria-controls="command-palette-results"
+            aria-activedescendant={
+              matches[selectedIndex] === undefined
+                ? undefined
+                : `command-${matches[selectedIndex].id}`
+            }
             placeholder="Jump to a projection…"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSelectedIndex(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setSelectedIndex((index) => stepCommandIndex(matches.length, index, 1));
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setSelectedIndex((index) => stepCommandIndex(matches.length, index, -1));
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                activate(selectedIndex);
+              }
+            }}
           />
           <kbd>ESC</kbd>
         </div>
         <span className="command-group-label">Available projections</span>
-        {navigation.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              onClick={() => {
-                onNavigate(item.id);
-                onClose();
-              }}
-            >
-              <Icon size={16} />
-              <span>{item.label}</span>
-              <small>Open</small>
-            </button>
-          );
-        })}
+        <div
+          ref={resultsRef}
+          id="command-palette-results"
+          className="command-results"
+          role="listbox"
+          aria-label="Available projections"
+        >
+          {matches.length === 0 ? (
+            <p className="command-empty" role="status">
+              No projections match that query.
+            </p>
+          ) : (
+            matches.map((item, index) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  id={`command-${item.id}`}
+                  role="option"
+                  aria-selected={index === selectedIndex}
+                  className={index === selectedIndex ? "is-active" : undefined}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  onClick={() => activate(index)}
+                >
+                  <Icon size={16} />
+                  <span>{item.label}</span>
+                  <small>Open</small>
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
