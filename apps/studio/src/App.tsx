@@ -77,6 +77,7 @@ import {
   workspaceReadModel,
   type WorkspaceView,
 } from "@/lib/workspace-route";
+import { verifiedClaimsPipelineState } from "@/lib/evidence-pipeline-stage";
 
 type View = WorkspaceView;
 type Opportunity = StudioProjection["opportunities"][number];
@@ -13502,7 +13503,7 @@ function EvidenceView({
       label: "Verified claims",
       value: ruleEvidenceClaims.passedCount,
       detail: `${ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.activeCount} in Agent loop · ${ruleEvidenceClaims.interruptedLeaseCount} interrupted`,
-      state: ruleEvidenceClaims.passedCount > 0 ? "INTERPRETED" : "RUNNING",
+      state: verifiedClaimsPipelineState(ruleEvidenceClaims),
     },
     {
       step: "05",
