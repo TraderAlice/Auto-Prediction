@@ -1311,6 +1311,12 @@ main {
   padding: 4px 6px;
 }
 
+.capability-chips span.is-inert {
+  border-color: rgba(255, 199, 142, 0.22);
+  background: rgba(255, 199, 142, 0.04);
+  color: #c99e75;
+}
+
 .scout-heading {
   padding-bottom: 32px;
 }
