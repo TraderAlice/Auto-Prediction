@@ -82,6 +82,7 @@ import {
   VENUE_SESSION_PICKER_HEADING,
 } from "@/lib/book-desk-copy";
 import { marketsWorkspaceCopy } from "@/lib/markets-workspace-copy";
+import { searchIssueRunNow } from "@/lib/search-issue-run-now";
 import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
@@ -7100,6 +7101,9 @@ function MarketArchaeologistView() {
   const discoveryCapability = discoveryExecution.data?.capability;
   const discoveryRuntime = discoveryExecution.data?.runtime;
   const discoveryModel = discoveryExecution.data?.model;
+  const searchIssueRun = searchIssueRunNow({
+    dispatchEligibility: discoveryCapability?.dispatchEligibility ?? null,
+  });
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
@@ -7798,7 +7802,8 @@ function MarketArchaeologistView() {
                         variant="outline"
                         disabled={
                           corpus.listingCount === 0 || issueAction !== null ||
-                          (issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null)
+                          (issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null) ||
+                          !searchIssueRun.dispatchEligible
                         }
                         onClick={() => void runIssue(issue.issueId)}
                       >
@@ -7894,7 +7899,7 @@ function MarketArchaeologistView() {
           </form>
           {!issueScheduler.enabled && (
             <p className="issue-scheduler-hint">
-              Automatic dispatch is installed but intentionally explicit. Set <code>PMH_SEARCH_ISSUE_TICK_MS</code> to 1000–60000 and restart the control plane; manual runs work now.
+              {searchIssueRun.schedulerHint}
             </p>
           )}
           {issueDiagnostic !== null && (
