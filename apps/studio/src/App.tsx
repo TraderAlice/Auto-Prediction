@@ -70,6 +70,7 @@ import {
   type StandingRouteState,
   type StandingRouteUsage,
 } from "@/data/standing-routes";
+import { executionProfileRowIdentity } from "@/lib/execution-profile-row-identity";
 import { cn } from "@/lib/utils";
 import {
   parseWorkspaceRoute,
@@ -5790,6 +5791,7 @@ function AgentOperationsView() {
                 <div className="agent-runtime-row" key={`capability:${profile.executionProfileId}`}>
                   <div>
                     <strong>{runtime?.kind ?? "runtime"} · {model?.model ?? "model"}</strong>
+                    <span>{executionProfileRowIdentity(profile)}</span>
                     <span>{capability?.serviceCapability ?? "UNVERIFIED"} · {capability?.diagnostic ?? "not checked"}</span>
                   </div>
                   <Button
@@ -5845,7 +5847,7 @@ function AgentOperationsView() {
             <label><span>Execution profile</span><Select value={profileId} onValueChange={(value) => { setProfileId(value); setManualPreview(null); }}><SelectTrigger><SelectValue placeholder="Select profile" /></SelectTrigger><SelectContent>{profiles.map((profile) => {
               const runtime = runtimes.get(profile.runtimeDefinitionId);
               const model = models.get(profile.modelProfileId);
-              return <SelectItem key={profile.executionProfileId} value={profile.executionProfileId}>{runtime?.kind ?? "runtime"} · {model?.model ?? "model"} · r{profile.revision}</SelectItem>;
+              return <SelectItem key={profile.executionProfileId} value={profile.executionProfileId}>{runtime?.kind ?? "runtime"} · {model?.model ?? "model"} · {executionProfileRowIdentity(profile)}</SelectItem>;
             })}</SelectContent></Select></label>
           </div>
           <div className="agent-control-actions">
