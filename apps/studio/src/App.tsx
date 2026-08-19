@@ -81,6 +81,7 @@ import {
   selectedVenueSessionLabel,
   VENUE_SESSION_PICKER_HEADING,
 } from "@/lib/book-desk-copy";
+import { marketsWorkspaceCopy } from "@/lib/markets-workspace-copy";
 import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
@@ -3904,15 +3905,18 @@ async function requestCandidateWatchRefresh(): Promise<"READY" | "DEGRADED"> {
 function SidebarStatus() {
   const studioProjection = useStudioProjection();
   const observation = studioProjection.ai.catalogObservation;
+  const copy = marketsWorkspaceCopy({
+    healthySourceCount: observation.healthySourceCount,
+    sourceCount: observation.sourceCount,
+    listingCount: observation.listingCount,
+    venueAdapterCount: studioProjection.venues.length,
+  });
   return (
     <div className="sidebar-status">
       <span className="sidebar-status-dot" />
       <div>
         <strong>System ready</strong>
-        <span>
-          {observation.healthySourceCount}/{observation.sourceCount} sources ·{" "}
-          {observation.listingCount} markets
-        </span>
+        <span>{copy.sidebarCatalogLine}</span>
       </div>
     </div>
   );
@@ -12790,15 +12794,19 @@ function ResearchCaseDeskView() {
 
 function VenueMatrix() {
   const studioProjection = useStudioProjection();
+  const observation = studioProjection.ai.catalogObservation;
+  const copy = marketsWorkspaceCopy({
+    healthySourceCount: observation.healthySourceCount,
+    sourceCount: observation.sourceCount,
+    listingCount: observation.listingCount,
+    venueAdapterCount: studioProjection.venues.length,
+  });
   return (
     <section className="page-section">
       <div className="page-heading">
         <span className="eyebrow">Protocol reality</span>
-        <h1>Venue capability matrix</h1>
-        <p>
-          Each adapter owns its precision, authentication boundary, mechanism,
-          and qualification evidence.
-        </p>
+        <h1>{copy.pageTitle}</h1>
+        <p>{copy.pageDescription}</p>
       </div>
       <div className="venue-grid">
         {studioProjection.venues.map((venue) => (
