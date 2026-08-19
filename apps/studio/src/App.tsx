@@ -5953,7 +5953,6 @@ function Overview({
   const catalogObservation = studioProjection.ai.catalogObservation;
   const discoveryExecution = useDiscoveryExecutionCapability();
   const exploreNext = systemExploreNextAction({
-    workers: studioProjection.ai.workers,
     dispatchEligibility:
       discoveryExecution.data?.capability.dispatchEligibility ?? null,
   });
