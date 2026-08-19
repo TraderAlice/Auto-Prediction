@@ -71,6 +71,7 @@ import {
   type StandingRouteUsage,
 } from "@/data/standing-routes";
 import { cn } from "@/lib/utils";
+import { systemExploreNextAction } from "@/lib/system-explore-next";
 import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
@@ -5950,6 +5951,12 @@ function Overview({
 }) {
   const studioProjection = useStudioProjection();
   const catalogObservation = studioProjection.ai.catalogObservation;
+  const discoveryExecution = useDiscoveryExecutionCapability();
+  const exploreNext = systemExploreNextAction({
+    workers: studioProjection.ai.workers,
+    dispatchEligibility:
+      discoveryExecution.data?.capability.dispatchEligibility ?? null,
+  });
   const [scoutStatus, setScoutStatus] = useState<
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
@@ -6067,22 +6074,43 @@ function Overview({
               <p>The scheduler chooses a fresh trailhead; the Agent forms claims after inspection.</p>
             </div>
           </div>
-          <Button
-            disabled={scoutStatus === "RUNNING"}
-            onClick={() => void runScout()}
-          >
-            <Sparkles size={11} />
-            {scoutStatus === "RUNNING"
-              ? "Scouting…"
-              : scoutStatus === "DONE"
-                ? "Scan complete"
-                : scoutStatus === "RESTORED"
-                  ? "Already scanned"
-                : scoutStatus === "FAILED"
-                  ? "Retry scout"
-                  : "Explore next"}
-          </Button>
+          {exploreNext.kind === "SCOUT" ? (
+            <Button
+              disabled={scoutStatus === "RUNNING"}
+              onClick={() => void runScout()}
+            >
+              <Sparkles size={11} />
+              {scoutStatus === "RUNNING"
+                ? "Scouting…"
+                : scoutStatus === "DONE"
+                  ? "Scan complete"
+                  : scoutStatus === "RESTORED"
+                    ? "Already scanned"
+                    : scoutStatus === "FAILED"
+                      ? "Retry scout"
+                      : exploreNext.label}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => {
+                window.location.assign(exploreNext.href);
+              }}
+            >
+              <Bot size={11} />
+              Open Agent operations
+            </Button>
+          )}
         </div>
+        {exploreNext.kind === "NEEDS_SETUP" && (
+          <div className="inline-alert" role="status">
+            <CircleOff size={14} />
+            <span>
+              Scout needs the existing Codex or heuristic session in{" "}
+              <a href={exploreNext.href}>Agent operations</a>.
+            </span>
+          </div>
+        )}
 
         <div className="ai-runtime-panel">
           <div className="ai-runtime-panel-heading">
