@@ -3604,6 +3604,12 @@ footer {
   font-size: 13px;
 }
 
+.inline-alert a {
+  color: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+}
+
 @media (max-width: 900px) {
   .agent-console-grid,
   .agent-control-form,

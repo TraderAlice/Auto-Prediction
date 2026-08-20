@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   BadgeCheck,
@@ -70,13 +70,27 @@ import {
   type StandingRouteState,
   type StandingRouteUsage,
 } from "@/data/standing-routes";
+import {
+  filterProjectionCommands,
+  stepCommandIndex,
+} from "@/lib/command-palette";
 import { cn } from "@/lib/utils";
+import { systemExploreNextAction } from "@/lib/system-explore-next";
+import {
+  qualifiedBooksTile,
+  selectedVenueSessionLabel,
+  VENUE_SESSION_PICKER_HEADING,
+} from "@/lib/book-desk-copy";
+import { marketsWorkspaceCopy } from "@/lib/markets-workspace-copy";
+import { searchIssueRunNow } from "@/lib/search-issue-run-now";
 import {
   parseWorkspaceRoute,
   serializeWorkspaceRoute,
   workspaceReadModel,
   type WorkspaceView,
 } from "@/lib/workspace-route";
+import { verifiedClaimsPipelineState } from "@/lib/evidence-pipeline-stage";
+import { agentTaskRunTile } from "@/lib/agent-task-run-tile";
 
 type View = WorkspaceView;
 type Opportunity = StudioProjection["opportunities"][number];
@@ -3892,15 +3906,18 @@ async function requestCandidateWatchRefresh(): Promise<"READY" | "DEGRADED"> {
 function SidebarStatus() {
   const studioProjection = useStudioProjection();
   const observation = studioProjection.ai.catalogObservation;
+  const copy = marketsWorkspaceCopy({
+    healthySourceCount: observation.healthySourceCount,
+    sourceCount: observation.sourceCount,
+    listingCount: observation.listingCount,
+    venueAdapterCount: studioProjection.venues.length,
+  });
   return (
     <div className="sidebar-status">
       <span className="sidebar-status-dot" />
       <div>
         <strong>System ready</strong>
-        <span>
-          {observation.healthySourceCount}/{observation.sourceCount} sources ·{" "}
-          {observation.listingCount} markets
-        </span>
+        <span>{copy.sidebarCatalogLine}</span>
       </div>
     </div>
   );
@@ -4619,7 +4636,7 @@ function AgentOperationsView() {
       <div className="metric-grid agent-metrics">
         <Metric label="Runtimes" value={`${consoleData.summary.runtimeDefinitionCount}`} detail="Pi · Codex · in-process" />
         <Metric label="Execution profiles" value={`${consoleData.summary.executionProfileCount}`} detail="immutable runtime/model compositions" />
-        <Metric label="Tasks / runs" value={`${consoleData.summary.taskCount} / ${consoleData.summary.runCount}`} detail={`${runnableTaskCount} current · ${supersededTaskCount} superseded in view`} />
+        <Metric {...agentTaskRunTile({ taskCount: consoleData.summary.taskCount, runCount: consoleData.summary.runCount, runnableCount: runnableTaskCount })} />
         <Metric label="Known tokens" value={formatTokenCount((BigInt(consoleData.usage.inputTokens) + BigInt(consoleData.usage.outputTokens)).toString())} detail={`${consoleData.usage.incompleteTokenInvocationCount} invocations incomplete`} />
       </div>
 
@@ -5950,6 +5967,11 @@ function Overview({
 }) {
   const studioProjection = useStudioProjection();
   const catalogObservation = studioProjection.ai.catalogObservation;
+  const discoveryExecution = useDiscoveryExecutionCapability();
+  const exploreNext = systemExploreNextAction({
+    dispatchEligibility:
+      discoveryExecution.data?.capability.dispatchEligibility ?? null,
+  });
   const [scoutStatus, setScoutStatus] = useState<
     "IDLE" | "RUNNING" | "DONE" | "RESTORED" | "FAILED"
   >("IDLE");
@@ -6067,22 +6089,43 @@ function Overview({
               <p>The scheduler chooses a fresh trailhead; the Agent forms claims after inspection.</p>
             </div>
           </div>
-          <Button
-            disabled={scoutStatus === "RUNNING"}
-            onClick={() => void runScout()}
-          >
-            <Sparkles size={11} />
-            {scoutStatus === "RUNNING"
-              ? "Scouting…"
-              : scoutStatus === "DONE"
-                ? "Scan complete"
-                : scoutStatus === "RESTORED"
-                  ? "Already scanned"
-                : scoutStatus === "FAILED"
-                  ? "Retry scout"
-                  : "Explore next"}
-          </Button>
+          {exploreNext.kind === "SCOUT" ? (
+            <Button
+              disabled={scoutStatus === "RUNNING"}
+              onClick={() => void runScout()}
+            >
+              <Sparkles size={11} />
+              {scoutStatus === "RUNNING"
+                ? "Scouting…"
+                : scoutStatus === "DONE"
+                  ? "Scan complete"
+                  : scoutStatus === "RESTORED"
+                    ? "Already scanned"
+                    : scoutStatus === "FAILED"
+                      ? "Retry scout"
+                      : exploreNext.label}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => {
+                window.location.assign(exploreNext.href);
+              }}
+            >
+              <Bot size={11} />
+              Open Agent operations
+            </Button>
+          )}
         </div>
+        {exploreNext.kind === "NEEDS_SETUP" && (
+          <div className="inline-alert" role="status">
+            <CircleOff size={14} />
+            <span>
+              Scout needs the existing Codex or heuristic session in{" "}
+              <a href={exploreNext.href}>Agent operations</a>.
+            </span>
+          </div>
+        )}
 
         <div className="ai-runtime-panel">
           <div className="ai-runtime-panel-heading">
@@ -7058,6 +7101,9 @@ function MarketArchaeologistView() {
   const discoveryCapability = discoveryExecution.data?.capability;
   const discoveryRuntime = discoveryExecution.data?.runtime;
   const discoveryModel = discoveryExecution.data?.model;
+  const searchIssueRun = searchIssueRunNow({
+    dispatchEligibility: discoveryCapability?.dispatchEligibility ?? null,
+  });
   const currentLensRecords = scheduler.records.filter(
     (record) => record.lease.snapshotIdentity === corpus.snapshotIdentity,
   );
@@ -7756,7 +7802,8 @@ function MarketArchaeologistView() {
                         variant="outline"
                         disabled={
                           corpus.listingCount === 0 || issueAction !== null ||
-                          (issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null)
+                          (issue.supersededByIssueId !== undefined && issue.supersededByIssueId !== null) ||
+                          !searchIssueRun.dispatchEligible
                         }
                         onClick={() => void runIssue(issue.issueId)}
                       >
@@ -7852,7 +7899,7 @@ function MarketArchaeologistView() {
           </form>
           {!issueScheduler.enabled && (
             <p className="issue-scheduler-hint">
-              Automatic dispatch is installed but intentionally explicit. Set <code>PMH_SEARCH_ISSUE_TICK_MS</code> to 1000–60000 and restart the control plane; manual runs work now.
+              {searchIssueRun.schedulerHint}
             </p>
           )}
           {issueDiagnostic !== null && (
@@ -12752,15 +12799,19 @@ function ResearchCaseDeskView() {
 
 function VenueMatrix() {
   const studioProjection = useStudioProjection();
+  const observation = studioProjection.ai.catalogObservation;
+  const copy = marketsWorkspaceCopy({
+    healthySourceCount: observation.healthySourceCount,
+    sourceCount: observation.sourceCount,
+    listingCount: observation.listingCount,
+    venueAdapterCount: studioProjection.venues.length,
+  });
   return (
     <section className="page-section">
       <div className="page-heading">
         <span className="eyebrow">Protocol reality</span>
-        <h1>Venue capability matrix</h1>
-        <p>
-          Each adapter owns its precision, authentication boundary, mechanism,
-          and qualification evidence.
-        </p>
+        <h1>{copy.pageTitle}</h1>
+        <p>{copy.pageDescription}</p>
       </div>
       <div className="venue-grid">
         {studioProjection.venues.map((venue) => (
@@ -12884,11 +12935,7 @@ function BookDeskView() {
       </div>
 
       <div className="book-summary-grid">
-        <Metric
-          label="Qualified books"
-          value={`${studioProjection.bookDesk.books.length}`}
-          detail="three public transports"
-        />
+        <Metric {...qualifiedBooksTile(studioProjection.bookDesk.books)} />
         <Metric
           label="Replay generation"
           value={`${studioProjection.bookDesk.replayCount}`}
@@ -12904,31 +12951,35 @@ function BookDeskView() {
       <div className="book-desk-layout">
         <div className="book-session-list">
           <div className="book-list-heading">
-            <span>Venue sessions</span>
+            <span>{VENUE_SESSION_PICKER_HEADING}</span>
             <Badge variant="verified">
               <Radio size={10} /> SSE linked
             </Badge>
           </div>
-          {studioProjection.bookDesk.books.map((book) => (
-            <button
-              className={cn(
-                "book-session",
-                selectedBook?.bookId === book.bookId && "is-selected",
-              )}
-              key={book.bookId}
-              onClick={() => setSelectedBookId(book.bookId)}
-            >
-              <span className="book-session-status" />
-              <div>
-                <strong>{book.venueName}</strong>
-                <span>{book.instrumentId}</span>
-              </div>
-              <Badge variant="muted">{book.lifecycle}</Badge>
-              <small>
-                {book.bidLevelCount} × {book.askLevelCount} levels
-              </small>
-            </button>
-          ))}
+          {studioProjection.bookDesk.books.map((book) => {
+            const selected = selectedBook?.bookId === book.bookId;
+            const showingLabel = selectedVenueSessionLabel(selected);
+            return (
+              <button
+                className={cn("book-session", selected && "is-selected")}
+                key={book.bookId}
+                onClick={() => setSelectedBookId(book.bookId)}
+              >
+                <span className="book-session-status" />
+                <div>
+                  <strong>{book.venueName}</strong>
+                  <span>{book.instrumentId}</span>
+                  {showingLabel !== undefined && (
+                    <b className="book-session-showing">{showingLabel}</b>
+                  )}
+                </div>
+                <Badge variant="muted">{book.lifecycle}</Badge>
+                <small>
+                  {book.bidLevelCount} × {book.askLevelCount} levels
+                </small>
+              </button>
+            );
+          })}
         </div>
 
         {selectedBook && (
@@ -13502,7 +13553,7 @@ function EvidenceView({
       label: "Verified claims",
       value: ruleEvidenceClaims.passedCount,
       detail: `${ruleEvidenceClaims.pendingCount + ruleEvidenceClaims.activeCount} in Agent loop · ${ruleEvidenceClaims.interruptedLeaseCount} interrupted`,
-      state: ruleEvidenceClaims.passedCount > 0 ? "INTERPRETED" : "RUNNING",
+      state: verifiedClaimsPipelineState(ruleEvidenceClaims),
     },
     {
       step: "05",
@@ -13968,7 +14019,33 @@ function CommandPalette({
   onClose: () => void;
   onNavigate: (view: View) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const matches = filterProjectionCommands(navigation, query);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setSelectedIndex(0);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    resultsRef.current
+      ?.querySelector<HTMLElement>("[aria-selected='true']")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex, query]);
+
   if (!open) return null;
+
+  function activate(index: number): void {
+    const item = matches[index];
+    if (item === undefined) return;
+    onNavigate(item.id);
+    onClose();
+  }
+
   return (
     <div className="command-layer" role="dialog" aria-modal="true">
       <button
@@ -13982,27 +14059,66 @@ function CommandPalette({
           <Input
             autoFocus
             aria-label="Search commands"
+            aria-controls="command-palette-results"
+            aria-activedescendant={
+              matches[selectedIndex] === undefined
+                ? undefined
+                : `command-${matches[selectedIndex].id}`
+            }
             placeholder="Jump to a projection…"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setSelectedIndex(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setSelectedIndex((index) => stepCommandIndex(matches.length, index, 1));
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setSelectedIndex((index) => stepCommandIndex(matches.length, index, -1));
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                activate(selectedIndex);
+              }
+            }}
           />
           <kbd>ESC</kbd>
         </div>
         <span className="command-group-label">Available projections</span>
-        {navigation.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              onClick={() => {
-                onNavigate(item.id);
-                onClose();
-              }}
-            >
-              <Icon size={16} />
-              <span>{item.label}</span>
-              <small>Open</small>
-            </button>
-          );
-        })}
+        <div
+          ref={resultsRef}
+          id="command-palette-results"
+          className="command-results"
+          role="listbox"
+          aria-label="Available projections"
+        >
+          {matches.length === 0 ? (
+            <p className="command-empty" role="status">
+              No projections match that query.
+            </p>
+          ) : (
+            matches.map((item, index) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  id={`command-${item.id}`}
+                  role="option"
+                  aria-selected={index === selectedIndex}
+                  className={index === selectedIndex ? "is-active" : undefined}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  onClick={() => activate(index)}
+                >
+                  <Icon size={16} />
+                  <span>{item.label}</span>
+                  <small>Open</small>
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

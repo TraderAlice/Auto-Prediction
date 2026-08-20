@@ -4162,6 +4162,13 @@ main {
   font-size: 13px;
 }
 
+.book-session-showing {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .book-session > div span,
 .book-session small {
   overflow: hidden;
@@ -4870,7 +4877,11 @@ footer span:first-child {
 
 .command-palette {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: min(540px, calc(100vw - 28px));
+  /* Leave the last projection rows reachable instead of clipping them. */
+  max-height: calc(100vh - min(18vh, 150px) - 24px);
   overflow: hidden;
   border: 1px solid #2b3437;
   border-radius: 13px;
@@ -4920,7 +4931,20 @@ footer span:first-child {
   text-transform: uppercase;
 }
 
-.command-palette > button:not(.command-scrim) {
+.command-results {
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.command-empty {
+  color: #7b8580;
+  font-size: 13px;
+  margin: 0;
+  padding: 18px 15px 22px;
+}
+
+.command-results > button {
   display: grid;
   width: calc(100% - 12px);
   height: 43px;
@@ -4937,12 +4961,13 @@ footer span:first-child {
   text-align: left;
 }
 
-.command-palette > button:not(.command-scrim):hover {
+.command-results > button.is-active,
+.command-results > button:hover {
   background: rgba(126, 240, 193, 0.07);
   color: var(--primary);
 }
 
-.command-palette button small {
+.command-results button small {
   color: #56605b;
   font-family: inherit;
   font-size: 12px;
