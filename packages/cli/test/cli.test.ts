@@ -250,9 +250,14 @@ function executeDocument(input: {
   };
 }
 
-function operatorRun(runId: string, status = "PREPARED", leakedRunId?: string) {
+function operatorRun(
+  runId: string,
+  status = "PREPARED",
+  leakedRunId?: string,
+  schemaVersion = "pmh.agent-operator-run.v1",
+) {
   return {
-    schemaVersion: "pmh.agent-operator-run.v1",
+    schemaVersion,
     run: manualRun(runId, TASK_ID, PROFILE_ID, status),
     task: {
       taskId: TASK_ID,
@@ -288,6 +293,24 @@ function operatorRun(runId: string, status = "PREPARED", leakedRunId?: string) {
   };
 }
 
+function operatorRunWait(
+  runId: string,
+  status: string,
+  waitMs: number,
+  waitOutcome: "COMPLETED" | "TIMEOUT" | "ALREADY_TERMINAL" |
+    "NOT_AWAITABLE_IN_THIS_PROCESS",
+) {
+  return {
+    ...operatorRun(runId, status, undefined, "pmh.agent-operator-run-wait.v1"),
+    waitMs,
+    waitedMs: waitOutcome === "ALREADY_TERMINAL" ? 0 : waitMs,
+    waitOutcome,
+    awaitedInProcess: waitOutcome === "COMPLETED" || waitOutcome === "TIMEOUT",
+    researchRunDispatchAuthorityConsumed: false,
+    providerOrModelWorkMayStart: false,
+  };
+}
+
 describe("versioned CLI envelope", () => {
   it("discovers the exact command surface without a running control plane", async () => {
     const result = await runCli([]);
@@ -308,6 +331,7 @@ describe("versioned CLI envelope", () => {
       "agent task execute <task-id> <execution-profile-id> <preview-ref> <authorization-ref>",
     );
     expect(result.allowedNextActions).toContain("agent run inspect <run-id>");
+    expect(result.allowedNextActions).toContain("agent run wait <run-id> [wait-ms]");
   });
 
   it("reports the system's Node 22 baseline and live-disabled boundary", async () => {
@@ -802,6 +826,7 @@ describe("versioned CLI envelope", () => {
       liveExecutionEnabled: false,
     });
     expect(result.allowedNextActions).toEqual([
+      `agent run wait ${RUN_ID}`,
       `agent run inspect ${RUN_ID}`,
       "agent workspace",
       "help",
@@ -838,7 +863,7 @@ describe("versioned CLI envelope", () => {
       providerOrModelWorkMayStart: false,
       tradingExecutionAuthority: false,
     });
-    expect(result.allowedNextActions[0]).toBe(`agent run inspect ${RUN_ID}`);
+    expect(result.allowedNextActions[0]).toBe(`agent run wait ${RUN_ID}`);
     expect(result.effects.liveExecutionEnabled).toBe(false);
   });
 
@@ -889,7 +914,10 @@ describe("versioned CLI envelope", () => {
       tradingExecutionAuthority: false,
       liveExecutionEnabled: false,
     });
-    expect(result.allowedNextActions).toEqual([`agent run inspect ${RUN_ID}`]);
+    expect(result.allowedNextActions).toEqual([
+      `agent run wait ${RUN_ID}`,
+      `agent run inspect ${RUN_ID}`,
+    ]);
   });
 
   it("inspects a terminal run and returns exact task inspect next actions", async () => {
@@ -903,6 +931,71 @@ describe("versioned CLI envelope", () => {
       "agent workspace",
       "help",
     ]);
+  });
+
+  it("waits for a run with a bounded server-side wait and returns terminal actions", async () => {
+    const baseUrl = await serve((request, response) => {
+      expect(request.method).toBe("GET");
+      expect(request.url).toBe(
+        `/api/v1/agent-operator/runs/${RUN_ID}/wait?waitMs=1250`,
+      );
+      json(response, operatorRunWait(RUN_ID, "SUCCEEDED", 1250, "COMPLETED"));
+    });
+    const result = await runCli(
+      ["agent", "run", "wait", RUN_ID, "1250"],
+      { baseUrl },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.identity).toEqual({
+      command: "agent.run.wait",
+      arguments: [RUN_ID, "1250"],
+    });
+    expect(result.state).toMatchObject({
+      schemaVersion: "pmh.agent-operator-run-wait.v1",
+      run: { runId: RUN_ID, status: "SUCCEEDED" },
+      waitMs: 1250,
+      waitOutcome: "COMPLETED",
+      awaitedInProcess: true,
+      researchRunDispatchAuthorityConsumed: false,
+      providerOrModelWorkMayStart: false,
+      tradingExecutionAuthority: false,
+      liveExecutionEnabled: false,
+    });
+    expect(result.allowedNextActions).toEqual([
+      `agent task inspect ${TASK_ID}`,
+      "agent workspace",
+      "help",
+    ]);
+  });
+
+  it("returns an exact wait action after timeout but never fakes a detached wait", async () => {
+    const timeoutUrl = await serve((_request, response) =>
+      json(response, operatorRunWait(RUN_ID, "PREPARED", 250, "TIMEOUT"))
+    );
+    const timedOut = await runCli(
+      ["agent", "run", "wait", RUN_ID, "250"],
+      { baseUrl: timeoutUrl },
+    );
+    expect(timedOut.ok).toBe(true);
+    expect(timedOut.allowedNextActions).toEqual([
+      `agent run wait ${RUN_ID} 250`,
+      `agent run inspect ${RUN_ID}`,
+    ]);
+
+    const detachedUrl = await serve((_request, response) =>
+      json(response, operatorRunWait(
+        RUN_ID,
+        "PREPARED",
+        30_000,
+        "NOT_AWAITABLE_IN_THIS_PROCESS",
+      ))
+    );
+    const detached = await runCli(
+      ["agent", "run", "wait", RUN_ID],
+      { baseUrl: detachedUrl },
+    );
+    expect(detached.ok).toBe(true);
+    expect(detached.allowedNextActions).toEqual([`agent run inspect ${RUN_ID}`]);
   });
 
   it("rejects a run inspect that leaks another run's records", async () => {
@@ -943,6 +1036,14 @@ describe("versioned CLI envelope", () => {
     expect(badRun.diagnostics[0]).toMatchObject({
       code: "CLI_ARGUMENT_INVALID",
       message: "run-id must be an exact sha256 identity.",
+    });
+    const badWait = await runCli(
+      ["agent", "run", "wait", RUN_ID, "60001"],
+      host,
+    );
+    expect(badWait.diagnostics[0]).toMatchObject({
+      code: "CLI_ARGUMENT_INVALID",
+      message: "wait-ms must be an integer from 1 to 60000.",
     });
     expect(requested).toBe(false);
   });

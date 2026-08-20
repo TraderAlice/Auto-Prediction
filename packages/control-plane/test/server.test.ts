@@ -1221,6 +1221,51 @@ describe("control-plane HTTP surface", () => {
     expect(text).not.toContain(otherRun.runId);
     expect(body).not.toHaveProperty("execution");
     expect(body).not.toHaveProperty("worldStateMechanisms");
+
+    const waited = await fetch(
+      `${baseUrl}/api/v1/agent-operator/runs/${retainedRun.runId}/wait?waitMs=100`,
+    );
+    expect(waited.status).toBe(200);
+    await expect(waited.json()).resolves.toMatchObject({
+      schemaVersion: "pmh.agent-operator-run-wait.v1",
+      run: { runId: retainedRun.runId, status: "FAILED" },
+      waitMs: 100,
+      waitOutcome: "ALREADY_TERMINAL",
+      awaitedInProcess: false,
+      providerRequestsStartedByRead: 0,
+      modelInvocationsStartedByRead: 0,
+      writesStartedByRead: 0,
+      runsCreatedByRead: 0,
+      executionAuthority: false,
+      researchRunDispatchAuthorityConsumed: false,
+      providerOrModelWorkMayStart: false,
+      tradingExecutionAuthority: false,
+      externalWriteAuthority: false,
+      valueMovingAuthority: false,
+      liveExecutionEnabled: false,
+    });
+
+    const invalidWait = await fetch(
+      `${baseUrl}/api/v1/agent-operator/runs/${retainedRun.runId}/wait?waitMs=60001`,
+    );
+    expect(invalidWait.status).toBe(409);
+    await expect(invalidWait.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "waitMs must be a safe integer from 1 to 60000",
+      providerOrModelWorkMayStart: false,
+      tradingExecutionAuthority: false,
+    });
+
+    const missingWait = await fetch(
+      `${baseUrl}/api/v1/agent-operator/runs/${missingId}/wait?waitMs=100`,
+    );
+    expect(missingWait.status).toBe(404);
+    await expect(missingWait.json()).resolves.toMatchObject({
+      ok: false,
+      diagnostic: "Agent run is unavailable",
+      providerRequestsStartedByRead: 0,
+      valueMovingAuthority: false,
+    });
   });
 
   it("allows incremented loopback Studio origins without reflecting remote origins", async () => {

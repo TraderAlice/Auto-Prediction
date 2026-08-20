@@ -6566,6 +6566,92 @@ export function createControlPlane(options?: {
     });
   };
 
+  const agentOperatorReadEffects = Object.freeze({
+    providerRequestsStartedByRead: 0 as const,
+    modelInvocationsStartedByRead: 0 as const,
+    fetchesStartedByRead: 0 as const,
+    writesStartedByRead: 0 as const,
+    runsCreatedByRead: 0 as const,
+    automaticDispatch: false as const,
+    semanticDecisionAuthority: false as const,
+    certificateAuthority: false as const,
+    executionAuthority: false as const,
+    researchRunDispatchAuthorityConsumed: false as const,
+    providerOrModelWorkMayStart: false as const,
+    tradingExecutionAuthority: false as const,
+    externalWriteAuthority: false as const,
+    valueMovingAuthority: false as const,
+    liveExecutionEnabled: false as const,
+  });
+  const agentOperatorRunDocument = (runId: Hash, retainedRun?: AgentRun) => {
+    const snapshot = agentExecutionRegistry.snapshot();
+    const run = retainedRun ?? snapshot.runs.find((item) => item.runId === runId);
+    if (run === undefined) return null;
+    const task = snapshot.tasks.find((item) => item.taskId === run.taskId);
+    const profile = snapshot.executionProfiles.find((item) =>
+      item.executionProfileId === run.executionProfileId
+    );
+    const capCollection = <T,>(items: readonly T[], cap = 32) => Object.freeze({
+      items: Object.freeze(items.slice(0, cap)),
+      count: items.length,
+      truncated: items.length > cap,
+    });
+    const modelInvocations = capCollection(
+      snapshot.modelInvocations.filter((item) => item.runId === runId)
+        .sort((left, right) => left.ordinal - right.ordinal ||
+          left.invocationId.localeCompare(right.invocationId)),
+    );
+    const toolEffects = capCollection(
+      snapshot.toolEffects.filter((item) => item.runId === runId)
+        .sort((left, right) => left.ordinal - right.ordinal ||
+          left.effectId.localeCompare(right.effectId)),
+    );
+    const artifacts = capCollection(
+      snapshot.runArtifacts.filter((item) => item.runId === runId)
+        .sort((left, right) => left.ordinal - right.ordinal ||
+          left.artifactId.localeCompare(right.artifactId)),
+    );
+    const annotations = capCollection(
+      snapshot.runAnnotations.filter((item) => item.runId === runId)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt) ||
+          left.annotationId.localeCompare(right.annotationId)),
+    );
+    const resultSelections = capCollection(
+      snapshot.resultSelections.filter((item) => item.runId === runId)
+        .sort((left, right) => left.selectedAt.localeCompare(right.selectedAt) ||
+          left.selectionId.localeCompare(right.selectionId)),
+    );
+    return Object.freeze({
+      run,
+      task: task === undefined ? null : Object.freeze({
+        taskId: task.taskId,
+        kind: task.kind,
+        taskPayloadHash: task.taskPayloadHash,
+        protocol: task.protocol,
+      }),
+      executionProfile: profile === undefined ? null : Object.freeze({
+        executionProfileId: profile.executionProfileId,
+        profileKey: profile.profileKey,
+        revision: profile.revision,
+      }),
+      modelInvocations: modelInvocations.items,
+      modelInvocationCount: modelInvocations.count,
+      modelInvocationsTruncated: modelInvocations.truncated,
+      toolEffects: toolEffects.items,
+      toolEffectCount: toolEffects.count,
+      toolEffectsTruncated: toolEffects.truncated,
+      artifacts: artifacts.items,
+      artifactCount: artifacts.count,
+      artifactsTruncated: artifacts.truncated,
+      annotations: annotations.items,
+      annotationCount: annotations.count,
+      annotationsTruncated: annotations.truncated,
+      resultSelections: resultSelections.items,
+      resultSelectionCount: resultSelections.count,
+      resultSelectionsTruncated: resultSelections.truncated,
+    });
+  };
+
   const handleRequest = async (
     request: IncomingMessage,
     response: ServerResponse,
@@ -6863,111 +6949,67 @@ export function createControlPlane(options?: {
       }), { "cache-control": "no-store" });
       return;
     }
+    const operatorRunWaitMatch = url.pathname.match(
+      /^\/api\/v1\/agent-operator\/runs\/(sha256:[0-9a-f]{64})\/wait$/u,
+    );
+    if (request.method === "GET" && operatorRunWaitMatch !== null) {
+      await ready;
+      const runId = operatorRunWaitMatch[1] as Hash;
+      const waitMsText = url.searchParams.get("waitMs");
+      const waitMs = waitMsText === null || !/^[1-9][0-9]*$/u.test(waitMsText)
+        ? Number.NaN
+        : Number(waitMsText);
+      const startedAt = performance.now();
+      try {
+        const snapshot = agentExecutionRegistry.snapshot();
+        const retained = snapshot.runs.find((item) => item.runId === runId);
+        const profile = retained === undefined ? undefined : snapshot.executionProfiles.find(
+          (item) => item.executionProfileId === retained.executionProfileId,
+        );
+        if (profile !== undefined && waitMs > profile.runBudget.maximumWallClockMs) {
+          throw new Error("waitMs exceeds the run execution profile wall-clock budget");
+        }
+        const waited = await agentCampaignDispatcher.waitForRun(runId, waitMs);
+        const document = agentOperatorRunDocument(runId, waited.run);
+        if (document === null) throw new Error("Agent run is unavailable");
+        writeJson(response, 200, Object.freeze({
+          schemaVersion: "pmh.agent-operator-run-wait.v1" as const,
+          ...document,
+          waitMs,
+          waitedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          waitOutcome: waited.waitOutcome,
+          awaitedInProcess: waited.awaitedInProcess,
+          ...agentOperatorReadEffects,
+        }), { "cache-control": "no-store" });
+      } catch (error) {
+        const missing = agentOperatorRunDocument(runId) === null;
+        writeJson(response, missing ? 404 : 409, Object.freeze({
+          ok: false as const,
+          diagnostic: error instanceof Error ? error.message : "Agent run wait failed",
+          ...agentOperatorReadEffects,
+        }), { "cache-control": "no-store" });
+      }
+      return;
+    }
     const operatorRunMatch = url.pathname.match(
       /^\/api\/v1\/agent-operator\/runs\/(sha256:[0-9a-f]{64})$/u,
     );
     if (request.method === "GET" && operatorRunMatch !== null) {
       await ready;
-      const snapshot = agentExecutionRegistry.snapshot();
       const runId = operatorRunMatch[1] as Hash;
-      const run = snapshot.runs.find((item) => item.runId === runId);
-      const operatorReadEffects = Object.freeze({
-        providerRequestsStartedByRead: 0 as const,
-        modelInvocationsStartedByRead: 0 as const,
-        fetchesStartedByRead: 0 as const,
-        writesStartedByRead: 0 as const,
-        runsCreatedByRead: 0 as const,
-        automaticDispatch: false as const,
-        semanticDecisionAuthority: false as const,
-        certificateAuthority: false as const,
-        executionAuthority: false as const,
-        externalWriteAuthority: false as const,
-        valueMovingAuthority: false as const,
-        liveExecutionEnabled: false as const,
-      });
-      if (run === undefined) {
+      const document = agentOperatorRunDocument(runId);
+      if (document === null) {
         writeJson(response, 404, Object.freeze({
           ok: false as const,
           diagnostic: `Agent run ${runId} was not found`,
-          ...operatorReadEffects,
+          ...agentOperatorReadEffects,
         }), { "cache-control": "no-store" });
         return;
       }
-      const task = snapshot.tasks.find((item) => item.taskId === run.taskId);
-      const profile = snapshot.executionProfiles.find((item) =>
-        item.executionProfileId === run.executionProfileId
-      );
-      const capCollection = <T,>(
-        items: readonly T[],
-        cap = 32,
-      ): Readonly<{
-        items: readonly T[];
-        count: number;
-        truncated: boolean;
-      }> => Object.freeze({
-        items: Object.freeze(items.slice(0, cap)),
-        count: items.length,
-        truncated: items.length > cap,
-      });
-      const modelInvocations = capCollection(
-        snapshot.modelInvocations.filter((item) => item.runId === runId)
-          .sort((left, right) => left.ordinal - right.ordinal ||
-            left.invocationId.localeCompare(right.invocationId)),
-      );
-      const toolEffects = capCollection(
-        snapshot.toolEffects.filter((item) => item.runId === runId)
-          .sort((left, right) => left.ordinal - right.ordinal ||
-            left.effectId.localeCompare(right.effectId)),
-      );
-      const artifacts = capCollection(
-        snapshot.runArtifacts.filter((item) => item.runId === runId)
-          .sort((left, right) => left.ordinal - right.ordinal ||
-            left.artifactId.localeCompare(right.artifactId)),
-      );
-      const annotations = capCollection(
-        snapshot.runAnnotations.filter((item) => item.runId === runId)
-          .sort((left, right) => left.createdAt.localeCompare(right.createdAt) ||
-            left.annotationId.localeCompare(right.annotationId)),
-      );
-      const resultSelections = capCollection(
-        snapshot.resultSelections.filter((item) => item.runId === runId)
-          .sort((left, right) => left.selectedAt.localeCompare(right.selectedAt) ||
-            left.selectionId.localeCompare(right.selectionId)),
-      );
       writeJson(response, 200, Object.freeze({
         schemaVersion: "pmh.agent-operator-run.v1" as const,
-        run,
-        task: task === undefined
-          ? null
-          : Object.freeze({
-              taskId: task.taskId,
-              kind: task.kind,
-              taskPayloadHash: task.taskPayloadHash,
-              protocol: task.protocol,
-            }),
-        executionProfile: profile === undefined
-          ? null
-          : Object.freeze({
-              executionProfileId: profile.executionProfileId,
-              profileKey: profile.profileKey,
-              revision: profile.revision,
-            }),
-        modelInvocations: modelInvocations.items,
-        modelInvocationCount: modelInvocations.count,
-        modelInvocationsTruncated: modelInvocations.truncated,
-        toolEffects: toolEffects.items,
-        toolEffectCount: toolEffects.count,
-        toolEffectsTruncated: toolEffects.truncated,
-        artifacts: artifacts.items,
-        artifactCount: artifacts.count,
-        artifactsTruncated: artifacts.truncated,
-        annotations: annotations.items,
-        annotationCount: annotations.count,
-        annotationsTruncated: annotations.truncated,
-        resultSelections: resultSelections.items,
-        resultSelectionCount: resultSelections.count,
-        resultSelectionsTruncated: resultSelections.truncated,
-        ...operatorReadEffects,
+        ...document,
+        ...agentOperatorReadEffects,
       }), { "cache-control": "no-store" });
       return;
     }

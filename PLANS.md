@@ -25,9 +25,11 @@ operator Agent as separate first-class layers. The first mainline slice makes
 workspace, and preserves stable recovery diagnostics without copying
 control-plane verdict logic. Exact target/task inspection now leads through a
 content-addressed zero-effect preview into idempotent research execution and
-bounded exact run inspection. The next slice is wait/resume plus measured
-zero-context qualification: time, retries, payload and context to the first
-retained outcome.
+bounded exact run inspection and a process-owned bounded wait. The system does
+not claim it can resume an `INTERRUPTED` run: that would require a new substrate
+and adapter session state machine. The next slice is measured zero-context
+qualification: time, retries, payload and context to the first retained
+outcome.
 
 The product brand is **Auto Prediction**, paired conceptually with Auto Quant.
 The rename is presentation-only for now: `pmh` CLI, package scopes, environment
