@@ -6,6 +6,17 @@ current dependency graph) is qualified on Node 22.22.1; Node 24 remains
 compatible but is no longer required. `@types/node` follows the Node 22 line so
 type checking cannot silently admit a Node 24-only API.
 
+The 2026-08-20 first-time-user audit used one retained Grok Build session
+(`01a01dc2-1618-7853-984b-ba85974960eb`) against a clean `origin/main`
+worktree. The documented install, workspace check, and test path passed, while
+an occupied control-plane port reproduced a misleading partial startup: the
+Node process failed but Vite advanced to another port and stayed live. Mainline
+now treats Studio and the control plane as one supervised command, rejects an
+occupied `127.0.0.1:4100` before starting either child, and documents the
+current empty-first-run navigation. Future audits for this topic should resume
+and compact that session, but Git state and command results—not Agent prose—are
+the acceptance evidence.
+
 The product brand is **Auto Prediction**, paired conceptually with Auto Quant.
 The rename is presentation-only for now: `pmh` CLI, package scopes, environment
 variables, and content-addressed protocol/schema identifiers remain stable
