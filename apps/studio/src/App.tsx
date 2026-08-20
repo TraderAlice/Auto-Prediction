@@ -6891,7 +6891,7 @@ function RealCandidatePreflightView() {
           <CardContent className="preflight-stage-list">
             {currentStages.map((stage, index) => (
               <div className="preflight-stage" key={stage.stage}>
-                <span className={stage.status === "PASS" ? "" : "is-blocked"}>
+                <span className={stage.status === "PASS" ? "preflight-stage-index" : "preflight-stage-index is-blocked"}>
                   {stage.status === "PASS" ? index + 1 : <CircleOff size={11} />}
                 </span>
                 <div>

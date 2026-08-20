@@ -6006,7 +6006,7 @@ footer span:first-child {
   padding-bottom: 0;
 }
 
-.preflight-stage > span {
+.preflight-stage-index {
   display: grid;
   width: 22px;
   height: 22px;
@@ -6018,7 +6018,7 @@ footer span:first-child {
   font-size: 12px;
 }
 
-.preflight-stage > span.is-blocked {
+.preflight-stage-index.is-blocked {
   border-color: rgba(213, 161, 110, 0.18);
   color: #d5a16e;
 }
