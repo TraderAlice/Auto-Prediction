@@ -5,7 +5,7 @@ credentials or live execution because neither is supported.
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 22.19 or newer
 - pnpm 11 (the repository pins `pnpm@11.13.1`)
 - a local Codex OAuth session for the default Agent route, or an optional
   DeepSeek API key for explicitly selected DeepSeek workloads

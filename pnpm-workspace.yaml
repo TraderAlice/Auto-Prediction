@@ -2,6 +2,9 @@ packages:
   - apps/*
   - packages/*
 
+overrides:
+  '@types/node': 22.20.1
+
 onlyBuiltDependencies:
   - esbuild
 allowBuilds:

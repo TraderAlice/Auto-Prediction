@@ -90,7 +90,7 @@ The detailed capability map lives in [Architecture](docs/ARCHITECTURE.md),
 
 ## Quick start
 
-Requirements: Node.js 24+ and pnpm 11.
+Requirements: Node.js 22.19+ and pnpm 11.
 
 ```bash
 corepack enable
