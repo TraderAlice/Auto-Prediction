@@ -27,6 +27,7 @@ pnpm --silent pmh agent task inspect <task-id>
 pnpm --silent pmh agent task preview <task-id> <execution-profile-id>
 pnpm --silent pmh agent task execute <task-id> <execution-profile-id> <preview-ref> <authorization-ref>
 pnpm --silent pmh agent run inspect <run-id>
+pnpm --silent pmh agent run wait <run-id> [wait-ms]
 pnpm --silent pmh venue list
 pnpm --silent pmh venue inspect <venue-id>
 ```
@@ -61,9 +62,16 @@ fails closed. Every response keeps trading, external-write, value-moving, and
 live-execution authority literal `false`.
 
 `agent run inspect` returns one exact run plus bounded, run-bound invocation,
-tool-effect, artifact, annotation, and result-selection collections. A prepared
-run advertises the same inspect command for polling; a terminal run points back
-to its task and workspace. This makes the current machine journey:
+tool-effect, artifact, annotation, and result-selection collections. A terminal
+run points back to its task and workspace.
+
+`agent run wait` avoids a client-side polling loop. It waits up to 30 seconds
+by default (configurable from 1 to 60,000 milliseconds and never beyond the run
+profile's wall-clock budget) on the already-authorized in-process run. It does
+not create, cancel, or redispatch work. `TIMEOUT` means the same run is still
+active; `NOT_AWAITABLE_IN_THIS_PROCESS` means the durable run exists but this
+process no longer owns its completion promise. This makes the current machine
+journey:
 
 ```text
 agent workspace
@@ -71,6 +79,7 @@ agent workspace
   -> agent task inspect <exact-task-id>
   -> agent task preview <exact-task-id> <exact-profile-id>
   -> agent task execute <exact-task-id> <exact-profile-id> <preview-ref> external-agent:<preview-ref>
+  -> agent run wait <exact-run-id>
   -> agent run inspect <exact-run-id>
 ```
 
@@ -94,8 +103,15 @@ Agents should follow that field rather than guessing a route.
 
 Unknown commands and venue identities fail closed with a non-zero process exit code and a JSON diagnostic. The present CLI cannot write external state or move value; both effects are literal `false` in every response.
 
-Run wait/resume, campaign control,
+True runtime resume, campaign control,
 catalog refresh, claim/link inspection, opportunity verification,
 deterministic replay, shadow execution, and Core projections remain planned CLI
 surfaces. Human-readable Studio views and compact CLI views consume
 control-plane projections and must never recompute verdicts.
+
+There is deliberately no `agent run resume` command. `INTERRUPTED` is a
+terminal retained attempt and a restarted process cannot honestly restore the
+lost runtime session today. Retrying requires a new task preview, a new
+`previewRef`, and a new authorization reference, producing a higher run
+ordinal. Reusing the interrupted run's old authorization reference only returns
+that same retained run and never silently redispatches it.

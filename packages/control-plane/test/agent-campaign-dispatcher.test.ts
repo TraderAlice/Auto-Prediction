@@ -71,7 +71,8 @@ function fixture(taskCount: number, budget?: Partial<{
   intervalMs: number;
 } = { kind: "MANUAL_ONLY", intervalMs: null }, taskRunPolicy?:
   "REPEATABLE" | "ONCE_PER_TASK_PER_LINEAGE", onExecutionResult?:
-  ConstructorParameters<typeof AgentCampaignDispatcher>[0]["onExecutionResult"]) {
+  ConstructorParameters<typeof AgentCampaignDispatcher>[0]["onExecutionResult"],
+  beforeAdvance?: () => Promise<void>) {
   const time = clock();
   const store = new SqliteOperationalStore(":memory:");
   const registry = new AgentExecutionRegistry(store);
@@ -125,6 +126,7 @@ function fixture(taskCount: number, budget?: Partial<{
     _context: AgentRuntimeOpenContext,
   ) => ({
     advance: async () => {
+      await beforeAdvance?.();
       const startedAt = time.iso();
       time.advance(10);
       return Object.freeze({
@@ -445,6 +447,95 @@ describe("Agent campaign dispatcher", () => {
       sourceRecordRef: `fixture-revision:${work.taskId}`,
       createdAt: dispatched.run.createdAt,
     }]);
+    item.store.close();
+  });
+
+  it("waits on an active manual run without creating or redispatching work", async () => {
+    const item = fixture(1);
+    const work = item.tasks[0]!.task;
+    const profile = item.registry.snapshot().executionProfiles[0]!;
+    const dispatched = item.dispatcher.dispatchManual(
+      work.taskId,
+      profile.executionProfileId,
+      "operator:wait-completion",
+    );
+
+    await expect(item.dispatcher.waitForRun(dispatched.run.runId, 1_000)).resolves
+      .toMatchObject({
+        run: { runId: dispatched.run.runId, status: "SUCCEEDED" },
+        waitOutcome: "COMPLETED",
+        awaitedInProcess: true,
+      });
+    expect(item.registry.snapshot().runs).toHaveLength(1);
+    expect(item.registry.snapshot().modelInvocations).toHaveLength(1);
+    item.store.close();
+  });
+
+  it("times out without cancelling an active run and later observes its completion", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const item = fixture(
+      1,
+      undefined,
+      { kind: "MANUAL_ONLY", intervalMs: null },
+      undefined,
+      undefined,
+      () => gate,
+    );
+    const work = item.tasks[0]!.task;
+    const profile = item.registry.snapshot().executionProfiles[0]!;
+    const dispatched = item.dispatcher.dispatchManual(
+      work.taskId,
+      profile.executionProfileId,
+      "operator:wait-timeout",
+    );
+
+    await expect(item.dispatcher.waitForRun(dispatched.run.runId, 1)).resolves
+      .toMatchObject({
+        run: { status: "PREPARED" },
+        waitOutcome: "TIMEOUT",
+        awaitedInProcess: true,
+      });
+    expect(item.registry.snapshot().runs).toHaveLength(1);
+    release();
+    await dispatched.completion;
+    await expect(item.dispatcher.waitForRun(dispatched.run.runId, 1)).resolves
+      .toMatchObject({
+        run: { status: "SUCCEEDED" },
+        waitOutcome: "ALREADY_TERMINAL",
+        awaitedInProcess: false,
+      });
+    item.store.close();
+  });
+
+  it("distinguishes a retained prepared run that this process cannot await", async () => {
+    const item = fixture(1);
+    const work = item.tasks[0]!.task;
+    const profile = item.registry.snapshot().executionProfiles[0]!;
+    const prepared = buildAgentRun({
+      task: work,
+      executionProfile: profile,
+      runOrdinal: 1,
+      authorization: {
+        kind: "MANUAL",
+        authorizationRef: "operator:detached-prepared",
+        authorizedAt: item.time.iso(),
+      },
+      createdAt: item.time.iso(),
+    });
+    item.registry.saveBatch({ runs: [prepared] });
+
+    await expect(item.dispatcher.waitForRun(prepared.runId, 100)).resolves.toMatchObject({
+      run: { runId: prepared.runId, status: "PREPARED" },
+      waitOutcome: "NOT_AWAITABLE_IN_THIS_PROCESS",
+      awaitedInProcess: false,
+    });
+    await expect(item.dispatcher.waitForRun(`sha256:${"0".repeat(64)}`, 100))
+      .rejects.toThrow(/unavailable/);
+    for (const waitMs of [0, 60_001, 1.5, Number.NaN]) {
+      await expect(item.dispatcher.waitForRun(prepared.runId, waitMs))
+        .rejects.toThrow(/safe integer from 1 to 60000/);
+    }
     item.store.close();
   });
 

@@ -16,6 +16,7 @@ export const SUPPORTED_COMMANDS = Object.freeze([
   "agent task preview <task-id> <execution-profile-id>",
   "agent task execute <task-id> <execution-profile-id> <preview-ref> <authorization-ref>",
   "agent run inspect <run-id>",
+  "agent run wait <run-id> [wait-ms]",
   "venue list",
   "venue inspect <venue-id>",
 ] as const);
@@ -73,6 +74,12 @@ const COMMAND_CATALOG = Object.freeze([
     command: "agent run inspect <run-id>",
     kind: "CONTROL_PLANE_READ",
     description: "Inspect one Agent run and only the records bound to that run.",
+    requiresControlPlane: true,
+  }),
+  Object.freeze({
+    command: "agent run wait <run-id> [wait-ms]",
+    kind: "CONTROL_PLANE_READ",
+    description: "Wait up to 60 seconds for one in-process research run without polling.",
     requiresControlPlane: true,
   }),
   Object.freeze({
@@ -142,6 +149,21 @@ function invalidAuthorizationEnvelope(
       message: "authorization-ref must be a bounded nonblank identifier.",
     }],
     allowedNextActions: ["agent workspace", "help"],
+    ok: false,
+  });
+}
+
+function invalidWaitEnvelope(args: readonly string[]): CliEnvelope {
+  return createCliEnvelope({
+    command: "agent.run.wait",
+    arguments: args,
+    state: null,
+    diagnostics: [{
+      severity: "ERROR",
+      code: "CLI_ARGUMENT_INVALID",
+      message: "wait-ms must be an integer from 1 to 60000.",
+    }],
+    allowedNextActions: ["agent run inspect <run-id>", "help"],
     ok: false,
   });
 }
@@ -542,14 +564,18 @@ function runBoundCollection(
   });
 }
 
-function validateAgentOperatorRun(value: unknown, runId: string) {
+function validateAgentOperatorRun(
+  value: unknown,
+  runId: string,
+  schemaVersion = "pmh.agent-operator-run.v1",
+) {
   const document = objectValue(value);
   const run = objectValue(document?.run);
   const task = objectValue(document?.task);
   const executionProfile = objectValue(document?.executionProfile);
   const status = stringValue(run?.status);
   if (
-    document?.schemaVersion !== "pmh.agent-operator-run.v1" ||
+    document?.schemaVersion !== schemaVersion ||
     run?.schemaVersion !== "pmh.agent-run.v1" ||
     run.runId !== runId ||
     run.externalWriteAuthority !== false ||
@@ -592,6 +618,43 @@ function validateAgentOperatorRun(value: unknown, runId: string) {
     taskId: run.taskId,
     status,
   });
+}
+
+function validateAgentOperatorRunWait(
+  value: unknown,
+  runId: string,
+  waitMs: number,
+) {
+  const inspected = validateAgentOperatorRun(
+    value,
+    runId,
+    "pmh.agent-operator-run-wait.v1",
+  );
+  if (inspected === null) return null;
+  const document = inspected.document;
+  const waitOutcome = stringValue(document.waitOutcome);
+  const waitedMs = numberValue(document.waitedMs);
+  if (
+    document.waitMs !== waitMs ||
+    waitedMs === null ||
+    waitedMs < 0 ||
+    waitOutcome === null ||
+    !["COMPLETED", "TIMEOUT", "ALREADY_TERMINAL",
+      "NOT_AWAITABLE_IN_THIS_PROCESS"].includes(waitOutcome) ||
+    document.researchRunDispatchAuthorityConsumed !== false ||
+    document.providerOrModelWorkMayStart !== false ||
+    (waitOutcome === "COMPLETED" && (
+      document.awaitedInProcess !== true || inspected.status === "PREPARED"
+    )) ||
+    (waitOutcome === "TIMEOUT" && (
+      document.awaitedInProcess !== true || inspected.status !== "PREPARED"
+    )) ||
+    (["ALREADY_TERMINAL", "NOT_AWAITABLE_IN_THIS_PROCESS"].includes(waitOutcome) &&
+      document.awaitedInProcess !== false) ||
+    (waitOutcome === "ALREADY_TERMINAL" && inspected.status === "PREPARED") ||
+    (waitOutcome === "NOT_AWAITABLE_IN_THIS_PROCESS" && inspected.status !== "PREPARED")
+  ) return null;
+  return Object.freeze({ ...inspected, waitOutcome, waitedMs });
 }
 
 function validateAgentOperatorWorkspace(value: unknown) {
@@ -1021,6 +1084,7 @@ export async function runCli(
           controlPlaneUrl: result.baseUrl,
         }),
         allowedNextActions: Object.freeze([
+          `agent run wait ${executed.runId}`,
           `agent run inspect ${executed.runId}`,
           "agent workspace",
           "help",
@@ -1058,7 +1122,7 @@ export async function runCli(
           controlPlaneUrl: result.baseUrl,
         }),
         allowedNextActions: inspected.status === "PREPARED"
-          ? Object.freeze([`agent run inspect ${runId}`])
+          ? Object.freeze([`agent run wait ${runId}`, `agent run inspect ${runId}`])
           : Object.freeze([
               `agent task inspect ${inspected.taskId}`,
               "agent workspace",
@@ -1068,6 +1132,57 @@ export async function runCli(
       });
     } catch (error) {
       return controlPlaneFailure("agent.run.inspect", error, [runId]);
+    }
+  }
+
+  if (
+    namespace === "agent" &&
+    action === "run" &&
+    venueId === "wait" &&
+    (extra.length === 1 || extra.length === 2) &&
+    extra[0] !== undefined
+  ) {
+    const runId = extra[0];
+    const args = [...extra];
+    if (!hashValue(runId)) {
+      return invalidIdentityEnvelope("agent.run.wait", args, "run-id");
+    }
+    const waitMsText = extra[1] ?? "30000";
+    const waitMs = /^[1-9][0-9]*$/u.test(waitMsText) ? Number(waitMsText) : Number.NaN;
+    if (!Number.isSafeInteger(waitMs) || waitMs < 1 || waitMs > 60_000) {
+      return invalidWaitEnvelope(args);
+    }
+    const path = `/api/v1/agent-operator/runs/${runId}/wait?waitMs=${waitMs}` as `/${string}`;
+    try {
+      const result = await requestControlPlaneJson(path, {
+        ...options,
+        timeoutMs: Math.max(options.timeoutMs ?? 30_000, waitMs + 2_000),
+      });
+      const waited = validateAgentOperatorRunWait(result.value, runId, waitMs);
+      if (waited === null) {
+        return malformedControlPlaneEnvelope("agent.run.wait", path, args);
+      }
+      const allowedNextActions = waited.status === "PREPARED"
+        ? waited.waitOutcome === "TIMEOUT"
+          ? Object.freeze([`agent run wait ${runId} ${waitMs}`, `agent run inspect ${runId}`])
+          : Object.freeze([`agent run inspect ${runId}`])
+        : Object.freeze([
+            `agent task inspect ${waited.taskId}`,
+            "agent workspace",
+            "help",
+          ]);
+      return createCliEnvelope({
+        command: "agent.run.wait",
+        arguments: args,
+        state: Object.freeze({
+          ...waited.document,
+          controlPlaneUrl: result.baseUrl,
+        }),
+        allowedNextActions,
+        ok: true,
+      });
+    } catch (error) {
+      return controlPlaneFailure("agent.run.wait", error, args);
     }
   }
 

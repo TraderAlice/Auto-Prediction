@@ -83,11 +83,19 @@ qualification, or verification verdict logic.
   leakage, unbounded collections, and inconsistent count/truncation metadata.
 - Studio uses the same preview binding and a preview-derived idempotency key;
   the old global fixed browser authorization reference has been removed.
+- `agent run wait` waits on the dispatcher's existing in-process completion
+  promise with a bounded timeout. It never polls durable storage, creates a run,
+  cancels work, or consumes dispatch authority; detached prepared runs are
+  reported as `NOT_AWAITABLE_IN_THIS_PROCESS`.
+- Runtime resume is explicitly not advertised. `INTERRUPTED` is terminal in the
+  current substrate and startup recovery deliberately infers no retry authority.
+  A new attempt must pass through a new preview and authorization binding.
 
 ## Next implementation frontier
 
-The machine surface can now discover, inspect, preview, execute, and poll an
-exact research run without gaining trading authority. The next mainline slice
-should add a bounded wait/resume contract for interrupted work, retain machine
-operator-friction measurements, and test the complete zero-context journey
-with a fresh external Agent session under an explicit context budget.
+The machine surface can now discover, inspect, preview, execute, and boundedly
+wait for an exact research run without gaining trading authority. The next
+mainline slice should retain machine operator-friction measurements and test
+the complete zero-context journey with a fresh external Agent session under an
+explicit context budget. True runtime resume remains a separate substrate and
+adapter-state-machine change, not a CLI fiction.

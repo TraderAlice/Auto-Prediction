@@ -111,6 +111,21 @@ export type ManualAgentDispatchPreview = Readonly<{
   providerRequestsStarted: 0;
 }>;
 
+export type AgentRunWaitOutcome =
+  | "COMPLETED"
+  | "TIMEOUT"
+  | "ALREADY_TERMINAL"
+  | "NOT_AWAITABLE_IN_THIS_PROCESS";
+
+export type AgentRunWaitResult = Readonly<{
+  run: AgentRun;
+  waitOutcome: AgentRunWaitOutcome;
+  awaitedInProcess: boolean;
+}>;
+
+const MIN_RUN_WAIT_MS = 1;
+const MAX_RUN_WAIT_MS = 60_000;
+
 export type AgentCampaignDispatcherOptions = Readonly<{
   registry: AgentExecutionRegistry;
   credentialBroker: AgentCredentialBroker;
@@ -261,6 +276,59 @@ export class AgentCampaignDispatcher {
       () => this.#active.delete(run.runId),
     );
     return Object.freeze({ run, completion });
+  }
+
+  public async waitForRun(runId: Hash, waitMs: number): Promise<AgentRunWaitResult> {
+    if (!Number.isSafeInteger(waitMs) || waitMs < MIN_RUN_WAIT_MS || waitMs > MAX_RUN_WAIT_MS) {
+      throw new Error("waitMs must be a safe integer from 1 to 60000");
+    }
+    const retained = (): AgentRun => {
+      const run = this.#registry.snapshot().runs.find((item) => item.runId === runId);
+      if (run === undefined) throw new Error("Agent run is unavailable");
+      return run;
+    };
+    const current = retained();
+    if (current.status !== "PREPARED") {
+      return Object.freeze({
+        run: current,
+        waitOutcome: "ALREADY_TERMINAL" as const,
+        awaitedInProcess: false,
+      });
+    }
+    const waiter = this.#active.get(runId);
+    if (waiter === undefined) {
+      return Object.freeze({
+        run: current,
+        waitOutcome: "NOT_AWAITABLE_IN_THIS_PROCESS" as const,
+        awaitedInProcess: false,
+      });
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timedOut = await Promise.race([
+        waiter.then(() => false, () => false),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(true), waitMs);
+        }),
+      ]);
+      const run = retained();
+      if (timedOut && run.status === "PREPARED") {
+        return Object.freeze({
+          run,
+          waitOutcome: "TIMEOUT" as const,
+          awaitedInProcess: true,
+        });
+      }
+      return Object.freeze({
+        run,
+        waitOutcome: run.status === "PREPARED"
+          ? "TIMEOUT" as const
+          : "COMPLETED" as const,
+        awaitedInProcess: true,
+      });
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   public dispatchCampaign(campaignId: Hash): AgentCampaignDispatchResult {
